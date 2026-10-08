@@ -9,7 +9,8 @@ class HexMapCanvas(tk.Canvas):
     """Un widget Canvas riutilizzabile per visualizzare e interagire con una mappa esagonale."""
     
     def __init__(self, parent, **kwargs):
-        super().__init__(parent, bg="#2b2b2b", highlightthickness=0, **kwargs)
+        bg_color = kwargs.pop('bg', "#1e1e1e")
+        super().__init__(parent, bg=bg_color, highlightthickness=0, **kwargs)
 
         self.zoom_level = 1.0
         self.pan_offset_x, self.pan_offset_y = 0, 0
@@ -18,18 +19,34 @@ class HexMapCanvas(tk.Canvas):
         self.hex_layout = None
         self.map_background_original = None
         self.map_background_tk = None
+        self._last_b64 = None
+        self._last_zoom = None
         
         self.on_hex_click_callback = None
+        self.on_ping_callback = None
+        
+        self._ruler_start_hex = None
+        self._ruler_line_id = None
+        self._ruler_text_id = None
 
         self.bind("<MouseWheel>", self._zoom)
         self.bind("<Button-4>", self._zoom)
         self.bind("<Button-5>", self._zoom)
         self.bind("<ButtonPress-2>", self._pan_start)
         self.bind("<B2-Motion>", self._pan_move)
+        self.bind("<ButtonRelease-2>", self._on_ping_click_b2)
         self.bind("<Button-1>", self._on_canvas_click)
+        self.bind("<B1-Motion>", self._on_canvas_drag)
+        self.bind("<Shift-Button-1>", self._on_ping_click)
+        self.bind("<Button-3>", self._on_ruler_start)
+        self.bind("<B3-Motion>", self._on_ruler_drag)
+        self.bind("<ButtonRelease-3>", self._on_ruler_end)
 
     def set_on_click_callback(self, func):
         self.on_hex_click_callback = func
+
+    def set_on_ping_callback(self, func):
+        self.on_ping_callback = func
 
     def _zoom(self, event):
         factor = 1.1 if (event.num == 4 or event.delta > 0) else 0.9
@@ -53,20 +70,120 @@ class HexMapCanvas(tk.Canvas):
         self.pan_offset_y += dy
         self._pan_start_x = event.x
         self._pan_start_y = event.y
-        self.redraw()
+        self.move("all", dx, dy)
 
     def _on_canvas_click(self, event):
         if not self.hex_layout or not self.on_hex_click_callback: return
         world_x = (event.x - self.pan_offset_x) / self.zoom_level
         world_y = (event.y - self.pan_offset_y) / self.zoom_level
         clicked_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
+        self._last_clicked_hex = clicked_hex
         self.on_hex_click_callback(clicked_hex)
 
-    def update_data(self, map_data, players_data, player_name=""):
+    def _on_canvas_drag(self, event):
+        if not self.hex_layout or not self.on_hex_click_callback: return
+        world_x = (event.x - self.pan_offset_x) / self.zoom_level
+        world_y = (event.y - self.pan_offset_y) / self.zoom_level
+        hovered_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
+        if not hasattr(self, '_last_clicked_hex') or self._last_clicked_hex != hovered_hex:
+            self._last_clicked_hex = hovered_hex
+            self.on_hex_click_callback(hovered_hex)
+
+    def _on_ping_click(self, event):
+        if not self.hex_layout or not self.on_ping_callback: return
+        world_x = (event.x - self.pan_offset_x) / self.zoom_level
+        world_y = (event.y - self.pan_offset_y) / self.zoom_level
+        clicked_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
+        self.on_ping_callback(clicked_hex)
+
+    def _on_ping_click_b2(self, event):
+        # Only ping if we didn't pan much
+        dx = abs(event.x - self._pan_start_x)
+        dy = abs(event.y - self._pan_start_y)
+        if dx < 5 and dy < 5:
+            self._on_ping_click(event)
+
+    def _on_ruler_start(self, event):
+        if not self.hex_layout: return
+        world_x = (event.x - self.pan_offset_x) / self.zoom_level
+        world_y = (event.y - self.pan_offset_y) / self.zoom_level
+        self._ruler_start_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
+
+    def _on_ruler_drag(self, event):
+        if not self.hex_layout or not self._ruler_start_hex: return
+        world_x = (event.x - self.pan_offset_x) / self.zoom_level
+        world_y = (event.y - self.pan_offset_y) / self.zoom_level
+        current_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
+        
+        # Calculate distance
+        from common.hex_utils import hex_distance
+        dist_hexes = hex_distance(self._ruler_start_hex, current_hex)
+        dist_ft = dist_hexes * 5
+
+        # Draw line and text
+        if self._ruler_line_id:
+            self.delete(self._ruler_line_id)
+        if self._ruler_text_id:
+            self.delete(self._ruler_text_id)
+
+        start_x, start_y = self.hex_layout.hex_to_pixel(self._ruler_start_hex)
+        end_x, end_y = self.hex_layout.hex_to_pixel(current_hex)
+        
+        screen_start_x = start_x * self.zoom_level + self.pan_offset_x
+        screen_start_y = start_y * self.zoom_level + self.pan_offset_y
+        screen_end_x = end_x * self.zoom_level + self.pan_offset_x
+        screen_end_y = end_y * self.zoom_level + self.pan_offset_y
+
+        self._ruler_line_id = self.create_line(screen_start_x, screen_start_y, screen_end_x, screen_end_y, 
+                                               fill="white", dash=(4, 4), width=2, arrow=tk.LAST)
+        
+        mid_x = (screen_start_x + screen_end_x) / 2
+        mid_y = (screen_start_y + screen_end_y) / 2
+        self._ruler_text_id = self.create_text(mid_x, mid_y, text=f"{dist_ft} ft.", 
+                                               fill="white", font=("Arial", 12, "bold"))
+        
+        # Add a dark background to text for visibility
+        bbox = self.bbox(self._ruler_text_id)
+        if bbox:
+            if hasattr(self, '_ruler_text_bg_id') and self._ruler_text_bg_id:
+                self.delete(self._ruler_text_bg_id)
+            self._ruler_text_bg_id = self.create_rectangle(bbox, fill="black", outline="black")
+            self.tag_lower(self._ruler_text_bg_id, self._ruler_text_id)
+
+    def _on_ruler_end(self, event):
+        if self._ruler_line_id:
+            self.delete(self._ruler_line_id)
+            self._ruler_line_id = None
+        if self._ruler_text_id:
+            self.delete(self._ruler_text_id)
+            self._ruler_text_id = None
+        if hasattr(self, '_ruler_text_bg_id') and self._ruler_text_bg_id:
+            self.delete(self._ruler_text_bg_id)
+            self._ruler_text_bg_id = None
+        self._ruler_start_hex = None
+
+    def show_ping(self, q, r, color="yellow"):
+        if not self.hex_layout: return
+        hex_obj = Hex(q, r)
+        center_x, center_y = self.hex_layout.hex_to_pixel(hex_obj)
+        screen_x = center_x * self.zoom_level + self.pan_offset_x
+        screen_y = center_y * self.zoom_level + self.pan_offset_y
+        
+        radius = self.hex_layout.size * self.zoom_level
+        ping_id = self.create_oval(screen_x - radius, screen_y - radius, 
+                                   screen_x + radius, screen_y + radius, 
+                                   outline=color, width=4)
+        
+        # Remove after 2 seconds
+        self.after(2000, lambda: self.delete(ping_id))
+
+    def update_data(self, map_data, players_data, player_name="", turn_player_name="", aoes_data=None):
         """Salva i dati necessari per il ridisegno."""
         self.map_data = map_data
         self.players_data = players_data
         self.player_name = player_name
+        self.turn_player_name = turn_player_name
+        self.aoes_data = aoes_data or []
         self.redraw()
 
     def redraw(self):
@@ -79,40 +196,123 @@ class HexMapCanvas(tk.Canvas):
         hex_size = self.map_data.get("hex_size", 30)
         self.hex_layout = HexLayout(size=hex_size, origin=(0, 0))
         
-        # Gestione immagine di sfondo (ora interna al componente)
+        # Gestione immagine di sfondo ottimizzata con caching
         image_data_b64 = self.map_data.get("bg_image_data")
         if image_data_b64:
-            try:
-                image_bytes = base64.b64decode(image_data_b64)
-                self.map_background_original = Image.open(BytesIO(image_bytes))
-            except Exception as e:
-                self.map_background_original = None
-                print(f"Errore decodifica immagine: {e}")
+            if self._last_b64 != image_data_b64:
+                try:
+                    image_bytes = base64.b64decode(image_data_b64)
+                    self.map_background_original = Image.open(BytesIO(image_bytes))
+                    self._last_b64 = image_data_b64
+                    self._last_zoom = None  # Forza il ridimensionamento
+                except Exception as e:
+                    self.map_background_original = None
+                    print(f"Errore decodifica immagine: {e}")
+        else:
+            self.map_background_original = None
+            self._last_b64 = None
         
-        if self.map_background_original:
+        if getattr(self, 'map_background_original', None):
             new_width = int(self.map_background_original.width * self.zoom_level)
             new_height = int(self.map_background_original.height * self.zoom_level)
             if new_width > 0 and new_height > 0:
-                resized_img = self.map_background_original.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                self.map_background_tk = ImageTk.PhotoImage(resized_img)
+                if self._last_zoom != self.zoom_level:
+                    # Usa un resampling più veloce (NEAREST o BILINEAR) invece di LANCZOS per prestazioni real-time
+                    resized_img = self.map_background_original.resize((new_width, new_height), Image.Resampling.BILINEAR)
+                    self.map_background_tk = ImageTk.PhotoImage(resized_img)
+                    self._last_zoom = self.zoom_level
                 self.create_image(self.pan_offset_x, self.pan_offset_y, image=self.map_background_tk, anchor="nw")
 
         pois_data = {Hex(int(k.split(',')[0]), int(k.split(',')[1])): v for k, v in self.map_data.get("pois", {}).items()}
         border_color = self.map_data.get("hex_border_color", "white")
         
+        fow_enabled = self.map_data.get("fow_enabled", False)
+        is_dm = not bool(self.player_name)
+        draft_key = "fow_draft" if ("fow_draft" in self.map_data and is_dm) else "fow_revealed"
+        fow_revealed = {Hex(h[0], h[1]) for h in self.map_data.get(draft_key, [])}
+        
         for q, r in self.map_data.get("hexes", []):
             current_hex = Hex(q, r)
             scaled_corners = [(px * self.zoom_level + self.pan_offset_x, py * self.zoom_level + self.pan_offset_y) 
                               for px, py in self.hex_layout.hex_corners(current_hex)]
+            
             fill_color = "#FFD700" if current_hex in pois_data else ""
-            self.create_polygon(scaled_corners, fill=fill_color, outline=border_color, width=max(1, 1/self.zoom_level))
+            stipple_pattern = ""
+            
+            # Logica Fog of War
+            if fow_enabled and current_hex not in fow_revealed:
+                if is_dm:
+                    fill_color = "gray25"
+                    stipple_pattern = "gray50"
+                else:
+                    fill_color = "black"
+                    stipple_pattern = ""
+            
+            self.create_polygon(scaled_corners, fill=fill_color, outline=border_color, width=max(1, 1/self.zoom_level), stipple=stipple_pattern)
         
-        for name, pos in self.players_data.items():
+        
+        # Disegna le aree d'effetto (AoE)
+        if getattr(self, "aoes_data", None):
+            from common.hex_utils import get_sphere_hexes, get_cone_hexes, get_line_hexes
+            for aoe in self.aoes_data:
+                origin = Hex(*aoe["origin"])
+                color = aoe.get("color", "red")
+                aoe_type = aoe.get("type", "sfera")
+                
+                if aoe_type == "sfera" or aoe_type == "cubo":
+                    hexes = get_sphere_hexes(origin, aoe["size"])
+                elif aoe_type == "cono":
+                    target = Hex(*aoe.get("target", aoe["origin"]))
+                    hexes = get_cone_hexes(origin, target, aoe["size"])
+                elif aoe_type == "linea":
+                    target = Hex(*aoe.get("target", aoe["origin"]))
+                    hexes = get_line_hexes(origin, target)
+                else:
+                    hexes = []
+                
+                for h in hexes:
+                    if fow_enabled and not is_dm and h not in fow_revealed:
+                        continue
+                    scaled_corners = [(px * self.zoom_level + self.pan_offset_x, py * self.zoom_level + self.pan_offset_y) 
+                                      for px, py in self.hex_layout.hex_corners(h)]
+                    self.create_polygon(scaled_corners, fill=color, outline=color, width=2, stipple="gray50")
+
+        for name, pdata in self.players_data.items():
+
+            if isinstance(pdata, dict):
+                pos = pdata.get('position', [0, 0])
+                conditions = pdata.get('conditions', [])
+            else:
+                pos = pdata
+                conditions = []
+                
             q, r = pos
-            center_x, center_y = self.hex_layout.hex_to_pixel(Hex(q, r))
+            current_hex = Hex(q, r)
+            
+            # Se la nebbia è attiva, non disegnare player se l'esagono è nascosto e siamo un giocatore
+            if fow_enabled and not is_dm and current_hex not in fow_revealed:
+                continue
+                
+            center_x, center_y = self.hex_layout.hex_to_pixel(current_hex)
             screen_x = center_x * self.zoom_level + self.pan_offset_x
             screen_y = center_y * self.zoom_level + self.pan_offset_y
             color = "#90EE90" if name == self.player_name else "#87CEEB"
             radius = 10
-            self.create_oval(screen_x-radius, screen_y-radius, screen_x+radius, radius+screen_y, fill=color, outline="white")
-            self.create_text(screen_x, screen_y, text=name[:2], fill="black")
+            
+            is_turn = getattr(self, "turn_player_name", "") == name
+            if is_turn:
+                self.create_oval(screen_x-(radius+3), screen_y-(radius+3), screen_x+(radius+3), screen_y+(radius+3), fill="", outline="red", width=3)
+                
+            self.create_oval(screen_x-radius, screen_y-radius, screen_x+radius, screen_y+radius, fill=color, outline="white")
+            self.create_text(screen_x, screen_y, text=name[:2], fill="black", font=("Arial", 8, "bold"))
+            
+            if conditions:
+                # Draw a small red dot indicator for active conditions
+                cond_r = 3
+                self.create_oval(screen_x + radius - cond_r, screen_y - radius - cond_r, 
+                                 screen_x + radius + cond_r, screen_y - radius + cond_r, 
+                                 fill="red", outline="black")
+                # Optional: hover logic for tooltip or just draw first letter
+                # We can draw the number of conditions
+                if len(conditions) > 1:
+                    self.create_text(screen_x + radius, screen_y - radius - cond_r - 4, text=str(len(conditions)), fill="red", font=("Arial", 6, "bold"))

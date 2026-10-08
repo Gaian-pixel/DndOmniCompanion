@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Virtual Environments
+venv/
+env/
+.env
+
+# IDE / Editor
+.vscode/
+.idea/
+
+# Application Data (Ignore user-specific save data and downloaded assets)
+client_data/characters.json
+maps/
+!maps/.gitkeep
+srd_data/
+!srd_data/.gitkeep
+
+# Screenshots & Testing
+ui_screenshots/
+*.log
+

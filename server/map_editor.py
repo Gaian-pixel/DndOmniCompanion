@@ -24,6 +24,8 @@ class Tooltip:
         if self.tip_window: self.tip_window.destroy()
         self.tip_window=None
 
+from common.theme import apply_modern_window_style
+
 class MapEditorWindow(tk.Toplevel):
     MAP_SCALES={"Mappa del Mondo / Regione": 15, "Mappa di Esplorazione (POI)": 35, "Mappa di Combattimento": 60}
     POI_COLOR = "#FFD700" # Oro per i POI
@@ -32,7 +34,7 @@ class MapEditorWindow(tk.Toplevel):
         super().__init__(parent)
         self.title("Editor Mappe Esagonali")
         self.geometry("1200x800")
-        self.configure(bg="#2b2b2b")
+        apply_modern_window_style(self)
 
         ### MODIFICATO: self.pois è ora un dizionario per mappare Hex -> Dati POI ###
         self.pois = {}
@@ -51,26 +53,25 @@ class MapEditorWindow(tk.Toplevel):
         self.tooltip=Tooltip(self.canvas)
 
     def setup_gui(self):
-        # ... (Questa funzione è quasi identica, le modifiche sono gestite in altre funzioni)
-        main_frame=tk.Frame(self, bg="#2b2b2b", padx=10, pady=10); main_frame.pack(fill=tk.BOTH, expand=True)
-        toolbar=tk.Frame(main_frame, bg="#2b2b2b"); toolbar.pack(fill=tk.X, pady=5)
-        tk.Button(toolbar, text="Carica Immagine", command=self.load_base_image, bg="#007bff", fg="white", activebackground="#0056b3").pack(side=tk.LEFT, padx=5)
-        map_scale_frame=tk.Frame(toolbar, bg="#2b2b2b"); map_scale_frame.pack(side=tk.LEFT, padx=10)
-        tk.Label(map_scale_frame, text="Tipo di Mappa:", bg="#2b2b2b", fg="white").pack(side=tk.LEFT)
+        main_frame=ttk.Frame(self, padding=(10, 10)); main_frame.pack(fill=tk.BOTH, expand=True)
+        toolbar=ttk.Frame(main_frame); toolbar.pack(fill=tk.X, pady=5)
+        ttk.Button(toolbar, text="Carica Immagine", command=self.load_base_image, style="Info.TButton").pack(side=tk.LEFT, padx=5)
+        map_scale_frame=ttk.Frame(toolbar); map_scale_frame.pack(side=tk.LEFT, padx=10)
+        ttk.Label(map_scale_frame, text="Tipo di Mappa:").pack(side=tk.LEFT)
         self.map_scale_var=tk.StringVar()
         map_scale_combo=ttk.Combobox(map_scale_frame, textvariable=self.map_scale_var, values=list(self.MAP_SCALES.keys()), state="readonly")
         map_scale_combo.pack(side=tk.LEFT, padx=5); map_scale_combo.bind("<<ComboboxSelected>>", self.on_map_scale_selected)
-        tk.Button(map_scale_frame, text="Colore Griglia", command=self.choose_hex_color, bg="#ffc107", fg="black", activebackground="#e0a800").pack(side=tk.LEFT)
-        self.add_poi_button=tk.Button(toolbar, text="Aggiungi POI", command=self.toggle_add_poi_mode, bg="#28a745", fg="white", activebackground="#218838")
+        ttk.Button(map_scale_frame, text="Colore Griglia", command=self.choose_hex_color).pack(side=tk.LEFT)
+        self.add_poi_button=ttk.Button(toolbar, text="Aggiungi POI", command=self.toggle_add_poi_mode, style="Success.TButton")
         self.add_poi_button.pack(side=tk.LEFT, padx=5)
-        tk.Button(toolbar, text="Salva Mappa", command=self.save_map, bg="#17a2b8", fg="white", activebackground="#117a8b").pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar, text="Salva Mappa", command=self.save_map, style="Primary.TButton").pack(side=tk.LEFT, padx=5)
         self.canvas=tk.Canvas(main_frame, bg="#2b2b2b", highlightthickness=0); self.canvas.pack(fill=tk.BOTH, expand=True)
         self.canvas.bind("<Motion>", self.on_canvas_motion); self.canvas.bind("<Button-1>", self.on_canvas_left_click); self.canvas.bind("<Button-3>", self.on_canvas_right_click); self.canvas.bind("<Leave>", self.on_canvas_leave)
         self.canvas.bind("<MouseWheel>", self._zoom); self.canvas.bind("<Button-4>", self._zoom); self.canvas.bind("<Button-5>", self._zoom)
         self.canvas.bind("<ButtonPress-2>", self._pan_start); self.canvas.bind("<B2-Motion>", self._pan_move)
 
     def _zoom(self, event):
-        """ ### MODIFICATO: Ora gestisce anche lo zoom dell'immagine di sfondo ### """
+        """ ### MODIFICATO: Ora gestisce anche lo zoom dell'immagine di sfondo con debounce e filtri veloci ### """
         factor = 1.1 if (event.num == 4 or event.delta > 0) else 0.9
         
         # Applica lo zoom a griglia e POI
@@ -78,7 +79,7 @@ class MapEditorWindow(tk.Toplevel):
         canvas_y = self.canvas.canvasy(event.y)
         self.canvas.scale("all", canvas_x, canvas_y, factor, factor)
         
-        # Applica lo zoom all'immagine di sfondo manualmente
+        # Applica lo zoom all'immagine di sfondo manualmente usando un filtro velocissimo
         if self.base_image_original:
             self.zoom_level *= factor
             new_width = int(self.base_image_original.width * self.zoom_level)
@@ -86,15 +87,32 @@ class MapEditorWindow(tk.Toplevel):
             
             # Evita errori se l'immagine diventa troppo piccola
             if new_width > 0 and new_height > 0:
-                resized_img = self.base_image_original.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                # Usa NEAREST per prestazioni in tempo reale
+                resized_img = self.base_image_original.resize((new_width, new_height), Image.Resampling.NEAREST)
                 self.base_image_tk = ImageTk.PhotoImage(resized_img)
                 self.canvas.itemconfig(self.bg_canvas_id, image=self.base_image_tk)
+                
+                # Cancella il vecchio timer di debounce
+                if hasattr(self, "_zoom_timer") and self._zoom_timer:
+                    self.after_cancel(self._zoom_timer)
+                
+                # Imposta un timer per ridisegnare ad alta qualità (LANCZOS) quando si smette di zoomare
+                self._zoom_timer = self.after(300, self._render_high_res_image, new_width, new_height)
         else:
              self.zoom_level *= factor
 
+    def _render_high_res_image(self, width, height):
+        if self.base_image_original:
+            resized_img = self.base_image_original.resize((width, height), Image.Resampling.LANCZOS)
+            self.base_image_tk = ImageTk.PhotoImage(resized_img)
+            self.canvas.itemconfig(self.bg_canvas_id, image=self.base_image_tk)
+            self._zoom_timer = None
+
     def load_base_image(self):
         """ ### MODIFICATO: Memorizza l'immagine originale per lo zoom ### """
-        file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.jpg *.jpeg *.png *.bmp")])
+        import os
+        maps_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "maps")
+        file_path = filedialog.askopenfilename(initialdir=maps_dir, filetypes=[("Image files", "*.jpg *.jpeg *.png *.bmp")])
         if not file_path: return
         self.base_image_path = file_path
         
@@ -107,6 +125,11 @@ class MapEditorWindow(tk.Toplevel):
             self.bg_canvas_id = self.canvas.create_image(0, 0, image=self.base_image_tk, anchor="nw", tags="base_image")
         
         self.canvas.tag_lower("base_image")
+        
+        # Generazione automatica se c'è già una scala impostata
+        if self.hex_layout and not self.grid_hexes:
+            if messagebox.askyesno("Generazione Automatica", "Vuoi riempire automaticamente l'immagine appena caricata con gli esagoni?"):
+                self.generate_auto_grid()
 
     def _add_poi_at(self, x, y):
         """ ### MODIFICATO: Trasforma un esagono in un POI ### """
@@ -154,7 +177,9 @@ class MapEditorWindow(tk.Toplevel):
     def save_map(self):
         """ ### MODIFICATO: Salva i POI nel nuovo formato ### """
         if not self.hex_layout: messagebox.showerror("Errore", "Non puoi salvare una mappa senza una scala."); return
-        file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("Mappe D&D", "*.json")])
+        import os
+        maps_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "maps")
+        file_path = filedialog.asksaveasfilename(initialdir=maps_dir, defaultextension=".json", filetypes=[("Mappe D&D", "*.json")])
         if not file_path: return
         
         # Converte le chiavi Hex in stringhe per il salvataggio in JSON
@@ -169,7 +194,7 @@ class MapEditorWindow(tk.Toplevel):
         }
         try:
             with open(file_path, 'w') as f: json.dump(map_data, f, indent=2)
-            messagebox.showinfo("Salvataggio Completato", f"Mappa salvata con successo.")
+            messagebox.showinfo("Salvataggio Completato", "Mappa salvata con successo.")
         except Exception as e:
             messagebox.showerror("Errore di Salvataggio", f"Impossibile salvare la mappa: {e}")
             
@@ -207,7 +232,7 @@ class MapEditorWindow(tk.Toplevel):
     def _pan_start(self, event): self.canvas.scan_mark(event.x, event.y)
     def _pan_move(self, event): self.canvas.scan_dragto(event.x, event.y, gain=1)
     def choose_hex_color(self):
-        color_code = colorchooser.askcolor(title="Scegli un colore");
+        color_code = colorchooser.askcolor(title="Scegli un colore")
         if color_code and color_code[1]: self.hex_border_color = color_code[1]; self._update_grid_color()
     def _update_grid_color(self):
         for hex_id in self.hex_to_canvas_id.values(): self.canvas.itemconfig(hex_id, outline=self.hex_border_color)
@@ -232,25 +257,55 @@ class MapEditorWindow(tk.Toplevel):
         if not is_preview: self.hex_to_canvas_id[h] = canvas_id
         return canvas_id
     def toggle_add_poi_mode(self):
-        self.add_poi_mode=not self.add_poi_mode; bg_color="#dc3545" if self.add_poi_mode else "#28a745"; cursor="crosshair" if self.add_poi_mode else ""
-        self.add_poi_button.config(bg=bg_color); self.config(cursor=cursor)
+        self.add_poi_mode=not self.add_poi_mode; 
+        style_name = "Primary.TButton" if self.add_poi_mode else "Success.TButton"
+        cursor="crosshair" if self.add_poi_mode else ""
+        self.add_poi_button.config(style=style_name); self.config(cursor=cursor)
     def on_map_scale_selected(self, event=None):
-        selected_scale_name=self.map_scale_var.get(); new_size=self.MAP_SCALES[selected_scale_name]
-        if self.grid_hexes and messagebox.askyesno("Cambio Scala", "Cambiare la scala cancellerà la griglia esistente. Continuare?"): self._clear_grid()
-        elif not self.grid_hexes: self._clear_grid()
-        else: return
-        self.hex_layout=HexLayout(size=new_size, origin=(new_size, new_size)); messagebox.showinfo("Griglia Impostata", f"Scala '{selected_scale_name}' applicata.")
+        selected_scale_name=self.map_scale_var.get()
+        new_size=self.MAP_SCALES[selected_scale_name]
+        
+        if self.grid_hexes:
+            if not messagebox.askyesno("Cambio Scala", "Cambiare la scala cancellerà la griglia esistente. Continuare?"):
+                return
+            self._clear_grid()
+            
+        self.hex_layout = HexLayout(size=new_size, origin=(new_size, new_size))
+        
+        # Generazione automatica se c'è un'immagine
+        if self.base_image_original:
+            if messagebox.askyesno("Generazione Automatica", "Vuoi riempire automaticamente l'intera immagine con gli esagoni?"):
+                self.generate_auto_grid()
+                return
+                
+        messagebox.showinfo("Griglia Impostata", f"Scala '{selected_scale_name}' applicata. Usa il tasto destro per aggiungere esagoni manualmente.")
+        
+    def generate_auto_grid(self):
+        if not self.base_image_original or not self.hex_layout: return
+        width = self.base_image_original.width
+        height = self.base_image_original.height
+        
+        import math
+        hex_w = math.sqrt(3) * self.hex_layout.size
+        hex_h = 1.5 * self.hex_layout.size
+        est_count = int((width / hex_w) * (height / hex_h))
+        
+        if est_count > 5000:
+            if not messagebox.askyesno("Attenzione", f"Generare circa {est_count} esagoni potrebbe causare rallentamenti. Sei sicuro di voler continuare?"):
+                return
+                
+        step_x = max(1, int(hex_w / 2))
+        step_y = max(1, int(hex_h / 2))
+        
+        for px in range(0, width + step_x, step_x):
+            for py in range(0, height + step_y, step_y):
+                h = self.hex_layout.pixel_to_hex((px, py))
+                if h not in self.grid_hexes:
+                    self.grid_hexes.add(h)
+                    self._draw_single_hex(h)
+                    
+        messagebox.showinfo("Griglia Generata", f"Generati {len(self.grid_hexes)} esagoni con successo.")
     def _clear_grid(self):
         self.canvas.delete("hex"); self.grid_hexes.clear(); self.hex_to_canvas_id.clear(); self.pois.clear()
-    def _delete_hex_at(self, x, y):
-        if not self.hex_layout: return
-        target_hex = self.hex_layout.pixel_to_hex((x, y))
-        if target_hex in self.grid_hexes:
-            # Se l'esagono è un POI, rimuovilo prima dai dati
-            if target_hex in self.pois:
-                del self.pois[target_hex]
-            canvas_id = self.hex_to_canvas_id.pop(target_hex, None)
-            if canvas_id: self.canvas.delete(canvas_id)
-            self.grid_hexes.remove(target_hex)
     def on_canvas_leave(self, event):
         if self.preview_hex_id: self.canvas.delete(self.preview_hex_id); self.preview_hex_id = None

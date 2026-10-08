@@ -5,6 +5,8 @@ import json
 
 def send_message(sock, message_data):
     """Codifica un dizionario Python in JSON e lo invia in modo robusto."""
+    if sock is None:
+        return
     try:
         message_json = json.dumps(message_data)
         message_bytes = message_json.encode('utf-8')

@@ -17,6 +17,17 @@ def make_move_request(x, y):
     # Attualmente non usato, ma lo teniamo per il futuro
     return {"type": "MOVE_REQUEST", "data": {"to": [x, y]}}
 
+def make_targeted_action_request(target_name, action_type, formula, reason=""):
+    return {"type": "TARGETED_ACTION_REQUEST", "data": {
+        "target_name": target_name,
+        "action_type": action_type,
+        "formula": formula,
+        "reason": reason
+    }}
+
+def make_ping_request(q, r, color="yellow"):
+    return {"type": "PING_REQUEST", "data": {"q": q, "r": r, "color": color}}
+
 # --- Messaggi Server -> Client ---
 def make_simple_reply(text):
     return {"type": "SIMPLE_REPLY", "data": {"text": text}}
@@ -26,6 +37,9 @@ def make_error_reply(text):
 
 def make_chat_broadcast(sender, text, is_whisper=False):
     return {"type": "CHAT_BROADCAST", "data": {"sender": sender, "text": text, "is_whisper": is_whisper}}
+
+def make_ping_broadcast(q, r, color="yellow"):
+    return {"type": "PING_BROADCAST", "data": {"q": q, "r": r, "color": color}}
 
 def make_game_state(state_dict):
     return {"type": "GAME_STATE", "data": state_dict}
@@ -46,3 +60,43 @@ def make_dice_roll_result(player_name, formula, reason, result):
         "reason": reason,
         "result": result
     }}
+
+def make_update_stats_request(hp, max_hp, initiative, conditions=None):
+    if conditions is None: conditions = []
+    return {"type": "UPDATE_STATS_REQUEST", "data": {"hp": hp, "max_hp": max_hp, "initiative": initiative, "conditions": conditions}}
+
+def make_player_stats_update(player_name, hp, max_hp, initiative, conditions=None):
+    if conditions is None: conditions = []
+    return {"type": "PLAYER_STATS_UPDATE", "data": {
+        "name": player_name, "hp": hp, "max_hp": max_hp, "initiative": initiative, "conditions": conditions
+    }}
+
+def make_update_full_sheet_request(character_data):
+    return {"type": "UPDATE_FULL_SHEET_REQUEST", "data": {"character": character_data}}
+
+def make_receive_item(item_dict):
+    return {"type": "RECEIVE_ITEM", "data": {"item": item_dict}}
+
+def make_give_item_request(target_name, item_dict):
+    return {"type": "GIVE_ITEM_REQUEST", "data": {"target_name": target_name, "item": item_dict}}
+
+def make_create_aoe_request(aoe_data):
+    return {"type": "CREATE_AOE_REQUEST", "data": {"aoe_data": aoe_data}}
+
+def make_clear_aoes_request():
+    return {"type": "CLEAR_AOES_REQUEST", "data": {}}
+
+def make_set_travel_role_request(role):
+    return {"type": "SET_TRAVEL_ROLE_REQUEST", "data": {"role": role}}
+
+def make_start_combat_request(initiator_name=None):
+    return {"type": "START_COMBAT_REQUEST", "data": {"initiator": initiator_name}}
+
+def make_end_turn_request():
+    return {"type": "END_TURN_REQUEST", "data": {}}
+
+def make_request_initiative():
+    return {"type": "REQUEST_INITIATIVE", "data": {}}
+
+def make_submit_initiative(initiative_total):
+    return {"type": "SUBMIT_INITIATIVE", "data": {"initiative": initiative_total}}

@@ -40,13 +40,70 @@ class HexLayout:
         return corners
 
     def _hex_round(self, q_frac, r_frac):
-        s_frac = -q_frac - r_frac
-        q = int(round(q_frac))
-        r = int(round(r_frac))
-        s = int(round(s_frac))
-        q_diff, r_diff, s_diff = abs(q - q_frac), abs(r - r_frac), abs(s - s_frac)
-        if q_diff > r_diff and q_diff > s_diff:
-            q = -r - s
-        elif r_diff > s_diff:
-            r = -q - s
-        return Hex(q, r)
+        return hex_round(q_frac, r_frac)
+
+def hex_round(q_frac, r_frac) -> Hex:
+    s_frac = -q_frac - r_frac
+    q = int(round(q_frac))
+    r = int(round(r_frac))
+    s = int(round(s_frac))
+    q_diff, r_diff, s_diff = abs(q - q_frac), abs(r - r_frac), abs(s - s_frac)
+    if q_diff > r_diff and q_diff > s_diff:
+        q = -r - s
+    elif r_diff > s_diff:
+        r = -q - s
+    return Hex(q, r)
+
+def hex_distance(a: Hex, b: Hex) -> int:
+    return max(abs(a.q - b.q), abs(a.r - b.r), abs(a.s - b.s))
+
+def get_sphere_hexes(origin: Hex, radius: int) -> list[Hex]:
+    results = []
+    for dq in range(-radius, radius + 1):
+        for dr in range(max(-radius, -dq - radius), min(radius, -dq + radius) + 1):
+            results.append(Hex(origin.q + dq, origin.r + dr))
+    return results
+
+def get_line_hexes(a: Hex, b: Hex) -> list[Hex]:
+    dist = hex_distance(a, b)
+    if dist == 0:
+        return [a]
+    results = []
+    for i in range(dist + 1):
+        t = i / dist
+        q_frac = a.q + (b.q - a.q) * t
+        r_frac = a.r + (b.r - a.r) * t
+        results.append(hex_round(q_frac, r_frac))
+    return results
+
+def get_cone_hexes(origin: Hex, target: Hex, length: int) -> list[Hex]:
+    """Approssimazione semplice di un cono in una griglia esagonale. 
+    Il cono si espande verso il target."""
+    if hex_distance(origin, target) == 0:
+        return [origin]
+    
+    # Normalizziamo la direzione verso il target come un vettore 2D (q, r) approssimato
+    dist = hex_distance(origin, target)
+    dq = (target.q - origin.q) / dist
+    dr = (target.r - origin.r) / dist
+    
+    results = []
+    # Scansioniamo una sfera di raggio `length` e prendiamo solo gli esagoni 
+    # che sono nel semispazio "in avanti" e entro un certo angolo.
+    # Usiamo il prodotto scalare per filtrare.
+    for hex in get_sphere_hexes(origin, length):
+        v_q = hex.q - origin.q
+        v_r = hex.r - origin.r
+        dot = v_q * dq + v_r * dr
+        h_dist = hex_distance(origin, hex)
+        # Se il prodotto scalare è proporzionale alla distanza, è "davanti". 
+        # Per un cono largo a ~60 gradi, limitiamo l'angolo.
+        if h_dist > 0:
+            cos_angle = dot / h_dist
+            if cos_angle > 0.5: # Circa 60 gradi
+                results.append(hex)
+    
+    # Aggiungiamo sempre l'origine
+    if origin not in results:
+        results.append(origin)
+    return results
