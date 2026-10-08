@@ -21,6 +21,7 @@ from client.login_ui import LoginDialog
 from client.character_sheet_ui import CharacterSheetUI
 
 from common.theme import setup_theme, apply_modern_window_style
+from .network import ClientNetwork
 
 class ClientGUI:
     def __init__(self, master):
@@ -28,7 +29,7 @@ class ClientGUI:
         setup_theme(master)
         self.master.title("D&D Client")
         self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
-        self.client_socket=None; self.name=None; self.is_connected=False
+        self.name=None; self.is_connected=False
         self.players_data={}; self.local_map_data=None
         self.notebook=None; self.chat_tabs={}; self.player_listbox=None
         self.map_canvas = None
@@ -39,6 +40,7 @@ class ClientGUI:
         self.turn_index = 0
         self.round_number = 1
         self.gui_queue = queue.Queue()
+        self.network = ClientNetwork(self.gui_queue, lambda: self.master.after(0, self.handle_disconnection))
         self.setup_gui()
         self.master.after(100, self.process_queue)
 
@@ -110,6 +112,8 @@ class ClientGUI:
         self.aoe_params = None
         self.map_canvas.set_on_click_callback(self.on_hex_click)
         self.map_canvas.set_on_ping_callback(self.on_ping_callback)
+        self.map_canvas.set_on_wall_toggle_callback(self.on_wall_toggle_callback)
+        self.map_canvas.set_on_draw_callback(self.on_draw_request)
         
         # --- COLONNA 2: PANNELLO DESTRO (Social & Chat) ---
         right_panel = ttk.Frame(main_frame)
@@ -134,12 +138,50 @@ class ClientGUI:
         self.entry.bind("<Return>", self.send_chat_message)
         ttk.Button(chat_cmd_frame, text="Invia", command=self.send_chat_message).pack(side=tk.LEFT)
         
+        # --- HOTBAR ---
+        self.hotbar_frame = ttk.Frame(main_frame)
+        self.hotbar_frame.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(10,0))
+        self.hotbar_buttons = []
+        for i in range(10):
+            btn = ttk.Button(self.hotbar_frame, text=f"{i+1}", width=10)
+            btn.pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
+            btn.bind("<Button-1>", lambda e, idx=i: self.on_hotbar_click(idx))
+            btn.bind("<Button-3>", lambda e, idx=i: self.on_hotbar_right_click(idx))
+            self.hotbar_buttons.append(btn)
+
         self.set_controls_state(tk.DISABLED)
+
+    def on_hotbar_right_click(self, idx):
+        if not self.active_character: return
+        cmd = simpledialog.askstring("Hotbar", f"Imposta comando per lo slot {idx+1} (es: 1d20+5, oppure Ciao!)", initialvalue=self.active_character.hotbar[idx])
+        if cmd is not None:
+            self.active_character.hotbar[idx] = cmd
+            self.hotbar_buttons[idx].config(text=cmd[:10] if cmd else f"{idx+1}")
+            self.character_manager.save_characters()
+
+    def on_hotbar_click(self, idx):
+        if not self.active_character: return
+        cmd = self.active_character.hotbar[idx]
+        if not cmd: return
+        if "d" in cmd and cmd[0].isdigit(): # basic check for roll
+            self.do_roll(cmd, f"Hotbar {idx+1}")
+        else:
+            self.network.send(make_chat(cmd))
+
 
     def on_ping_callback(self, clicked_hex):
         if not self.is_connected: return
         from common.protocol import make_ping_request
-        send_message(self.client_socket, make_ping_request(clicked_hex.q, clicked_hex.r, "yellow"))
+        self.network.send(make_ping_request(clicked_hex.q, clicked_hex.r, "yellow"))
+
+    def on_draw_request(self, points, color):
+        if not self.is_connected: return
+        self.network.send({"type": "DRAW_REQUEST", "data": {"points": points, "color": color}})
+
+    def on_wall_toggle_callback(self, q, r):
+        if not self.is_connected: return
+        from common.protocol import make_toggle_wall_request
+        self.network.send(make_toggle_wall_request(q, r))
 
 
     def on_hex_click(self, clicked_hex):
@@ -157,9 +199,24 @@ class ClientGUI:
                 aoe_data = {"type": aoe_type, "origin": [clicked_hex.q, clicked_hex.r], "size": size, "color": color}
                 
             from common.protocol import make_create_aoe_request
-            send_message(self.client_socket, make_create_aoe_request(aoe_data))
+            self.network.send(make_create_aoe_request(aoe_data))
             self.aoe_mode = False
             messagebox.showinfo("AoE Piazzata", "L'area d'effetto è stata piazzata sulla mappa.")
+        elif getattr(self, "attack_targeting_mode", False):
+            target_name = None
+            for p in self.players_data.values():
+                pos = p.get('position', [0,0])
+                if pos == [clicked_hex.q, clicked_hex.r]:
+                    target_name = p['name']
+                    break
+            if target_name:
+                self.attack_targeting_mode = False
+                params = self.attack_params
+                from common.protocol import make_attack_request
+                self.network.send(make_attack_request(target_name, params["weapon_name"], params["hit_bonus"], params["damage_formula"]))
+                messagebox.showinfo("Attacco Inviato", f"Attacco contro {target_name} inviato!")
+            else:
+                messagebox.showinfo("Nessun Bersaglio", "Non c'e' nessuno in questo esagono.")
         elif getattr(self, "targeting_mode", False):
             target_name = None
             for p in self.players_data.values():
@@ -174,6 +231,16 @@ class ClientGUI:
                 messagebox.showinfo("Nessun Bersaglio", "Non c'è nessuno in questo esagono.")
         else:
             self.request_move(clicked_hex)
+
+    def on_attack_action(self, weapon_name, hit_bonus, damage_formula):
+        self.attack_targeting_mode = True
+        self.attack_params = {
+            "weapon_name": weapon_name,
+            "hit_bonus": hit_bonus,
+            "damage_formula": damage_formula
+        }
+        messagebox.showinfo("Modalita' Bersaglio", f"Seleziona un bersaglio sulla mappa per attaccare con {weapon_name}!")
+
 
 
     def open_travel_dialog(self):
@@ -194,7 +261,7 @@ class ClientGUI:
             self.active_character.travel_role = role
             from common.protocol import make_set_travel_role_request
             from common.network_utils import send_message
-            send_message(self.client_socket, make_set_travel_role_request(role))
+            self.network.send(make_set_travel_role_request(role))
             win.destroy()
             
         ttk.Button(win, text="Conferma", command=submit, style='Success.TButton').pack(pady=15)
@@ -241,7 +308,7 @@ class ClientGUI:
     def request_move(self, clicked_hex):
         """Invia una richiesta di movimento al server quando il giocatore clicca su un esagono."""
         if not self.is_connected: return
-        send_message(self.client_socket, make_move_request(clicked_hex.q, clicked_hex.r))
+        self.network.send(make_move_request(clicked_hex.q, clicked_hex.r))
 
     def connect_to_server(self):
         if self.is_connected: return
@@ -256,18 +323,19 @@ class ClientGUI:
         self.active_character = char
         
         try:
-            self.client_socket=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.client_socket.connect((server_ip, 5000)); self.is_connected = True
+            self.network.connect(server_ip, 5000)
+            self.is_connected = True
             
-            send_message(self.client_socket, make_join(self.name))
-            send_message(self.client_socket, make_update_stats_request(self.active_character.hp_current, self.active_character.hp_max, self.active_character.initiative, getattr(self.active_character, "conditions", [])))
-            send_message(self.client_socket, make_update_full_sheet_request(self.active_character.to_dict()))
-            
-            listen_thread=threading.Thread(target=self.listen_to_server, daemon=True); listen_thread.start()
+            self.network.send(make_join(self.name))
+            self.network.send(make_update_stats_request(self.active_character.hp_current, self.active_character.hp_max, self.active_character.initiative, getattr(self.active_character, "conditions", [])))
+            self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
             self.log_to_chat(f"Connesso a {server_ip} come {self.name} (Lv.{char.level} {char.char_class}).", "Globale")
             self.master.title(f"D&D Client - {self.name}")
             self.status_label.config(text=f"Stato: Connesso a {server_ip}", style="Success.TLabel")
             self.set_controls_state(tk.NORMAL)
+            for i in range(10):
+                cmd = self.active_character.hotbar[i]
+                self.hotbar_buttons[i].config(text=cmd[:10] if cmd else f"{i+1}")
         except Exception as e:
             messagebox.showerror("Errore", f"Impossibile connettersi a {server_ip}: {e}"); self.is_connected = False
 
@@ -280,20 +348,14 @@ class ClientGUI:
             pass
         self.master.after(100, self.process_queue)
 
-    def listen_to_server(self):
-        while self.is_connected:
-            msg = receive_message(self.client_socket)
-            if msg is None: break
-            self.gui_queue.put(msg)
-        self.is_connected = False
-        try:
-            self.master.after(0, self.handle_disconnection)
-        except RuntimeError:
-            pass
-
     def redraw_map_and_players(self):
         # Pass the full players_data so UI components can access position, conditions, etc.
-        players_info = {name: data for name, data in self.players_data.items()}
+        players_info = {}
+        for name, data in self.players_data.items():
+            if data.get("is_hidden", False) and name != self.name:
+                continue
+            players_info[name] = data
+            
         all_players = list(self.players_data.values())
         turn_name = ""
         if getattr(self, "combat_active", False) and 0 <= getattr(self, "turn_index", 0) < len(all_players):
@@ -389,12 +451,12 @@ class ClientGUI:
 
     def request_combat(self):
         from common.protocol import make_start_combat_request
-        send_message(self.client_socket, make_start_combat_request(self.name))
+        self.network.send(make_start_combat_request(self.name))
         self.log_to_chat("Hai richiesto l'inizio del combattimento al DM.", "Globale", "grey")
 
     def end_turn(self):
         from common.protocol import make_end_turn_request
-        send_message(self.client_socket, make_end_turn_request())
+        self.network.send(make_end_turn_request())
         self.end_turn_btn.pack_forget()
 
     def open_action_dialog(self):
@@ -434,7 +496,7 @@ class ClientGUI:
                 messagebox.showerror("Errore", "Devi inserire una formula o un valore numerico.")
                 return
                 
-            send_message(self.client_socket, make_targeted_action_request(target_name, action_type, formula, reason))
+            self.network.send(make_targeted_action_request(target_name, action_type, formula, reason))
             win.destroy()
 
         ttk.Button(win, text="Esegui Azione", command=submit, style='Primary.TButton').pack(pady=20)
@@ -462,10 +524,51 @@ class ClientGUI:
             "PLAYER_STATS_UPDATE": self.handle_player_stats_update,
             "RECEIVE_ITEM": self.handle_receive_item,
             "REQUEST_INITIATIVE": self.handle_request_initiative,
-            "PING_BROADCAST": self.handle_ping_broadcast
+            "PING_BROADCAST": self.handle_ping_broadcast,
+            "DRAW_BROADCAST": self.handle_draw_broadcast
         }
         handler=handler_map.get(msg_type)
         if handler: handler(data)
+
+    def handle_draw_broadcast(self, data):
+        points = data.get("points", [])
+        color = data.get("color", "red")
+        if hasattr(self, "map_canvas"):
+            self.map_canvas.draw_remote_line(points, color)
+
+    def handle_handout_broadcast(self, data):
+        title = data.get("title", "Nuova Immagine dal DM")
+        img_b64 = data.get("image_b64")
+        if not img_b64: return
+        
+        try:
+            import base64
+            from io import BytesIO
+            from PIL import Image, ImageTk
+            import tkinter as tk
+            from tkinter import ttk
+            
+            img_bytes = base64.b64decode(img_b64)
+            img = Image.open(BytesIO(img_bytes))
+            
+            top = tk.Toplevel(self.master)
+            top.title(title)
+            # Centra
+            top.update_idletasks()
+            width, height = img.width, img.height
+            x = (top.winfo_screenwidth() // 2) - (width // 2)
+            y = (top.winfo_screenheight() // 2) - (height // 2)
+            top.geometry(f"{width}x{height}+{x}+{y}")
+            
+            tk_img = ImageTk.PhotoImage(img)
+            lbl = tk.Label(top, image=tk_img)
+            lbl.image = tk_img # keep reference
+            lbl.pack(fill=tk.BOTH, expand=True)
+            
+            top.focus_force()
+            
+        except Exception as e:
+            print("Errore handout:", e)
 
     def handle_ping_broadcast(self, data):
         if self.map_canvas:
@@ -489,7 +592,7 @@ class ClientGUI:
             from common.protocol import make_submit_initiative
             roll_val = random.randint(1, 20)
             total = roll_val + mod
-            send_message(self.client_socket, make_submit_initiative(total))
+            self.network.send(make_submit_initiative(total))
             self.log_to_chat(f"Hai tirato iniziativa: {roll_val} + {mod} = {total}", "Globale", "orange")
             win.destroy()
             
@@ -508,7 +611,7 @@ class ClientGUI:
                 self.character_manager.save_characters()
                 messagebox.showinfo("Oggetto Ricevuto", f"{sender} ti ha assegnato/inviato: {item['name']}")
                 # Invia l'aggiornamento della scheda al server
-                send_message(self.client_socket, make_update_full_sheet_request(self.active_character.to_dict()))
+                self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
                 return
         
         messagebox.showwarning("Inventario Pieno", f"{sender} ha provato ad inviarti '{item['name']}' ma non hai spazio nello zaino!")
@@ -584,41 +687,79 @@ class ClientGUI:
         if not text: return
         try: active_tab_name=self.notebook.tab(self.notebook.select(), "text")
         except tk.TclError: return
-        if active_tab_name == "Globale": send_message(self.client_socket, make_chat(text))
-        else: send_message(self.client_socket, make_whisper(active_tab_name, text))
+        if active_tab_name == "Globale": self.network.send(make_chat(text))
+        else: self.network.send(make_whisper(active_tab_name, text))
         self.entry.delete(0, tk.END)
 
     def roll_dice_dialog(self):
         formula=simpledialog.askstring("Tira Dadi", "Inserisci formula (es: 2d6+1):")
         if formula:
             reason=simpledialog.askstring("Motivo", "Motivo del tiro (facoltativo):") or ""
-            send_message(self.client_socket, make_roll_request(formula, reason))
+            self.network.send(make_roll_request(formula, reason))
 
     def do_roll(self, formula, reason=""):
         if self.is_connected:
-            send_message(self.client_socket, make_roll_request(formula, reason))
+            self.network.send(make_roll_request(formula, reason))
 
     def open_stats_dialog(self):
         if not self.active_character: return
         CharacterSheetUI(self.master, self.active_character, self.character_manager, 
                          on_save_callback=self.on_character_saved, 
                          roll_callback=self.do_roll, 
-                         trade_callback=self.do_trade, 
+                         trade_callback=self.do_trade, attack_callback=self.on_attack_action, 
                          players_list_callback=self.get_player_names)
 
     def do_trade(self, item, target_name):
         if self.is_connected:
-            send_message(self.client_socket, make_give_item_request(target_name, item))
+            self.network.send(make_give_item_request(target_name, item))
             self.log_to_chat(f"Hai inviato l'oggetto '{item.get('name')}' a {target_name}.", "Globale", "lightblue")
 
     def get_player_names(self):
         return [p for p in self.players_data.keys() if p != self.name]
 
+    def handle_prompt_save(self, data):
+        stat = data.get("stat")
+        dc = data.get("dc")
+        damage_formula = data.get("damage_formula")
+        half_on_success = data.get("half_on_success")
+        source_name = data.get("source_name")
+        
+        win = tk.Toplevel(self.master)
+        win.title("Tiro Salvezza Richiesto!")
+        win.geometry("350x250")
+        apply_modern_window_style(win)
+        
+        ttk.Label(win, text=f"{source_name} richiede un TS!", font=("Georgia", 12, "bold"), foreground="#D4AF37").pack(pady=(10, 5))
+        ttk.Label(win, text=f"Statistica: {stat} | CD: {dc}").pack(pady=5)
+        
+        if damage_formula:
+            ttk.Label(win, text=f"Danno potenziale: {damage_formula}").pack()
+            
+        def do_roll():
+            from common.dice import roll_dice
+            mod = 0
+            if self.active_character:
+                attr = self.active_character.attributes
+                if stat in attr:
+                    mod = (int(attr[stat]) - 10) // 2
+                    
+            mod_str = f"+{mod}" if mod >= 0 else str(mod)
+            res = roll_dice(f"1d20{mod_str}")
+            
+            is_crit = res["rolls"][0] == 20
+            is_fail = res["rolls"][0] == 1
+            
+            from common.protocol import make_save_result
+            self.network.send(make_save_result(stat, res["total"], is_crit, is_fail, dc, damage_formula, half_on_success, source_name))
+            win.destroy()
+            
+        ttk.Button(win, text=f"Tira Salvezza ({stat})", command=do_roll, style="Danger.TButton").pack(pady=20)
+
     def on_character_saved(self, char):
         self.active_character = char
         if self.is_connected:
-            send_message(self.client_socket, make_update_stats_request(char.hp_current, char.hp_max, char.initiative, getattr(char, "conditions", [])))
-            send_message(self.client_socket, make_update_full_sheet_request(char.to_dict()))
+            self.network.send(make_update_stats_request(char.hp_current, char.hp_max, char.initiative, getattr(char, "conditions", [])))
+            self.network.send(make_update_full_sheet_request(char.to_dict()))
 
     def open_srd_compendium(self):
         try:

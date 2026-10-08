@@ -3,7 +3,7 @@ from tkinter import ttk, messagebox, simpledialog
 from common.theme import BG_COLOR, TEXT_COLOR, SURFACE_COLOR, apply_modern_window_style
 
 class CharacterSheetUI(tk.Toplevel):
-    def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, players_list_callback=None):
+    def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, players_list_callback=None, attack_callback=None):
         super().__init__(master)
         self.title(f"Scheda PG - {character.name}")
         self.geometry("600x700")
@@ -14,6 +14,7 @@ class CharacterSheetUI(tk.Toplevel):
         self.roll_callback = roll_callback
         self.trade_callback = trade_callback
         self.players_list_callback = players_list_callback
+        self.attack_callback = attack_callback
         self.default_font = ("Georgia", 10)
         
         self.setup_ui()
@@ -41,7 +42,15 @@ class CharacterSheetUI(tk.Toplevel):
 
         ttk.Label(header_frame, text="Livello:").grid(row=1, column=2, sticky="e")
         self.level_var = tk.IntVar()
-        ttk.Entry(header_frame, textvariable=self.level_var).grid(row=1, column=3, padx=5, pady=2, sticky="w")
+        ttk.Entry(header_frame, textvariable=self.level_var, width=5, state="readonly").grid(row=1, column=3, padx=5, pady=2, sticky="w")
+        
+        ttk.Label(header_frame, text="EXP:").grid(row=1, column=4, sticky="e")
+        self.exp_label = ttk.Label(header_frame, text="0 / 300")
+        self.exp_label.grid(row=1, column=5, padx=5, pady=2, sticky="w")
+        self.exp_progress = ttk.Progressbar(header_frame, length=100, mode='determinate')
+        self.exp_progress.grid(row=1, column=6, padx=5, pady=2, sticky="w")
+        
+        self.levelup_btn = ttk.Button(header_frame, text="🌟 Sali di Livello!", command=self.level_up)
         
         ttk.Label(header_frame, text="Razza:").grid(row=2, column=0, sticky="e")
         self.race_var = tk.StringVar()
@@ -62,6 +71,45 @@ class CharacterSheetUI(tk.Toplevel):
             self.attr_vars[attr] = var
             ttk.Entry(stats_frame, textvariable=var, width=5, justify="center").grid(row=i, column=1, pady=5, padx=5)
             ttk.Button(stats_frame, text="🎲", command=lambda a=attr, v=var: self.roll_stat(a, v.get())).grid(row=i, column=2, padx=2)
+
+        # Abilità
+        skills_frame = ttk.LabelFrame(body_frame, text="Abilità")
+        skills_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
+        
+        self.skill_vars = {}
+        self.skill_map = {
+            "Acrobazia": "DES", "Addestrare Animali": "SAG", "Arcano": "INT", "Atletica": "FOR",
+            "Furtività": "DES", "Indagare": "INT", "Inganno": "CAR", "Intimidire": "CAR",
+            "Intrattenere": "CAR", "Intuizione": "SAG", "Medicina": "SAG", "Natura": "INT",
+            "Percezione": "SAG", "Persuasione": "CAR", "Prestidigitazione": "DES",
+            "Religione": "INT", "Sopravvivenza": "SAG", "Storia": "INT"
+        }
+        
+        skills_canvas = tk.Canvas(skills_frame, width=220)
+        skills_scrollbar = ttk.Scrollbar(skills_frame, orient="vertical", command=skills_canvas.yview)
+        skills_inner_frame = ttk.Frame(skills_canvas)
+        
+        skills_inner_frame.bind(
+            "<Configure>",
+            lambda e: skills_canvas.configure(
+                scrollregion=skills_canvas.bbox("all")
+            )
+        )
+        
+        skills_canvas.create_window((0, 0), window=skills_inner_frame, anchor="nw")
+        skills_canvas.configure(yscrollcommand=skills_scrollbar.set)
+        
+        skills_canvas.pack(side="left", fill="both", expand=True)
+        skills_scrollbar.pack(side="right", fill="y")
+        
+        for i, (skill, stat) in enumerate(self.skill_map.items()):
+            ttk.Label(skills_inner_frame, text=f"{skill} ({stat})").grid(row=i, column=0, sticky="w", pady=2)
+            var = tk.IntVar()
+            self.skill_vars[skill] = var
+            combo = ttk.Combobox(skills_inner_frame, textvariable=var, values=[0, 1, 2], width=2, state="readonly")
+            combo.grid(row=i, column=1, padx=5)
+            ttk.Button(skills_inner_frame, text="🎲", width=3, command=lambda s=skill, st=stat: self.roll_skill(s, st)).grid(row=i, column=2, padx=2)
+
 
         # Combattimento (Centro)
         combat_frame = ttk.LabelFrame(body_frame, text="Combattimento")
@@ -84,11 +132,42 @@ class CharacterSheetUI(tk.Toplevel):
         ttk.Entry(combat_frame, textvariable=self.init_var).grid(row=3, column=1, pady=2)
         ttk.Button(combat_frame, text="🎲", command=self.roll_initiative).grid(row=3, column=2, padx=2)
 
+        self.adv_dis_var = tk.StringVar(value="Normale")
+        self.adv_dis_combo = ttk.Combobox(combat_frame, textvariable=self.adv_dis_var, values=["Normale", "Vantaggio", "Svantaggio"], state="readonly", width=12)
+        self.adv_dis_combo.grid(row=3, column=3, padx=5)
+
         ttk.Label(combat_frame, text="Velocità:").grid(row=4, column=0, sticky="e", pady=2)
         self.speed_var = tk.IntVar()
         ttk.Entry(combat_frame, textvariable=self.speed_var).grid(row=4, column=1, pady=2)
         
-        ttk.Button(combat_frame, text="Riposo Lungo", command=self.long_rest).grid(row=5, column=0, columnspan=3, pady=15, sticky="ew")
+        btn_frame_rest = ttk.Frame(combat_frame)
+        btn_frame_rest.grid(row=5, column=0, columnspan=4, pady=10, sticky="ew")
+        ttk.Button(btn_frame_rest, text="Riposo Breve", command=self.short_rest).pack(side=tk.LEFT, expand=True, padx=2)
+        ttk.Button(btn_frame_rest, text="Riposo Lungo", command=self.long_rest).pack(side=tk.LEFT, expand=True, padx=2)
+
+        # Death Saves
+        self.death_saves_frame = ttk.LabelFrame(combat_frame, text="Tiri contro la Morte")
+        self.death_saves_frame.grid(row=6, column=0, columnspan=4, pady=5, sticky="ew")
+        
+        self.ds_succ_vars = [tk.BooleanVar() for _ in range(3)]
+        self.ds_fail_vars = [tk.BooleanVar() for _ in range(3)]
+        
+        ds_subframe = ttk.Frame(self.death_saves_frame)
+        ds_subframe.pack(pady=5)
+        
+        ttk.Label(ds_subframe, text="Successi:").grid(row=0, column=0, sticky="e")
+        for i in range(3):
+            cb = ttk.Checkbutton(ds_subframe, variable=self.ds_succ_vars[i], state=tk.DISABLED)
+            cb.grid(row=0, column=i+1)
+            
+        ttk.Label(ds_subframe, text=" Fallimenti:").grid(row=0, column=4, sticky="e")
+        for i in range(3):
+            cb = ttk.Checkbutton(ds_subframe, variable=self.ds_fail_vars[i], state=tk.DISABLED)
+            cb.grid(row=0, column=i+5)
+            
+        self.ds_roll_btn = ttk.Button(self.death_saves_frame, text="Tira TS Morte", command=self.roll_death_save)
+        self.ds_roll_btn.pack(pady=5)
+        self.hp_cur_var.trace_add("write", lambda *args: self.update_death_saves_ui())
 
         # Tab Notebook (Destra per note/inventario/incantesimi)
         tabs_frame = ttk.Frame(body_frame)
@@ -105,6 +184,17 @@ class CharacterSheetUI(tk.Toplevel):
             if attr == "inventory_grid":
                 grid_container = ttk.Frame(frame)
                 grid_container.pack(expand=True, pady=10)
+                
+                currency_frame = ttk.LabelFrame(frame, text="Valuta")
+                currency_frame.pack(fill=tk.X, padx=5, pady=5)
+                self.currency_vars = {}
+                for coin in ["MR", "MA", "ME", "MO", "MP"]:
+                    c_frame = ttk.Frame(currency_frame)
+                    c_frame.pack(side=tk.LEFT, expand=True, padx=2)
+                    ttk.Label(c_frame, text=coin).pack(side=tk.TOP)
+                    var = tk.IntVar(value=0)
+                    self.currency_vars[coin] = var
+                    ttk.Entry(c_frame, textvariable=var, width=5, justify="center").pack(side=tk.TOP)
                 
                 compendium_btn = ttk.Button(frame, text="Cerca nel Compendio", command=self.open_inventory_compendium)
                 compendium_btn.pack(side=tk.TOP, pady=5)
@@ -207,21 +297,62 @@ class CharacterSheetUI(tk.Toplevel):
         idx = int(sel[0])
         spell = self.character.spell_list[idx]
         
-        msg = f"INCANTESIMO: {spell['name']}\nLivello: {spell['level']}\nTempo: {spell['time']}\nRaggio: {spell['range']}\n\nDescrizione: {spell['desc']}\n\nVuoi LANCIARE questo incantesimo in chat?"
-        if messagebox.askyesno("Dettagli Incantesimo", msg):
+        msg = (f"INCANTESIMO: {spell['name']}\n"
+               f"Livello: {spell['level']}\n"
+               f"Tempo: {spell['time']}\n"
+               f"Raggio: {spell['range']}\n\n"
+               f"Descrizione: {spell['desc']}")
+        
+        win = tk.Toplevel(self)
+        apply_modern_window_style(win)
+        win.title("Dettagli Incantesimo")
+        win.geometry("400x400")
+        
+        txt = tk.Text(win, wrap=tk.WORD, bg="#1e1e1e", fg="white")
+        txt.insert(tk.END, msg)
+        txt.config(state=tk.DISABLED)
+        txt.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        btn_frame = ttk.Frame(win)
+        btn_frame.pack(fill=tk.X, pady=10)
+        
+        def do_cast():
             lvl = str(spell['level'])
             if spell['level'] > 0 and lvl in self.slot_vars:
                 usati_var, massimi_var = self.slot_vars[lvl]
                 if usati_var.get() < massimi_var.get():
                     usati_var.set(usati_var.get() + 1)
+                    if not hasattr(self.character, "spell_slots"):
+                        self.character.spell_slots = {}
+                    if lvl not in self.character.spell_slots:
+                        self.character.spell_slots[lvl] = [0, massimi_var.get()]
+                    self.character.spell_slots[lvl][0] = usati_var.get()
+                    self.manager.update_character(self.character)
                 else:
-                    if not messagebox.askyesno("Slot Esauriti", f"Non hai più slot di livello {lvl}. Vuoi lanciarlo lo stesso (es. da un oggetto o livello superiore)?"):
+                    if not messagebox.askyesno("Slot Esauriti", f"Non hai piu' slot di livello {lvl}. Vuoi lanciarlo lo stesso?", parent=win):
                         return
             
             if self.roll_callback:
                 chat_msg = f"Lancia '{spell['name']}'! (Livello {spell['level']}, Raggio {spell['range']})"
-                # Simuliamo un lancio fittizio per usare la funzione di chat globale
                 self.roll_callback("0d0", chat_msg)
+            win.destroy()
+            
+        def do_attack():
+            if not getattr(self, 'attack_callback', None): return
+            hit_bonus_str = tk.simpledialog.askstring("Bonus Colpire", "Inserisci bonus per colpire (es. 5):", parent=win)
+            if not hit_bonus_str: return
+            try: hit_bonus = int(hit_bonus_str)
+            except: hit_bonus = 0
+            
+            dmg_str = tk.simpledialog.askstring("Danno", "Inserisci formula danno (es. 1d8+3):", parent=win)
+            if not dmg_str: return
+            
+            self.attack_callback(spell['name'], hit_bonus, dmg_str)
+            win.destroy()
+
+        ttk.Button(btn_frame, text="Lancia in Chat", command=do_cast).pack(side=tk.LEFT, padx=10)
+        ttk.Button(btn_frame, text="Attacca Bersaglio", command=do_attack, style="Danger.TButton").pack(side=tk.LEFT, padx=10)
+
 
     def recover_spell_slots(self):
         if messagebox.askyesno("Riposo Lungo", "Recuperare tutti gli slot incantesimo e la salute?"):
@@ -239,6 +370,11 @@ class CharacterSheetUI(tk.Toplevel):
         for k, v in self.character.attributes.items():
             self.attr_vars[k].set(v)
             
+        if hasattr(self.character, "skills"):
+            for k, v in self.character.skills.items():
+                if k in self.skill_vars:
+                    self.skill_vars[k].set(v)
+            
         self.hp_cur_var.set(self.character.hp_current)
         self.hp_max_var.set(self.character.hp_max)
         self.ac_var.set(self.character.ac)
@@ -246,8 +382,18 @@ class CharacterSheetUI(tk.Toplevel):
         self.speed_var.set(self.character.speed)
 
         for attr, txt in self.text_widgets.items():
+            txt.config(state=tk.NORMAL)
+            txt.delete("1.0", tk.END)
             txt.insert("1.0", getattr(self.character, attr, ""))
-            
+            if attr == "features":
+                txt.config(state=tk.DISABLED)
+                
+        if hasattr(self.character, "currency"):
+            for coin, var in self.currency_vars.items():
+                var.set(self.character.currency.get(coin, 0))
+                
+        self.update_death_saves_ui()
+                
         # Carica slot incantesimi
         if hasattr(self.character, "spell_slots"):
             for lvl, vals in self.character.spell_slots.items():
@@ -257,6 +403,28 @@ class CharacterSheetUI(tk.Toplevel):
                     
         self.refresh_spell_list()
         self.refresh_inventory_grid()
+        self.update_exp_ui()
+
+    def update_exp_ui(self):
+        exp = getattr(self.character, "exp", 0)
+        level = self.character.level
+        xp_thresholds = [0, 300, 900, 2700, 6500, 14000, 23000, 34000, 48000, 64000, 85000, 100000, 120000, 140000, 165000, 195000, 225000, 265000, 305000, 355000]
+        
+        if level < 20:
+            next_xp = xp_thresholds[level]
+            prev_xp = xp_thresholds[level-1] if level > 1 else 0
+            self.exp_label.config(text=f"{exp} / {next_xp}")
+            self.exp_progress['maximum'] = next_xp - prev_xp
+            self.exp_progress['value'] = max(0, exp - prev_xp)
+            if exp >= next_xp:
+                self.levelup_btn.grid(row=1, column=7, padx=5, pady=2)
+            else:
+                self.levelup_btn.grid_forget()
+        else:
+            self.exp_label.config(text=f"{exp} (Max)")
+            self.exp_progress['maximum'] = 1
+            self.exp_progress['value'] = 1
+            self.levelup_btn.grid_forget()
 
     def refresh_inventory_grid(self):
         for i, item in enumerate(self.character.inventory_grid):
@@ -382,6 +550,14 @@ class CharacterSheetUI(tk.Toplevel):
             for k, var in self.attr_vars.items():
                 self.character.attributes[k] = var.get()
                 
+            if not hasattr(self.character, "skills"):
+                self.character.skills = {}
+            for k, var in self.skill_vars.items():
+                try:
+                    self.character.skills[k] = var.get()
+                except tk.TclError:
+                    self.character.skills[k] = 0
+                
             self.character.hp_current = self.hp_cur_var.get()
             self.character.hp_max = self.hp_max_var.get()
             self.character.ac = self.ac_var.get()
@@ -391,6 +567,14 @@ class CharacterSheetUI(tk.Toplevel):
             for attr, txt in self.text_widgets.items():
                 val = txt.get("1.0", tk.END).strip()
                 setattr(self.character, attr, val)
+                
+            if not hasattr(self.character, "currency"):
+                self.character.currency = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
+            for coin, var in self.currency_vars.items():
+                try:
+                    self.character.currency[coin] = var.get()
+                except tk.TclError:
+                    pass
                 
             # Salva slot incantesimi
             if not hasattr(self.character, "spell_slots"):
@@ -413,7 +597,38 @@ class CharacterSheetUI(tk.Toplevel):
             val = int(stat_val)
             mod = (val - 10) // 2
             mod_str = f"+{mod}" if mod >= 0 else str(mod)
-            self.roll_callback(f"1d20{mod_str}", f"Check {stat_name}")
+            
+            formula = f"1d20{mod_str}"
+            adv_state = self.adv_dis_var.get()
+            if adv_state == "Vantaggio":
+                formula += " adv"
+            elif adv_state == "Svantaggio":
+                formula += " dis"
+                
+            self.roll_callback(formula, f"Check {stat_name}")
+        except ValueError:
+            pass
+
+    def roll_skill(self, skill_name, stat_name):
+        if not self.roll_callback: return
+        try:
+            stat_val = int(self.attr_vars[stat_name].get())
+            stat_mod = (stat_val - 10) // 2
+            
+            prof_level = self.skill_vars[skill_name].get()
+            prof_bonus = getattr(self.character, "proficiency_bonus", 2)
+            
+            total_mod = stat_mod + (prof_bonus * prof_level)
+            mod_str = f"+{total_mod}" if total_mod >= 0 else str(total_mod)
+            
+            formula = f"1d20{mod_str}"
+            adv_state = self.adv_dis_var.get()
+            if adv_state == "Vantaggio":
+                formula += " adv"
+            elif adv_state == "Svantaggio":
+                formula += " dis"
+                
+            self.roll_callback(formula, f"Check {skill_name}")
         except ValueError:
             pass
 
@@ -423,14 +638,161 @@ class CharacterSheetUI(tk.Toplevel):
             des_val = int(self.attr_vars["DES"].get())
             mod = (des_val - 10) // 2
             mod_str = f"+{mod}" if mod >= 0 else str(mod)
-            self.roll_callback(f"1d20{mod_str}", "Iniziativa")
+            
+            formula = f"1d20{mod_str}"
+            adv_state = self.adv_dis_var.get()
+            if adv_state == "Vantaggio":
+                formula += " adv"
+            elif adv_state == "Svantaggio":
+                formula += " dis"
+
+            self.roll_callback(formula, "Iniziativa")
         except ValueError:
             pass
 
+    def short_rest(self):
+        hd_cur = getattr(self.character, "hit_dice_current", 0)
+        hd_tot = getattr(self.character, "hit_dice_total", 0)
+        hd_type = getattr(self.character, "hit_dice_type", "d8")
+        if hd_cur <= 0:
+            messagebox.showinfo("Riposo Breve", "Non hai Dadi Vita disponibili.")
+            return
+            
+        spend = simpledialog.askinteger("Riposo Breve", f"Quanti dadi spendere? ({hd_cur}/{hd_tot} {hd_type} disponibili)", minvalue=1, maxvalue=hd_cur)
+        if not spend: return
+        
+        cos_mod = (self.character.attributes.get("COS", 10) - 10) // 2
+        import random
+        healed = 0
+        die_sides = int(hd_type.replace("d", "")) if "d" in hd_type else 8
+        for _ in range(spend):
+            roll = random.randint(1, die_sides)
+            healed += max(1, roll + cos_mod)
+            
+        self.character.hit_dice_current -= spend
+        new_hp = min(self.hp_max_var.get(), self.hp_cur_var.get() + healed)
+        self.hp_cur_var.set(new_hp)
+        self.manager.update_character(self.character)
+        messagebox.showinfo("Riposo Breve", f"Hai speso {spend} dadi vita e recuperato {healed} HP!")
+
     def long_rest(self):
+        if messagebox.askyesno("Riposo Lungo", "Effettuare un riposo lungo?"):
+            self.character.long_rest()
+            self.load_data()
+            self.manager.update_character(self.character)
+            messagebox.showinfo("Riposo Lungo", "Hai effettuato un riposo lungo! HP, Dadi Vita, Tiri contro la Morte e Slot Incantesimo sono stati recuperati.")
+
+    def roll_death_save(self):
+        import random
+        roll = random.randint(1, 20)
+        if not hasattr(self.character, "death_saves"):
+            self.character.death_saves = {"successes": 0, "failures": 0}
+            
+        succ = self.character.death_saves["successes"]
+        fail = self.character.death_saves["failures"]
+        
+        if roll == 1:
+            fail += 2
+        elif roll <= 9:
+            fail += 1
+        elif roll <= 19:
+            succ += 1
+        elif roll == 20:
+            succ += 1
+            self.hp_cur_var.set(1)
+            succ = 0
+            fail = 0
+            
+        self.character.death_saves["successes"] = min(3, succ)
+        self.character.death_saves["failures"] = min(3, fail)
+        self.update_death_saves_ui()
+        self.manager.update_character(self.character)
+        
+        msg = f"Tiro: {roll}. "
+        if roll == 1: msg += "Fallimento critico! (2 fallimenti)"
+        elif roll <= 9: msg += "Fallimento."
+        elif roll <= 19: msg += "Successo."
+        else: msg += "Successo critico! Recuperi 1 HP."
+        messagebox.showinfo("Tiro contro la Morte", msg)
+
+    def update_death_saves_ui(self):
         try:
-            max_hp = self.hp_max_var.get()
-            self.hp_cur_var.set(max_hp)
-            messagebox.showinfo("Riposo Lungo", "Hai recuperato tutti i Punti Ferita! Ricordati di salvare la scheda.")
+            hp = self.hp_cur_var.get()
+        except tk.TclError:
+            hp = 1
+            
+        if hp <= 0:
+            self.death_saves_frame.grid()
+        else:
+            self.death_saves_frame.grid_remove()
+            
+        if not hasattr(self.character, "death_saves"):
+            self.character.death_saves = {"successes": 0, "failures": 0}
+            
+        succ = self.character.death_saves["successes"]
+        fail = self.character.death_saves["failures"]
+        for i in range(3):
+            self.ds_succ_vars[i].set(i < succ)
+            self.ds_fail_vars[i].set(i < fail)
+
+    def level_up(self):
+        LevelUpDialog(self, self.character, self.on_level_up_applied)
+        
+    def on_level_up_applied(self):
+        self.manager.update_character(self.character)
+        if hasattr(self.manager, 'save_characters'):
+            self.manager.save_characters()
+        self.load_data()
+
+class LevelUpDialog(tk.Toplevel):
+    def __init__(self, master, character, update_callback):
+        super().__init__(master)
+        self.title("Sali di Livello!")
+        self.geometry("400x450")
+        apply_modern_window_style(self)
+        self.character = character
+        self.update_callback = update_callback
+        
+        ttk.Label(self, text=f"Livello {self.character.level} -> {self.character.level + 1}!", font=("Georgia", 14, "bold")).pack(pady=10)
+        
+        hp_frame = ttk.LabelFrame(self, text="Aumento Punti Ferita")
+        hp_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        self.hp_choice = tk.StringVar(value="media")
+        ttk.Radiobutton(hp_frame, text="Prendi il valore medio (inseriscilo sotto)", variable=self.hp_choice, value="media").pack(anchor="w", padx=5, pady=2)
+        ttk.Radiobutton(hp_frame, text="Tira il Dado Vita (inserisci il risultato)", variable=self.hp_choice, value="roll").pack(anchor="w", padx=5, pady=2)
+        
+        ttk.Label(hp_frame, text="Valore da aggiungere agli HP Max:").pack(anchor="w", padx=5)
+        self.hp_add_var = tk.IntVar(value=0)
+        ttk.Entry(hp_frame, textvariable=self.hp_add_var, width=10).pack(anchor="w", padx=5, pady=2)
+        
+        feat_frame = ttk.LabelFrame(self, text="Nuovi Privilegi")
+        feat_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        self.feat_text = tk.Text(feat_frame, height=5, font=("Georgia", 10), wrap=tk.WORD)
+        self.feat_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        btn_frame = ttk.Frame(self)
+        btn_frame.pack(fill=tk.X, pady=10)
+        ttk.Button(btn_frame, text="Applica", command=self.apply, style="Primary.TButton").pack(side=tk.RIGHT, padx=10)
+        ttk.Button(btn_frame, text="Annulla", command=self.destroy).pack(side=tk.RIGHT)
+        
+    def apply(self):
+        try:
+            hp_inc = self.hp_add_var.get()
         except ValueError:
-            pass
+            hp_inc = 0
+            
+        self.character.level += 1
+        self.character.hp_max += hp_inc
+        self.character.hp_current += hp_inc
+        
+        new_feats = self.feat_text.get("1.0", tk.END).strip()
+        if new_feats:
+            if hasattr(self.character, "features") and self.character.features:
+                self.character.features += "\n\n--- Livello " + str(self.character.level) + " ---\n" + new_feats
+            else:
+                self.character.features = "--- Livello " + str(self.character.level) + " ---\n" + new_feats
+                
+        self.update_callback()
+        self.destroy()

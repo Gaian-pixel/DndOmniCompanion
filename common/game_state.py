@@ -13,7 +13,12 @@ class Player:
         self.initiative = 0
         self.full_sheet = None
         self.conditions = []
+        self.condition_durations = {}
         self.travel_role = "Nessuna"
+        self.is_hidden = False
+        self.size = 1
+        self.aura_radius = 0
+        self.aura_color = "yellow"
 
     def to_dict(self):
         return {
@@ -24,7 +29,12 @@ class Player:
             "initiative": self.initiative,
             "full_sheet": self.full_sheet,
             "conditions": self.conditions,
-            "travel_role": getattr(self, "travel_role", "Nessuna")
+            "condition_durations": getattr(self, "condition_durations", {}),
+            "travel_role": getattr(self, "travel_role", "Nessuna"),
+            "is_hidden": getattr(self, "is_hidden", False),
+            "size": getattr(self, "size", 1),
+            "aura_radius": getattr(self, "aura_radius", 0),
+            "aura_color": getattr(self, "aura_color", "yellow")
         }
 
 class GameState:

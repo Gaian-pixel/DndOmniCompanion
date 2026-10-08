@@ -1,170 +1,230 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+from tkinter import ttk, messagebox
 from common.theme import apply_modern_window_style
-from server.compendium_manager import CompendiumManager
 
-class EncounterBuilderUI(tk.Toplevel):
-    def __init__(self, master, on_start_encounter_callback):
+class EncounterBuilderDialog(tk.Toplevel):
+    def __init__(self, master, game_state, on_start_encounter_callback=None):
         super().__init__(master)
-        self.title("Preparazione Combattimento")
-        self.geometry("800x600")
+        self.title("Encounter Builder")
+        self.geometry("600x500")
         apply_modern_window_style(self)
         
+        self.game_state = game_state
         self.on_start_encounter_callback = on_start_encounter_callback
-        self.compendium_manager = CompendiumManager()
-        self.encounter_monsters = []  # List of dicts: {"name": str, "hp": int, "initiative": int, "count": int}
-        self.available_monsters = []
+        
+        self.monsters = []  # List of dicts
+        self.party_thresholds = {"Facile": 0, "Medio": 0, "Difficile": 0, "Mortale": 0}
         
         self.setup_ui()
-        self.load_monsters()
+        self.calculate_party_level()
         
     def setup_ui(self):
-        main_frame = ttk.Frame(self)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # Top Frame: Party Info
+        party_frame = ttk.LabelFrame(self, text="Gruppo Giocatori")
+        party_frame.pack(fill=tk.X, padx=10, pady=5)
         
-        # LEFT: Compendium (Mostri)
-        left_frame = ttk.LabelFrame(main_frame, text="Compendio Mostri (Custom & Offline)")
-        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
+        self.lbl_party_info = ttk.Label(party_frame, text="Calcolo in corso...")
+        self.lbl_party_info.pack(padx=10, pady=5, anchor="w")
         
-        search_frame = ttk.Frame(left_frame)
-        search_frame.pack(fill=tk.X, padx=5, pady=5)
-        ttk.Label(search_frame, text="Cerca:").pack(side=tk.LEFT)
-        self.search_var = tk.StringVar()
-        self.search_var.trace_add("write", self.filter_monsters)
-        ttk.Entry(search_frame, textvariable=self.search_var).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        # Middle Frame: Monsters
+        monster_frame = ttk.LabelFrame(self, text="Mostri nell'Incontro")
+        monster_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        self.monster_listbox = tk.Listbox(left_frame)
-        self.monster_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        btn_add = ttk.Button(monster_frame, text="+ Aggiungi Mostro (Compendio)", command=self.open_compendium)
+        btn_add.pack(pady=5)
         
-        ttk.Button(left_frame, text="Aggiungi all'Incontro >>>", command=self.add_to_encounter).pack(pady=5)
+        columns = ("name", "xp", "count", "hp", "init")
+        self.tree = ttk.Treeview(monster_frame, columns=columns, show="headings")
+        self.tree.heading("name", text="Nome")
+        self.tree.heading("xp", text="XP")
+        self.tree.heading("count", text="Q.tà")
+        self.tree.heading("hp", text="HP")
+        self.tree.heading("init", text="Iniz.")
         
-        # RIGHT: Current Encounter
-        right_frame = ttk.LabelFrame(main_frame, text="Incontro Attuale")
-        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(5, 0))
+        self.tree.column("name", width=150)
+        self.tree.column("xp", width=50, anchor="center")
+        self.tree.column("count", width=50, anchor="center")
+        self.tree.column("hp", width=50, anchor="center")
+        self.tree.column("init", width=50, anchor="center")
         
-        self.encounter_tree = ttk.Treeview(right_frame, columns=("count", "hp", "init"), show="headings")
-        self.encounter_tree.heading("count", text="Q.tà")
-        self.encounter_tree.heading("hp", text="HP")
-        self.encounter_tree.heading("init", text="Iniziativa")
-        self.encounter_tree.column("count", width=40)
-        self.encounter_tree.column("hp", width=50)
-        self.encounter_tree.column("init", width=60)
-        self.encounter_tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        btn_frame = ttk.Frame(right_frame)
-        btn_frame.pack(fill=tk.X, padx=5, pady=5)
-        ttk.Button(btn_frame, text="Rimuovi", command=self.remove_from_encounter).pack(side=tk.LEFT)
-        ttk.Button(btn_frame, text="Modifica Q.tà/HP", command=self.edit_encounter_item).pack(side=tk.LEFT, padx=5)
+        # Buttons to adjust quantity
+        qty_frame = ttk.Frame(monster_frame)
+        qty_frame.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Button(qty_frame, text="- 1", command=self.decrease_qty).pack(side=tk.LEFT, padx=5)
+        ttk.Button(qty_frame, text="+ 1", command=self.increase_qty).pack(side=tk.LEFT, padx=5)
+        ttk.Button(qty_frame, text="Rimuovi", command=self.remove_monster).pack(side=tk.RIGHT, padx=5)
         
+        # Bottom Frame: Difficulty & Deploy
         bottom_frame = ttk.Frame(self)
         bottom_frame.pack(fill=tk.X, padx=10, pady=10)
-        ttk.Button(bottom_frame, text="Svuota Incontro", command=self.clear_encounter).pack(side=tk.LEFT)
-        ttk.Button(bottom_frame, text="Manda in Mappa (Avvia)", command=self.start_encounter, style="Success.TButton").pack(side=tk.RIGHT)
         
-    def load_monsters(self):
-        self.available_monsters = []
-        # Load from Custom Compendium
-        custom = self.compendium_manager.get_items("Mostri")
-        for m in custom:
-            self.available_monsters.append(m)
+        self.lbl_difficulty = ttk.Label(bottom_frame, text="Difficoltà: -- (0 XP)", font=("Georgia", 11, "bold"))
+        self.lbl_difficulty.pack(side=tk.LEFT, padx=5)
+        
+        btn_deploy = ttk.Button(bottom_frame, text="Schiera Incontro!", command=self.deploy_encounter, style="Primary.TButton")
+        btn_deploy.pack(side=tk.RIGHT, padx=5)
+        
+    def calculate_party_level(self):
+        players = self.game_state.get_all_players()
+        real_players = [p for p in players if getattr(p, "conn", None) is not None]
+        
+        if not real_players:
+            self.lbl_party_info.config(text="Nessun giocatore connesso. Imposto budget di default (Livello 1 x 4).")
+            # Fake 4 players of level 1
+            levels = [1, 1, 1, 1]
+        else:
+            levels = []
+            for p in real_players:
+                lvl = 1
+                if hasattr(p, "full_sheet") and isinstance(p.full_sheet, dict):
+                    lvl = int(p.full_sheet.get("level", 1))
+                levels.append(lvl)
+        
+        total_easy = 0
+        total_medium = 0
+        total_hard = 0
+        total_deadly = 0
+        
+        for lvl in levels:
+            if lvl == 1: e, m, h, d = 25, 50, 75, 100
+            elif lvl == 2: e, m, h, d = 50, 100, 150, 200
+            elif lvl == 3: e, m, h, d = 75, 150, 225, 400
+            elif lvl == 4: e, m, h, d = 125, 250, 375, 500
+            elif lvl == 5: e, m, h, d = 250, 500, 750, 1100
+            else:
+                e, m, h, d = lvl * 200, lvl * 400, lvl * 600, lvl * 800
+                
+            total_easy += e
+            total_medium += m
+            total_hard += h
+            total_deadly += d
             
-        # Try to load Offline SRD monsters
+        self.party_thresholds = {
+            "Facile": total_easy,
+            "Medio": total_medium,
+            "Difficile": total_hard,
+            "Mortale": total_deadly
+        }
+        
+        avg_lvl = sum(levels) / len(levels) if levels else 1
+        
+        info_text = f"Giocatori: {len(levels)} | Livello Medio: {avg_lvl:.1f}\n"
+        info_text += f"Soglie XP Gruppo -> Facile: {total_easy}, Medio: {total_medium}, Difficile: {total_hard}, Mortale: {total_deadly}"
+        self.lbl_party_info.config(text=info_text)
+        
+        self.update_difficulty()
+
+    def open_compendium(self):
         try:
-            import os, json
-            from server.srd_downloader import DOWNLOADABLE_COMPENDIUMS
-            data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "srd_data")
-            for comp in DOWNLOADABLE_COMPENDIUMS:
-                if comp["type"] == "Mostri":
-                    path = os.path.join(data_dir, comp["filename"])
-                    if os.path.exists(path):
-                        with open(path, 'r', encoding='utf-8') as f:
-                            data = json.load(f)
-                            self.available_monsters.extend(data)
-        except:
-            pass
+            from server.compendium_ui import CompendiumDialog
+            win = CompendiumDialog(self, on_import_callback=self.on_monster_imported, is_dm=True)
+            win.grab_set()
+        except Exception as e:
+            messagebox.showerror("Errore", str(e))
             
-        self.filter_monsters()
+    def on_monster_imported(self, item_data, category):
+        name = item_data.get("name", "Mostro")
+        xp = item_data.get("xp", 50)
+        hp = item_data.get("hit_points", item_data.get("hp", 10))
+        initiative = item_data.get("initiative", 0)
         
-    def filter_monsters(self, *args):
-        self.monster_listbox.delete(0, tk.END)
-        q = self.search_var.get().lower()
-        for m in self.available_monsters:
-            if q in m.get("name", "").lower():
-                prefix = "[Custom] " if m.get("is_custom") else ""
-                self.monster_listbox.insert(tk.END, prefix + m.get("name", "Sconosciuto"))
-                
-    def add_to_encounter(self):
-        sel = self.monster_listbox.curselection()
-        if not sel: return
-        name_str = self.monster_listbox.get(sel[0])
-        real_name = name_str.replace("[Custom] ", "", 1)
-        
-        monster_data = None
-        for m in self.available_monsters:
-            if m.get("name") == real_name:
-                monster_data = m
-                break
-                
-        if not monster_data: return
-        
-        # Check if already exists
-        for item in self.encounter_monsters:
-            if item["name"] == real_name:
-                item["count"] += 1
-                self.update_encounter_tree()
+        # Check if already in list
+        for m in self.monsters:
+            if m["name"] == name:
+                m["count"] += 1
+                self.refresh_list()
                 return
                 
-        # Add new
-        hp = monster_data.get("hp", 10)
-        init = monster_data.get("initiative", 0)
-        
-        self.encounter_monsters.append({
-            "name": real_name,
+        self.monsters.append({
+            "name": name,
+            "xp": xp,
+            "count": 1,
             "hp": hp,
-            "initiative": init,
-            "count": 1
+            "initiative": initiative
         })
-        self.update_encounter_tree()
+        self.refresh_list()
         
-    def update_encounter_tree(self):
-        for row in self.encounter_tree.get_children():
-            self.encounter_tree.delete(row)
-        for idx, item in enumerate(self.encounter_monsters):
-            self.encounter_tree.insert("", "end", iid=str(idx), text=item["name"], values=(item["count"], item["hp"], item["initiative"]))
+    def refresh_list(self):
+        for item in self.tree.get_children():
+            self.tree.delete(item)
             
-    def remove_from_encounter(self):
-        sel = self.encounter_tree.selection()
-        if not sel: return
-        idx = int(sel[0])
-        del self.encounter_monsters[idx]
-        self.update_encounter_tree()
-        
-    def edit_encounter_item(self):
-        sel = self.encounter_tree.selection()
-        if not sel: return
-        idx = int(sel[0])
-        item = self.encounter_monsters[idx]
-        
-        new_count = simpledialog.askinteger("Quantità", f"Quantità per {item['name']}:", initialvalue=item["count"], parent=self)
-        if new_count is not None and new_count > 0:
-            item["count"] = new_count
+        for idx, m in enumerate(self.monsters):
+            self.tree.insert("", "end", iid=str(idx), values=(m["name"], m["xp"], m["count"], m["hp"], m["initiative"]))
             
-        new_hp = simpledialog.askinteger("HP", f"HP base per {item['name']}:", initialvalue=item["hp"], parent=self)
-        if new_hp is not None:
-            item["hp"] = new_hp
+        self.update_difficulty()
+        
+    def get_selected_index(self):
+        sel = self.tree.selection()
+        if not sel: return None
+        return int(sel[0])
+
+    def increase_qty(self):
+        idx = self.get_selected_index()
+        if idx is not None:
+            self.monsters[idx]["count"] += 1
+            self.refresh_list()
+            self.tree.selection_set(str(idx))
+
+    def decrease_qty(self):
+        idx = self.get_selected_index()
+        if idx is not None:
+            if self.monsters[idx]["count"] > 1:
+                self.monsters[idx]["count"] -= 1
+            else:
+                self.monsters.pop(idx)
+            self.refresh_list()
+            if idx < len(self.monsters):
+                self.tree.selection_set(str(idx))
+            elif self.monsters:
+                self.tree.selection_set(str(len(self.monsters)-1))
+
+    def remove_monster(self):
+        idx = self.get_selected_index()
+        if idx is not None:
+            self.monsters.pop(idx)
+            self.refresh_list()
+
+    def update_difficulty(self):
+        total_xp = 0
+        total_count = 0
+        for m in self.monsters:
+            total_xp += m["xp"] * m["count"]
+            total_count += m["count"]
             
-        self.update_encounter_tree()
-        
-    def clear_encounter(self):
-        self.encounter_monsters = []
-        self.update_encounter_tree()
-        
-    def start_encounter(self):
-        if not self.encounter_monsters:
-            messagebox.showinfo("Avviso", "L'incontro è vuoto.")
+        if total_count == 0:
+            self.lbl_difficulty.config(text="Difficoltà: -- (0 XP)", foreground="white")
             return
             
-        if messagebox.askyesno("Avvia Incontro", "Vuoi inviare tutti i mostri alla mappa e preparare il combattimento?"):
-            self.on_start_encounter_callback(self.encounter_monsters)
-            self.destroy()
-
+        if total_count == 1: mult = 1.0
+        elif total_count == 2: mult = 1.5
+        elif 3 <= total_count <= 6: mult = 2.0
+        elif 7 <= total_count <= 10: mult = 2.5
+        else: mult = 3.0
+        
+        adj_xp = int(total_xp * mult)
+        
+        diff_str = "Facile"
+        color = "green"
+        if adj_xp >= self.party_thresholds["Mortale"]:
+            diff_str = "Mortale"
+            color = "red"
+        elif adj_xp >= self.party_thresholds["Difficile"]:
+            diff_str = "Difficile"
+            color = "orange"
+        elif adj_xp >= self.party_thresholds["Medio"]:
+            diff_str = "Medio"
+            color = "yellow"
+            
+        self.lbl_difficulty.config(text=f"Difficoltà: {diff_str} ({adj_xp} XP Adattati)", foreground=color)
+        
+    def deploy_encounter(self):
+        if not self.monsters:
+            messagebox.showwarning("Attenzione", "Nessun mostro nell'incontro!")
+            return
+            
+        if self.on_start_encounter_callback:
+            self.on_start_encounter_callback(self.monsters)
+            
+        self.destroy()

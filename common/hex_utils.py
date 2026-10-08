@@ -76,6 +76,21 @@ def get_line_hexes(a: Hex, b: Hex) -> list[Hex]:
         results.append(hex_round(q_frac, r_frac))
     return results
 
+def hex_linedraw(a: Hex, b: Hex) -> list[Hex]:
+    dist = hex_distance(a, b)
+    if dist == 0:
+        return [a]
+    results = []
+    # Add a small epsilon offset to prevent exact edge intersection tie-breaking differently
+    a_q, a_r = a.q + 1e-6, a.r + 1e-6
+    b_q, b_r = b.q + 1e-6, b.r + 1e-6
+    for i in range(dist + 1):
+        t = i / dist
+        q_frac = a_q + (b_q - a_q) * t
+        r_frac = a_r + (b_r - a_r) * t
+        results.append(hex_round(q_frac, r_frac))
+    return results
+
 def get_cone_hexes(origin: Hex, target: Hex, length: int) -> list[Hex]:
     """Approssimazione semplice di un cono in una griglia esagonale. 
     Il cono si espande verso il target."""

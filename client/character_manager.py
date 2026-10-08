@@ -11,6 +11,7 @@ class Character:
         self.race = ""
         self.char_class = ""
         self.level = 1
+        self.exp = 0
         self.alignment = ""
         self.background = ""
         
@@ -24,6 +25,12 @@ class Character:
         self.initiative = 0
         self.speed = 9
         self.proficiency_bonus = 2
+        self.hit_dice_total = 1
+        self.hit_dice_current = 1
+        self.hit_dice_type = "d8"
+        self.death_saves = {"successes": 0, "failures": 0}
+        self.currency = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
+        self.hotbar = [""] * 10
         
         # Testo libero / Griglia
         self.inventory_grid = [None] * 25 # Griglia 5x5
@@ -31,7 +38,23 @@ class Character:
         self.spell_slots = {str(i): [0,0] for i in range(1, 10)} # "livello": [usati, massimi]
         self.spell_list = [] # [{"name": "Palla di Fuoco", "level": 3, "time": "1 Azione", "range": "36m", "desc": "..."}]
         self.notes = ""
+        self.skills = {
+            "Acrobazia": 0, "Addestrare Animali": 0, "Arcano": 0, "Atletica": 0,
+            "Furtività": 0, "Indagare": 0, "Inganno": 0, "Intimidire": 0,
+            "Intrattenere": 0, "Intuizione": 0, "Medicina": 0, "Natura": 0,
+            "Percezione": 0, "Persuasione": 0, "Prestidigitazione": 0,
+            "Religione": 0, "Sopravvivenza": 0, "Storia": 0
+        }
+
     
+    def long_rest(self):
+        self.hp_current = self.hp_max
+        regained = max(1, self.hit_dice_total // 2) if self.hit_dice_total > 0 else 0
+        self.hit_dice_current = min(self.hit_dice_total, self.hit_dice_current + regained)
+        self.death_saves = {"successes": 0, "failures": 0}
+        for lvl in self.spell_slots:
+            self.spell_slots[lvl][0] = 0
+
     def to_dict(self):
         return self.__dict__
     
@@ -53,6 +76,17 @@ class Character:
             c.spell_slots = {str(i): [0,0] for i in range(1, 10)}
         if not hasattr(c, "spell_list") or not isinstance(c.spell_list, list):
             c.spell_list = []
+        if not hasattr(c, "skills"):
+            c.skills = {
+                "Acrobazia": 0, "Addestrare Animali": 0, "Arcano": 0, "Atletica": 0,
+                "Furtività": 0, "Indagare": 0, "Inganno": 0, "Intimidire": 0,
+                "Intrattenere": 0, "Intuizione": 0, "Medicina": 0, "Natura": 0,
+                "Percezione": 0, "Persuasione": 0, "Prestidigitazione": 0,
+                "Religione": 0, "Sopravvivenza": 0, "Storia": 0
+            }
+        
+        if not hasattr(c, "hotbar") or not isinstance(c.hotbar, list) or len(c.hotbar) != 10:
+            c.hotbar = [""] * 10
             
         return c
 

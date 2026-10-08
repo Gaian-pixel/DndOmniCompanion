@@ -100,3 +100,23 @@ def make_request_initiative():
 
 def make_submit_initiative(initiative_total):
     return {"type": "SUBMIT_INITIATIVE", "data": {"initiative": initiative_total}}
+def make_attack_request(target_name, weapon_name, hit_bonus, damage_formula):
+    return {"type": "ATTACK_REQUEST", "data": {"target_name": target_name, "weapon_name": weapon_name, "hit_bonus": hit_bonus, "damage_formula": damage_formula}}
+
+
+def make_force_save_request(targets, stat, dc, damage_formula, half_on_success):
+    return {"type": "FORCE_SAVE_REQUEST", "data": {"targets": targets, "stat": stat, "dc": dc, "damage_formula": damage_formula, "half_on_success": half_on_success}}
+
+def make_prompt_save(stat, dc, damage_formula, half_on_success, source_name):
+    return {"type": "PROMPT_SAVE", "data": {"stat": stat, "dc": dc, "damage_formula": damage_formula, "half_on_success": half_on_success, "source_name": source_name}}
+
+def make_save_result(stat, roll_total, is_crit, is_fail, dc, damage_formula, half_on_success, source_name):
+    return {"type": "SAVE_RESULT", "data": {"stat": stat, "roll_total": roll_total, "is_crit": is_crit, "is_fail": is_fail, "dc": dc, "damage_formula": damage_formula, "half_on_success": half_on_success, "source_name": source_name}}
+
+
+
+def make_handout_broadcast(title, image_b64):
+    return {"type": "HANDOUT_BROADCAST", "data": {"title": title, "image_b64": image_b64}}
+
+def make_toggle_wall_request(q, r):
+    return {"type": "TOGGLE_WALL_REQUEST", "data": {"q": q, "r": r}}

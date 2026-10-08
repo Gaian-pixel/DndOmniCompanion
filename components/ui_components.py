@@ -41,12 +41,49 @@ class HexMapCanvas(tk.Canvas):
         self.bind("<Button-3>", self._on_ruler_start)
         self.bind("<B3-Motion>", self._on_ruler_drag)
         self.bind("<ButtonRelease-3>", self._on_ruler_end)
+        self.bind("<Shift-Button-3>", self._on_wall_toggle)
+
+        self.bind("<Control-Button-1>", self._on_draw_start)
+        self.bind("<Control-B1-Motion>", self._on_draw_move)
+        self.bind("<Control-ButtonRelease-1>", self._on_draw_end)
+
+        self.drawn_lines = []
 
     def set_on_click_callback(self, func):
         self.on_hex_click_callback = func
 
     def set_on_ping_callback(self, func):
         self.on_ping_callback = func
+
+    def set_on_wall_toggle_callback(self, func):
+        self.on_wall_toggle_callback = func
+
+    def set_on_draw_callback(self, func):
+        self.on_draw_callback = func
+
+    def draw_remote_line(self, points, color):
+        self.drawn_lines.append({"points": points, "color": color})
+        self.redraw()
+
+    def _on_draw_start(self, event):
+        self._current_drawing = [(event.x, event.y)]
+        
+    def _on_draw_move(self, event):
+        if hasattr(self, '_current_drawing'):
+            self._current_drawing.append((event.x, event.y))
+            if len(self._current_drawing) >= 2:
+                p1 = self._current_drawing[-2]
+                p2 = self._current_drawing[-1]
+                self.create_line(p1[0], p1[1], p2[0], p2[1], fill="red", width=2, tags="temp_draw")
+
+    def _on_draw_end(self, event):
+        if hasattr(self, '_current_drawing'):
+            if len(self._current_drawing) > 1:
+                world_points = [((px - self.pan_offset_x) / self.zoom_level, (py - self.pan_offset_y) / self.zoom_level) for px, py in self._current_drawing]
+                if getattr(self, 'on_draw_callback', None):
+                    self.on_draw_callback(world_points, "red")
+            self.delete("temp_draw")
+            del self._current_drawing
 
     def _zoom(self, event):
         factor = 1.1 if (event.num == 4 or event.delta > 0) else 0.9
@@ -162,6 +199,13 @@ class HexMapCanvas(tk.Canvas):
             self._ruler_text_bg_id = None
         self._ruler_start_hex = None
 
+    def _on_wall_toggle(self, event):
+        if not self.hex_layout or not getattr(self, 'on_wall_toggle_callback', None): return
+        world_x = (event.x - self.pan_offset_x) / self.zoom_level
+        world_y = (event.y - self.pan_offset_y) / self.zoom_level
+        clicked_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
+        self.on_wall_toggle_callback(clicked_hex.q, clicked_hex.r)
+
     def show_ping(self, q, r, color="yellow"):
         if not self.hex_layout: return
         hex_obj = Hex(q, r)
@@ -230,6 +274,7 @@ class HexMapCanvas(tk.Canvas):
         is_dm = not bool(self.player_name)
         draft_key = "fow_draft" if ("fow_draft" in self.map_data and is_dm) else "fow_revealed"
         fow_revealed = {Hex(h[0], h[1]) for h in self.map_data.get(draft_key, [])}
+        walls_data = self.map_data.get("walls", [])
         
         for q, r in self.map_data.get("hexes", []):
             current_hex = Hex(q, r)
@@ -239,8 +284,11 @@ class HexMapCanvas(tk.Canvas):
             fill_color = "#FFD700" if current_hex in pois_data else ""
             stipple_pattern = ""
             
-            # Logica Fog of War
-            if fow_enabled and current_hex not in fow_revealed:
+            # Logica Fog of War e Muri
+            if [q, r] in walls_data:
+                fill_color = "#101010"
+                stipple_pattern = ""
+            elif fow_enabled and current_hex not in fow_revealed:
                 if is_dm:
                     fill_color = "gray25"
                     stipple_pattern = "gray50"
@@ -277,14 +325,32 @@ class HexMapCanvas(tk.Canvas):
                                       for px, py in self.hex_layout.hex_corners(h)]
                     self.create_polygon(scaled_corners, fill=color, outline=color, width=2, stipple="gray50")
 
+        # Disegna linee a mano libera
+        for line_data in getattr(self, 'drawn_lines', []):
+            points = line_data.get("points", [])
+            color = line_data.get("color", "red")
+            if len(points) >= 2:
+                screen_points = []
+                for wx, wy in points:
+                    sx = wx * self.zoom_level + self.pan_offset_x
+                    sy = wy * self.zoom_level + self.pan_offset_y
+                    screen_points.extend([sx, sy])
+                self.create_line(screen_points, fill=color, width=2, smooth=True)
+
         for name, pdata in self.players_data.items():
 
             if isinstance(pdata, dict):
                 pos = pdata.get('position', [0, 0])
                 conditions = pdata.get('conditions', [])
+                size_mult = pdata.get('size', 1)
+                aura_radius = pdata.get('aura_radius', 0)
+                aura_color = pdata.get('aura_color', 'yellow')
             else:
                 pos = pdata
                 conditions = []
+                size_mult = 1
+                aura_radius = 0
+                aura_color = 'yellow'
                 
             q, r = pos
             current_hex = Hex(q, r)
@@ -297,7 +363,13 @@ class HexMapCanvas(tk.Canvas):
             screen_x = center_x * self.zoom_level + self.pan_offset_x
             screen_y = center_y * self.zoom_level + self.pan_offset_y
             color = "#90EE90" if name == self.player_name else "#87CEEB"
-            radius = 10
+            radius = 10 * size_mult
+            
+            if aura_radius > 0:
+                screen_aura_r = aura_radius * self.hex_layout.size * self.zoom_level
+                self.create_oval(screen_x - screen_aura_r, screen_y - screen_aura_r, 
+                                 screen_x + screen_aura_r, screen_y + screen_aura_r, 
+                                 fill="", outline=aura_color, dash=(4, 4))
             
             is_turn = getattr(self, "turn_player_name", "") == name
             if is_turn:
@@ -307,12 +379,21 @@ class HexMapCanvas(tk.Canvas):
             self.create_text(screen_x, screen_y, text=name[:2], fill="black", font=("Arial", 8, "bold"))
             
             if conditions:
-                # Draw a small red dot indicator for active conditions
-                cond_r = 3
-                self.create_oval(screen_x + radius - cond_r, screen_y - radius - cond_r, 
-                                 screen_x + radius + cond_r, screen_y - radius + cond_r, 
-                                 fill="red", outline="black")
-                # Optional: hover logic for tooltip or just draw first letter
-                # We can draw the number of conditions
-                if len(conditions) > 1:
-                    self.create_text(screen_x + radius, screen_y - radius - cond_r - 4, text=str(len(conditions)), fill="red", font=("Arial", 6, "bold"))
+                # Draw condition abbreviations
+                cond_colors = {
+                    "Avvelenato": "green", "Accecato": "gray", "Prono": "brown", "Stordito": "yellow",
+                    "Spaventato": "purple", "Invisibile": "white", "Incapacitato": "orange", "Paralizzato": "blue"
+                }
+                
+                # Draw them in a row above the token
+                box_size = 10
+                start_x = screen_x - (len(conditions) * box_size) / 2
+                start_y = screen_y - radius - box_size - 2
+                
+                for i, cond in enumerate(conditions):
+                    cx = start_x + (i * box_size)
+                    bg_color = cond_colors.get(cond, "red")
+                    fg_color = "black" if bg_color in ["yellow", "white", "green"] else "white"
+                    
+                    self.create_rectangle(cx, start_y, cx + box_size, start_y + box_size, fill=bg_color, outline="black")
+                    self.create_text(cx + box_size/2, start_y + box_size/2, text=cond[:1].upper(), fill=fg_color, font=("Arial", 6, "bold"))
