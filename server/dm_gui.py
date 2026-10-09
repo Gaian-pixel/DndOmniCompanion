@@ -21,7 +21,8 @@ from server.map_downloader import MapDownloaderDialog
 from .network import Server
 from common.hex_utils import Hex
 from common.network_utils import send_message, receive_message, broadcast
-from components.ui_components import HexMapCanvas
+from components.ui_components import HexMapCanvas, ToolTip
+from client.voice_client import VoiceClient
 
 class DM_GUI:
     def __init__(self, master):
@@ -36,6 +37,8 @@ class DM_GUI:
         setup_theme(self.master)
         self.setup_gui()
         self.server_thread=threading.Thread(target=self.server.start, daemon=True); self.server_thread.start()
+        self.voice_client = VoiceClient("127.0.0.1", 53912)
+        self.voice_client.start()
         self.master.after(100, self.process_queue)
 
     def setup_gui(self):
@@ -62,70 +65,31 @@ class DM_GUI:
         tools_menu.add_command(label="Condividi Handout (Immagine)", command=self.share_handout)
         menubar.add_cascade(label="Strumenti", menu=tools_menu)
         
-        # 2. LAYOUT PRINCIPALE (3 Colonne: Sinistra=Gestione, Centro=Mappa, Destra=Chat)
+        # 2. LAYOUT PRINCIPALE (3 Colonne: Sinistra=Toolbar, Centro=Mappa, Destra=Notebook)
         main_frame = ttk.Frame(self.master, padding="15 15 15 15")
         main_frame.pack(fill=tk.BOTH, expand=True)
-        main_frame.columnconfigure(1, weight=4)
-        main_frame.columnconfigure(0, weight=1)
-        main_frame.columnconfigure(2, weight=2)
+        main_frame.columnconfigure(0, weight=0)
+        main_frame.columnconfigure(1, weight=1)
+        main_frame.columnconfigure(2, weight=0, minsize=350)
         main_frame.rowconfigure(0, weight=1)
         
-        # --- COLONNA 0: PANNELLO SINISTRO (Gestione e Combattimento) ---
-        left_panel = ttk.Frame(main_frame)
-        left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        # --- COLONNA 0: LEFT TOOLBAR (Strumenti Mappa) ---
+        left_toolbar = ttk.Frame(main_frame)
+        left_toolbar.grid(row=0, column=0, sticky="ns", padx=(0, 5))
         
-        ttk.Label(left_panel, text="Avventurieri & NPC", font=self.default_font, foreground="#E0E0E0").pack(anchor="w", pady=(0, 5))
-        self.player_listbox = tk.Listbox(left_panel, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=self.default_font, selectbackground=ACCENT_RED, borderwidth=0, relief="flat", highlightthickness=0)
-        self.player_listbox.pack(fill=tk.BOTH, expand=True, side=tk.TOP, pady=(0, 5))
-        self.player_listbox.bind("<Double-Button-1>", self.open_private_chat_from_list)
-        self.player_listbox.bind("<Button-3>", self.show_player_context_menu)
-        self.player_listbox.bind("<<ListboxSelect>>", self.on_player_selected)
-
-        self.btn_hide_reveal = ttk.Button(left_panel, text="Nascondi/Rivela PNG", command=self.toggle_hide_reveal)
-        self.btn_hide_reveal.pack(fill=tk.X, side=tk.TOP, pady=(0, 5))
-
-        self.npc_actions_frame = ttk.LabelFrame(left_panel, text="Azioni PNG Selezionato")
-        self.npc_actions_frame.pack(fill=tk.X, side=tk.TOP, pady=(0, 5))
-        
-        self.btn_combat = ttk.Button(left_panel, text="🗡 Inizia Combattimento", command=self.toggle_combat, style='Primary.TButton')
-        self.btn_combat.pack(fill=tk.X, side=tk.TOP, pady=(0, 5))
-        
-        # Questo frame combat apparirà solo quando si entra in combat
-        self.combat_controls_frame = ttk.Frame(left_panel)
-        # Non lo packiamo subito. Verrà packato in update_state() o toggle_combat()
-        
-        self.lbl_round = ttk.Label(self.combat_controls_frame, text="Round: -", font=self.default_font)
-        self.lbl_round.pack(fill=tk.X, pady=(0, 5))
-        
-        turn_nav_frame = ttk.Frame(self.combat_controls_frame)
-        turn_nav_frame.pack(fill=tk.X, pady=(0, 5))
-        self.btn_prev_turn = ttk.Button(turn_nav_frame, text="⬅ Precedente", command=self.prev_turn_gui, state=tk.DISABLED)
-        self.btn_prev_turn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
-        self.btn_next_turn = ttk.Button(turn_nav_frame, text="Prossimo ➡", command=self.next_turn_gui, state=tk.DISABLED)
-        self.btn_next_turn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
-        
-        ttk.Button(left_panel, text="+ Aggiungi NPC/Mostro", command=self.add_npc).pack(fill=tk.X, side=tk.BOTTOM, pady=(5, 0))
-        
-        btn_frame_bottom = ttk.Frame(left_panel)
-        btn_frame_bottom.pack(fill=tk.X, side=tk.BOTTOM, pady=(10, 0))
-        ttk.Button(btn_frame_bottom, text="Spawna PNG", command=self.spawn_png_dialog, style="Primary.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
-        ttk.Button(btn_frame_bottom, text="Encounter Builder", command=self.open_encounter_builder, style="Primary.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
-        
-        self.player_menu = tk.Menu(self.master, tearoff=0, bg="#3E2723", fg="#F5F5DC", font=self.default_font)
-        self.player_menu.add_command(label="Visualizza Scheda", command=self.view_player_sheet)
-        self.player_menu.add_command(label="Assegna Oggetto", command=self.open_assign_item_dialog)
-        self.player_menu.add_command(label="Modifica HP", command=self.open_modify_hp_dialog)
-        self.player_menu.add_command(label="Modifica Stati/Condizioni", command=self.open_conditions_dialog)
-        self.player_menu.add_command(label="Esegui Azione (Danno/Cura)", command=self.open_action_dialog)
-        self.player_menu.add_command(label="Apri Chat Privata", command=self.open_private_chat_from_context)
-        self.player_menu.add_separator()
-        self.player_menu.add_command(label="Aggiungi/Rimuovi da Combattimento", command=self.toggle_player_combat_status)
-        self.player_menu.add_separator()
-        self.player_menu.add_command(label="Rimuovi", command=self.remove_entity)
+        btn1 = ttk.Button(left_toolbar, text="👆", width=3, command=lambda: self.map_canvas.center_view() if self.map_canvas else None)
+        btn1.pack(pady=5)
+        ToolTip(btn1, "Centra Mappa")
+        btn2 = ttk.Button(left_toolbar, text="☁️", width=3, command=lambda: print("Nebbia: Placeholder"))
+        btn2.pack(pady=5)
+        ToolTip(btn2, "Nebbia")
+        btn3 = ttk.Button(left_toolbar, text="📏", width=3, command=lambda: print("Misura: Placeholder"))
+        btn3.pack(pady=5)
+        ToolTip(btn3, "Misura Distanza")
         
         # --- COLONNA 1: MAPPA (Viewport pulita) ---
         map_outer_frame = ttk.Frame(main_frame)
-        map_outer_frame.grid(row=0, column=1, sticky="nsew", padx=10)
+        map_outer_frame.grid(row=0, column=1, sticky="nsew", padx=5)
         
         # Toolbar mappa fluttuante (minimalista)
         map_top_bar = ttk.Frame(map_outer_frame)
@@ -134,8 +98,10 @@ class DM_GUI:
         
         self.btn_clear_aoe = ttk.Button(map_top_bar, text="Pulisci AoE", command=self.clear_aoes)
         self.btn_clear_aoe.pack(side=tk.RIGHT, padx=5)
-        self.center_map_btn = ttk.Button(map_top_bar, text='Centra Mappa', command=lambda: self.map_canvas.center_view())
+        ToolTip(self.btn_clear_aoe, "Pulisci Aree di Effetto")
+        self.center_map_btn = ttk.Button(map_top_bar, text='Centra Mappa', command=lambda: self.map_canvas.center_view() if self.map_canvas else None)
         self.center_map_btn.pack(side=tk.LEFT, padx=5)
+        ToolTip(self.center_map_btn, "Centra Mappa sulla Vista")
         
         fow_toolbar = ttk.Frame(map_top_bar)
         fow_toolbar.pack(side=tk.RIGHT, padx=5)
@@ -172,23 +138,91 @@ class DM_GUI:
         self.map_canvas.set_on_click_callback(self.on_hex_clicked)
         self.map_canvas.set_on_ping_callback(self.on_ping_callback)
         
-        chat_panel=ttk.Frame(main_frame)
-        chat_panel.grid(row=0, column=2, sticky="nsew", padx=(10, 0))
-        ttk.Label(chat_panel, text="Messaggi", font=self.default_font, foreground="#E0E0E0").pack(anchor="w", pady=(0, 5))
+        # --- COLONNA 2: RIGHT SIDEBAR (Notebook a Tabs) ---
+        right_panel = ttk.Frame(main_frame)
+        right_panel.grid(row=0, column=2, sticky="nsew", padx=(5, 0))
         
-        # We need a container inside chat_panel for rowconfigure to work if we used grid, but we use pack for Notebook
-        self.notebook = ttk.Notebook(chat_panel); self.notebook.pack(fill=tk.BOTH, expand=True, pady=0)
+        self.right_notebook = ttk.Notebook(right_panel)
+        self.right_notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # Tab 1 ("Chat & Log")
+        tab_chat = ttk.Frame(self.right_notebook)
+        self.right_notebook.add(tab_chat, text="Chat & Log")
+        
+        self.notebook = ttk.Notebook(tab_chat)
+        self.notebook.pack(fill=tk.BOTH, expand=True, pady=0)
         self.create_chat_tab("Sistema")
         
-        chat_input_frame = ttk.Frame(chat_panel)
+        chat_input_frame = ttk.Frame(tab_chat)
         chat_input_frame.pack(fill=tk.X, pady=(5, 0))
-        self.chat_entry=ttk.Entry(chat_input_frame); self.chat_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        self.chat_entry = ttk.Entry(chat_input_frame)
+        self.chat_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
         self.chat_entry.bind("<Return>", lambda e: self.send_dm_chat())
         ttk.Button(chat_input_frame, text="Invia", command=self.send_dm_chat).pack(side=tk.LEFT)
+
+        self.voice_controls_frame = tk.Frame(tab_chat, bg="#292B2F", pady=5, padx=5)
+        self.voice_controls_frame.pack(fill=tk.X, side=tk.BOTTOM)
+        tk.Label(self.voice_controls_frame, text="Voice Channel: Disconnesso", bg="#292B2F", fg="#8E9297", font=("Arial", 9)).pack(side=tk.LEFT, padx=5)
+        self.btn_deafen = tk.Button(self.voice_controls_frame, text=" 🎧 ", bg="#36393F", fg="white", relief=tk.FLAT, command=self.toggle_deafen)
+        self.btn_deafen.pack(side=tk.RIGHT, padx=2)
+        self.btn_mute = tk.Button(self.voice_controls_frame, text=" 🎤 ", bg="#36393F", fg="white", relief=tk.FLAT, command=self.toggle_mute)
+        self.btn_mute.pack(side=tk.RIGHT, padx=2)
         
-        btn_frame = ttk.Frame(chat_panel)
+        btn_frame = ttk.Frame(tab_chat)
         btn_frame.pack(fill=tk.X, pady=5)
         ttk.Button(btn_frame, text="Tira Dadi", command=self.roll_dice_dialog, style="Primary.TButton").pack(side=tk.LEFT)
+        
+        # Tab 2 ("Iniziativa & PG")
+        tab_combat = ttk.Frame(self.right_notebook)
+        self.right_notebook.add(tab_combat, text="Iniziativa & PG")
+        
+        ttk.Label(tab_combat, text="Avventurieri & NPC", font=self.default_font, foreground="#E0E0E0").pack(anchor="w", pady=(0, 5))
+        self.player_listbox = tk.Listbox(tab_combat, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=self.default_font, selectbackground=ACCENT_RED, borderwidth=0, relief="flat", highlightthickness=0)
+        self.player_listbox.pack(fill=tk.BOTH, expand=True, side=tk.TOP, pady=(0, 5))
+        self.player_listbox.bind("<Double-Button-1>", self.open_private_chat_from_list)
+        self.player_listbox.bind("<Button-3>", self.show_player_context_menu)
+        self.player_listbox.bind("<<ListboxSelect>>", self.on_player_selected)
+
+        self.btn_hide_reveal = ttk.Button(tab_combat, text="Nascondi/Rivela PNG", command=self.toggle_hide_reveal)
+        self.btn_hide_reveal.pack(fill=tk.X, side=tk.TOP, pady=(0, 5))
+
+        self.npc_actions_frame = ttk.LabelFrame(tab_combat, text="Azioni PNG Selezionato")
+        self.npc_actions_frame.pack(fill=tk.X, side=tk.TOP, pady=(0, 5))
+        
+        self.btn_combat = ttk.Button(tab_combat, text="🗡 Inizia Combattimento", command=self.toggle_combat, style='Primary.TButton')
+        self.btn_combat.pack(fill=tk.X, side=tk.TOP, pady=(0, 5))
+        
+        self.combat_controls_frame = ttk.Frame(tab_combat)
+        
+        self.lbl_round = ttk.Label(self.combat_controls_frame, text="Round: -", font=self.default_font)
+        self.lbl_round.pack(fill=tk.X, pady=(0, 5))
+        
+        turn_nav_frame = ttk.Frame(self.combat_controls_frame)
+        turn_nav_frame.pack(fill=tk.X, pady=(0, 5))
+        self.btn_prev_turn = ttk.Button(turn_nav_frame, text="⬅ Precedente", command=self.prev_turn_gui, state=tk.DISABLED)
+        self.btn_prev_turn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
+        self.btn_next_turn = ttk.Button(turn_nav_frame, text="Prossimo ➡", command=self.next_turn_gui, state=tk.DISABLED)
+        self.btn_next_turn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
+        
+        ttk.Button(tab_combat, text="+ Aggiungi NPC/Mostro", command=self.add_npc).pack(fill=tk.X, side=tk.BOTTOM, pady=(5, 0))
+        
+        btn_frame_bottom = ttk.Frame(tab_combat)
+        btn_frame_bottom.pack(fill=tk.X, side=tk.BOTTOM, pady=(10, 0))
+        ttk.Button(btn_frame_bottom, text="Spawna PNG", command=self.spawn_png_dialog, style="Primary.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
+        ttk.Button(btn_frame_bottom, text="Encounter Builder", command=self.open_encounter_builder, style="Primary.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
+        
+        self.player_menu = tk.Menu(self.master, tearoff=0, bg="#3E2723", fg="#F5F5DC", font=self.default_font)
+        self.player_menu.add_command(label="Visualizza Scheda", command=self.view_player_sheet)
+        self.player_menu.add_command(label="Assegna Oggetto", command=self.open_assign_item_dialog)
+        self.player_menu.add_command(label="Modifica HP", command=self.open_modify_hp_dialog)
+        self.player_menu.add_command(label="Modifica Stati/Condizioni", command=self.open_conditions_dialog)
+        self.player_menu.add_command(label="Esegui Azione (Danno/Cura)", command=self.open_action_dialog)
+        self.player_menu.add_command(label="Apri Chat Privata", command=self.open_private_chat_from_context)
+        self.player_menu.add_separator()
+        self.player_menu.add_command(label="Aggiungi/Rimuovi da Combattimento", command=self.toggle_player_combat_status)
+        self.player_menu.add_command(label="Aggiungi/Rimuovi dal Party", command=self.toggle_party_status)
+        self.player_menu.add_separator()
+        self.player_menu.add_command(label="Rimuovi", command=self.remove_entity)
 
     def on_ping_callback(self, clicked_hex):
         broadcast(self.server.game_state, make_ping_broadcast(clicked_hex.q, clicked_hex.r, "red"))
@@ -324,6 +358,7 @@ class DM_GUI:
         sel = self.player_listbox.curselection()
         if not sel: return
         display_text = self.player_listbox.get(sel[0])
+        if display_text.startswith('---'): return
         player_name = display_text.split(" (HP")[0].replace("▶", "").strip()
         player = self.server.game_state.find_player(player_name)
         if not player: return
@@ -338,7 +373,11 @@ class DM_GUI:
         sel = self.player_listbox.curselection()
         if not sel: return
         display_text = self.player_listbox.get(sel[0])
-        player_name = display_text.split(" (HP")[0].replace("▶", "").strip()
+        if display_text.startswith('---'): return
+        if display_text.startswith("---"): return
+        player_name = display_text.split(" (HP")[0].replace("▶", "").replace("➡️", "").strip()
+        if player_name.startswith("[N] "):
+            player_name = player_name[4:]
         player = self.server.game_state.find_player(player_name)
         if not player: return
 
@@ -378,6 +417,22 @@ class DM_GUI:
         self.server.game_state._trigger_gui_update()
         from common.protocol import make_game_state
         broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
+
+    def toggle_party_status(self):
+        sel = self.player_listbox.curselection()
+        if not sel: return
+        display_text = self.player_listbox.get(sel[0])
+        if display_text.startswith('---'): return
+        if display_text.startswith("---"): return
+        player_name = display_text.split(" (HP")[0].replace("▶", "").replace("➡️", "").strip()
+        if player_name.startswith("[N] "):
+            player_name = player_name[4:]
+        player = self.server.game_state.find_player(player_name)
+        if not player: return
+
+        current_status = getattr(player, 'is_party_member', False)
+        player.is_party_member = not current_status
+        self.server.game_state._trigger_gui_update()
 
     def clear_aoes(self):
         self.server.game_state.clear_aoes()
@@ -637,6 +692,7 @@ class DM_GUI:
         if not sel_indices: return
         
         display_text = self.player_listbox.get(sel_indices[0])
+        if display_text.startswith('---'): return
         selected_name = display_text.split(" (HP")[0].replace("▶", "").strip()
 
         if self.server.game_state.move_player(selected_name, [clicked_hex.q, clicked_hex.r]):
@@ -772,29 +828,49 @@ class DM_GUI:
         if self.server.game_state:
             players = self.server.game_state.get_all_players()
             if not self.server.game_state.combat_active:
-                players = sorted(players, key=lambda p: p.initiative, reverse=True)
+                party = sorted([p for p in players if getattr(p, "is_party_member", False)], key=lambda p: p.initiative, reverse=True)
+                npcs = sorted([p for p in players if not getattr(p, "is_party_member", False)], key=lambda p: p.initiative, reverse=True)
+                
+                ordered_list = []
+                ordered_list.append(("--- PARTY ---", None))
+                for p in party: ordered_list.append((p, "party"))
+                ordered_list.append(("--- NPC ---", None))
+                for p in npcs: ordered_list.append((p, "npc"))
 
-            for i, p in enumerate(players): 
-                in_combat = getattr(p, 'in_combat', True) if self.server.game_state.combat_active else True
-                is_turn = self.server.game_state.combat_active and in_combat and i == self.server.game_state.turn_index
-                
-                prefix = "➡️ " if is_turn else "  "
-                conds = f" {{{', '.join(p.conditions)}}}" if getattr(p, "conditions", []) else ""
-                
-                hidden_str = "[N] " if getattr(p, "is_hidden", False) else ""
-                if not in_combat and self.server.game_state.combat_active:
-                    display_text = f"  {hidden_str}{p.name} [Non in Combattimento]{conds}"
-                else:
-                    display_text = f"{prefix}{hidden_str}{p.name} (HP: {p.hp}/{p.max_hp}) [Iniz: {p.initiative}]{conds}"
+                for i, item in enumerate(ordered_list):
+                    if isinstance(item[0], str):
+                        self.player_listbox.insert(tk.END, item[0])
+                        self.player_listbox.itemconfig(i, {'bg': SURFACE_COLOR, 'fg': TEXT_MUTED})
+                    else:
+                        p = item[0]
+                        prefix = "  "
+                        conds = f" {{{', '.join(p.conditions)}}}" if getattr(p, "conditions", []) else ""
+                        hidden_str = "[N] " if getattr(p, "is_hidden", False) else ""
+                        display_text = f"{prefix}{hidden_str}{p.name} (HP: {p.hp}/{p.max_hp}) [Iniz: {p.initiative}]{conds}"
+                        self.player_listbox.insert(tk.END, display_text)
+                        self.player_listbox.itemconfig(i, {'bg': SURFACE_COLOR, 'fg': TEXT_COLOR})
+            else:
+                for i, p in enumerate(players): 
+                    in_combat = getattr(p, 'in_combat', True) if self.server.game_state.combat_active else True
+                    is_turn = self.server.game_state.combat_active and in_combat and i == self.server.game_state.turn_index
                     
-                self.player_listbox.insert(tk.END, display_text)
-                
-                if is_turn:
-                    self.player_listbox.itemconfig(i, {'bg': '#D4AF37', 'fg': 'black'})
-                elif not in_combat and self.server.game_state.combat_active:
-                    self.player_listbox.itemconfig(i, {'bg': SURFACE_COLOR, 'fg': TEXT_MUTED})
-                else:
-                    self.player_listbox.itemconfig(i, {'bg': SURFACE_COLOR, 'fg': TEXT_COLOR})
+                    prefix = "➡️ " if is_turn else "  "
+                    conds = f" {{{', '.join(p.conditions)}}}" if getattr(p, "conditions", []) else ""
+                    
+                    hidden_str = "[N] " if getattr(p, "is_hidden", False) else ""
+                    if not in_combat and self.server.game_state.combat_active:
+                        display_text = f"  {hidden_str}{p.name} [Non in Combattimento]{conds}"
+                    else:
+                        display_text = f"{prefix}{hidden_str}{p.name} (HP: {p.hp}/{p.max_hp}) [Iniz: {p.initiative}]{conds}"
+                        
+                    self.player_listbox.insert(tk.END, display_text)
+                    
+                    if is_turn:
+                        self.player_listbox.itemconfig(i, {'bg': '#D4AF37', 'fg': 'black'})
+                    elif not in_combat and self.server.game_state.combat_active:
+                        self.player_listbox.itemconfig(i, {'bg': SURFACE_COLOR, 'fg': TEXT_MUTED})
+                    else:
+                        self.player_listbox.itemconfig(i, {'bg': SURFACE_COLOR, 'fg': TEXT_COLOR})
 
         if current_selection:
             try: self.player_listbox.selection_set(current_selection[0])
@@ -817,7 +893,7 @@ class DM_GUI:
                     player_name, text = payload.get("from"), payload.get("text")
                     if player_name and text:
                         self.create_chat_tab(player_name)
-                        self.log_to_chat(f"[{player_name}]: {text}", tab_name=player_name)
+                        self.log_to_chat(text, tab_name=player_name, sender=player_name, color="#5865F2")
                 elif msg_type == "PING_BROADCAST":
                     payload = msg.get("payload", {})
                     self.map_canvas.show_ping(payload.get("q"), payload.get("r"), payload.get("color", "yellow"))
@@ -825,7 +901,11 @@ class DM_GUI:
         self.master.after(100, self.process_queue)
 
     def on_closing(self):
-        if messagebox.askokcancel("Esci", "Vuoi chiudere il server?"): self.server.stop(); self.master.destroy()
+        if messagebox.askokcancel("Esci", "Vuoi chiudere il server?"):
+            if hasattr(self, 'voice_client'):
+                self.voice_client.stop()
+            self.server.stop()
+            self.master.destroy()
 
     def share_handout(self):
         filepath = filedialog.askopenfilename(
@@ -868,15 +948,22 @@ class DM_GUI:
     def create_chat_tab(self, name):
         if name in self.chat_tabs: return
         tab_frame = ttk.Frame(self.notebook)
-        text_widget = scrolledtext.ScrolledText(tab_frame, state='disabled', wrap=tk.WORD, bg=SURFACE_COLOR, fg=TEXT_COLOR, borderwidth=0, highlightthickness=0)
+        text_widget = scrolledtext.ScrolledText(tab_frame, state='disabled', wrap=tk.WORD, bg="#36393F", 
+fg="#DCDDDE", borderwidth=0, highlightthickness=0, font=("Arial", 10))
         text_widget.pack(fill=tk.BOTH, expand=True)
         self.notebook.add(tab_frame, text=name)
         self.chat_tabs[name] = text_widget
+        
+        # Configure tags for Discord-like format
+        text_widget.tag_config("timestamp", foreground="#72767D", font=("Arial", 8))
+        text_widget.tag_config("sender", font=("Arial", 10, "bold"))
+        text_widget.tag_config("text", foreground="#DCDDDE")
         
     def open_private_chat_from_list(self, event):
         selected_indices = self.player_listbox.curselection()
         if not selected_indices: return
         display_text = self.player_listbox.get(selected_indices[0])
+        if display_text.startswith('---'): return
         player_name = display_text.split(" (HP")[0].replace("▶", "").strip()
         self.create_chat_tab(player_name)
         for i, tab in enumerate(self.notebook.tabs()):
@@ -889,6 +976,8 @@ class DM_GUI:
     def show_player_context_menu(self, event):
         try:
             index = self.player_listbox.nearest(event.y)
+            display_text = self.player_listbox.get(index)
+            if display_text.startswith("---"): return
             self.player_listbox.selection_clear(0, tk.END)
             self.player_listbox.selection_set(index)
             self.player_menu.tk_popup(event.x_root, event.y_root)
@@ -899,6 +988,7 @@ class DM_GUI:
         sel = self.player_listbox.curselection()
         if not sel: return
         display_text = self.player_listbox.get(sel[0])
+        if display_text.startswith('---'): return
         player_name = display_text.split(" (HP")[0].replace("▶", "").strip()
         player = self.server.game_state.find_player(player_name)
         
@@ -973,6 +1063,7 @@ class DM_GUI:
             return
             
         display_text = self.player_listbox.get(sel[0])
+        if display_text.startswith('---'): return
         player_name = display_text.split(" (HP")[0].replace("▶", "").strip()
         player = self.server.game_state.find_player(player_name)
         
@@ -1035,6 +1126,7 @@ class DM_GUI:
         sel = self.player_listbox.curselection()
         if not sel: return
         display_text = self.player_listbox.get(sel[0])
+        if display_text.startswith('---'): return
         player_name = display_text.split(" (HP")[0].replace("▶", "").strip()
         player = self.server.game_state.find_player(player_name)
         
@@ -1057,6 +1149,7 @@ class DM_GUI:
         sel = self.player_listbox.curselection()
         if not sel: return
         display_text = self.player_listbox.get(sel[0])
+        if display_text.startswith('---'): return
         player_name = display_text.split(" (HP")[0].replace("▶", "").strip()
         player = self.server.game_state.find_player(player_name)
         if not player: return
@@ -1095,6 +1188,7 @@ class DM_GUI:
         sel = self.player_listbox.curselection()
         if not sel: return
         display_text = self.player_listbox.get(sel[0])
+        if display_text.startswith('---'): return
         target_name = display_text.split(" (HP")[0].replace("▶", "").strip()
         target_player = self.server.game_state.find_player(target_name)
         if not target_player: return
@@ -1161,23 +1255,40 @@ class DM_GUI:
         
         if active_tab_name == "Sistema":
             broadcast(self.server.game_state, make_chat_broadcast("DM", text))
-            self.log_to_chat(f"[DM -> Tutti]: {text}", tab_name="Sistema")
+            self.log_to_chat(text, tab_name="Sistema", sender="DM", color="#EB459E")
         else:
             target_player = self.server.game_state.find_player(active_tab_name)
             if target_player:
                 if target_player.conn:
                     send_message(target_player.conn, make_chat_broadcast("DM", text, is_whisper=True))
-                    self.log_to_chat(f"[Tu -> {active_tab_name}]: {text}", tab_name=active_tab_name)
+                    self.log_to_chat(text, tab_name=active_tab_name, sender="DM", color="#EB459E")
                 else:
                     messagebox.showerror("Errore", f"L'entità '{active_tab_name}' è offline o è un NPC.")
             else: messagebox.showerror("Errore", f"Entità '{active_tab_name}' non trovata.")
         self.chat_entry.delete(0, tk.END)
 
-    def log_to_chat(self, message, tab_name="Sistema"):
+    def log_to_chat(self, message, tab_name="Sistema", sender="DM", color="white"):
         text_widget = self.chat_tabs.get(tab_name)
         if not text_widget: return
-        text_widget.config(state="normal"); text_widget.insert(tk.END, message + "\n")
-        text_widget.config(state="disabled"); text_widget.see(tk.END)
+        text_widget.config(state="normal")
+        
+        import datetime
+        timestamp = datetime.datetime.now().strftime("[%H:%M]")
+        
+        text_widget.insert(tk.END, f"{timestamp} ", "timestamp")
+        
+        sender_color = color if sender != "Sistema" else "#72767D"
+        if sender_color not in text_widget.tag_names(): text_widget.tag_config(sender_color, foreground=sender_color, font=("Arial", 10, "bold"))
+        
+        text_widget.insert(tk.END, f"{sender}: ", sender_color)
+        
+        if "\n" in message:
+            text_widget.insert(tk.END, message + "\n", "text")
+        else:
+            text_widget.insert(tk.END, message + "\n", color)
+            
+        text_widget.config(state="disabled")
+        text_widget.see(tk.END)
 
     def add_npc(self):
         name = simpledialog.askstring("Nuovo NPC", "Nome dell'NPC o Mostro (es. Goblin 1):")
@@ -1209,6 +1320,7 @@ class DM_GUI:
         sel = self.player_listbox.curselection()
         if not sel: return
         display_text = self.player_listbox.get(sel[0])
+        if display_text.startswith('---'): return
         player_name = display_text.split(" (HP")[0].replace("▶", "").replace("➡️", "").strip()
         if player_name.startswith("[N] "):
             player_name = player_name[4:]
@@ -1227,6 +1339,8 @@ class DM_GUI:
         sel = self.player_listbox.curselection()
         if not sel: return
         display_text = self.player_listbox.get(sel[0])
+        if display_text.startswith('---'): return
+        if display_text.startswith("---"): return
         
         player_name = display_text.split(" (HP")[0].replace("▶", "").replace("➡️", "").strip()
         if player_name.startswith("[N] "):
@@ -1270,6 +1384,24 @@ class DM_GUI:
         self.log_to_chat(f"[COMBAT] {msg}")
         from common.protocol import make_chat_broadcast
         broadcast(self.server.game_state, make_chat_broadcast("DM", msg))
+
+    def toggle_mute(self):
+        if not hasattr(self, 'voice_client'):
+            return
+        self.voice_client.is_muted = not self.voice_client.is_muted
+        if self.voice_client.is_muted:
+            self.btn_mute.config(fg="red", text=" 🔇 ")
+        else:
+            self.btn_mute.config(fg="white", text=" 🎤 ")
+
+    def toggle_deafen(self):
+        if not hasattr(self, 'voice_client'):
+            return
+        self.voice_client.is_deafened = not self.voice_client.is_deafened
+        if self.voice_client.is_deafened:
+            self.btn_deafen.config(fg="red", text=" 🔇 ")
+        else:
+            self.btn_deafen.config(fg="white", text=" 🎧 ")
 
 if __name__ == "__main__":
     root=tk.Tk()

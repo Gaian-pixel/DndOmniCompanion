@@ -21,12 +21,15 @@ from server.map_downloader import MapDownloaderDialog
 from common.hex_utils import Hex
 from common.network_utils import send_message, receive_message, broadcast
 from components.ui_components import HexMapCanvas
+from server.voice_server import VoiceServer
 
 class Server:
     def __init__(self, host, port, gui_queue):
         self.host=host; self.port=port; self.server_socket=None; self.running=False
         self.game_state=GameState(gui_queue)
+        self.voice_server = VoiceServer(self.host, 53912)
     def start(self):
+        self.voice_server.start()
         self.server_socket=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.server_socket.bind((self.host, self.port)); self.server_socket.listen(); self.running=True
@@ -37,6 +40,7 @@ class Server:
             except OSError: break
     def stop(self):
         self.running=False
+        self.voice_server.stop()
         if self.server_socket: self.server_socket.close()
     def handle_client(self, conn, addr):
         print(f"[CONNESSIONE] Nuova connessione da {addr}"); player = None
@@ -53,6 +57,7 @@ class Server:
                     # Riconnessione di un giocatore offline
                     existing_player.conn = conn
                     existing_player.addr = addr
+                    existing_player.is_party_member = True
                     player = existing_player
                     send_message(conn, make_game_state(self.game_state.get_state_dict()))
                     broadcast(self.game_state, make_player_joined(player.to_dict()), exclude_player=player)
@@ -61,6 +66,7 @@ class Server:
                     send_message(conn, make_error_reply(f"Il nome '{name}' è già in uso.")); return
             else:
                 player = Player(name, addr, conn)
+                player.is_party_member = True
                 send_message(conn, make_game_state(self.game_state.get_state_dict()))
                 broadcast(self.game_state, make_player_joined(player.to_dict()), exclude_player=player)
                 self.game_state.add_player(player)

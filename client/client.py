@@ -15,10 +15,11 @@ from PIL import Image, ImageTk
 from common.protocol import *
 from common.hex_utils import Hex, HexLayout
 from common.network_utils import send_message, receive_message
-from components.ui_components import HexMapCanvas
+from components.ui_components import HexMapCanvas, ToolTip
 from client.character_manager import CharacterManager
 from client.login_ui import LoginDialog
 from client.character_sheet_ui import CharacterSheetUI
+from client.voice_client import VoiceClient
 
 from common.theme import setup_theme, apply_modern_window_style
 from .network import ClientNetwork
@@ -40,6 +41,7 @@ class ClientGUI:
         self.turn_index = 0
         self.round_number = 1
         self.gui_queue = queue.Queue()
+        self.voice_client = None
         self.network = ClientNetwork(self.gui_queue, lambda: self.master.after(0, self.handle_disconnection))
         self.setup_gui()
         self.master.after(100, self.process_queue)
@@ -58,55 +60,33 @@ class ClientGUI:
         library_menu.add_command(label="Compendio SRD", command=self.open_srd_compendium)
         menubar.add_cascade(label="Libreria", menu=library_menu)
         
-        # 2. LAYOUT PRINCIPALE (3 Colonne: Sinistra=Azioni, Centro=Mappa, Destra=Social)
-        main_frame = ttk.Frame(self.master, padding="15 15 15 15")
+        # 2. LAYOUT PRINCIPALE (3 Colonne: Sinistra=Toolbar, Centro=Mappa, Destra=Notebook)
+        main_frame = ttk.Frame(self.master, padding="5")
         main_frame.pack(fill=tk.BOTH, expand=True)
-        main_frame.columnconfigure(1, weight=4) # Mappa
-        main_frame.columnconfigure(0, weight=1) # Azioni
-        main_frame.columnconfigure(2, weight=2) # Social/Chat
+        main_frame.columnconfigure(0, weight=0) # Barra strumenti mappa a sinistra
+        main_frame.columnconfigure(1, weight=1) # Mappa
+        main_frame.columnconfigure(2, weight=0) # Pannello destro per i Tab
         main_frame.rowconfigure(0, weight=1)
         
-        # --- COLONNA 0: PANNELLO SINISTRO (Azioni PG) ---
-        left_panel = ttk.Frame(main_frame)
-        left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        # --- COLONNA 0: LEFT TOOLBAR (Strumenti Mappa) ---
+        left_panel = ttk.Frame(main_frame, width=40)
+        left_panel.grid(row=0, column=0, sticky="ns", padx=(0, 5))
         
-        self.status_label = ttk.Label(left_panel, text="Stato: Disconnesso", style="Danger.TLabel", font=self.default_font)
-        self.status_label.pack(anchor="w", pady=(0, 20))
+        self.center_map_btn = ttk.Button(left_panel, text=' 👆 ', width=3, command=lambda: self.map_canvas.center_view())
+        self.center_map_btn.pack(pady=2)
+        ToolTip(self.center_map_btn, "Centra Mappa")
         
-        ttk.Label(left_panel, text="Controlli Giocatore", font=self.default_font, foreground="#E0E0E0").pack(anchor="w", pady=(0, 5))
+        self.aoe_button = ttk.Button(left_panel, text=" 💥 ", width=3, command=self.open_aoe_dialog)
+        self.aoe_button.pack(pady=2)
+        ToolTip(self.aoe_button, "Area di Effetto")
         
-        self.stats_button = ttk.Button(left_panel, text="Scheda PG", command=self.open_stats_dialog, style='Info.TButton')
-        self.stats_button.pack(fill=tk.X, pady=2)
-        
-        self.roll_button = ttk.Button(left_panel, text="Tira Dadi", command=self.roll_dice_dialog)
-        self.roll_button.pack(fill=tk.X, pady=2)
-        
-        self.action_button = ttk.Button(left_panel, text="Azione", command=self.open_action_dialog, style='Primary.TButton')
-        self.action_button.pack(fill=tk.X, pady=2)
-        
-        self.aoe_button = ttk.Button(left_panel, text="Area d'Effetto (AoE)", command=self.open_aoe_dialog)
-        self.aoe_button.pack(fill=tk.X, pady=2)
-        self.center_map_btn = ttk.Button(left_panel, text='Centra Mappa', command=lambda: self.map_canvas.center_view())
-        self.center_map_btn.pack(fill=tk.X, pady=2)
-        
-        self.travel_button = ttk.Button(left_panel, text="Azioni di Viaggio", command=self.open_travel_dialog, style='Success.TButton')
-        self.travel_button.pack(fill=tk.X, pady=2)
-        
-        ttk.Separator(left_panel, orient="horizontal").pack(fill=tk.X, pady=10)
-        
-        self.combat_btn = ttk.Button(left_panel, text="🗡 Richiedi Combattimento", command=self.request_combat)
-        self.combat_btn.pack(fill=tk.X, pady=2)
-        
-        self.end_turn_btn = ttk.Button(left_panel, text="⏹ Termina Turno", command=self.end_turn, style='Success.TButton')
-        # Not packed initially
+        self.measure_btn = ttk.Button(left_panel, text=" 📏 ", width=3)
+        self.measure_btn.pack(pady=2)
+        ToolTip(self.measure_btn, "Misura Distanza")
         
         # --- COLONNA 1: MAPPA ---
         map_outer_frame = ttk.Frame(main_frame)
-        map_outer_frame.grid(row=0, column=1, sticky="nsew", padx=10)
-        
-        map_top_bar = ttk.Frame(map_outer_frame)
-        map_top_bar.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(map_top_bar, text="Mappa di Gioco", font=self.default_font, foreground="#E0E0E0").pack(side=tk.LEFT)
+        map_outer_frame.grid(row=0, column=1, sticky="nsew", padx=5)
         
         self.map_canvas = HexMapCanvas(map_outer_frame, bg="#1e1e1e")
         self.map_canvas.pack(fill=tk.BOTH, expand=True)
@@ -118,28 +98,70 @@ class ClientGUI:
         self.map_canvas.set_on_cover_toggle_callback(self.on_cover_toggle_callback)
         self.map_canvas.set_on_draw_callback(self.on_draw_request)
         
-        # --- COLONNA 2: PANNELLO DESTRO (Social & Chat) ---
-        right_panel = ttk.Frame(main_frame)
-        right_panel.grid(row=0, column=2, sticky="nsew", padx=(10, 0))
+        # --- COLONNA 2: RIGHT SIDEBAR (Notebook) ---
+        right_panel = ttk.Frame(main_frame, width=350)
+        right_panel.grid(row=0, column=2, sticky="ns", padx=(5, 0))
+        right_panel.pack_propagate(False) # Mantieni la larghezza fissa a 350
         
-        ttk.Label(right_panel, text="Compagnia", font=self.default_font, foreground="#E0E0E0").pack(anchor="w")
-        ttk.Label(right_panel, text="Doppio click per chattare", style="Muted.TLabel").pack(anchor="w", pady=(0, 5))
+        self.right_notebook = ttk.Notebook(right_panel)
+        self.right_notebook.pack(fill=tk.BOTH, expand=True)
         
-        self.player_listbox = tk.Listbox(right_panel, font=self.default_font, relief="flat", bg="#1e1e1e", fg="white", height=6)
-        self.player_listbox.pack(fill=tk.X, pady=(0, 10))
+        # --- TAB 1: CHAT ---
+        chat_tab = ttk.Frame(self.right_notebook)
+        self.right_notebook.add(chat_tab, text="Chat")
+        
+        ttk.Label(chat_tab, text="Compagnia", font=self.default_font, foreground="#E0E0E0").pack(anchor="w", padx=5, pady=(5,0))
+        ttk.Label(chat_tab, text="Doppio click per chattare", style="Muted.TLabel").pack(anchor="w", padx=5)
+        
+        self.player_listbox = tk.Listbox(chat_tab, font=self.default_font, relief="flat", bg="#1e1e1e", fg="white", height=6)
+        self.player_listbox.pack(fill=tk.X, padx=5, pady=(0, 5))
         self.player_listbox.bind("<Double-Button-1>", self.open_private_chat_from_list)
         
-        ttk.Label(right_panel, text="Chat e Azioni", font=self.default_font, foreground="#E0E0E0").pack(anchor="w", pady=(0, 5))
-        self.notebook = ttk.Notebook(right_panel)
+        self.notebook = ttk.Notebook(chat_tab)
         self.create_chat_tab("Globale")
-        self.notebook.pack(fill=tk.BOTH, expand=True, pady=2)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=2)
         
-        chat_cmd_frame = ttk.Frame(right_panel)
-        chat_cmd_frame.pack(fill=tk.X, pady=(5, 0))
+        chat_cmd_frame = ttk.Frame(chat_tab)
+        chat_cmd_frame.pack(fill=tk.X, padx=5, pady=(2, 5))
         self.entry = ttk.Entry(chat_cmd_frame, font=self.default_font)
         self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
         self.entry.bind("<Return>", self.send_chat_message)
         ttk.Button(chat_cmd_frame, text="Invia", command=self.send_chat_message).pack(side=tk.LEFT)
+
+        self.voice_controls_frame = tk.Frame(chat_tab, bg="#292B2F", pady=5, padx=5)
+        self.voice_controls_frame.pack(fill=tk.X, side=tk.BOTTOM)
+        tk.Label(self.voice_controls_frame, text="Voice Channel: Disconnesso", bg="#292B2F", fg="#8E9297", font=("Arial", 9)).pack(side=tk.LEFT, padx=5)
+        self.btn_deafen = tk.Button(self.voice_controls_frame, text=" 🎧 ", bg="#36393F", fg="white", relief=tk.FLAT, command=self.toggle_deafen)
+        self.btn_deafen.pack(side=tk.RIGHT, padx=2)
+        self.btn_mute = tk.Button(self.voice_controls_frame, text=" 🎤 ", bg="#36393F", fg="white", relief=tk.FLAT, command=self.toggle_mute)
+        self.btn_mute.pack(side=tk.RIGHT, padx=2)
+        
+        # --- TAB 2: CONTROLLI PG ---
+        controls_tab = ttk.Frame(self.right_notebook, padding=10)
+        self.right_notebook.add(controls_tab, text="Controlli PG")
+        
+        self.status_label = ttk.Label(controls_tab, text="Stato: Disconnesso", style="Danger.TLabel", font=self.default_font)
+        self.status_label.pack(anchor="w", pady=(0, 20))
+        
+        self.stats_button = ttk.Button(controls_tab, text="Scheda PG", command=self.open_stats_dialog, style='Info.TButton')
+        self.stats_button.pack(fill=tk.X, pady=5)
+        
+        self.roll_button = ttk.Button(controls_tab, text="Tira Dadi", command=self.roll_dice_dialog)
+        self.roll_button.pack(fill=tk.X, pady=5)
+        
+        self.action_button = ttk.Button(controls_tab, text="Azione", command=self.open_action_dialog, style='Primary.TButton')
+        self.action_button.pack(fill=tk.X, pady=5)
+        
+        self.travel_button = ttk.Button(controls_tab, text="Azioni di Viaggio", command=self.open_travel_dialog, style='Success.TButton')
+        self.travel_button.pack(fill=tk.X, pady=5)
+        
+        ttk.Separator(controls_tab, orient="horizontal").pack(fill=tk.X, pady=15)
+        
+        self.combat_btn = ttk.Button(controls_tab, text="🗡 Richiedi Combattimento", command=self.request_combat)
+        self.combat_btn.pack(fill=tk.X, pady=5)
+        
+        self.end_turn_btn = ttk.Button(controls_tab, text="⏹ Termina Turno", command=self.end_turn, style='Success.TButton')
+        # Not packed initially
         
         # --- HOTBAR ---
         self.hotbar_frame = ttk.Frame(main_frame)
@@ -386,6 +408,10 @@ class ClientGUI:
             self.network.connect(server_ip, 5000)
             self.is_connected = True
             
+            # Start Voice Client
+            self.voice_client = VoiceClient(server_ip, 53912)
+            self.voice_client.start()
+            
             self.network.send(make_join(self.name))
             self.network.send(make_update_stats_request(self.active_character.hp_current, self.active_character.hp_max, self.active_character.initiative, getattr(self.active_character, "conditions", [])))
             self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
@@ -564,11 +590,25 @@ class ClientGUI:
 
         ttk.Button(win, text="Esegui Azione", command=submit, style='Primary.TButton').pack(pady=20)
 
+    def toggle_mute(self):
+        if self.voice_client:
+            self.voice_client.is_muted = not self.voice_client.is_muted
+            return self.voice_client.is_muted
+        return False
+
+    def toggle_deafen(self):
+        if self.voice_client:
+            self.voice_client.is_deafened = not self.voice_client.is_deafened
+            return self.voice_client.is_deafened
+        return False
+
     def on_closing(self):
+        if self.voice_client: self.voice_client.stop()
         if self.is_connected: self.client_socket.close()
         self.master.destroy()
 
     def handle_disconnection(self):
+        if self.voice_client: self.voice_client.stop()
         messagebox.showinfo("Disconnesso", "La connessione con il server è stata persa."); self.master.title("D&D Client - Disconnesso")
         self.status_label.config(text="Stato: Disconnesso", style="Danger.TLabel"); self.set_controls_state(tk.DISABLED)
         self.local_map_data=None; self.players_data={}; self.update_player_listbox(); self.redraw_map_and_players()
@@ -700,16 +740,17 @@ class ClientGUI:
 
     def handle_chat_broadcast(self, data):
         sender, text, is_whisper=data.get('sender'), data.get('text'), data.get('is_whisper')
-        if not is_whisper: self.log_to_chat(f"[{sender}]: {text}", "Globale", "white")
+        if not is_whisper: self.log_to_chat(text, "Globale", sender=sender, color="#5865F2")
         else:
             tab_name=sender.replace("Tu -> ", "") if sender.startswith("Tu -> ") else sender
             prefix="Tu" if sender.startswith("Tu -> ") else sender
-            self.create_chat_tab(tab_name); self.log_to_chat(f"[{prefix}]: {text}", tab_name, "#87CEFA")
+            self.create_chat_tab(tab_name)
+            self.log_to_chat(text, tab_name, sender=prefix, color="#EB459E")
 
     def handle_dice_roll(self, data):
         res, reason_text=data.get('result', {}), f" ({data.get('reason')})" if data.get('reason') else ""
-        log_text=(f"[{data.get('player_name')}] tira {data.get('formula')}{reason_text}: " f"{res.get('rolls')} + {res.get('modifier')} = {res.get('total')}")
-        self.log_to_chat(log_text, "Globale", "orange")
+        log_text=(f"tira {data.get('formula')}{reason_text}: " f"{res.get('rolls')} + {res.get('modifier')} = {res.get('total')}")
+        self.log_to_chat(log_text, "Globale", sender=data.get('player_name'), color="#FEE75C")
     
     def open_private_chat_from_list(self, event):
         selected_indices=self.player_listbox.curselection()
@@ -721,13 +762,20 @@ class ClientGUI:
         self.create_chat_tab(player_name)
         for i, tab_text in enumerate(self.notebook.tabs()):
             if self.notebook.tab(i, "text") == player_name: self.notebook.select(i); break
-        self.entry.focus_set(); self.log_to_chat(f"Hai aperto una chat con {player_name}.", player_name, "grey")
+        self.entry.focus_set(); self.log_to_chat(f"Hai aperto una chat con {player_name}.", player_name, sender="Sistema", color="#99AAB5")
 
     def create_chat_tab(self, name):
         if name in self.chat_tabs: return
         tab_frame=ttk.Frame(self.notebook)
-        text_widget=scrolledtext.ScrolledText(tab_frame, state='disabled', wrap=tk.WORD, height=8, bg="#1E1E1E", fg="#E0E0E0", borderwidth=0, highlightthickness=0)
-        text_widget.pack(fill=tk.BOTH, expand=True); self.notebook.add(tab_frame, text=name); self.chat_tabs[name]=text_widget
+        text_widget=scrolledtext.ScrolledText(tab_frame, state='disabled', wrap=tk.WORD, height=8, bg="#36393F", fg="#DCDDDE", borderwidth=0, highlightthickness=0, font=("Arial", 10))
+        text_widget.pack(fill=tk.BOTH, expand=True)
+        self.notebook.add(tab_frame, text=name)
+        self.chat_tabs[name]=text_widget
+        
+        # Configure tags for Discord-like format
+        text_widget.tag_config("timestamp", foreground="#72767D", font=("Arial", 8))
+        text_widget.tag_config("sender", font=("Arial", 10, "bold"))
+        text_widget.tag_config("text", foreground="#DCDDDE")
 
     def update_player_listbox(self):
         self.player_listbox.delete(0, tk.END)
@@ -756,13 +804,28 @@ class ClientGUI:
             else:
                 self.player_listbox.itemconfig(idx, {'bg': '#1E1E1E', 'fg': '#E0E0E0'})
 
-    def log_to_chat(self, message, tab_name, color="white"):
+    def log_to_chat(self, message, tab_name, sender="Sistema", color="white"):
         text_widget=self.chat_tabs.get(tab_name)
         if not text_widget: return
         text_widget.config(state='normal')
-        if color not in text_widget.tag_names(): text_widget.tag_config(color, foreground=color)
-        text_widget.insert(tk.END, message + "\n", color)
-        text_widget.config(state='disabled'); text_widget.see(tk.END)
+        
+        import datetime
+        timestamp = datetime.datetime.now().strftime("[%H:%M]")
+        
+        text_widget.insert(tk.END, f"{timestamp} ", "timestamp")
+        
+        sender_color = color if sender != "Sistema" else "#72767D"
+        if sender_color not in text_widget.tag_names(): text_widget.tag_config(sender_color, foreground=sender_color, font=("Arial", 10, "bold"))
+        
+        text_widget.insert(tk.END, f"{sender}: ", sender_color)
+        
+        if "\n" in message:
+            text_widget.insert(tk.END, message + "\n", "text")
+        else:
+            text_widget.insert(tk.END, message + "\n", color)
+            
+        text_widget.config(state='disabled')
+        text_widget.see(tk.END)
         
     def send_chat_message(self, event=None):
         text=self.entry.get().strip()
@@ -794,7 +857,7 @@ class ClientGUI:
     def do_trade(self, item, target_name):
         if self.is_connected:
             self.network.send(make_give_item_request(target_name, item))
-            self.log_to_chat(f"Hai inviato l'oggetto '{item.get('name')}' a {target_name}.", "Globale", "lightblue")
+            self.log_to_chat(f"Hai inviato l'oggetto '{item.get('name')}' a {target_name}.", "Globale", sender="Sistema", color="#00B0F4")
 
     def get_player_names(self):
         return [p for p in self.players_data.keys() if p != self.name]
@@ -855,3 +918,8 @@ if __name__ == "__main__":
     root=tk.Tk()
     ClientGUI(root)
     root.mainloop()
+    def toggle_mute(self):
+        print("Mute toggled")
+
+    def toggle_deafen(self):
+        print("Deafen toggled")

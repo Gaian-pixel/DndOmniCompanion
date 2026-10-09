@@ -20,6 +20,7 @@ class Player:
         self.aura_radius = 0
         self.aura_color = "yellow"
         self.vision_radius = 6
+        self.is_party_member = False
 
     def to_dict(self):
         return {
@@ -36,7 +37,8 @@ class Player:
             "size": getattr(self, "size", 1),
             "aura_radius": getattr(self, "aura_radius", 0),
             "aura_color": getattr(self, "aura_color", "yellow"),
-            "vision_radius": getattr(self, "vision_radius", 6)
+            "vision_radius": getattr(self, "vision_radius", 6),
+            "is_party_member": getattr(self, "is_party_member", False)
         }
 
 class GameState:
@@ -240,6 +242,7 @@ class GameState:
                     existing.full_sheet = p_data.get("full_sheet")
                     existing.conditions = p_data.get("conditions", [])
                     existing.vision_radius = p_data.get("vision_radius", 6)
+                    existing.is_party_member = p_data.get("is_party_member", False)
                     loaded_players.append(existing)
                 else:
                     p = Player(name=p_data["name"])
@@ -250,6 +253,7 @@ class GameState:
                     p.full_sheet = p_data.get("full_sheet")
                     p.conditions = p_data.get("conditions", [])
                     p.vision_radius = p_data.get("vision_radius", 6)
+                    p.is_party_member = p_data.get("is_party_member", False)
                     loaded_players.append(p)
             self.players = loaded_players
         
