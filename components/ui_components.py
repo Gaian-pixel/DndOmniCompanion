@@ -42,6 +42,8 @@ class HexMapCanvas(tk.Canvas):
         self.bind("<B3-Motion>", self._on_ruler_drag)
         self.bind("<ButtonRelease-3>", self._on_ruler_end)
         self.bind("<Shift-Button-3>", self._on_wall_toggle)
+        self.bind("<Alt-Button-3>", self._on_half_cover_toggle)
+        self.bind("<Control-Button-3>", self._on_three_quarters_cover_toggle)
 
         self.bind("<Control-Button-1>", self._on_draw_start)
         self.bind("<Control-B1-Motion>", self._on_draw_move)
@@ -57,6 +59,9 @@ class HexMapCanvas(tk.Canvas):
 
     def set_on_wall_toggle_callback(self, func):
         self.on_wall_toggle_callback = func
+
+    def set_on_cover_toggle_callback(self, func):
+        self.on_cover_toggle_callback = func
 
     def set_on_draw_callback(self, func):
         self.on_draw_callback = func
@@ -87,6 +92,11 @@ class HexMapCanvas(tk.Canvas):
 
     def _zoom(self, event):
         factor = 1.1 if (event.num == 4 or event.delta > 0) else 0.9
+        new_zoom = self.zoom_level * factor
+        if getattr(self, "map_background_original", None):
+            # Limit max zoom pixels to avoid memory errors (e.g. max 100 million pixels)
+            if self.map_background_original.width * new_zoom * self.map_background_original.height * new_zoom > 64000000:
+                return # Prevent zooming in further
         world_x = (event.x - self.pan_offset_x) / self.zoom_level
         world_y = (event.y - self.pan_offset_y) / self.zoom_level
         self.zoom_level *= factor
@@ -206,6 +216,36 @@ class HexMapCanvas(tk.Canvas):
         clicked_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
         self.on_wall_toggle_callback(clicked_hex.q, clicked_hex.r)
 
+    def _on_half_cover_toggle(self, event):
+        if not self.hex_layout or not getattr(self, 'on_cover_toggle_callback', None): return
+        world_x = (event.x - self.pan_offset_x) / self.zoom_level
+        world_y = (event.y - self.pan_offset_y) / self.zoom_level
+        clicked_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
+        if hasattr(self, 'map_data'):
+            half_cover = self.map_data.setdefault("half_cover", [])
+            pos = [clicked_hex.q, clicked_hex.r]
+            if pos in half_cover:
+                half_cover.remove(pos)
+            else:
+                half_cover.append(pos)
+            self.redraw()
+        self.on_cover_toggle_callback(clicked_hex.q, clicked_hex.r, "half_cover")
+
+    def _on_three_quarters_cover_toggle(self, event):
+        if not self.hex_layout or not getattr(self, 'on_cover_toggle_callback', None): return
+        world_x = (event.x - self.pan_offset_x) / self.zoom_level
+        world_y = (event.y - self.pan_offset_y) / self.zoom_level
+        clicked_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
+        if hasattr(self, 'map_data'):
+            tq_cover = self.map_data.setdefault("three_quarters_cover", [])
+            pos = [clicked_hex.q, clicked_hex.r]
+            if pos in tq_cover:
+                tq_cover.remove(pos)
+            else:
+                tq_cover.append(pos)
+            self.redraw()
+        self.on_cover_toggle_callback(clicked_hex.q, clicked_hex.r, "three_quarters_cover")
+
     def show_ping(self, q, r, color="yellow"):
         if not self.hex_layout: return
         hex_obj = Hex(q, r)
@@ -218,8 +258,21 @@ class HexMapCanvas(tk.Canvas):
                                    screen_x + radius, screen_y + radius, 
                                    outline=color, width=4)
         
-        # Remove after 2 seconds
         self.after(2000, lambda: self.delete(ping_id))
+
+    def center_view(self):
+        """Centra la vista della mappa mantenendo lo zoom attuale."""
+        cw = self.winfo_width()
+        ch = self.winfo_height()
+        if getattr(self, "map_background_original", None):
+            w = self.map_background_original.width * self.zoom_level
+            h = self.map_background_original.height * self.zoom_level
+            self.pan_offset_x = (cw - w) / 2
+            self.pan_offset_y = (ch - h) / 2
+        else:
+            self.pan_offset_x = cw / 2
+            self.pan_offset_y = ch / 2
+        self.redraw()
 
     def update_data(self, map_data, players_data, player_name="", turn_player_name="", aoes_data=None):
         """Salva i dati necessari per il ridisegno."""
@@ -260,12 +313,16 @@ class HexMapCanvas(tk.Canvas):
             new_width = int(self.map_background_original.width * self.zoom_level)
             new_height = int(self.map_background_original.height * self.zoom_level)
             if new_width > 0 and new_height > 0:
-                if self._last_zoom != self.zoom_level:
-                    # Usa un resampling più veloce (NEAREST o BILINEAR) invece di LANCZOS per prestazioni real-time
-                    resized_img = self.map_background_original.resize((new_width, new_height), Image.Resampling.BILINEAR)
-                    self.map_background_tk = ImageTk.PhotoImage(resized_img)
-                    self._last_zoom = self.zoom_level
-                self.create_image(self.pan_offset_x, self.pan_offset_y, image=self.map_background_tk, anchor="nw")
+                try:
+                    if self._last_zoom != self.zoom_level:
+                        # Usa un resampling più veloce (NEAREST o BILINEAR) invece di LANCZOS per prestazioni real-time
+                        resample_mode = Image.Resampling.NEAREST if new_width * new_height > 4000000 else Image.Resampling.BILINEAR
+                        resized_img = self.map_background_original.resize((new_width, new_height), resample_mode)
+                        self.map_background_tk = ImageTk.PhotoImage(resized_img)
+                        self._last_zoom = self.zoom_level
+                    self.create_image(self.pan_offset_x, self.pan_offset_y, image=self.map_background_tk, anchor="nw")
+                except Exception as e:
+                    print(f"Errore ridimensionamento: {e}")
 
         pois_data = {Hex(int(k.split(',')[0]), int(k.split(',')[1])): v for k, v in self.map_data.get("pois", {}).items()}
         border_color = self.map_data.get("hex_border_color", "white")
@@ -275,6 +332,8 @@ class HexMapCanvas(tk.Canvas):
         draft_key = "fow_draft" if ("fow_draft" in self.map_data and is_dm) else "fow_revealed"
         fow_revealed = {Hex(h[0], h[1]) for h in self.map_data.get(draft_key, [])}
         walls_data = self.map_data.get("walls", [])
+        half_cover_data = self.map_data.get("half_cover", [])
+        three_quarters_cover_data = self.map_data.get("three_quarters_cover", [])
         
         for q, r in self.map_data.get("hexes", []):
             current_hex = Hex(q, r)
@@ -287,6 +346,12 @@ class HexMapCanvas(tk.Canvas):
             # Logica Fog of War e Muri
             if [q, r] in walls_data:
                 fill_color = "#101010"
+                stipple_pattern = ""
+            elif [q, r] in half_cover_data:
+                fill_color = "#8B4513"
+                stipple_pattern = ""
+            elif [q, r] in three_quarters_cover_data:
+                fill_color = "#A0522D"
                 stipple_pattern = ""
             elif fow_enabled and current_hex not in fow_revealed:
                 if is_dm:
@@ -337,6 +402,29 @@ class HexMapCanvas(tk.Canvas):
                     screen_points.extend([sx, sy])
                 self.create_line(screen_points, fill=color, width=2, smooth=True)
 
+        # Draw Loots
+        loots_data = self.map_data.get("loots", [])
+        for l in loots_data:
+            lh = Hex(l["q"], l["r"])
+            if fow_enabled and not is_dm and lh not in fow_revealed:
+                continue
+            cx, cy = self.hex_layout.hex_to_pixel(lh)
+            sx = cx * self.zoom_level + self.pan_offset_x
+            sy = cy * self.zoom_level + self.pan_offset_y
+            self.create_rectangle(sx-10, sy-10, sx+10, sy+10, fill="gold", outline="brown")
+            self.create_text(sx, sy, text="Loot", font=("", max(8, int(10*self.zoom_level))))
+            
+        # Draw Lights
+        lights_data = self.map_data.get("lights", [])
+        for l in lights_data:
+            lh = Hex(l["q"], l["r"])
+            if fow_enabled and not is_dm and lh not in fow_revealed:
+                continue
+            cx, cy = self.hex_layout.hex_to_pixel(lh)
+            sx = cx * self.zoom_level + self.pan_offset_x
+            sy = cy * self.zoom_level + self.pan_offset_y
+            self.create_oval(sx-5, sy-5, sx+5, sy+5, fill="yellow", outline="orange")
+            
         for name, pdata in self.players_data.items():
 
             if isinstance(pdata, dict):
@@ -345,12 +433,16 @@ class HexMapCanvas(tk.Canvas):
                 size_mult = pdata.get('size', 1)
                 aura_radius = pdata.get('aura_radius', 0)
                 aura_color = pdata.get('aura_color', 'yellow')
+                hp = pdata.get('hp', 0)
+                hp_max = pdata.get('hp_max', 0)
             else:
                 pos = pdata
                 conditions = []
                 size_mult = 1
                 aura_radius = 0
                 aura_color = 'yellow'
+                hp = 0
+                hp_max = 0
                 
             q, r = pos
             current_hex = Hex(q, r)
@@ -375,25 +467,48 @@ class HexMapCanvas(tk.Canvas):
             if is_turn:
                 self.create_oval(screen_x-(radius+3), screen_y-(radius+3), screen_x+(radius+3), screen_y+(radius+3), fill="", outline="red", width=3)
                 
-            self.create_oval(screen_x-radius, screen_y-radius, screen_x+radius, screen_y+radius, fill=color, outline="white")
+            is_invisible = "Invisibile" in conditions
+            outline_style = "gray" if is_invisible else "white"
+            dash_style = (2, 2) if is_invisible else ""
+            
+            if dash_style:
+                self.create_oval(screen_x-radius, screen_y-radius, screen_x+radius, screen_y+radius, fill=color, outline=outline_style, dash=dash_style)
+            else:
+                self.create_oval(screen_x-radius, screen_y-radius, screen_x+radius, screen_y+radius, fill=color, outline=outline_style)
+                
             self.create_text(screen_x, screen_y, text=name[:2], fill="black", font=("Arial", 8, "bold"))
             
+            if hp_max > 0:
+                bar_w = radius * 2
+                bar_h = 4
+                bar_y = screen_y + radius + 2
+                bar_x = screen_x - radius
+                hp_ratio = max(0, min(1, hp / hp_max))
+                self.create_rectangle(bar_x, bar_y, bar_x + bar_w, bar_y + bar_h, fill="red", outline="black")
+                if hp_ratio > 0:
+                    self.create_rectangle(bar_x, bar_y, bar_x + (bar_w * hp_ratio), bar_y + bar_h, fill="green", outline="")
+
             if conditions:
-                # Draw condition abbreviations
                 cond_colors = {
                     "Avvelenato": "green", "Accecato": "gray", "Prono": "brown", "Stordito": "yellow",
                     "Spaventato": "purple", "Invisibile": "white", "Incapacitato": "orange", "Paralizzato": "blue"
                 }
                 
-                # Draw them in a row above the token
                 box_size = 10
-                start_x = screen_x - (len(conditions) * box_size) / 2
-                start_y = screen_y - radius - box_size - 2
+                start_x = screen_x + radius - box_size/2
+                start_y = screen_y - radius - box_size/2
                 
                 for i, cond in enumerate(conditions):
                     cx = start_x + (i * box_size)
                     bg_color = cond_colors.get(cond, "red")
                     fg_color = "black" if bg_color in ["yellow", "white", "green"] else "white"
                     
+                    abbrev_map = {
+                        "Avvelenato": "Av",
+                        "Prono": "P",
+                        "Trattenuto": "Tr"
+                    }
+                    abbrev = abbrev_map.get(cond, cond[:2].capitalize())
+                    
                     self.create_rectangle(cx, start_y, cx + box_size, start_y + box_size, fill=bg_color, outline="black")
-                    self.create_text(cx + box_size/2, start_y + box_size/2, text=cond[:1].upper(), fill=fg_color, font=("Arial", 6, "bold"))
+                    self.create_text(cx + box_size/2, start_y + box_size/2, text=abbrev, fill=fg_color, font=("Arial", 6, "bold"))

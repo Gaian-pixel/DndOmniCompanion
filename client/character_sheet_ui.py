@@ -3,7 +3,7 @@ from tkinter import ttk, messagebox, simpledialog
 from common.theme import BG_COLOR, TEXT_COLOR, SURFACE_COLOR, apply_modern_window_style
 
 class CharacterSheetUI(tk.Toplevel):
-    def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, players_list_callback=None, attack_callback=None):
+    def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None):
         super().__init__(master)
         self.title(f"Scheda PG - {character.name}")
         self.geometry("600x700")
@@ -12,6 +12,7 @@ class CharacterSheetUI(tk.Toplevel):
         self.manager = manager
         self.on_save_callback = on_save_callback
         self.roll_callback = roll_callback
+        self.long_rest_callback = long_rest_callback
         self.trade_callback = trade_callback
         self.players_list_callback = players_list_callback
         self.attack_callback = attack_callback
@@ -168,6 +169,10 @@ class CharacterSheetUI(tk.Toplevel):
         self.ds_roll_btn = ttk.Button(self.death_saves_frame, text="Tira TS Morte", command=self.roll_death_save)
         self.ds_roll_btn.pack(pady=5)
         self.hp_cur_var.trace_add("write", lambda *args: self.update_death_saves_ui())
+        
+        self.death_label = ttk.Label(combat_frame, text="SEI MORTO", foreground="red", font=("Georgia", 16, "bold"))
+        self.death_label.grid(row=7, column=0, columnspan=4, pady=10)
+        self.death_label.grid_remove()
 
         # Tab Notebook (Destra per note/inventario/incantesimi)
         tabs_frame = ttk.Frame(body_frame)
@@ -177,33 +182,12 @@ class CharacterSheetUI(tk.Toplevel):
         self.notebook.pack(fill=tk.BOTH, expand=True)
 
         self.text_widgets = {}
-        for tab_name, attr in [("Zaino (Griglia)", "inventory_grid"), ("Tratti e Privilegi", "features"), ("Incantesimi", "spell_slots"), ("Note", "notes")]:
+        for tab_name, attr in [("Inventario", "inventory_grid"), ("Tratti e Privilegi", "features"), ("Incantesimi", "spell_slots"), ("Note", "notes")]:
             frame = ttk.Frame(self.notebook)
             self.notebook.add(frame, text=tab_name)
             
             if attr == "inventory_grid":
-                grid_container = ttk.Frame(frame)
-                grid_container.pack(expand=True, pady=10)
-                
-                currency_frame = ttk.LabelFrame(frame, text="Valuta")
-                currency_frame.pack(fill=tk.X, padx=5, pady=5)
-                self.currency_vars = {}
-                for coin in ["MR", "MA", "ME", "MO", "MP"]:
-                    c_frame = ttk.Frame(currency_frame)
-                    c_frame.pack(side=tk.LEFT, expand=True, padx=2)
-                    ttk.Label(c_frame, text=coin).pack(side=tk.TOP)
-                    var = tk.IntVar(value=0)
-                    self.currency_vars[coin] = var
-                    ttk.Entry(c_frame, textvariable=var, width=5, justify="center").pack(side=tk.TOP)
-                
-                compendium_btn = ttk.Button(frame, text="Cerca nel Compendio", command=self.open_inventory_compendium)
-                compendium_btn.pack(side=tk.TOP, pady=5)
-                
-                self.inventory_buttons = []
-                for i in range(25):
-                    btn = ttk.Button(grid_container, text="", width=12, command=lambda idx=i: self.on_inventory_click(idx))
-                    btn.grid(row=i//5, column=i%5, padx=2, pady=2)
-                    self.inventory_buttons.append(btn)
+                self.create_inventory_tab(frame)
             elif attr == "spell_slots":
                 self.build_spells_tab(frame)
             else:
@@ -211,11 +195,110 @@ class CharacterSheetUI(tk.Toplevel):
                 txt.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
                 self.text_widgets[attr] = txt
 
+        if "FOR" in self.attr_vars:
+            self.attr_vars["FOR"].trace_add("write", lambda *args: self.calculate_total_weight())
+
         # Pulsanti (in fondo alla scheda)
         btn_frame = ttk.Frame(main_frame, padding=(0, 10))
         btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
         ttk.Button(btn_frame, text="Salva", command=self.save_character, style="Primary.TButton").pack(side=tk.RIGHT, padx=5)
         ttk.Button(btn_frame, text="Annulla", command=self.destroy).pack(side=tk.RIGHT, padx=5)
+
+    def create_inventory_tab(self, parent_frame):
+        currency_frame = ttk.LabelFrame(parent_frame, text="Valuta")
+        currency_frame.pack(fill=tk.X, padx=5, pady=5)
+        self.currency_vars = {}
+        for coin in ["MR", "MA", "ME", "MO", "MP"]:
+            c_frame = ttk.Frame(currency_frame)
+            c_frame.pack(side=tk.LEFT, expand=True, padx=2)
+            ttk.Label(c_frame, text=coin).pack(side=tk.TOP)
+            var = tk.IntVar(value=0)
+            self.currency_vars[coin] = var
+            ttk.Entry(c_frame, textvariable=var, width=5, justify="center").pack(side=tk.TOP)
+            
+        list_frame = ttk.Frame(parent_frame)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        
+        canvas = tk.Canvas(list_frame)
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        ttk.Label(scrollable_frame, text="Oggetto", font=("Georgia", 9, "bold")).grid(row=0, column=0, padx=5, pady=2)
+        ttk.Label(scrollable_frame, text="Peso (lbs)", font=("Georgia", 9, "bold")).grid(row=0, column=1, padx=5, pady=2)
+        ttk.Label(scrollable_frame, text="Sintonia", font=("Georgia", 9, "bold")).grid(row=0, column=2, padx=5, pady=2)
+        
+        self.inventory_buttons = []
+        self.weight_vars = []
+        self.attuned_vars = []
+        
+        for i in range(25):
+            btn = ttk.Button(scrollable_frame, text="Vuoto", width=20, command=lambda idx=i: self.on_inventory_click(idx))
+            btn.grid(row=i+1, column=0, padx=5, pady=2)
+            self.inventory_buttons.append(btn)
+            
+            w_var = tk.DoubleVar(value=0.0)
+            w_var.trace_add("write", lambda *args: self.calculate_total_weight())
+            w_entry = ttk.Entry(scrollable_frame, textvariable=w_var, width=8)
+            w_entry.grid(row=i+1, column=1, padx=5, pady=2)
+            self.weight_vars.append(w_var)
+            
+            a_var = tk.BooleanVar(value=False)
+            a_var.trace_add("write", lambda *args, idx=i: self.check_attunement(idx))
+            cb = ttk.Checkbutton(scrollable_frame, variable=a_var)
+            cb.grid(row=i+1, column=2, padx=5, pady=2)
+            self.attuned_vars.append(a_var)
+            
+        bottom_frame = ttk.Frame(parent_frame)
+        bottom_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=5)
+        
+        self.weight_label = ttk.Label(bottom_frame, text="Peso Totale: 0 / 150 lbs", font=("Georgia", 10, "bold"))
+        self.weight_label.pack(pady=5)
+        
+        compendium_btn = ttk.Button(bottom_frame, text="Cerca nel Compendio", command=self.open_inventory_compendium)
+        compendium_btn.pack(pady=5)
+
+    def calculate_total_weight(self):
+        if not hasattr(self, 'weight_vars') or not hasattr(self, 'weight_label'):
+            return
+        total = 0.0
+        for i in range(25):
+            item = self.character.inventory_grid[i]
+            if item:
+                try:
+                    w = float(self.weight_vars[i].get())
+                    qty = item.get("qty", 1)
+                    total += w * qty
+                except (tk.TclError, ValueError):
+                    pass
+                    
+        try:
+            strength = int(self.attr_vars["FOR"].get())
+        except (tk.TclError, ValueError, KeyError):
+            strength = 10
+            
+        max_weight = strength * 15
+        
+        if total > max_weight:
+            self.weight_label.config(text=f"Peso Totale: {total:.1f} / {max_weight} lbs (Ingombrato!)", foreground="red")
+        else:
+            self.weight_label.config(text=f"Peso Totale: {total:.1f} / {max_weight} lbs", foreground=TEXT_COLOR)
+
+    def check_attunement(self, changed_idx):
+        if not hasattr(self, 'attuned_vars'): return
+        attuned_count = sum(1 for var in self.attuned_vars if var.get())
+        if attuned_count > 3:
+            messagebox.showwarning("Sintonia", "Non puoi sintonizzarti con più di 3 oggetti contemporaneamente!")
+            self.attuned_vars[changed_idx].set(False)
 
     def build_spells_tab(self, parent_frame):
         slots_frame = ttk.LabelFrame(parent_frame, text="Slot Incantesimo (Usati / Massimi)")
@@ -255,7 +338,7 @@ class CharacterSheetUI(tk.Toplevel):
         ttk.Button(btn_frame, text="Compendio", command=self.open_inventory_compendium).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="Rimuovi", command=self.remove_spell).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="Dettagli / Lancia", command=self.cast_spell).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(btn_frame, text="Riposo Lungo", command=self.recover_spell_slots).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(btn_frame, text="Riposo Lungo", command=self.long_rest).pack(side=tk.RIGHT, padx=5)
 
     def sort_spells(self, col):
         if not hasattr(self.character, "spell_list"): return
@@ -380,6 +463,10 @@ class CharacterSheetUI(tk.Toplevel):
         self.ac_var.set(self.character.ac)
         self.init_var.set(self.character.initiative)
         self.speed_var.set(self.character.speed)
+        if "Morto" in getattr(self.character, "conditions", []):
+            self.death_label.grid()
+        else:
+            self.death_label.grid_remove()
 
         for attr, txt in self.text_widgets.items():
             txt.config(state=tk.NORMAL)
@@ -432,10 +519,20 @@ class CharacterSheetUI(tk.Toplevel):
             if item:
                 name = item.get("name", "Oggetto")
                 qty = item.get("qty", 1)
-                short_name = name[:10] + ".." if len(name) > 12 else name
-                btn.config(text=f"{short_name}\nx{qty}", style="SlotFilled.TButton")
+                short_name = name[:15] + ".." if len(name) > 15 else name
+                btn.config(text=f"{short_name} (x{qty})", style="SlotFilled.TButton")
+                if hasattr(self, 'weight_vars'):
+                    self.weight_vars[i].set(item.get("weight", 0.0))
+                if hasattr(self, 'attuned_vars'):
+                    self.attuned_vars[i].set(item.get("attuned", False))
             else:
-                btn.config(text="", style="Slot.TButton")
+                btn.config(text="Vuoto", style="Slot.TButton")
+                if hasattr(self, 'weight_vars'):
+                    self.weight_vars[i].set(0.0)
+                if hasattr(self, 'attuned_vars'):
+                    self.attuned_vars[i].set(False)
+        if hasattr(self, 'calculate_total_weight'):
+            self.calculate_total_weight()
 
     def on_inventory_click(self, idx):
         item = self.character.inventory_grid[idx]
@@ -582,6 +679,17 @@ class CharacterSheetUI(tk.Toplevel):
             for lvl, vars_ in self.slot_vars.items():
                 self.character.spell_slots[lvl] = [vars_[0].get(), vars_[1].get()]
                 
+            # Salva peso e sintonia inventario
+            if hasattr(self, 'weight_vars') and hasattr(self, 'attuned_vars'):
+                for i in range(25):
+                    item = self.character.inventory_grid[i]
+                    if item:
+                        try:
+                            item["weight"] = float(self.weight_vars[i].get())
+                        except (tk.TclError, ValueError):
+                            item["weight"] = 0.0
+                        item["attuned"] = self.attuned_vars[i].get()
+                
             self.manager.update_character(self.character)
             
             if self.on_save_callback:
@@ -676,11 +784,14 @@ class CharacterSheetUI(tk.Toplevel):
         messagebox.showinfo("Riposo Breve", f"Hai speso {spend} dadi vita e recuperato {healed} HP!")
 
     def long_rest(self):
-        if messagebox.askyesno("Riposo Lungo", "Effettuare un riposo lungo?"):
-            self.character.long_rest()
-            self.load_data()
-            self.manager.update_character(self.character)
-            messagebox.showinfo("Riposo Lungo", "Hai effettuato un riposo lungo! HP, Dadi Vita, Tiri contro la Morte e Slot Incantesimo sono stati recuperati.")
+        if hasattr(self, 'long_rest_callback') and self.long_rest_callback:
+            self.long_rest_callback()
+        else:
+            if messagebox.askyesno("Riposo Lungo", "Effettuare un riposo lungo?"):
+                self.character.long_rest()
+                self.load_data()
+                self.manager.update_character(self.character)
+                messagebox.showinfo("Riposo Lungo", "Hai effettuato un riposo lungo! HP, Dadi Vita, Tiri contro la Morte e Slot Incantesimo sono stati recuperati.")
 
     def roll_death_save(self):
         import random
@@ -715,6 +826,15 @@ class CharacterSheetUI(tk.Toplevel):
         else: msg += "Successo critico! Recuperi 1 HP."
         messagebox.showinfo("Tiro contro la Morte", msg)
 
+    def update_dynamic_stats(self):
+        self.hp_cur_var.set(self.character.hp_current)
+        self.hp_max_var.set(self.character.hp_max)
+        self.init_var.set(self.character.initiative)
+        if "Morto" in getattr(self.character, "conditions", []):
+            self.death_label.grid()
+        else:
+            self.death_label.grid_remove()
+
     def update_death_saves_ui(self):
         try:
             hp = self.hp_cur_var.get()
@@ -725,6 +845,10 @@ class CharacterSheetUI(tk.Toplevel):
             self.death_saves_frame.grid()
         else:
             self.death_saves_frame.grid_remove()
+            if hasattr(self.character, "death_saves"):
+                self.character.death_saves["successes"] = 0
+                self.character.death_saves["failures"] = 0
+                self.manager.save_characters()
             
         if not hasattr(self.character, "death_saves"):
             self.character.death_saves = {"successes": 0, "failures": 0}
@@ -736,6 +860,7 @@ class CharacterSheetUI(tk.Toplevel):
             self.ds_fail_vars[i].set(i < fail)
 
     def level_up(self):
+        from .progression_ui import LevelUpDialog
         LevelUpDialog(self, self.character, self.on_level_up_applied)
         
     def on_level_up_applied(self):
@@ -743,56 +868,3 @@ class CharacterSheetUI(tk.Toplevel):
         if hasattr(self.manager, 'save_characters'):
             self.manager.save_characters()
         self.load_data()
-
-class LevelUpDialog(tk.Toplevel):
-    def __init__(self, master, character, update_callback):
-        super().__init__(master)
-        self.title("Sali di Livello!")
-        self.geometry("400x450")
-        apply_modern_window_style(self)
-        self.character = character
-        self.update_callback = update_callback
-        
-        ttk.Label(self, text=f"Livello {self.character.level} -> {self.character.level + 1}!", font=("Georgia", 14, "bold")).pack(pady=10)
-        
-        hp_frame = ttk.LabelFrame(self, text="Aumento Punti Ferita")
-        hp_frame.pack(fill=tk.X, padx=10, pady=5)
-        
-        self.hp_choice = tk.StringVar(value="media")
-        ttk.Radiobutton(hp_frame, text="Prendi il valore medio (inseriscilo sotto)", variable=self.hp_choice, value="media").pack(anchor="w", padx=5, pady=2)
-        ttk.Radiobutton(hp_frame, text="Tira il Dado Vita (inserisci il risultato)", variable=self.hp_choice, value="roll").pack(anchor="w", padx=5, pady=2)
-        
-        ttk.Label(hp_frame, text="Valore da aggiungere agli HP Max:").pack(anchor="w", padx=5)
-        self.hp_add_var = tk.IntVar(value=0)
-        ttk.Entry(hp_frame, textvariable=self.hp_add_var, width=10).pack(anchor="w", padx=5, pady=2)
-        
-        feat_frame = ttk.LabelFrame(self, text="Nuovi Privilegi")
-        feat_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-        
-        self.feat_text = tk.Text(feat_frame, height=5, font=("Georgia", 10), wrap=tk.WORD)
-        self.feat_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        btn_frame = ttk.Frame(self)
-        btn_frame.pack(fill=tk.X, pady=10)
-        ttk.Button(btn_frame, text="Applica", command=self.apply, style="Primary.TButton").pack(side=tk.RIGHT, padx=10)
-        ttk.Button(btn_frame, text="Annulla", command=self.destroy).pack(side=tk.RIGHT)
-        
-    def apply(self):
-        try:
-            hp_inc = self.hp_add_var.get()
-        except ValueError:
-            hp_inc = 0
-            
-        self.character.level += 1
-        self.character.hp_max += hp_inc
-        self.character.hp_current += hp_inc
-        
-        new_feats = self.feat_text.get("1.0", tk.END).strip()
-        if new_feats:
-            if hasattr(self.character, "features") and self.character.features:
-                self.character.features += "\n\n--- Livello " + str(self.character.level) + " ---\n" + new_feats
-            else:
-                self.character.features = "--- Livello " + str(self.character.level) + " ---\n" + new_feats
-                
-        self.update_callback()
-        self.destroy()

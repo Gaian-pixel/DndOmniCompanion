@@ -86,6 +86,8 @@ class ClientGUI:
         
         self.aoe_button = ttk.Button(left_panel, text="Area d'Effetto (AoE)", command=self.open_aoe_dialog)
         self.aoe_button.pack(fill=tk.X, pady=2)
+        self.center_map_btn = ttk.Button(left_panel, text='Centra Mappa', command=lambda: self.map_canvas.center_view())
+        self.center_map_btn.pack(fill=tk.X, pady=2)
         
         self.travel_button = ttk.Button(left_panel, text="Azioni di Viaggio", command=self.open_travel_dialog, style='Success.TButton')
         self.travel_button.pack(fill=tk.X, pady=2)
@@ -113,6 +115,7 @@ class ClientGUI:
         self.map_canvas.set_on_click_callback(self.on_hex_click)
         self.map_canvas.set_on_ping_callback(self.on_ping_callback)
         self.map_canvas.set_on_wall_toggle_callback(self.on_wall_toggle_callback)
+        self.map_canvas.set_on_cover_toggle_callback(self.on_cover_toggle_callback)
         self.map_canvas.set_on_draw_callback(self.on_draw_request)
         
         # --- COLONNA 2: PANNELLO DESTRO (Social & Chat) ---
@@ -183,12 +186,17 @@ class ClientGUI:
         from common.protocol import make_toggle_wall_request
         self.network.send(make_toggle_wall_request(q, r))
 
+    def on_cover_toggle_callback(self, q, r, cover_type):
+        if not self.is_connected: return
+        self.network.send({"type": "TOGGLE_COVER_REQUEST", "data": {"q": q, "r": r, "cover_type": cover_type}})
+
 
     def on_hex_click(self, clicked_hex):
         if getattr(self, "aoe_mode", False) and getattr(self, "aoe_params", None):
             aoe_type = self.aoe_params["type"]
             size = self.aoe_params["size"]
             color = self.aoe_params["color"]
+            
             player_pos = [0, 0]
             if self.name in self.players_data:
                 player_pos = self.players_data[self.name].get("position", [0, 0])
@@ -197,6 +205,10 @@ class ClientGUI:
                 aoe_data = {"type": aoe_type, "origin": player_pos, "target": [clicked_hex.q, clicked_hex.r], "size": size, "color": color}
             else:
                 aoe_data = {"type": aoe_type, "origin": [clicked_hex.q, clicked_hex.r], "size": size, "color": color}
+                
+            for k in ["req_save", "stat", "dc", "dmg", "half"]:
+                if k in self.aoe_params:
+                    aoe_data[k] = self.aoe_params[k]
                 
             from common.protocol import make_create_aoe_request
             self.network.send(make_create_aoe_request(aoe_data))
@@ -230,7 +242,17 @@ class ClientGUI:
             else:
                 messagebox.showinfo("Nessun Bersaglio", "Non c'è nessuno in questo esagono.")
         else:
-            self.request_move(clicked_hex)
+            loots = getattr(self, "map_data", {}).get("loots", []) if getattr(self, "map_data", None) else []
+            loot_found = None
+            for l in loots:
+                if l["q"] == clicked_hex.q and l["r"] == clicked_hex.r:
+                    loot_found = l
+                    break
+            if loot_found:
+                if messagebox.askyesno("Bottino", f"C'e' un forziere qui contenente: {loot_found['qty']}x {loot_found['item']}.\nVuoi raccoglierlo?"):
+                    self.network.send({"type": "TAKE_LOOT_REQUEST", "data": {"q": clicked_hex.q, "r": clicked_hex.r}})
+            else:
+                self.request_move(clicked_hex)
 
     def on_attack_action(self, weapon_name, hit_bonus, damage_formula):
         self.attack_targeting_mode = True
@@ -293,17 +315,55 @@ class ClientGUI:
         for cname, cval in colors.items():
             ttk.Radiobutton(color_frame, text=cname, variable=color_var, value=cval).pack(side=tk.LEFT)
             
+        ttk.Separator(win, orient="horizontal").pack(fill="x", pady=10)
+        
+        req_save_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(win, text="Richiede Tiro Salvezza (Danni Automatici)", variable=req_save_var).pack(pady=2)
+        
+        save_frame = ttk.Frame(win)
+        save_frame.pack(pady=5)
+        
+        ttk.Label(save_frame, text="Stat:").grid(row=0, column=0, padx=2)
+        stat_var = tk.StringVar(value="DES")
+        ttk.Combobox(save_frame, textvariable=stat_var, values=["FOR", "DES", "COS", "INT", "SAG", "CAR"], width=5).grid(row=0, column=1, padx=2)
+        
+        ttk.Label(save_frame, text="CD:").grid(row=0, column=2, padx=2)
+        dc_entry = ttk.Entry(save_frame, width=5)
+        dc_entry.insert(0, "15")
+        dc_entry.grid(row=0, column=3, padx=2)
+        
+        ttk.Label(save_frame, text="Danni:").grid(row=1, column=0, padx=2, pady=5)
+        dmg_entry = ttk.Entry(save_frame, width=8)
+        dmg_entry.insert(0, "8d6")
+        dmg_entry.grid(row=1, column=1, padx=2, pady=5)
+        
+        half_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(save_frame, text="Dimezza Danni", variable=half_var).grid(row=1, column=2, columnspan=2, padx=2)
+            
         def submit():
             try:
                 sz = int(size_entry.get())
             except:
                 sz = 3
             self.aoe_mode = True
-            self.aoe_params = {"type": type_var.get(), "size": sz, "color": color_var.get()}
+            dc = 10
+            if req_save_var.get():
+                try: dc = int(dc_entry.get())
+                except: dc = 10
+                
+            self.aoe_params = {
+                "type": type_var.get(), "size": sz, "color": color_var.get(),
+                "req_save": req_save_var.get(), "stat": stat_var.get(), "dc": dc,
+                "dmg": dmg_entry.get(), "half": half_var.get()
+            }
             messagebox.showinfo("AoE", "Clicca sulla mappa per confermare il bersaglio / centro dell'area d'effetto.")
             win.destroy()
             
         ttk.Button(win, text="Prepara Lancio", command=submit).pack(pady=15)
+
+    def request_long_rest(self):
+        if not self.is_connected: return
+        self.network.send({"type": "LONG_REST_REQUEST", "data": {}})
 
     def request_move(self, clicked_hex):
         """Invia una richiesta di movimento al server quando il giocatore clicca su un esagono."""
@@ -443,6 +503,9 @@ class ClientGUI:
                 self.active_character.conditions = data.get('conditions')
             self.character_manager.save_characters()
             
+            if hasattr(self, 'stats_window') and self.stats_window.winfo_exists():
+                self.stats_window.update_dynamic_stats()
+            
         self.update_player_listbox()
 
     def set_controls_state(self, state):
@@ -525,10 +588,29 @@ class ClientGUI:
             "RECEIVE_ITEM": self.handle_receive_item,
             "REQUEST_INITIATIVE": self.handle_request_initiative,
             "PING_BROADCAST": self.handle_ping_broadcast,
-            "DRAW_BROADCAST": self.handle_draw_broadcast
+            "DRAW_BROADCAST": self.handle_draw_broadcast,
+            "PROMPT_LONG_REST_VOTE": self.handle_prompt_long_rest_vote,
+            "DO_LONG_REST": self.handle_do_long_rest
         }
         handler=handler_map.get(msg_type)
         if handler: handler(data)
+
+    def handle_prompt_long_rest_vote(self, data):
+        initiator = data.get("initiator", "Qualcuno")
+        if messagebox.askyesno("Voto Riposo Lungo", f"{initiator} propone un Riposo Lungo. Questo resettera' slot, salute e dadi vita.\n\nSei d'accordo?"):
+            self.network.send({"type": "LONG_REST_VOTE", "data": {"vote": True}})
+        else:
+            self.network.send({"type": "LONG_REST_VOTE", "data": {"vote": False}})
+
+    def handle_do_long_rest(self, data):
+        if self.active_character:
+            self.active_character.long_rest()
+            self.character_manager.update_character(self.active_character)
+            from common.protocol import make_update_full_sheet_request
+            self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
+            messagebox.showinfo("Riposo Lungo Completato", "Il gruppo ha completato un Riposo Lungo. Hai recuperato le tue statistiche.")
+            if getattr(self, "sheet_ui", None) and self.sheet_ui.winfo_exists():
+                self.sheet_ui.load_data()
 
     def handle_draw_broadcast(self, data):
         points = data.get("points", [])
@@ -703,7 +785,7 @@ class ClientGUI:
 
     def open_stats_dialog(self):
         if not self.active_character: return
-        CharacterSheetUI(self.master, self.active_character, self.character_manager, 
+        self.stats_window = CharacterSheetUI(self.master, self.active_character, self.character_manager, 
                          on_save_callback=self.on_character_saved, 
                          roll_callback=self.do_roll, 
                          trade_callback=self.do_trade, attack_callback=self.on_attack_action, 

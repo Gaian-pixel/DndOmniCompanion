@@ -19,6 +19,7 @@ class Player:
         self.size = 1
         self.aura_radius = 0
         self.aura_color = "yellow"
+        self.vision_radius = 6
 
     def to_dict(self):
         return {
@@ -34,7 +35,8 @@ class Player:
             "is_hidden": getattr(self, "is_hidden", False),
             "size": getattr(self, "size", 1),
             "aura_radius": getattr(self, "aura_radius", 0),
-            "aura_color": getattr(self, "aura_color", "yellow")
+            "aura_color": getattr(self, "aura_color", "yellow"),
+            "vision_radius": getattr(self, "vision_radius", 6)
         }
 
 class GameState:
@@ -237,6 +239,7 @@ class GameState:
                     existing.initiative = p_data.get("initiative", 0)
                     existing.full_sheet = p_data.get("full_sheet")
                     existing.conditions = p_data.get("conditions", [])
+                    existing.vision_radius = p_data.get("vision_radius", 6)
                     loaded_players.append(existing)
                 else:
                     p = Player(name=p_data["name"])
@@ -246,6 +249,7 @@ class GameState:
                     p.initiative = p_data.get("initiative", 0)
                     p.full_sheet = p_data.get("full_sheet")
                     p.conditions = p_data.get("conditions", [])
+                    p.vision_radius = p_data.get("vision_radius", 6)
                     loaded_players.append(p)
             self.players = loaded_players
         

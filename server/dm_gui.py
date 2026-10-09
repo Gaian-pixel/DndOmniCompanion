@@ -134,6 +134,8 @@ class DM_GUI:
         
         self.btn_clear_aoe = ttk.Button(map_top_bar, text="Pulisci AoE", command=self.clear_aoes)
         self.btn_clear_aoe.pack(side=tk.RIGHT, padx=5)
+        self.center_map_btn = ttk.Button(map_top_bar, text='Centra Mappa', command=lambda: self.map_canvas.center_view())
+        self.center_map_btn.pack(side=tk.LEFT, padx=5)
         
         fow_toolbar = ttk.Frame(map_top_bar)
         fow_toolbar.pack(side=tk.RIGHT, padx=5)
@@ -148,6 +150,10 @@ class DM_GUI:
         self.map_tool_combo['values'] = ("Muovi Token", "Cancella Nebbia", "Disegna Nebbia")
         self.map_tool_combo.pack(side=tk.LEFT, padx=5)
         
+        # Vista Giocatori
+        self.dm_player_view_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(fow_toolbar, text="Vista Giocatori", variable=self.dm_player_view_var, command=self.redraw_map_and_players).pack(side=tk.LEFT, padx=5)
+
         # Bottone per il Push manuale della nebbia
         ttk.Button(fow_toolbar, text="Invia Nebbia", command=self._broadcast_fow_update, style="Success.TButton").pack(side=tk.LEFT, padx=5)
         
@@ -642,7 +648,8 @@ class DM_GUI:
         players_data = {p.name: p.position for p in self.server.game_state.get_all_players()}
         turn_player = self.server.game_state.get_current_turn_player()
         turn_name = turn_player.name if turn_player else ""
-        self.map_canvas.update_data(map_data, players_data, turn_player_name=turn_name)
+        view_name = "DM_TEST" if getattr(self, "dm_player_view_var", None) and self.dm_player_view_var.get() else ""
+        self.map_canvas.update_data(map_data, players_data, player_name=view_name, turn_player_name=turn_name, aoes_data=getattr(self.server.game_state, "active_aoes", []))
         
 
     def open_travel_panel(self):

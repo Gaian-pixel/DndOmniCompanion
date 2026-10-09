@@ -122,3 +122,50 @@ def get_cone_hexes(origin: Hex, target: Hex, length: int) -> list[Hex]:
     if origin not in results:
         results.append(origin)
     return results
+
+
+# --- Nuove funzioni richieste ---
+
+def get_line_hexes(start_hex: Hex, target_hex: Hex, length_in_hexes: int) -> list[Hex]:
+    dist = hex_distance(start_hex, target_hex)
+    if dist == 0:
+        return [start_hex]
+    results = []
+    a_q, a_r = start_hex.q + 1e-6, start_hex.r + 1e-6
+    b_q, b_r = target_hex.q + 1e-6, target_hex.r + 1e-6
+    for i in range(length_in_hexes):
+        t = i / dist
+        q_frac = a_q + (b_q - a_q) * t
+        r_frac = a_r + (b_r - a_r) * t
+        results.append(hex_round(q_frac, r_frac))
+    return results
+
+def get_cone_hexes(start_hex: Hex, target_hex: Hex, length_in_hexes: int) -> list[Hex]:
+    if hex_distance(start_hex, target_hex) == 0:
+        return [start_hex]
+    
+    layout = HexLayout(1.0, (0.0, 0.0))
+    start_px = layout.hex_to_pixel(start_hex)
+    target_px = layout.hex_to_pixel(target_hex)
+    
+    dir_x = target_px[0] - start_px[0]
+    dir_y = target_px[1] - start_px[1]
+    dir_len = math.hypot(dir_x, dir_y)
+    dir_x /= dir_len
+    dir_y /= dir_len
+    
+    results = []
+    for h in get_sphere_hexes(start_hex, length_in_hexes):
+        if h.q == start_hex.q and h.r == start_hex.r:
+            results.append(h)
+            continue
+        h_px = layout.hex_to_pixel(h)
+        v_x = h_px[0] - start_px[0]
+        v_y = h_px[1] - start_px[1]
+        v_len = math.hypot(v_x, v_y)
+        
+        cos_angle = (v_x * dir_x + v_y * dir_y) / v_len
+        if cos_angle >= math.cos(math.radians(30)) - 1e-5:
+            results.append(h)
+            
+    return results

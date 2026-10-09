@@ -312,9 +312,36 @@ class CharacterCreationWizard(tk.Toplevel):
         }
         c.features = f"Tratti razziali:\n{race_info['desc']}\n\nTratti classe:\n{class_info['desc']}"
         
+        # Async fetch for Level 1 features
+        def _fetch_level_1():
+            try:
+                import requests
+                from .progression_ui import CLASS_MAP
+                class_en = CLASS_MAP.get(c.char_class.lower())
+                if class_en:
+                    resp = requests.get(f"https://www.dnd5eapi.co/api/classes/{class_en}/levels/1", timeout=3)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        feats = [f["name"] for f in data.get("features", [])]
+                        if feats:
+                            c.features += "\n\n--- Privilegi di Livello 1 (API) ---\n" + "\n".join(f"- {ft}" for ft in feats)
+                        sc = data.get("spellcasting")
+                        if sc:
+                            for i in range(1, 10):
+                                key = f"spell_slots_level_{i}"
+                                if key in sc:
+                                    c.spell_slots[str(i)] = [0, sc[key]]
+            except Exception as e:
+                print("Error fetching API level 1 data:", e)
+            
+            self.master.after(0, self._on_creation_done, c)
+            
+        import threading
+        threading.Thread(target=_fetch_level_1, daemon=True).start()
+
+    def _on_creation_done(self, c):
         self.manager.add_character(c)
         messagebox.showinfo("Successo", f"Personaggio '{c.name}' creato con successo!")
         if self.on_complete_callback:
             self.on_complete_callback(c)
         self.destroy()
-

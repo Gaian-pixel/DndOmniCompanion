@@ -3,6 +3,47 @@ from common.protocol import *
 from common.dice import roll_dice
 from common.network_utils import send_message, broadcast
 
+def _apply_hp_change(target_player, new_hp_unbounded, game_state):
+    old_hp = target_player.hp
+    excess_damage = 0
+    if new_hp_unbounded < 0:
+        excess_damage = abs(new_hp_unbounded)
+    
+    target_player.hp = max(0, min(target_player.max_hp, new_hp_unbounded))
+    
+    is_npc = not hasattr(target_player, "conn") or target_player.conn is None
+    
+    if target_player.hp == 0:
+        if is_npc:
+            if "Morto" not in getattr(target_player, "conditions", []):
+                if not hasattr(target_player, "conditions"): target_player.conditions = []
+                target_player.conditions.append("Morto")
+        else:
+            if excess_damage >= target_player.max_hp:
+                if "Morto" not in getattr(target_player, "conditions", []):
+                    if not hasattr(target_player, "conditions"): target_player.conditions = []
+                    target_player.conditions.append("Morto")
+                    msg = f"!!! {target_player.name} E' MORTO SUL COLPO A CAUSA DI DANNO MASSICCIO !!!"
+                    from common.protocol import make_chat_broadcast
+                    broadcast(game_state, make_chat_broadcast("Sistema", msg))
+                    game_state.log_dm_message(msg)
+            else:
+                if not hasattr(target_player, "conditions"): target_player.conditions = []
+                if "Concentrazione" in target_player.conditions:
+                    target_player.conditions.remove("Concentrazione")
+                if "Incosciente" not in target_player.conditions:
+                    target_player.conditions.append("Incosciente")
+                if "Prono" not in target_player.conditions:
+                    target_player.conditions.append("Prono")
+                if old_hp == 0 and new_hp_unbounded < 0:
+                    msg = f"{target_player.name} subisce danni mentre è a 0 HP! Segna un fallimento nel Tiro Salvezza contro la morte!"
+                    from common.protocol import make_chat_broadcast
+                    broadcast(game_state, make_chat_broadcast("Sistema", msg))
+                    game_state.log_dm_message(msg)
+    elif target_player.hp > 0:
+        if old_hp == 0 and "Incosciente" in getattr(target_player, "conditions", []):
+            target_player.conditions.remove("Incosciente")
+
 def handle_chat(data, player, game_state):
     text = data.get("text", "").strip()
     if not text: return
@@ -43,6 +84,106 @@ def handle_chat(data, player, game_state):
                 pass
         return
 
+    if text.startswith("/vision "):
+        parts = text.split(" ")
+        if len(parts) >= 3:
+            p_name = parts[1]
+            try:
+                vis_rad = int(parts[2])
+                target = game_state.find_player(p_name)
+                if target:
+                    target.vision_radius = vis_rad
+                    game_state._trigger_gui_update()
+                    from common.protocol import make_game_state
+                    broadcast(game_state, make_game_state(game_state.get_state_dict()))
+                    game_state.log_dm_message(f"[SISTEMA] Impostata vista {vis_rad} esagoni per {p_name}")
+            except ValueError:
+                pass
+        return
+
+    if text.startswith("/torch"):
+        if getattr(game_state, "current_map", None):
+            pos = getattr(player, "position", None)
+            if pos:
+                lights = game_state.current_map.setdefault("lights", [])
+                lights.append({"q": pos[0], "r": pos[1], "radius": 6, "color": "yellow"})
+                game_state.log_dm_message(f"[Sistema] {player.name} ha acceso una torcia.")
+                
+                # Reveal FoW for torch
+                if game_state.current_map.get("fow_enabled", False):
+                    from common.hex_utils import Hex, get_sphere_hexes, hex_linedraw
+                    h = Hex(pos[0], pos[1])
+                    revealed = get_sphere_hexes(h, 6)
+                    fow_rev = game_state.current_map.get("fow_revealed", [])
+                    walls_list = [Hex(w[0], w[1]) for w in game_state.current_map.get("walls", [])]
+                    for rh in revealed:
+                        line = hex_linedraw(h, rh)
+                        blocked = False
+                        for step in line[:-1]:
+                            if step != h and step in walls_list:
+                                blocked = True
+                                break
+                        if not blocked and [rh.q, rh.r] not in fow_rev:
+                            fow_rev.append([rh.q, rh.r])
+                
+                game_state._trigger_gui_update()
+                from common.protocol import make_game_state
+                broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        return
+        
+    if text.startswith("/light "):
+        parts = text.split(" ")
+        if len(parts) >= 4 and getattr(game_state, "current_map", None):
+            try:
+                q = int(parts[1])
+                r = int(parts[2])
+                radius = int(parts[3])
+                lights = game_state.current_map.setdefault("lights", [])
+                lights.append({"q": q, "r": r, "radius": radius, "color": "yellow"})
+                game_state.log_dm_message(f"[Sistema] Luce piazzata in {q}, {r} raggio {radius}.")
+                
+                # Reveal FoW for light
+                if game_state.current_map.get("fow_enabled", False):
+                    from common.hex_utils import Hex, get_sphere_hexes, hex_linedraw
+                    h = Hex(q, r)
+                    revealed = get_sphere_hexes(h, radius)
+                    fow_rev = game_state.current_map.get("fow_revealed", [])
+                    walls_list = [Hex(w[0], w[1]) for w in game_state.current_map.get("walls", [])]
+                    for rh in revealed:
+                        line = hex_linedraw(h, rh)
+                        blocked = False
+                        for step in line[:-1]:
+                            if step != h and step in walls_list:
+                                blocked = True
+                                break
+                        if not blocked and [rh.q, rh.r] not in fow_rev:
+                            fow_rev.append([rh.q, rh.r])
+                            
+                game_state._trigger_gui_update()
+                from common.protocol import make_game_state
+                broadcast(game_state, make_game_state(game_state.get_state_dict()))
+            except ValueError:
+                pass
+        return
+        
+    if text.startswith("/loot "):
+        parts = text.split(" ", 4)
+        if len(parts) >= 4 and getattr(game_state, "current_map", None):
+            try:
+                q = int(parts[1])
+                r = int(parts[2])
+                item_name = parts[3]
+                qty = int(parts[4]) if len(parts) > 4 else 1
+                loots = game_state.current_map.setdefault("loots", [])
+                loots.append({"q": q, "r": r, "item": item_name, "qty": qty})
+                game_state.log_dm_message(f"[Sistema] Bottino piazzato in {q}, {r}: {qty}x {item_name}.")
+                game_state._trigger_gui_update()
+                from common.protocol import make_game_state
+                broadcast(game_state, make_game_state(game_state.get_state_dict()))
+            except ValueError:
+                pass
+        return
+        
     game_state.log_dm_message(f"[{player.name}]: {text}")
     broadcast(game_state, make_chat_broadcast(player.name, text))
 
@@ -81,7 +222,7 @@ def handle_move_request(data, player, game_state):
     to_pos = data.get("to")
     if to_pos:
         walls_list_pos = game_state.current_map.get("walls", []) if getattr(game_state, "current_map", None) else []
-        if [to_pos["q"], to_pos["r"]] in walls_list_pos:
+        if [to_pos[0], to_pos[1]] in walls_list_pos:
             from common.network_utils import send_message
             from common.protocol import make_error_reply
             if player.conn:
@@ -90,8 +231,8 @@ def handle_move_request(data, player, game_state):
             
         in_combat = getattr(player, "in_combat", False) or getattr(game_state, "combat_active", False)
         if in_combat and hasattr(player, "position") and player.position:
-            q1, r1 = player.position.get("q", 0), player.position.get("r", 0)
-            q2, r2 = to_pos.get("q", 0), to_pos.get("r", 0)
+            q1, r1 = player.position[0], player.position[1]
+            q2, r2 = to_pos[0], to_pos[1]
             dist = max(abs(q1 - q2), abs(q1 + r1 - q2 - r2), abs(r1 - r2))
             speed = getattr(player, "speed", 30)
             max_hexes = speed // 5
@@ -107,8 +248,9 @@ def handle_move_request(data, player, game_state):
         # Auto-explore FoW around the player's new position
         if getattr(game_state, "current_map", None) and game_state.current_map.get("fow_enabled", False):
             from common.hex_utils import Hex, get_sphere_hexes, hex_linedraw
-            h = Hex(to_pos["q"], to_pos["r"])
-            revealed = get_sphere_hexes(h, 6) # 30 feet radius
+            h = Hex(to_pos[0], to_pos[1])
+            vision_rad = getattr(player, 'vision_radius', 6)
+            revealed = get_sphere_hexes(h, vision_rad)
             changed = False
             
             fow_rev = game_state.current_map.get("fow_revealed", [])
@@ -150,12 +292,12 @@ def handle_update_stats_request(data, player, game_state):
         max_hp = int(data.get("max_hp"))
         initiative = int(data.get("initiative"))
         conditions = data.get("conditions", [])
-        player.hp = hp
         player.max_hp = max_hp
         player.initiative = initiative
         player.conditions = conditions
+        _apply_hp_change(player, hp, game_state)
         game_state._trigger_gui_update()
-        broadcast(game_state, make_player_stats_update(player.name, hp, max_hp, initiative, conditions))
+        broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions))
     except:
         pass
 
@@ -183,9 +325,9 @@ def handle_targeted_action(data, player, game_state):
             val = 0
             
         if action_type == "danno":
-            target_player.hp = max(0, target_player.hp - val)
+            _apply_hp_change(target_player, target_player.hp - val, game_state)
         elif action_type == "cura":
-            target_player.hp = min(target_player.max_hp, target_player.hp + val)
+            _apply_hp_change(target_player, target_player.hp + val, game_state)
             
         log_msg = f"{player.name} usa {reason} su {target_name}: {action_type} di {val}. HP attuali: {target_player.hp}/{target_player.max_hp}"
         game_state.log_dm_message(f"[COMBAT] {log_msg}")
@@ -214,9 +356,58 @@ def handle_give_item_request(data, player, game_state):
 
 def handle_create_aoe_request(data, player, game_state):
     aoe_data = data.get("aoe_data")
-    if aoe_data:
-        game_state.add_aoe(aoe_data)
-        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+    if not aoe_data:
+        return
+        
+    game_state.add_aoe(aoe_data)
+    broadcast(game_state, make_game_state(game_state.get_state_dict()))
+    
+    if not aoe_data.get("req_save"):
+        return
+        
+    from common.hex_utils import Hex, get_sphere_hexes, get_cone_hexes, get_line_hexes
+    
+    origin = Hex(*aoe_data["origin"])
+    aoe_type = aoe_data.get("type", "sfera")
+    size = aoe_data.get("size", 3)
+    
+    if aoe_type in ["sfera", "cubo"]:
+        hexes = get_sphere_hexes(origin, size)
+    elif aoe_type == "cono":
+        target = Hex(*aoe_data.get("target", aoe_data["origin"]))
+        hexes = get_cone_hexes(origin, target, size)
+    elif aoe_type == "linea":
+        target = Hex(*aoe_data.get("target", aoe_data["origin"]))
+        hexes = get_line_hexes(origin, target)
+    else:
+        hexes = []
+        
+    affected_players = []
+    for p in getattr(game_state, "players", []):
+        if getattr(p, "hp", 0) > 0 and getattr(p, "position", None):
+            pos_hex = Hex(p.position[0], p.position[1])
+            if pos_hex in hexes:
+                affected_players.append(p)
+                
+    if not affected_players:
+        return
+        
+    from common.protocol import make_prompt_save
+    game_state.log_dm_message(f"[AoE] {player.name} ha lanciato un'AoE. {len(affected_players)} bersagli colpiti.")
+    
+    for p in affected_players:
+        if hasattr(p, "conn") and p.conn:
+            send_message(p.conn, make_prompt_save(
+                stat=aoe_data.get("stat", "DES"),
+                dc=aoe_data.get("dc", 10),
+                damage_formula=aoe_data.get("dmg", "8d6"),
+                half_on_success=aoe_data.get("half", True),
+                source_name=player.name
+            ))
+            game_state.log_dm_message(f"[AoE] Richiesto Tiro Salvezza a {p.name}.")
+        else:
+            # Mostro gestito dal server/DM
+            game_state.log_dm_message(f"[AoE] {p.name} (NPC) è nell'area. Il DM deve tirare il TS manualmente o possiamo automatizzarlo.")
 
 def handle_clear_aoes_request(data, player, game_state):
     game_state.clear_aoes()
@@ -322,17 +513,60 @@ def handle_attack_request(data, player, game_state):
     
     try:
         from common.dice import roll_dice
-        # 1. Roll to Hit
-        formula = f"1d20+{hit_bonus}"
-        if "Avvelenato" in getattr(player, "conditions", []):
-            if " dis" not in formula:
-                formula += " dis"
-        hit_result = roll_dice(formula)
-        hit_roll = hit_result["total"]
-        is_crit = (hit_result["rolls"][0][0] == 20)
-        is_fail = (hit_result["rolls"][0][0] == 1)
-        
         import random
+        # 1. Roll to Hit
+        has_adv = False
+        has_dis = False
+        flanking = False
+        
+        p_cond = getattr(player, "conditions", [])
+        t_cond = getattr(target_player, "conditions", [])
+        
+        if "Invisibile" in p_cond: has_adv = True
+        if "Invisibile" in t_cond: has_dis = True
+        if any(c in p_cond for c in ["Avvelenato", "Trattenuto", "Prono"]): has_dis = True
+        if "Trattenuto" in t_cond: has_adv = True
+        
+        if hasattr(player, "position") and player.position and hasattr(target_player, "position") and target_player.position:
+            q1, r1 = player.position[0], player.position[1]
+            q2, r2 = target_player.position[0], target_player.position[1]
+            dist = max(abs(q1 - q2), abs(q1 + r1 - q2 - r2), abs(r1 - r2))
+            if "Prono" in t_cond:
+                if dist == 1: has_adv = True
+                elif dist > 1: has_dis = True
+            if dist == 1:
+                opp_q = q2 + (q2 - q1)
+                opp_r = r2 + (r2 - r1)
+                for p in getattr(game_state, "players", []):
+                    if p.name != player.name and getattr(p, "hp", 0) > 0:
+                        if hasattr(p, "position") and p.position and p.position[0] == opp_q and p.position[1] == opp_r:
+                            p_c = getattr(p, "conditions", [])
+                            if "Invisibile" not in p_c and "Nascosto" not in p_c:
+                                has_adv = True
+                                flanking = True
+                                break
+
+        if has_adv and has_dis:
+            has_adv = False
+            has_dis = False
+            
+        roll1 = random.randint(1, 20)
+        roll2 = random.randint(1, 20)
+        if has_adv:
+            base_roll = max(roll1, roll2)
+        elif has_dis:
+            base_roll = min(roll1, roll2)
+        else:
+            base_roll = roll1
+            
+        try:
+            hit_roll = base_roll + int(hit_bonus)
+        except ValueError:
+            hit_roll = base_roll
+            
+        is_crit = (base_roll == 20)
+        is_fail = (base_roll == 1)
+        
         benedizione_bonus = 0
         if "Benedizione" in getattr(player, "conditions", []):
             benedizione_bonus = random.randint(1, 4)
@@ -351,16 +585,60 @@ def handle_attack_request(data, player, game_state):
             target_ac += 5
             scudo_applicato = True
                 
-        hits = is_crit or (not is_fail and hit_roll >= target_ac)
+        # Check cover and line of sight
+        blocked_by_wall = False
+        cover_bonus = 0
+        cover_name = None
         
-        log_msg = f"{player.name} attacca {target_name} con {weapon_name}. Tiro per colpire: {hit_roll}"
+        if hasattr(player, "position") and player.position and hasattr(target_player, "position") and target_player.position:
+            from common.hex_utils import hex_linedraw, Hex
+            p_hex = Hex(player.position[0], player.position[1])
+            t_hex = Hex(target_player.position[0], target_player.position[1])
+            line = hex_linedraw(p_hex, t_hex)
+            
+            if getattr(game_state, "current_map", None):
+                walls = game_state.current_map.get("walls", [])
+                half_cover = game_state.current_map.get("half_cover", [])
+                three_quarters = game_state.current_map.get("three_quarters_cover", [])
+                
+                for step in line[1:]:
+                    pos = [step.q, step.r]
+                    if pos in walls:
+                        blocked_by_wall = True
+                        break
+                    elif pos in three_quarters:
+                        if cover_bonus < 5:
+                            cover_bonus = 5
+                            cover_name = "Tre Quarti di Copertura"
+                    elif pos in half_cover:
+                        if cover_bonus < 2:
+                            cover_bonus = 2
+                            cover_name = "Mezza Copertura"
+
+        if cover_bonus > 0 and not blocked_by_wall:
+            target_ac += cover_bonus
+                
+        hits = (is_crit or (not is_fail and hit_roll >= target_ac)) and not blocked_by_wall
+        
+        log_msg = f"{player.name} attacca {target_name} con {weapon_name}."
+        if flanking:
+            log_msg += " (Fiancheggiamento)"
+        if has_adv:
+            log_msg += " (Vantaggio)"
+        elif has_dis:
+            log_msg += " (Svantaggio)"
+        log_msg += f" Tiro per colpire: {hit_roll}"
         if benedizione_bonus > 0:
             log_msg += f" (+{benedizione_bonus} Benedizione)"
         log_msg += f" vs CA {target_ac}."
         if scudo_applicato:
             log_msg += " (Scudo +5 CA applicato)"
+        if cover_name:
+            log_msg += f" (+{cover_bonus} {cover_name})"
         
-        if hits:
+        if blocked_by_wall:
+            log_msg += " Bloccato dal Muro."
+        elif hits:
             log_msg += " COLPITO!"
             if is_crit: log_msg += " (CRITICO!)"
             if damage_formula:
@@ -371,7 +649,7 @@ def handle_attack_request(data, player, game_state):
                     crit_dmg_result = roll_dice(damage_formula)
                     dmg_val += crit_dmg_result["total"]
                     
-                target_player.hp = max(0, target_player.hp - dmg_val)
+                _apply_hp_change(target_player, target_player.hp - dmg_val, game_state)
                 log_msg += f" Danno: {dmg_val}. HP {target_name}: {target_player.hp}/{target_player.max_hp}"
                 
                 broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions))
@@ -436,7 +714,7 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
                     dmg_val = 0
                     
             if dmg_val > 0:
-                target_player.hp = max(0, target_player.hp - dmg_val)
+                _apply_hp_change(target_player, target_player.hp - dmg_val, game_state)
                 log_msg += f" Subisce {dmg_val} danni! HP: {target_player.hp}/{target_player.max_hp}"
                 from common.protocol import make_player_stats_update
                 broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions))
@@ -515,6 +793,25 @@ def handle_toggle_wall_request(data, player, game_state):
     from common.protocol import make_game_state
     broadcast(game_state, make_game_state(game_state.get_state_dict()))
 
+def handle_toggle_cover_request(data, player, game_state):
+    q, r = data.get("q"), data.get("r")
+    cover_type = data.get("cover_type")
+    if q is None or r is None or not cover_type: return
+    
+    if not hasattr(game_state, "current_map") or game_state.current_map is None:
+        return
+        
+    cover_list = game_state.current_map.setdefault(cover_type, [])
+    w = [q, r]
+    if w in cover_list:
+        cover_list.remove(w)
+    else:
+        cover_list.append(w)
+        
+    game_state._trigger_gui_update()
+    from common.protocol import make_game_state
+    broadcast(game_state, make_game_state(game_state.get_state_dict()))
+
 def handle_draw_request(data, player, game_state):
     points = data.get("points", [])
     color = data.get("color", "red")
@@ -542,4 +839,74 @@ command_handlers = {
     "FORCE_SAVE_REQUEST": handle_force_save_request,
     "SAVE_RESULT": handle_save_result_request,
     "TOGGLE_WALL_REQUEST": handle_toggle_wall_request,
+    "TOGGLE_COVER_REQUEST": handle_toggle_cover_request,
 }
+
+def handle_take_loot_request(data, player, game_state):
+    q = data.get('q')
+    r = data.get('r')
+    if q is None or r is None or not getattr(game_state, 'current_map', None):
+        return
+        
+    loots = game_state.current_map.get('loots', [])
+    found = None
+    for l in loots:
+        if l['q'] == q and l['r'] == r:
+            found = l
+            break
+            
+    if found:
+        loots.remove(found)
+        from common.protocol import make_give_item_broadcast, make_game_state
+        from common.network_utils import send_message
+        
+        if getattr(player, 'conn', None):
+            send_message(player.conn, {'type': 'GIVE_ITEM', 'data': {'sender': 'Sistema', 'target': player.name, 'item_name': found['item'], 'qty': found['qty']}})
+            
+        game_state.log_dm_message(f'[Loot] {player.name} ha raccolto {found["qty"]}x {found["item"]}.')
+        game_state._trigger_gui_update()
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+
+def handle_long_rest_request(data, player, game_state):
+    if getattr(game_state, "combat_active", False):
+        from common.network_utils import send_message
+        if getattr(player, "conn", None): send_message(player.conn, {"type": "ERROR_REPLY", "data": {"text": "Non puoi riposare durante il combattimento!"}})
+        return
+        
+    players = getattr(game_state, "players", [])
+    active_conns = len([p for p in players if getattr(p, "conn", None)])
+    if active_conns == 0: return
+        
+    game_state.ongoing_rest_vote = {"initiator": player.name, "votes_needed": active_conns, "votes_received": 0}
+    game_state.log_dm_message(f"[Sistema] {player.name} ha proposto un Riposo Lungo. In attesa di approvazione da {active_conns} giocatori.")
+    from common.network_utils import send_message
+    for p in players:
+        if getattr(p, "conn", None):
+            send_message(p.conn, {"type": "PROMPT_LONG_REST_VOTE", "data": {"initiator": player.name}})
+
+def handle_long_rest_vote(data, player, game_state):
+    vote = data.get("vote", False)
+    vote_data = getattr(game_state, "ongoing_rest_vote", None)
+    if not vote_data: return
+    
+    if not vote:
+        game_state.log_dm_message(f"[Sistema] {player.name} ha RIFIUTATO il riposo lungo. Votazione annullata.")
+        from common.protocol import make_chat_broadcast
+        broadcast(game_state, make_chat_broadcast("Sistema", f"Il Riposo Lungo proposto da {vote_data['initiator']} e' stato annullato perche' {player.name} non ha approvato."))
+        game_state.ongoing_rest_vote = None
+        return
+        
+    vote_data["votes_received"] += 1
+    if vote_data["votes_received"] >= vote_data["votes_needed"]:
+        game_state.log_dm_message(f"[Sistema] Tutti i giocatori hanno approvato il Riposo Lungo!")
+        from common.protocol import make_chat_broadcast
+        broadcast(game_state, make_chat_broadcast("Sistema", f"Il gruppo si e' accampato per un Riposo Lungo. Tutti recuperano HP e Slot."))
+        from common.network_utils import send_message
+        for p in getattr(game_state, "players", []):
+            if getattr(p, "conn", None):
+                send_message(p.conn, {"type": "DO_LONG_REST", "data": {}})
+        game_state.ongoing_rest_vote = None
+
+command_handlers['TAKE_LOOT_REQUEST'] = handle_take_loot_request
+command_handlers['LONG_REST_REQUEST'] = handle_long_rest_request
+command_handlers['LONG_REST_VOTE'] = handle_long_rest_vote
