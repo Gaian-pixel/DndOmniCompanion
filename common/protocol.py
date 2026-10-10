@@ -115,8 +115,20 @@ def make_save_result(stat, roll_total, is_crit, is_fail, dc, damage_formula, hal
 
 
 
-def make_handout_broadcast(title, image_b64):
-    return {"type": "HANDOUT_BROADCAST", "data": {"title": title, "image_b64": image_b64}}
+def make_handout_broadcast(title, image_b64=None, content=None):
+    return {"type": "HANDOUT_BROADCAST", "data": {"title": title, "image_b64": image_b64, "content": content}}
 
 def make_toggle_wall_request(q, r):
     return {"type": "TOGGLE_WALL_REQUEST", "data": {"q": q, "r": r}}
+
+def make_fow_update_broadcast(fow_revealed, fow_draft):
+    return {"type": "FOW_UPDATE_BROADCAST", "data": {"fow_revealed": fow_revealed, "fow_draft": fow_draft}}
+
+def make_map_data_update_broadcast(map_data):
+    return {"type": "MAP_DATA_UPDATE", "data": {"map": map_data}}
+
+def make_combat_state_update_broadcast(combat_active, turn_index, round_number, active_aoes):
+    return {"type": "COMBAT_STATE_UPDATE", "data": {"combat_active": combat_active, "turn_index": turn_index, "round_number": round_number, "active_aoes": active_aoes}}
+
+def make_audio_play_broadcast(url_or_name):
+    return {"type": "AUDIO_PLAY_BROADCAST", "data": {"url": url_or_name}}

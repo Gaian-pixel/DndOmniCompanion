@@ -9,7 +9,8 @@ import tkinter as tk
 import json
 import base64
 import os
-from tkinter import messagebox, filedialog, ttk, scrolledtext, simpledialog
+from common.messagebox import messagebox
+from tkinter import filedialog, ttk, scrolledtext, simpledialog
 from PIL import Image, ImageTk
 
 from common.protocol import *
@@ -57,12 +58,14 @@ class DM_GUI:
         
         tools_menu = tk.Menu(menubar, tearoff=0)
         tools_menu.add_command(label="Editor Mappe", command=self.open_map_editor)
+        tools_menu.add_command(label="Condividi Immagine (Handout)", command=self.share_image_handout)
+        tools_menu.add_command(label="Condividi Documento testuale", command=self.share_text_handout)
         tools_menu.add_command(label="Scarica Mappe Famose", command=self.open_map_downloader)
         tools_menu.add_command(label="Compendio & SRD", command=self.open_srd_importer)
         tools_menu.add_command(label="Preparazione Combattimenti", command=self.open_encounter_builder)
         tools_menu.add_separator()
         tools_menu.add_command(label="Pannello Viaggio", command=self.open_travel_panel)
-        tools_menu.add_command(label="Condividi Handout (Immagine)", command=self.share_handout)
+        tools_menu.add_command(label="Condividi Handout (Immagine)", command=self.share_image_handout)
         menubar.add_cascade(label="Strumenti", menu=tools_menu)
         
         # 2. LAYOUT PRINCIPALE (3 Colonne: Sinistra=Toolbar, Centro=Mappa, Destra=Notebook)
@@ -86,6 +89,9 @@ class DM_GUI:
         btn3 = ttk.Button(left_toolbar, text="📏", width=3, command=lambda: print("Misura: Placeholder"))
         btn3.pack(pady=5)
         ToolTip(btn3, "Misura Distanza")
+        btn4 = ttk.Button(left_toolbar, text="🧹", width=3, command=self.clear_aoes)
+        btn4.pack(pady=5)
+        ToolTip(btn4, "Pulisci Aree di Effetto")
         
         # --- COLONNA 1: MAPPA (Viewport pulita) ---
         map_outer_frame = ttk.Frame(main_frame)
@@ -95,13 +101,6 @@ class DM_GUI:
         map_top_bar = ttk.Frame(map_outer_frame)
         map_top_bar.pack(fill=tk.X, pady=(0, 5))
         ttk.Label(map_top_bar, text="Mappa di Gioco", font=self.default_font, foreground="#E0E0E0").pack(side=tk.LEFT)
-        
-        self.btn_clear_aoe = ttk.Button(map_top_bar, text="Pulisci AoE", command=self.clear_aoes)
-        self.btn_clear_aoe.pack(side=tk.RIGHT, padx=5)
-        ToolTip(self.btn_clear_aoe, "Pulisci Aree di Effetto")
-        self.center_map_btn = ttk.Button(map_top_bar, text='Centra Mappa', command=lambda: self.map_canvas.center_view() if self.map_canvas else None)
-        self.center_map_btn.pack(side=tk.LEFT, padx=5)
-        ToolTip(self.center_map_btn, "Centra Mappa sulla Vista")
         
         fow_toolbar = ttk.Frame(map_top_bar)
         fow_toolbar.pack(side=tk.RIGHT, padx=5)
@@ -136,6 +135,7 @@ class DM_GUI:
         self.map_canvas = HexMapCanvas(map_outer_frame, bg="#1e1e1e")
         self.map_canvas.pack(fill=tk.BOTH, expand=True)
         self.map_canvas.set_on_click_callback(self.on_hex_clicked)
+        self.map_canvas.on_token_drop_callback = self.on_token_drop
         self.map_canvas.set_on_ping_callback(self.on_ping_callback)
         
         # --- COLONNA 2: RIGHT SIDEBAR (Notebook a Tabs) ---
@@ -152,6 +152,22 @@ class DM_GUI:
         self.notebook = ttk.Notebook(tab_chat)
         self.notebook.pack(fill=tk.BOTH, expand=True, pady=0)
         self.create_chat_tab("Sistema")
+        
+        # Tab Bestiario
+        self.tab_bestiario = ttk.Frame(self.notebook)
+        self.notebook.add(self.tab_bestiario, text="Bestiario")
+        
+        ttk.Label(self.tab_bestiario, text="Ricerca Mostro:", font=self.default_font).pack(pady=(5,0))
+        self.bestiario_search_var = tk.StringVar()
+        ttk.Entry(self.tab_bestiario, textvariable=self.bestiario_search_var).pack(fill=tk.X, padx=5, pady=5)
+        ttk.Button(self.tab_bestiario, text="Cerca in SRD", command=self.search_bestiario).pack(pady=5)
+        
+        self.bestiario_listbox = tk.Listbox(self.tab_bestiario, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=self.default_font)
+        self.bestiario_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.bestiario_results = []
+        
+        ttk.Button(self.tab_bestiario, text="Spawna sulla Mappa", command=self.spawn_bestiario).pack(pady=5)
+
         
         chat_input_frame = ttk.Frame(tab_chat)
         chat_input_frame.pack(fill=tk.X, pady=(5, 0))
@@ -177,8 +193,15 @@ class DM_GUI:
         self.right_notebook.add(tab_combat, text="Iniziativa & PG")
         
         ttk.Label(tab_combat, text="Avventurieri & NPC", font=self.default_font, foreground="#E0E0E0").pack(anchor="w", pady=(0, 5))
-        self.player_listbox = tk.Listbox(tab_combat, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=self.default_font, selectbackground=ACCENT_RED, borderwidth=0, relief="flat", highlightthickness=0)
-        self.player_listbox.pack(fill=tk.BOTH, expand=True, side=tk.TOP, pady=(0, 5))
+        list_frame = ttk.Frame(tab_combat)
+        list_frame.pack(fill=tk.BOTH, expand=True, side=tk.TOP, pady=(0, 5))
+
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.player_listbox = tk.Listbox(list_frame, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=self.default_font, selectbackground=ACCENT_RED, borderwidth=0, relief="flat", highlightthickness=0, yscrollcommand=scrollbar.set)
+        self.player_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=self.player_listbox.yview)
         self.player_listbox.bind("<Double-Button-1>", self.open_private_chat_from_list)
         self.player_listbox.bind("<Button-3>", self.show_player_context_menu)
         self.player_listbox.bind("<<ListboxSelect>>", self.on_player_selected)
@@ -210,7 +233,37 @@ class DM_GUI:
         btn_frame_bottom.pack(fill=tk.X, side=tk.BOTTOM, pady=(10, 0))
         ttk.Button(btn_frame_bottom, text="Spawna PNG", command=self.spawn_png_dialog, style="Primary.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
         ttk.Button(btn_frame_bottom, text="Encounter Builder", command=self.open_encounter_builder, style="Primary.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
+        ttk.Button(tab_combat, text="Dividi Denaro", command=self.split_loot_dialog, style="Primary.TButton").pack(fill=tk.X, side=tk.BOTTOM, pady=(5, 0))
+
         
+        # Tab 3 ("Mondo")
+        tab_world = ttk.Frame(self.right_notebook)
+        self.right_notebook.add(tab_world, text="Mondo")
+        
+        ttk.Label(tab_world, text="Gestione Tempo", font=("Arial", 12, "bold")).pack(anchor="w", pady=(5, 5))
+        self.lbl_time = ttk.Label(tab_world, text="Giorno 1 - 08:00 (Mattina)")
+        self.lbl_time.pack(anchor="w", pady=(0, 10))
+        
+        time_btn_frame = ttk.Frame(tab_world)
+        time_btn_frame.pack(fill=tk.X, pady=5)
+        ttk.Button(time_btn_frame, text="+1 Ora", command=lambda: self.advance_time(1)).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
+        ttk.Button(time_btn_frame, text="+8 Ore (Riposo)", command=lambda: self.advance_time(8)).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 2))
+        ttk.Button(time_btn_frame, text="+1 Giorno", command=lambda: self.advance_time(24)).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
+        
+        ttk.Label(tab_world, text="Clima", font=("Arial", 12, "bold")).pack(anchor="w", pady=(15, 5))
+        self.weather_var = tk.StringVar(value="Sereno")
+        weather_combo = ttk.Combobox(tab_world, textvariable=self.weather_var, values=["Sereno", "Pioggia", "Tempesta", "Neve", "Nebbia"], state="readonly")
+        weather_combo.pack(fill=tk.X)
+        weather_combo.bind("<<ComboboxSelected>>", self.on_weather_changed)
+        
+        # Tab 4 ("Audio/Sfx")
+        tab_audio = ttk.Frame(self.right_notebook)
+        self.right_notebook.add(tab_audio, text="Audio/Sfx")
+        ttk.Label(tab_audio, text="Soundboard", font=("Arial", 12, "bold")).pack(anchor="w", pady=(5, 5))
+        ttk.Button(tab_audio, text="Musica Taverna", command=lambda: self.play_audio("https://www.youtube.com/watch?v=sW-KikD1b4k")).pack(fill=tk.X, pady=5)
+        ttk.Button(tab_audio, text="Musica Battaglia", command=lambda: self.play_audio("https://www.youtube.com/watch?v=1F_CgepehcE")).pack(fill=tk.X, pady=5)
+        ttk.Button(tab_audio, text="Effetto Esplosione", command=lambda: self.play_audio("https://www.youtube.com/watch?v=W0nL94EaH7I")).pack(fill=tk.X, pady=5)
+
         self.player_menu = tk.Menu(self.master, tearoff=0, bg="#3E2723", fg="#F5F5DC", font=self.default_font)
         self.player_menu.add_command(label="Visualizza Scheda", command=self.view_player_sheet)
         self.player_menu.add_command(label="Assegna Oggetto", command=self.open_assign_item_dialog)
@@ -223,6 +276,11 @@ class DM_GUI:
         self.player_menu.add_command(label="Aggiungi/Rimuovi dal Party", command=self.toggle_party_status)
         self.player_menu.add_separator()
         self.player_menu.add_command(label="Rimuovi", command=self.remove_entity)
+
+    def play_audio(self, url):
+        from common.protocol import make_audio_play_broadcast
+        broadcast(self.server.game_state, make_audio_play_broadcast(url))
+        self.log_to_chat(f"Audio avviato: {url}")
 
     def on_ping_callback(self, clicked_hex):
         broadcast(self.server.game_state, make_ping_broadcast(clicked_hex.q, clicked_hex.r, "red"))
@@ -246,7 +304,7 @@ class DM_GUI:
             win = EncounterBuilderDialog(self.master, self.server.game_state, on_start_encounter_callback=self.handle_encounter_start)
             win.grab_set()
         except ImportError as e:
-            from tkinter import messagebox
+            from common.messagebox import messagebox
             messagebox.showerror("Errore", f"Impossibile aprire il builder: {e}")
             
     def handle_encounter_start(self, monsters):
@@ -280,7 +338,7 @@ class DM_GUI:
             win = CompendiumDialog(self.master, on_import_callback=self.on_monster_spawned, is_dm=True)
             win.grab_set()
         except ImportError as e:
-            from tkinter import messagebox
+            from common.messagebox import messagebox
             messagebox.showerror("Errore", f"Impossibile aprire il compendio: {e}")
 
     def on_monster_spawned(self, item_data, category):
@@ -462,7 +520,7 @@ class DM_GUI:
 
         dialog = tk.Toplevel(self.master)
         dialog.title("Configurazione Combattimento")
-        dialog.geometry("400x550")
+        dialog.minsize(400, 550)
         dialog.transient(self.master)
         dialog.grab_set()
 
@@ -565,7 +623,7 @@ class DM_GUI:
             # Mostra dialog per l'iniziativa degli NPC
             init_dialog = tk.Toplevel(dialog)
             init_dialog.title("Iniziativa NPC")
-            init_dialog.geometry("300x400")
+            init_dialog.minsize(300, 400)
             init_dialog.transient(dialog)
             init_dialog.grab_set()
             apply_modern_window_style(init_dialog)
@@ -654,11 +712,47 @@ class DM_GUI:
         self.server.game_state.current_map["fow_draft"] = []
         self.redraw_map_and_players()
 
+    def advance_time(self, hours):
+        gs = self.server.game_state
+        gs.time_hour += hours
+        while gs.time_hour >= 24:
+            gs.time_hour -= 24
+            gs.time_day += 1
+            
+        if hours >= 8:
+            self.log_to_chat(f"Il party ha completato un Riposo Lungo! (Giorno {gs.time_day})")
+            for p in gs.players:
+                p.hp = p.max_hp
+                if p.full_sheet:
+                    # In a real scenario, this would reset spell slots, hit dice, etc.
+                    pass
+        else:
+            self.log_to_chat(f"Il tempo avanza di {hours} ore.")
+        
+        gs._trigger_gui_update()
+        broadcast(gs, make_game_state(gs.get_state_dict()))
+
+    def on_weather_changed(self, event):
+        gs = self.server.game_state
+        gs.weather = self.weather_var.get()
+        self.log_to_chat(f"Il clima cambia in: {gs.weather}")
+        gs._trigger_gui_update()
+        broadcast(gs, make_game_state(gs.get_state_dict()))
+
     def _broadcast_fow_update(self):
         if self.server.game_state.current_map and "fow_draft" in self.server.game_state.current_map:
             self.server.game_state.current_map["fow_revealed"] = self.server.game_state.current_map["fow_draft"].copy()
-        broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
+            from common.protocol import make_fow_update_broadcast
+            fow_rev = self.server.game_state.current_map["fow_revealed"]
+            fow_draft = self.server.game_state.current_map["fow_draft"]
+            broadcast(self.server.game_state, make_fow_update_broadcast(fow_rev, fow_draft))
         self.log_to_chat("[SISTEMA] Nebbia di Guerra sincronizzata con i giocatori.")
+
+    def on_token_drop(self, token_name, q, r):
+        player = self.server.game_state.find_player(token_name)
+        if player:
+            from server.commands import command_handlers
+            command_handlers["MOVE_REQUEST"]({"to": [q, r]}, player, self.server.game_state)
 
     def on_hex_clicked(self, clicked_hex):
         if not self.server.game_state.current_map: return
@@ -710,9 +804,11 @@ class DM_GUI:
 
     def open_travel_panel(self):
         win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
         apply_modern_window_style(win)
         win.title("Gestione Viaggio (Hex Crawl)")
-        win.geometry("400x350")
+        win.minsize(400, 350)
         
         ttk.Label(win, text="Impostazioni di Viaggio").pack(pady=10)
         
@@ -812,6 +908,17 @@ class DM_GUI:
         current_selection=self.player_listbox.curselection()
         self.player_listbox.delete(0, tk.END)
         
+        gs = self.server.game_state
+        time_str = f"{gs.time_hour:02d}:00"
+        if 6 <= gs.time_hour < 12: period = "Mattina"
+        elif 12 <= gs.time_hour < 18: period = "Pomeriggio"
+        elif 18 <= gs.time_hour < 22: period = "Sera"
+        else: period = "Notte"
+        
+        self.lbl_time.config(text=f"Giorno {gs.time_day} - {time_str} ({period})")
+        if self.weather_var.get() != gs.weather:
+            self.weather_var.set(gs.weather)
+            
         if self.server.game_state.combat_active:
             self.combat_controls_frame.pack(fill=tk.X, side=tk.TOP, pady=5, before=self.player_listbox)
             self.btn_combat.config(text="⏹ Termina Combattimento", style='Danger.TButton')
@@ -907,7 +1014,21 @@ class DM_GUI:
             self.server.stop()
             self.master.destroy()
 
-    def share_handout(self):
+    def share_text_handout(self):
+        title = simpledialog.askstring("Titolo Handout Testuale", "Inserisci il titolo:", parent=self.master)
+        if not title: return
+        
+        # Simple hack to get multiline text using simpledialog, or just a single line if we don't want a custom popup
+        content = simpledialog.askstring("Contenuto Handout", "Inserisci il testo (usa \\n per a capo):", parent=self.master)
+        if not content: return
+        content = content.replace('\\n', '\n')
+        
+        from common.protocol import make_handout_broadcast
+        from common.network_utils import broadcast
+        broadcast(self.server.game_state, make_handout_broadcast(title, None, content))
+        messagebox.showinfo("Successo", "Documento condiviso con tutti i giocatori connessi!")
+
+    def share_image_handout(self):
         filepath = filedialog.askopenfilename(
             title="Seleziona Immagine da Condividere",
             filetypes=[("Immagini", "*.png;*.jpg;*.jpeg;*.gif;*.bmp")]
@@ -998,9 +1119,11 @@ fg="#DCDDDE", borderwidth=0, highlightthickness=0, font=("Arial", 10))
             
         sheet = player.full_sheet
         win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
         apply_modern_window_style(win)
         win.title(f"Scheda di {player_name}")
-        win.geometry("450x600")
+        win.minsize(450, 600)
         
         txt = scrolledtext.ScrolledText(win, font=self.default_font, bg=SURFACE_COLOR, fg=TEXT_COLOR)
         txt.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
@@ -1072,9 +1195,11 @@ fg="#DCDDDE", borderwidth=0, highlightthickness=0, font=("Arial", 10))
             return
 
         win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
         apply_modern_window_style(win)
         win.title(f"Assegna Oggetto a {player_name}")
-        win.geometry("300x350")
+        win.minsize(300, 350)
 
         ttk.Label(win, text="Nome Oggetto:").pack(pady=(10, 0))
         name_entry = ttk.Entry(win)
@@ -1155,9 +1280,11 @@ fg="#DCDDDE", borderwidth=0, highlightthickness=0, font=("Arial", 10))
         if not player: return
 
         win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
         apply_modern_window_style(win)
         win.title(f"Stati di {player_name}")
-        win.geometry("250x350")
+        win.minsize(250, 350)
 
         ttk.Label(win, text="Condizioni Attive:").pack(pady=5)
         
@@ -1184,6 +1311,14 @@ fg="#DCDDDE", borderwidth=0, highlightthickness=0, font=("Arial", 10))
 
         ttk.Button(win, text="Applica", command=apply_conditions).pack(pady=10)
 
+    def split_loot_dialog(self):
+        amount = simpledialog.askinteger("Dividi Denaro", "Quante Monete d'Oro (MO) vuoi distribuire?", parent=self.master, minvalue=1)
+        if amount:
+            if hasattr(self.server, "send_loot_split"):
+                self.server.send_loot_split(amount)
+            else:
+                messagebox.showerror("Errore", "Funzione non supportata dal server attuale.")
+
     def open_action_dialog(self):
         sel = self.player_listbox.curselection()
         if not sel: return
@@ -1194,9 +1329,11 @@ fg="#DCDDDE", borderwidth=0, highlightthickness=0, font=("Arial", 10))
         if not target_player: return
 
         win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
         apply_modern_window_style(win)
         win.title(f"Azione su {target_name}")
-        win.geometry("300x300")
+        win.minsize(300, 300)
 
         ttk.Label(win, text="Tipo di Azione:").pack(pady=(10, 0))
         action_var = tk.StringVar(value="damage")
@@ -1402,6 +1539,95 @@ fg="#DCDDDE", borderwidth=0, highlightthickness=0, font=("Arial", 10))
             self.btn_deafen.config(fg="red", text=" 🔇 ")
         else:
             self.btn_deafen.config(fg="white", text=" 🎧 ")
+
+    def search_bestiario(self):
+        query = self.bestiario_search_var.get()
+        threading.Thread(target=self._search_bestiario_thread, args=(query,), daemon=True).start()
+
+    def _search_bestiario_thread(self, query):
+        import urllib.request
+        import json
+        try:
+            url = f"https://www.dnd5eapi.co/api/monsters/?name={query}".replace(" ", "+")
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+                results = data.get("results", [])
+                self.master.after(0, self._update_bestiario_list, results)
+        except Exception as e:
+            print("Error searching bestiario:", e)
+
+    def _update_bestiario_list(self, results):
+        self.bestiario_listbox.delete(0, tk.END)
+        self.bestiario_results = results
+        for res in results:
+            self.bestiario_listbox.insert(tk.END, res.get("name", "Unknown"))
+
+    def spawn_bestiario(self):
+        selection = self.bestiario_listbox.curselection()
+        if not selection: return
+        index_selezionato = self.bestiario_results[selection[0]].get("index")
+        if not index_selezionato: return
+        threading.Thread(target=self._spawn_bestiario_thread, args=(index_selezionato,), daemon=True).start()
+
+    def _spawn_bestiario_thread(self, index_selezionato):
+        import urllib.request
+        import json
+        from common.game_state import Player
+        from common.protocol import make_player_joined, make_player_stats_update
+        from common.network_utils import broadcast
+        try:
+            url = f"https://www.dnd5eapi.co/api/monsters/{index_selezionato}"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+                
+                name = data.get("name", "Mostro")
+                hit_points = data.get("hit_points", 10)
+                
+                ac_list = data.get("armor_class", [])
+                ac_value = 10
+                if ac_list:
+                    ac_item = ac_list[0]
+                    if isinstance(ac_item, dict):
+                        ac_value = ac_item.get("value", 10)
+                    else:
+                        ac_value = ac_item
+                        
+                dex = data.get("dexterity", 10)
+                initiative = (dex - 10) // 2
+                
+                pos = [0, 0]
+                if hasattr(self, 'map_canvas') and self.map_canvas and hasattr(self.map_canvas, '_last_clicked_hex') and self.map_canvas._last_clicked_hex:
+                    pos = [self.map_canvas._last_clicked_hex.q, self.map_canvas._last_clicked_hex.r]
+                
+                base_name = name
+                idx = 1
+                new_name = base_name
+                while self.server.game_state.find_player(new_name):
+                    idx += 1
+                    new_name = f"{base_name} {idx}"
+                
+                npc = Player(new_name, None, None)
+                npc.hp = hit_points
+                npc.max_hp = hit_points
+                npc.initiative = initiative
+                npc.position = pos
+                npc.full_sheet = {
+                    "name": npc.name,
+                    "hp_current": npc.hp,
+                    "hp_max": npc.max_hp,
+                    "ac": ac_value
+                }
+                
+                self.server.game_state.add_player(npc)
+                
+                self.server.game_state._trigger_gui_update()
+                broadcast(self.server.game_state, make_player_joined(npc.to_dict()))
+                broadcast(self.server.game_state, make_player_stats_update(npc.name, npc.hp, npc.max_hp, npc.initiative, []))
+                
+        except Exception as e:
+            print("Error spawning bestiario:", e)
 
 if __name__ == "__main__":
     root=tk.Tk()

@@ -1,5 +1,6 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from common.messagebox import messagebox
+from tkinter import ttk
 import urllib.request
 import os
 import threading
@@ -43,7 +44,7 @@ class CompendiumDownloaderUI(tk.Toplevel):
     def __init__(self, master):
         super().__init__(master)
         self.title("Gestore Compendi Offline")
-        self.geometry("550x400")
+        self.minsize(550, 400)
         apply_modern_window_style(self)
         
         self.data_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "srd_data")

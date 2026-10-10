@@ -72,10 +72,10 @@ def check(name, root, action, screenshot=True):
 def main():
     # Nessun messagebox/simpledialog bloccante durante il test
     patches = [
-        patch("tkinter.messagebox.showinfo"), patch("tkinter.messagebox.showerror"),
-        patch("tkinter.messagebox.showwarning"),
-        patch("tkinter.messagebox.askyesno", return_value=False),
-        patch("tkinter.messagebox.askokcancel", return_value=False),
+        patch("common.messagebox.messagebox.showinfo"), patch("common.messagebox.messagebox.showerror"),
+        patch("common.messagebox.messagebox.showwarning"),
+        patch("common.messagebox.messagebox.askyesno", return_value=False),
+        patch("common.messagebox.messagebox.askokcancel", return_value=False),
         patch("tkinter.simpledialog.askstring", return_value=None),
         patch("tkinter.simpledialog.askinteger", return_value=None),
     ]
@@ -93,7 +93,7 @@ def main():
 
     # ---------------- SERVER (DM) ----------------
     root_s = tk.Tk(); root_s.report_callback_exception = report_callback_exception
-    root_s.geometry("1400x800")
+    root_s.minsize(1400, 800)
     dm = DM_GUI(root_s)
     for name, hp, init in [("Goblin 1", 7, 12), ("Orco", 15, 8)]:
         npc = Player(name, None, None); npc.hp = npc.max_hp = hp; npc.initiative = init
@@ -118,7 +118,7 @@ def main():
 
     # ---------------- CLIENT ----------------
     root_c = tk.Tk(); root_c.report_callback_exception = report_callback_exception
-    root_c.geometry("1200x800")
+    root_c.minsize(1200, 800)
     cl = ClientGUI(root_c)
     pump(root_c)
     check("client_main_disconnected", root_c, lambda: root_c)

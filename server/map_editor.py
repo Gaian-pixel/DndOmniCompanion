@@ -1,6 +1,7 @@
 # map_editor.py
 import tkinter as tk
-from tkinter import simpledialog, filedialog, messagebox, ttk, colorchooser
+from common.messagebox import messagebox
+from tkinter import simpledialog, filedialog, ttk, colorchooser
 import json
 from PIL import Image, ImageTk
 
@@ -33,7 +34,7 @@ class MapEditorWindow(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.title("Editor Mappe Esagonali")
-        self.geometry("1200x800")
+        self.minsize(1200, 800)
         apply_modern_window_style(self)
 
         ### MODIFICATO: self.pois è ora un dizionario per mappare Hex -> Dati POI ###

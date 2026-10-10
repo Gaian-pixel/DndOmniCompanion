@@ -21,6 +21,8 @@ class HexMapCanvas(tk.Canvas):
         self.map_background_tk = None
         self._last_b64 = None
         self._last_zoom = None
+        self.dragging_token_name = None
+        self.on_token_drop_callback = None
         
         self.on_hex_click_callback = None
         self.on_ping_callback = None
@@ -37,6 +39,7 @@ class HexMapCanvas(tk.Canvas):
         self.bind("<ButtonRelease-2>", self._on_ping_click_b2)
         self.bind("<Button-1>", self._on_canvas_click)
         self.bind("<B1-Motion>", self._on_canvas_drag)
+        self.bind("<ButtonRelease-1>", self._on_canvas_release)
         self.bind("<Shift-Button-1>", self._on_ping_click)
         self.bind("<Button-3>", self._on_ruler_start)
         self.bind("<B3-Motion>", self._on_ruler_drag)
@@ -124,19 +127,37 @@ class HexMapCanvas(tk.Canvas):
         world_x = (event.x - self.pan_offset_x) / self.zoom_level
         world_y = (event.y - self.pan_offset_y) / self.zoom_level
         clicked_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
+        
+        self.dragging_token_name = None
+        if getattr(self, 'players_data', None):
+            for name, pdata in self.players_data.items():
+                pos = pdata.get('position', [0, 0]) if isinstance(pdata, dict) else pdata
+                if Hex(*pos) == clicked_hex:
+                    self.dragging_token_name = name
+                    break
+        
         self._last_clicked_hex = clicked_hex
         self.on_hex_click_callback(clicked_hex)
 
     def _on_canvas_drag(self, event):
-        if not self.hex_layout or not self.on_hex_click_callback: return
-        world_x = (event.x - self.pan_offset_x) / self.zoom_level
-        world_y = (event.y - self.pan_offset_y) / self.zoom_level
-        hovered_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
-        if not hasattr(self, '_last_clicked_hex') or self._last_clicked_hex != hovered_hex:
-            self._last_clicked_hex = hovered_hex
-            self.on_hex_click_callback(hovered_hex)
+        if getattr(self, 'dragging_token_name', None):
+            self.delete('ghost_token')
+            self.create_oval(event.x-10, event.y-10, event.x+10, event.y+10, fill='', outline='white', dash=(2,2), tags='ghost_token')
+            return
+
+
+    def _on_canvas_release(self, event):
+        self.delete('ghost_token')
+        if getattr(self, 'dragging_token_name', None):
+            if self.hex_layout and self.on_token_drop_callback:
+                world_x = (event.x - self.pan_offset_x) / self.zoom_level
+                world_y = (event.y - self.pan_offset_y) / self.zoom_level
+                drop_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
+                self.on_token_drop_callback(self.dragging_token_name, drop_hex.q, drop_hex.r)
+            self.dragging_token_name = None
 
     def _on_ping_click(self, event):
+
         if not self.hex_layout or not self.on_ping_callback: return
         world_x = (event.x - self.pan_offset_x) / self.zoom_level
         world_y = (event.y - self.pan_offset_y) / self.zoom_level
@@ -246,7 +267,7 @@ class HexMapCanvas(tk.Canvas):
             self.redraw()
         self.on_cover_toggle_callback(clicked_hex.q, clicked_hex.r, "three_quarters_cover")
 
-    def show_ping(self, q, r, color="yellow"):
+    def draw_ping(self, q, r, color="red"):
         if not self.hex_layout: return
         hex_obj = Hex(q, r)
         center_x, center_y = self.hex_layout.hex_to_pixel(hex_obj)
@@ -284,6 +305,10 @@ class HexMapCanvas(tk.Canvas):
         self.redraw()
 
     def redraw(self):
+
+        if not hasattr(self, '_avatar_cache'):
+            self._avatar_cache = {}
+
         self.delete("all")
         if not getattr(self, 'map_data', None):
             self.create_text(self.winfo_width()/2, self.winfo_height()/2, 
@@ -468,15 +493,55 @@ class HexMapCanvas(tk.Canvas):
                 self.create_oval(screen_x-(radius+3), screen_y-(radius+3), screen_x+(radius+3), screen_y+(radius+3), fill="", outline="red", width=3)
                 
             is_invisible = "Invisibile" in conditions
-            outline_style = "gray" if is_invisible else "white"
-            dash_style = (2, 2) if is_invisible else ""
             
-            if dash_style:
-                self.create_oval(screen_x-radius, screen_y-radius, screen_x+radius, screen_y+radius, fill=color, outline=outline_style, dash=dash_style)
+            avatar_b64 = pdata.get('avatar_b64') if isinstance(pdata, dict) else None
+            
+            if avatar_b64:
+                cache_key = f"{name}_{size_mult}_{self.zoom_level}"
+                if cache_key not in self._avatar_cache:
+                    try:
+                        import base64
+                        from io import BytesIO
+                        from PIL import Image, ImageTk
+                        img_bytes = base64.b64decode(avatar_b64)
+                        img = Image.open(BytesIO(img_bytes))
+                        target_size = int(radius * 2)
+                        img = img.resize((target_size, target_size), Image.Resampling.LANCZOS)
+                        
+                        # Apply circular mask
+                        mask = Image.new('L', (target_size, target_size), 0)
+                        from PIL import ImageDraw
+                        draw = ImageDraw.Draw(mask)
+                        draw.ellipse((0, 0, target_size, target_size), fill=255)
+                        
+                        circular_img = Image.new('RGBA', (target_size, target_size), (0,0,0,0))
+                        circular_img.paste(img, (0,0), mask=mask)
+                        
+                        self._avatar_cache[cache_key] = ImageTk.PhotoImage(circular_img)
+                    except Exception as e:
+                        print("Error loading avatar:", e)
+                        self._avatar_cache[cache_key] = None
+                        
+                tk_img = self._avatar_cache.get(cache_key)
+                if tk_img:
+                    self.create_image(screen_x, screen_y, image=tk_img, anchor="center")
+                    if is_invisible:
+                        self.create_oval(screen_x-radius, screen_y-radius, screen_x+radius, screen_y+radius, fill="", outline="gray", dash=(2,2), width=2)
+                else:
+                    outline_style = "gray" if is_invisible else "white"
+                    dash_style = (2, 2) if is_invisible else ""
+                    self.create_oval(screen_x-radius, screen_y-radius, screen_x+radius, screen_y+radius, fill=color, outline=outline_style, dash=dash_style)
             else:
-                self.create_oval(screen_x-radius, screen_y-radius, screen_x+radius, screen_y+radius, fill=color, outline=outline_style)
+                outline_style = "gray" if is_invisible else "white"
+                dash_style = (2, 2) if is_invisible else ""
                 
-            self.create_text(screen_x, screen_y, text=name[:2], fill="black", font=("Arial", 8, "bold"))
+                if dash_style:
+                    self.create_oval(screen_x-radius, screen_y-radius, screen_x+radius, screen_y+radius, fill=color, outline=outline_style, dash=dash_style)
+                else:
+                    self.create_oval(screen_x-radius, screen_y-radius, screen_x+radius, screen_y+radius, fill=color, outline=outline_style)
+                    
+                self.create_text(screen_x, screen_y, text=name[:2], fill="black", font=("Arial", 8, "bold"))
+
             
             if hp_max > 0:
                 bar_w = radius * 2
@@ -540,4 +605,14 @@ class ToolTip:
         tw = self.tip_window
         self.tip_window = None
         if tw:
-            tw.destroy()
+            tw.destroy()
+
+    def _on_canvas_release(self, event):
+        self.delete('ghost_token')
+        if getattr(self, 'dragging_token_name', None):
+            if self.hex_layout and self.on_token_drop_callback:
+                world_x = (event.x - self.pan_offset_x) / self.zoom_level
+                world_y = (event.y - self.pan_offset_y) / self.zoom_level
+                drop_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
+                self.on_token_drop_callback(self.dragging_token_name, drop_hex.q, drop_hex.r)
+            self.dragging_token_name = None

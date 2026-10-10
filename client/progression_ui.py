@@ -1,5 +1,6 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+from common.messagebox import messagebox
+from tkinter import ttk, simpledialog
 import threading
 import requests
 from common.theme import apply_modern_window_style
@@ -39,7 +40,7 @@ class LevelUpDialog(tk.Toplevel):
     def __init__(self, master, character, update_callback):
         super().__init__(master)
         self.title("Sali di Livello!")
-        self.geometry("500x600")
+        self.minsize(500, 600)
         apply_modern_window_style(self)
         self.character = character
         self.update_callback = update_callback

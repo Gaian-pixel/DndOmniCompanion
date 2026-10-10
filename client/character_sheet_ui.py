@@ -1,12 +1,13 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+from common.messagebox import messagebox
+from tkinter import ttk, simpledialog
 from common.theme import BG_COLOR, TEXT_COLOR, SURFACE_COLOR, apply_modern_window_style
 
 class CharacterSheetUI(tk.Toplevel):
     def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None):
         super().__init__(master)
         self.title(f"Scheda PG - {character.name}")
-        self.geometry("600x700")
+        self.minsize(600, 700)
         apply_modern_window_style(self)
         self.character = character
         self.manager = manager
@@ -387,9 +388,11 @@ class CharacterSheetUI(tk.Toplevel):
                f"Descrizione: {spell['desc']}")
         
         win = tk.Toplevel(self)
+        win.transient(self)
+        win.grab_set()
         apply_modern_window_style(win)
         win.title("Dettagli Incantesimo")
-        win.geometry("400x400")
+        win.minsize(400, 400)
         
         txt = tk.Text(win, wrap=tk.WORD, bg="#1e1e1e", fg="white")
         txt.insert(tk.END, msg)
@@ -541,9 +544,11 @@ class CharacterSheetUI(tk.Toplevel):
         info = f"Nome: {item.get('name')}\nTipo: {item.get('type')}\nQuantità: {item.get('qty')}\n\nDescrizione:\n{item.get('desc')}"
         
         win = tk.Toplevel(self)
+        win.transient(self)
+        win.grab_set()
         apply_modern_window_style(win)
         win.title("Dettagli Oggetto")
-        win.geometry("300x300")
+        win.minsize(300, 300)
         apply_modern_window_style(win)
         
         ttk.Label(win, text=info, justify="left", wraplength=280).pack(pady=10, padx=10, fill=tk.BOTH, expand=True)

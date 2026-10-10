@@ -1,12 +1,13 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from common.messagebox import messagebox
+from tkinter import ttk
 from common.theme import apply_modern_window_style
 
 class EncounterBuilderDialog(tk.Toplevel):
     def __init__(self, master, game_state, on_start_encounter_callback=None):
         super().__init__(master)
         self.title("Encounter Builder")
-        self.geometry("600x500")
+        self.minsize(600, 500)
         apply_modern_window_style(self)
         
         self.game_state = game_state

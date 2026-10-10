@@ -3,7 +3,8 @@ import urllib.request
 import urllib.parse
 import threading
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+from common.messagebox import messagebox
+from tkinter import ttk, simpledialog
 import html.parser
 from common.theme import apply_modern_window_style
 
@@ -45,7 +46,7 @@ class MapDownloaderDialog(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.title("Downloader Mappe")
-        self.geometry("750x550")
+        self.minsize(750, 550)
         apply_modern_window_style(self)
         
         self.maps_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "maps")
