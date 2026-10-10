@@ -38,6 +38,7 @@ class Player:
             "aura_radius": getattr(self, "aura_radius", 0),
             "aura_color": getattr(self, "aura_color", "yellow"),
             "vision_radius": getattr(self, "vision_radius", 6),
+            "avatar_b64": self.full_sheet.get("avatar_b64") if self.full_sheet else None,
             "is_party_member": getattr(self, "is_party_member", False)
         }
 
@@ -46,6 +47,8 @@ class GameState:
         self.players = []
         self.lock = threading.Lock()
         self.gui_queue = gui_queue
+        self.maps = {}
+        self.active_map_id = "default"
         self.current_map = None # NUOVO: conterrà i dati della mappa caricata
         self.combat_active = False
         self.turn_index = 0
@@ -53,6 +56,7 @@ class GameState:
         self.active_aoes = []
         self.time_day = 1
         self.time_hour = 8
+        self.weather = "Sereno"
 
     def _trigger_gui_update(self):
         """Notifica alla GUI che il suo stato principale deve essere ridisegnato."""
@@ -184,7 +188,10 @@ class GameState:
                 "combat_active": self.combat_active,
                 "turn_index": self.turn_index,
                 "round_number": self.round_number,
-                "active_aoes": self.active_aoes
+                "active_aoes": self.active_aoes,
+                "time_day": getattr(self, 'time_day', 1),
+                "time_hour": getattr(self, 'time_hour', 8),
+                "weather": getattr(self, 'weather', "Sereno")
             }
 
     def move_player(self, name, new_pos):
@@ -204,8 +211,6 @@ class GameState:
     def clear_aoes(self):
         with self.lock:
             self.active_aoes = []
-        self.time_day = 1
-        self.time_hour = 8
         self._trigger_gui_update()
 
     def save_session(self, filepath):
@@ -225,6 +230,9 @@ class GameState:
             self.combat_active = state.get("combat_active", False)
             self.turn_index = state.get("turn_index", 0)
             self.round_number = state.get("round_number", 1)
+            self.time_day = state.get("time_day", 1)
+            self.time_hour = state.get("time_hour", 8)
+            self.weather = state.get("weather", "Sereno")
             loaded_players = []
             for p_data in state.get("players", []):
                 # Cerchiamo se il giocatore è già tra quelli connessi
@@ -262,3 +270,14 @@ class GameState:
 
 
 
+
+    def switch_map(self, map_name):
+        if map_name in self.maps:
+            self.active_map_id = map_name
+            self.current_map = self.maps[map_name]
+            self._trigger_gui_update()
+            
+            from common.protocol import make_map_data_update_broadcast, make_chat_broadcast
+            from common.network_utils import broadcast
+            broadcast(self, make_map_data_update_broadcast(self.current_map))
+            broadcast(self, make_chat_broadcast("Sistema", f"Il DM ha cambiato la mappa in: {map_name}"))

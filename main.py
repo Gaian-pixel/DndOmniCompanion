@@ -14,8 +14,10 @@ def start_app():
     setup_theme(root)
 
     dialog = tk.Toplevel(root)
+    dialog.transient(root)
+    dialog.grab_set()
     dialog.title("D&D OmniCompanion")
-    dialog.geometry("450x250")
+    dialog.minsize(450, 250)
     dialog.resizable(False, False)
     apply_modern_window_style(dialog)
     

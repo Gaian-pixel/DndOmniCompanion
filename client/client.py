@@ -4,7 +4,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import queue
 # client_gui.py
 import tkinter as tk
-from tkinter import simpledialog, messagebox, scrolledtext, ttk
+from common.messagebox import messagebox
+from tkinter import simpledialog, scrolledtext, ttk
 import socket
 import threading
 import json
@@ -93,6 +94,7 @@ class ClientGUI:
         self.aoe_mode = False
         self.aoe_params = None
         self.map_canvas.set_on_click_callback(self.on_hex_click)
+        self.map_canvas.on_token_drop_callback = self.on_token_drop
         self.map_canvas.set_on_ping_callback(self.on_ping_callback)
         self.map_canvas.set_on_wall_toggle_callback(self.on_wall_toggle_callback)
         self.map_canvas.set_on_cover_toggle_callback(self.on_cover_toggle_callback)
@@ -191,13 +193,15 @@ class ClientGUI:
         if "d" in cmd and cmd[0].isdigit(): # basic check for roll
             self.do_roll(cmd, f"Hotbar {idx+1}")
         else:
-            self.network.send(make_chat(cmd))
+            # Set the entry text and call send_chat_message to respect the active tab
+            self.entry.delete(0, tk.END)
+            self.entry.insert(0, cmd)
+            self.send_chat_message()
 
 
     def on_ping_callback(self, clicked_hex):
         if not self.is_connected: return
-        from common.protocol import make_ping_request
-        self.network.send(make_ping_request(clicked_hex.q, clicked_hex.r, "yellow"))
+        self.network.send({"type": "PING_REQUEST", "data": {"q": clicked_hex.q, "r": clicked_hex.r, "color": "red"}})
 
     def on_draw_request(self, points, color):
         if not self.is_connected: return
@@ -212,6 +216,10 @@ class ClientGUI:
         if not self.is_connected: return
         self.network.send({"type": "TOGGLE_COVER_REQUEST", "data": {"q": q, "r": r, "cover_type": cover_type}})
 
+
+    def on_token_drop(self, token_name, q, r):
+        if token_name == self.name:
+            self.send_message({"type": "MOVE_REQUEST", "data": {"to": [q, r]}})
 
     def on_hex_click(self, clicked_hex):
         if getattr(self, "aoe_mode", False) and getattr(self, "aoe_params", None):
@@ -289,8 +297,10 @@ class ClientGUI:
 
     def open_travel_dialog(self):
         win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
         win.title("Ruolo di Viaggio")
-        win.geometry("300x250")
+        win.minsize(300, 250)
         apply_modern_window_style(win)
         
         ttk.Label(win, text="Scegli la tua attività per il viaggio:").pack(pady=10)
@@ -312,8 +322,10 @@ class ClientGUI:
 
     def open_aoe_dialog(self):
         win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
         win.title("Lancia Incantesimo / AoE")
-        win.geometry("300x250")
+        win.minsize(300, 250)
         apply_modern_window_style(win)
         
         ttk.Label(win, text="Forma Area:").pack(pady=5)
@@ -448,6 +460,29 @@ class ClientGUI:
             turn_name = all_players[self.turn_index]['name']
         self.map_canvas.update_data(self.local_map_data, players_info, self.name, turn_player_name=turn_name, aoes_data=getattr(self, "aoes_data", []))
 
+    def handle_map_data_update(self, data):
+        self.local_map_data = data.get("map")
+        self.redraw_map_and_players()
+        
+    def handle_combat_state_update(self, data):
+        self.combat_active = data.get("combat_active", False)
+        self.turn_index = data.get("turn_index", 0)
+        self.round_number = data.get("round_number", 1)
+        self.aoes_data = data.get("active_aoes", [])
+        
+        # update my turn indicator
+        was_my_turn = getattr(self, "_is_my_turn", False)
+        is_my_turn = False
+        if self.combat_active:
+            # We don't have the ordered list easily here unless we sort it.
+            # But wait, in GAME_STATE we did this:
+            # all_players_list = data.get('players', [])
+            # In COMBAT_STATE_UPDATE, maybe we don't have players list. 
+            # If server sends turn_player_name it would be easier.
+            pass # We will rely on server sending GAME_STATE on turn change, or handle it better.
+        self.update_player_listbox()
+        self.redraw_map_and_players()
+
     def handle_game_state(self, data):
         self.players_data = {p['name']: p for p in data.get('players', [])}
         self.local_map_data = data.get("map")
@@ -554,8 +589,10 @@ class ClientGUI:
         
     def show_action_dialog_for_target(self, target_name):
         win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
         win.title(f"Azione su {target_name}")
-        win.geometry("300x300")
+        win.minsize(300, 300)
         from common.theme import apply_modern_window_style
         apply_modern_window_style(win)
 
@@ -603,8 +640,8 @@ class ClientGUI:
         return False
 
     def on_closing(self):
-        if self.voice_client: self.voice_client.stop()
-        if self.is_connected: self.client_socket.close()
+        if getattr(self, "voice_client", None): self.voice_client.stop()
+        if self.is_connected: self.network.disconnect()
         self.master.destroy()
 
     def handle_disconnection(self):
@@ -620,20 +657,32 @@ class ClientGUI:
             "SIMPLE_REPLY": lambda d: self.log_to_chat(f"[SERVER]: {d.get('text')}", "Globale", "lightblue"), 
             "CHAT_BROADCAST": self.handle_chat_broadcast, 
             "GAME_STATE": self.handle_game_state, 
+            "MAP_DATA_UPDATE": self.handle_map_data_update,
+            "COMBAT_STATE_UPDATE": self.handle_combat_state_update,
             "PLAYER_JOINED": self.handle_player_joined, 
             "PLAYER_LEFT": self.handle_player_left, 
             "PLAYER_MOVE": self.handle_player_move, 
             "DICE_ROLL_RESULT": self.handle_dice_roll, 
             "PLAYER_STATS_UPDATE": self.handle_player_stats_update,
             "RECEIVE_ITEM": self.handle_receive_item,
+            "RECEIVE_GOLD": self.handle_receive_gold,
             "REQUEST_INITIATIVE": self.handle_request_initiative,
             "PING_BROADCAST": self.handle_ping_broadcast,
             "DRAW_BROADCAST": self.handle_draw_broadcast,
             "PROMPT_LONG_REST_VOTE": self.handle_prompt_long_rest_vote,
-            "DO_LONG_REST": self.handle_do_long_rest
+            "DO_LONG_REST": self.handle_do_long_rest,
+            "FOW_UPDATE_BROADCAST": self.handle_fow_update_broadcast,
+            "AUDIO_PLAY_BROADCAST": self.handle_audio_play
         }
         handler=handler_map.get(msg_type)
         if handler: handler(data)
+
+    def handle_audio_play(self, data):
+        import webbrowser
+        url = data.get("url")
+        if url:
+            webbrowser.open(url)
+            self.log_to_chat("Stai ascoltando un audio avviato dal DM", "Globale", sender="Sistema", color="#99AAB5")
 
     def handle_prompt_long_rest_vote(self, data):
         initiator = data.get("initiator", "Qualcuno")
@@ -659,33 +708,43 @@ class ClientGUI:
             self.map_canvas.draw_remote_line(points, color)
 
     def handle_handout_broadcast(self, data):
-        title = data.get("title", "Nuova Immagine dal DM")
+        title = data.get("title", "Handout dal DM")
         img_b64 = data.get("image_b64")
-        if not img_b64: return
+        content = data.get("content")
         
         try:
-            import base64
-            from io import BytesIO
-            from PIL import Image, ImageTk
             import tkinter as tk
             from tkinter import ttk
             
-            img_bytes = base64.b64decode(img_b64)
-            img = Image.open(BytesIO(img_bytes))
-            
             top = tk.Toplevel(self.master)
+            top.transient(self.master)
+            top.grab_set()
             top.title(title)
-            # Centra
-            top.update_idletasks()
-            width, height = img.width, img.height
-            x = (top.winfo_screenwidth() // 2) - (width // 2)
-            y = (top.winfo_screenheight() // 2) - (height // 2)
-            top.geometry(f"{width}x{height}+{x}+{y}")
             
-            tk_img = ImageTk.PhotoImage(img)
-            lbl = tk.Label(top, image=tk_img)
-            lbl.image = tk_img # keep reference
-            lbl.pack(fill=tk.BOTH, expand=True)
+            if img_b64:
+                import base64
+                from io import BytesIO
+                from PIL import Image, ImageTk
+                
+                img_bytes = base64.b64decode(img_b64)
+                img = Image.open(BytesIO(img_bytes))
+                
+                top.update_idletasks()
+                width, height = img.width, img.height
+                x = (top.winfo_screenwidth() // 2) - (width // 2)
+                y = (top.winfo_screenheight() // 2) - (height // 2)
+                top.geometry(f"{width}x{height}+{x}+{y}")
+                
+                tk_img = ImageTk.PhotoImage(img)
+                lbl = tk.Label(top, image=tk_img)
+                lbl.image = tk_img # keep reference
+                lbl.pack(fill=tk.BOTH, expand=True)
+            elif content:
+                top.minsize(400, 300)
+                txt = tk.Text(top, font=("Georgia", 14), wrap="word", bg="#f4ecd8", fg="#3e2723", padx=20, pady=20)
+                txt.insert("1.0", content)
+                txt.config(state=tk.DISABLED)
+                txt.pack(fill=tk.BOTH, expand=True)
             
             top.focus_force()
             
@@ -694,12 +753,20 @@ class ClientGUI:
 
     def handle_ping_broadcast(self, data):
         if self.map_canvas:
-            self.map_canvas.show_ping(data.get("q"), data.get("r"), data.get("color", "yellow"))
+            self.map_canvas.draw_ping(data.get("q"), data.get("r"), data.get("color", "red"))
+
+    def handle_fow_update_broadcast(self, data):
+        if hasattr(self, 'map_data') and self.map_data:
+            self.map_data["fow_revealed"] = data.get("fow_revealed", [])
+            self.map_data["fow_draft"] = data.get("fow_draft", [])
+            self.redraw_map_and_players()
 
     def handle_request_initiative(self, data):
         win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
         win.title("Iniziativa")
-        win.geometry("300x200")
+        win.minsize(300, 200)
         from common.theme import apply_modern_window_style
         apply_modern_window_style(win)
         
@@ -719,6 +786,24 @@ class ClientGUI:
             win.destroy()
             
         ttk.Button(win, text="Tira 1d20 + Iniziativa", command=roll, style='Primary.TButton').pack(pady=15)
+
+    def handle_receive_gold(self, data):
+        amount = data.get("amount", 0)
+        if not self.active_character: return
+        
+        if not hasattr(self.active_character, "currency") or not isinstance(self.active_character.currency, dict):
+            self.active_character.currency = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
+            
+        self.active_character.currency["MO"] = self.active_character.currency.get("MO", 0) + amount
+        
+        self.character_manager.save_characters()
+        from common.protocol import make_update_full_sheet_request
+        self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
+        
+        if hasattr(self, "sheet_ui") and self.sheet_ui.winfo_exists():
+            self.sheet_ui.load_data()
+            
+        messagebox.showinfo("Loot Ricevuto", f"Il DM ha distribuito il loot! Hai ricevuto {amount} MO.")
 
     def handle_receive_item(self, data):
         item = data.get("item")
@@ -870,8 +955,10 @@ class ClientGUI:
         source_name = data.get("source_name")
         
         win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
         win.title("Tiro Salvezza Richiesto!")
-        win.geometry("350x250")
+        win.minsize(350, 250)
         apply_modern_window_style(win)
         
         ttk.Label(win, text=f"{source_name} richiede un TS!", font=("Georgia", 12, "bold"), foreground="#D4AF37").pack(pady=(10, 5))

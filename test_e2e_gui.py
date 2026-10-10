@@ -73,7 +73,7 @@ def test_flow():
     client_gui.aoe_mode = True
     client_gui.aoe_params = {"type": "sfera", "size": 3, "color": "red"}
     
-    with patch('tkinter.messagebox.showinfo'):
+    with patch('common.messagebox.messagebox.showinfo'):
         try:
             client_gui.on_hex_click(Hex(5, 5))
         except Exception as e:

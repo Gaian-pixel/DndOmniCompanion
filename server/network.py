@@ -9,7 +9,8 @@ import tkinter as tk
 import json
 import base64
 import os
-from tkinter import messagebox, filedialog, ttk, scrolledtext, simpledialog
+from common.messagebox import messagebox
+from tkinter import filedialog, ttk, scrolledtext, simpledialog
 from PIL import Image, ImageTk
 
 from common.protocol import *
@@ -28,6 +29,38 @@ class Server:
         self.host=host; self.port=port; self.server_socket=None; self.running=False
         self.game_state=GameState(gui_queue)
         self.voice_server = VoiceServer(self.host, 53912)
+
+    def send_loot_split(self, amount):
+        from common.protocol import make_chat_broadcast, make_game_state
+        players = [p for p in self.game_state.players if getattr(p, 'is_party_member', False)]
+        if not players:
+            players = [p for p in self.game_state.players if getattr(p, 'conn', None) is not None]
+            
+        if not players:
+            return
+            
+        share = amount // len(players)
+        
+        for p in players:
+            if p.full_sheet is None:
+                p.full_sheet = {}
+            if "gp" not in p.full_sheet:
+                p.full_sheet["gp"] = 0
+            p.full_sheet["gp"] += share
+            
+            if "currency" not in p.full_sheet:
+                p.full_sheet["currency"] = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
+            if isinstance(p.full_sheet["currency"], dict):
+                p.full_sheet["currency"]["MO"] = p.full_sheet["currency"].get("MO", 0) + share
+                
+            if getattr(p, 'conn', None):
+                send_message(p.conn, {"type": "RECEIVE_GOLD", "data": {"amount": share}})
+                
+        msg = f"Il DM ha distribuito {amount} MO ({share} a testa)."
+        broadcast(self.game_state, make_chat_broadcast("Sistema", msg))
+        self.game_state._trigger_gui_update()
+        broadcast(self.game_state, make_game_state(self.game_state.get_state_dict()))
+
     def start(self):
         self.voice_server.start()
         self.server_socket=socket.socket(socket.AF_INET, socket.SOCK_STREAM)

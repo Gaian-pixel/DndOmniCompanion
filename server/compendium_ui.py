@@ -1,5 +1,6 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from common.messagebox import messagebox
+from tkinter import ttk
 import urllib.request
 import json
 import threading
@@ -12,7 +13,7 @@ class CompendiumDialog(tk.Toplevel):
     def __init__(self, master, on_import_callback=None, is_dm=True):
         super().__init__(master)
         self.title("Compendio 5e SRD")
-        self.geometry("450x600")
+        self.minsize(450, 600)
         apply_modern_window_style(self)
         self.on_import_callback = on_import_callback
         self.is_dm = is_dm
@@ -90,8 +91,10 @@ class CompendiumDialog(tk.Toplevel):
             return
             
         win = tk.Toplevel(self)
+        win.transient(self)
+        win.grab_set()
         win.title(f"Nuovo Custom: {cat}")
-        win.geometry("350x400")
+        win.minsize(350, 400)
         apply_modern_window_style(win)
         
         ttk.Label(win, text="Nome:").pack(pady=5)
@@ -275,8 +278,10 @@ class CompendiumDialog(tk.Toplevel):
         
     def show_details_popup(self, name, data):
         win = tk.Toplevel(self)
+        win.transient(self)
+        win.grab_set()
         win.title(name)
-        win.geometry("500x600")
+        win.minsize(500, 600)
         apply_modern_window_style(win)
         
         from tkinter import scrolledtext

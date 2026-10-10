@@ -1,5 +1,6 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from common.messagebox import messagebox
+from tkinter import ttk
 from .character_manager import Character
 from common.theme import apply_modern_window_style
 
@@ -49,7 +50,7 @@ class CharacterCreationWizard(tk.Toplevel):
     def __init__(self, master, manager, on_complete_callback):
         super().__init__(master)
         self.title("Creazione Guidata Personaggio (D&D 5e)")
-        self.geometry("550x550")
+        self.minsize(550, 550)
         apply_modern_window_style(self)
         self.transient(master)
         self.grab_set()

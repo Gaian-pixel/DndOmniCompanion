@@ -1,5 +1,6 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from common.messagebox import messagebox
+from tkinter import ttk
 from common.theme import BG_COLOR, TEXT_COLOR, ACCENT_RED, SURFACE_COLOR, BORDER_COLOR, apply_modern_window_style
 from .character_manager import Character
 from .character_sheet_ui import CharacterSheetUI
@@ -9,7 +10,7 @@ class LoginDialog(tk.Toplevel):
     def __init__(self, master, character_manager):
         super().__init__(master)
         self.title("Accesso alla Sessione D&D")
-        self.geometry("400x350")
+        self.minsize(400, 350)
         apply_modern_window_style(self)
         self.transient(master)
         self.grab_set()
