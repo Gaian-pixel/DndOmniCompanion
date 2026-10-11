@@ -12,7 +12,18 @@ def handle_move_request(data, player, game_state):
         return
 
     to_pos = data.get("to")
+    is_dm = data.get("is_dm_force", False)
+    
     if to_pos:
+        if not is_dm and getattr(game_state, "current_map", None):
+            hex_size = game_state.current_map.get("hex_size", 60)
+            if hex_size < 40:
+                from common.network_utils import send_message
+                from common.protocol import make_error_reply
+                if player.conn:
+                    send_message(player.conn, make_error_reply("Mappa di esplorazione: movimento libero disabilitato. Usa il Viaggio o aspetta il DM."))
+                return
+                
         walls_list_pos = game_state.current_map.get("walls", []) if getattr(game_state, "current_map", None) else []
         if [to_pos[0], to_pos[1]] in walls_list_pos:
             from common.network_utils import send_message
@@ -40,6 +51,34 @@ def handle_move_request(data, player, game_state):
                 return
 
         game_state.move_player(player.name, to_pos)
+        
+        if getattr(game_state, "current_map", None):
+            teleports = game_state.current_map.get("teleports", {})
+            pos_key = f"{to_pos[0]},{to_pos[1]}"
+            if pos_key in teleports:
+                map_file = teleports[pos_key]
+                import os, json, base64
+                maps_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "maps")
+                map_path = os.path.join(maps_dir, map_file)
+                if os.path.exists(map_path):
+                    try:
+                        with open(map_path, "r", encoding="utf-8") as f:
+                            new_map_data = json.load(f)
+                        if 'base_image_path' in new_map_data and new_map_data['base_image_path']:
+                            with open(new_map_data['base_image_path'], "rb") as img_f:
+                                new_map_data['bg_image_data'] = base64.b64encode(img_f.read()).decode('utf-8')
+                        
+                        game_state.load_map(new_map_data)
+                        
+                        from common.protocol import make_chat_broadcast, make_game_state, make_map_data_update
+                        broadcast(game_state, make_map_data_update(new_map_data))
+                        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+                        broadcast(game_state, make_chat_broadcast("Sistema", f"Il gruppo è stato teletrasportato."))
+                        game_state._trigger_gui_update()
+                        return
+                    except Exception as e:
+                        print(f"Errore caricamento mappa teleport {map_file}: {e}")
+
         
         # Auto-explore FoW around the player's new position
         if getattr(game_state, "current_map", None) and game_state.current_map.get("fow_enabled", False):

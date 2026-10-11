@@ -30,4 +30,6 @@ command_handlers = {
     "TAKE_LOOT_REQUEST": handle_take_loot_request,
     "LONG_REST_REQUEST": handle_long_rest_request,
     "LONG_REST_VOTE": handle_long_rest_vote,
+    "BUY_ITEM_REQUEST": handle_buy_item_request,
+    "CUSTOM_SPELL_REQUEST": handle_custom_spell_request,
 }

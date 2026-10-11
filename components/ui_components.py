@@ -51,8 +51,15 @@ class HexMapCanvas(tk.Canvas):
         self.bind("<Control-Button-1>", self._on_draw_start)
         self.bind("<Control-B1-Motion>", self._on_draw_move)
         self.bind("<Control-ButtonRelease-1>", self._on_draw_end)
+        self.bind("<Motion>", self._on_mouse_motion)
+        self.hover_tooltip = None
+        self._hovered_token = None
+        self.on_hex_right_click_callback = None
 
         self.drawn_lines = []
+
+    def set_on_hex_right_click_callback(self, func):
+        self.on_hex_right_click_callback = func
 
     def set_on_click_callback(self, func):
         self.on_hex_click_callback = func
@@ -175,7 +182,79 @@ class HexMapCanvas(tk.Canvas):
         if not self.hex_layout: return
         world_x = (event.x - self.pan_offset_x) / self.zoom_level
         world_y = (event.y - self.pan_offset_y) / self.zoom_level
-        self._ruler_start_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
+        clicked_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
+        
+        token_name = None
+        if getattr(self, 'players_data', None):
+            for name, pdata in self.players_data.items():
+                pos = pdata.get('position', [0, 0]) if isinstance(pdata, dict) else pdata
+                if hasattr(clicked_hex, "q"):
+                    # Hex object
+                    from common.hex_utils import Hex
+                    if Hex(*pos) == clicked_hex:
+                        token_name = name
+                        break
+                        
+        if getattr(self, 'on_hex_right_click_callback', None):
+            self.on_hex_right_click_callback(event, clicked_hex, token_name)
+            return
+
+        self._ruler_start_hex = clicked_hex
+
+
+    def _on_mouse_motion(self, event):
+        if not getattr(self, 'hex_layout', None): return
+        world_x = (event.x - self.pan_offset_x) / self.zoom_level
+        world_y = (event.y - self.pan_offset_y) / self.zoom_level
+        hovered_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
+        
+        token_name = None
+        if getattr(self, 'players_data', None):
+            for name, pdata in self.players_data.items():
+                pos = pdata.get('position', [0, 0]) if isinstance(pdata, dict) else pdata
+                from common.hex_utils import Hex
+                if Hex(*pos) == hovered_hex:
+                    # Controlliamo la nebbia di guerra per il client
+                    if getattr(self, 'fow_enabled', False) and getattr(self, 'player_name', None):
+                        visible = getattr(self, 'visible_hexes', set())
+                        if hovered_hex not in visible:
+                            continue # Non mostrare tooltip se non e' visibile
+                    token_name = name
+                    break
+                    
+        if token_name != getattr(self, '_hovered_token', None):
+            self._hovered_token = token_name
+            self._update_hover_tooltip(event, token_name)
+        elif token_name and self.hover_tooltip:
+            # Segui il mouse
+            x = self.winfo_rootx() + event.x + 15
+            y = self.winfo_rooty() + event.y + 15
+            self.hover_tooltip.wm_geometry(f"+{x}+{y}")
+
+    def _update_hover_tooltip(self, event, token_name):
+        if getattr(self, 'hover_tooltip', None):
+            self.hover_tooltip.destroy()
+            self.hover_tooltip = None
+            
+        if token_name:
+            import tkinter as tk
+            self.hover_tooltip = tk.Toplevel(self)
+            self.hover_tooltip.wm_overrideredirect(True)
+            self.hover_tooltip.attributes('-topmost', True)
+            x = self.winfo_rootx() + event.x + 15
+            y = self.winfo_rooty() + event.y + 15
+            self.hover_tooltip.wm_geometry(f"+{x}+{y}")
+            
+            pdata = self.players_data[token_name]
+            hp = pdata.get('hp', '?') if isinstance(pdata, dict) else '?'
+            hp_max = pdata.get('hp_max', '?') if isinstance(pdata, dict) else '?'
+            
+            text = f"{token_name}"
+            if isinstance(pdata, dict) and 'hp' in pdata:
+                text += f"\nHP: {hp}/{hp_max}"
+                
+            label = tk.Label(self.hover_tooltip, text=text, background="#36393F", foreground="white", relief="solid", borderwidth=1, font=("Helvetica", 9, "bold"))
+            label.pack(padx=3, pady=3)
 
     def _on_ruler_drag(self, event):
         if not self.hex_layout or not self._ruler_start_hex: return
@@ -295,13 +374,17 @@ class HexMapCanvas(tk.Canvas):
             self.pan_offset_y = ch / 2
         self.redraw()
 
-    def update_data(self, map_data, players_data, player_name="", turn_player_name="", aoes_data=None):
+    def update_data(self, map_data, players_data, player_name="", turn_player_name="", aoes_data=None, time_hour=12, weather="Sereno", combat_active=False, combat_order=None):
         """Salva i dati necessari per il ridisegno."""
         self.map_data = map_data
         self.players_data = players_data
         self.player_name = player_name
         self.turn_player_name = turn_player_name
         self.aoes_data = aoes_data or []
+        self.time_hour = time_hour
+        self.weather = weather
+        self.combat_active = combat_active
+        self.combat_order = combat_order or []
         self.redraw()
 
     def redraw(self):
@@ -357,6 +440,18 @@ class HexMapCanvas(tk.Canvas):
         draft_key = "fow_draft" if ("fow_draft" in self.map_data and is_dm) else "fow_revealed"
         fow_revealed = {Hex(h[0], h[1]) for h in self.map_data.get(draft_key, [])}
         walls_data = self.map_data.get("walls", [])
+        walls_set = {Hex(w[0], w[1]) for w in walls_data}
+        
+        visible_now = set()
+        if not is_dm and self.player_name in self.players_data:
+            from common.hex_utils import get_visible_hexes
+            pdata = self.players_data[self.player_name]
+            pos = pdata.get('position') if isinstance(pdata, dict) else pdata
+            if pos is None:
+                pos = [0, 0]
+            vision_rad = pdata.get('vision_radius', 6) if isinstance(pdata, dict) else 6
+            visible_now = set(get_visible_hexes(Hex(pos[0], pos[1]), vision_rad, walls_set))
+            
         half_cover_data = self.map_data.get("half_cover", [])
         three_quarters_cover_data = self.map_data.get("three_quarters_cover", [])
         
@@ -385,6 +480,9 @@ class HexMapCanvas(tk.Canvas):
                 else:
                     fill_color = "black"
                     stipple_pattern = ""
+            elif fow_enabled and not is_dm and current_hex not in visible_now:
+                fill_color = "gray10"
+                stipple_pattern = "gray75"
             
             self.create_polygon(scaled_corners, fill=fill_color, outline=border_color, width=max(1, 1/self.zoom_level), stipple=stipple_pattern)
         
@@ -450,10 +548,35 @@ class HexMapCanvas(tk.Canvas):
             sy = cy * self.zoom_level + self.pan_offset_y
             self.create_oval(sx-5, sy-5, sx+5, sy+5, fill="yellow", outline="orange")
             
+        # Draw Teleports
+        teleports_data = self.map_data.get("teleports", {})
+        for k in teleports_data:
+            q_str, r_str = k.split(",")
+            lh = Hex(int(q_str), int(r_str))
+            if fow_enabled and not is_dm and lh not in fow_revealed:
+                continue
+            cx, cy = self.hex_layout.hex_to_pixel(lh)
+            sx = cx * self.zoom_level + self.pan_offset_x
+            sy = cy * self.zoom_level + self.pan_offset_y
+            self.create_oval(sx-6, sy-6, sx+6, sy+6, fill="blue", outline="cyan", width=2)
+            if is_dm:
+                self.create_text(sx, sy-15, text="🚪", font=("", max(8, int(10*self.zoom_level))))
+            
+        # Draw Spawn Point
+        spawn_point = self.map_data.get("spawn_point")
+        if spawn_point and is_dm:
+            lh = Hex(*spawn_point)
+            cx, cy = self.hex_layout.hex_to_pixel(lh)
+            sx = cx * self.zoom_level + self.pan_offset_x
+            sy = cy * self.zoom_level + self.pan_offset_y
+            self.create_text(sx, sy, text="[S]\nSpawn", font=("Arial", max(8, int(10*self.zoom_level)), "bold"), fill="#00FF00", justify="center")
+            
         for name, pdata in self.players_data.items():
 
             if isinstance(pdata, dict):
-                pos = pdata.get('position', [0, 0])
+                pos = pdata.get('position')
+                if pos is None:
+                    pos = [0, 0]
                 conditions = pdata.get('conditions', [])
                 size_mult = pdata.get('size', 1)
                 aura_radius = pdata.get('aura_radius', 0)
@@ -462,6 +585,8 @@ class HexMapCanvas(tk.Canvas):
                 hp_max = pdata.get('hp_max', 0)
             else:
                 pos = pdata
+                if pos is None:
+                    pos = [0, 0]
                 conditions = []
                 size_mult = 1
                 aura_radius = 0
@@ -473,8 +598,9 @@ class HexMapCanvas(tk.Canvas):
             current_hex = Hex(q, r)
             
             # Se la nebbia è attiva, non disegnare player se l'esagono è nascosto e siamo un giocatore
-            if fow_enabled and not is_dm and current_hex not in fow_revealed:
-                continue
+            if fow_enabled and not is_dm:
+                if current_hex not in visible_now:
+                    continue
                 
             center_x, center_y = self.hex_layout.hex_to_pixel(current_hex)
             screen_x = center_x * self.zoom_level + self.pan_offset_x
@@ -483,10 +609,11 @@ class HexMapCanvas(tk.Canvas):
             radius = 10 * size_mult
             
             if aura_radius > 0:
-                screen_aura_r = aura_radius * self.hex_layout.size * self.zoom_level
+                # aura_radius è in esagoni. La distanza tra centri è circa 1.732 * size.
+                screen_aura_r = aura_radius * self.hex_layout.size * 1.732 * self.zoom_level
                 self.create_oval(screen_x - screen_aura_r, screen_y - screen_aura_r, 
                                  screen_x + screen_aura_r, screen_y + screen_aura_r, 
-                                 fill="", outline=aura_color, dash=(4, 4))
+                                 fill="", outline=aura_color, dash=(8, 4), width=3)
             
             is_turn = getattr(self, "turn_player_name", "") == name
             if is_turn:
@@ -500,9 +627,6 @@ class HexMapCanvas(tk.Canvas):
                 cache_key = f"{name}_{size_mult}_{self.zoom_level}"
                 if cache_key not in self._avatar_cache:
                     try:
-                        import base64
-                        from io import BytesIO
-                        from PIL import Image, ImageTk
                         img_bytes = base64.b64decode(avatar_b64)
                         img = Image.open(BytesIO(img_bytes))
                         target_size = int(radius * 2)
@@ -577,6 +701,47 @@ class HexMapCanvas(tk.Canvas):
                     
                     self.create_rectangle(cx, start_y, cx + box_size, start_y + box_size, fill=bg_color, outline="black")
                     self.create_text(cx + box_size/2, start_y + box_size/2, text=abbrev, fill=fg_color, font=("Arial", 6, "bold"))
+                    
+        # --- ENVIRONMENTS & COMBAT OVERLAYS ---
+        w = self.winfo_width()
+        h = self.winfo_height()
+        
+        # 1. Day/Night Cycle
+        hour = getattr(self, "time_hour", 12)
+        if hour < 6 or hour > 19:
+            # Draw a semi-transparent dark rectangle (using stipple since tk canvas alpha is hard, or just skip if too ugly)
+            # A trick for pseudo-transparency in tk canvas is drawing many lines or stipples.
+            # We'll use a text overlay or simple gray50 stipple
+            self.create_rectangle(0, 0, w, h, fill="black", stipple="gray50", outline="", tags="night_overlay")
+            self.create_text(w/2, 20, text=f"Notte ({hour}:00)", fill="white", font=("Arial", 12, "bold"))
+            
+        # 2. Weather
+        weather = getattr(self, "weather", "Sereno")
+        if weather == "Pioggia":
+            self.create_rectangle(0, 0, w, h, fill="blue", stipple="gray25", outline="", tags="weather_overlay")
+            self.create_text(w/2, 40, text="Pioggia", fill="lightblue", font=("Arial", 12, "bold"))
+        elif weather == "Neve":
+            self.create_rectangle(0, 0, w, h, fill="white", stipple="gray25", outline="", tags="weather_overlay")
+            self.create_text(w/2, 40, text="Neve", fill="white", font=("Arial", 12, "bold"))
+            
+        # 3. Public Initiative Tracker
+        if getattr(self, "combat_active", False) and getattr(self, "combat_order", None):
+            order = self.combat_order
+            # Draw a floating box on the top right
+            box_width = 150
+            box_height = 30 + len(order) * 20
+            start_x = w - box_width - 10
+            start_y = 10
+            self.create_rectangle(start_x, start_y, start_x + box_width, start_y + box_height, fill="#2c2f33", outline="gold", width=2)
+            self.create_text(start_x + box_width/2, start_y + 15, text="Iniziativa", fill="gold", font=("Arial", 10, "bold"))
+            
+            for i, name in enumerate(order):
+                color = "white"
+                prefix = ""
+                if name == getattr(self, "turn_player_name", ""):
+                    color = "#00ff00"
+                    prefix = "▶ "
+                self.create_text(start_x + 10, start_y + 35 + i * 20, text=f"{prefix}{i+1}. {name}", fill=color, font=("Arial", 9), anchor="w")
 
 class ToolTip:
     """Finestrella di tooltip mostrata al passaggio del mouse."""
@@ -607,12 +772,3 @@ class ToolTip:
         if tw:
             tw.destroy()
 
-    def _on_canvas_release(self, event):
-        self.delete('ghost_token')
-        if getattr(self, 'dragging_token_name', None):
-            if self.hex_layout and self.on_token_drop_callback:
-                world_x = (event.x - self.pan_offset_x) / self.zoom_level
-                world_y = (event.y - self.pan_offset_y) / self.zoom_level
-                drop_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
-                self.on_token_drop_callback(self.dragging_token_name, drop_hex.q, drop_hex.r)
-            self.dragging_token_name = None

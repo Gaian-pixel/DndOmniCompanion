@@ -2,6 +2,7 @@ import re
 import random
 from common.hex_utils import Hex, hex_distance, get_sphere_hexes, hex_linedraw
 from common.network_utils import send_message, broadcast
+from common.protocol import *
 import math
 def handle_create_aoe_request(data, player, game_state):
     aoe_data = data.get("aoe_data")

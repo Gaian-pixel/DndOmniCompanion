@@ -28,6 +28,8 @@ class Server:
     def __init__(self, host, port, gui_queue):
         self.host=host; self.port=port; self.server_socket=None; self.running=False
         self.game_state=GameState(gui_queue)
+        from common.starter_equipment import get_campaign_starter_kit
+        self.game_state.campaign_starter_kit = get_campaign_starter_kit()
         self.voice_server = VoiceServer(self.host, 53912)
 
     def send_loot_split(self, amount):
@@ -100,9 +102,31 @@ class Server:
             else:
                 player = Player(name, addr, conn)
                 player.is_party_member = True
+                
+                req_pos = join_msg.get("data", {}).get("position")
+                if req_pos and self.game_state.current_map:
+                    # Controlla se la posizione  valida (non dentro un muro)
+                    walls = self.game_state.current_map.get("walls", [])
+                    if req_pos not in walls:
+                        player.position = req_pos
+                    elif "spawn_point" in self.game_state.current_map:
+                        player.position = self.game_state.current_map["spawn_point"]
+                elif self.game_state.current_map and "spawn_point" in self.game_state.current_map:
+                    player.position = self.game_state.current_map["spawn_point"]
+                    
+                self.game_state.add_player(player)
                 send_message(conn, make_game_state(self.game_state.get_state_dict()))
                 broadcast(self.game_state, make_player_joined(player.to_dict()), exclude_player=player)
-                self.game_state.add_player(player)
+
+            if player and player.full_sheet:
+                from common.starter_equipment import apply_class_and_race_starter_kit, apply_campaign_starter_kit
+                if not player.full_sheet.get("starting_kit_applied"):
+                    apply_class_and_race_starter_kit(player.full_sheet)
+                if not player.full_sheet.get("campaign_starter_received"):
+                    campaign_kit = getattr(self.game_state, "campaign_starter_kit", None)
+                    apply_campaign_starter_kit(player.full_sheet, campaign_kit)
+                    send_message(conn, make_campaign_starter_granted(player.full_sheet.get("inventory_grid", []), full_sheet=player.full_sheet))
+                    broadcast(self.game_state, make_chat_broadcast("Sistema", f"[CAMPAGNA] {player.name} ha ricevuto l'equipaggiamento iniziale della campagna dal Master!"))
             
             while True:
                 msg = receive_message(conn)

@@ -43,3 +43,48 @@ def handle_take_loot_request(data, player, game_state):
         game_state._trigger_gui_update()
         broadcast(game_state, make_game_state(game_state.get_state_dict()))
 
+def handle_buy_item_request(data, player, game_state):
+    shop_name = data.get("shop_name")
+    item_name = data.get("item_name")
+    
+    if not shop_name or not item_name: return
+    
+    shop = getattr(game_state, "shops", {}).get(shop_name)
+    if not shop: return
+    
+    item_to_buy = None
+    for item in shop.get("items", []):
+        if item.get("name") == item_name:
+            item_to_buy = item
+            break
+            
+    if not item_to_buy: return
+    
+    price = int(item_to_buy.get("price", 0))
+    player_gp = int(player.full_sheet.get("gp", 0)) if getattr(player, "full_sheet", None) else 0
+    
+    if player_gp < price:
+        send_message(player.conn, {"type": "ERROR", "message": "Non hai abbastanza monete d'oro."})
+        return
+        
+    # Deduct gold and add item
+    player.full_sheet["gp"] = str(player_gp - price)
+    inv = player.full_sheet.setdefault("inventory", [])
+    
+    # Try to stack
+    stacked = False
+    for i in inv:
+        if i.get("name") == item_name:
+            i["quantity"] = str(int(i.get("quantity", 1)) + 1)
+            stacked = True
+            break
+            
+    if not stacked:
+        inv.append({"name": item_name, "quantity": "1", "description": "Acquistato al negozio", "equipped": False})
+        
+    player.full_sheet["inventory"] = inv
+    game_state._trigger_gui_update()
+    
+    from common.protocol import make_game_state, make_chat_broadcast
+    broadcast(game_state, make_game_state(game_state.get_state_dict()))
+    broadcast(game_state, make_chat_broadcast("Sistema", f"{player.name} ha acquistato {item_name} da {shop_name} per {price} mo."))

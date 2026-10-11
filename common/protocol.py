@@ -1,8 +1,11 @@
 # protocol.py
 
 # --- Messaggi Client -> Server ---
-def make_join(name):
-    return {"type": "JOIN", "data": {"name": name}}
+def make_join(name, position=None):
+    data = {"name": name}
+    if position:
+        data["position"] = position
+    return {"type": "JOIN", "data": data}
 
 def make_chat(text):
     return {"type": "CHAT", "data": {"text": text}}
@@ -132,3 +135,12 @@ def make_combat_state_update_broadcast(combat_active, turn_index, round_number, 
 
 def make_audio_play_broadcast(url_or_name):
     return {"type": "AUDIO_PLAY_BROADCAST", "data": {"url": url_or_name}}
+
+def make_custom_spell_request(spell_dict):
+    return {"type": "CUSTOM_SPELL_REQUEST", "data": {"spell": spell_dict}}
+
+def make_custom_spell_response(player_name, spell_dict, approved, reason=""):
+    return {"type": "CUSTOM_SPELL_RESPONSE", "data": {"player_name": player_name, "spell": spell_dict, "approved": approved, "reason": reason}}
+
+def make_campaign_starter_granted(items, full_sheet=None):
+    return {"type": "CAMPAIGN_STARTER_GRANTED", "data": {"items": items, "full_sheet": full_sheet}}

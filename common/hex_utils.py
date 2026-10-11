@@ -169,3 +169,19 @@ def get_cone_hexes(start_hex: Hex, target_hex: Hex, length_in_hexes: int) -> lis
             results.append(h)
             
     return results
+
+def get_visible_hexes(origin: Hex, radius: int, walls: set) -> list[Hex]:
+    visible = set()
+    visible.add(origin)
+    sphere = get_sphere_hexes(origin, radius)
+    for h in sphere:
+        if h == origin: continue
+        line = hex_linedraw(origin, h)
+        is_visible = True
+        for p in line:
+            if p in walls and p != origin and p != h:
+                is_visible = False
+                break
+        if is_visible:
+            visible.add(h)
+    return list(visible)

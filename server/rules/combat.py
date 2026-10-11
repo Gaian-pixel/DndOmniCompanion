@@ -160,26 +160,29 @@ def handle_attack_request(data, player, game_state):
         from common.dice import roll_dice
         import random
         # 1. Roll to Hit
-        has_adv = False
-        has_dis = False
+        adv_reasons = []
+        dis_reasons = []
         flanking = False
         
         p_cond = getattr(player, "conditions", [])
         t_cond = getattr(target_player, "conditions", [])
         
-        if "Invisibile" in p_cond: has_adv = True
-        if "Invisibile" in t_cond: has_dis = True
-        if any(c in p_cond for c in ["Avvelenato", "Trattenuto", "Prono"]): has_dis = True
-        if "Trattenuto" in t_cond: has_adv = True
+        if "Invisibile" in p_cond: adv_reasons.append("Invisibile")
+        for c in ["Trattenuto", "Paralizzato", "Incosciente", "Accecato", "Pietrificato"]:
+            if c in t_cond: adv_reasons.append(f"Bersaglio {c}")
+            
+        for c in ["Accecato", "Avvelenato", "Trattenuto", "Prono"]:
+            if c in p_cond: dis_reasons.append(c)
+        if "Invisibile" in t_cond: dis_reasons.append("Bersaglio Invisibile")
         
         if hasattr(player, "position") and player.position and hasattr(target_player, "position") and target_player.position:
             q1, r1 = player.position[0], player.position[1]
             q2, r2 = target_player.position[0], target_player.position[1]
             dist = max(abs(q1 - q2), abs(q1 + r1 - q2 - r2), abs(r1 - r2))
             if "Prono" in t_cond:
-                if dist == 1: has_adv = True
-                elif dist > 1: has_dis = True
-            if dist == 1:
+                if dist <= 1: adv_reasons.append("Bersaglio Prono")
+                elif dist > 1: dis_reasons.append("Bersaglio Prono")
+            if dist <= 1:
                 opp_q = q2 + (q2 - q1)
                 opp_r = r2 + (r2 - r1)
                 for p in getattr(game_state, "players", []):
@@ -187,10 +190,12 @@ def handle_attack_request(data, player, game_state):
                         if hasattr(p, "position") and p.position and p.position[0] == opp_q and p.position[1] == opp_r:
                             p_c = getattr(p, "conditions", [])
                             if "Invisibile" not in p_c and "Nascosto" not in p_c:
-                                has_adv = True
+                                adv_reasons.append("Fiancheggiamento")
                                 flanking = True
                                 break
 
+        has_adv = len(adv_reasons) > 0
+        has_dis = len(dis_reasons) > 0
         if has_adv and has_dis:
             has_adv = False
             has_dis = False
@@ -266,12 +271,10 @@ def handle_attack_request(data, player, game_state):
         hits = (is_crit or (not is_fail and hit_roll >= target_ac)) and not blocked_by_wall
         
         log_msg = f"{player.name} attacca {target_name} con {weapon_name}."
-        if flanking:
-            log_msg += " (Fiancheggiamento)"
         if has_adv:
-            log_msg += " (Vantaggio)"
+            log_msg += f" Tiro con Vantaggio (causa: {', '.join(adv_reasons)})."
         elif has_dis:
-            log_msg += " (Svantaggio)"
+            log_msg += f" Tiro con Svantaggio (causa: {', '.join(dis_reasons)})."
         log_msg += f" Tiro per colpire: {hit_roll}"
         if benedizione_bonus > 0:
             log_msg += f" (+{benedizione_bonus} Benedizione)"
