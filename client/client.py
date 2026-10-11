@@ -96,6 +96,7 @@ class ClientGUI:
         self.map_canvas.set_on_click_callback(self.on_hex_click)
         self.map_canvas.on_token_drop_callback = self.on_token_drop
         self.map_canvas.set_on_ping_callback(self.on_ping_callback)
+        self.map_canvas.set_on_hex_right_click_callback(self.on_hex_right_clicked)
         self.map_canvas.set_on_wall_toggle_callback(self.on_wall_toggle_callback)
         self.map_canvas.set_on_cover_toggle_callback(self.on_cover_toggle_callback)
         self.map_canvas.set_on_draw_callback(self.on_draw_request)
@@ -143,41 +144,57 @@ class ClientGUI:
         self.right_notebook.add(controls_tab, text="Controlli PG")
         
         self.status_label = ttk.Label(controls_tab, text="Stato: Disconnesso", style="Danger.TLabel", font=self.default_font)
-        self.status_label.pack(anchor="w", pady=(0, 20))
+        self.status_label.pack(anchor="w", pady=(0, 10))
+        
+        ttk.Label(controls_tab, text="Personaggio Attivo:").pack(anchor="w")
+        self.active_character_var = tk.StringVar(value=self.name)
+        self.active_character_combo = ttk.Combobox(controls_tab, textvariable=self.active_character_var, state="readonly")
+        self.active_character_combo.pack(fill=tk.X, pady=(0, 15))
+        self.active_character_combo.bind("<<ComboboxSelected>>", self.on_active_character_changed)
         
         self.stats_button = ttk.Button(controls_tab, text="Scheda PG", command=self.open_stats_dialog, style='Info.TButton')
-        self.stats_button.pack(fill=tk.X, pady=5)
+        self.stats_button.pack(fill=tk.X, pady=2)
         
-        self.roll_button = ttk.Button(controls_tab, text="Tira Dadi", command=self.roll_dice_dialog)
-        self.roll_button.pack(fill=tk.X, pady=5)
+        self.roll_button = ttk.Button(controls_tab, text="Tira Dadi", command=getattr(self, "roll_dice_dialog", lambda: None))
+        self.roll_button.pack(fill=tk.X, pady=2)
         
-        self.action_button = ttk.Button(controls_tab, text="Azione", command=self.open_action_dialog, style='Primary.TButton')
-        self.action_button.pack(fill=tk.X, pady=5)
+        self.action_button = ttk.Button(controls_tab, text="Azione (Attacco/Cura)", command=getattr(self, "open_action_dialog", lambda: None))
+        self.action_button.pack(fill=tk.X, pady=2)
         
-        self.travel_button = ttk.Button(controls_tab, text="Azioni di Viaggio", command=self.open_travel_dialog, style='Success.TButton')
-        self.travel_button.pack(fill=tk.X, pady=5)
+        self.travel_button = ttk.Button(controls_tab, text="Azioni di Viaggio", command=getattr(self, "open_travel_dialog", lambda: None))
+        self.travel_button.pack(fill=tk.X, pady=2)
         
-        ttk.Separator(controls_tab, orient="horizontal").pack(fill=tk.X, pady=15)
+        self.combat_btn = ttk.Button(controls_tab, text="Richiedi Combattimento", command=lambda: getattr(self, "network", None) and self.network.send({"type": "COMBAT_TOGGLE_REQUEST", "data": {}}))
+        self.combat_btn.pack(fill=tk.X, pady=2)
         
-        self.combat_btn = ttk.Button(controls_tab, text="🗡 Richiedi Combattimento", command=self.request_combat)
-        self.combat_btn.pack(fill=tk.X, pady=5)
+        self.end_turn_btn = ttk.Button(controls_tab, text="Termina Turno", command=self.end_turn, style='Danger.TButton')
         
-        self.end_turn_btn = ttk.Button(controls_tab, text="⏹ Termina Turno", command=self.end_turn, style='Success.TButton')
-        # Not packed initially
-        
-        # --- HOTBAR ---
-        self.hotbar_frame = ttk.Frame(main_frame)
-        self.hotbar_frame.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(10,0))
+        # Hotbar al fondo del right_panel
+        self.hotbar_frame = ttk.Frame(self.right_notebook.master) # right_panel is the parent of right_notebook
+        self.hotbar_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=5, padx=5)
         self.hotbar_buttons = []
         for i in range(10):
-            btn = ttk.Button(self.hotbar_frame, text=f"{i+1}", width=10)
-            btn.pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
-            btn.bind("<Button-1>", lambda e, idx=i: self.on_hotbar_click(idx))
-            btn.bind("<Button-3>", lambda e, idx=i: self.on_hotbar_right_click(idx))
+            btn = ttk.Button(self.hotbar_frame, text=f"{i+1}", width=4)
+            btn.grid(row=0, column=i, padx=1)
+            btn.bind("<Button-1>", lambda e, idx=i: getattr(self, "on_hotbar_click")(idx))
+            btn.bind("<Button-3>", lambda e, idx=i: getattr(self, "on_hotbar_right_click")(idx))
             self.hotbar_buttons.append(btn)
+        
 
         self.set_controls_state(tk.DISABLED)
 
+
+    def on_active_character_changed(self, event=None):
+        new_active = self.active_character_var.get()
+        if not new_active: return
+        self.name = new_active
+        if self.character_manager:
+            char = self.character_manager.get_or_create(new_active)
+            self.active_character = char
+            self.character_manager.active_character = char
+        if getattr(self, "map_canvas", None):
+            self.map_canvas.player_name = new_active
+            self.map_canvas.redraw()
     def on_hotbar_right_click(self, idx):
         if not self.active_character: return
         cmd = simpledialog.askstring("Hotbar", f"Imposta comando per lo slot {idx+1} (es: 1d20+5, oppure Ciao!)", initialvalue=self.active_character.hotbar[idx])
@@ -220,6 +237,33 @@ class ClientGUI:
     def on_token_drop(self, token_name, q, r):
         if token_name == self.name:
             self.send_message({"type": "MOVE_REQUEST", "data": {"to": [q, r]}})
+
+    def on_hex_right_clicked(self, event, clicked_hex, token_name):
+        import tkinter as tk
+        menu = tk.Menu(self.master, tearoff=0, bg="#2C2F33", fg="white")
+        
+        # Seleziona nella listbox per preparare l'apertura chat
+        for i in range(self.player_listbox.size()):
+            display_text = self.player_listbox.get(i)
+            name = display_text.split(" (HP")[0].replace("? ", "").strip()
+            if name == token_name:
+                self.player_listbox.selection_clear(0, tk.END)
+                self.player_listbox.selection_set(i)
+                self.player_listbox.activate(i)
+                break
+                
+        if self.character_manager and self.character_manager.active_character and token_name == self.character_manager.active_character.name:
+            menu.add_command(label="Visualizza Scheda", command=self.open_stats_dialog)
+            
+        def _open_priv():
+            self.open_private_chat_from_list(None)
+            
+        menu.add_command(label="Invia Messaggio Privato", command=_open_priv)
+        
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
 
     def on_hex_click(self, clicked_hex):
         if getattr(self, "aoe_mode", False) and getattr(self, "aoe_params", None):
@@ -294,6 +338,31 @@ class ClientGUI:
         messagebox.showinfo("Modalita' Bersaglio", f"Seleziona un bersaglio sulla mappa per attaccare con {weapon_name}!")
 
 
+
+    def open_calendar_dialog(self):
+        try:
+            from components.calendar_ui import CalendarDialog
+            win = CalendarDialog(self.master, self.game_state_obj if hasattr(self, 'game_state_obj') else type('obj', (object,), self.game_state)(), is_dm=False)
+            win.grab_set()
+        except ImportError as e:
+            from common.messagebox import messagebox
+            messagebox.showerror("Errore", f"Impossibile aprire il calendario: {e}")
+
+    def open_quest_dialog(self):
+        try:
+            from components.quest_ui import QuestLogDialog
+            win = QuestLogDialog(self.master, self.game_state, is_dm=False, network_or_server=self.network)
+        except Exception as e:
+            from common.messagebox import messagebox
+            messagebox.showerror("Errore", f"Impossibile aprire il diario: {e}")
+
+    def open_shop_dialog(self):
+        try:
+            from components.shop_ui import ShopDialog
+            win = ShopDialog(self.master, self.game_state, is_dm=False, network_or_server=self.network)
+        except Exception as e:
+            from common.messagebox import messagebox
+            messagebox.showerror("Errore", f"Impossibile aprire i negozi: {e}")
 
     def open_travel_dialog(self):
         win = tk.Toplevel(self.master)
@@ -424,7 +493,7 @@ class ClientGUI:
             self.voice_client = VoiceClient(server_ip, 53912)
             self.voice_client.start()
             
-            self.network.send(make_join(self.name))
+            self.network.send(make_join(self.name, getattr(self.active_character, "last_position", None)))
             self.network.send(make_update_stats_request(self.active_character.hp_current, self.active_character.hp_max, self.active_character.initiative, getattr(self.active_character, "conditions", [])))
             self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
             self.log_to_chat(f"Connesso a {server_ip} come {self.name} (Lv.{char.level} {char.char_class}).", "Globale")
@@ -458,7 +527,23 @@ class ClientGUI:
         turn_name = ""
         if getattr(self, "combat_active", False) and 0 <= getattr(self, "turn_index", 0) < len(all_players):
             turn_name = all_players[self.turn_index]['name']
-        self.map_canvas.update_data(self.local_map_data, players_info, self.name, turn_player_name=turn_name, aoes_data=getattr(self, "aoes_data", []))
+        
+        time_hour = self.game_state.get("time_hour", 12) if self.game_state else 12
+        weather = self.game_state.get("weather", "Sereno") if self.game_state else "Sereno"
+        combat_active = self.combat_active
+        combat_order = [p["name"] for p in all_players] if combat_active else []
+        
+        self.map_canvas.update_data(
+            self.local_map_data, 
+            players_info, 
+            self.name, 
+            turn_player_name=turn_name, 
+            aoes_data=getattr(self, "aoes_data", []),
+            time_hour=time_hour,
+            weather=weather,
+            combat_active=combat_active,
+            combat_order=combat_order
+        )
 
     def handle_map_data_update(self, data):
         self.local_map_data = data.get("map")
@@ -484,15 +569,40 @@ class ClientGUI:
         self.redraw_map_and_players()
 
     def handle_game_state(self, data):
+        self.game_state = data
         self.players_data = {p['name']: p for p in data.get('players', [])}
         self.local_map_data = data.get("map")
         
+        if self.active_character and self.name in self.players_data:
+            pos = self.players_data[self.name].get("position")
+            if pos:
+                self.active_character.last_position = pos
+                self.character_manager.save_characters()
+        
+        owned_chars = [p['name'] for p in data.get('players', []) if p['name'] == self.name or p.get('owner') == self.name]
+        if not owned_chars: owned_chars = [self.name]
+        if hasattr(self, 'active_character_combo'):
+            self.active_character_combo['values'] = owned_chars
+            if self.active_character_var.get() not in owned_chars:
+                self.active_character_var.set(owned_chars[0])
+                self.on_active_character_changed()
         was_my_turn = getattr(self, "_is_my_turn", False)
         
         self.combat_active = data.get("combat_active", False)
         self.turn_index = data.get("turn_index", 0)
         self.round_number = data.get("round_number", 1)
         self.aoes_data = data.get("active_aoes", [])
+        
+        day = data.get("time_day", 1)
+        month = data.get("time_month", 1)
+        year = data.get("time_year", 1492)
+        hour = data.get("time_hour", 8)
+        months = ["", "Hammer", "Alturiak", "Ches", "Tarsakh", "Mirtul", "Kythorn", "Flamerule", "Eleasis", "Eleint", "Marpenoth", "Uktar", "Nightal"]
+        month_name = months[month] if 1 <= month <= 12 else "Mese Sconosciuto"
+        time_str = f"{hour:02d}:00"
+        
+        if getattr(self, 'lbl_time', None):
+            self.lbl_time.config(text=f"Data: {day} {month_name} {year} - {time_str}")
         
         is_my_turn = False
         if self.combat_active:
@@ -545,6 +655,9 @@ class ClientGUI:
         name = data.get('name')
         if name in self.players_data:
             self.players_data[name]['position'] = data.get('position')
+        if name == self.name and self.active_character:
+            self.active_character.last_position = data.get('position')
+            self.character_manager.save_characters()
         self.redraw_map_and_players()
 
     def handle_player_stats_update(self, data):
@@ -570,8 +683,12 @@ class ClientGUI:
         self.update_player_listbox()
 
     def set_controls_state(self, state):
-        self.entry.config(state=state); self.roll_button.config(state=state); self.player_listbox.config(state=state); self.stats_button.config(state=state); self.action_button.config(state=state); self.aoe_button.config(state=state); self.travel_button.config(state=state)
-        self.combat_btn.config(state=state)
+        for btn in ['entry', 'roll_button', 'player_listbox', 'stats_button', 'action_button', 'aoe_button', 'travel_button', 'calendar_button', 'combat_btn', 'end_turn_btn']:
+            widget = getattr(self, btn, None)
+            if widget:
+                try: widget.config(state=state)
+                except: pass
+
 
     def request_combat(self):
         from common.protocol import make_start_combat_request
@@ -672,10 +789,60 @@ class ClientGUI:
             "PROMPT_LONG_REST_VOTE": self.handle_prompt_long_rest_vote,
             "DO_LONG_REST": self.handle_do_long_rest,
             "FOW_UPDATE_BROADCAST": self.handle_fow_update_broadcast,
-            "AUDIO_PLAY_BROADCAST": self.handle_audio_play
+            "AUDIO_PLAY_BROADCAST": self.handle_audio_play,
+            "CUSTOM_SPELL_RESPONSE": self.handle_custom_spell_response,
+            "CAMPAIGN_STARTER_GRANTED": self.handle_campaign_starter_granted
         }
         handler=handler_map.get(msg_type)
         if handler: handler(data)
+
+    def handle_custom_spell_response(self, data):
+        approved = data.get("approved", False)
+        spell = data.get("spell", {})
+        spell_name = spell.get("name", "Incantesimo")
+        if approved:
+            if self.active_character:
+                if not hasattr(self.active_character, "spellbook") or not isinstance(self.active_character.spellbook, list):
+                    self.active_character.spellbook = []
+                if not any(s.get("name") == spell_name for s in self.active_character.spellbook):
+                    self.active_character.spellbook.append(spell)
+                    self.character_manager.save_characters()
+                    if hasattr(self, 'stats_window') and self.stats_window and self.stats_window.winfo_exists():
+                        self.stats_window.refresh_spell_list()
+                    from common.protocol import make_update_full_sheet_request
+                    self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
+            messagebox.showinfo("Incantesimo Approvato!", f"Il Dungeon Master ha APPROVATO l'incantesimo '{spell_name}'!\nÈ stato aggiunto al tuo Grimorio.")
+        else:
+            reason = data.get("reason", "Il Master ha respinto la richiesta.")
+            messagebox.showwarning("Incantesimo Rifiutato", f"Il Dungeon Master ha RESPINTO '{spell_name}'.\nMotivo: {reason}")
+
+    def handle_campaign_starter_granted(self, data):
+        full_sheet = data.get("full_sheet")
+        if full_sheet and self.active_character:
+            for k in ["inventory_grid", "spellbook", "spell_slots", "ac", "starting_kit_applied", "campaign_starter_received"]:
+                if k in full_sheet:
+                    setattr(self.active_character, k, full_sheet[k])
+            self.character_manager.save_characters()
+            if hasattr(self, 'stats_window') and self.stats_window and self.stats_window.winfo_exists():
+                self.stats_window.load_data()
+        elif self.active_character:
+            items = data.get("items", [])
+            if items:
+                self.active_character.inventory_grid = items
+                self.active_character.campaign_starter_received = True
+                self.character_manager.save_characters()
+                if hasattr(self, 'stats_window') and self.stats_window and self.stats_window.winfo_exists():
+                    self.stats_window.load_data()
+        self.log_to_chat("Hai ricevuto l'equipaggiamento iniziale della campagna dal Master!", "Globale", sender="Sistema", color="#2ECC71")
+
+    def request_custom_spell(self, spell_dict):
+        if self.is_connected:
+            from common.protocol import make_custom_spell_request
+            self.network.send(make_custom_spell_request(spell_dict))
+            return True
+        else:
+            messagebox.showwarning("Non Connesso", "Devi essere connesso al server per richiedere l'approvazione di un incantesimo al Master!")
+            return False
 
     def handle_audio_play(self, data):
         import webbrowser
@@ -863,9 +1030,17 @@ class ClientGUI:
         text_widget.tag_config("text", foreground="#DCDDDE")
 
     def update_player_listbox(self):
+        import tkinter as tk
+        state = self.player_listbox.cget('state')
+        if state == tk.DISABLED:
+            self.player_listbox.config(state=tk.NORMAL)
+            
         self.player_listbox.delete(0, tk.END)
         self.player_listbox.insert(tk.END, "DM")
-        self.player_listbox.itemconfig(0, {'fg': '#DDA0DD'})
+        try:
+            self.player_listbox.itemconfig(0, {'fg': '#DDA0DD'})
+        except tk.TclError:
+            pass
         
         # Includi tutti i giocatori per vedere l'ordine di iniziativa
         all_players = list(self.players_data.values())
@@ -937,7 +1112,9 @@ class ClientGUI:
                          on_save_callback=self.on_character_saved, 
                          roll_callback=self.do_roll, 
                          trade_callback=self.do_trade, attack_callback=self.on_attack_action, 
-                         players_list_callback=self.get_player_names)
+                         players_list_callback=self.get_player_names,
+                         custom_spell_request_callback=self.request_custom_spell,
+                         is_connected=self.is_connected)
 
     def do_trade(self, item, target_name):
         if self.is_connected:

@@ -21,6 +21,7 @@ class Player:
         self.aura_color = "yellow"
         self.vision_radius = 6
         self.is_party_member = False
+        self.owner = None
 
     def to_dict(self):
         return {
@@ -55,8 +56,22 @@ class GameState:
         self.round_number = 1
         self.active_aoes = []
         self.time_day = 1
+        self.time_month = 1
+        self.time_year = 1492
         self.time_hour = 8
         self.weather = "Sereno"
+        self.calendar_events = {}
+        self.quests = []
+        self.shops = {}  # dict of shop_name: {"type": "blacksmith", "items": [{"name": "Sword", "price": 15, "qty": 1}], "gold": 100}
+        self.travel_hours_today = 0
+        
+    def add_calendar_event(self, text):
+        date_key = f"{self.time_year}-{self.time_month}-{self.time_day}"
+        if not hasattr(self, 'calendar_events'):
+            self.calendar_events = {}
+        if date_key not in self.calendar_events:
+            self.calendar_events[date_key] = []
+        self.calendar_events[date_key].append(f"[{self.time_hour:02d}:00] {text}")
 
     def _trigger_gui_update(self):
         """Notifica alla GUI che il suo stato principale deve essere ridisegnato."""
@@ -133,8 +148,9 @@ class GameState:
                 
             self.current_map = map_data
             # Resetta la posizione dei giocatori quando carichi una nuova mappa
+            spawn_pt = map_data.get("spawn_point", [0, 0])
             for p in self.players:
-                p.position = [0, 0]
+                p.position = list(spawn_pt)
         self._trigger_gui_update()
 
 
@@ -190,8 +206,14 @@ class GameState:
                 "round_number": self.round_number,
                 "active_aoes": self.active_aoes,
                 "time_day": getattr(self, 'time_day', 1),
+                "time_month": getattr(self, 'time_month', 1),
+                "time_year": getattr(self, 'time_year', 1492),
                 "time_hour": getattr(self, 'time_hour', 8),
-                "weather": getattr(self, 'weather', "Sereno")
+                "weather": getattr(self, 'weather', "Sereno"),
+                "calendar_events": getattr(self, 'calendar_events', {}),
+                "quests": getattr(self, 'quests', []),
+                "shops": getattr(self, 'shops', {}),
+                "travel_hours_today": getattr(self, 'travel_hours_today', 0)
             }
 
     def move_player(self, name, new_pos):
@@ -231,8 +253,14 @@ class GameState:
             self.turn_index = state.get("turn_index", 0)
             self.round_number = state.get("round_number", 1)
             self.time_day = state.get("time_day", 1)
+            self.time_month = state.get("time_month", 1)
+            self.time_year = state.get("time_year", 1492)
             self.time_hour = state.get("time_hour", 8)
             self.weather = state.get("weather", "Sereno")
+            self.calendar_events = state.get("calendar_events", {})
+            self.quests = state.get("quests", [])
+            self.shops = state.get("shops", {})
+            self.travel_hours_today = state.get("travel_hours_today", 0)
             loaded_players = []
             for p_data in state.get("players", []):
                 # Cerchiamo se il giocatore è già tra quelli connessi
@@ -250,7 +278,10 @@ class GameState:
                     existing.full_sheet = p_data.get("full_sheet")
                     existing.conditions = p_data.get("conditions", [])
                     existing.vision_radius = p_data.get("vision_radius", 6)
+                    existing.aura_radius = p_data.get("aura_radius", 0)
+                    existing.aura_color = p_data.get("aura_color", "yellow")
                     existing.is_party_member = p_data.get("is_party_member", False)
+                    existing.owner = p_data.get("owner", None)
                     loaded_players.append(existing)
                 else:
                     p = Player(name=p_data["name"])
@@ -261,7 +292,10 @@ class GameState:
                     p.full_sheet = p_data.get("full_sheet")
                     p.conditions = p_data.get("conditions", [])
                     p.vision_radius = p_data.get("vision_radius", 6)
+                    p.aura_radius = p_data.get("aura_radius", 0)
+                    p.aura_color = p_data.get("aura_color", "yellow")
                     p.is_party_member = p_data.get("is_party_member", False)
+                    p.owner = p_data.get("owner", None)
                     loaded_players.append(p)
             self.players = loaded_players
         

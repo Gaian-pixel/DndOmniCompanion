@@ -304,13 +304,9 @@ class CharacterCreationWizard(tk.Toplevel):
         # Velocità
         c.speed = race_info["speed"]
         
-        # Equipaggiamento base come oggetto
-        c.inventory_grid[0] = {
-            "name": "Zaino Base",
-            "type": "Equipaggiamento",
-            "desc": f"Equipaggiamento base per {c.char_class}.",
-            "qty": 1
-        }
+        # Equipaggiamento iniziale di classe (armi, armature, scudi) e incantesimi
+        from common.starter_equipment import apply_class_and_race_starter_kit
+        apply_class_and_race_starter_kit(c)
         c.features = f"Tratti razziali:\n{race_info['desc']}\n\nTratti classe:\n{class_info['desc']}"
         
         # Async fetch for Level 1 features

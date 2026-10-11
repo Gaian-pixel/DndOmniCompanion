@@ -144,11 +144,30 @@ def handle_chat(data, player, game_state):
                 pass
         return
         
+    if text.startswith("/meteo "):
+        parts = text.split(" ", 1)
+        if len(parts) >= 2:
+            new_weather = parts[1].strip().capitalize()
+            game_state.weather = new_weather
+            game_state._trigger_gui_update()
+            from common.protocol import make_game_state
+            from server.network import broadcast
+            broadcast(game_state, make_game_state(game_state.get_state_dict()))
+            game_state.log_dm_message(f"[SISTEMA] Meteo cambiato in: {new_weather}")
+            from common.protocol import make_chat_broadcast
+            broadcast(game_state, make_chat_broadcast("Sistema", f"Il meteo è cambiato in: {new_weather}"))
+        return
+        
     game_state.log_dm_message(f"[{player.name}]: {text}")
     broadcast(game_state, make_chat_broadcast(player.name, text))
 
 def handle_whisper(data, player, game_state):
     to_name = data.get("to"); text = data.get("text")
+    if to_name == player.name:
+        from common.protocol import make_error_reply
+        from common.network_utils import send_message
+        send_message(player.conn, make_error_reply("Non puoi sussurrare a te stesso."))
+        return
     if to_name.lower() == "dm":
         game_state.gui_queue.put({"type": "PRIVATE_MESSAGE_RECEIVED", "payload": {"from": player.name, "text": text}})
         send_message(player.conn, make_chat_broadcast(f"Tu -> DM", text, is_whisper=True))

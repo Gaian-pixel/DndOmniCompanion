@@ -1,10 +1,14 @@
 import tkinter as tk
+import threading
+import urllib.request
+import urllib.parse
+import json
 from common.messagebox import messagebox
 from tkinter import ttk, simpledialog
 from common.theme import BG_COLOR, TEXT_COLOR, SURFACE_COLOR, apply_modern_window_style
 
 class CharacterSheetUI(tk.Toplevel):
-    def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None):
+    def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None, custom_spell_request_callback=None, is_connected=False):
         super().__init__(master)
         self.title(f"Scheda PG - {character.name}")
         self.minsize(600, 700)
@@ -17,6 +21,8 @@ class CharacterSheetUI(tk.Toplevel):
         self.trade_callback = trade_callback
         self.players_list_callback = players_list_callback
         self.attack_callback = attack_callback
+        self.custom_spell_request_callback = custom_spell_request_callback
+        self.is_connected = is_connected
         self.default_font = ("Georgia", 10)
         
         self.setup_ui()
@@ -183,13 +189,13 @@ class CharacterSheetUI(tk.Toplevel):
         self.notebook.pack(fill=tk.BOTH, expand=True)
 
         self.text_widgets = {}
-        for tab_name, attr in [("Inventario", "inventory_grid"), ("Tratti e Privilegi", "features"), ("Incantesimi", "spell_slots"), ("Note", "notes")]:
+        for tab_name, attr in [("Inventario", "inventory_grid"), ("Tratti e Privilegi", "features"), ("Grimorio", "spellbook"), ("Note", "notes")]:
             frame = ttk.Frame(self.notebook)
             self.notebook.add(frame, text=tab_name)
             
             if attr == "inventory_grid":
                 self.create_inventory_tab(frame)
-            elif attr == "spell_slots":
+            elif attr == "spellbook":
                 self.build_spells_tab(frame)
             else:
                 txt = tk.Text(frame, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=self.default_font, wrap=tk.WORD)
@@ -302,7 +308,7 @@ class CharacterSheetUI(tk.Toplevel):
             self.attuned_vars[changed_idx].set(False)
 
     def build_spells_tab(self, parent_frame):
-        slots_frame = ttk.LabelFrame(parent_frame, text="Slot Incantesimo (Usati / Massimi)")
+        slots_frame = ttk.LabelFrame(parent_frame, text="Slot Incantesimo (Max / Correnti)")
         slots_frame.pack(fill=tk.X, padx=5, pady=5)
         self.slot_vars = {}
         for i in range(1, 10):
@@ -311,11 +317,12 @@ class CharacterSheetUI(tk.Toplevel):
             ttk.Label(lvl_frame, text=f"Lvl {i}").pack()
             sub_frame = ttk.Frame(lvl_frame)
             sub_frame.pack()
-            usati = tk.IntVar(value=0); massimi = tk.IntVar(value=0)
-            self.slot_vars[str(i)] = [usati, massimi]
-            ttk.Entry(sub_frame, textvariable=usati, width=2, justify="center").pack(side=tk.LEFT)
-            ttk.Label(sub_frame, text="/").pack(side=tk.LEFT)
+            massimi = tk.IntVar(value=0)
+            usati = tk.IntVar(value=0)
+            self.slot_vars[str(i)] = {"max": massimi, "current": usati}
             ttk.Entry(sub_frame, textvariable=massimi, width=2, justify="center").pack(side=tk.LEFT)
+            ttk.Label(sub_frame, text="/").pack(side=tk.LEFT)
+            ttk.Entry(sub_frame, textvariable=usati, width=2, justify="center").pack(side=tk.LEFT)
             
         list_frame = ttk.Frame(parent_frame)
         list_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
@@ -336,56 +343,46 @@ class CharacterSheetUI(tk.Toplevel):
         btn_frame = ttk.Frame(parent_frame)
         btn_frame.pack(fill=tk.X, padx=5, pady=5)
         ttk.Button(btn_frame, text="Nuovo", command=self.add_spell).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="Compendio", command=self.open_inventory_compendium).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Cerca Incantesimo (SRD)", command=self.search_spell_srd).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="Rimuovi", command=self.remove_spell).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="Dettagli / Lancia", command=self.cast_spell).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(btn_frame, text="Riposo Lungo", command=self.long_rest).pack(side=tk.RIGHT, padx=5)
 
     def sort_spells(self, col):
-        if not hasattr(self.character, "spell_list"): return
-        self.character.spell_list.sort(key=lambda s: int(s.get("level", 0)))
+        if not hasattr(self.character, "spellbook"): return
+        self.character.spellbook.sort(key=lambda s: int(s.get("level", 0)))
         self.refresh_spell_list()
 
     def refresh_spell_list(self):
         if not hasattr(self, 'spell_tree'): return
         for item in self.spell_tree.get_children(): self.spell_tree.delete(item)
-        for i, s in enumerate(getattr(self.character, "spell_list", [])):
+        for i, s in enumerate(getattr(self.character, "spellbook", [])):
             lvl = s.get("level", 0)
             lvl_str = "Trucchetto" if lvl == 0 else str(lvl)
             self.spell_tree.insert("", tk.END, iid=str(i), values=(lvl_str, s.get("name", ""), s.get("time", ""), s.get("range", "")))
 
     def add_spell(self):
-        name = simpledialog.askstring("Incantesimo", "Nome Incantesimo:")
-        if not name: return
-        lvl = simpledialog.askinteger("Incantesimo", "Livello (0 per Trucchetto, 1-9):", minvalue=0, maxvalue=9)
-        if lvl is None: return
-        time = simpledialog.askstring("Incantesimo", "Tempo di Lancio (es. 1 Azione):") or ""
-        rng = simpledialog.askstring("Incantesimo", "Raggio (es. 18m):") or ""
-        desc = simpledialog.askstring("Incantesimo", "Effetto/Descrizione breve:") or ""
-        
-        if not hasattr(self.character, "spell_list"): self.character.spell_list = []
-        self.character.spell_list.append({"name": name, "level": lvl, "time": time, "range": rng, "desc": desc})
-        self.refresh_spell_list()
+        SpellEditorDialog(self)
 
     def remove_spell(self):
         sel = self.spell_tree.selection()
         if not sel: return
         idx = int(sel[0])
         if messagebox.askyesno("Conferma", "Vuoi rimuovere questo incantesimo?"):
-            self.character.spell_list.pop(idx)
+            self.character.spellbook.pop(idx)
             self.refresh_spell_list()
+            self.manager.save_characters()
 
     def cast_spell(self):
         sel = self.spell_tree.selection()
         if not sel: return
         idx = int(sel[0])
-        spell = self.character.spell_list[idx]
+        spell = self.character.spellbook[idx]
         
-        msg = (f"INCANTESIMO: {spell['name']}\n"
-               f"Livello: {spell['level']}\n"
-               f"Tempo: {spell['time']}\n"
-               f"Raggio: {spell['range']}\n\n"
-               f"Descrizione: {spell['desc']}")
+        msg = (f"INCANTESIMO: {spell.get('name', '')}\n"
+               f"Livello: {spell.get('level', 0)}\n"
+               f"Tempo: {spell.get('time', '')}\n"
+               f"Raggio: {spell.get('range', '')}\n\n"
+               f"Descrizione: {spell.get('desc', '')}")
         
         win = tk.Toplevel(self)
         win.transient(self)
@@ -403,23 +400,23 @@ class CharacterSheetUI(tk.Toplevel):
         btn_frame.pack(fill=tk.X, pady=10)
         
         def do_cast():
-            lvl = str(spell['level'])
-            if spell['level'] > 0 and lvl in self.slot_vars:
-                usati_var, massimi_var = self.slot_vars[lvl]
-                if usati_var.get() < massimi_var.get():
-                    usati_var.set(usati_var.get() + 1)
+            lvl = str(spell.get('level', 0))
+            if spell.get('level', 0) > 0 and lvl in self.slot_vars:
+                massimi_var = self.slot_vars[lvl]["max"]
+                usati_var = self.slot_vars[lvl]["current"]
+                if usati_var.get() > 0:
+                    usati_var.set(usati_var.get() - 1)
                     if not hasattr(self.character, "spell_slots"):
-                        self.character.spell_slots = {}
-                    if lvl not in self.character.spell_slots:
-                        self.character.spell_slots[lvl] = [0, massimi_var.get()]
-                    self.character.spell_slots[lvl][0] = usati_var.get()
+                        self.character.spell_slots = {str(i): {"max": 0, "current": 0} for i in range(1, 10)}
+                    self.character.spell_slots[lvl]["current"] = usati_var.get()
+                    self.character.spell_slots[lvl]["max"] = massimi_var.get()
                     self.manager.update_character(self.character)
                 else:
                     if not messagebox.askyesno("Slot Esauriti", f"Non hai piu' slot di livello {lvl}. Vuoi lanciarlo lo stesso?", parent=win):
                         return
             
             if self.roll_callback:
-                chat_msg = f"Lancia '{spell['name']}'! (Livello {spell['level']}, Raggio {spell['range']})"
+                chat_msg = f"{self.character.name} lancia {spell.get('name', '')}!"
                 self.roll_callback("0d0", chat_msg)
             win.destroy()
             
@@ -433,17 +430,59 @@ class CharacterSheetUI(tk.Toplevel):
             dmg_str = tk.simpledialog.askstring("Danno", "Inserisci formula danno (es. 1d8+3):", parent=win)
             if not dmg_str: return
             
-            self.attack_callback(spell['name'], hit_bonus, dmg_str)
+            self.attack_callback(spell.get('name', ''), hit_bonus, dmg_str)
             win.destroy()
 
         ttk.Button(btn_frame, text="Lancia in Chat", command=do_cast).pack(side=tk.LEFT, padx=10)
         ttk.Button(btn_frame, text="Attacca Bersaglio", command=do_attack, style="Danger.TButton").pack(side=tk.LEFT, padx=10)
 
+    def search_spell_srd(self):
+        query = simpledialog.askstring("Cerca SRD", "Nome incantesimo (in inglese, es. fireball):")
+        if not query: return
+        query_safe = urllib.parse.quote(query.lower().strip())
+        
+        def fetch_spell():
+            try:
+                url = f"https://www.dnd5eapi.co/api/spells/?name={query_safe}"
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req) as response:
+                    data = json.loads(response.read().decode())
+                
+                if data.get("count", 0) > 0:
+                    spell_url = data["results"][0]["url"]
+                    if not spell_url.startswith("http"):
+                        spell_url = "https://www.dnd5eapi.co" + spell_url
+                    
+                    req2 = urllib.request.Request(spell_url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req2) as response2:
+                        spell_data = json.loads(response2.read().decode())
+                        
+                    name = spell_data.get("name", "")
+                    level = spell_data.get("level", 0)
+                    time = spell_data.get("casting_time", "")
+                    rng = spell_data.get("range", "")
+                    desc_list = spell_data.get("desc", [])
+                    desc = "\n".join(desc_list) if isinstance(desc_list, list) else str(desc_list)
+                    
+                    self.after(0, lambda: self._add_fetched_spell(name, level, time, rng, desc))
+                else:
+                    self.after(0, lambda: messagebox.showinfo("Nessun risultato", "Incantesimo non trovato nel SRD."))
+            except Exception as e:
+                self.after(0, lambda: messagebox.showerror("Errore di rete", str(e)))
+                
+        threading.Thread(target=fetch_spell, daemon=True).start()
+
+    def _add_fetched_spell(self, name, level, time, rng, desc):
+        if not hasattr(self.character, "spellbook"): self.character.spellbook = []
+        self.character.spellbook.append({"name": name, "level": level, "time": time, "range": rng, "desc": desc})
+        self.refresh_spell_list()
+        self.manager.save_characters()
+        messagebox.showinfo("Successo", f"{name} aggiunto al Grimorio!")
 
     def recover_spell_slots(self):
         if messagebox.askyesno("Riposo Lungo", "Recuperare tutti gli slot incantesimo e la salute?"):
             for lvl, vars_ in self.slot_vars.items():
-                vars_[0].set(0) # Azzera usati
+                vars_["current"].set(vars_["max"].get())
             self.hp_cur_var.set(self.hp_max_var.get())
 
     def load_data(self):
@@ -488,8 +527,12 @@ class CharacterSheetUI(tk.Toplevel):
         if hasattr(self.character, "spell_slots"):
             for lvl, vals in self.character.spell_slots.items():
                 if lvl in self.slot_vars:
-                    self.slot_vars[lvl][0].set(vals[0])
-                    self.slot_vars[lvl][1].set(vals[1])
+                    if isinstance(vals, dict):
+                        self.slot_vars[lvl]["current"].set(vals.get("current", 0))
+                        self.slot_vars[lvl]["max"].set(vals.get("max", 0))
+                    elif isinstance(vals, list):
+                        self.slot_vars[lvl]["current"].set(vals[0])
+                        self.slot_vars[lvl]["max"].set(vals[1])
                     
         self.refresh_spell_list()
         self.refresh_inventory_grid()
@@ -590,14 +633,14 @@ class CharacterSheetUI(tk.Toplevel):
     def import_from_compendium(self, item_data, category):
         # Update spell list if category is Incantesimi
         if category == "Incantesimi":
-            if not hasattr(self.character, "spell_list"):
-                self.character.spell_list = []
+            if not hasattr(self.character, "spellbook"):
+                self.character.spellbook = []
             
             desc = item_data.get("desc", "")
             if isinstance(desc, list):
                 desc = "\n".join(desc)
                 
-            self.character.spell_list.append({
+            self.character.spellbook.append({
                 "name": item_data.get("name", ""),
                 "level": item_data.get("level", 0),
                 "time": item_data.get("casting_time", ""),
@@ -682,7 +725,7 @@ class CharacterSheetUI(tk.Toplevel):
             if not hasattr(self.character, "spell_slots"):
                 self.character.spell_slots = {}
             for lvl, vars_ in self.slot_vars.items():
-                self.character.spell_slots[lvl] = [vars_[0].get(), vars_[1].get()]
+                self.character.spell_slots[lvl] = {"max": vars_["max"].get(), "current": vars_["current"].get()}
                 
             # Salva peso e sintonia inventario
             if hasattr(self, 'weight_vars') and hasattr(self, 'attuned_vars'):
@@ -873,3 +916,92 @@ class CharacterSheetUI(tk.Toplevel):
         if hasattr(self.manager, 'save_characters'):
             self.manager.save_characters()
         self.load_data()
+
+
+class SpellEditorDialog(tk.Toplevel):
+    def __init__(self, sheet_ui):
+        super().__init__(sheet_ui)
+        self.sheet_ui = sheet_ui
+        self.title("Crea Incantesimo Custom (Richiede Approvazione DM)")
+        self.minsize(500, 520)
+        self.transient(sheet_ui)
+        self.grab_set()
+        
+        from common.theme import apply_modern_window_style
+        apply_modern_window_style(self)
+
+        main_frame = ttk.Frame(self, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(main_frame, text="⚠️ Gli incantesimi custom richiedono l'approvazione del Dungeon Master prima di essere aggiunti alla scheda.", 
+                  font=("Helvetica", 10, "italic"), wraplength=460, foreground="#FFA500").pack(anchor=tk.W, pady=(0, 10))
+
+        ttk.Label(main_frame, text="Nome Incantesimo:", font=("Helvetica", 11, "bold")).pack(anchor=tk.W, pady=(0, 2))
+        self.name_entry = ttk.Entry(main_frame, font=("Helvetica", 11))
+        self.name_entry.pack(fill=tk.X, pady=(0, 10))
+
+        grid_frame = ttk.Frame(main_frame)
+        grid_frame.pack(fill=tk.X, pady=(0, 10))
+        grid_frame.columnconfigure(1, weight=1)
+        grid_frame.columnconfigure(3, weight=1)
+
+        ttk.Label(grid_frame, text="Livello (0 per trucchetto):", font=("Helvetica", 11)).grid(row=0, column=0, padx=(0, 5), pady=5, sticky=tk.W)
+        self.lvl_entry = ttk.Entry(grid_frame, font=("Helvetica", 11), width=5)
+        self.lvl_entry.insert(0, "1")
+        self.lvl_entry.grid(row=0, column=1, pady=5, sticky=tk.W)
+
+        ttk.Label(grid_frame, text="Tempo di Lancio:", font=("Helvetica", 11)).grid(row=0, column=2, padx=(15, 5), pady=5, sticky=tk.W)
+        self.time_entry = ttk.Entry(grid_frame, font=("Helvetica", 11), width=15)
+        self.time_entry.insert(0, "1 Azione")
+        self.time_entry.grid(row=0, column=3, pady=5, sticky=tk.W)
+
+        ttk.Label(grid_frame, text="Raggio:", font=("Helvetica", 11)).grid(row=1, column=0, padx=(0, 5), pady=5, sticky=tk.W)
+        self.rng_entry = ttk.Entry(grid_frame, font=("Helvetica", 11), width=15)
+        self.rng_entry.insert(0, "9m")
+        self.rng_entry.grid(row=1, column=1, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Descrizione / Effetto:", font=("Helvetica", 11, "bold")).pack(anchor=tk.W, pady=(5, 2))
+        from tkinter import scrolledtext
+        self.desc_text = scrolledtext.ScrolledText(main_frame, font=("Helvetica", 11), wrap=tk.WORD, height=6)
+        self.desc_text.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
+
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.pack(fill=tk.X)
+        ttk.Button(btn_frame, text="Invia Richiesta al Master", style="Success.TButton", command=self.on_save).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(btn_frame, text="Annulla", command=self.destroy).pack(side=tk.RIGHT)
+
+        self.name_entry.focus_set()
+
+    def on_save(self):
+        name = self.name_entry.get().strip()
+        if not name:
+            from common.messagebox import messagebox
+            messagebox.showwarning("Attenzione", "Il nome dell'incantesimo è obbligatorio.", parent=self)
+            return
+            
+        try:
+            lvl = int(self.lvl_entry.get() or 0)
+        except ValueError:
+            from common.messagebox import messagebox
+            messagebox.showwarning("Errore", "Il livello deve essere un numero intero.", parent=self)
+            return
+            
+        time = self.time_entry.get().strip()
+        rng = self.rng_entry.get().strip()
+        desc = self.desc_text.get("1.0", tk.END).strip()
+
+        cb = getattr(self.sheet_ui, 'custom_spell_request_callback', None)
+        is_conn = getattr(self.sheet_ui, 'is_connected', False)
+        
+        if cb and is_conn:
+            spell_data = {"name": name, "level": lvl, "time": time, "range": rng, "desc": desc}
+            cb(spell_data)
+            from common.messagebox import messagebox
+            messagebox.showinfo("Richiesta Inviata", f"La richiesta per l'incantesimo '{name}' è stata inviata al Master!\nQuando verrà approvata, comparirà nel tuo Grimorio.")
+            self.destroy()
+        else:
+            from common.messagebox import messagebox
+            messagebox.showwarning("Permesso Richiesto", 
+                                   "Non puoi creare un incantesimo custom senza prima chiedere il permesso al Master!\n"
+                                   "Devi essere connesso al server del Master per richiedere l'approvazione.")
+

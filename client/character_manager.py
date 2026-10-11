@@ -31,12 +31,13 @@ class Character:
         self.death_saves = {"successes": 0, "failures": 0}
         self.currency = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
         self.hotbar = [""] * 10
+        self.last_position = None
         
         # Testo libero / Griglia
         self.inventory_grid = [None] * 25 # Griglia 5x5
         self.features = ""
-        self.spell_slots = {str(i): [0,0] for i in range(1, 10)} # "livello": [usati, massimi]
-        self.spell_list = [] # [{"name": "Palla di Fuoco", "level": 3, "time": "1 Azione", "range": "36m", "desc": "..."}]
+        self.spell_slots = {str(i): {"max": 0, "current": 0} for i in range(1, 10)}
+        self.spellbook = []
         self.notes = ""
         self.skills = {
             "Acrobazia": 0, "Addestrare Animali": 0, "Arcano": 0, "Atletica": 0,
@@ -53,7 +54,10 @@ class Character:
         self.hit_dice_current = min(self.hit_dice_total, self.hit_dice_current + regained)
         self.death_saves = {"successes": 0, "failures": 0}
         for lvl in self.spell_slots:
-            self.spell_slots[lvl][0] = 0
+            if isinstance(self.spell_slots[lvl], dict) and "current" in self.spell_slots[lvl]:
+                self.spell_slots[lvl]["current"] = self.spell_slots[lvl]["max"]
+            elif isinstance(self.spell_slots[lvl], list):
+                self.spell_slots[lvl][0] = 0
 
     def to_dict(self):
         return self.__dict__
@@ -73,9 +77,25 @@ class Character:
                 c.inventory_grid[0] = {"name": "Vecchio Inv.", "type": "Misto", "desc": old_inv, "qty": 1}
         
         if not hasattr(c, "spell_slots"):
-            c.spell_slots = {str(i): [0,0] for i in range(1, 10)}
-        if not hasattr(c, "spell_list") or not isinstance(c.spell_list, list):
-            c.spell_list = []
+            c.spell_slots = {str(i): {"max": 0, "current": 0} for i in range(1, 10)}
+        else:
+            # Upgrade old format to new format
+            for i in range(1, 10):
+                lvl = str(i)
+                if lvl in c.spell_slots and isinstance(c.spell_slots[lvl], list):
+                    c.spell_slots[lvl] = {"max": c.spell_slots[lvl][1], "current": c.spell_slots[lvl][0]}
+                elif lvl not in c.spell_slots:
+                    c.spell_slots[lvl] = {"max": 0, "current": 0}
+
+        if not hasattr(c, "spellbook") or not isinstance(c.spellbook, list):
+            # Try to migrate from spell_list if it exists
+            if hasattr(c, "spell_list") and isinstance(c.spell_list, list):
+                c.spellbook = c.spell_list
+            else:
+                c.spellbook = []
+        if hasattr(c, "spell_list"):
+            delattr(c, "spell_list")
+
         if not hasattr(c, "skills"):
             c.skills = {
                 "Acrobazia": 0, "Addestrare Animali": 0, "Arcano": 0, "Atletica": 0,
@@ -88,6 +108,12 @@ class Character:
         if not hasattr(c, "hotbar") or not isinstance(c.hotbar, list) or len(c.hotbar) != 10:
             c.hotbar = [""] * 10
             
+        if not getattr(c, "starting_kit_applied", False) and getattr(c, "char_class", None) and getattr(c, "level", 1) == 1:
+            has_real_items = any(it and it.get("name") != "Zaino Base" for it in c.inventory_grid)
+            if not has_real_items and len(getattr(c, "spellbook", [])) == 0:
+                from common.starter_equipment import apply_class_and_race_starter_kit
+                apply_class_and_race_starter_kit(c)
+
         return c
 
 class CharacterManager:
@@ -125,6 +151,10 @@ class CharacterManager:
                 self.characters[i] = character
                 break
         self.save_characters()
+        
+    def delete_character(self, character):
+        self.characters = [c for c in self.characters if c.id != character.id]
+        self.save_characters()
 
     def get_character_by_id(self, char_id):
         for c in self.characters:
@@ -132,3 +162,20 @@ class CharacterManager:
                 return c
         return None
 
+
+    def get_character_by_name(self, name):
+        for c in self.characters:
+            if c.name == name:
+                return c
+        return None
+
+    def get_or_create(self, name):
+        c = self.get_character_by_name(name)
+        if not c:
+            c = Character(name=name)
+            self.add_character(c)
+        return c
+
+    def set_active(self, name):
+        self.active_character = self.get_or_create(name)
+        return self.active_character

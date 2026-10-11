@@ -21,7 +21,25 @@ def handle_update_stats_request(data, player, game_state):
 def handle_update_full_sheet_request(data, player, game_state):
     char_data = data.get("character")
     if char_data:
+        from common.starter_equipment import apply_class_and_race_starter_kit, apply_campaign_starter_kit
+        # Se il personaggio non ha ancora ricevuto il kit iniziale di classe/razza, assegnalo
+        if not char_data.get("starting_kit_applied"):
+            apply_class_and_race_starter_kit(char_data)
+        
+        # Se non ha ancora ricevuto lo starter kit della campagna, assegnalo
+        if not char_data.get("campaign_starter_received"):
+            campaign_kit = getattr(game_state, "campaign_starter_kit", None)
+            apply_campaign_starter_kit(char_data, campaign_kit)
+            if player.conn:
+                from common.protocol import make_campaign_starter_granted, make_chat_broadcast
+                from common.network_utils import send_message
+                send_message(player.conn, make_campaign_starter_granted(char_data.get("inventory_grid", []), full_sheet=char_data))
+                broadcast(game_state, make_chat_broadcast("Sistema", f"[CAMPAGNA] {player.name} ha ricevuto l'equipaggiamento iniziale della campagna dal Master!"))
+
         player.full_sheet = char_data
+        player.hp = char_data.get("hp_current", player.hp)
+        player.max_hp = char_data.get("hp_max", player.max_hp)
+        player.initiative = char_data.get("initiative", player.initiative)
         game_state._trigger_gui_update()
         broadcast(game_state, make_game_state(game_state.get_state_dict()))
 
@@ -97,10 +115,21 @@ def handle_long_rest_vote(data, player, game_state):
     if vote_data["votes_received"] >= vote_data["votes_needed"]:
         game_state.log_dm_message(f"[Sistema] Tutti i giocatori hanno approvato il Riposo Lungo!")
         from common.protocol import make_chat_broadcast
+        game_state.travel_hours_today = 0
         broadcast(game_state, make_chat_broadcast("Sistema", f"Il gruppo si e' accampato per un Riposo Lungo. Tutti recuperano HP e Slot."))
         from common.network_utils import send_message
         for p in getattr(game_state, "players", []):
             if getattr(p, "conn", None):
                 send_message(p.conn, {"type": "DO_LONG_REST", "data": {}})
         game_state.ongoing_rest_vote = None
+
+def handle_custom_spell_request(data, player, game_state):
+    spell = data.get("spell", {})
+    if not spell: return
+    game_state.gui_queue.put({
+        "type": "CUSTOM_SPELL_REQUEST",
+        "player": player,
+        "spell": spell
+    })
+    game_state.log_dm_message(f"[MAGIA] {player.name} richiede l'approvazione per l'incantesimo custom '{spell.get('name', 'Sconosciuto')}'.")
 

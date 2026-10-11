@@ -47,8 +47,9 @@ class LoginDialog(tk.Toplevel):
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(fill=tk.X, pady=10)
         
-        ttk.Button(btn_frame, text="Crea Nuovo (Wizard)", command=self.create_character).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ttk.Button(btn_frame, text="Crea Nuovo", command=self.create_character).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
         ttk.Button(btn_frame, text="Modifica", command=self.edit_character).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ttk.Button(btn_frame, text="Elimina", command=self.delete_character, style="Danger.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
         
         ttk.Button(main_frame, text="Connetti al Server", command=self.connect).pack(fill=tk.X, pady=(10, 0))
 
@@ -68,8 +69,18 @@ class LoginDialog(tk.Toplevel):
             messagebox.showwarning("Attenzione", "Seleziona un personaggio da modificare.")
             return
         char = self.manager.characters[sel[0]]
-        ui = CharacterSheetUI(self, char, self.manager, on_save_callback=lambda _: self.refresh_listbox())
+        ui = CharacterSheetUI(self, char, self.manager, is_dm=False, on_close_callback=self.refresh_listbox)
         self.wait_window(ui)
+        
+    def delete_character(self):
+        sel = self.char_listbox.curselection()
+        if not sel:
+            messagebox.showwarning("Attenzione", "Seleziona un personaggio da eliminare.")
+            return
+        char = self.manager.characters[sel[0]]
+        if messagebox.askyesno("Conferma", f"Sei sicuro di voler eliminare il personaggio '{char.name}'?"):
+            self.manager.delete_character(char)
+            self.refresh_listbox()
 
     def connect(self):
         ip = self.ip_var.get().strip()
