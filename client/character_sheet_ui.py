@@ -5,7 +5,13 @@ import urllib.parse
 import json
 from common.messagebox import messagebox
 from tkinter import ttk, simpledialog
-from common.theme import BG_COLOR, TEXT_COLOR, SURFACE_COLOR, apply_modern_window_style
+from common.theme import (
+    BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT, BORDER_COLOR,
+    TEXT_COLOR, TEXT_MUTED, TEXT_DARK,
+    ACCENT_GOLD, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE,
+    FONT_MAIN, FONT_TITLE, FONT_HEADER, FONT_BOLD, FONT_SMALL,
+    apply_modern_window_style
+)
 
 class CharacterSheetUI(tk.Toplevel):
     def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None, custom_spell_request_callback=None, is_connected=False):
@@ -32,57 +38,87 @@ class CharacterSheetUI(tk.Toplevel):
         main_frame = ttk.Frame(self, padding=10)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Intestazione
-        header_frame = ttk.Frame(main_frame, padding=5)
+        # Intestazione (Dark Fantasy Card)
+        header_frame = tk.Frame(main_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
         header_frame.pack(fill=tk.X, pady=(0, 10))
 
-        ttk.Label(header_frame, text="Nome:").grid(row=0, column=0, sticky="e")
+        tk.Label(header_frame, text="Nome:", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).grid(row=0, column=0, sticky="e", padx=(0, 4))
         self.name_var = tk.StringVar()
-        ttk.Entry(header_frame, textvariable=self.name_var).grid(row=0, column=1, padx=5, pady=2, sticky="ew")
+        ttk.Entry(header_frame, textvariable=self.name_var, width=16).grid(row=0, column=1, padx=4, pady=3, sticky="ew")
 
-        ttk.Label(header_frame, text="Campagna:").grid(row=0, column=2, sticky="e")
+        tk.Label(header_frame, text="Campagna:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=0, column=2, sticky="e", padx=(8, 4))
         self.campaign_var = tk.StringVar()
-        ttk.Entry(header_frame, textvariable=self.campaign_var).grid(row=0, column=3, padx=5, pady=2, sticky="ew")
+        ttk.Entry(header_frame, textvariable=self.campaign_var, width=14).grid(row=0, column=3, padx=4, pady=3, sticky="ew")
 
-        ttk.Label(header_frame, text="Classe:").grid(row=1, column=0, sticky="e")
+        self.levelup_btn = ttk.Button(header_frame, text="🌟 Sali di Livello!", command=self.level_up, style="Gold.TButton")
+        self.levelup_btn.grid(row=0, column=4, columnspan=3, padx=(10, 0), pady=3, sticky="ew")
+
+        tk.Label(header_frame, text="Classe:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=1, column=0, sticky="e", padx=(0, 4))
         self.class_var = tk.StringVar()
-        ttk.Entry(header_frame, textvariable=self.class_var).grid(row=1, column=1, padx=5, pady=2, sticky="ew")
+        ttk.Entry(header_frame, textvariable=self.class_var, width=16).grid(row=1, column=1, padx=4, pady=3, sticky="ew")
 
-        ttk.Label(header_frame, text="Livello:").grid(row=1, column=2, sticky="e")
+        tk.Label(header_frame, text="Livello:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=1, column=2, sticky="e", padx=(8, 4))
         self.level_var = tk.IntVar()
-        ttk.Entry(header_frame, textvariable=self.level_var, width=5, state="readonly").grid(row=1, column=3, padx=5, pady=2, sticky="w")
+        ttk.Entry(header_frame, textvariable=self.level_var, width=4, state="readonly", justify="center").grid(row=1, column=3, padx=4, pady=3, sticky="w")
         
-        ttk.Label(header_frame, text="EXP:").grid(row=1, column=4, sticky="e")
-        self.exp_label = ttk.Label(header_frame, text="0 / 300")
-        self.exp_label.grid(row=1, column=5, padx=5, pady=2, sticky="w")
-        self.exp_progress = ttk.Progressbar(header_frame, length=100, mode='determinate')
-        self.exp_progress.grid(row=1, column=6, padx=5, pady=2, sticky="w")
-        
-        self.levelup_btn = ttk.Button(header_frame, text="🌟 Sali di Livello!", command=self.level_up)
-        
-        ttk.Label(header_frame, text="Razza:").grid(row=2, column=0, sticky="e")
+        tk.Label(header_frame, text="EXP:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=1, column=4, sticky="e", padx=(8, 4))
+        self.exp_label = tk.Label(header_frame, text="0 / 300", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_COLOR)
+        self.exp_label.grid(row=1, column=5, padx=4, pady=3, sticky="w")
+        self.exp_progress = ttk.Progressbar(header_frame, length=90, mode='determinate')
+        self.exp_progress.grid(row=1, column=6, padx=4, pady=3, sticky="w")
+
+        tk.Label(header_frame, text="Razza:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=2, column=0, sticky="e", padx=(0, 4))
         self.race_var = tk.StringVar()
-        ttk.Entry(header_frame, textvariable=self.race_var).grid(row=2, column=1, padx=5, pady=2, sticky="ew")
+        ttk.Entry(header_frame, textvariable=self.race_var, width=16).grid(row=2, column=1, padx=4, pady=3, sticky="ew")
 
         # Corpo centrale
         body_frame = ttk.Frame(main_frame)
         body_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Statistiche (Sinistra)
-        stats_frame = ttk.LabelFrame(body_frame, text="Attributi")
+        # Statistiche (Sinistra - 5e Ability Boxes)
+        stats_frame = tk.Frame(body_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=6)
         stats_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
+        tk.Label(stats_frame, text="ATTRIBUTI", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(pady=(2, 6))
 
         self.attr_vars = {}
-        for i, attr in enumerate(["FOR", "DES", "COS", "INT", "SAG", "CAR"]):
-            ttk.Label(stats_frame, text=attr).grid(row=i, column=0, pady=5)
-            var = tk.IntVar()
+        self.attr_mod_labels = {}
+        for attr in ["FOR", "DES", "COS", "INT", "SAG", "CAR"]:
+            box = tk.Frame(stats_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=3)
+            box.pack(fill=tk.X, pady=3)
+            
+            tk.Label(box, text=attr, font=("Segoe UI", 9, "bold"), bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack()
+            
+            var = tk.IntVar(value=10)
             self.attr_vars[attr] = var
-            ttk.Entry(stats_frame, textvariable=var, width=5, justify="center").grid(row=i, column=1, pady=5, padx=5)
-            ttk.Button(stats_frame, text="🎲", command=lambda a=attr, v=var: self.roll_stat(a, v.get())).grid(row=i, column=2, padx=2)
+            
+            mod_lbl = tk.Label(box, text="+0", font=("Georgia", 13, "bold"), bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR)
+            mod_lbl.pack(pady=1)
+            self.attr_mod_labels[attr] = mod_lbl
+            
+            bottom_row = tk.Frame(box, bg=SURFACE_COLOR_ALT)
+            bottom_row.pack(pady=(1, 2))
+            
+            entry = ttk.Entry(bottom_row, textvariable=var, width=3, justify="center")
+            entry.pack(side=tk.LEFT, padx=2)
+            
+            btn = ttk.Button(bottom_row, text="🎲", width=2, command=lambda a=attr, v=var: self.roll_stat(a, v.get()))
+            btn.pack(side=tk.LEFT, padx=2)
+            
+            def make_mod_updater(a=attr, v=var, lbl=mod_lbl):
+                def _update(*args):
+                    try:
+                        val = int(v.get())
+                        mod = (val - 10) // 2
+                        lbl.config(text=f"+{mod}" if mod >= 0 else str(mod))
+                    except (ValueError, tk.TclError):
+                        lbl.config(text="+0")
+                return _update
+            var.trace_add("write", make_mod_updater())
 
         # Abilità
-        skills_frame = ttk.LabelFrame(body_frame, text="Abilità")
+        skills_frame = tk.Frame(body_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=6)
         skills_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
+        tk.Label(skills_frame, text="ABILITÀ", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(pady=(2, 6))
         
         self.skill_vars = {}
         self.skill_map = {
@@ -93,9 +129,9 @@ class CharacterSheetUI(tk.Toplevel):
             "Religione": "INT", "Sopravvivenza": "SAG", "Storia": "INT"
         }
         
-        skills_canvas = tk.Canvas(skills_frame, width=220)
+        skills_canvas = tk.Canvas(skills_frame, width=220, bg=SURFACE_COLOR, highlightthickness=0)
         skills_scrollbar = ttk.Scrollbar(skills_frame, orient="vertical", command=skills_canvas.yview)
-        skills_inner_frame = ttk.Frame(skills_canvas)
+        skills_inner_frame = tk.Frame(skills_canvas, bg=SURFACE_COLOR)
         
         skills_inner_frame.bind(
             "<Configure>",
@@ -111,74 +147,123 @@ class CharacterSheetUI(tk.Toplevel):
         skills_scrollbar.pack(side="right", fill="y")
         
         for i, (skill, stat) in enumerate(self.skill_map.items()):
-            ttk.Label(skills_inner_frame, text=f"{skill} ({stat})").grid(row=i, column=0, sticky="w", pady=2)
+            tk.Label(skills_inner_frame, text=f"{skill} ({stat})", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_COLOR).grid(row=i, column=0, sticky="w", pady=2)
             var = tk.IntVar()
             self.skill_vars[skill] = var
             combo = ttk.Combobox(skills_inner_frame, textvariable=var, values=[0, 1, 2], width=2, state="readonly")
-            combo.grid(row=i, column=1, padx=5)
-            ttk.Button(skills_inner_frame, text="🎲", width=3, command=lambda s=skill, st=stat: self.roll_skill(s, st)).grid(row=i, column=2, padx=2)
-
+            combo.grid(row=i, column=1, padx=4)
+            ttk.Button(skills_inner_frame, text="🎲", width=2, command=lambda s=skill, st=stat: self.roll_skill(s, st)).grid(row=i, column=2, padx=2)
 
         # Combattimento (Centro)
-        combat_frame = ttk.LabelFrame(body_frame, text="Combattimento")
+        combat_frame = tk.Frame(body_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=6)
         combat_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
+        tk.Label(combat_frame, text="COMBATTIMENTO", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(anchor="w", pady=(0, 6))
 
-        ttk.Label(combat_frame, text="HP Attuali:").grid(row=0, column=0, sticky="e", pady=2)
-        self.hp_cur_var = tk.IntVar()
-        ttk.Entry(combat_frame, textvariable=self.hp_cur_var).grid(row=0, column=1, pady=2)
+        # Core 3 badges (CA, Iniziativa, Velocità)
+        core_badges = tk.Frame(combat_frame, bg=SURFACE_COLOR)
+        core_badges.pack(fill=tk.X, pady=(0, 6))
 
-        ttk.Label(combat_frame, text="HP Massimi:").grid(row=1, column=0, sticky="e", pady=2)
-        self.hp_max_var = tk.IntVar()
-        ttk.Entry(combat_frame, textvariable=self.hp_max_var).grid(row=1, column=1, pady=2)
+        # CA
+        ca_box = tk.Frame(core_badges, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=4)
+        ca_box.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
+        tk.Label(ca_box, text="🛡️ CA", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack()
+        self.ac_var = tk.IntVar(value=10)
+        ttk.Entry(ca_box, textvariable=self.ac_var, width=3, justify="center").pack(pady=2)
 
-        ttk.Label(combat_frame, text="CA (Armor Class):").grid(row=2, column=0, sticky="e", pady=2)
-        self.ac_var = tk.IntVar()
-        ttk.Entry(combat_frame, textvariable=self.ac_var).grid(row=2, column=1, pady=2)
+        # Iniziativa
+        init_box = tk.Frame(core_badges, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=4)
+        init_box.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        tk.Label(init_box, text="⚡ INIZ", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack()
+        self.init_var = tk.IntVar(value=0)
+        init_sub = tk.Frame(init_box, bg=SURFACE_COLOR_ALT)
+        init_sub.pack(pady=2)
+        ttk.Entry(init_sub, textvariable=self.init_var, width=3, justify="center").pack(side=tk.LEFT)
+        ttk.Button(init_sub, text="🎲", width=2, command=self.roll_initiative).pack(side=tk.LEFT, padx=(2, 0))
 
-        ttk.Label(combat_frame, text="Iniziativa:").grid(row=3, column=0, sticky="e", pady=2)
-        self.init_var = tk.IntVar()
-        ttk.Entry(combat_frame, textvariable=self.init_var).grid(row=3, column=1, pady=2)
-        ttk.Button(combat_frame, text="🎲", command=self.roll_initiative).grid(row=3, column=2, padx=2)
+        # Velocità
+        speed_box = tk.Frame(core_badges, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=4)
+        speed_box.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
+        tk.Label(speed_box, text="👟 VEL", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack()
+        self.speed_var = tk.IntVar(value=30)
+        ttk.Entry(speed_box, textvariable=self.speed_var, width=3, justify="center").pack(pady=2)
 
+        # Vantaggio / Svantaggio selector
+        adv_row = tk.Frame(combat_frame, bg=SURFACE_COLOR)
+        adv_row.pack(fill=tk.X, pady=(0, 6))
+        tk.Label(adv_row, text="Tiro Dado:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(side=tk.LEFT, padx=(0, 4))
         self.adv_dis_var = tk.StringVar(value="Normale")
-        self.adv_dis_combo = ttk.Combobox(combat_frame, textvariable=self.adv_dis_var, values=["Normale", "Vantaggio", "Svantaggio"], state="readonly", width=12)
-        self.adv_dis_combo.grid(row=3, column=3, padx=5)
+        self.adv_dis_combo = ttk.Combobox(adv_row, textvariable=self.adv_dis_var, values=["Normale", "Vantaggio", "Svantaggio"], state="readonly", width=12)
+        self.adv_dis_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        ttk.Label(combat_frame, text="Velocità:").grid(row=4, column=0, sticky="e", pady=2)
-        self.speed_var = tk.IntVar()
-        ttk.Entry(combat_frame, textvariable=self.speed_var).grid(row=4, column=1, pady=2)
+        # HP Section
+        hp_card = tk.Frame(combat_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=6)
+        hp_card.pack(fill=tk.X, pady=(0, 6))
         
-        btn_frame_rest = ttk.Frame(combat_frame)
-        btn_frame_rest.grid(row=5, column=0, columnspan=4, pady=10, sticky="ew")
-        ttk.Button(btn_frame_rest, text="Riposo Breve", command=self.short_rest).pack(side=tk.LEFT, expand=True, padx=2)
-        ttk.Button(btn_frame_rest, text="Riposo Lungo", command=self.long_rest).pack(side=tk.LEFT, expand=True, padx=2)
+        hp_inputs = tk.Frame(hp_card, bg=SURFACE_COLOR_ALT)
+        hp_inputs.pack(fill=tk.X, pady=(0, 3))
+        tk.Label(hp_inputs, text="HP:", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).pack(side=tk.LEFT, padx=(0, 4))
+        self.hp_cur_var = tk.IntVar()
+        ttk.Entry(hp_inputs, textvariable=self.hp_cur_var, width=4, justify="center").pack(side=tk.LEFT)
+        tk.Label(hp_inputs, text="/", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED).pack(side=tk.LEFT, padx=3)
+        self.hp_max_var = tk.IntVar()
+        ttk.Entry(hp_inputs, textvariable=self.hp_max_var, width=4, justify="center").pack(side=tk.LEFT)
+        
+        # Health bar fill
+        self.sheet_hp_bg = tk.Frame(hp_card, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, height=10)
+        self.sheet_hp_bg.pack(fill=tk.X, pady=(2, 2))
+        self.sheet_hp_fill = tk.Frame(self.sheet_hp_bg, bg=ACCENT_GREEN, height=8)
+        self.sheet_hp_fill.place(x=0, y=0, width=0, relheight=1.0)
+        
+        def update_sheet_hp_bar(*args):
+            try:
+                cur = int(self.hp_cur_var.get())
+                mx = max(1, int(self.hp_max_var.get()))
+                ratio = max(0.0, min(1.0, cur / mx))
+                color = ACCENT_GREEN if ratio > 0.5 else ("#F59F00" if ratio > 0.25 else ACCENT_RED)
+                self.sheet_hp_fill.config(bg=color)
+                w = self.sheet_hp_bg.winfo_width()
+                if w <= 10: w = 180
+                self.sheet_hp_fill.place(x=0, y=0, width=max(0, int(w * ratio)), relheight=1.0)
+            except (ValueError, tk.TclError): pass
+        self.hp_cur_var.trace_add("write", update_sheet_hp_bar)
+        self.hp_max_var.trace_add("write", update_sheet_hp_bar)
+
+        # Rest buttons
+        btn_frame_rest = tk.Frame(combat_frame, bg=SURFACE_COLOR)
+        btn_frame_rest.pack(fill=tk.X, pady=(0, 6))
+        ttk.Button(btn_frame_rest, text="Riposo Breve", command=self.short_rest).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
+        ttk.Button(btn_frame_rest, text="Riposo Lungo", command=self.long_rest, style="Primary.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
 
         # Death Saves
-        self.death_saves_frame = ttk.LabelFrame(combat_frame, text="Tiri contro la Morte")
-        self.death_saves_frame.grid(row=6, column=0, columnspan=4, pady=5, sticky="ew")
+        self.death_saves_frame = tk.Frame(combat_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=6)
+        self.death_saves_frame.pack(fill=tk.X, pady=(0, 6))
+        
+        tk.Label(self.death_saves_frame, text="Tiri contro la Morte", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(anchor="w")
         
         self.ds_succ_vars = [tk.BooleanVar() for _ in range(3)]
         self.ds_fail_vars = [tk.BooleanVar() for _ in range(3)]
         
-        ds_subframe = ttk.Frame(self.death_saves_frame)
-        ds_subframe.pack(pady=5)
+        ds_subframe = tk.Frame(self.death_saves_frame, bg=SURFACE_COLOR_ALT)
+        ds_subframe.pack(pady=4)
         
-        ttk.Label(ds_subframe, text="Successi:").grid(row=0, column=0, sticky="e")
+        tk.Label(ds_subframe, text="Succ:", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GREEN).grid(row=0, column=0, sticky="e", padx=(0, 2))
         for i in range(3):
             cb = ttk.Checkbutton(ds_subframe, variable=self.ds_succ_vars[i], state=tk.DISABLED)
-            cb.grid(row=0, column=i+1)
+            cb.grid(row=0, column=i+1, padx=1)
             
-        ttk.Label(ds_subframe, text=" Fallimenti:").grid(row=0, column=4, sticky="e")
+        tk.Label(ds_subframe, text=" Fail:", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_RED).grid(row=0, column=4, sticky="e", padx=(4, 2))
         for i in range(3):
             cb = ttk.Checkbutton(ds_subframe, variable=self.ds_fail_vars[i], state=tk.DISABLED)
-            cb.grid(row=0, column=i+5)
+            cb.grid(row=0, column=i+5, padx=1)
             
-        self.ds_roll_btn = ttk.Button(self.death_saves_frame, text="Tira TS Morte", command=self.roll_death_save)
-        self.ds_roll_btn.pack(pady=5)
+        self.ds_roll_btn = ttk.Button(self.death_saves_frame, text="🎲 Tira TS Morte", command=self.roll_death_save, style="Gold.TButton")
+        self.ds_roll_btn.pack(fill=tk.X, pady=(4, 0))
         self.hp_cur_var.trace_add("write", lambda *args: self.update_death_saves_ui())
         
-        self.death_label = ttk.Label(combat_frame, text="SEI MORTO", foreground="red", font=("Georgia", 16, "bold"))
-        self.death_label.grid(row=7, column=0, columnspan=4, pady=10)
+        death_label_container = tk.Frame(combat_frame, bg=SURFACE_COLOR)
+        death_label_container.pack(fill=tk.X, pady=4)
+        self.death_label = tk.Label(death_label_container, text="☠ SEI MORTO ☠", fg=ACCENT_RED, bg=SURFACE_COLOR, font=("Georgia", 16, "bold"))
+        self.death_label.grid(row=0, column=0, padx=10, pady=5)
         self.death_label.grid_remove()
 
         # Tab Notebook (Destra per note/inventario/incantesimi)

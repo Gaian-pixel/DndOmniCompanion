@@ -281,21 +281,17 @@ CAMPAIGN_STARTER_FILE = "campaign_starter_kit.json"
 
 def get_campaign_starter_kit():
     """Carica l'equipaggiamento iniziale della campagna dal file o usa quello di default."""
-    if os.path.exists(CAMPAIGN_STARTER_FILE):
-        try:
-            with open(CAMPAIGN_STARTER_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                if isinstance(data, list) and len(data) > 0:
-                    return data
-        except Exception as e:
-            print("Errore caricamento starter kit campagna:", e)
+    from common.file_utils import load_json
+    data = load_json(CAMPAIGN_STARTER_FILE, default=None)
+    if isinstance(data, list) and len(data) > 0:
+        return data
     return [item.copy() for item in DEFAULT_CAMPAIGN_STARTER_KIT]
 
 def save_campaign_starter_kit(items):
     """Salva la lista di oggetti configurata dal DM per l'equipaggiamento della campagna."""
     try:
-        with open(CAMPAIGN_STARTER_FILE, "w", encoding="utf-8") as f:
-            json.dump(items, f, indent=4, ensure_ascii=False)
+        from common.file_utils import atomic_save_json
+        atomic_save_json(CAMPAIGN_STARTER_FILE, items, indent=4, ensure_ascii=False)
         return True
     except Exception as e:
         print("Errore salvataggio starter kit campagna:", e)
@@ -460,3 +456,4 @@ def apply_campaign_starter_kit(char_obj_or_dict, campaign_items=None):
     set_attr("inventory_grid", grid)
     set_attr("campaign_starter_received", True)
     return char_obj_or_dict
+

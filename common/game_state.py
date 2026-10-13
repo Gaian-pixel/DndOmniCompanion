@@ -1,4 +1,5 @@
 # game_state.py
+import os
 import threading
 import json
 
@@ -64,6 +65,8 @@ class GameState:
         self.quests = []
         self.shops = {}  # dict of shop_name: {"type": "blacksmith", "items": [{"name": "Sword", "price": 15, "qty": 1}], "gold": 100}
         self.travel_hours_today = 0
+        self.active_campaign = None
+        self.campaign_starter_kit = []
         
     def add_calendar_event(self, text):
         date_key = f"{self.time_year}-{self.time_month}-{self.time_day}"
@@ -213,7 +216,8 @@ class GameState:
                 "calendar_events": getattr(self, 'calendar_events', {}),
                 "quests": getattr(self, 'quests', []),
                 "shops": getattr(self, 'shops', {}),
-                "travel_hours_today": getattr(self, 'travel_hours_today', 0)
+                "travel_hours_today": getattr(self, 'travel_hours_today', 0),
+                "active_campaign_folder": self.active_campaign.folder_path if getattr(self, 'active_campaign', None) else None
             }
 
     def move_player(self, name, new_pos):
@@ -236,16 +240,18 @@ class GameState:
         self._trigger_gui_update()
 
     def save_session(self, filepath):
-        """Salva lo stato corrente in un file JSON."""
+        """Salva lo stato corrente in un file JSON in modo atomico."""
+        from common.file_utils import atomic_save_json
         state = self.get_state_dict()
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(state, f, indent=4)
+        atomic_save_json(filepath, state, indent=4, ensure_ascii=False)
         self.log_dm_message(f"[SISTEMA] Sessione salvata in {filepath}")
 
     def load_session(self, filepath):
         """Carica lo stato da un file JSON."""
-        with open(filepath, 'r', encoding='utf-8') as f:
-            state = json.load(f)
+        from common.file_utils import load_json
+        state = load_json(filepath, default={})
+        if not state:
+            return
         
         with self.lock:
             self.current_map = state.get("map")
@@ -261,6 +267,15 @@ class GameState:
             self.quests = state.get("quests", [])
             self.shops = state.get("shops", {})
             self.travel_hours_today = state.get("travel_hours_today", 0)
+            
+            camp_folder = state.get("active_campaign_folder")
+            if camp_folder and os.path.exists(camp_folder):
+                try:
+                    from common.campaign import Campaign
+                    self.active_campaign = Campaign.load(camp_folder)
+                except Exception as e:
+                    print(f"[GAME_STATE] Errore ripristino campagna: {e}")
+            
             loaded_players = []
             for p_data in state.get("players", []):
                 # Cerchiamo se il giocatore è già tra quelli connessi

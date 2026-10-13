@@ -14,7 +14,13 @@ from tkinter import filedialog, ttk, scrolledtext, simpledialog
 from PIL import Image, ImageTk
 
 from common.protocol import *
-from common.theme import setup_theme, apply_modern_window_style, BG_COLOR, SURFACE_COLOR, TEXT_COLOR, TEXT_MUTED, FONT_MAIN, FONT_TITLE, FONT_BOLD, ACCENT_RED
+from common.theme import (
+    setup_theme, apply_modern_window_style, 
+    BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT, BORDER_COLOR,
+    TEXT_COLOR, TEXT_MUTED, TEXT_DARK,
+    ACCENT_GOLD, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE,
+    FONT_MAIN, FONT_TITLE, FONT_HEADER, FONT_BOLD, FONT_SMALL
+)
 from server.commands import command_handlers
 from common.game_state import GameState, Player
 from server.map_editor import MapEditorWindow
@@ -24,11 +30,20 @@ from common.hex_utils import Hex
 from common.network_utils import send_message, receive_message, broadcast
 from components.ui_components import HexMapCanvas, ToolTip
 from client.voice_client import VoiceClient
+from common.audio_player import AudioManager
+from server.dm_dialogs import (
+    TextHandoutDialog,
+    CustomNPCDialog,
+    DMPlayerSheetViewer,
+    CampaignStarterKitDialog
+)
 
 class DM_GUI:
-    def __init__(self, master):
+    def __init__(self, master, initial_campaign=None):
         self.master = master; self.master.title("Dungeon Master - Server")
         self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.initial_campaign = initial_campaign
+        self.audio_manager = AudioManager()
         self.gui_queue=queue.Queue()
         self.server=Server('', 5000, self.gui_queue)
         self.map_canvas = None # Il nostro nuovo componente
@@ -37,6 +52,15 @@ class DM_GUI:
         self.default_font = ("Georgia", 10)
         setup_theme(self.master)
         self.setup_gui()
+        
+        # Se avviato con una campagna preparata, applicala immediatamente
+        if self.initial_campaign:
+            self.initial_campaign.apply_to_game_state(self.server.game_state)
+            if self.server.game_state.current_map:
+                self.fow_enabled_var.set(self.server.game_state.current_map.get("fow_enabled", False))
+                self.redraw_map_and_players()
+            self.log_to_chat(f"[SISTEMA] Campagna '{self.initial_campaign.name}' applicata con successo.")
+            
         self.server_thread=threading.Thread(target=self.server.start, daemon=True); self.server_thread.start()
         self.voice_client = VoiceClient("127.0.0.1", 53912)
         self.voice_client.start()
@@ -48,6 +72,10 @@ class DM_GUI:
         self.master.config(menu=menubar)
         
         file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(label="Nuova Campagna...", command=self.open_new_campaign_dialog)
+        file_menu.add_command(label="Carica Campagna...", command=self.open_load_campaign_dialog)
+        file_menu.add_command(label="Editor Campagna Attiva...", command=self.open_campaign_editor_dialog)
+        file_menu.add_separator()
         file_menu.add_command(label="Carica Mappa...", command=self.load_map_from_file)
         file_menu.add_separator()
         file_menu.add_command(label="Salva Sessione...", command=self.save_session)
@@ -57,6 +85,7 @@ class DM_GUI:
         menubar.add_cascade(label="File", menu=file_menu)
         
         tools_menu = tk.Menu(menubar, tearoff=0)
+        tools_menu.add_command(label="Editor / Prepara Campagna", command=self.open_campaign_editor_dialog)
         tools_menu.add_command(label="Editor Mappe", command=self.open_map_editor)
         tools_menu.add_command(label="Condividi Immagine (Handout)", command=self.share_image_handout)
         tools_menu.add_command(label="Condividi Documento testuale", command=self.share_text_handout)
@@ -69,85 +98,114 @@ class DM_GUI:
         menubar.add_cascade(label="Strumenti", menu=tools_menu)
         
         # 2. LAYOUT PRINCIPALE (3 Colonne: Sinistra=Toolbar, Centro=Mappa, Destra=Notebook)
-        main_frame = ttk.Frame(self.master, padding="15 15 15 15")
+        main_frame = ttk.Frame(self.master, padding="10 10 10 10")
         main_frame.pack(fill=tk.BOTH, expand=True)
         main_frame.columnconfigure(0, weight=0)
         main_frame.columnconfigure(1, weight=1)
-        main_frame.columnconfigure(2, weight=0, minsize=350)
+        main_frame.columnconfigure(2, weight=0, minsize=360)
         main_frame.rowconfigure(0, weight=1)
         
-        # --- COLONNA 0: LEFT TOOLBAR (Strumenti Mappa) ---
-        left_toolbar = ttk.Frame(main_frame)
-        left_toolbar.grid(row=0, column=0, sticky="ns", padx=(0, 5))
+        # --- COLONNA 0: LEFT TOOLBAR (Strumenti Mappa Eleganti) ---
+        left_toolbar = tk.Frame(main_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=6)
+        left_toolbar.grid(row=0, column=0, sticky="ns", padx=(0, 6))
         
-        btn1 = ttk.Button(left_toolbar, text="👆", width=3, command=lambda: self.map_canvas.center_view() if self.map_canvas else None)
-        btn1.pack(pady=5)
+        btn1 = ttk.Button(left_toolbar, text="👆", width=3, style="Tool.TButton", command=lambda: self.map_canvas.center_view() if self.map_canvas else None)
+        btn1.pack(pady=3)
         ToolTip(btn1, "Centra Mappa")
-        btn2 = ttk.Button(left_toolbar, text="☁️", width=3, command=lambda: print("Nebbia: Placeholder"))
-        btn2.pack(pady=5)
-        ToolTip(btn2, "Nebbia")
-        btn3 = ttk.Button(left_toolbar, text="📏", width=3, command=lambda: print("Misura: Placeholder"))
-        btn3.pack(pady=5)
+        
+        btn2 = ttk.Button(left_toolbar, text="☁️", width=3, style="Tool.TButton", command=lambda: print("Nebbia: Placeholder"))
+        btn2.pack(pady=3)
+        ToolTip(btn2, "Nebbia di Guerra")
+        
+        btn3 = ttk.Button(left_toolbar, text="📏", width=3, style="Tool.TButton", command=lambda: print("Misura: Placeholder"))
+        btn3.pack(pady=3)
         ToolTip(btn3, "Misura Distanza")
-        btn4 = ttk.Button(left_toolbar, text="🧹", width=3, command=self.clear_aoes)
-        btn4.pack(pady=5)
-        ToolTip(btn4, "Pulisci Aree di Effetto")
+        
+        self.btn_clear_aoe = ttk.Button(left_toolbar, text="🧹", width=3, style="Tool.TButton", command=self.clear_aoes)
+        self.btn_clear_aoe.pack(pady=3)
+        ToolTip(self.btn_clear_aoe, "Pulisci Aree di Effetto")
+        
+        # Separatore sottile
+        tk.Frame(left_toolbar, bg=BORDER_COLOR, height=1).pack(fill=tk.X, pady=6)
         
         self.teleport_mode_var = tk.BooleanVar(value=False)
         btn_teleport = ttk.Checkbutton(left_toolbar, text="🚪", width=3, style="Toolbutton", variable=self.teleport_mode_var)
-        btn_teleport.pack(pady=5)
+        btn_teleport.pack(pady=3)
         ToolTip(btn_teleport, "Aggiungi/Rimuovi Teletrasporto")
-
         
-        # --- COLONNA 1: MAPPA (Viewport pulita) ---
+        # --- COLONNA 1: MAPPA (Viewport & Status Header) ---
         map_outer_frame = ttk.Frame(main_frame)
-        map_outer_frame.grid(row=0, column=1, sticky="nsew", padx=5)
+        map_outer_frame.grid(row=0, column=1, sticky="nsew", padx=4)
         
-        # Toolbar mappa fluttuante (minimalista)
-        map_top_bar = ttk.Frame(map_outer_frame)
-        map_top_bar.pack(fill=tk.X, pady=(0, 5))
-        ttk.Label(map_top_bar, text="Mappa di Gioco", font=self.default_font, foreground="#E0E0E0").pack(side=tk.LEFT)
+        # Header Mappa con Pillole di Stato & Controlli Nebbia
+        map_top_bar = tk.Frame(map_outer_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=5)
+        map_top_bar.pack(fill=tk.X, pady=(0, 6))
         
-        fow_toolbar = ttk.Frame(map_top_bar)
-        fow_toolbar.pack(side=tk.RIGHT, padx=5)
+        # Titolo mappa / VTT
+        tk.Label(map_top_bar, text="🗺 Mappa Tattica", font=FONT_HEADER, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(side=tk.LEFT, padx=(2, 10))
+        
+        # Status Pills (Orario, Meteo, Combattimento)
+        pills_frame = tk.Frame(map_top_bar, bg=SURFACE_COLOR)
+        pills_frame.pack(side=tk.LEFT, padx=5)
+        
+        self.top_status_time_lbl = tk.Label(
+            pills_frame, text="☀️ 08:00 (Mattina)", font=FONT_SMALL, 
+            bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, padx=6, pady=2,
+            highlightbackground=BORDER_COLOR, highlightthickness=1
+        )
+        self.top_status_time_lbl.pack(side=tk.LEFT, padx=3)
+        
+        self.top_status_weather_lbl = tk.Label(
+            pills_frame, text="🌤️ Sereno", font=FONT_SMALL, 
+            bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, padx=6, pady=2,
+            highlightbackground=BORDER_COLOR, highlightthickness=1
+        )
+        self.top_status_weather_lbl.pack(side=tk.LEFT, padx=3)
+        
+        self.top_status_combat_lbl = tk.Label(
+            pills_frame, text="🕊️ Esplorazione", font=FONT_SMALL, 
+            bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, padx=6, pady=2,
+            highlightbackground=BORDER_COLOR, highlightthickness=1
+        )
+        self.top_status_combat_lbl.pack(side=tk.LEFT, padx=3)
+        
+        # Toolbar Fog of War a destra
+        fow_toolbar = tk.Frame(map_top_bar, bg=SURFACE_COLOR)
+        fow_toolbar.pack(side=tk.RIGHT, padx=2)
         
         self.fow_enabled_var = tk.BooleanVar(value=False)
         self.fow_mode_var = tk.StringVar(value="Muovi Token")
         
-        ttk.Label(fow_toolbar, text="Strumento Mappa:", font=self.default_font).pack(side=tk.LEFT, padx=(0, 5))
+        tk.Label(fow_toolbar, text="Strumento:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(side=tk.LEFT, padx=(0, 4))
         
-        # Tool combobox
-        self.map_tool_combo = ttk.Combobox(fow_toolbar, textvariable=self.fow_mode_var, state="readonly", width=18)
+        self.map_tool_combo = ttk.Combobox(fow_toolbar, textvariable=self.fow_mode_var, state="readonly", width=15)
         self.map_tool_combo['values'] = ("Muovi Token", "Cancella Nebbia", "Disegna Nebbia")
-        self.map_tool_combo.pack(side=tk.LEFT, padx=5)
+        self.map_tool_combo.pack(side=tk.LEFT, padx=3)
         
-        # Vista Giocatori
         self.dm_player_view_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(fow_toolbar, text="Vista Giocatori", variable=self.dm_player_view_var, command=self.redraw_map_and_players).pack(side=tk.LEFT, padx=5)
+        ttk.Checkbutton(fow_toolbar, text="Vista PG", variable=self.dm_player_view_var, command=self.redraw_map_and_players).pack(side=tk.LEFT, padx=4)
 
-        # Bottone per il Push manuale della nebbia
-        ttk.Button(fow_toolbar, text="Invia Nebbia", command=self._broadcast_fow_update, style="Success.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(fow_toolbar, text="Invia Nebbia", command=self._broadcast_fow_update, style="Success.TButton").pack(side=tk.LEFT, padx=4)
         
-        # Fog options MenuButton
-        self.fow_options_btn = ttk.Menubutton(fow_toolbar, text="Opzioni Nebbia di Guerra")
+        self.fow_options_btn = ttk.Menubutton(fow_toolbar, text="Opzioni FoW")
         self.fow_options_menu = tk.Menu(self.fow_options_btn, tearoff=0)
         self.fow_options_btn["menu"] = self.fow_options_menu
-        
         self.fow_options_menu.add_checkbutton(label="Abilita Sistema Nebbia", variable=self.fow_enabled_var, command=self.toggle_fow)
         self.fow_options_menu.add_separator()
         self.fow_options_menu.add_command(label="Oscura Tutta la Mappa (Nascondi Tutto)", command=self.hide_all_fow)
         self.fow_options_menu.add_command(label="Rivela Tutta la Mappa (Rivela Tutto)", command=self.reveal_all_fow)
-        self.fow_options_btn.pack(side=tk.LEFT, padx=5)
-        self.map_canvas = HexMapCanvas(map_outer_frame, bg="#1e1e1e")
+        self.fow_options_btn.pack(side=tk.LEFT, padx=3)
+        
+        self.map_canvas = HexMapCanvas(map_outer_frame, bg="#121316")
         self.map_canvas.pack(fill=tk.BOTH, expand=True)
         self.map_canvas.set_on_click_callback(self.on_hex_clicked)
         self.map_canvas.on_token_drop_callback = self.on_token_drop
         self.map_canvas.set_on_ping_callback(self.on_ping_callback)
         self.map_canvas.set_on_hex_right_click_callback(self.on_hex_right_clicked)
         
-        # --- COLONNA 2: RIGHT SIDEBAR (Notebook a Tabs) ---
+        # --- COLONNA 2: RIGHT SIDEBAR (Notebook Dark Fantasy) ---
         right_panel = ttk.Frame(main_frame)
-        right_panel.grid(row=0, column=2, sticky="nsew", padx=(5, 0))
+        right_panel.grid(row=0, column=2, sticky="nsew", padx=(6, 0))
         
         self.right_notebook = ttk.Notebook(right_panel)
         self.right_notebook.pack(fill=tk.BOTH, expand=True)
@@ -164,88 +222,112 @@ class DM_GUI:
         self.tab_bestiario = ttk.Frame(self.notebook)
         self.notebook.add(self.tab_bestiario, text="Bestiario")
         
-        ttk.Label(self.tab_bestiario, text="Ricerca Mostro:", font=self.default_font).pack(pady=(5,0))
+        ttk.Label(self.tab_bestiario, text="Ricerca Mostro SRD:", font=FONT_BOLD).pack(pady=(6, 2), anchor="w", padx=6)
         self.bestiario_search_var = tk.StringVar()
-        ttk.Entry(self.tab_bestiario, textvariable=self.bestiario_search_var).pack(fill=tk.X, padx=5, pady=5)
-        ttk.Button(self.tab_bestiario, text="Cerca in SRD", command=self.search_bestiario).pack(pady=5)
+        b_search_row = ttk.Frame(self.tab_bestiario)
+        b_search_row.pack(fill=tk.X, padx=6, pady=3)
+        ttk.Entry(b_search_row, textvariable=self.bestiario_search_var).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
+        ttk.Button(b_search_row, text="Cerca", command=self.search_bestiario, style="Primary.TButton").pack(side=tk.LEFT)
         
-        self.bestiario_listbox = tk.Listbox(self.tab_bestiario, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=self.default_font)
-        self.bestiario_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        b_list_frame = tk.Frame(self.tab_bestiario, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        b_list_frame.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
+        self.bestiario_listbox = tk.Listbox(b_list_frame, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=FONT_MAIN, borderwidth=0, relief="flat")
+        self.bestiario_listbox.pack(fill=tk.BOTH, expand=True)
         self.bestiario_results = []
         
-        ttk.Button(self.tab_bestiario, text="Spawna sulla Mappa", command=self.spawn_bestiario).pack(pady=5)
+        ttk.Button(self.tab_bestiario, text="⚔️ Spawna sulla Mappa", command=self.spawn_bestiario, style="Gold.TButton").pack(fill=tk.X, padx=6, pady=(3, 6))
 
-        
+        # Chat Input Frame
         chat_input_frame = ttk.Frame(tab_chat)
-        chat_input_frame.pack(fill=tk.X, pady=(5, 0))
+        chat_input_frame.pack(fill=tk.X, pady=(5, 3))
         self.chat_entry = ttk.Entry(chat_input_frame)
-        self.chat_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        self.chat_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
         self.chat_entry.bind("<Return>", lambda e: self.send_dm_chat())
-        ttk.Button(chat_input_frame, text="Invia", command=self.send_dm_chat).pack(side=tk.LEFT)
+        ttk.Button(chat_input_frame, text="Invia", command=self.send_dm_chat, style="Primary.TButton").pack(side=tk.LEFT)
+        ttk.Button(chat_input_frame, text="🎲 Dadi", command=self.roll_dice_dialog, style="Gold.TButton").pack(side=tk.LEFT, padx=(4, 0))
 
-        self.voice_controls_frame = tk.Frame(tab_chat, bg="#292B2F", pady=5, padx=5)
-        self.voice_controls_frame.pack(fill=tk.X, side=tk.BOTTOM)
-        tk.Label(self.voice_controls_frame, text="Voice Channel: Disconnesso", bg="#292B2F", fg="#8E9297", font=("Arial", 9)).pack(side=tk.LEFT, padx=5)
-        self.btn_deafen = tk.Button(self.voice_controls_frame, text=" 🎧 ", bg="#36393F", fg="white", relief=tk.FLAT, command=self.toggle_deafen)
+        # Barra Voice Discord-like
+        self.voice_controls_frame = tk.Frame(tab_chat, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, pady=4, padx=6)
+        self.voice_controls_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(4, 0))
+        self.voice_status_lbl = tk.Label(self.voice_controls_frame, text="🟢 Voice Server: Attivo", bg=SURFACE_COLOR_ALT, fg=ACCENT_GREEN, font=FONT_SMALL)
+        self.voice_status_lbl.pack(side=tk.LEFT, padx=3)
+        self.btn_deafen = tk.Button(self.voice_controls_frame, text=" 🎧 ", bg=SURFACE_COLOR, fg="white", activebackground=SURFACE_COLOR_ALT, relief=tk.FLAT, bd=0, command=self.toggle_deafen)
         self.btn_deafen.pack(side=tk.RIGHT, padx=2)
-        self.btn_mute = tk.Button(self.voice_controls_frame, text=" 🎤 ", bg="#36393F", fg="white", relief=tk.FLAT, command=self.toggle_mute)
+        ToolTip(self.btn_deafen, "Muta/Smuta Cuffie DM")
+        self.btn_mute = tk.Button(self.voice_controls_frame, text=" 🎤 ", bg=SURFACE_COLOR, fg="white", activebackground=SURFACE_COLOR_ALT, relief=tk.FLAT, bd=0, command=self.toggle_mute)
         self.btn_mute.pack(side=tk.RIGHT, padx=2)
-        
-        btn_frame = ttk.Frame(tab_chat)
-        btn_frame.pack(fill=tk.X, pady=5)
-        ttk.Button(btn_frame, text="Tira Dadi", command=self.roll_dice_dialog, style="Primary.TButton").pack(side=tk.LEFT)
+        ToolTip(self.btn_mute, "Muta/Smuta Microfono DM")
         
         # Tab 2 ("Iniziativa & PG")
         tab_combat = ttk.Frame(self.right_notebook)
         self.right_notebook.add(tab_combat, text="Iniziativa & PG")
         
-        ttk.Label(tab_combat, text="Avventurieri & NPC", font=self.default_font, foreground="#E0E0E0").pack(anchor="w", pady=(0, 5))
-        list_frame = ttk.Frame(tab_combat)
-        list_frame.pack(fill=tk.BOTH, expand=True, side=tk.TOP, pady=(0, 5))
+        tk.Label(tab_combat, text="⚔️ Avventurieri & Mostri", font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w", pady=(0, 6))
+        
+        # Combat Banner Card (Iniziativa)
+        self.combat_controls_frame = tk.Frame(tab_combat, bg=SURFACE_COLOR, highlightbackground=ACCENT_GOLD, highlightthickness=1, padx=8, pady=6)
+        
+        combat_top_row = tk.Frame(self.combat_controls_frame, bg=SURFACE_COLOR)
+        combat_top_row.pack(fill=tk.X, pady=(0, 4))
+        self.lbl_round = tk.Label(combat_top_row, text="⚔️ ROUND 1", font=("Georgia", 11, "bold"), bg=SURFACE_COLOR, fg=ACCENT_GOLD)
+        self.lbl_round.pack(side=tk.LEFT)
+        
+        turn_nav_frame = tk.Frame(self.combat_controls_frame, bg=SURFACE_COLOR)
+        turn_nav_frame.pack(fill=tk.X)
+        self.btn_prev_turn = ttk.Button(turn_nav_frame, text="⬅ Turno Prec.", command=self.prev_turn_gui, state=tk.DISABLED)
+        self.btn_prev_turn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
+        self.btn_next_turn = ttk.Button(turn_nav_frame, text="Turno Succ. ➡", command=self.next_turn_gui, state=tk.DISABLED, style="Primary.TButton")
+        self.btn_next_turn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
+        
+        # Container Player Listbox
+        list_frame = tk.Frame(tab_combat, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        list_frame.pack(fill=tk.BOTH, expand=True, side=tk.TOP, pady=(0, 6))
 
         scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        self.player_listbox = tk.Listbox(list_frame, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=self.default_font, selectbackground=ACCENT_RED, borderwidth=0, relief="flat", highlightthickness=0, yscrollcommand=scrollbar.set)
+        self.player_listbox = tk.Listbox(
+            list_frame, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=FONT_MAIN,
+            selectbackground=ACCENT_GOLD, selectforeground=TEXT_DARK,
+            borderwidth=0, relief="flat", highlightthickness=0, yscrollcommand=scrollbar.set
+        )
         self.player_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.player_listbox.yview)
         self.player_listbox.bind("<Double-Button-1>", self.open_private_chat_from_list)
         self.player_listbox.bind("<Button-3>", self.show_player_context_menu)
         self.player_listbox.bind("<<ListboxSelect>>", self.on_player_selected)
 
-        self.btn_hide_reveal = ttk.Button(tab_combat, text="Nascondi/Rivela PNG", command=self.toggle_hide_reveal)
-        self.btn_hide_reveal.pack(fill=tk.X, side=tk.TOP, pady=(0, 5))
+        self.btn_hide_reveal = ttk.Button(tab_combat, text="👁 Nascondi / Rivela PNG", command=self.toggle_hide_reveal)
+        self.btn_hide_reveal.pack(fill=tk.X, side=tk.TOP, pady=(0, 4))
 
         self.npc_actions_frame = ttk.LabelFrame(tab_combat, text="Azioni PNG Selezionato")
-        self.npc_actions_frame.pack(fill=tk.X, side=tk.TOP, pady=(0, 5))
+        self.npc_actions_frame.pack(fill=tk.X, side=tk.TOP, pady=(0, 4))
         
-        self.btn_combat = ttk.Button(tab_combat, text="🗡 Inizia Combattimento", command=self.toggle_combat, style='Primary.TButton')
-        self.btn_combat.pack(fill=tk.X, side=tk.TOP, pady=(0, 5))
+        self.btn_combat = ttk.Button(tab_combat, text="⚔️ Inizia Combattimento", command=self.toggle_combat, style='Gold.TButton')
+        self.btn_combat.pack(fill=tk.X, side=tk.TOP, pady=(0, 4))
         
-        self.combat_controls_frame = ttk.Frame(tab_combat)
+        self.btn_campaign_encounter = ttk.Button(tab_combat, text="⚡ Schiera Incontro Preparato", command=self.deploy_campaign_encounter_dialog, style='Gold.TButton')
+        self.btn_campaign_encounter.pack(fill=tk.X, side=tk.TOP, pady=(0, 6))
         
-        self.lbl_round = ttk.Label(self.combat_controls_frame, text="Round: -", font=self.default_font)
-        self.lbl_round.pack(fill=tk.X, pady=(0, 5))
-        
-        turn_nav_frame = ttk.Frame(self.combat_controls_frame)
-        turn_nav_frame.pack(fill=tk.X, pady=(0, 5))
-        self.btn_prev_turn = ttk.Button(turn_nav_frame, text="⬅ Precedente", command=self.prev_turn_gui, state=tk.DISABLED)
-        self.btn_prev_turn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
-        self.btn_next_turn = ttk.Button(turn_nav_frame, text="Prossimo ➡", command=self.next_turn_gui, state=tk.DISABLED)
-        self.btn_next_turn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
-        
-        ttk.Button(tab_combat, text="+ Aggiungi NPC/Mostro", command=self.add_npc).pack(fill=tk.X, side=tk.BOTTOM, pady=(5, 0))
-        
+        # Pulsanti Bottom Tab 2
         btn_frame_bottom = ttk.Frame(tab_combat)
-        btn_frame_bottom.pack(fill=tk.X, side=tk.BOTTOM, pady=(10, 0))
+        btn_frame_bottom.pack(fill=tk.X, side=tk.BOTTOM, pady=(6, 0))
         ttk.Button(btn_frame_bottom, text="Spawna PNG", command=self.spawn_png_dialog, style="Primary.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
         ttk.Button(btn_frame_bottom, text="Encounter Builder", command=self.open_encounter_builder, style="Primary.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
-        ttk.Button(tab_combat, text="Dividi Denaro", command=self.split_loot_dialog, style="Primary.TButton").pack(fill=tk.X, side=tk.BOTTOM, pady=(5, 0))
-
         
+        ttk.Button(tab_combat, text="+ Aggiungi NPC/Mostro Manuale", command=self.add_npc).pack(fill=tk.X, side=tk.BOTTOM, pady=(4, 0))
+        ttk.Button(tab_combat, text="💰 Dividi Denaro (Party Loot)", command=self.split_loot_dialog, style="Gold.TButton").pack(fill=tk.X, side=tk.BOTTOM, pady=(4, 0))
+
         # Tab 3 ("Mondo")
         tab_world = ttk.Frame(self.right_notebook)
         self.right_notebook.add(tab_world, text="Mondo")
+        
+        self.lbl_campaign_name = tk.Label(tab_world, text="🏰 Campagna: Nessuna (Sessione Rapida)", font=FONT_BOLD, 
+                                          bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD, padx=8, pady=4, 
+                                          highlightbackground=BORDER_COLOR, highlightthickness=1)
+        self.lbl_campaign_name.pack(fill=tk.X, pady=(4, 6))
+        
+        ttk.Button(tab_world, text="🗺️ Passa a Scena della Campagna", command=self.switch_campaign_scene_dialog, style='Info.TButton').pack(fill=tk.X, pady=(0, 8))
         
         ttk.Label(tab_world, text="Gestione Tempo", font=("Arial", 12, "bold")).pack(anchor="w", pady=(5, 5))
         self.lbl_time = ttk.Label(tab_world, text="Giorno 1 - 08:00 (Mattina)")
@@ -270,12 +352,9 @@ class DM_GUI:
         weather_combo.bind("<<ComboboxSelected>>", self.on_weather_changed)
         
         # Tab 4 ("Audio/Sfx")
-        tab_audio = ttk.Frame(self.right_notebook)
+        tab_audio = ttk.Frame(self.right_notebook, padding=5)
         self.right_notebook.add(tab_audio, text="Audio/Sfx")
-        ttk.Label(tab_audio, text="Soundboard", font=("Arial", 12, "bold")).pack(anchor="w", pady=(5, 5))
-        ttk.Button(tab_audio, text="Musica Taverna", command=lambda: self.play_audio("https://www.youtube.com/watch?v=sW-KikD1b4k")).pack(fill=tk.X, pady=5)
-        ttk.Button(tab_audio, text="Musica Battaglia", command=lambda: self.play_audio("https://www.youtube.com/watch?v=1F_CgepehcE")).pack(fill=tk.X, pady=5)
-        ttk.Button(tab_audio, text="Effetto Esplosione", command=lambda: self.play_audio("https://www.youtube.com/watch?v=W0nL94EaH7I")).pack(fill=tk.X, pady=5)
+        self.build_audio_tab(tab_audio)
 
         self.player_menu = tk.Menu(self.master, tearoff=0, bg="#3E2723", fg="#F5F5DC", font=self.default_font)
         self.player_menu.add_command(label="Visualizza Scheda", command=self.view_player_sheet)
@@ -291,6 +370,166 @@ class DM_GUI:
         self.player_menu.add_command(label="Aggiungi/Rimuovi dal Party", command=self.toggle_party_status)
         self.player_menu.add_separator()
         self.player_menu.add_command(label="Rimuovi", command=self.remove_entity)
+
+    # ------------------------------------------------------------------
+    # AUDIO: libreria di tracce caricate dal DM
+    # ------------------------------------------------------------------
+    def build_audio_tab(self, parent):
+        ttk.Label(parent, text="Libreria Audio", font=("Arial", 12, "bold")).pack(anchor="w", pady=(0, 2))
+        ttk.Label(parent, text="Carica MP3/OGG/WAV/FLAC. I giocatori li scaricano una sola volta.",
+                  style="Muted.TLabel", wraplength=320).pack(anchor="w", pady=(0, 5))
+
+        top_btns = ttk.Frame(parent)
+        top_btns.pack(fill=tk.X, pady=(0, 4))
+        ttk.Button(top_btns, text="➕ Carica tracce...", command=self.import_audio_tracks, style="Success.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
+        ttk.Button(top_btns, text="✏", width=3, command=self.rename_audio_track).pack(side=tk.LEFT, padx=1)
+        ttk.Button(top_btns, text="🔁", width=3, command=self.toggle_audio_category).pack(side=tk.LEFT, padx=1)
+        ttk.Button(top_btns, text="🗑", width=3, command=self.remove_audio_track).pack(side=tk.LEFT, padx=(1, 0))
+
+        tree_frame = ttk.Frame(parent)
+        tree_frame.pack(fill=tk.BOTH, expand=True)
+        self.audio_tree = ttk.Treeview(tree_frame, columns=("Nome", "Tipo", "Durata"), show="headings", height=9, selectmode="browse")
+        self.audio_tree.heading("Nome", text="Nome")
+        self.audio_tree.heading("Tipo", text="Tipo")
+        self.audio_tree.heading("Durata", text="Durata")
+        self.audio_tree.column("Nome", width=170)
+        self.audio_tree.column("Tipo", width=65, anchor="center")
+        self.audio_tree.column("Durata", width=55, anchor="center")
+        self.audio_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.audio_tree.yview)
+        self.audio_tree.configure(yscroll=sb.set)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.audio_tree.bind("<Double-1>", lambda e: self.play_selected_audio())
+        ToolTip(top_btns.winfo_children()[1], "Rinomina traccia")
+        ToolTip(top_btns.winfo_children()[2], "Cambia tipo (Musica / Effetto)")
+        ToolTip(top_btns.winfo_children()[3], "Elimina traccia dalla libreria")
+
+        opts = ttk.Frame(parent)
+        opts.pack(fill=tk.X, pady=4)
+        self.audio_loop_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(opts, text="Ripeti musica (loop)", variable=self.audio_loop_var).pack(anchor="w")
+        self.audio_dm_listen_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(opts, text="Ascolta anche io (DM)", variable=self.audio_dm_listen_var).pack(anchor="w")
+
+        vol_row = ttk.Frame(parent)
+        vol_row.pack(fill=tk.X)
+        ttk.Label(vol_row, text="Volume per i giocatori:").pack(side=tk.LEFT)
+        self.audio_volume_var = tk.IntVar(value=80)
+        ttk.Scale(vol_row, from_=0, to=100, variable=self.audio_volume_var, orient=tk.HORIZONTAL).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+
+        play_row = ttk.Frame(parent)
+        play_row.pack(fill=tk.X, pady=(6, 2))
+        ttk.Button(play_row, text="▶ Riproduci per tutti", command=self.play_selected_audio, style="Primary.TButton").pack(fill=tk.X, pady=1)
+        stop_row = ttk.Frame(parent)
+        stop_row.pack(fill=tk.X)
+        ttk.Button(stop_row, text="⏹ Ferma musica", command=lambda: self.stop_audio("music")).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
+        ttk.Button(stop_row, text="⏹ Ferma tutto", command=lambda: self.stop_audio("all"), style="Danger.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
+
+        self.audio_now_playing = ttk.Label(parent, text="In riproduzione: -", style="Muted.TLabel", wraplength=320)
+        self.audio_now_playing.pack(anchor="w", pady=(6, 4))
+
+        ttk.Separator(parent).pack(fill=tk.X, pady=4)
+        ttk.Button(parent, text="🔗 Apri link (YouTube) ai giocatori...", command=self.share_audio_link).pack(fill=tk.X)
+
+        self.refresh_audio_list()
+
+    @staticmethod
+    def _format_duration(seconds):
+        seconds = int(seconds or 0)
+        return f"{seconds // 60}:{seconds % 60:02d}"
+
+    def refresh_audio_list(self):
+        library = self.server.game_state.audio_library
+        for item in self.audio_tree.get_children():
+            self.audio_tree.delete(item)
+        for t in library.tracks:
+            icon = "🎵" if t["category"] == "Musica" else "💥"
+            self.audio_tree.insert("", tk.END, iid=t["id"], values=(t["name"], f"{icon} {t['category']}", self._format_duration(t.get("duration"))))
+
+    def _selected_track(self):
+        sel = self.audio_tree.selection()
+        if not sel:
+            messagebox.showinfo("Audio", "Seleziona prima una traccia dalla libreria.")
+            return None
+        return self.server.game_state.audio_library.get(sel[0])
+
+    def import_audio_tracks(self):
+        paths = filedialog.askopenfilenames(
+            title="Seleziona tracce audio",
+            filetypes=[("File audio", "*.mp3 *.ogg *.wav *.flac"), ("Tutti i file", "*.*")])
+        if not paths:
+            return
+        library = self.server.game_state.audio_library
+        errors = []
+        imported = 0
+        for p in paths:
+            try:
+                library.import_file(p)
+                imported += 1
+            except Exception as e:
+                errors.append(f"{os.path.basename(p)}: {e}")
+        self.refresh_audio_list()
+        if imported:
+            self.log_to_chat(f"[AUDIO] {imported} traccia/e aggiunte alla libreria.")
+        if errors:
+            messagebox.showwarning("Alcuni file non sono stati importati", "\n".join(errors))
+
+    def rename_audio_track(self):
+        t = self._selected_track()
+        if not t: return
+        new_name = simpledialog.askstring("Rinomina traccia", "Nuovo nome:", initialvalue=t["name"], parent=self.master)
+        if new_name and new_name.strip():
+            self.server.game_state.audio_library.rename(t["id"], new_name.strip())
+            self.refresh_audio_list()
+
+    def toggle_audio_category(self):
+        t = self._selected_track()
+        if not t: return
+        self.server.game_state.audio_library.toggle_category(t["id"])
+        self.refresh_audio_list()
+        self.audio_tree.selection_set(t["id"])
+
+    def remove_audio_track(self):
+        t = self._selected_track()
+        if not t: return
+        if messagebox.askyesno("Elimina traccia", f"Eliminare '{t['name']}' dalla libreria?"):
+            self.server.game_state.audio_library.remove(t["id"])
+            self.refresh_audio_list()
+
+    def play_selected_audio(self):
+        t = self._selected_track()
+        if not t: return
+        from common.protocol import make_audio_track_play
+        is_music = t["category"] == "Musica"
+        channel = "music" if is_music else "sfx"
+        loop = bool(self.audio_loop_var.get()) if is_music else False
+        volume = self.audio_volume_var.get() / 100.0
+        msg = make_audio_track_play(t["id"], t["name"], t["ext"], t["size"], channel=channel, loop=loop, volume=volume)
+
+        game_state = self.server.game_state
+        if is_music:
+            game_state.current_music = msg if loop else None
+        broadcast(game_state, msg)
+
+        if self.audio_dm_listen_var.get():
+            self.audio_manager.play(game_state.audio_library.get_path(t["id"]), channel=channel, loop=loop, volume=volume, name=t["name"])
+        if is_music:
+            self.audio_now_playing.config(text=f"In riproduzione: 🎵 {t['name']}{' (loop)' if loop else ''}")
+        self.log_to_chat(f"[AUDIO] {'Musica' if is_music else 'Effetto'} avviato per tutti: {t['name']}")
+
+    def stop_audio(self, channel="all"):
+        from common.protocol import make_audio_stop
+        if channel in ("music", "all"):
+            self.server.game_state.current_music = None
+            self.audio_now_playing.config(text="In riproduzione: -")
+        broadcast(self.server.game_state, make_audio_stop(channel))
+        self.audio_manager.stop(channel)
+        self.log_to_chat(f"[AUDIO] {'Musica fermata' if channel == 'music' else 'Tutto l audio fermato'}.")
+
+    def share_audio_link(self):
+        url = simpledialog.askstring("Link audio", "Incolla il link (es. YouTube) da aprire nel browser dei giocatori:", parent=self.master)
+        if url and url.strip():
+            self.play_audio(url.strip())
 
     def play_audio(self, url):
         from common.protocol import make_audio_play_broadcast
@@ -1082,6 +1321,173 @@ class DM_GUI:
         except Exception as e:
             messagebox.showerror("Errore Caricamento", f"Impossibile caricare la sessione: {e}")
 
+    def open_new_campaign_dialog(self):
+        from server.campaign_editor_ui import CampaignEditorDialog
+        from common.campaign import Campaign
+        new_camp = Campaign(name="Nuova Campagna")
+        def on_saved(camp):
+            camp.apply_to_game_state(self.server.game_state)
+            if self.server.game_state.current_map:
+                self.fow_enabled_var.set(self.server.game_state.current_map.get("fow_enabled", False))
+                self.redraw_map_and_players()
+            self.log_to_chat(f"[SISTEMA] Nuova campagna '{camp.name}' creata e applicata.")
+        dlg = CampaignEditorDialog(self.master, campaign=new_camp, game_state=self.server.game_state, on_save_callback=on_saved)
+
+    def open_load_campaign_dialog(self):
+        from server.campaign_editor_ui import CampaignSelectorDialog
+        def on_selected(camp):
+            camp.apply_to_game_state(self.server.game_state)
+            if self.server.game_state.current_map:
+                self.fow_enabled_var.set(self.server.game_state.current_map.get("fow_enabled", False))
+                self.redraw_map_and_players()
+            self.log_to_chat(f"[SISTEMA] Campagna '{camp.name}' caricata e attiva.")
+            messagebox.showinfo("Campagna Caricata", f"Campagna '{camp.name}' caricata con successo!", parent=self.master)
+        dlg = CampaignSelectorDialog(self.master, on_select_callback=on_selected)
+
+    def open_campaign_editor_dialog(self):
+        from server.campaign_editor_ui import CampaignEditorDialog
+        active_camp = getattr(self.server.game_state, 'active_campaign', None)
+        if active_camp:
+            def on_saved(camp):
+                camp.apply_to_game_state(self.server.game_state)
+                self.log_to_chat(f"[SISTEMA] Campagna '{camp.name}' aggiornata.")
+            dlg = CampaignEditorDialog(self.master, campaign=active_camp, game_state=self.server.game_state, on_save_callback=on_saved)
+        else:
+            self.open_load_campaign_dialog()
+
+    def deploy_campaign_encounter_dialog(self):
+        active_camp = getattr(self.server.game_state, 'active_campaign', None)
+        if not active_camp or not active_camp.encounters:
+            if messagebox.askyesno("Nessun Incontro", "Nessuna campagna attiva con incontri preparati. Vuoi aprire l'Editor Campagna?", parent=self.master):
+                self.open_campaign_editor_dialog()
+            return
+            
+        dlg = tk.Toplevel(self.master)
+        dlg.title("Schiera Incontro della Campagna")
+        dlg.minsize(520, 360)
+        dlg.transient(self.master)
+        dlg.grab_set()
+        apply_modern_window_style(dlg)
+        dlg.configure(bg=BG_COLOR)
+        
+        container = tk.Frame(dlg, bg=BG_COLOR, padx=15, pady=12)
+        container.pack(fill=tk.BOTH, expand=True)
+        
+        tk.Label(container, text="⚔️ Incontri Preparati della Campagna", font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w", pady=(0, 4))
+        tk.Label(container, text="Seleziona l'incontro da schierare sulla mappa corrente:", font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 8))
+        
+        tree_frame = tk.Frame(container, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        cols = ("Nome", "Atto", "Mostri", "Descrizione")
+        tree = ttk.Treeview(tree_frame, columns=cols, show="headings", height=6)
+        tree.heading("Nome", text="Nome Incontro")
+        tree.heading("Atto", text="Atto")
+        tree.heading("Mostri", text="Mostri")
+        tree.heading("Descrizione", text="Note")
+        tree.column("Nome", width=160)
+        tree.column("Atto", width=90)
+        tree.column("Mostri", width=60, anchor="center")
+        tree.column("Descrizione", width=180)
+        
+        sb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=sb.set)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        for idx, enc in enumerate(active_camp.encounters):
+            m_cnt = sum(m.get("count", 1) for m in enc.get("monsters", []))
+            tree.insert("", tk.END, iid=str(idx), values=(
+                enc.get("name", "Incontro"),
+                enc.get("act", "Atto 1"),
+                str(m_cnt),
+                enc.get("description", "")
+            ))
+        if active_camp.encounters:
+            tree.selection_set("0")
+            
+        def do_deploy():
+            sel = tree.selection()
+            if not sel: return
+            idx = int(sel[0])
+            enc = active_camp.encounters[idx]
+            monsters = enc.get("monsters", [])
+            self.handle_encounter_start(monsters)
+            self.log_to_chat(f"[SISTEMA] Incontro '{enc.get('name')}' schierato dal piano di campagna.")
+            dlg.destroy()
+            
+        btn_box = tk.Frame(container, bg=BG_COLOR)
+        btn_box.pack(fill=tk.X)
+        ttk.Button(btn_box, text="⚡ Schiera sulla Mappa", command=do_deploy, style="Gold.TButton").pack(side=tk.RIGHT)
+        ttk.Button(btn_box, text="Annulla", command=dlg.destroy).pack(side=tk.RIGHT, padx=6)
+
+    def switch_campaign_scene_dialog(self):
+        active_camp = getattr(self.server.game_state, 'active_campaign', None)
+        if not active_camp or not active_camp.scenes:
+            messagebox.showinfo("Nessuna Scena", "Nessuna campagna attiva con scene collegate.", parent=self.master)
+            return
+            
+        dlg = tk.Toplevel(self.master)
+        dlg.title("Passa a Scena della Campagna")
+        dlg.minsize(480, 320)
+        dlg.transient(self.master)
+        dlg.grab_set()
+        apply_modern_window_style(dlg)
+        dlg.configure(bg=BG_COLOR)
+        
+        container = tk.Frame(dlg, bg=BG_COLOR, padx=15, pady=12)
+        container.pack(fill=tk.BOTH, expand=True)
+        
+        tk.Label(container, text="🗺️ Scene della Campagna", font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w", pady=(0, 6))
+        
+        lb_scenes = tk.Listbox(container, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=FONT_MAIN,
+                               selectbackground=ACCENT_GOLD, selectforeground=TEXT_DARK,
+                               highlightthickness=1, highlightbackground=BORDER_COLOR)
+        lb_scenes.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        for sc in active_camp.scenes:
+            lb_scenes.insert(tk.END, f"{sc.get('name', 'Scena')}  [{sc.get('map_file', '')}]")
+        if active_camp.scenes:
+            lb_scenes.selection_set(0)
+            
+        def do_switch():
+            sel = lb_scenes.curselection()
+            if not sel: return
+            sc = active_camp.scenes[sel[0]]
+            map_file = sc.get("map_file")
+            map_path = map_file
+            if not os.path.isabs(map_path) and active_camp.folder_path:
+                cand = os.path.join(active_camp.folder_path, map_path)
+                if os.path.exists(cand): map_path = cand
+            if not os.path.exists(map_path):
+                cand_global = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), map_file)
+                if os.path.exists(cand_global): map_path = cand_global
+            if os.path.exists(map_path):
+                try:
+                    with open(map_path, 'r', encoding="utf-8") as f:
+                        map_data = json.load(f)
+                    if 'base_image_path' in map_data and map_data['base_image_path']:
+                        img_path = map_data['base_image_path']
+                        if not os.path.isabs(img_path):
+                            img_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), img_path)
+                        if os.path.exists(img_path):
+                            with open(img_path, "rb") as image_file:
+                                map_data['bg_image_data'] = base64.b64encode(image_file.read()).decode('utf-8')
+                    self.server.game_state.load_map(map_data)
+                    self.fow_enabled_var.set(self.server.game_state.current_map.get("fow_enabled", False))
+                    self.redraw_map_and_players()
+                    broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
+                    broadcast(self.server.game_state, make_chat_broadcast("DM", f"Il DM ha spostato il gruppo nella scena: {sc.get('name')}"))
+                    self.log_to_chat(f"[SISTEMA] Scena cambiata in: '{sc.get('name')}'.")
+                except Exception as e:
+                    messagebox.showerror("Errore", f"Impossibile caricare la mappa: {e}", parent=dlg)
+            dlg.destroy()
+            
+        btn_box = tk.Frame(container, bg=BG_COLOR)
+        btn_box.pack(fill=tk.X)
+        ttk.Button(btn_box, text="Passa a Questa Scena", command=do_switch, style="Gold.TButton").pack(side=tk.RIGHT)
+        ttk.Button(btn_box, text="Annulla", command=dlg.destroy).pack(side=tk.RIGHT, padx=6)
+
     def update_player_list(self):
         current_selection=self.player_listbox.curselection()
         self.player_listbox.delete(0, tk.END)
@@ -1100,18 +1506,37 @@ class DM_GUI:
         if self.weather_var.get() != gs.weather:
             self.weather_var.set(gs.weather)
             
+        if hasattr(self, "lbl_campaign_name"):
+            active_c = getattr(gs, "active_campaign", None)
+            c_text = f"🏰 Campagna: {active_c.name}" if active_c else "🏰 Campagna: Nessuna (Sessione Rapida)"
+            self.lbl_campaign_name.config(text=c_text)
+            
+        # Aggiorna pillole status in alto
+        if hasattr(self, "top_status_time_lbl"):
+            time_icon = "☀️" if 6 <= gs.time_hour < 18 else "🌙"
+            self.top_status_time_lbl.config(text=f"{time_icon} {time_str} ({period})")
+        if hasattr(self, "top_status_weather_lbl"):
+            weather_icons = {"Sereno": "🌤️", "Pioggia": "🌧️", "Tempesta": "⛈️", "Neve": "❄️", "Nebbia": "🌫️"}
+            w_icon = weather_icons.get(gs.weather, "🌤️")
+            self.top_status_weather_lbl.config(text=f"{w_icon} {gs.weather}")
+            
         if self.server.game_state.combat_active:
-            self.combat_controls_frame.pack(fill=tk.X, side=tk.TOP, pady=5, before=self.player_listbox)
+            # Mostra banner combattimento
+            self.combat_controls_frame.pack(fill=tk.X, side=tk.TOP, pady=5, before=self.btn_hide_reveal)
             self.btn_combat.config(text="⏹ Termina Combattimento", style='Danger.TButton')
-            self.lbl_round.config(text=f"Round: {self.server.game_state.round_number}")
+            self.lbl_round.config(text=f"⚔️ ROUND {self.server.game_state.round_number}")
             self.btn_prev_turn.config(state=tk.NORMAL)
             self.btn_next_turn.config(state=tk.NORMAL)
+            if hasattr(self, "top_status_combat_lbl"):
+                self.top_status_combat_lbl.config(text=f"⚔️ In Combattimento (R{self.server.game_state.round_number})", fg=ACCENT_RED)
         else:
             self.combat_controls_frame.pack_forget()
-            self.btn_combat.config(text="🗡 Inizia Combattimento", style='Primary.TButton')
+            self.btn_combat.config(text="⚔️ Inizia Combattimento", style='Gold.TButton')
             self.lbl_round.config(text="Round: -")
             self.btn_prev_turn.config(state=tk.DISABLED)
             self.btn_next_turn.config(state=tk.DISABLED)
+            if hasattr(self, "top_status_combat_lbl"):
+                self.top_status_combat_lbl.config(text="🕊️ Esplorazione", fg=TEXT_MUTED)
 
         if self.server.game_state:
             players = self.server.game_state.get_all_players()
@@ -1225,6 +1650,9 @@ class DM_GUI:
 
     def on_closing(self):
         if messagebox.askokcancel("Esci", "Vuoi chiudere il server?"):
+            if hasattr(self, 'audio_manager'):
+                try: self.audio_manager.stop("all")
+                except Exception: pass
             if hasattr(self, 'voice_client'):
                 self.voice_client.stop()
             self.server.stop()
@@ -1274,16 +1702,16 @@ class DM_GUI:
     def create_chat_tab(self, name):
         if name in self.chat_tabs: return
         tab_frame = ttk.Frame(self.notebook)
-        text_widget = scrolledtext.ScrolledText(tab_frame, state='disabled', wrap=tk.WORD, bg="#36393F", 
-fg="#DCDDDE", borderwidth=0, highlightthickness=0, font=("Arial", 10))
+        text_widget = scrolledtext.ScrolledText(tab_frame, state='disabled', wrap=tk.WORD, bg=SURFACE_COLOR, 
+fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         text_widget.pack(fill=tk.BOTH, expand=True)
         self.notebook.add(tab_frame, text=name)
         self.chat_tabs[name] = text_widget
         
-        # Configure tags for Discord-like format
-        text_widget.tag_config("timestamp", foreground="#72767D", font=("Arial", 8))
-        text_widget.tag_config("sender", font=("Arial", 10, "bold"))
-        text_widget.tag_config("text", foreground="#DCDDDE")
+        # Configure tags for Dark Fantasy / Discord-like format
+        text_widget.tag_config("timestamp", foreground=TEXT_MUTED, font=("Segoe UI", 8))
+        text_widget.tag_config("sender", font=FONT_BOLD, foreground=ACCENT_GOLD)
+        text_widget.tag_config("text", foreground=TEXT_COLOR, font=FONT_MAIN)
         
     def open_private_chat_from_list(self, event):
         selected_indices = self.player_listbox.curselection()
@@ -1829,467 +2257,10 @@ fg="#DCDDDE", borderwidth=0, highlightthickness=0, font=("Arial", 10))
             self.log_to_chat(f"[SISTEMA] Proprietario di {player_name} impostato a {player.owner or 'DM'}.")
 
 
-class TextHandoutDialog(tk.Toplevel):
-    def __init__(self, dm_gui):
-        super().__init__(dm_gui.master)
-        self.dm_gui = dm_gui
-        self.title("Condividi Documento / Nota Testuale")
-        self.minsize(580, 450)
-        self.transient(dm_gui.master)
-        self.grab_set()
-
-        from common.theme import apply_modern_window_style
-        apply_modern_window_style(self)
-
-        main_frame = ttk.Frame(self, padding="20")
-        main_frame.pack(fill=tk.BOTH, expand=True)
-
-        ttk.Label(main_frame, text="Titolo del Documento:", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, pady=(0, 5))
-        self.title_entry = ttk.Entry(main_frame, font=("Helvetica", 12))
-        self.title_entry.pack(fill=tk.X, pady=(0, 15))
-
-        ttk.Label(main_frame, text="Testo da mostrare ai giocatori:", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, pady=(0, 5))
-        from tkinter import scrolledtext
-        self.content_text = scrolledtext.ScrolledText(main_frame, font=("Helvetica", 11), wrap=tk.WORD, height=10)
-        self.content_text.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
-
-        btn_frame = ttk.Frame(main_frame)
-        btn_frame.pack(fill=tk.X)
-        ttk.Button(btn_frame, text="Invia ai Giocatori", style="Success.TButton", command=self.on_share).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(btn_frame, text="Annulla", command=self.destroy).pack(side=tk.RIGHT)
-
-        self.title_entry.focus_set()
-
-    def on_share(self):
-        title = self.title_entry.get().strip()
-        if not title:
-            messagebox.showwarning("Attenzione", "Il titolo è obbligatorio.", parent=self)
-            return
-        content = self.content_text.get("1.0", tk.END).strip()
-        if not content:
-            messagebox.showwarning("Attenzione", "Il contenuto non può essere vuoto.", parent=self)
-            return
-
-        from common.protocol import make_handout_broadcast
-        from common.network_utils import broadcast
-        broadcast(self.dm_gui.server.game_state, make_handout_broadcast(title, None, content))
-        messagebox.showinfo("Successo", "Documento condiviso con tutti i giocatori connessi!")
-        self.destroy()
-
-
-class CustomNPCDialog(tk.Toplevel):
-    def __init__(self, dm_gui):
-        super().__init__(dm_gui.master)
-        self.dm_gui = dm_gui
-        self.title("Crea Nuovo NPC / Mostro Custom")
-        self.minsize(550, 480)
-        self.transient(dm_gui.master)
-        self.grab_set()
-
-        from common.theme import apply_modern_window_style
-        apply_modern_window_style(self)
-
-        main_frame = ttk.Frame(self, padding="20")
-        main_frame.pack(fill=tk.BOTH, expand=True)
-
-        ttk.Label(main_frame, text="Nome del PNG/Mostro:", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, pady=(0, 5))
-        self.name_entry = ttk.Entry(main_frame, font=("Helvetica", 12))
-        self.name_entry.pack(fill=tk.X, pady=(0, 15))
-
-        grid_frame = ttk.Frame(main_frame)
-        grid_frame.pack(fill=tk.X, pady=(0, 15))
-        grid_frame.columnconfigure(1, weight=1)
-        grid_frame.columnconfigure(3, weight=1)
-
-        ttk.Label(grid_frame, text="HP Massimi:", font=("Helvetica", 11)).grid(row=0, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.hp_entry = ttk.Entry(grid_frame, font=("Helvetica", 11), width=10)
-        self.hp_entry.insert(0, "10")
-        self.hp_entry.grid(row=0, column=1, pady=5, sticky=tk.W)
-
-        ttk.Label(grid_frame, text="Iniziativa:", font=("Helvetica", 11)).grid(row=0, column=2, padx=(20, 10), pady=5, sticky=tk.W)
-        self.init_entry = ttk.Entry(grid_frame, font=("Helvetica", 11), width=10)
-        self.init_entry.insert(0, "0")
-        self.init_entry.grid(row=0, column=3, pady=5, sticky=tk.W)
-
-        ttk.Label(grid_frame, text="Classe Armatura (CA):", font=("Helvetica", 11)).grid(row=1, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.ac_entry = ttk.Entry(grid_frame, font=("Helvetica", 11), width=10)
-        self.ac_entry.insert(0, "10")
-        self.ac_entry.grid(row=1, column=1, pady=5, sticky=tk.W)
-
-        ttk.Label(grid_frame, text="Velocità (ft):", font=("Helvetica", 11)).grid(row=1, column=2, padx=(20, 10), pady=5, sticky=tk.W)
-        self.speed_entry = ttk.Entry(grid_frame, font=("Helvetica", 11), width=10)
-        self.speed_entry.insert(0, "30")
-        self.speed_entry.grid(row=1, column=3, pady=5, sticky=tk.W)
-
-        ttk.Label(main_frame, text="Note/Descrizione (opzionale):", font=("Helvetica", 11, "bold")).pack(anchor=tk.W, pady=(0, 5))
-        from tkinter import scrolledtext
-        self.notes_text = scrolledtext.ScrolledText(main_frame, font=("Helvetica", 11), height=5, wrap=tk.WORD)
-        self.notes_text.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
-
-        btn_frame = ttk.Frame(main_frame)
-        btn_frame.pack(fill=tk.X)
-        ttk.Button(btn_frame, text="Salva", style="Success.TButton", command=self.on_save).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(btn_frame, text="Annulla", command=self.destroy).pack(side=tk.RIGHT)
-
-        self.name_entry.focus_set()
-
-    def on_save(self):
-        name = self.name_entry.get().strip()
-        if not name:
-            messagebox.showwarning("Attenzione", "Il nome è obbligatorio.", parent=self)
-            return
-        if self.dm_gui.server.game_state.find_player(name):
-            messagebox.showerror("Errore", "Un'entità con questo nome esiste già.", parent=self)
-            return
-
-        try:
-            hp = int(self.hp_entry.get() or 10)
-            init = int(self.init_entry.get() or 0)
-            ac = int(self.ac_entry.get() or 10)
-            speed = int(self.speed_entry.get() or 30)
-        except ValueError:
-            messagebox.showerror("Errore", "I valori statistici devono essere numeri interi.", parent=self)
-            return
-
-        npc = Player(name, None, None)
-        npc.hp = hp
-        npc.max_hp = hp
-        npc.initiative = init
-        npc.speed = speed
-        
-        # Add basic full_sheet for CA and notes
-        npc.full_sheet = {
-            "ac": ac,
-            "notes": self.notes_text.get("1.0", tk.END).strip()
-        }
-
-        self.dm_gui.server.game_state.add_player(npc)
-        from common.protocol import make_player_joined
-        from common.network_utils import broadcast
-        broadcast(self.dm_gui.server.game_state, make_player_joined(npc.to_dict()))
-        self.dm_gui.log_to_chat(f"[SISTEMA] NPC Custom '{name}' aggiunto alla sessione.")
-        self.destroy()
-
-
-class DMPlayerSheetViewer(tk.Toplevel):
-    def __init__(self, master, player_name, sheet):
-        super().__init__(master)
-        self.title(f"Scheda Personaggio: {player_name}")
-        self.minsize(700, 680)
-        self.transient(master)
-        self.grab_set()
-        apply_modern_window_style(self)
-        
-        main_frame = ttk.Frame(self, padding="15")
-        main_frame.pack(fill=tk.BOTH, expand=True)
-
-        # 1. Header Card
-        header_card = ttk.LabelFrame(main_frame, text="Informazioni Generali", padding="10")
-        header_card.pack(fill=tk.X, pady=(0, 10))
-
-        ttk.Label(header_card, text=sheet.get("name", player_name), font=("Helvetica", 14, "bold")).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 5))
-        
-        ttk.Label(header_card, text="Classe:", font=("Helvetica", 10, "bold")).grid(row=1, column=0, sticky="w", padx=(0, 5))
-        ttk.Label(header_card, text=f"{sheet.get('char_class', '-')} (Lvl {sheet.get('level', 1)})").grid(row=1, column=1, sticky="w", padx=(0, 20))
-        ttk.Label(header_card, text="Razza:", font=("Helvetica", 10, "bold")).grid(row=1, column=2, sticky="w", padx=(0, 5))
-        ttk.Label(header_card, text=f"{sheet.get('race', '-')}").grid(row=1, column=3, sticky="w")
-
-        ttk.Label(header_card, text="Allineamento:", font=("Helvetica", 10, "bold")).grid(row=2, column=0, sticky="w", padx=(0, 5), pady=(4, 0))
-        ttk.Label(header_card, text=f"{sheet.get('alignment', '-')}").grid(row=2, column=1, sticky="w", padx=(0, 20), pady=(4, 0))
-        ttk.Label(header_card, text="Background:", font=("Helvetica", 10, "bold")).grid(row=2, column=2, sticky="w", padx=(0, 5), pady=(4, 0))
-        ttk.Label(header_card, text=f"{sheet.get('background', '-')}").grid(row=2, column=3, sticky="w", pady=(4, 0))
-
-        # 2. Notebook a Schede Tabellari
-        nb = ttk.Notebook(main_frame)
-        nb.pack(fill=tk.BOTH, expand=True)
-
-        # Tab 1: Statistiche & Caratteristiche
-        tab_stats = ttk.Frame(nb, padding="10")
-        nb.add(tab_stats, text="📊 Statistiche & Attributi")
-
-        vital_frame = ttk.LabelFrame(tab_stats, text="Combattimento", padding="10")
-        vital_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        hp_cur = sheet.get("hp_current", 0)
-        hp_max = sheet.get("hp_max", 0)
-        ac = sheet.get("ac", 10)
-        init = sheet.get("initiative", 0)
-        speed = sheet.get("speed", 30)
-
-        for col, (label, val) in enumerate([
-            ("Punti Ferita (HP)", f"{hp_cur} / {hp_max}"),
-            ("Classe Armatura (CA)", str(ac)),
-            ("Iniziativa", f"{'+' if init >= 0 else ''}{init}"),
-            ("Velocità", f"{speed} ft.")
-        ]):
-            box = ttk.Frame(vital_frame, relief="ridge", padding="8")
-            box.pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=5)
-            ttk.Label(box, text=label, font=("Helvetica", 9), anchor="center").pack()
-            ttk.Label(box, text=val, font=("Helvetica", 13, "bold"), anchor="center").pack(pady=2)
-
-        attr_frame = ttk.LabelFrame(tab_stats, text="Punteggi di Caratteristica", padding="10")
-        attr_frame.pack(fill=tk.BOTH, expand=True)
-
-        attr_tree = ttk.Treeview(attr_frame, columns=("Attr", "Score", "Mod"), show="headings", height=6)
-        attr_tree.heading("Attr", text="Caratteristica")
-        attr_tree.heading("Score", text="Punteggio Base")
-        attr_tree.heading("Mod", text="Modificatore")
-        attr_tree.column("Attr", width=150, anchor="center")
-        attr_tree.column("Score", width=120, anchor="center")
-        attr_tree.column("Mod", width=120, anchor="center")
-        attr_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        attrs = sheet.get("attributes", {})
-        attr_names = {
-            "FOR": "Forza (FOR)", "DES": "Destrezza (DES)", "COS": "Costituzione (COS)",
-            "INT": "Intelligenza (INT)", "SAG": "Saggezza (SAG)", "CAR": "Carisma (CAR)"
-        }
-        for k in ["FOR", "DES", "COS", "INT", "SAG", "CAR"]:
-            score = attrs.get(k, 10)
-            mod = (score - 10) // 2
-            mod_str = f"+{mod}" if mod >= 0 else str(mod)
-            attr_tree.insert("", tk.END, values=(attr_names.get(k, k), score, mod_str))
-
-        # Tab 2: Equipaggiamento & Inventario (Tabella)
-        tab_inv = ttk.Frame(nb, padding="10")
-        nb.add(tab_inv, text="🎒 Inventario")
-
-        inv_tree_frame = ttk.Frame(tab_inv)
-        inv_tree_frame.pack(fill=tk.BOTH, expand=True)
-
-        inv_tree = ttk.Treeview(inv_tree_frame, columns=("Slot", "Nome", "Tipo", "Qty", "Desc"), show="headings")
-        inv_tree.heading("Slot", text="#")
-        inv_tree.heading("Nome", text="Nome Oggetto")
-        inv_tree.heading("Tipo", text="Tipologia")
-        inv_tree.heading("Qty", text="Quantità")
-        inv_tree.heading("Desc", text="Descrizione / Effetto")
-        inv_tree.column("Slot", width=40, anchor="center")
-        inv_tree.column("Nome", width=150)
-        inv_tree.column("Tipo", width=110, anchor="center")
-        inv_tree.column("Qty", width=60, anchor="center")
-        inv_tree.column("Desc", width=250)
-        inv_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        inv_scroll = ttk.Scrollbar(inv_tree_frame, orient=tk.VERTICAL, command=inv_tree.yview)
-        inv_tree.configure(yscroll=inv_scroll.set)
-        inv_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-
-        grid = sheet.get("inventory_grid", [])
-        slot_idx = 1
-        if isinstance(grid, list):
-            for it in grid:
-                if it:
-                    inv_tree.insert("", tk.END, values=(
-                        str(slot_idx),
-                        it.get("name", "Sconosciuto"),
-                        it.get("type", "Oggetto"),
-                        str(it.get("qty", 1)),
-                        it.get("desc", "-")
-                    ))
-                    slot_idx += 1
-        raw_inv = sheet.get("inventory")
-        if raw_inv and isinstance(raw_inv, str) and slot_idx == 1:
-            inv_tree.insert("", tk.END, values=("1", "Inventario Testuale", "Testo", "1", raw_inv))
-
-        curr_frame = ttk.LabelFrame(tab_inv, text="Borsa delle Monete", padding="8")
-        curr_frame.pack(fill=tk.X, pady=(10, 0))
-        currency = sheet.get("currency", {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0})
-        if not isinstance(currency, dict):
-            currency = {"MO": sheet.get("gp", 0)}
-        for c_key, c_name in [("MR", "Rame (MR)"), ("MA", "Argento (MA)"), ("ME", "Electrum (ME)"), ("MO", "Oro (MO)"), ("MP", "Platino (MP)")]:
-            c_box = ttk.Frame(curr_frame, padding="5")
-            c_box.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
-            ttk.Label(c_box, text=c_name, font=("Helvetica", 9)).pack()
-            ttk.Label(c_box, text=str(currency.get(c_key, 0)), font=("Helvetica", 11, "bold"), foreground="#FFD700" if c_key=="MO" else TEXT_COLOR).pack()
-
-        # Tab 3: Grimorio & Incantesimi (Tabella)
-        tab_spells = ttk.Frame(nb, padding="10")
-        nb.add(tab_spells, text="✨ Grimorio")
-
-        slots_frame = ttk.LabelFrame(tab_spells, text="Slot Incantesimo", padding="8")
-        slots_frame.pack(fill=tk.X, pady=(0, 10))
-        spell_slots = sheet.get("spell_slots", {})
-        if isinstance(spell_slots, dict):
-            for i in range(1, 10):
-                s_info = spell_slots.get(str(i), {"max": 0, "current": 0})
-                if isinstance(s_info, dict):
-                    m = s_info.get("max", 0)
-                    c = s_info.get("current", 0)
-                elif isinstance(s_info, list):
-                    m = s_info[1] if len(s_info) > 1 else 0
-                    c = s_info[0] if len(s_info) > 0 else 0
-                else:
-                    m, c = 0, 0
-                s_box = ttk.Frame(slots_frame, padding="4")
-                s_box.pack(side=tk.LEFT, expand=True)
-                ttk.Label(s_box, text=f"Lvl {i}", font=("Helvetica", 8)).pack()
-                ttk.Label(s_box, text=f"{c}/{m}", font=("Helvetica", 10, "bold")).pack()
-
-        spells_tree_frame = ttk.Frame(tab_spells)
-        spells_tree_frame.pack(fill=tk.BOTH, expand=True)
-
-        spells_tree = ttk.Treeview(spells_tree_frame, columns=("Lvl", "Nome", "Tempo", "Raggio", "Desc"), show="headings")
-        spells_tree.heading("Lvl", text="Livello")
-        spells_tree.heading("Nome", text="Nome Incantesimo")
-        spells_tree.heading("Tempo", text="Lancio")
-        spells_tree.heading("Raggio", text="Raggio / Gittata")
-        spells_tree.heading("Desc", text="Descrizione / Effetto")
-        spells_tree.column("Lvl", width=70, anchor="center")
-        spells_tree.column("Nome", width=140)
-        spells_tree.column("Tempo", width=80, anchor="center")
-        spells_tree.column("Raggio", width=80, anchor="center")
-        spells_tree.column("Desc", width=250)
-        spells_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        spells_scroll = ttk.Scrollbar(spells_tree_frame, orient=tk.VERTICAL, command=spells_tree.yview)
-        spells_tree.configure(yscroll=spells_scroll.set)
-        spells_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-
-        spellbook = sheet.get("spellbook", [])
-        if isinstance(spellbook, list):
-            for sp in spellbook:
-                if isinstance(sp, dict):
-                    lvl = sp.get("level", 0)
-                    lvl_display = "Trucchetto" if lvl == 0 else f"Livello {lvl}"
-                    spells_tree.insert("", tk.END, values=(
-                        lvl_display,
-                        sp.get("name", "Sconosciuto"),
-                        sp.get("time", "-"),
-                        sp.get("range", "-"),
-                        sp.get("desc", "-")
-                    ))
-        raw_spells = sheet.get("spells")
-        if raw_spells and isinstance(raw_spells, str) and not spellbook:
-            spells_tree.insert("", tk.END, values(("-", "Incantesimi Testuali", "-", "-", raw_spells)))
-
-        # Tab 4: Privilegi & Note
-        tab_notes = ttk.Frame(nb, padding="10")
-        nb.add(tab_notes, text="📜 Privilegi & Note")
-
-        ttk.Label(tab_notes, text="Tratti e Privilegi:", font=("Helvetica", 11, "bold")).pack(anchor=tk.W, pady=(0, 2))
-        features_txt = scrolledtext.ScrolledText(tab_notes, height=8, wrap=tk.WORD, font=("Helvetica", 10))
-        features_txt.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-        features_txt.insert("1.0", sheet.get("features", "Nessun tratto speciale registrato."))
-        features_txt.config(state="disabled")
-
-        ttk.Label(tab_notes, text="Note e Background:", font=("Helvetica", 11, "bold")).pack(anchor=tk.W, pady=(0, 2))
-        notes_txt = scrolledtext.ScrolledText(tab_notes, height=6, wrap=tk.WORD, font=("Helvetica", 10))
-        notes_txt.pack(fill=tk.BOTH, expand=True)
-        notes_txt.insert("1.0", sheet.get("notes", "Nessuna nota presente."))
-        notes_txt.config(state="disabled")
-
-        close_btn = ttk.Button(main_frame, text="Chiudi Scheda", command=self.destroy)
-        close_btn.pack(side=tk.BOTTOM, pady=(10, 0))
-
-
-class CampaignStarterKitDialog(tk.Toplevel):
-    def __init__(self, dm_gui):
-        super().__init__(dm_gui.master)
-        self.dm_gui = dm_gui
-        self.title("Configura Starter Pack Campagna (Equipaggiamento Iniziale)")
-        self.minsize(650, 500)
-        self.transient(dm_gui.master)
-        self.grab_set()
-        apply_modern_window_style(self)
-
-        from common.starter_equipment import get_campaign_starter_kit, DEFAULT_CAMPAIGN_STARTER_KIT
-        cur_kit = getattr(self.dm_gui.server.game_state, "campaign_starter_kit", None)
-        if not cur_kit:
-            cur_kit = get_campaign_starter_kit()
-        self.items = [i.copy() for i in cur_kit]
-
-        main_frame = ttk.Frame(self, padding="15")
-        main_frame.pack(fill=tk.BOTH, expand=True)
-
-        ttk.Label(main_frame, text="Equipaggiamento Iniziale della Campagna", font=("Helvetica", 13, "bold")).pack(anchor=tk.W, pady=(0, 5))
-        ttk.Label(main_frame, text="I nuovi PG riceveranno automaticamente questi oggetti al loro primo login in questa campagna:", 
-                  wraplength=600).pack(anchor=tk.W, pady=(0, 10))
-
-        tree_frame = ttk.Frame(main_frame)
-        tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-
-        self.tree = ttk.Treeview(tree_frame, columns=("Nome", "Tipo", "Qty", "Peso", "Desc"), show="headings", height=8)
-        self.tree.heading("Nome", text="Nome Oggetto")
-        self.tree.heading("Tipo", text="Tipo")
-        self.tree.heading("Qty", text="Quantità")
-        self.tree.heading("Peso", text="Peso (lbs)")
-        self.tree.heading("Desc", text="Descrizione")
-        self.tree.column("Nome", width=150)
-        self.tree.column("Tipo", width=100, anchor="center")
-        self.tree.column("Qty", width=60, anchor="center")
-        self.tree.column("Peso", width=70, anchor="center")
-        self.tree.column("Desc", width=220)
-        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        scroll = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
-        self.tree.configure(yscroll=scroll.set)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
-
-        self.refresh_list()
-
-        btn_row = ttk.Frame(main_frame)
-        btn_row.pack(fill=tk.X, pady=(0, 10))
-
-        ttk.Button(btn_row, text="+ Aggiungi Oggetto", command=self.on_add_item).pack(side=tk.LEFT, padx=3)
-        ttk.Button(btn_row, text="Rimuovi Selezionato", command=self.on_remove_item).pack(side=tk.LEFT, padx=3)
-        ttk.Button(btn_row, text="Ripristina Predefiniti", command=self.on_reset_defaults).pack(side=tk.LEFT, padx=3)
-
-        bottom_row = ttk.Frame(main_frame)
-        bottom_row.pack(fill=tk.X)
-        ttk.Button(bottom_row, text="Salva Configurazione", style="Success.TButton", command=self.on_save).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(bottom_row, text="Annulla", command=self.destroy).pack(side=tk.RIGHT)
-
-    def refresh_list(self):
-        for it in self.tree.get_children():
-            self.tree.delete(it)
-        for idx, item in enumerate(self.items):
-            self.tree.insert("", tk.END, iid=str(idx), values=(
-                item.get("name", ""),
-                item.get("type", "Oggetto"),
-                str(item.get("qty", 1)),
-                str(item.get("weight", 0.0)),
-                item.get("desc", "")
-            ))
-
-    def on_add_item(self):
-        name = simpledialog.askstring("Nuovo Oggetto", "Nome dell'oggetto:", parent=self)
-        if not name or not name.strip(): return
-        item_type = simpledialog.askstring("Tipo Oggetto", "Tipo (Arma, Armatura, Consumabile, Documento, Valuta, Equipaggiamento):", initialvalue="Equipaggiamento", parent=self) or "Equipaggiamento"
-        qty = simpledialog.askinteger("Quantità", "Quantità:", initialvalue=1, minvalue=1, parent=self) or 1
-        desc = simpledialog.askstring("Descrizione", "Descrizione o effetto dell'oggetto:", parent=self) or ""
-        self.items.append({
-            "name": name.strip(),
-            "type": item_type.strip(),
-            "qty": qty,
-            "weight": 1.0,
-            "desc": desc.strip()
-        })
-        self.refresh_list()
-
-    def on_remove_item(self):
-        sel = self.tree.selection()
-        if not sel: return
-        idx = int(sel[0])
-        self.items.pop(idx)
-        self.refresh_list()
-
-    def on_reset_defaults(self):
-        from common.starter_equipment import DEFAULT_CAMPAIGN_STARTER_KIT
-        if messagebox.askyesno("Ripristina", "Vuoi ripristinare il kit iniziale predefinito della campagna?", parent=self):
-            self.items = [i.copy() for i in DEFAULT_CAMPAIGN_STARTER_KIT]
-            self.refresh_list()
-
-    def on_save(self):
-        from common.starter_equipment import save_campaign_starter_kit
-        save_campaign_starter_kit(self.items)
-        self.dm_gui.server.game_state.campaign_starter_kit = [i.copy() for i in self.items]
-        messagebox.showinfo("Salvato", "Equipaggiamento iniziale della campagna salvato con successo!", parent=self)
-        self.destroy()
-
-
 
 if __name__ == "__main__":
     import tkinter as tk
     root = tk.Tk()
     DM_GUI(root)
     root.mainloop()
+

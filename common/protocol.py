@@ -130,8 +130,14 @@ def make_fow_update_broadcast(fow_revealed, fow_draft):
 def make_map_data_update_broadcast(map_data):
     return {"type": "MAP_DATA_UPDATE", "data": {"map": map_data}}
 
-def make_combat_state_update_broadcast(combat_active, turn_index, round_number, active_aoes):
-    return {"type": "COMBAT_STATE_UPDATE", "data": {"combat_active": combat_active, "turn_index": turn_index, "round_number": round_number, "active_aoes": active_aoes}}
+def make_combat_state_update_broadcast(combat_active, turn_index, round_number, active_aoes, turn_player_name=""):
+    return {"type": "COMBAT_STATE_UPDATE", "data": {
+        "combat_active": combat_active,
+        "turn_index": turn_index,
+        "round_number": round_number,
+        "active_aoes": active_aoes,
+        "turn_player_name": turn_player_name
+    }}
 
 def make_audio_play_broadcast(url_or_name):
     return {"type": "AUDIO_PLAY_BROADCAST", "data": {"url": url_or_name}}
@@ -144,3 +150,17 @@ def make_custom_spell_response(player_name, spell_dict, approved, reason=""):
 
 def make_campaign_starter_granted(items, full_sheet=None):
     return {"type": "CAMPAIGN_STARTER_GRANTED", "data": {"items": items, "full_sheet": full_sheet}}
+
+# --- Tracce audio caricate dal DM ---
+def make_audio_track_play(track_id, name, ext, size, channel="music", loop=False, volume=1.0):
+    return {"type": "AUDIO_TRACK_PLAY", "data": {"track_id": track_id, "name": name, "ext": ext, "size": size,
+                                                  "channel": channel, "loop": loop, "volume": volume}}
+
+def make_audio_stop(channel="all"):
+    return {"type": "AUDIO_STOP", "data": {"channel": channel}}
+
+def make_audio_track_request(track_id):
+    return {"type": "AUDIO_TRACK_REQUEST", "data": {"track_id": track_id}}
+
+def make_audio_track_chunk(track_id, index, total, data_b64, ext=None):
+    return {"type": "AUDIO_TRACK_CHUNK", "data": {"track_id": track_id, "index": index, "total": total, "data": data_b64, "ext": ext}}

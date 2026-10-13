@@ -123,8 +123,9 @@ def handle_end_turn_request(data, player, game_state):
             msg = f"Round {game_state.round_number} - Turno di {next_p.name}!"
             game_state.log_dm_message(f"[COMBAT] {msg}")
             broadcast(game_state, make_chat_broadcast("Sistema", msg))
-        from common.protocol import make_game_state
-        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        from common.protocol import make_combat_state_update_broadcast
+        next_name = next_p.name if next_p else ""
+        broadcast(game_state, make_combat_state_update_broadcast(game_state.combat_active, game_state.turn_index, game_state.round_number, game_state.active_aoes, next_name))
 
 def handle_submit_initiative(data, player, game_state):
     init = data.get("initiative", 0)

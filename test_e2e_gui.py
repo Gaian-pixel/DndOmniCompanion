@@ -123,13 +123,22 @@ def test_flow():
         sys.exit(1)
         
     print("7. Chiusura pulita delle socket...")
-    if hasattr(client_gui, 'client_socket'):
-        client_gui.client_socket.close()
+    if hasattr(client_gui, 'voice_client') and client_gui.voice_client:
+        try: client_gui.voice_client.stop()
+        except Exception: pass
+    if hasattr(server_gui, 'voice_client') and server_gui.voice_client:
+        try: server_gui.voice_client.stop()
+        except Exception: pass
+    if hasattr(client_gui, 'client_socket') and client_gui.client_socket:
+        try: client_gui.client_socket.close()
+        except Exception: pass
     server_gui.server.stop()
     
     root_client.destroy()
     root_server.destroy()
     print("\n[SUCCESSO] TUTTI I TEST PASSATI SENZA ERRORI!")
+    sys.exit(0)
 
 if __name__ == "__main__":
     test_flow()
+

@@ -27,3 +27,8 @@ srd_data/
 ui_screenshots/
 *.log
 
+# Audio Library & Cache
+audio_library/*
+!audio_library/.gitkeep
+client_data/audio_cache/
+
