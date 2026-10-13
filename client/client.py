@@ -88,9 +88,17 @@ class ClientGUI:
         left_panel = tk.Frame(main_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=6)
         left_panel.grid(row=0, column=0, sticky="ns", padx=(0, 6))
         
-        self.center_map_btn = ttk.Button(left_panel, text='👆', width=3, style="Tool.TButton", command=lambda: self.map_canvas.center_view())
+        self.center_map_btn = ttk.Button(left_panel, text='👆', width=3, style="Tool.TButton", command=lambda: self.map_canvas.center_view() if self.map_canvas else None)
         self.center_map_btn.pack(pady=3)
         ToolTip(self.center_map_btn, "Centra Mappa")
+
+        self.zoom_in_btn = ttk.Button(left_panel, text='➕', width=3, style="Tool.TButton", command=lambda: self.map_canvas.zoom_in() if self.map_canvas else None)
+        self.zoom_in_btn.pack(pady=3)
+        ToolTip(self.zoom_in_btn, "Ingrandisci Mappa (+)")
+
+        self.zoom_out_btn = ttk.Button(left_panel, text='➖', width=3, style="Tool.TButton", command=lambda: self.map_canvas.zoom_out() if self.map_canvas else None)
+        self.zoom_out_btn.pack(pady=3)
+        ToolTip(self.zoom_out_btn, "Rimpicciolisci Mappa (-)")
         
         self.aoe_button = ttk.Button(left_panel, text="💥", width=3, style="Tool.TButton", command=self.open_aoe_dialog)
         self.aoe_button.pack(pady=3)

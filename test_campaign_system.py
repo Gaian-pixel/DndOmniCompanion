@@ -171,6 +171,24 @@ class TestCampaignUISmoke(unittest.TestCase):
         selector.destroy()
         self.root.update()
 
+    def test_launch_dm_with_campaign(self):
+        """Verifica che DM_GUI si avvii con una campagna senza deadlock o schermata bianca."""
+        from server.dm_gui import DM_GUI
+        camp = Campaign.load("campaigns/la_cripta_dei_sussurri")
+        
+        top = tk.Toplevel(self.root)
+        try:
+            dm = DM_GUI(top, initial_campaign=camp)
+            self.root.update()
+            self.assertEqual(dm.server.game_state.active_campaign.name, "La Cripta dei Sussurri")
+            self.assertIn("La Cripta dei Sussurri", dm.lbl_campaign_name.cget("text"))
+            dm.server.stop()
+            if getattr(dm, 'voice_client', None):
+                dm.voice_client.stop()
+        finally:
+            top.destroy()
+            self.root.update()
+
 
 if __name__ == "__main__":
     unittest.main()

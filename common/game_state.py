@@ -47,7 +47,7 @@ class Player:
 class GameState:
     def __init__(self, gui_queue):
         self.players = []
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.gui_queue = gui_queue
         self.maps = {}
         self.active_map_id = "default"

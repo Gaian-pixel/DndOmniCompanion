@@ -56,10 +56,13 @@ class DM_GUI:
         # Se avviato con una campagna preparata, applicala immediatamente
         if self.initial_campaign:
             self.initial_campaign.apply_to_game_state(self.server.game_state)
+            if hasattr(self, "lbl_campaign_name"):
+                self.lbl_campaign_name.config(text=f"🏰 Campagna: {self.initial_campaign.name}")
             if self.server.game_state.current_map:
                 self.fow_enabled_var.set(self.server.game_state.current_map.get("fow_enabled", False))
                 self.redraw_map_and_players()
             self.log_to_chat(f"[SISTEMA] Campagna '{self.initial_campaign.name}' applicata con successo.")
+
             
         self.server_thread=threading.Thread(target=self.server.start, daemon=True); self.server_thread.start()
         self.voice_client = VoiceClient("127.0.0.1", 53912)
@@ -114,6 +117,14 @@ class DM_GUI:
         btn1 = ttk.Button(left_toolbar, text="👆", width=3, style="Tool.TButton", command=lambda: self.map_canvas.center_view() if self.map_canvas else None)
         btn1.pack(pady=3)
         ToolTip(btn1, "Centra Mappa")
+
+        btn_zin = ttk.Button(left_toolbar, text="➕", width=3, style="Tool.TButton", command=lambda: self.map_canvas.zoom_in() if self.map_canvas else None)
+        btn_zin.pack(pady=3)
+        ToolTip(btn_zin, "Ingrandisci Mappa (+)")
+
+        btn_zout = ttk.Button(left_toolbar, text="➖", width=3, style="Tool.TButton", command=lambda: self.map_canvas.zoom_out() if self.map_canvas else None)
+        btn_zout.pack(pady=3)
+        ToolTip(btn_zout, "Rimpicciolisci Mappa (-)")
         
         btn2 = ttk.Button(left_toolbar, text="☁️", width=3, style="Tool.TButton", command=lambda: print("Nebbia: Placeholder"))
         btn2.pack(pady=3)

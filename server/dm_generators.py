@@ -484,3 +484,4 @@ class RandomNPCDialog(tk.Toplevel):
         )
         active_c.save()
         messagebox.showinfo("Salvato", f"PNG '{name}' salvato nella campagna '{active_c.name}'!", parent=self)
+
