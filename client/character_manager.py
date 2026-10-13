@@ -1,5 +1,5 @@
-import json
 import os
+from common.file_utils import atomic_save_json, load_json
 
 CHARACTER_FILE = "client_data/characters.json"
 
@@ -122,24 +122,14 @@ class CharacterManager:
         self.load_characters()
         
     def load_characters(self):
-        if not os.path.exists("client_data"):
-            os.makedirs("client_data")
-        if not os.path.exists(CHARACTER_FILE):
+        data = load_json(CHARACTER_FILE, default=[])
+        if isinstance(data, list):
+            self.characters = [Character.from_dict(d) for d in data if isinstance(d, dict)]
+        else:
             self.characters = []
-            return
-            
-        with open(CHARACTER_FILE, "r", encoding="utf-8") as f:
-            try:
-                data = json.load(f)
-                self.characters = [Character.from_dict(d) for d in data]
-            except json.JSONDecodeError:
-                self.characters = []
-                
+
     def save_characters(self):
-        if not os.path.exists("client_data"):
-            os.makedirs("client_data")
-        with open(CHARACTER_FILE, "w", encoding="utf-8") as f:
-            json.dump([c.to_dict() for c in self.characters], f, indent=4)
+        atomic_save_json(CHARACTER_FILE, [c.to_dict() for c in self.characters], indent=4)
             
     def add_character(self, character):
         self.characters.append(character)

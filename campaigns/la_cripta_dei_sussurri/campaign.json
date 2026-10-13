@@ -1,0 +1,148 @@
+{
+    "name": "La Cripta dei Sussurri",
+    "description": "Gli abitanti del villaggio di Rovescuro lamentano sinistri lamenti notturni provenienti dalle catacombe dimenticate sotto la collina. Il borgo ha promesso una ricca ricompensa a chi scoprirà l'origine del male e purificherà il santuario.",
+    "level_range": "1-3",
+    "dm_notes": "SEGRETI DEL DM:\n1. I sussurri sono causati da uno spettro evocato da un cultista nascosto.\n2. Padre Lucian conosce il passato della cripta ma nasconde una chiave sacra.\n3. Nella sala est c'è una trappola a pressione: DC 13 Percezione per notarla.",
+    "start_date": {
+        "year": 1492,
+        "month": 10,
+        "day": 13,
+        "hour": 20
+    },
+    "start_weather": "Nebbia",
+    "starter_kit": [
+        {
+            "name": "Torcia",
+            "type": "Equipaggiamento",
+            "qty": 3,
+            "weight": 1.0,
+            "desc": "Luce brillante raggio 20ft."
+        },
+        {
+            "name": "Pozione di Cura",
+            "type": "Consumabile",
+            "qty": 1,
+            "weight": 0.5,
+            "desc": "Cura 2d4 + 2 HP."
+        },
+        {
+            "name": "Razione da Viaggio",
+            "type": "Consumabile",
+            "qty": 5,
+            "weight": 2.0,
+            "desc": "Sostentamento per un giorno."
+        },
+        {
+            "name": "Corda di Canapa (15m)",
+            "type": "Equipaggiamento",
+            "qty": 1,
+            "weight": 10.0,
+            "desc": "Resistente fino a 150kg."
+        }
+    ],
+    "starting_map_file": "maps/faerun.json",
+    "scenes": [
+        {
+            "name": "Piazza di Rovescuro",
+            "map_file": "maps/faerun.json",
+            "description": "Il piccolo villaggio avvolto da una nebbia fitta e gelida."
+        },
+        {
+            "name": "Ingresso Catacombe",
+            "map_file": "maps/faerun.json",
+            "description": "Una pesante grata in ferro divelta che scende nell'oscurità."
+        }
+    ],
+    "encounters": [
+        {
+            "name": "Pattuglia di Scheletri all'Ingresso",
+            "act": "Atto 1 - La Discesa",
+            "description": "3 Scheletri armati di archi corti nascosti dietro le colonne.",
+            "monsters": [
+                {
+                    "name": "Scheletro Arciere",
+                    "count": 2,
+                    "hp": 13,
+                    "initiative": 2,
+                    "xp": 50
+                },
+                {
+                    "name": "Scheletro Guerriero",
+                    "count": 1,
+                    "hp": 15,
+                    "initiative": 2,
+                    "xp": 50
+                }
+            ]
+        },
+        {
+            "name": "Lo Spettro dei Sussurri (Boss)",
+            "act": "Atto 2 - Il Santuario Violato",
+            "description": "Lo spirito inquieto di Lord Malakor che infesta l'altare.",
+            "monsters": [
+                {
+                    "name": "Spettro dei Sussurri",
+                    "count": 1,
+                    "hp": 32,
+                    "initiative": 3,
+                    "xp": 200
+                },
+                {
+                    "name": "Teschio Fiammeggiante",
+                    "count": 1,
+                    "hp": 18,
+                    "initiative": 3,
+                    "xp": 100
+                }
+            ]
+        }
+    ],
+    "quests": [
+        {
+            "title": "L'Indagine di Rovescuro",
+            "description": "Parla con Padre Lucian per scoprire da dove provengono i rumori notturni.",
+            "chapter": "Atto 1",
+            "rewards": {
+                "xp": 150,
+                "gp": 30
+            },
+            "completed": false
+        },
+        {
+            "title": "Purifica l'Altare Sconsacrato",
+            "description": "Sconfiggi lo Spettro e spezza la maledizione che infesta le catacombe.",
+            "chapter": "Atto 2",
+            "rewards": {
+                "xp": 400,
+                "gp": 100
+            },
+            "completed": false
+        }
+    ],
+    "npcs": [
+        {
+            "name": "Padre Lucian",
+            "role": "Sacerdote del villaggio",
+            "hp": 18,
+            "ac": 13,
+            "faction": "Alleato",
+            "notes": "Uomo devoto e timoroso. Consegnerà una pozione di cura se convinto con DC 12 Persuasione."
+        },
+        {
+            "name": "Krag l'Oscuro",
+            "role": "Cultista rinnegato",
+            "hp": 24,
+            "ac": 12,
+            "faction": "Nemico",
+            "notes": "Fugge nelle ombre non appena la battaglia volge a suo sfavore."
+        }
+    ],
+    "shops": {},
+    "handouts": [
+        {
+            "title": "Pergamena Strappata di Lord Malakor",
+            "content": "'...e quando il sangue toccherà la pietra di luna, la soglia tra i mondi si aprirà.\nNessun mortale potrà arrestare la vendetta dei caduti...'\n(Trascrizione trovata accanto a uno scheletro)",
+            "image_path": ""
+        }
+    ]
+}

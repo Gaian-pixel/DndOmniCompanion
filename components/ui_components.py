@@ -354,11 +354,16 @@ class HexMapCanvas(tk.Canvas):
         screen_y = center_y * self.zoom_level + self.pan_offset_y
         
         radius = self.hex_layout.size * self.zoom_level
-        ping_id = self.create_oval(screen_x - radius, screen_y - radius, 
-                                   screen_x + radius, screen_y + radius, 
-                                   outline=color, width=4)
+        ping_outer = self.create_oval(screen_x - radius, screen_y - radius, 
+                                      screen_x + radius, screen_y + radius, 
+                                      outline=color, width=3)
+        ping_inner = self.create_oval(screen_x - radius * 0.5, screen_y - radius * 0.5, 
+                                      screen_x + radius * 0.5, screen_y + radius * 0.5, 
+                                      outline=color, width=2)
+        ping_dot = self.create_oval(screen_x - 3, screen_y - 3, screen_x + 3, screen_y + 3, fill=color, outline="")
         
-        self.after(2000, lambda: self.delete(ping_id))
+        ping_ids = [ping_outer, ping_inner, ping_dot]
+        self.after(2200, lambda: [self.delete(pid) for pid in ping_ids])
 
     def center_view(self):
         """Centra la vista della mappa mantenendo lo zoom attuale."""
@@ -605,22 +610,41 @@ class HexMapCanvas(tk.Canvas):
             center_x, center_y = self.hex_layout.hex_to_pixel(current_hex)
             screen_x = center_x * self.zoom_level + self.pan_offset_x
             screen_y = center_y * self.zoom_level + self.pan_offset_y
-            color = "#90EE90" if name == self.player_name else "#87CEEB"
-            radius = 10 * size_mult
+            is_me = (name == self.player_name)
+            is_party = pdata.get('is_party_member', False) if isinstance(pdata, dict) else False
+            if is_me:
+                token_base_color = "#2B8A3E"   # Smeraldo eroe
+                token_border_color = "#D4AF37" # Bordo oro
+            elif is_party:
+                token_base_color = "#1971C2"   # Blu arcano alleati
+                token_border_color = "#4DABF7"
+            else:
+                token_base_color = "#C92A2A"   # Cremisi mostri / NPC
+                token_border_color = "#FF8787"
+
+            radius = 12 * size_mult
             
+            # Aura magica ad anelli concentrici
             if aura_radius > 0:
-                # aura_radius è in esagoni. La distanza tra centri è circa 1.732 * size.
                 screen_aura_r = aura_radius * self.hex_layout.size * 1.732 * self.zoom_level
                 self.create_oval(screen_x - screen_aura_r, screen_y - screen_aura_r, 
                                  screen_x + screen_aura_r, screen_y + screen_aura_r, 
                                  fill="", outline=aura_color, dash=(8, 4), width=3)
+                inner_aura_r = max(radius + 2, screen_aura_r * 0.7)
+                self.create_oval(screen_x - inner_aura_r, screen_y - inner_aura_r,
+                                 screen_x + inner_aura_r, screen_y + inner_aura_r,
+                                 fill="", outline=aura_color, dash=(4, 4), width=1)
             
+            # Evidenziazione Turno Attivo (Doppio anello oro radiante)
             is_turn = getattr(self, "turn_player_name", "") == name
             if is_turn:
-                self.create_oval(screen_x-(radius+3), screen_y-(radius+3), screen_x+(radius+3), screen_y+(radius+3), fill="", outline="red", width=3)
-                
-            is_invisible = "Invisibile" in conditions
+                self.create_oval(screen_x-(radius+5), screen_y-(radius+5), screen_x+(radius+5), screen_y+(radius+5), fill="", outline="#FCC419", width=2)
+                self.create_oval(screen_x-(radius+3), screen_y-(radius+3), screen_x+(radius+3), screen_y+(radius+3), fill="", outline="#D4AF37", width=3)
             
+            # Ombreggiatura per profondità token
+            self.create_oval(screen_x-radius+1, screen_y-radius+2, screen_x+radius+1, screen_y+radius+2, fill="#0A0B0D", outline="")
+
+            is_invisible = "Invisibile" in conditions
             avatar_b64 = pdata.get('avatar_b64') if isinstance(pdata, dict) else None
             
             if avatar_b64:
@@ -632,7 +656,6 @@ class HexMapCanvas(tk.Canvas):
                         target_size = int(radius * 2)
                         img = img.resize((target_size, target_size), Image.Resampling.LANCZOS)
                         
-                        # Apply circular mask
                         mask = Image.new('L', (target_size, target_size), 0)
                         from PIL import ImageDraw
                         draw = ImageDraw.Draw(mask)
@@ -649,33 +672,30 @@ class HexMapCanvas(tk.Canvas):
                 tk_img = self._avatar_cache.get(cache_key)
                 if tk_img:
                     self.create_image(screen_x, screen_y, image=tk_img, anchor="center")
-                    if is_invisible:
-                        self.create_oval(screen_x-radius, screen_y-radius, screen_x+radius, screen_y+radius, fill="", outline="gray", dash=(2,2), width=2)
+                    ring_outline = "gray" if is_invisible else token_border_color
+                    ring_dash = (2, 2) if is_invisible else ""
+                    self.create_oval(screen_x-radius, screen_y-radius, screen_x+radius, screen_y+radius, fill="", outline=ring_outline, width=2, dash=ring_dash)
                 else:
-                    outline_style = "gray" if is_invisible else "white"
+                    outline_style = "gray" if is_invisible else token_border_color
                     dash_style = (2, 2) if is_invisible else ""
-                    self.create_oval(screen_x-radius, screen_y-radius, screen_x+radius, screen_y+radius, fill=color, outline=outline_style, dash=dash_style)
+                    self.create_oval(screen_x-radius, screen_y-radius, screen_x+radius, screen_y+radius, fill=token_base_color, outline=outline_style, width=2, dash=dash_style)
+                    self.create_text(screen_x, screen_y, text=name[:2].upper(), fill="white", font=("Segoe UI", 8, "bold"))
             else:
-                outline_style = "gray" if is_invisible else "white"
+                outline_style = "gray" if is_invisible else token_border_color
                 dash_style = (2, 2) if is_invisible else ""
-                
-                if dash_style:
-                    self.create_oval(screen_x-radius, screen_y-radius, screen_x+radius, screen_y+radius, fill=color, outline=outline_style, dash=dash_style)
-                else:
-                    self.create_oval(screen_x-radius, screen_y-radius, screen_x+radius, screen_y+radius, fill=color, outline=outline_style)
-                    
-                self.create_text(screen_x, screen_y, text=name[:2], fill="black", font=("Arial", 8, "bold"))
+                self.create_oval(screen_x-radius, screen_y-radius, screen_x+radius, screen_y+radius, fill=token_base_color, outline=outline_style, width=2, dash=dash_style)
+                self.create_text(screen_x, screen_y, text=name[:2].upper(), fill="white", font=("Segoe UI", 8, "bold"))
 
-            
             if hp_max > 0:
-                bar_w = radius * 2
+                bar_w = radius * 2.2
                 bar_h = 4
-                bar_y = screen_y + radius + 2
-                bar_x = screen_x - radius
-                hp_ratio = max(0, min(1, hp / hp_max))
-                self.create_rectangle(bar_x, bar_y, bar_x + bar_w, bar_y + bar_h, fill="red", outline="black")
+                bar_y = screen_y + radius + 3
+                bar_x = screen_x - (bar_w / 2)
+                hp_ratio = max(0.0, min(1.0, hp / hp_max))
+                self.create_rectangle(bar_x, bar_y, bar_x + bar_w, bar_y + bar_h, fill="#1A1B1E", outline="#2C2E33")
                 if hp_ratio > 0:
-                    self.create_rectangle(bar_x, bar_y, bar_x + (bar_w * hp_ratio), bar_y + bar_h, fill="green", outline="")
+                    bar_color = "#2B8A3E" if hp_ratio > 0.5 else ("#F59F00" if hp_ratio > 0.25 else "#C92A2A")
+                    self.create_rectangle(bar_x, bar_y, bar_x + (bar_w * hp_ratio), bar_y + bar_h, fill=bar_color, outline="")
 
             if conditions:
                 cond_colors = {

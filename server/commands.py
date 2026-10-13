@@ -4,6 +4,7 @@ from server.rules.map_interaction import *
 from server.rules.inventory import *
 from server.rules.character import *
 from server.rules.chat import *
+from server.rules.audio import handle_audio_track_request
 
 command_handlers = {
     "DRAW_REQUEST": handle_draw_request,
@@ -32,4 +33,5 @@ command_handlers = {
     "LONG_REST_VOTE": handle_long_rest_vote,
     "BUY_ITEM_REQUEST": handle_buy_item_request,
     "CUSTOM_SPELL_REQUEST": handle_custom_spell_request,
+    "AUDIO_TRACK_REQUEST": handle_audio_track_request,
 }

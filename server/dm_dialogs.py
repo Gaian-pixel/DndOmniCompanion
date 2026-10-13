@@ -1,0 +1,460 @@
+# server/dm_dialogs.py
+"""
+Dialoghi e finestre secondarie per il Dungeon Master (DM_GUI).
+Decomposti per migliorare la manutenibilità e leggibilità del codice server.
+"""
+import tkinter as tk
+from tkinter import ttk, scrolledtext, simpledialog
+from common.messagebox import messagebox
+from common.theme import apply_modern_window_style, TEXT_COLOR
+from common.game_state import Player
+from common.protocol import make_handout_broadcast, make_player_joined
+from common.network_utils import broadcast
+
+
+class TextHandoutDialog(tk.Toplevel):
+    def __init__(self, dm_gui):
+        super().__init__(dm_gui.master)
+        self.dm_gui = dm_gui
+        self.title("Condividi Documento / Nota Testuale")
+        self.minsize(580, 450)
+        self.transient(dm_gui.master)
+        self.grab_set()
+        apply_modern_window_style(self)
+
+        main_frame = ttk.Frame(self, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(main_frame, text="Titolo del Documento:", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, pady=(0, 5))
+        self.title_entry = ttk.Entry(main_frame, font=("Helvetica", 12))
+        self.title_entry.pack(fill=tk.X, pady=(0, 15))
+
+        ttk.Label(main_frame, text="Testo da mostrare ai giocatori:", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, pady=(0, 5))
+        self.content_text = scrolledtext.ScrolledText(main_frame, font=("Helvetica", 11), wrap=tk.WORD, height=10)
+        self.content_text.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
+
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.pack(fill=tk.X)
+        ttk.Button(btn_frame, text="Invia ai Giocatori", style="Success.TButton", command=self.on_share).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(btn_frame, text="Annulla", command=self.destroy).pack(side=tk.RIGHT)
+
+        self.title_entry.focus_set()
+
+    def on_share(self):
+        title = self.title_entry.get().strip()
+        if not title:
+            messagebox.showwarning("Attenzione", "Il titolo è obbligatorio.", parent=self)
+            return
+        content = self.content_text.get("1.0", tk.END).strip()
+        if not content:
+            messagebox.showwarning("Attenzione", "Il contenuto non può essere vuoto.", parent=self)
+            return
+
+        broadcast(self.dm_gui.server.game_state, make_handout_broadcast(title, None, content))
+        messagebox.showinfo("Successo", "Documento condiviso con tutti i giocatori connessi!")
+        self.destroy()
+
+
+class CustomNPCDialog(tk.Toplevel):
+    def __init__(self, dm_gui):
+        super().__init__(dm_gui.master)
+        self.dm_gui = dm_gui
+        self.title("Crea Nuovo NPC / Mostro Custom")
+        self.minsize(550, 480)
+        self.transient(dm_gui.master)
+        self.grab_set()
+        apply_modern_window_style(self)
+
+        main_frame = ttk.Frame(self, padding="20")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(main_frame, text="Nome del PNG/Mostro:", font=("Helvetica", 12, "bold")).pack(anchor=tk.W, pady=(0, 5))
+        self.name_entry = ttk.Entry(main_frame, font=("Helvetica", 12))
+        self.name_entry.pack(fill=tk.X, pady=(0, 15))
+
+        grid_frame = ttk.Frame(main_frame)
+        grid_frame.pack(fill=tk.X, pady=(0, 15))
+        grid_frame.columnconfigure(1, weight=1)
+        grid_frame.columnconfigure(3, weight=1)
+
+        ttk.Label(grid_frame, text="HP Massimi:", font=("Helvetica", 11)).grid(row=0, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        self.hp_entry = ttk.Entry(grid_frame, font=("Helvetica", 11), width=10)
+        self.hp_entry.insert(0, "10")
+        self.hp_entry.grid(row=0, column=1, pady=5, sticky=tk.W)
+
+        ttk.Label(grid_frame, text="Iniziativa:", font=("Helvetica", 11)).grid(row=0, column=2, padx=(20, 10), pady=5, sticky=tk.W)
+        self.init_entry = ttk.Entry(grid_frame, font=("Helvetica", 11), width=10)
+        self.init_entry.insert(0, "0")
+        self.init_entry.grid(row=0, column=3, pady=5, sticky=tk.W)
+
+        ttk.Label(grid_frame, text="Classe Armatura (CA):", font=("Helvetica", 11)).grid(row=1, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        self.ac_entry = ttk.Entry(grid_frame, font=("Helvetica", 11), width=10)
+        self.ac_entry.insert(0, "10")
+        self.ac_entry.grid(row=1, column=1, pady=5, sticky=tk.W)
+
+        ttk.Label(grid_frame, text="Velocità (ft):", font=("Helvetica", 11)).grid(row=1, column=2, padx=(20, 10), pady=5, sticky=tk.W)
+        self.speed_entry = ttk.Entry(grid_frame, font=("Helvetica", 11), width=10)
+        self.speed_entry.insert(0, "30")
+        self.speed_entry.grid(row=1, column=3, pady=5, sticky=tk.W)
+
+        ttk.Label(main_frame, text="Note/Descrizione (opzionale):", font=("Helvetica", 11, "bold")).pack(anchor=tk.W, pady=(0, 5))
+        self.notes_text = scrolledtext.ScrolledText(main_frame, font=("Helvetica", 11), height=5, wrap=tk.WORD)
+        self.notes_text.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
+
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.pack(fill=tk.X)
+        ttk.Button(btn_frame, text="Salva", style="Success.TButton", command=self.on_save).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(btn_frame, text="Annulla", command=self.destroy).pack(side=tk.RIGHT)
+
+        self.name_entry.focus_set()
+
+    def on_save(self):
+        name = self.name_entry.get().strip()
+        if not name:
+            messagebox.showwarning("Attenzione", "Il nome è obbligatorio.", parent=self)
+            return
+        if self.dm_gui.server.game_state.find_player(name):
+            messagebox.showerror("Errore", "Un'entità con questo nome esiste già.", parent=self)
+            return
+
+        try:
+            hp = int(self.hp_entry.get() or 10)
+            init = int(self.init_entry.get() or 0)
+            ac = int(self.ac_entry.get() or 10)
+            speed = int(self.speed_entry.get() or 30)
+        except ValueError:
+            messagebox.showerror("Errore", "I valori statistici devono essere numeri interi.", parent=self)
+            return
+
+        npc = Player(name, None, None)
+        npc.hp = hp
+        npc.max_hp = hp
+        npc.initiative = init
+        npc.speed = speed
+        
+        npc.full_sheet = {
+            "ac": ac,
+            "notes": self.notes_text.get("1.0", tk.END).strip()
+        }
+
+        self.dm_gui.server.game_state.add_player(npc)
+        broadcast(self.dm_gui.server.game_state, make_player_joined(npc.to_dict()))
+        self.dm_gui.log_to_chat(f"[SISTEMA] NPC Custom '{name}' aggiunto alla sessione.")
+        self.destroy()
+
+
+class DMPlayerSheetViewer(tk.Toplevel):
+    def __init__(self, master, player_name, sheet):
+        super().__init__(master)
+        self.title(f"Scheda Personaggio: {player_name}")
+        self.minsize(700, 680)
+        self.transient(master)
+        self.grab_set()
+        apply_modern_window_style(self)
+        
+        main_frame = ttk.Frame(self, padding="15")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # 1. Header Card
+        header_card = ttk.LabelFrame(main_frame, text="Informazioni Generali", padding="10")
+        header_card.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(header_card, text=sheet.get("name", player_name), font=("Helvetica", 14, "bold")).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 5))
+        
+        ttk.Label(header_card, text="Classe:", font=("Helvetica", 10, "bold")).grid(row=1, column=0, sticky="w", padx=(0, 5))
+        ttk.Label(header_card, text=f"{sheet.get('char_class', '-')} (Lvl {sheet.get('level', 1)})").grid(row=1, column=1, sticky="w", padx=(0, 20))
+        ttk.Label(header_card, text="Razza:", font=("Helvetica", 10, "bold")).grid(row=1, column=2, sticky="w", padx=(0, 5))
+        ttk.Label(header_card, text=f"{sheet.get('race', '-')}").grid(row=1, column=3, sticky="w")
+
+        ttk.Label(header_card, text="Allineamento:", font=("Helvetica", 10, "bold")).grid(row=2, column=0, sticky="w", padx=(0, 5), pady=(4, 0))
+        ttk.Label(header_card, text=f"{sheet.get('alignment', '-')}").grid(row=2, column=1, sticky="w", padx=(0, 20), pady=(4, 0))
+        ttk.Label(header_card, text="Background:", font=("Helvetica", 10, "bold")).grid(row=2, column=2, sticky="w", padx=(0, 5), pady=(4, 0))
+        ttk.Label(header_card, text=f"{sheet.get('background', '-')}").grid(row=2, column=3, sticky="w", pady=(4, 0))
+
+        # 2. Notebook a Schede Tabellari
+        nb = ttk.Notebook(main_frame)
+        nb.pack(fill=tk.BOTH, expand=True)
+
+        # Tab 1: Statistiche & Caratteristiche
+        tab_stats = ttk.Frame(nb, padding="10")
+        nb.add(tab_stats, text="📊 Statistiche & Attributi")
+
+        vital_frame = ttk.LabelFrame(tab_stats, text="Combattimento", padding="10")
+        vital_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        hp_cur = sheet.get("hp_current", 0)
+        hp_max = sheet.get("hp_max", 0)
+        ac = sheet.get("ac", 10)
+        init = sheet.get("initiative", 0)
+        speed = sheet.get("speed", 30)
+
+        for col, (label, val) in enumerate([
+            ("Punti Ferita (HP)", f"{hp_cur} / {hp_max}"),
+            ("Classe Armatura (CA)", str(ac)),
+            ("Iniziativa", f"{'+' if init >= 0 else ''}{init}"),
+            ("Velocità", f"{speed} ft.")
+        ]):
+            box = ttk.Frame(vital_frame, relief="ridge", padding="8")
+            box.pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=5)
+            ttk.Label(box, text=label, font=("Helvetica", 9), anchor="center").pack()
+            ttk.Label(box, text=val, font=("Helvetica", 13, "bold"), anchor="center").pack(pady=2)
+
+        attr_frame = ttk.LabelFrame(tab_stats, text="Punteggi di Caratteristica", padding="10")
+        attr_frame.pack(fill=tk.BOTH, expand=True)
+
+        attr_tree = ttk.Treeview(attr_frame, columns=("Attr", "Score", "Mod"), show="headings", height=6)
+        attr_tree.heading("Attr", text="Caratteristica")
+        attr_tree.heading("Score", text="Punteggio Base")
+        attr_tree.heading("Mod", text="Modificatore")
+        attr_tree.column("Attr", width=150, anchor="center")
+        attr_tree.column("Score", width=120, anchor="center")
+        attr_tree.column("Mod", width=120, anchor="center")
+        attr_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        attrs = sheet.get("attributes", {})
+        attr_names = {
+            "FOR": "Forza (FOR)", "DES": "Destrezza (DES)", "COS": "Costituzione (COS)",
+            "INT": "Intelligenza (INT)", "SAG": "Saggezza (SAG)", "CAR": "Carisma (CAR)"
+        }
+        for k in ["FOR", "DES", "COS", "INT", "SAG", "CAR"]:
+            score = attrs.get(k, 10)
+            mod = (score - 10) // 2
+            mod_str = f"+{mod}" if mod >= 0 else str(mod)
+            attr_tree.insert("", tk.END, values=(attr_names.get(k, k), score, mod_str))
+
+        # Tab 2: Equipaggiamento & Inventario (Tabella)
+        tab_inv = ttk.Frame(nb, padding="10")
+        nb.add(tab_inv, text="🎒 Inventario")
+
+        inv_tree_frame = ttk.Frame(tab_inv)
+        inv_tree_frame.pack(fill=tk.BOTH, expand=True)
+
+        inv_tree = ttk.Treeview(inv_tree_frame, columns=("Slot", "Nome", "Tipo", "Qty", "Desc"), show="headings")
+        inv_tree.heading("Slot", text="#")
+        inv_tree.heading("Nome", text="Nome Oggetto")
+        inv_tree.heading("Tipo", text="Tipologia")
+        inv_tree.heading("Qty", text="Quantità")
+        inv_tree.heading("Desc", text="Descrizione / Effetto")
+        inv_tree.column("Slot", width=40, anchor="center")
+        inv_tree.column("Nome", width=150)
+        inv_tree.column("Tipo", width=110, anchor="center")
+        inv_tree.column("Qty", width=60, anchor="center")
+        inv_tree.column("Desc", width=250)
+        inv_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        inv_scroll = ttk.Scrollbar(inv_tree_frame, orient=tk.VERTICAL, command=inv_tree.yview)
+        inv_tree.configure(yscroll=inv_scroll.set)
+        inv_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        grid = sheet.get("inventory_grid", [])
+        slot_idx = 1
+        if isinstance(grid, list):
+            for it in grid:
+                if it:
+                    inv_tree.insert("", tk.END, values=(
+                        str(slot_idx),
+                        it.get("name", "Sconosciuto"),
+                        it.get("type", "Oggetto"),
+                        str(it.get("qty", 1)),
+                        it.get("desc", "-")
+                    ))
+                    slot_idx += 1
+        raw_inv = sheet.get("inventory")
+        if raw_inv and isinstance(raw_inv, str) and slot_idx == 1:
+            inv_tree.insert("", tk.END, values=("1", "Inventario Testuale", "Testo", "1", raw_inv))
+
+        curr_frame = ttk.LabelFrame(tab_inv, text="Borsa delle Monete", padding="8")
+        curr_frame.pack(fill=tk.X, pady=(10, 0))
+        currency = sheet.get("currency", {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0})
+        if not isinstance(currency, dict):
+            currency = {"MO": sheet.get("gp", 0)}
+        for c_key, c_name in [("MR", "Rame (MR)"), ("MA", "Argento (MA)"), ("ME", "Electrum (ME)"), ("MO", "Oro (MO)"), ("MP", "Platino (MP)")]:
+            c_box = ttk.Frame(curr_frame, padding="5")
+            c_box.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
+            ttk.Label(c_box, text=c_name, font=("Helvetica", 9)).pack()
+            ttk.Label(c_box, text=str(currency.get(c_key, 0)), font=("Helvetica", 11, "bold"), foreground="#FFD700" if c_key=="MO" else TEXT_COLOR).pack()
+
+        # Tab 3: Grimorio & Incantesimi (Tabella)
+        tab_spells = ttk.Frame(nb, padding="10")
+        nb.add(tab_spells, text="✨ Grimorio")
+
+        slots_frame = ttk.LabelFrame(tab_spells, text="Slot Incantesimo", padding="8")
+        slots_frame.pack(fill=tk.X, pady=(0, 10))
+        spell_slots = sheet.get("spell_slots", {})
+        if isinstance(spell_slots, dict):
+            for i in range(1, 10):
+                s_info = spell_slots.get(str(i), {"max": 0, "current": 0})
+                if isinstance(s_info, dict):
+                    m = s_info.get("max", 0)
+                    c = s_info.get("current", 0)
+                elif isinstance(s_info, list):
+                    m = s_info[1] if len(s_info) > 1 else 0
+                    c = s_info[0] if len(s_info) > 0 else 0
+                else:
+                    m, c = 0, 0
+                s_box = ttk.Frame(slots_frame, padding="4")
+                s_box.pack(side=tk.LEFT, expand=True)
+                ttk.Label(s_box, text=f"Lvl {i}", font=("Helvetica", 8)).pack()
+                ttk.Label(s_box, text=f"{c}/{m}", font=("Helvetica", 10, "bold")).pack()
+
+        spells_tree_frame = ttk.Frame(tab_spells)
+        spells_tree_frame.pack(fill=tk.BOTH, expand=True)
+
+        spells_tree = ttk.Treeview(spells_tree_frame, columns=("Lvl", "Nome", "Tempo", "Raggio", "Desc"), show="headings")
+        spells_tree.heading("Lvl", text="Livello")
+        spells_tree.heading("Nome", text="Nome Incantesimo")
+        spells_tree.heading("Tempo", text="Lancio")
+        spells_tree.heading("Raggio", text="Raggio / Gittata")
+        spells_tree.heading("Desc", text="Descrizione / Effetto")
+        spells_tree.column("Lvl", width=70, anchor="center")
+        spells_tree.column("Nome", width=140)
+        spells_tree.column("Tempo", width=80, anchor="center")
+        spells_tree.column("Raggio", width=80, anchor="center")
+        spells_tree.column("Desc", width=250)
+        spells_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        spells_scroll = ttk.Scrollbar(spells_tree_frame, orient=tk.VERTICAL, command=spells_tree.yview)
+        spells_tree.configure(yscroll=spells_scroll.set)
+        spells_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        spellbook = sheet.get("spellbook", [])
+        if isinstance(spellbook, list):
+            for sp in spellbook:
+                if isinstance(sp, dict):
+                    lvl = sp.get("level", 0)
+                    lvl_display = "Trucchetto" if lvl == 0 else f"Livello {lvl}"
+                    spells_tree.insert("", tk.END, values=(
+                        lvl_display,
+                        sp.get("name", "Sconosciuto"),
+                        sp.get("time", "-"),
+                        sp.get("range", "-"),
+                        sp.get("desc", "-")
+                    ))
+        raw_spells = sheet.get("spells")
+        if raw_spells and isinstance(raw_spells, str) and not spellbook:
+            spells_tree.insert("", tk.END, values(("-", "Incantesimi Testuali", "-", "-", raw_spells)))
+
+        # Tab 4: Privilegi & Note
+        tab_notes = ttk.Frame(nb, padding="10")
+        nb.add(tab_notes, text="📜 Privilegi & Note")
+
+        ttk.Label(tab_notes, text="Tratti e Privilegi:", font=("Helvetica", 11, "bold")).pack(anchor=tk.W, pady=(0, 2))
+        features_txt = scrolledtext.ScrolledText(tab_notes, height=8, wrap=tk.WORD, font=("Helvetica", 10))
+        features_txt.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        features_txt.insert("1.0", sheet.get("features", "Nessun tratto speciale registrato."))
+        features_txt.config(state="disabled")
+
+        ttk.Label(tab_notes, text="Note e Background:", font=("Helvetica", 11, "bold")).pack(anchor=tk.W, pady=(0, 2))
+        notes_txt = scrolledtext.ScrolledText(tab_notes, height=6, wrap=tk.WORD, font=("Helvetica", 10))
+        notes_txt.pack(fill=tk.BOTH, expand=True)
+        notes_txt.insert("1.0", sheet.get("notes", "Nessuna nota presente."))
+        notes_txt.config(state="disabled")
+
+        close_btn = ttk.Button(main_frame, text="Chiudi Scheda", command=self.destroy)
+        close_btn.pack(side=tk.BOTTOM, pady=(10, 0))
+
+
+class CampaignStarterKitDialog(tk.Toplevel):
+    def __init__(self, dm_gui):
+        super().__init__(dm_gui.master)
+        self.dm_gui = dm_gui
+        self.title("Configura Starter Pack Campagna (Equipaggiamento Iniziale)")
+        self.minsize(650, 500)
+        self.transient(dm_gui.master)
+        self.grab_set()
+        apply_modern_window_style(self)
+
+        from common.starter_equipment import get_campaign_starter_kit, DEFAULT_CAMPAIGN_STARTER_KIT
+        cur_kit = getattr(self.dm_gui.server.game_state, "campaign_starter_kit", None)
+        if not cur_kit:
+            cur_kit = get_campaign_starter_kit()
+        self.items = [i.copy() for i in cur_kit]
+
+        main_frame = ttk.Frame(self, padding="15")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(main_frame, text="Equipaggiamento Iniziale della Campagna", font=("Helvetica", 13, "bold")).pack(anchor=tk.W, pady=(0, 5))
+        ttk.Label(main_frame, text="I nuovi PG riceveranno automaticamente questi oggetti al loro primo login in questa campagna:", 
+                  wraplength=600).pack(anchor=tk.W, pady=(0, 10))
+
+        tree_frame = ttk.Frame(main_frame)
+        tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+
+        self.tree = ttk.Treeview(tree_frame, columns=("Nome", "Tipo", "Qty", "Peso", "Desc"), show="headings", height=8)
+        self.tree.heading("Nome", text="Nome Oggetto")
+        self.tree.heading("Tipo", text="Tipo")
+        self.tree.heading("Qty", text="Quantità")
+        self.tree.heading("Peso", text="Peso (lbs)")
+        self.tree.heading("Desc", text="Descrizione")
+        self.tree.column("Nome", width=150)
+        self.tree.column("Tipo", width=100, anchor="center")
+        self.tree.column("Qty", width=60, anchor="center")
+        self.tree.column("Peso", width=70, anchor="center")
+        self.tree.column("Desc", width=220)
+        self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        scroll = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        self.tree.configure(yscroll=scroll.set)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.refresh_list()
+
+        btn_row = ttk.Frame(main_frame)
+        btn_row.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Button(btn_row, text="+ Aggiungi Oggetto", command=self.on_add_item).pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_row, text="Rimuovi Selezionato", command=self.on_remove_item).pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_row, text="Ripristina Predefiniti", command=self.on_reset_defaults).pack(side=tk.LEFT, padx=3)
+
+        bottom_row = ttk.Frame(main_frame)
+        bottom_row.pack(fill=tk.X)
+        ttk.Button(bottom_row, text="Salva Configurazione", style="Success.TButton", command=self.on_save).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(bottom_row, text="Annulla", command=self.destroy).pack(side=tk.RIGHT)
+
+    def refresh_list(self):
+        for it in self.tree.get_children():
+            self.tree.delete(it)
+        for idx, item in enumerate(self.items):
+            self.tree.insert("", tk.END, iid=str(idx), values=(
+                item.get("name", ""),
+                item.get("type", "Oggetto"),
+                str(item.get("qty", 1)),
+                str(item.get("weight", 0.0)),
+                item.get("desc", "")
+            ))
+
+    def on_add_item(self):
+        name = simpledialog.askstring("Nuovo Oggetto", "Nome dell'oggetto:", parent=self)
+        if not name or not name.strip(): return
+        item_type = simpledialog.askstring("Tipo Oggetto", "Tipo (Arma, Armatura, Consumabile, Documento, Valuta, Equipaggiamento):", initialvalue="Equipaggiamento", parent=self) or "Equipaggiamento"
+        qty = simpledialog.askinteger("Quantità", "Quantità:", initialvalue=1, minvalue=1, parent=self) or 1
+        desc = simpledialog.askstring("Descrizione", "Descrizione o effetto dell'oggetto:", parent=self) or ""
+        self.items.append({
+            "name": name.strip(),
+            "type": item_type.strip(),
+            "qty": qty,
+            "weight": 1.0,
+            "desc": desc.strip()
+        })
+        self.refresh_list()
+
+    def on_remove_item(self):
+        sel = self.tree.selection()
+        if not sel: return
+        idx = int(sel[0])
+        self.items.pop(idx)
+        self.refresh_list()
+
+    def on_reset_defaults(self):
+        from common.starter_equipment import DEFAULT_CAMPAIGN_STARTER_KIT
+        if messagebox.askyesno("Ripristina", "Vuoi ripristinare il kit iniziale predefinito della campagna?", parent=self):
+            self.items = [i.copy() for i in DEFAULT_CAMPAIGN_STARTER_KIT]
+            self.refresh_list()
+
+    def on_save(self):
+        from common.starter_equipment import save_campaign_starter_kit
+        save_campaign_starter_kit(self.items)
+        self.dm_gui.server.game_state.campaign_starter_kit = [i.copy() for i in self.items]
+        messagebox.showinfo("Salvato", "Equipaggiamento iniziale della campagna salvato con successo!", parent=self)
+        self.destroy()
+

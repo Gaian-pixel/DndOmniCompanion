@@ -30,6 +30,9 @@ class Server:
         self.game_state=GameState(gui_queue)
         from common.starter_equipment import get_campaign_starter_kit
         self.game_state.campaign_starter_kit = get_campaign_starter_kit()
+        from server.audio_library import AudioLibrary
+        self.game_state.audio_library = AudioLibrary()
+        self.game_state.current_music = None  # ultimo messaggio AUDIO_TRACK_PLAY in loop, per chi si collega dopo
         self.voice_server = VoiceServer(self.host, 53912)
 
     def send_loot_split(self, amount):
@@ -117,6 +120,10 @@ class Server:
                 self.game_state.add_player(player)
                 send_message(conn, make_game_state(self.game_state.get_state_dict()))
                 broadcast(self.game_state, make_player_joined(player.to_dict()), exclude_player=player)
+
+            current_music = getattr(self.game_state, "current_music", None)
+            if player and current_music:
+                send_message(conn, current_music)
 
             if player and player.full_sheet:
                 from common.starter_equipment import apply_class_and_race_starter_kit, apply_campaign_starter_kit

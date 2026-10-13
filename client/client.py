@@ -21,8 +21,15 @@ from client.character_manager import CharacterManager
 from client.login_ui import LoginDialog
 from client.character_sheet_ui import CharacterSheetUI
 from client.voice_client import VoiceClient
+from common.audio_player import AudioManager
 
-from common.theme import setup_theme, apply_modern_window_style
+from common.theme import (
+    setup_theme, apply_modern_window_style,
+    BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT, BORDER_COLOR,
+    TEXT_COLOR, TEXT_MUTED, TEXT_DARK,
+    ACCENT_GOLD, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE,
+    FONT_MAIN, FONT_TITLE, FONT_HEADER, FONT_BOLD, FONT_SMALL
+)
 from .network import ClientNetwork
 
 class ClientGUI:
@@ -31,6 +38,14 @@ class ClientGUI:
         setup_theme(master)
         self.master.title("D&D Client")
         self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.audio_manager = AudioManager()
+        self.audio_cache_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "client_data", "audio_cache")
+        os.makedirs(self.audio_cache_dir, exist_ok=True)
+        self._audio_downloads = {}
+        self._pending_play = None
+        self._audio_muted = False
+        self._saved_music_vol = 0.8
+        self._saved_sfx_vol = 1.0
         self.name=None; self.is_connected=False
         self.players_data={}; self.local_map_data=None
         self.notebook=None; self.chat_tabs={}; self.player_listbox=None
@@ -54,7 +69,7 @@ class ClientGUI:
         
         server_menu = tk.Menu(menubar, tearoff=0)
         server_menu.add_command(label="Connetti al Server...", command=self.connect_to_server)
-        # Disconnetti could be added here later if needed
+        server_menu.add_command(label="Riconnetti Ultimo Server", command=self.reconnect_to_server)
         menubar.add_cascade(label="Server", menu=server_menu)
         
         library_menu = tk.Menu(menubar, tearoff=0)
@@ -69,27 +84,27 @@ class ClientGUI:
         main_frame.columnconfigure(2, weight=0) # Pannello destro per i Tab
         main_frame.rowconfigure(0, weight=1)
         
-        # --- COLONNA 0: LEFT TOOLBAR (Strumenti Mappa) ---
-        left_panel = ttk.Frame(main_frame, width=40)
-        left_panel.grid(row=0, column=0, sticky="ns", padx=(0, 5))
+        # --- COLONNA 0: LEFT TOOLBAR (Strumenti Mappa Eleganti) ---
+        left_panel = tk.Frame(main_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=6)
+        left_panel.grid(row=0, column=0, sticky="ns", padx=(0, 6))
         
-        self.center_map_btn = ttk.Button(left_panel, text=' 👆 ', width=3, command=lambda: self.map_canvas.center_view())
-        self.center_map_btn.pack(pady=2)
+        self.center_map_btn = ttk.Button(left_panel, text='👆', width=3, style="Tool.TButton", command=lambda: self.map_canvas.center_view())
+        self.center_map_btn.pack(pady=3)
         ToolTip(self.center_map_btn, "Centra Mappa")
         
-        self.aoe_button = ttk.Button(left_panel, text=" 💥 ", width=3, command=self.open_aoe_dialog)
-        self.aoe_button.pack(pady=2)
+        self.aoe_button = ttk.Button(left_panel, text="💥", width=3, style="Tool.TButton", command=self.open_aoe_dialog)
+        self.aoe_button.pack(pady=3)
         ToolTip(self.aoe_button, "Area di Effetto")
         
-        self.measure_btn = ttk.Button(left_panel, text=" 📏 ", width=3)
-        self.measure_btn.pack(pady=2)
+        self.measure_btn = ttk.Button(left_panel, text="📏", width=3, style="Tool.TButton")
+        self.measure_btn.pack(pady=3)
         ToolTip(self.measure_btn, "Misura Distanza")
         
         # --- COLONNA 1: MAPPA ---
         map_outer_frame = ttk.Frame(main_frame)
-        map_outer_frame.grid(row=0, column=1, sticky="nsew", padx=5)
+        map_outer_frame.grid(row=0, column=1, sticky="nsew", padx=4)
         
-        self.map_canvas = HexMapCanvas(map_outer_frame, bg="#1e1e1e")
+        self.map_canvas = HexMapCanvas(map_outer_frame, bg="#121316")
         self.map_canvas.pack(fill=tk.BOTH, expand=True)
         self.aoe_mode = False
         self.aoe_params = None
@@ -101,10 +116,10 @@ class ClientGUI:
         self.map_canvas.set_on_cover_toggle_callback(self.on_cover_toggle_callback)
         self.map_canvas.set_on_draw_callback(self.on_draw_request)
         
-        # --- COLONNA 2: RIGHT SIDEBAR (Notebook) ---
-        right_panel = ttk.Frame(main_frame, width=350)
-        right_panel.grid(row=0, column=2, sticky="ns", padx=(5, 0))
-        right_panel.pack_propagate(False) # Mantieni la larghezza fissa a 350
+        # --- COLONNA 2: RIGHT SIDEBAR (Notebook Dark Fantasy) ---
+        right_panel = ttk.Frame(main_frame, width=360)
+        right_panel.grid(row=0, column=2, sticky="ns", padx=(6, 0))
+        right_panel.pack_propagate(False) # Mantieni la larghezza fissa a 360
         
         self.right_notebook = ttk.Notebook(right_panel)
         self.right_notebook.pack(fill=tk.BOTH, expand=True)
@@ -113,75 +128,120 @@ class ClientGUI:
         chat_tab = ttk.Frame(self.right_notebook)
         self.right_notebook.add(chat_tab, text="Chat")
         
-        ttk.Label(chat_tab, text="Compagnia", font=self.default_font, foreground="#E0E0E0").pack(anchor="w", padx=5, pady=(5,0))
-        ttk.Label(chat_tab, text="Doppio click per chattare", style="Muted.TLabel").pack(anchor="w", padx=5)
+        tk.Label(chat_tab, text="👥 Compagnia di Avventura", font=FONT_BOLD, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w", padx=6, pady=(6, 2))
         
-        self.player_listbox = tk.Listbox(chat_tab, font=self.default_font, relief="flat", bg="#1e1e1e", fg="white", height=6)
-        self.player_listbox.pack(fill=tk.X, padx=5, pady=(0, 5))
+        list_container = tk.Frame(chat_tab, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        list_container.pack(fill=tk.X, padx=6, pady=(0, 6))
+        
+        self.player_listbox = tk.Listbox(
+            list_container, font=FONT_MAIN, relief="flat", bg=SURFACE_COLOR, fg=TEXT_COLOR,
+            selectbackground=ACCENT_GOLD, selectforeground=TEXT_DARK, height=5, borderwidth=0
+        )
+        self.player_listbox.pack(fill=tk.BOTH, expand=True)
         self.player_listbox.bind("<Double-Button-1>", self.open_private_chat_from_list)
         
         self.notebook = ttk.Notebook(chat_tab)
         self.create_chat_tab("Globale")
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=2)
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=6, pady=2)
         
         chat_cmd_frame = ttk.Frame(chat_tab)
-        chat_cmd_frame.pack(fill=tk.X, padx=5, pady=(2, 5))
-        self.entry = ttk.Entry(chat_cmd_frame, font=self.default_font)
-        self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+        chat_cmd_frame.pack(fill=tk.X, padx=6, pady=(4, 6))
+        self.entry = ttk.Entry(chat_cmd_frame, font=FONT_MAIN)
+        self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
         self.entry.bind("<Return>", self.send_chat_message)
-        ttk.Button(chat_cmd_frame, text="Invia", command=self.send_chat_message).pack(side=tk.LEFT)
+        ttk.Button(chat_cmd_frame, text="Invia", command=self.send_chat_message, style="Primary.TButton").pack(side=tk.LEFT)
 
-        self.voice_controls_frame = tk.Frame(chat_tab, bg="#292B2F", pady=5, padx=5)
-        self.voice_controls_frame.pack(fill=tk.X, side=tk.BOTTOM)
-        tk.Label(self.voice_controls_frame, text="Voice Channel: Disconnesso", bg="#292B2F", fg="#8E9297", font=("Arial", 9)).pack(side=tk.LEFT, padx=5)
-        self.btn_deafen = tk.Button(self.voice_controls_frame, text=" 🎧 ", bg="#36393F", fg="white", relief=tk.FLAT, command=self.toggle_deafen)
+        # Barra Voice Discord-like
+        self.voice_controls_frame = tk.Frame(chat_tab, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, pady=4, padx=6)
+        self.voice_controls_frame.pack(fill=tk.X, side=tk.BOTTOM, padx=6, pady=(0, 4))
+        self.voice_status_lbl = tk.Label(self.voice_controls_frame, text="⚪ Voice: Disconnesso", bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, font=FONT_SMALL)
+        self.voice_status_lbl.pack(side=tk.LEFT, padx=3)
+        self.btn_audio_mute = tk.Button(self.voice_controls_frame, text=" 🔊 ", bg=SURFACE_COLOR, fg="white", activebackground=SURFACE_COLOR_ALT, relief=tk.FLAT, bd=0, command=self.toggle_audio_mute)
+        self.btn_audio_mute.pack(side=tk.RIGHT, padx=2)
+        ToolTip(self.btn_audio_mute, "Muta/Smuta Audio di gioco")
+        self.btn_deafen = tk.Button(self.voice_controls_frame, text=" 🎧 ", bg=SURFACE_COLOR, fg="white", activebackground=SURFACE_COLOR_ALT, relief=tk.FLAT, bd=0, command=self.toggle_deafen)
         self.btn_deafen.pack(side=tk.RIGHT, padx=2)
-        self.btn_mute = tk.Button(self.voice_controls_frame, text=" 🎤 ", bg="#36393F", fg="white", relief=tk.FLAT, command=self.toggle_mute)
+        ToolTip(self.btn_deafen, "Muta/Smuta Audio voce")
+        self.btn_mute = tk.Button(self.voice_controls_frame, text=" 🎤 ", bg=SURFACE_COLOR, fg="white", activebackground=SURFACE_COLOR_ALT, relief=tk.FLAT, bd=0, command=self.toggle_mute)
         self.btn_mute.pack(side=tk.RIGHT, padx=2)
+        ToolTip(self.btn_mute, "Muta/Smuta Microfono")
         
         # --- TAB 2: CONTROLLI PG ---
         controls_tab = ttk.Frame(self.right_notebook, padding=10)
         self.right_notebook.add(controls_tab, text="Controlli PG")
         
-        self.status_label = ttk.Label(controls_tab, text="Stato: Disconnesso", style="Danger.TLabel", font=self.default_font)
-        self.status_label.pack(anchor="w", pady=(0, 10))
+        self.status_label = ttk.Label(controls_tab, text="Stato: Disconnesso", style="Danger.TLabel", font=FONT_SMALL)
+        self.status_label.pack(anchor="w", pady=(0, 6))
         
-        ttk.Label(controls_tab, text="Personaggio Attivo:").pack(anchor="w")
+        # --- HERO SUMMARY CARD ---
+        hero_card = tk.Frame(controls_tab, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
+        hero_card.pack(fill=tk.X, pady=(0, 10))
+        
+        self.hero_name_lbl = tk.Label(hero_card, text=self.name or "Nessun Personaggio", font=FONT_HEADER, bg=SURFACE_COLOR, fg=ACCENT_GOLD)
+        self.hero_name_lbl.pack(anchor="w")
+        
+        self.hero_class_lbl = tk.Label(hero_card, text="Avventuriero • Livello 1", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
+        self.hero_class_lbl.pack(anchor="w", pady=(0, 6))
+        
+        # Barra HP Visuale
+        hp_row = tk.Frame(hero_card, bg=SURFACE_COLOR)
+        hp_row.pack(fill=tk.X, pady=(2, 2))
+        self.hero_hp_lbl = tk.Label(hp_row, text="HP: -- / --", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR)
+        self.hero_hp_lbl.pack(anchor="w")
+        
+        self.hero_hp_bar_bg = tk.Frame(hero_card, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, height=12)
+        self.hero_hp_bar_bg.pack(fill=tk.X, pady=(2, 6))
+        self.hero_hp_bar_fill = tk.Frame(self.hero_hp_bar_bg, bg=ACCENT_GREEN, height=10)
+        self.hero_hp_bar_fill.place(x=0, y=0, width=0, relheight=1.0)
+        
+        # Badge Rapidi (CA, Velocità, Iniziativa)
+        pill_row = tk.Frame(hero_card, bg=SURFACE_COLOR)
+        pill_row.pack(fill=tk.X, pady=(4, 0))
+        self.hero_ac_badge = tk.Label(pill_row, text="🛡️ CA: 10", bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_SMALL, padx=5, pady=2, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        self.hero_ac_badge.pack(side=tk.LEFT, padx=(0, 4))
+        self.hero_speed_badge = tk.Label(pill_row, text="👟 Vel: 30ft", bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_SMALL, padx=5, pady=2, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        self.hero_speed_badge.pack(side=tk.LEFT, padx=2)
+        self.hero_init_badge = tk.Label(pill_row, text="⚡ Iniz: +0", bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_SMALL, padx=5, pady=2, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        self.hero_init_badge.pack(side=tk.LEFT, padx=2)
+        
+        # Scelta Personaggio Attivo
+        tk.Label(controls_tab, text="Cambia Scheda Personaggio:", font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(4, 2))
         self.active_character_var = tk.StringVar(value=self.name)
         self.active_character_combo = ttk.Combobox(controls_tab, textvariable=self.active_character_var, state="readonly")
-        self.active_character_combo.pack(fill=tk.X, pady=(0, 15))
+        self.active_character_combo.pack(fill=tk.X, pady=(0, 10))
         self.active_character_combo.bind("<<ComboboxSelected>>", self.on_active_character_changed)
         
-        self.stats_button = ttk.Button(controls_tab, text="Scheda PG", command=self.open_stats_dialog, style='Info.TButton')
-        self.stats_button.pack(fill=tk.X, pady=2)
+        # Bottoni Azione Eroe
+        self.stats_button = ttk.Button(controls_tab, text="📜 Scheda Personaggio", command=self.open_stats_dialog, style='Gold.TButton')
+        self.stats_button.pack(fill=tk.X, pady=3)
         
-        self.roll_button = ttk.Button(controls_tab, text="Tira Dadi", command=getattr(self, "roll_dice_dialog", lambda: None))
-        self.roll_button.pack(fill=tk.X, pady=2)
+        self.roll_button = ttk.Button(controls_tab, text="🎲 Tira Dadi", command=getattr(self, "roll_dice_dialog", lambda: None), style="Primary.TButton")
+        self.roll_button.pack(fill=tk.X, pady=3)
         
-        self.action_button = ttk.Button(controls_tab, text="Azione (Attacco/Cura)", command=getattr(self, "open_action_dialog", lambda: None))
-        self.action_button.pack(fill=tk.X, pady=2)
+        self.action_button = ttk.Button(controls_tab, text="⚔️ Azione (Attacco / Cura)", command=getattr(self, "open_action_dialog", lambda: None))
+        self.action_button.pack(fill=tk.X, pady=3)
         
-        self.travel_button = ttk.Button(controls_tab, text="Azioni di Viaggio", command=getattr(self, "open_travel_dialog", lambda: None))
-        self.travel_button.pack(fill=tk.X, pady=2)
+        self.travel_button = ttk.Button(controls_tab, text="🧭 Azioni di Viaggio", command=getattr(self, "open_travel_dialog", lambda: None))
+        self.travel_button.pack(fill=tk.X, pady=3)
         
-        self.combat_btn = ttk.Button(controls_tab, text="Richiedi Combattimento", command=lambda: getattr(self, "network", None) and self.network.send({"type": "COMBAT_TOGGLE_REQUEST", "data": {}}))
-        self.combat_btn.pack(fill=tk.X, pady=2)
+        self.combat_btn = ttk.Button(controls_tab, text="⚔️ Richiedi Combattimento", command=lambda: getattr(self, "network", None) and self.network.send({"type": "COMBAT_TOGGLE_REQUEST", "data": {}}))
+        self.combat_btn.pack(fill=tk.X, pady=3)
         
-        self.end_turn_btn = ttk.Button(controls_tab, text="Termina Turno", command=self.end_turn, style='Danger.TButton')
+        self.end_turn_btn = ttk.Button(controls_tab, text="⏹ Termina Turno", command=self.end_turn, style='Danger.TButton')
         
         # Hotbar al fondo del right_panel
-        self.hotbar_frame = ttk.Frame(self.right_notebook.master) # right_panel is the parent of right_notebook
-        self.hotbar_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=5, padx=5)
+        self.hotbar_frame = tk.Frame(self.right_notebook.master, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, pady=4, padx=4)
+        self.hotbar_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=6, padx=6)
         self.hotbar_buttons = []
         for i in range(10):
-            btn = ttk.Button(self.hotbar_frame, text=f"{i+1}", width=4)
+            btn = ttk.Button(self.hotbar_frame, text=f"{i+1}", width=3)
             btn.grid(row=0, column=i, padx=1)
             btn.bind("<Button-1>", lambda e, idx=i: getattr(self, "on_hotbar_click")(idx))
             btn.bind("<Button-3>", lambda e, idx=i: getattr(self, "on_hotbar_right_click")(idx))
             self.hotbar_buttons.append(btn)
         
-
         self.set_controls_state(tk.DISABLED)
+        self.update_hero_summary_card()
 
 
     def on_active_character_changed(self, event=None):
@@ -195,6 +255,47 @@ class ClientGUI:
         if getattr(self, "map_canvas", None):
             self.map_canvas.player_name = new_active
             self.map_canvas.redraw()
+        self.update_hero_summary_card()
+
+    def update_hero_summary_card(self):
+        if not hasattr(self, 'hero_name_lbl'): return
+        char = getattr(self, 'active_character', None)
+        if not char:
+            self.hero_name_lbl.config(text=self.name or "Nessun Personaggio")
+            self.hero_class_lbl.config(text="Seleziona o crea un PG")
+            self.hero_hp_lbl.config(text="HP: -- / --")
+            try: self.hero_hp_bar_fill.place_forget()
+            except Exception: pass
+            return
+        
+        self.hero_name_lbl.config(text=char.name)
+        cls = getattr(char, 'char_class', 'Avventuriero') or 'Avventuriero'
+        lvl = getattr(char, 'level', 1) or 1
+        race = getattr(char, 'race', '')
+        race_str = f" • {race}" if race else ""
+        self.hero_class_lbl.config(text=f"Livello {lvl} {cls}{race_str}")
+        
+        hp_cur = getattr(char, 'hp_current', 0)
+        hp_max = getattr(char, 'hp_max', 1) or 1
+        conds = getattr(char, 'conditions', [])
+        cond_str = f"  ({', '.join(conds)})" if conds else ""
+        self.hero_hp_lbl.config(text=f"HP: {hp_cur} / {hp_max}{cond_str}")
+        
+        ratio = max(0.0, min(1.0, hp_cur / max(1, hp_max)))
+        bar_color = ACCENT_GREEN if ratio > 0.5 else ("#F59F00" if ratio > 0.25 else ACCENT_RED)
+        self.hero_hp_bar_fill.config(bg=bar_color)
+        total_w = self.hero_hp_bar_bg.winfo_width()
+        if total_w <= 10: total_w = 260
+        fill_w = max(0, int(total_w * ratio))
+        self.hero_hp_bar_fill.place(x=0, y=0, width=fill_w, relheight=1.0)
+        
+        ac = getattr(char, 'ac', 10) or 10
+        self.hero_ac_badge.config(text=f"🛡️ CA: {ac}")
+        speed = getattr(char, 'speed', 30) or 30
+        self.hero_speed_badge.config(text=f"👟 Vel: {speed}ft")
+        init = getattr(char, 'initiative', 0) or 0
+        init_str = f"+{init}" if init >= 0 else str(init)
+        self.hero_init_badge.config(text=f"⚡ Iniz: {init_str}")
     def on_hotbar_right_click(self, idx):
         if not self.active_character: return
         cmd = simpledialog.askstring("Hotbar", f"Imposta comando per lo slot {idx+1} (es: 1d20+5, oppure Ciao!)", initialvalue=self.active_character.hotbar[idx])
@@ -488,6 +589,7 @@ class ClientGUI:
         try:
             self.network.connect(server_ip, 5000)
             self.is_connected = True
+            self.last_server_ip = server_ip
             
             # Start Voice Client
             self.voice_client = VoiceClient(server_ip, 53912)
@@ -499,12 +601,47 @@ class ClientGUI:
             self.log_to_chat(f"Connesso a {server_ip} come {self.name} (Lv.{char.level} {char.char_class}).", "Globale")
             self.master.title(f"D&D Client - {self.name}")
             self.status_label.config(text=f"Stato: Connesso a {server_ip}", style="Success.TLabel")
+            if hasattr(self, 'voice_status_lbl'):
+                self.voice_status_lbl.config(text="🟢 Voice: Connesso", fg=ACCENT_GREEN)
             self.set_controls_state(tk.NORMAL)
+            self.active_character_var.set(self.name)
+            self.update_hero_summary_card()
             for i in range(10):
                 cmd = self.active_character.hotbar[i]
                 self.hotbar_buttons[i].config(text=cmd[:10] if cmd else f"{i+1}")
         except Exception as e:
             messagebox.showerror("Errore", f"Impossibile connettersi a {server_ip}: {e}"); self.is_connected = False
+
+    def reconnect_to_server(self):
+        if self.is_connected:
+            messagebox.showinfo("Connesso", "Sei già connesso al server.")
+            return
+        last_ip = getattr(self, "last_server_ip", None)
+        if not last_ip or not self.active_character:
+            self.connect_to_server()
+            return
+        char = self.active_character
+        try:
+            self.network.connect(last_ip, 5000)
+            self.is_connected = True
+            if self.voice_client:
+                try: self.voice_client.stop()
+                except Exception: pass
+            self.voice_client = VoiceClient(last_ip, 53912)
+            self.voice_client.start()
+            self.network.send(make_join(self.name, getattr(self.active_character, "last_position", None)))
+            self.network.send(make_update_stats_request(self.active_character.hp_current, self.active_character.hp_max, self.active_character.initiative, getattr(self.active_character, "conditions", [])))
+            self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
+            self.log_to_chat(f"Riconnesso con successo a {last_ip} come {self.name}!", "Globale", sender="Sistema", color="#2ECC71")
+            self.master.title(f"D&D Client - {self.name}")
+            self.status_label.config(text=f"Stato: Connesso a {last_ip}", style="Success.TLabel")
+            if hasattr(self, 'voice_status_lbl'):
+                self.voice_status_lbl.config(text="🟢 Voice: Connesso", fg=ACCENT_GREEN)
+            self.set_controls_state(tk.NORMAL)
+            self.update_hero_summary_card()
+        except Exception as e:
+            messagebox.showerror("Errore Riconnessione", f"Impossibile riconnettersi a {last_ip}: {e}")
+            self.is_connected = False
 
     def process_queue(self):
         try:
@@ -554,17 +691,28 @@ class ClientGUI:
         self.turn_index = data.get("turn_index", 0)
         self.round_number = data.get("round_number", 1)
         self.aoes_data = data.get("active_aoes", [])
+        turn_player_name = data.get("turn_player_name")
         
-        # update my turn indicator
         was_my_turn = getattr(self, "_is_my_turn", False)
         is_my_turn = False
         if self.combat_active:
-            # We don't have the ordered list easily here unless we sort it.
-            # But wait, in GAME_STATE we did this:
-            # all_players_list = data.get('players', [])
-            # In COMBAT_STATE_UPDATE, maybe we don't have players list. 
-            # If server sends turn_player_name it would be easier.
-            pass # We will rely on server sending GAME_STATE on turn change, or handle it better.
+            if turn_player_name:
+                is_my_turn = (turn_player_name == self.name)
+            else:
+                all_players = sorted(list(self.players_data.values()), key=lambda x: x.get('initiative', 0), reverse=True)
+                if 0 <= self.turn_index < len(all_players):
+                    is_my_turn = (all_players[self.turn_index].get('name') == self.name)
+        
+        self._is_my_turn = is_my_turn
+        if is_my_turn:
+            if hasattr(self, 'end_turn_btn'):
+                self.end_turn_btn.pack(fill=tk.X, pady=2, before=self.combat_btn)
+            if not was_my_turn:
+                self.show_turn_banner()
+        else:
+            if hasattr(self, 'end_turn_btn'):
+                self.end_turn_btn.pack_forget()
+
         self.update_player_listbox()
         self.redraw_map_and_players()
 
@@ -676,6 +824,7 @@ class ClientGUI:
             if 'conditions' in data:
                 self.active_character.conditions = data.get('conditions')
             self.character_manager.save_characters()
+            self.update_hero_summary_card()
             
             if hasattr(self, 'stats_window') and self.stats_window.winfo_exists():
                 self.stats_window.update_dynamic_stats()
@@ -756,15 +905,40 @@ class ClientGUI:
             return self.voice_client.is_deafened
         return False
 
+    def toggle_audio_mute(self):
+        if getattr(self, "_audio_muted", False):
+            self._audio_muted = False
+            self.audio_manager.set_volume("music", getattr(self, '_saved_music_vol', 0.8))
+            self.audio_manager.set_volume("sfx", getattr(self, '_saved_sfx_vol', 1.0))
+            self.btn_audio_mute.config(text=" 🔊 ", fg="white")
+        else:
+            self._audio_muted = True
+            self._saved_music_vol = self.audio_manager.get_volume("music")
+            self._saved_sfx_vol = self.audio_manager.get_volume("sfx")
+            self.audio_manager.set_volume("music", 0.0)
+            self.audio_manager.set_volume("sfx", 0.0)
+            self.btn_audio_mute.config(text=" 🔇 ", fg="#ED4245")
+
     def on_closing(self):
+        if getattr(self, "audio_manager", None):
+            try: self.audio_manager.stop("all")
+            except Exception: pass
         if getattr(self, "voice_client", None): self.voice_client.stop()
         if self.is_connected: self.network.disconnect()
         self.master.destroy()
 
     def handle_disconnection(self):
-        if self.voice_client: self.voice_client.stop()
-        messagebox.showinfo("Disconnesso", "La connessione con il server è stata persa."); self.master.title("D&D Client - Disconnesso")
-        self.status_label.config(text="Stato: Disconnesso", style="Danger.TLabel"); self.set_controls_state(tk.DISABLED)
+        self.is_connected = False
+        if getattr(self, "audio_manager", None):
+            try: self.audio_manager.stop("all")
+            except Exception: pass
+        if self.voice_client:
+            try: self.voice_client.stop()
+            except Exception: pass
+        messagebox.showinfo("Disconnesso", "La connessione con il server è stata persa.\nPuoi usare 'Riconnetti Ultimo Server' dal menu Server.")
+        self.master.title("D&D Client - Disconnesso")
+        self.status_label.config(text="Stato: Disconnesso", style="Danger.TLabel")
+        self.set_controls_state(tk.DISABLED)
         self.local_map_data=None; self.players_data={}; self.update_player_listbox(); self.redraw_map_and_players()
 
     def handle_server_message(self, msg):
@@ -790,6 +964,9 @@ class ClientGUI:
             "DO_LONG_REST": self.handle_do_long_rest,
             "FOW_UPDATE_BROADCAST": self.handle_fow_update_broadcast,
             "AUDIO_PLAY_BROADCAST": self.handle_audio_play,
+            "AUDIO_TRACK_PLAY": self.handle_audio_track_play,
+            "AUDIO_STOP": self.handle_audio_stop,
+            "AUDIO_TRACK_CHUNK": self.handle_audio_track_chunk,
             "CUSTOM_SPELL_RESPONSE": self.handle_custom_spell_response,
             "CAMPAIGN_STARTER_GRANTED": self.handle_campaign_starter_granted
         }
@@ -850,6 +1027,86 @@ class ClientGUI:
         if url:
             webbrowser.open(url)
             self.log_to_chat("Stai ascoltando un audio avviato dal DM", "Globale", sender="Sistema", color="#99AAB5")
+
+    def handle_audio_track_play(self, data):
+        track_id = data.get("track_id")
+        name = data.get("name", "Audio")
+        ext = data.get("ext", ".mp3")
+        channel = data.get("channel", "music")
+        loop = data.get("loop", False)
+        volume = float(data.get("volume", 0.8))
+        if not track_id:
+            return
+
+        target_path = os.path.join(self.audio_cache_dir, f"{track_id}{ext}")
+        if os.path.isfile(target_path):
+            self.audio_manager.play(target_path, channel=channel, loop=loop, volume=volume, name=name)
+            icon = "🎵" if channel == "music" else "💥"
+            self.log_to_chat(f"In riproduzione: {icon} {name}", "Globale", sender="Audio", color="#1ABC9C")
+        else:
+            self._pending_play = {
+                "track_id": track_id,
+                "name": name,
+                "channel": channel,
+                "loop": loop,
+                "volume": volume,
+                "ext": ext
+            }
+            from common.protocol import make_audio_track_request
+            self.network.send(make_audio_track_request(track_id))
+            self.log_to_chat(f"Scaricamento traccia '{name}' dal server in corso...", "Globale", sender="Audio", color="#7289DA")
+
+    def handle_audio_track_chunk(self, data):
+        track_id = data.get("track_id")
+        index = data.get("index", 0)
+        total = data.get("total", 1)
+        b64_data = data.get("data", "")
+        ext = data.get("ext") or (self._pending_play.get("ext") if self._pending_play and self._pending_play.get("track_id") == track_id else ".mp3")
+
+        if not track_id:
+            return
+
+        if track_id not in self._audio_downloads:
+            self._audio_downloads[track_id] = {
+                "total": total,
+                "ext": ext,
+                "chunks": {}
+            }
+
+        rec = self._audio_downloads[track_id]
+        if ext and not rec.get("ext"):
+            rec["ext"] = ext
+        try:
+            rec["chunks"][index] = base64.b64decode(b64_data)
+        except Exception as e:
+            print(f"[AUDIO] Errore decodifica chunk {index}: {e}")
+            return
+
+        if len(rec["chunks"]) == rec["total"]:
+            target_path = os.path.join(self.audio_cache_dir, f"{track_id}{rec['ext']}")
+            try:
+                with open(target_path, "wb") as f:
+                    for i in range(rec["total"]):
+                        f.write(rec["chunks"][i])
+            except Exception as e:
+                print(f"[AUDIO] Errore salvataggio file in cache {target_path}: {e}")
+            finally:
+                if track_id in self._audio_downloads:
+                    del self._audio_downloads[track_id]
+
+            if self._pending_play and self._pending_play.get("track_id") == track_id:
+                req = self._pending_play
+                self._pending_play = None
+                self.audio_manager.play(target_path, channel=req.get("channel", "music"), loop=req.get("loop", False), volume=req.get("volume", 0.8), name=req.get("name", "Audio"))
+                icon = "🎵" if req.get("channel") == "music" else "💥"
+                self.log_to_chat(f"In riproduzione: {icon} {req.get('name')}", "Globale", sender="Audio", color="#1ABC9C")
+
+    def handle_audio_stop(self, data):
+        channel = data.get("channel", "all")
+        self.audio_manager.stop(channel)
+        if self._pending_play:
+            if channel == "all" or channel == self._pending_play.get("channel"):
+                self._pending_play = None
 
     def handle_prompt_long_rest_vote(self, data):
         initiator = data.get("initiator", "Qualcuno")
@@ -1018,16 +1275,19 @@ class ClientGUI:
 
     def create_chat_tab(self, name):
         if name in self.chat_tabs: return
-        tab_frame=ttk.Frame(self.notebook)
-        text_widget=scrolledtext.ScrolledText(tab_frame, state='disabled', wrap=tk.WORD, height=8, bg="#36393F", fg="#DCDDDE", borderwidth=0, highlightthickness=0, font=("Arial", 10))
+        tab_frame = ttk.Frame(self.notebook)
+        text_widget = scrolledtext.ScrolledText(
+            tab_frame, state='disabled', wrap=tk.WORD, height=8, 
+            bg=SURFACE_COLOR, fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN
+        )
         text_widget.pack(fill=tk.BOTH, expand=True)
         self.notebook.add(tab_frame, text=name)
-        self.chat_tabs[name]=text_widget
+        self.chat_tabs[name] = text_widget
         
-        # Configure tags for Discord-like format
-        text_widget.tag_config("timestamp", foreground="#72767D", font=("Arial", 8))
-        text_widget.tag_config("sender", font=("Arial", 10, "bold"))
-        text_widget.tag_config("text", foreground="#DCDDDE")
+        # Configure tags for Dark Fantasy / Discord-like format
+        text_widget.tag_config("timestamp", foreground=TEXT_MUTED, font=("Segoe UI", 8))
+        text_widget.tag_config("sender", font=FONT_BOLD, foreground=ACCENT_GOLD)
+        text_widget.tag_config("text", foreground=TEXT_COLOR, font=FONT_MAIN)
 
     def update_player_listbox(self):
         import tkinter as tk
@@ -1182,8 +1442,3 @@ if __name__ == "__main__":
     root=tk.Tk()
     ClientGUI(root)
     root.mainloop()
-    def toggle_mute(self):
-        print("Mute toggled")
-
-    def toggle_deafen(self):
-        print("Deafen toggled")
