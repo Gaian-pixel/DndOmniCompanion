@@ -1190,3 +1190,4 @@ class CampaignSelectorDialog(tk.Toplevel):
             return
         self.on_select_callback(self.selected_campaign)
         self.destroy()
+

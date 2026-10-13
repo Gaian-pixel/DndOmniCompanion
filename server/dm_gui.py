@@ -86,6 +86,8 @@ class DM_GUI:
         
         tools_menu = tk.Menu(menubar, tearoff=0)
         tools_menu.add_command(label="Editor / Prepara Campagna", command=self.open_campaign_editor_dialog)
+        tools_menu.add_command(label="💰 Generatore di Bottino (Loot 5e)", command=self.open_loot_generator_dialog)
+        tools_menu.add_command(label="🎭 Generatore Rapido PNG", command=self.open_random_npc_dialog)
         tools_menu.add_command(label="Editor Mappe", command=self.open_map_editor)
         tools_menu.add_command(label="Condividi Immagine (Handout)", command=self.share_image_handout)
         tools_menu.add_command(label="Condividi Documento testuale", command=self.share_text_handout)
@@ -120,6 +122,10 @@ class DM_GUI:
         btn3 = ttk.Button(left_toolbar, text="📏", width=3, style="Tool.TButton", command=lambda: print("Misura: Placeholder"))
         btn3.pack(pady=3)
         ToolTip(btn3, "Misura Distanza")
+        
+        self.btn_aoe = ttk.Button(left_toolbar, text="💥", width=3, style="Tool.TButton", command=self.open_aoe_dialog)
+        self.btn_aoe.pack(pady=3)
+        ToolTip(self.btn_aoe, "Lancia Area d'Effetto (AoE)")
         
         self.btn_clear_aoe = ttk.Button(left_toolbar, text="🧹", width=3, style="Tool.TButton", command=self.clear_aoes)
         self.btn_clear_aoe.pack(pady=3)
@@ -368,6 +374,7 @@ class DM_GUI:
         self.player_menu.add_separator()
         self.player_menu.add_command(label="Aggiungi/Rimuovi da Combattimento", command=self.toggle_player_combat_status)
         self.player_menu.add_command(label="Aggiungi/Rimuovi dal Party", command=self.toggle_party_status)
+        self.player_menu.add_command(label="🌟 Assegna/Rimuovi Ispirazione", command=self.toggle_inspiration)
         self.player_menu.add_separator()
         self.player_menu.add_command(label="Rimuovi", command=self.remove_entity)
 
@@ -757,6 +764,7 @@ class DM_GUI:
         else:
             if messagebox.askyesno("Fine Combattimento", "Vuoi terminare il combattimento?"):
                 self.server.game_state.end_combat()
+                self._auto_restore_scene_music()
                 self.server.game_state.add_calendar_event(f"Combattimento Terminato al Round {self.server.game_state.combat_round}")
                 self.log_to_chat("[SISTEMA] Fine Combattimento.")
                 from common.protocol import make_chat_broadcast, make_game_state
@@ -841,6 +849,7 @@ class DM_GUI:
 
         def finalize_combat(selected_names, npc_initiatives):
             self.server.game_state.start_combat(participant_names=selected_names)
+            self._auto_play_battle_music()
             self.server.game_state.add_calendar_event(f"Combattimento Iniziato (Partecipanti: {len(selected_names)})")
             
             from common.protocol import make_request_initiative, make_player_stats_update
@@ -954,6 +963,18 @@ class DM_GUI:
 
     def toggle_fow(self):
         if not self.server.game_state.current_map: return
+        
+        if getattr(self, "aoe_mode", False):
+            self.aoe_mode = False
+            origin = [clicked_hex.q, clicked_hex.r]
+            aoe_data = getattr(self, "aoe_params", {})
+            aoe_data["origin"] = origin
+            from server.rules.map_interaction import handle_create_aoe_request
+            from common.game_state import Player
+            handle_create_aoe_request({"aoe_data": aoe_data}, Player("DM", None, None), self.server.game_state)
+            self.redraw_map_and_players()
+            self.log_to_chat(f"[AoE] Il DM ha piazzato un'Area d'Effetto in {origin}.")
+            return
         self.server.game_state.current_map["fow_enabled"] = self.fow_enabled_var.get()
         self.redraw_map_and_players()
         self._broadcast_fow_update()
@@ -2258,9 +2279,169 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
 
 
 
+    def open_loot_generator_dialog(self):
+        from server.dm_generators import LootGeneratorDialog
+        LootGeneratorDialog(self.master, self.server.game_state)
+
+    def open_random_npc_dialog(self):
+        from server.dm_generators import RandomNPCDialog
+        RandomNPCDialog(self.master, self.server.game_state)
+
+    def toggle_inspiration(self):
+        sel_name = self.get_selected_player_name()
+        if not sel_name: return
+        p = self.server.game_state.find_player(sel_name)
+        if not p: return
+        
+        cur = getattr(p, "has_inspiration", False)
+        new_val = not cur
+        p.has_inspiration = new_val
+        if p.full_sheet:
+            p.full_sheet["has_inspiration"] = new_val
+            
+        from common.protocol import make_chat_broadcast, make_update_inspiration
+        if new_val:
+            msg = f"🌟 {p.name} ha ricevuto l'Ispirazione dal Dungeon Master!"
+        else:
+            msg = f"☆ L'Ispirazione di {p.name} è stata rimossa dal Dungeon Master."
+            
+        broadcast(self.server.game_state, make_chat_broadcast("Sistema", msg))
+        self.log_to_chat(f"[ISPIRAZIONE] {msg}")
+        
+        if getattr(p, "conn", None):
+            send_message(p.conn, make_update_inspiration(new_val))
+            
+        self.server.game_state._trigger_gui_update()
+        messagebox.showinfo("Ispirazione", f"Ispirazione per {p.name}: {'CONCESSA (⭐)' if new_val else 'RIMOSSA'}", parent=self.master)
+
+    def open_aoe_dialog(self):
+        win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
+        win.title("Piazza Area d'Effetto (AoE)")
+        win.minsize(360, 380)
+        apply_modern_window_style(win)
+
+        ttk.Label(win, text="Forma Area:", font=FONT_BOLD).pack(pady=5)
+        type_var = tk.StringVar(value="sfera")
+        frame_radio = ttk.Frame(win)
+        frame_radio.pack()
+        ttk.Radiobutton(frame_radio, text="Sfera/Cubo", variable=type_var, value="sfera").pack(side=tk.LEFT, padx=3)
+        ttk.Radiobutton(frame_radio, text="Cono", variable=type_var, value="cono").pack(side=tk.LEFT, padx=3)
+        ttk.Radiobutton(frame_radio, text="Linea", variable=type_var, value="linea").pack(side=tk.LEFT, padx=3)
+
+        ttk.Label(win, text="Raggio / Lunghezza (esagoni):", font=FONT_BOLD).pack(pady=5)
+        size_entry = ttk.Entry(win, width=10)
+        size_entry.insert(0, "3")
+        size_entry.pack()
+
+        ttk.Label(win, text="Colore:").pack(pady=5)
+        color_var = tk.StringVar(value="red")
+        color_frame = ttk.Frame(win)
+        color_frame.pack()
+        colors = {"Rosso": "red", "Blu": "blue", "Verde": "green", "Giallo": "yellow", "Viola": "purple"}
+        for cname, cval in colors.items():
+            ttk.Radiobutton(color_frame, text=cname, variable=color_var, value=cval).pack(side=tk.LEFT, padx=2)
+
+        ttk.Separator(win, orient="horizontal").pack(fill="x", pady=8)
+
+        req_save_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(win, text="Richiede Tiro Salvezza (Auto-roll per NPC)", variable=req_save_var).pack(pady=2)
+
+        save_frame = ttk.Frame(win)
+        save_frame.pack(pady=4)
+
+        ttk.Label(save_frame, text="Stat:").grid(row=0, column=0, padx=2)
+        stat_var = tk.StringVar(value="DES")
+        ttk.Combobox(save_frame, textvariable=stat_var, values=["FOR", "DES", "COS", "INT", "SAG", "CAR"], width=5).grid(row=0, column=1, padx=2)
+
+        ttk.Label(save_frame, text="CD:").grid(row=0, column=2, padx=2)
+        dc_entry = ttk.Entry(save_frame, width=5)
+        dc_entry.insert(0, "15")
+        dc_entry.grid(row=0, column=3, padx=2)
+
+        ttk.Label(save_frame, text="Danni:").grid(row=1, column=0, padx=2, pady=5)
+        dmg_entry = ttk.Entry(save_frame, width=8)
+        dmg_entry.insert(0, "8d6")
+        dmg_entry.grid(row=1, column=1, padx=2, pady=5)
+
+        half_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(save_frame, text="Dimezza Danni", variable=half_var).grid(row=1, column=2, columnspan=2, padx=2)
+
+        def submit():
+            try: sz = int(size_entry.get())
+            except: sz = 3
+            self.aoe_mode = True
+            dc = 10
+            if req_save_var.get():
+                try: dc = int(dc_entry.get())
+                except: dc = 10
+
+            self.aoe_params = {
+                "type": type_var.get(), "size": sz, "color": color_var.get(),
+                "req_save": req_save_var.get(), "stat": stat_var.get(), "dc": dc,
+                "dmg": dmg_entry.get(), "half": half_var.get()
+            }
+            messagebox.showinfo("AoE", "Clicca sulla mappa per confermare il bersaglio / centro dell'area d'effetto.", parent=win)
+            win.destroy()
+
+        ttk.Button(win, text="Conferma & Seleziona Centro", command=submit, style="Primary.TButton").pack(pady=10)
+
+    def _auto_play_battle_music(self):
+        try:
+            active_c = getattr(self.server.game_state, "active_campaign", None)
+            combat_track = None
+            if active_c and getattr(active_c, "combat_music", None):
+                c_m = active_c.combat_music
+                tr_id = c_m.get("id") if isinstance(c_m, dict) else c_m
+                combat_track = self.server.game_state.audio_library.get_track(tr_id)
+            if not combat_track:
+                for tr in self.server.game_state.audio_library.list_tracks():
+                    name_l = tr["name"].lower()
+                    if any(k in name_l for k in ["battaglia", "combat", "battle", "boss", "combattimento", "lotta"]):
+                        combat_track = tr
+                        break
+            if combat_track:
+                self._previous_music = getattr(self.server.game_state, "current_music", None)
+                from common.protocol import make_audio_track_play
+                msg = make_audio_track_play(combat_track["id"], combat_track["name"], combat_track["ext"], combat_track["size"], channel="music", loop=True, volume=0.8)
+                self.server.game_state.current_music = msg
+                broadcast(self.server.game_state, msg)
+                if getattr(self, "audio_dm_listen_var", None) and self.audio_dm_listen_var.get():
+                    self.audio_manager.play(self.server.game_state.audio_library.get_path(combat_track["id"]), channel="music", loop=True, volume=0.8, name=combat_track["name"])
+                if hasattr(self, "audio_now_playing"):
+                    self.audio_now_playing.config(text=f"In riproduzione: ⚔️ {combat_track['name']} (loop)")
+                self.log_to_chat(f"[SOUNDSCAPE] ⚔️ Colonna sonora di combattimento: {combat_track['name']}")
+        except Exception as e:
+            print(f"[SOUNDSCAPE] Errore musica combattimento: {e}")
+
+    def _auto_restore_scene_music(self):
+        try:
+            from common.protocol import make_audio_stop
+            prev = getattr(self, "_previous_music", None)
+            if prev:
+                self.server.game_state.current_music = prev
+                broadcast(self.server.game_state, prev)
+                t_id = prev["data"]["track_id"]
+                t_name = prev["data"]["name"]
+                if getattr(self, "audio_dm_listen_var", None) and self.audio_dm_listen_var.get():
+                    self.audio_manager.play(self.server.game_state.audio_library.get_path(t_id), channel="music", loop=prev["data"].get("loop", True), volume=prev["data"].get("volume", 0.8), name=t_name)
+                if hasattr(self, "audio_now_playing"):
+                    self.audio_now_playing.config(text=f"In riproduzione: 🎵 {t_name}")
+                self.log_to_chat(f"[SOUNDSCAPE] 🎵 Musica di scena ripristinata: {t_name}")
+                self._previous_music = None
+            else:
+                broadcast(self.server.game_state, make_audio_stop("music"))
+                self.audio_manager.stop("music")
+                self.server.game_state.current_music = None
+                if hasattr(self, "audio_now_playing"):
+                    self.audio_now_playing.config(text="In riproduzione: -")
+        except Exception as e:
+            print(f"[SOUNDSCAPE] Errore ripristino musica: {e}")
+
+
 if __name__ == "__main__":
     import tkinter as tk
     root = tk.Tk()
     DM_GUI(root)
     root.mainloop()
-

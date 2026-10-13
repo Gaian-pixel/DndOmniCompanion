@@ -32,6 +32,8 @@ def test_flow():
     dummy_char.hp_current = 20
     dummy_char.initiative = 10
     
+    time.sleep(0.3)
+    
     print("2. Eseguo connessione tramite mocking del LoginDialog...")
     with patch('client.client.LoginDialog') as MockDialog:
         instance = MockDialog.return_value
@@ -42,15 +44,17 @@ def test_flow():
         with patch.object(root_client, 'wait_window', fake_wait):
             client_gui.connect_to_server()
             
-    for _ in range(10):
+    for _ in range(20):
         root_server.update()
         root_client.update()
+        if client_gui.is_connected and server_gui.server.game_state.find_player("TestHero"):
+            break
         time.sleep(0.1)
         
-    if client_gui.is_connected:
+    if client_gui.is_connected and server_gui.server.game_state.find_player("TestHero"):
         print("OK: Client connesso con successo")
     else:
-        print("ERR: Client NON connesso")
+        print("ERR: Client NON connesso o non registrato")
         sys.exit(1)
         
     print("3. Simulo avvio combattimento dal Server...")
@@ -137,7 +141,7 @@ def test_flow():
     root_client.destroy()
     root_server.destroy()
     print("\n[SUCCESSO] TUTTI I TEST PASSATI SENZA ERRORI!")
-    sys.exit(0)
+    os._exit(0)
 
 if __name__ == "__main__":
     test_flow()

@@ -15,22 +15,23 @@ from common.theme import (
 
 def start_app():
     root = tk.Tk()
-    root.withdraw()
     setup_theme(root)
-
-    dialog = tk.Toplevel(root)
-    dialog.transient(root)
-    dialog.grab_set()
-    dialog.title("D&D OmniCompanion • Launcher")
-    dialog.minsize(640, 490)
-    dialog.resizable(False, False)
-    apply_modern_window_style(dialog)
-    dialog.configure(bg=BG_COLOR)
+    apply_modern_window_style(root)
+    root.title("D&D OmniCompanion • Launcher")
+    root.configure(bg=BG_COLOR)
+    root.minsize(640, 490)
+    root.resizable(False, False)
     
-    dialog.protocol("WM_DELETE_WINDOW", lambda: root.destroy())
+    # Centra la finestra del launcher direttamente sullo schermo senza finestre fantasma
+    root.update_idletasks()
+    win_w = 640
+    win_h = 490
+    pos_x = max(0, (root.winfo_screenwidth() // 2) - (win_w // 2))
+    pos_y = max(0, (root.winfo_screenheight() // 2) - (win_h // 2))
+    root.geometry(f"{win_w}x{win_h}+{pos_x}+{pos_y}")
 
     # --- HEADER SECTION ---
-    header_frame = tk.Frame(dialog, bg=BG_COLOR)
+    header_frame = tk.Frame(root, bg=BG_COLOR)
     header_frame.pack(fill=tk.X, padx=25, pady=(20, 10))
 
     tk.Label(
@@ -53,29 +54,33 @@ def start_app():
     tk.Frame(header_frame, bg="#A37F2C", height=1).pack(fill=tk.X, pady=(0, 10))
 
     def launch_dm(campaign=None):
-        dialog.destroy()
+        for widget in root.winfo_children():
+            widget.destroy()
+        root.resizable(True, True)
+        root.minsize(950, 650)
         from server.server import DM_GUI
-        root.deiconify()
         app = DM_GUI(root, initial_campaign=campaign)
 
     def launch_dm_campaign_picker():
         from server.campaign_editor_ui import CampaignSelectorDialog
         def on_selected(camp):
             launch_dm(campaign=camp)
-        dlg = CampaignSelectorDialog(dialog, on_select_callback=on_selected)
+        dlg = CampaignSelectorDialog(root, on_select_callback=on_selected)
 
     def open_campaign_builder():
         from server.campaign_editor_ui import CampaignEditorDialog
-        dlg = CampaignEditorDialog(dialog)
+        dlg = CampaignEditorDialog(root)
 
     def launch_player():
-        dialog.destroy()
+        for widget in root.winfo_children():
+            widget.destroy()
+        root.resizable(True, True)
+        root.minsize(950, 650)
         from client.client import ClientGUI
-        root.deiconify()
         app = ClientGUI(root)
 
     # --- SELECTION CARDS CONTAINER ---
-    cards_frame = tk.Frame(dialog, bg=BG_COLOR)
+    cards_frame = tk.Frame(root, bg=BG_COLOR)
     cards_frame.pack(fill=tk.BOTH, expand=True, padx=25, pady=5)
     cards_frame.columnconfigure(0, weight=1)
     cards_frame.columnconfigure(1, weight=1)
@@ -123,11 +128,10 @@ def start_app():
     ttk.Button(btn_pl_box, text="Unisciti a Partita", command=launch_player, style="Primary.TButton").pack(fill=tk.X)
 
     # --- FOOTER ---
-    footer = tk.Frame(dialog, bg=BG_COLOR)
+    footer = tk.Frame(root, bg=BG_COLOR)
     footer.pack(fill=tk.X, padx=25, pady=(10, 15))
     tk.Label(footer, text="DndOmniCompanion • Audio Streaming, Voice UDP & Hex Grid Engine", font=("Segoe UI", 8), bg=BG_COLOR, fg="#5C5F66").pack()
 
-    root.eval('tk::PlaceWindow . center')
     root.mainloop()
 
 if __name__ == "__main__":

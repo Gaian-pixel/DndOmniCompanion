@@ -56,8 +56,27 @@ def handle_create_aoe_request(data, player, game_state):
             ))
             game_state.log_dm_message(f"[AoE] Richiesto Tiro Salvezza a {p.name}.")
         else:
-            # Mostro gestito dal server/DM
-            game_state.log_dm_message(f"[AoE] {p.name} (NPC) è nell'area. Il DM deve tirare il TS manualmente o possiamo automatizzarlo.")
+            # Mostro/NPC gestito dal server/DM: tiro salvezza ed applicazione automatica dei danni!
+            try:
+                from server.rules.combat import _process_save_result
+                from common.dice import roll_dice
+                stat = aoe_data.get("stat", "DES")
+                dc = aoe_data.get("dc", 10)
+                damage_formula = aoe_data.get("dmg", "8d6")
+                half_on_success = aoe_data.get("half", True)
+                mod = 0
+                if getattr(p, "full_sheet", None):
+                    attr = p.full_sheet.get("attributes", {})
+                    if stat in attr:
+                        mod = (int(attr[stat]) - 10) // 2
+                mod_str = f"+{mod}" if mod >= 0 else str(mod)
+                save_result = roll_dice(f"1d20{mod_str}")
+                roll_tot = save_result["total"]
+                is_crit = save_result["rolls"][0] == 20
+                is_fail = save_result["rolls"][0] == 1
+                _process_save_result(p.name, stat, roll_tot, is_crit, is_fail, dc, damage_formula, half_on_success, player.name, game_state)
+            except Exception as e:
+                game_state.log_dm_message(f"[AoE] Errore tiro automatico TS per {p.name}: {e}")
 
 def handle_clear_aoes_request(data, player, game_state):
     game_state.clear_aoes()
