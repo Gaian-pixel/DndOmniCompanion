@@ -164,3 +164,10 @@ def make_audio_track_request(track_id):
 
 def make_audio_track_chunk(track_id, index, total, data_b64, ext=None):
     return {"type": "AUDIO_TRACK_CHUNK", "data": {"track_id": track_id, "index": index, "total": total, "data": data_b64, "ext": ext}}
+
+def make_update_inspiration(has_inspiration: bool):
+    return {"type": "UPDATE_INSPIRATION", "data": {"has_inspiration": has_inspiration}}
+
+def make_give_gold_request(target_name: str, amount: int):
+    return {"type": "GIVE_GOLD_REQUEST", "data": {"target_name": target_name, "amount": amount}}
+

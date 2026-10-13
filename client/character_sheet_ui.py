@@ -14,7 +14,7 @@ from common.theme import (
 )
 
 class CharacterSheetUI(tk.Toplevel):
-    def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None, custom_spell_request_callback=None, is_connected=False):
+    def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, give_gold_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None, custom_spell_request_callback=None, is_connected=False):
         super().__init__(master)
         self.title(f"Scheda PG - {character.name}")
         self.minsize(600, 700)
@@ -25,6 +25,7 @@ class CharacterSheetUI(tk.Toplevel):
         self.roll_callback = roll_callback
         self.long_rest_callback = long_rest_callback
         self.trade_callback = trade_callback
+        self.give_gold_callback = give_gold_callback
         self.players_list_callback = players_list_callback
         self.attack_callback = attack_callback
         self.custom_spell_request_callback = custom_spell_request_callback
@@ -70,6 +71,13 @@ class CharacterSheetUI(tk.Toplevel):
         tk.Label(header_frame, text="Razza:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=2, column=0, sticky="e", padx=(0, 4))
         self.race_var = tk.StringVar()
         ttk.Entry(header_frame, textvariable=self.race_var, width=16).grid(row=2, column=1, padx=4, pady=3, sticky="ew")
+
+        self.btn_inspiration = tk.Button(
+            header_frame, text="☆ Nessuna Ispirazione", font=("Segoe UI", 9, "bold"),
+            bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, activebackground=SURFACE_COLOR,
+            relief=tk.FLAT, bd=0, padx=8, pady=2, command=self.on_inspiration_clicked
+        )
+        self.btn_inspiration.grid(row=2, column=2, columnspan=5, padx=(8, 0), pady=3, sticky="ew")
 
         # Corpo centrale
         body_frame = ttk.Frame(main_frame)
@@ -274,14 +282,26 @@ class CharacterSheetUI(tk.Toplevel):
         self.notebook.pack(fill=tk.BOTH, expand=True)
 
         self.text_widgets = {}
-        for tab_name, attr in [("Inventario", "inventory_grid"), ("Tratti e Privilegi", "features"), ("Grimorio", "spellbook"), ("Note", "notes")]:
+        tabs_def = [
+            ("⚔️ Armi & Attacchi", "weapons"),
+            ("🎒 Inventario", "inventory_grid"),
+            ("🌟 Tratti & Privilegi", "features"),
+            ("📖 Grimorio", "spellbook"),
+            ("📜 Diario & Note", "journal_notes"),
+            ("📝 Note Rapide", "notes")
+        ]
+        for tab_name, attr in tabs_def:
             frame = ttk.Frame(self.notebook)
             self.notebook.add(frame, text=tab_name)
             
-            if attr == "inventory_grid":
+            if attr == "weapons":
+                self.create_weapons_tab(frame)
+            elif attr == "inventory_grid":
                 self.create_inventory_tab(frame)
             elif attr == "spellbook":
                 self.build_spells_tab(frame)
+            elif attr == "journal_notes":
+                self.create_journal_tab(frame)
             else:
                 txt = tk.Text(frame, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=self.default_font, wrap=tk.WORD)
                 txt.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
@@ -357,7 +377,10 @@ class CharacterSheetUI(tk.Toplevel):
         self.weight_label.pack(pady=5)
         
         compendium_btn = ttk.Button(bottom_frame, text="Cerca nel Compendio", command=self.open_inventory_compendium)
-        compendium_btn.pack(pady=5)
+        compendium_btn.pack(side=tk.LEFT, padx=4, pady=5)
+        
+        btn_give_gold = ttk.Button(bottom_frame, text="🪙 Dona Oro a Compagno", command=self.on_give_gold_click, style="Gold.TButton")
+        btn_give_gold.pack(side=tk.RIGHT, padx=4, pady=5)
 
     def calculate_total_weight(self):
         if not hasattr(self, 'weight_vars') or not hasattr(self, 'weight_label'):
@@ -621,6 +644,8 @@ class CharacterSheetUI(tk.Toplevel):
                     
         self.refresh_spell_list()
         self.refresh_inventory_grid()
+        self.refresh_weapons_list()
+        self.update_inspiration_ui()
         self.update_exp_ui()
 
     def update_exp_ui(self):
@@ -1003,6 +1028,248 @@ class CharacterSheetUI(tk.Toplevel):
         self.load_data()
 
 
+
+    def update_inspiration_ui(self):
+        if not hasattr(self, 'btn_inspiration'): return
+        has_insp = getattr(self.character, "has_inspiration", False)
+        if has_insp:
+            self.btn_inspiration.config(text="⭐ ISPIRAZIONE ATTIVA (Clicca per Usare)", bg=ACCENT_GOLD, fg=TEXT_DARK)
+        else:
+            self.btn_inspiration.config(text="☆ Nessuna Ispirazione (Assegnata dal DM)", bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED)
+
+    def set_inspiration(self, val: bool):
+        self.character.has_inspiration = val
+        self.update_inspiration_ui()
+
+    def on_inspiration_clicked(self):
+        has_insp = getattr(self.character, "has_inspiration", False)
+        if has_insp:
+            if messagebox.askyesno("Consuma Ispirazione", "Vuoi consumare l'Ispirazione per impostare VANTAGGIO al tuo prossimo tiro?"):
+                self.character.has_inspiration = False
+                self.adv_dis_var.set("Vantaggio")
+                self.update_inspiration_ui()
+                self.manager.save_characters()
+                if self.roll_callback:
+                    self.roll_callback("0d0", f"⭐ {self.character.name} consuma la propria Ispirazione per ottenere Vantaggio!")
+        else:
+            messagebox.showinfo("Ispirazione 5e", "L'Ispirazione è un dono conferito dal Dungeon Master per idee brillanti, eroismo o eccellente interpretazione di ruolo!\n\nIl DM può assegnartela dal menu contestuale del tuo token.")
+
+    def create_weapons_tab(self, parent_frame):
+        bar = tk.Frame(parent_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=6)
+        bar.pack(fill=tk.X, pady=(0, 6))
+        
+        tk.Label(bar, text="⚔️ Armi & Attacchi Rapidi 5e", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(side=tk.LEFT)
+        ttk.Button(bar, text="+ Aggiungi Arma", command=self.open_add_weapon_dialog, style="Gold.TButton").pack(side=tk.RIGHT)
+        
+        canvas = tk.Canvas(parent_frame, bg=BG_COLOR, highlightthickness=0)
+        sb = ttk.Scrollbar(parent_frame, orient=tk.VERTICAL, command=canvas.yview)
+        self.weapons_cards_frame = tk.Frame(canvas, bg=BG_COLOR)
+        
+        self.weapons_cards_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.create_window((0, 0), window=self.weapons_cards_frame, anchor="nw")
+        canvas.configure(yscrollcommand=sb.set)
+        
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.refresh_weapons_list()
+
+    def refresh_weapons_list(self):
+        if not hasattr(self, 'weapons_cards_frame'): return
+        for child in self.weapons_cards_frame.winfo_children():
+            child.destroy()
+            
+        weapons = getattr(self.character, "weapons", [])
+        if not weapons:
+            empty_lbl = tk.Label(self.weapons_cards_frame, text="Nessuna arma equipaggiata.\nClicca '+ Aggiungi Arma' per registrare un'arma o attacco!", font=FONT_MAIN, bg=BG_COLOR, fg=TEXT_MUTED, pady=25)
+            empty_lbl.pack(fill=tk.X)
+            return
+            
+        for i, w in enumerate(weapons):
+            card = tk.Frame(self.weapons_cards_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
+            card.pack(fill=tk.X, pady=4, padx=4)
+            
+            stat_key = w.get("ability", "FOR")
+            stat_val = self.character.attributes.get(stat_key, 10)
+            mod = (stat_val - 10) // 2
+            prof_bonus = getattr(self.character, "proficiency_bonus", 2) if w.get("proficient", True) else 0
+            w_bonus = w.get("bonus", 0)
+            total_txc = mod + prof_bonus + w_bonus
+            txc_str = f"+{total_txc}" if total_txc >= 0 else str(total_txc)
+            
+            dmg_mod = mod + w_bonus
+            dmg_mod_str = f"+{dmg_mod}" if dmg_mod > 0 else (str(dmg_mod) if dmg_mod < 0 else "")
+            dice = w.get("damage_dice", "1d8")
+            dmg_str = f"{dice}{dmg_mod_str} {w.get('damage_type', '')}"
+            
+            r1 = tk.Frame(card, bg=SURFACE_COLOR)
+            r1.pack(fill=tk.X)
+            name_lbl = tk.Label(r1, text=w.get("name", "Arma"), font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD)
+            name_lbl.pack(side=tk.LEFT)
+            type_lbl = tk.Label(r1, text=f"• {w.get('type', '')}", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
+            type_lbl.pack(side=tk.LEFT, padx=6)
+            
+            prof_badge = "Competente" if w.get("proficient", True) else "Non Comp."
+            r2 = tk.Frame(card, bg=SURFACE_COLOR)
+            r2.pack(fill=tk.X, pady=(2, 4))
+            tk.Label(r2, text=f"Modificatore: {stat_key} ({mod:+d}) | {prof_badge} (+{prof_bonus}) | Magico: +{w_bonus}", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(side=tk.LEFT)
+            
+            r3 = tk.Frame(card, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=4)
+            r3.pack(fill=tk.X, pady=(2, 6))
+            tk.Label(r3, text=f"TxC: {txc_str}", font=("Georgia", 11, "bold"), bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(side=tk.LEFT, padx=(0, 15))
+            tk.Label(r3, text=f"Danno: {dmg_str}", font=("Georgia", 11, "bold"), bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).pack(side=tk.LEFT)
+            
+            r4 = tk.Frame(card, bg=SURFACE_COLOR)
+            r4.pack(fill=tk.X)
+            
+            btn_attack = ttk.Button(r4, text=f"🎯 Colpisci ({txc_str})", command=lambda weapon=w, txc=total_txc: self.execute_weapon_attack(weapon, txc), style="Gold.TButton")
+            btn_attack.pack(side=tk.LEFT, padx=(0, 4))
+            
+            btn_damage = ttk.Button(r4, text="💥 Danno", command=lambda weapon=w, dmod=dmg_mod: self.execute_weapon_damage(weapon, dmod), style="Primary.TButton")
+            btn_damage.pack(side=tk.LEFT, padx=(0, 4))
+            
+            btn_del = ttk.Button(r4, text="🗑️", width=3, command=lambda idx=i: self.remove_weapon(idx))
+            btn_del.pack(side=tk.RIGHT)
+
+            btn_edit = ttk.Button(r4, text="✏️", width=3, command=lambda weapon=w, idx=i: self.open_edit_weapon_dialog(weapon, idx))
+            btn_edit.pack(side=tk.RIGHT, padx=(0, 4))
+
+    def open_add_weapon_dialog(self):
+        def _on_save(w_data):
+            if not hasattr(self.character, "weapons"): self.character.weapons = []
+            self.character.weapons.append(w_data)
+            self.manager.save_characters()
+            self.refresh_weapons_list()
+        WeaponDialog(self, on_save_callback=_on_save)
+
+    def open_edit_weapon_dialog(self, weapon, idx):
+        def _on_save(w_data):
+            self.character.weapons[idx] = w_data
+            self.manager.save_characters()
+            self.refresh_weapons_list()
+        WeaponDialog(self, weapon_data=weapon, on_save_callback=_on_save)
+
+    def remove_weapon(self, idx):
+        if idx < len(self.character.weapons):
+            w_name = self.character.weapons[idx].get("name", "Arma")
+            if messagebox.askyesno("Rimuovi Arma", f"Rimuovere l'arma '{w_name}'?"):
+                self.character.weapons.pop(idx)
+                self.manager.save_characters()
+                self.refresh_weapons_list()
+
+    def execute_weapon_attack(self, weapon, total_txc):
+        import random
+        if getattr(self.character, "has_inspiration", False):
+            if messagebox.askyesno("Usa Ispirazione", "Possiedi l'Ispirazione! Vuoi spenderla per ottenere VANTAGGIO a questo attacco?"):
+                self.character.has_inspiration = False
+                self.update_inspiration_ui()
+                self.adv_dis_var.set("Vantaggio")
+                self.manager.save_characters()
+                
+        adv_state = self.adv_dis_var.get()
+        r1 = random.randint(1, 20)
+        r2 = random.randint(1, 20)
+        
+        if adv_state == "Vantaggio":
+            base_roll = max(r1, r2)
+            rolls_str = f"max({r1}, {r2})"
+        elif adv_state == "Svantaggio":
+            base_roll = min(r1, r2)
+            rolls_str = f"min({r1}, {r2})"
+        else:
+            base_roll = r1
+            rolls_str = str(r1)
+            
+        total = base_roll + total_txc
+        txc_sign = f"+{total_txc}" if total_txc >= 0 else str(total_txc)
+        w_name = weapon.get("name", "Arma")
+        
+        is_crit = (base_roll == 20)
+        is_fail = (base_roll == 1)
+        weapon["_last_crit"] = is_crit
+        
+        adv_text = f" ({adv_state})" if adv_state != "Normale" else ""
+        
+        if is_crit:
+            msg = f"⚔️ {self.character.name} attacca con {w_name}{adv_text}: [d20: {rolls_str}] {txc_sign} = {total} ⭐ COLPO CRITICO (20)!"
+            messagebox.showinfo("COLPO CRITICO!", f"⭐ COLPO CRITICO!\nUn naturale 20 con {w_name}!\nIl prossimo tiro dei danni raddoppierà automaticamente i dadi!")
+        elif is_fail:
+            msg = f"⚔️ {self.character.name} attacca con {w_name}{adv_text}: [d20: {rolls_str}] {txc_sign} = {total} 💥 FALLIMENTO CRITICO (1)!"
+        else:
+            msg = f"⚔️ {self.character.name} attacca con {w_name}{adv_text}: [d20: {rolls_str}] {txc_sign} = {total}"
+            
+        self.adv_dis_var.set("Normale")
+        if self.roll_callback:
+            self.roll_callback("0d0", msg)
+        else:
+            messagebox.showinfo("Attacco Eseguito", msg)
+
+    def execute_weapon_damage(self, weapon, dmg_mod):
+        import random, re
+        dice_expr = weapon.get("damage_dice", "1d8")
+        is_crit = weapon.pop("_last_crit", False)
+        
+        m = re.match(r"(\d+)d(\d+)", dice_expr)
+        if m:
+            num_dice = int(m.group(1))
+            die_sides = int(m.group(2))
+        else:
+            num_dice = 1
+            die_sides = 8
+            
+        if is_crit:
+            num_dice *= 2
+            
+        rolls = [random.randint(1, die_sides) for _ in range(num_dice)]
+        dice_sum = sum(rolls)
+        total = max(0, dice_sum + dmg_mod)
+        
+        w_name = weapon.get("name", "Arma")
+        dmg_type = weapon.get("damage_type", "")
+        crit_text = " ⭐ CRITICO (Dadi Raddoppiati!)" if is_crit else ""
+        mod_sign = f"+{dmg_mod}" if dmg_mod >= 0 else str(dmg_mod)
+        
+        msg = f"💥 Danni {w_name}{crit_text}: [{'+'.join(map(str, rolls))}] {mod_sign} = {total} danni {dmg_type} ({num_dice}d{die_sides}{mod_sign})"
+        if self.roll_callback:
+            self.roll_callback("0d0", msg)
+        else:
+            messagebox.showinfo("Danni", msg)
+
+    def create_journal_tab(self, parent_frame):
+        header = tk.Frame(parent_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=6)
+        header.pack(fill=tk.X, pady=(0, 6))
+        tk.Label(header, text="📜 Diario di Bordo & Note Personali", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(side=tk.LEFT)
+        tk.Label(header, text="Appunti di sessione, indizi, nomi e segreti del personaggio", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(side=tk.LEFT, padx=10)
+        
+        txt = tk.Text(parent_frame, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=self.default_font, wrap=tk.WORD,
+                      highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=8)
+        txt.pack(fill=tk.BOTH, expand=True)
+        self.text_widgets["journal_notes"] = txt
+
+    def on_give_gold_click(self):
+        if not getattr(self, "give_gold_callback", None) or not getattr(self, "players_list_callback", None):
+            messagebox.showinfo("Offline", "Disponibile solo quando connesso a una sessione multiplayer.")
+            return
+        players = self.players_list_callback()
+        if not players:
+            messagebox.showinfo("Nessuno", "Nessun altro giocatore connesso.")
+            return
+        target = simpledialog.askstring("Dona Oro", f"A chi vuoi consegnare le Monete d'Oro?\nGiocatori online: {', '.join(players)}", parent=self)
+        if not target or target not in players:
+            if target: messagebox.showerror("Errore", "Giocatore non valido.", parent=self)
+            return
+            
+        cur_gold = self.currency_vars.get("MO").get() if "MO" in self.currency_vars else 0
+        amount = simpledialog.askinteger("Quantità Oro", f"Quante Monete d'Oro (MO) vuoi donare a {target}?\n(Possiedi: {cur_gold} MO)", minvalue=1, maxvalue=max(1, cur_gold), parent=self)
+        if not amount: return
+        
+        self.give_gold_callback(target, amount)
+        self.currency_vars["MO"].set(max(0, cur_gold - amount))
+
+
 class SpellEditorDialog(tk.Toplevel):
     def __init__(self, sheet_ui):
         super().__init__(sheet_ui)
@@ -1090,3 +1357,83 @@ class SpellEditorDialog(tk.Toplevel):
                                    "Non puoi creare un incantesimo custom senza prima chiedere il permesso al Master!\n"
                                    "Devi essere connesso al server del Master per richiedere l'approvazione.")
 
+
+
+class WeaponDialog(tk.Toplevel):
+    """Finestra di dialogo moderna per aggiungere o modificare armi del personaggio."""
+    def __init__(self, parent, weapon_data=None, on_save_callback=None):
+        super().__init__(parent)
+        self.weapon_data = weapon_data or {}
+        self.on_save_callback = on_save_callback
+        is_edit = bool(weapon_data)
+        self.title("Modifica Arma" if is_edit else "Nuova Arma da Combattimento")
+        self.minsize(420, 440)
+        self.transient(parent)
+        self.grab_set()
+        apply_modern_window_style(self)
+        self.configure(bg=BG_COLOR)
+        
+        container = tk.Frame(self, bg=BG_COLOR, padx=16, pady=14)
+        container.pack(fill=tk.BOTH, expand=True)
+        
+        tk.Label(container, text="⚔️ Scheda Arma 5e", font=("Georgia", 14, "bold"), bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w", pady=(0, 10))
+        
+        form = tk.Frame(container, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=12, pady=10)
+        form.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        tk.Label(form, text="Nome Arma:", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).grid(row=0, column=0, sticky="w", pady=4)
+        self.name_var = tk.StringVar(value=self.weapon_data.get("name", "Spada Lunga"))
+        ttk.Entry(form, textvariable=self.name_var, width=22).grid(row=0, column=1, sticky="ew", pady=4, padx=6)
+        
+        tk.Label(form, text="Tipo / Proprietà:", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).grid(row=1, column=0, sticky="w", pady=4)
+        self.type_var = tk.StringVar(value=self.weapon_data.get("type", "Mischia (Versatile 1d10)"))
+        type_combo = ttk.Combobox(form, textvariable=self.type_var, values=[
+            "Mischia", "Mischia (Accurata)", "Mischia (Versatile 1d10)", "Mischia (Pesante, Due Mani)",
+            "Distanza (Munizioni)", "Distanza (80/320 ft)", "Lancio (Veloce)", "Senz'Armi"
+        ], width=20)
+        type_combo.grid(row=1, column=1, sticky="ew", pady=4, padx=6)
+        
+        tk.Label(form, text="Attributo (TxC & Danni):", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).grid(row=2, column=0, sticky="w", pady=4)
+        self.ability_var = tk.StringVar(value=self.weapon_data.get("ability", "FOR"))
+        ttk.Combobox(form, textvariable=self.ability_var, values=["FOR", "DES", "INT", "SAG", "CAR", "COS"], state="readonly", width=8).grid(row=2, column=1, sticky="w", pady=4, padx=6)
+        
+        tk.Label(form, text="Dado Danno:", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).grid(row=3, column=0, sticky="w", pady=4)
+        self.dice_var = tk.StringVar(value=self.weapon_data.get("damage_dice", "1d8"))
+        ttk.Combobox(form, textvariable=self.dice_var, values=["1d4", "1d6", "1d8", "1d10", "1d12", "2d6", "2d4", "1d20"], width=8).grid(row=3, column=1, sticky="w", pady=4, padx=6)
+        
+        tk.Label(form, text="Tipo di Danno:", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).grid(row=4, column=0, sticky="w", pady=4)
+        self.dmg_type_var = tk.StringVar(value=self.weapon_data.get("damage_type", "Tagliente"))
+        ttk.Combobox(form, textvariable=self.dmg_type_var, values=[
+            "Tagliente", "Perforante", "Contundente", "Fuoco", "Freddo", "Fulmine", "Acido", "Radioso", "Necrotico", "Forza", "Veleno", "Psichico"
+        ], width=14).grid(row=4, column=1, sticky="w", pady=4, padx=6)
+        
+        tk.Label(form, text="Bonus Magico (+X):", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).grid(row=5, column=0, sticky="w", pady=4)
+        self.bonus_var = tk.IntVar(value=self.weapon_data.get("bonus", 0))
+        ttk.Spinbox(form, from_=-5, to=10, textvariable=self.bonus_var, width=5).grid(row=5, column=1, sticky="w", pady=4, padx=6)
+        
+        self.prof_var = tk.BooleanVar(value=self.weapon_data.get("proficient", True))
+        ttk.Checkbutton(form, text="Competente nell'Arma (+ Competenza al TxC)", variable=self.prof_var).grid(row=6, column=0, columnspan=2, sticky="w", pady=8)
+        
+        btns = tk.Frame(container, bg=BG_COLOR)
+        btns.pack(fill=tk.X)
+        ttk.Button(btns, text="Salva Arma", command=self.save, style="Primary.TButton").pack(side=tk.RIGHT, padx=(6, 0))
+        ttk.Button(btns, text="Annulla", command=self.destroy).pack(side=tk.RIGHT)
+
+    def save(self):
+        name = self.name_var.get().strip()
+        if not name:
+            messagebox.showwarning("Nome Mancante", "Inserisci il nome dell'arma.", parent=self)
+            return
+            
+        data = {
+            "name": name,
+            "type": self.type_var.get().strip(),
+            "ability": self.ability_var.get().strip(),
+            "damage_dice": self.dice_var.get().strip(),
+            "damage_type": self.dmg_type_var.get().strip(),
+            "bonus": int(self.bonus_var.get()),
+            "proficient": bool(self.prof_var.get())
+        }
+        if self.on_save_callback:
+            self.on_save_callback(data)
+        self.destroy()

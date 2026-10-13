@@ -38,6 +38,9 @@ class Character:
         self.features = ""
         self.spell_slots = {str(i): {"max": 0, "current": 0} for i in range(1, 10)}
         self.spellbook = []
+        self.weapons = []
+        self.has_inspiration = False
+        self.journal_notes = ""
         self.notes = ""
         self.skills = {
             "Acrobazia": 0, "Addestrare Animali": 0, "Arcano": 0, "Atletica": 0,
@@ -107,6 +110,34 @@ class Character:
         
         if not hasattr(c, "hotbar") or not isinstance(c.hotbar, list) or len(c.hotbar) != 10:
             c.hotbar = [""] * 10
+            
+        if not hasattr(c, "weapons") or not isinstance(c.weapons, list):
+            c.weapons = []
+            
+        if not hasattr(c, "has_inspiration"):
+            c.has_inspiration = False
+            
+        if not hasattr(c, "journal_notes"):
+            c.journal_notes = ""
+            
+        # Se la lista armi è vuota, crea armi base compatibili
+        if len(c.weapons) == 0:
+            c_cls = getattr(c, "char_class", "").lower()
+            if any(k in c_cls for k in ["mago", "wizard", "stregone", "sorcerer", "warlock"]):
+                c.weapons = [
+                    {"name": "Bastone Ferrato", "type": "Mischia", "ability": "FOR", "damage_dice": "1d6", "damage_type": "Contundente", "bonus": 0, "proficient": True},
+                    {"name": "Pugnale", "type": "Mischia/Lancio", "ability": "DES", "damage_dice": "1d4", "damage_type": "Perforante", "bonus": 0, "proficient": True}
+                ]
+            elif any(k in c_cls for k in ["ladro", "rogue", "ranger", "bardo", "bard"]):
+                c.weapons = [
+                    {"name": "Stocco", "type": "Mischia (Accurata)", "ability": "DES", "damage_dice": "1d8", "damage_type": "Perforante", "bonus": 0, "proficient": True},
+                    {"name": "Arco Corto", "type": "Distanza (80/320 ft)", "ability": "DES", "damage_dice": "1d6", "damage_type": "Perforante", "bonus": 0, "proficient": True}
+                ]
+            else:
+                c.weapons = [
+                    {"name": "Spada Lunga", "type": "Mischia (Versatile 1d10)", "ability": "FOR", "damage_dice": "1d8", "damage_type": "Tagliente", "bonus": 0, "proficient": True},
+                    {"name": "Balestra Leggera", "type": "Distanza (80/320 ft)", "ability": "DES", "damage_dice": "1d8", "damage_type": "Perforante", "bonus": 0, "proficient": True}
+                ]
             
         if not getattr(c, "starting_kit_applied", False) and getattr(c, "char_class", None) and getattr(c, "level", 1) == 1:
             has_real_items = any(it and it.get("name") != "Zaino Base" for it in c.inventory_grid)

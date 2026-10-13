@@ -17,6 +17,7 @@ command_handlers = {
     "TARGETED_ACTION_REQUEST": handle_targeted_action,
     "ATTACK_REQUEST": handle_attack_request,
     "GIVE_ITEM_REQUEST": handle_give_item_request,
+    "GIVE_GOLD_REQUEST": handle_give_gold_request,
     "CREATE_AOE_REQUEST": handle_create_aoe_request,
     "CLEAR_AOES_REQUEST": handle_clear_aoes_request,
     "SET_TRAVEL_ROLE_REQUEST": handle_set_travel_role_request,

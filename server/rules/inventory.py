@@ -88,3 +88,22 @@ def handle_buy_item_request(data, player, game_state):
     from common.protocol import make_game_state, make_chat_broadcast
     broadcast(game_state, make_game_state(game_state.get_state_dict()))
     broadcast(game_state, make_chat_broadcast("Sistema", f"{player.name} ha acquistato {item_name} da {shop_name} per {price} mo."))
+
+def handle_give_gold_request(data, player, game_state):
+    target_name = data.get("target_name")
+    try:
+        amount = int(data.get("amount", 0))
+    except (ValueError, TypeError):
+        amount = 0
+    if not target_name or amount <= 0:
+        return
+        
+    target_player = game_state.find_player(target_name)
+    if target_player and target_player.conn:
+        send_message(target_player.conn, {"type": "RECEIVE_GOLD", "data": {"amount": amount, "sender": player.name}})
+        log_msg = f"{player.name} ha donato {amount} Monete d'Oro (MO) a {target_name}."
+        game_state.log_dm_message(f"[SISTEMA] {log_msg}")
+        broadcast(game_state, make_chat_broadcast("Sistema", log_msg))
+    else:
+        if player and getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply(f"{target_name} non è online e non può ricevere oro."))

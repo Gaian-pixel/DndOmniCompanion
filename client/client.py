@@ -968,7 +968,9 @@ class ClientGUI:
             "AUDIO_STOP": self.handle_audio_stop,
             "AUDIO_TRACK_CHUNK": self.handle_audio_track_chunk,
             "CUSTOM_SPELL_RESPONSE": self.handle_custom_spell_response,
-            "CAMPAIGN_STARTER_GRANTED": self.handle_campaign_starter_granted
+            "CAMPAIGN_STARTER_GRANTED": self.handle_campaign_starter_granted,
+            "UPDATE_INSPIRATION": self.handle_update_inspiration,
+            "PROMPT_SAVE": self.handle_prompt_save
         }
         handler=handler_map.get(msg_type)
         if handler: handler(data)
@@ -1211,8 +1213,41 @@ class ClientGUI:
             
         ttk.Button(win, text="Tira 1d20 + Iniziativa", command=roll, style='Primary.TButton').pack(pady=15)
 
+    def handle_update_inspiration(self, data):
+        has_insp = data.get("has_inspiration", True)
+        if self.active_character:
+            self.active_character.has_inspiration = has_insp
+            self.character_manager.save_characters()
+            if hasattr(self, 'stats_window') and self.stats_window and self.stats_window.winfo_exists():
+                self.stats_window.set_inspiration(has_insp)
+        if has_insp:
+            self.log_to_chat("🌟 Hai ricevuto l'Ispirazione dal Dungeon Master!", "Globale", sender="Sistema", color="#FEE75C")
+            messagebox.showinfo("Ispirazione Assegnata", "🌟 Hai ricevuto l'Ispirazione dal Dungeon Master!\nPuoi usarla per ottenere Vantaggio in un attacco o prova.")
+        else:
+            self.log_to_chat("☆ L'Ispirazione è stata consumata o rimossa.", "Globale", sender="Sistema", color="#99AAB5")
+
+    def give_gold(self, target_name, amount):
+        if not self.is_connected:
+            messagebox.showinfo("Non Connesso", "Devi essere connesso per donare oro.")
+            return
+        if not self.active_character: return
+        
+        cur_gold = self.active_character.currency.get("MO", 0) if hasattr(self.active_character, "currency") else 0
+        if amount > cur_gold:
+            messagebox.showwarning("Oro Insufficiente", f"Possiedi solo {cur_gold} MO.")
+            return
+            
+        self.active_character.currency["MO"] -= amount
+        self.character_manager.save_characters()
+        from common.protocol import make_give_gold_request, make_update_full_sheet_request
+        self.network.send(make_give_gold_request(target_name, amount))
+        self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
+        self.log_to_chat(f"Hai consegnato {amount} MO a {target_name}.", "Globale", sender="Sistema", color="#00B0F4")
+        messagebox.showinfo("Oro Donato", f"Hai consegnato {amount} MO a {target_name}.")
+
     def handle_receive_gold(self, data):
         amount = data.get("amount", 0)
+        sender = data.get("sender", "Il DM")
         if not self.active_character: return
         
         if not hasattr(self.active_character, "currency") or not isinstance(self.active_character.currency, dict):
@@ -1226,8 +1261,11 @@ class ClientGUI:
         
         if hasattr(self, "sheet_ui") and self.sheet_ui.winfo_exists():
             self.sheet_ui.load_data()
+        elif hasattr(self, "stats_window") and self.stats_window and self.stats_window.winfo_exists():
+            self.stats_window.load_data()
             
-        messagebox.showinfo("Loot Ricevuto", f"Il DM ha distribuito il loot! Hai ricevuto {amount} MO.")
+        messagebox.showinfo("Loot Ricevuto", f"{sender} ti ha inviato {amount} MO!")
+        self.log_to_chat(f"Hai ricevuto {amount} MO da {sender}.", "Globale", sender="Sistema", color="#2ECC71")
 
     def handle_receive_item(self, data):
         item = data.get("item")
@@ -1371,7 +1409,9 @@ class ClientGUI:
         self.stats_window = CharacterSheetUI(self.master, self.active_character, self.character_manager, 
                          on_save_callback=self.on_character_saved, 
                          roll_callback=self.do_roll, 
-                         trade_callback=self.do_trade, attack_callback=self.on_attack_action, 
+                         trade_callback=self.do_trade,
+                         give_gold_callback=self.give_gold,
+                         attack_callback=self.on_attack_action, 
                          players_list_callback=self.get_player_names,
                          custom_spell_request_callback=self.request_custom_spell,
                          is_connected=self.is_connected)
