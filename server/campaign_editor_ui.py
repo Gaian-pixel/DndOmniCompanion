@@ -1188,6 +1188,12 @@ class CampaignSelectorDialog(tk.Toplevel):
         if not self.selected_campaign:
             messagebox.showwarning("Attenzione", "Seleziona una campagna prima di avviare.", parent=self)
             return
-        self.on_select_callback(self.selected_campaign)
+        camp = self.selected_campaign
+        try:
+            self.grab_release()
+        except Exception:
+            pass
         self.destroy()
+        self.on_select_callback(camp)
+
 
