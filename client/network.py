@@ -22,7 +22,10 @@ class ClientNetwork:
             self.gui_queue.put(msg)
         self.is_connected = False
         if self.on_disconnect_callback:
-            self.on_disconnect_callback()
+            try:
+                self.on_disconnect_callback()
+            except Exception:
+                pass
 
     def send(self, msg):
         if self.is_connected and self.client_socket:

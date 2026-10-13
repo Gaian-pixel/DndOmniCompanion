@@ -18,7 +18,6 @@ def handle_chat(data, player, game_state):
                 if target:
                     target.size = size_val
                     game_state._trigger_gui_update()
-                    from common.protocol import make_game_state
                     broadcast(game_state, make_game_state(game_state.get_state_dict()))
                     game_state.log_dm_message(f"[SISTEMA] Impostata size {size_val} per {p_name}")
             except ValueError:
@@ -37,7 +36,6 @@ def handle_chat(data, player, game_state):
                     target.aura_radius = aura_rad
                     target.aura_color = color
                     game_state._trigger_gui_update()
-                    from common.protocol import make_game_state
                     broadcast(game_state, make_game_state(game_state.get_state_dict()))
                     game_state.log_dm_message(f"[SISTEMA] Impostata aura {aura_rad} ({color}) per {p_name}")
             except ValueError:
@@ -54,7 +52,6 @@ def handle_chat(data, player, game_state):
                 if target:
                     target.vision_radius = vis_rad
                     game_state._trigger_gui_update()
-                    from common.protocol import make_game_state
                     broadcast(game_state, make_game_state(game_state.get_state_dict()))
                     game_state.log_dm_message(f"[SISTEMA] Impostata vista {vis_rad} esagoni per {p_name}")
             except ValueError:
@@ -87,7 +84,6 @@ def handle_chat(data, player, game_state):
                             fow_rev.append([rh.q, rh.r])
                 
                 game_state._trigger_gui_update()
-                from common.protocol import make_game_state
                 broadcast(game_state, make_game_state(game_state.get_state_dict()))
         return
         
@@ -120,7 +116,6 @@ def handle_chat(data, player, game_state):
                             fow_rev.append([rh.q, rh.r])
                             
                 game_state._trigger_gui_update()
-                from common.protocol import make_game_state
                 broadcast(game_state, make_game_state(game_state.get_state_dict()))
             except ValueError:
                 pass
@@ -138,7 +133,6 @@ def handle_chat(data, player, game_state):
                 loots.append({"q": q, "r": r, "item": item_name, "qty": qty})
                 game_state.log_dm_message(f"[Sistema] Bottino piazzato in {q}, {r}: {qty}x {item_name}.")
                 game_state._trigger_gui_update()
-                from common.protocol import make_game_state
                 broadcast(game_state, make_game_state(game_state.get_state_dict()))
             except ValueError:
                 pass
@@ -150,11 +144,8 @@ def handle_chat(data, player, game_state):
             new_weather = parts[1].strip().capitalize()
             game_state.weather = new_weather
             game_state._trigger_gui_update()
-            from common.protocol import make_game_state
-            from server.network import broadcast
             broadcast(game_state, make_game_state(game_state.get_state_dict()))
             game_state.log_dm_message(f"[SISTEMA] Meteo cambiato in: {new_weather}")
-            from common.protocol import make_chat_broadcast
             broadcast(game_state, make_chat_broadcast("Sistema", f"Il meteo è cambiato in: {new_weather}"))
         return
         
