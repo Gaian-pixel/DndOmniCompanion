@@ -35,4 +35,6 @@ command_handlers = {
     "BUY_ITEM_REQUEST": handle_buy_item_request,
     "CUSTOM_SPELL_REQUEST": handle_custom_spell_request,
     "AUDIO_TRACK_REQUEST": handle_audio_track_request,
+    "DASH_REQUEST": handle_dash_request,
+    "DISENGAGE_REQUEST": handle_disengage_request,
 }

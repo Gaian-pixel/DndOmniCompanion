@@ -38,7 +38,9 @@ def handle_move_request(data, player, game_state):
             q2, r2 = to_pos[0], to_pos[1]
             dist = max(abs(q1 - q2), abs(q1 + r1 - q2 - r2), abs(r1 - r2))
             speed = getattr(player, "speed", 30)
-            max_hexes = speed // 5
+            is_dashed = "Scatto" in getattr(player, "conditions", [])
+            eff_speed = speed * 2 if is_dashed else speed
+            max_hexes = eff_speed // 5
             cost = 2 if "Prono" in getattr(player, "conditions", []) else 1
             if dist * cost > max_hexes:
                 from common.network_utils import send_message
@@ -47,8 +49,31 @@ def handle_move_request(data, player, game_state):
                     if cost == 2:
                         send_message(player.conn, make_error_reply(f"Movimento non consentito: sei Prono, la distanza massima è {max_hexes // 2} esagoni."))
                     else:
-                        send_message(player.conn, make_error_reply(f"Movimento non consentito: la distanza supera la tua velocità di {speed}ft."))
+                        hint = " (Puoi usare l'Azione di Scatto /dash per raddoppiare la velocità!)" if not is_dashed else ""
+                        send_message(player.conn, make_error_reply(f"Movimento non consentito: la distanza ({dist * 5}ft) supera la tua velocità di {eff_speed}ft.{hint}"))
                 return
+
+        # Rilevamento Attacco d'Opportunità (Opportunity Attack)
+        from_pos = list(player.position) if hasattr(player, "position") and player.position else None
+        if in_combat and from_pos and from_pos != to_pos:
+            disengaged = "Disimpegno" in getattr(player, "conditions", [])
+            if not disengaged:
+                for other in getattr(game_state, "players", []):
+                    if other.name != player.name and getattr(other, "hp", 0) > 0 and hasattr(other, "position") and other.position:
+                        is_enemy = (getattr(player, "is_party_member", False) != getattr(other, "is_party_member", False))
+                        if is_enemy:
+                            qo, ro = other.position[0], other.position[1]
+                            dist_from = max(abs(from_pos[0] - qo), abs(from_pos[0] + from_pos[1] - qo - ro), abs(from_pos[1] - ro))
+                            dist_to = max(abs(to_pos[0] - qo), abs(to_pos[0] + to_pos[1] - qo - ro), abs(to_pos[1] - ro))
+                            if dist_from <= 1 and dist_to > 1:
+                                incaps = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto"]
+                                if not any(c in getattr(other, "conditions", []) for c in incaps):
+                                    opp_alert = f"⚠️ [OPPORTUNITÀ] {player.name} esce dalla portata di mischia di {other.name}! {other.name} può usare la Reazione per un Attacco d'Opportunità!"
+                                    game_state.log_dm_message(f"[COMBAT] {opp_alert}")
+                                    from common.protocol import make_chat_broadcast, make_opportunity_alert
+                                    broadcast(game_state, make_chat_broadcast("Sistema", opp_alert))
+                                    if getattr(other, "conn", None):
+                                        send_message(other.conn, make_opportunity_alert(player.name, f"{player.name} si sta allontanando da te!"))
 
         game_state.move_player(player.name, to_pos)
         

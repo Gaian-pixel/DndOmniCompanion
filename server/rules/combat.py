@@ -116,6 +116,14 @@ def handle_end_turn_request(data, player, game_state):
                 broadcast(game_state, make_player_stats_update(current.name, current.hp, current.max_hp, current.initiative, current.conditions))
                 game_state._trigger_gui_update()
 
+        # Rimuovi condizioni temporanee del turno (Scatto, Disimpegno)
+        for temp_c in ["Scatto", "Disimpegno"]:
+            if temp_c in getattr(current, "conditions", []):
+                current.conditions.remove(temp_c)
+                from common.protocol import make_player_stats_update
+                broadcast(game_state, make_player_stats_update(current.name, current.hp, current.max_hp, current.initiative, current.conditions))
+                game_state._trigger_gui_update()
+
         game_state.next_turn()
         # Announce turn
         next_p = game_state.get_current_turn_player()
@@ -415,4 +423,26 @@ def handle_save_result_request(data, player, game_state):
     source_name = data.get("source_name")
     
     _process_save_result(player.name, stat, roll_total, is_crit, is_fail, dc, damage_formula, half_on_success, source_name, game_state)
+
+def handle_dash_request(data, player, game_state):
+    if "Scatto" not in getattr(player, "conditions", []):
+        if not hasattr(player, "conditions") or player.conditions is None:
+            player.conditions = []
+        player.conditions.append("Scatto")
+        from common.protocol import make_player_stats_update, make_chat_broadcast
+        broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions))
+        broadcast(game_state, make_chat_broadcast("Sistema", f"🏃 {player.name} compie l'Azione di Scatto! Velocità raddoppiata per questo turno."))
+        game_state.log_dm_message(f"[COMBAT] {player.name} ha usato Scatto.")
+        game_state._trigger_gui_update()
+
+def handle_disengage_request(data, player, game_state):
+    if "Disimpegno" not in getattr(player, "conditions", []):
+        if not hasattr(player, "conditions") or player.conditions is None:
+            player.conditions = []
+        player.conditions.append("Disimpegno")
+        from common.protocol import make_player_stats_update, make_chat_broadcast
+        broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions))
+        broadcast(game_state, make_chat_broadcast("Sistema", f"🛡️ {player.name} compie l'Azione di Disimpegno! I suoi movimenti non provocheranno attacchi d'opportunità per questo turno."))
+        game_state.log_dm_message(f"[COMBAT] {player.name} ha usato Disimpegno.")
+        game_state._trigger_gui_update()
 

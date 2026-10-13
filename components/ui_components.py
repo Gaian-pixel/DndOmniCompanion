@@ -949,3 +949,73 @@ class ToolTip:
         if tw:
             tw.destroy()
 
+
+class ToastNotification:
+    """Notifica non bloccante a scomparsa in stile dark fantasy."""
+    _active_toasts = []
+
+    def __init__(self, parent, message, title=None, duration=3500, toast_type="info", icon=None):
+        self.parent = parent
+        self.duration = duration
+        
+        type_styles = {
+            "info": {"bg": "#1e232a", "fg": "#f0f6fc", "accent": "#d4af37", "icon": icon or "ℹ️"},
+            "success": {"bg": "#13231b", "fg": "#f0f6fc", "accent": "#2ea043", "icon": icon or "✨"},
+            "warning": {"bg": "#2b2111", "fg": "#f0f6fc", "accent": "#d29922", "icon": icon or "⚠️"},
+            "danger": {"bg": "#2d1517", "fg": "#f0f6fc", "accent": "#f85149", "icon": icon or "💥"},
+            "gold": {"bg": "#252112", "fg": "#f0f6fc", "accent": "#e3b341", "icon": icon or "💰"},
+            "loot": {"bg": "#1c222d", "fg": "#f0f6fc", "accent": "#58a6ff", "icon": icon or "🎒"},
+        }
+        style = type_styles.get(toast_type, type_styles["info"])
+        
+        self.win = tk.Toplevel(parent)
+        self.win.overrideredirect(True)
+        self.win.attributes('-topmost', True)
+        
+        try:
+            parent.update_idletasks()
+            pw = parent.winfo_width()
+            px = parent.winfo_rootx()
+            py = parent.winfo_rooty()
+        except Exception:
+            pw, px, py = 1000, 100, 100
+
+        offset_y = 60 + len(ToastNotification._active_toasts) * 75
+        self.win.geometry(f"330x68+{px + max(10, pw - 350)}+{py + offset_y}")
+
+        frame = tk.Frame(self.win, bg=style["bg"], highlightbackground=style["accent"], highlightthickness=2, padx=10, pady=6)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        header_frame = tk.Frame(frame, bg=style["bg"])
+        header_frame.pack(fill=tk.X)
+
+        title_text = f"{style['icon']} {title or toast_type.capitalize()}"
+        lbl_title = tk.Label(header_frame, text=title_text, font=("Georgia", 10, "bold"), fg=style["accent"], bg=style["bg"])
+        lbl_title.pack(side=tk.LEFT)
+
+        btn_close = tk.Label(header_frame, text="✕", font=("Arial", 9), fg="#8b949e", bg=style["bg"], cursor="hand2")
+        btn_close.pack(side=tk.RIGHT)
+        btn_close.bind("<Button-1>", lambda e: self.destroy())
+
+        lbl_msg = tk.Label(frame, text=message, font=("Arial", 9), fg=style["fg"], bg=style["bg"], wraplength=300, justify=tk.LEFT)
+        lbl_msg.pack(anchor="w", pady=(2, 0))
+
+        ToastNotification._active_toasts.append(self)
+        self.win.after(self.duration, self.destroy)
+
+    def destroy(self):
+        if self in ToastNotification._active_toasts:
+            ToastNotification._active_toasts.remove(self)
+        try:
+            self.win.destroy()
+        except Exception:
+            pass
+
+
+def show_toast(parent, message, title=None, duration=3500, toast_type="info", icon=None):
+    """Funzione di utilità per mostrare un toast non bloccante."""
+    try:
+        return ToastNotification(parent, message, title=title, duration=duration, toast_type=toast_type, icon=icon)
+    except Exception:
+        return None
+

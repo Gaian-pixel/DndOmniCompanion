@@ -98,6 +98,15 @@ def make_start_combat_request(initiator_name=None):
 def make_end_turn_request():
     return {"type": "END_TURN_REQUEST", "data": {}}
 
+def make_dash_request():
+    return {"type": "DASH_REQUEST", "data": {}}
+
+def make_disengage_request():
+    return {"type": "DISENGAGE_REQUEST", "data": {}}
+
+def make_opportunity_alert(target_name, message=None):
+    return {"type": "OPPORTUNITY_ALERT", "data": {"target_name": target_name, "message": message}}
+
 def make_request_initiative():
     return {"type": "REQUEST_INITIATIVE", "data": {}}
 
