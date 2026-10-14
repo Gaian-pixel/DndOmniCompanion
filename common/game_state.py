@@ -21,6 +21,7 @@ class Player:
         self.conditions = []
         self.condition_durations = {}
         self.travel_role = "Nessuna"
+        self.marching_order = "Centro"
         self.is_hidden = False
         self.size = 1
         self.aura_radius = 0
@@ -45,6 +46,7 @@ class Player:
             "conditions": self.conditions,
             "condition_durations": getattr(self, "condition_durations", {}),
             "travel_role": getattr(self, "travel_role", "Nessuna"),
+            "marching_order": getattr(self, "marching_order", "Centro"),
             "is_hidden": getattr(self, "is_hidden", False),
             "size": getattr(self, "size", 1),
             "aura_radius": getattr(self, "aura_radius", 0),
@@ -75,6 +77,8 @@ class GameState:
         self.quests = []
         self.shops = {}  # dict of shop_name: {"type": "blacksmith", "items": [{"name": "Sword", "price": 15, "qty": 1}], "gold": 100}
         self.travel_hours_today = 0
+        self.travel_pace = "Normale"
+        self.travel_terrain = "Foresta"
         self.active_campaign = None
         self.campaign_starter_kit = []
         
@@ -227,6 +231,8 @@ class GameState:
                 "quests": getattr(self, 'quests', []),
                 "shops": getattr(self, 'shops', {}),
                 "travel_hours_today": getattr(self, 'travel_hours_today', 0),
+                "travel_pace": getattr(self, 'travel_pace', "Normale"),
+                "travel_terrain": getattr(self, 'travel_terrain', "Foresta"),
                 "active_campaign_folder": self.active_campaign.folder_path if getattr(self, 'active_campaign', None) else None
             }
 
@@ -277,6 +283,8 @@ class GameState:
             self.quests = state.get("quests", [])
             self.shops = state.get("shops", {})
             self.travel_hours_today = state.get("travel_hours_today", 0)
+            self.travel_pace = state.get("travel_pace", "Normale")
+            self.travel_terrain = state.get("travel_terrain", "Foresta")
             
             camp_folder = state.get("active_campaign_folder")
             if camp_folder and os.path.exists(camp_folder):
@@ -311,6 +319,8 @@ class GameState:
                     existing.aura_radius = p_data.get("aura_radius", 0)
                     existing.aura_color = p_data.get("aura_color", "yellow")
                     existing.is_party_member = p_data.get("is_party_member", False)
+                    existing.travel_role = p_data.get("travel_role", "Nessuna")
+                    existing.marching_order = p_data.get("marching_order", "Centro")
                     existing.owner = p_data.get("owner", None)
                     loaded_players.append(existing)
                 else:
@@ -330,6 +340,8 @@ class GameState:
                     p.aura_radius = p_data.get("aura_radius", 0)
                     p.aura_color = p_data.get("aura_color", "yellow")
                     p.is_party_member = p_data.get("is_party_member", False)
+                    p.travel_role = p_data.get("travel_role", "Nessuna")
+                    p.marching_order = p_data.get("marching_order", "Centro")
                     p.owner = p_data.get("owner", None)
                     loaded_players.append(p)
             self.players = loaded_players

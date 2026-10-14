@@ -851,29 +851,247 @@ class ClientGUI:
             messagebox.showerror("Errore", f"Impossibile aprire i negozi: {e}")
 
     def open_travel_dialog(self):
+        if not self.active_character:
+            self.show_toast("Nessun personaggio attivo selezionato.", toast_type="warning")
+            return
+
         win = tk.Toplevel(self.master)
         win.transient(self.master)
         win.grab_set()
-        win.title("Ruolo di Viaggio")
-        win.minsize(300, 250)
+        win.title("🧭 Diario & Modalità di Viaggio")
+        win.minsize(540, 680)
         apply_modern_window_style(win)
+
+        gs = getattr(self, "game_state", {}) or {}
+        weather = gs.get("weather", "Sereno")
+        pace = gs.get("travel_pace", "Normale")
+        hours_today = gs.get("travel_hours_today", 0)
+        terrain = gs.get("travel_terrain", "Foresta")
+
+        # Container scrollabile per schermi a bassa risoluzione
+        canvas = tk.Canvas(win, bg=BG_COLOR, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(win, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(canvas_window, width=e.width))
+        canvas.configure(yscrollcommand=scrollbar.set)
         
-        ttk.Label(win, text="Scegli la tua attività per il viaggio:").pack(pady=10)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # Intestazione
+        header_frame = tk.Frame(scrollable_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        header_frame.pack(fill=tk.X, padx=14, pady=(12, 8))
+        tk.Label(header_frame, text="🧭 DIARIO E MODALITÀ DI VIAGGIO", font=("Georgia", 13, "bold"),
+                 bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(anchor="w", padx=12, pady=(10, 2))
+        tk.Label(header_frame, text="Configura l'ordine di marcia 5e, l'attività del personaggio e consuma le razioni.",
+                 font=("Segoe UI", 9), bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", padx=12, pady=(0, 10))
+
+        # Card Ambiente di Viaggio
+        env_frame = tk.Frame(scrollable_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        env_frame.pack(fill=tk.X, padx=14, pady=6)
+        tk.Label(env_frame, text="📍 STATO DELL'AMBIENTE & MARCIA", font=("Segoe UI", 10, "bold"),
+                 bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(anchor="w", padx=12, pady=(8, 4))
+        
+        env_grid = tk.Frame(env_frame, bg=SURFACE_COLOR_ALT)
+        env_grid.pack(fill=tk.X, padx=12, pady=(0, 8))
+        
+        tk.Label(env_grid, text=f"⛅ Clima: {weather}", font=("Segoe UI", 9), bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).grid(row=0, column=0, sticky="w", padx=(0, 15), pady=2)
+        tk.Label(env_grid, text=f"🌲 Terreno: {terrain}", font=("Segoe UI", 9), bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).grid(row=0, column=1, sticky="w", padx=15, pady=2)
+        tk.Label(env_grid, text=f"🚶 Andatura: {pace}", font=("Segoe UI", 9, "bold"), bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).grid(row=1, column=0, sticky="w", padx=(0, 15), pady=2)
+        
+        hours_color = ACCENT_RED if hours_today > 8 else TEXT_COLOR
+        hours_text = f"⏱️ Ore Marcia Oggi: {hours_today} / 8h"
+        if hours_today > 8:
+            hours_text += f" (Marcia Forzata: TS COS CD {10 + (hours_today - 8)})"
+        tk.Label(env_grid, text=hours_text, font=("Segoe UI", 9, "bold"), bg=SURFACE_COLOR_ALT, fg=hours_color).grid(row=1, column=1, sticky="w", padx=15, pady=2)
+
+        # Sezione 1: Ordine di Marcia (Marching Order)
+        order_frame = tk.Frame(scrollable_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        order_frame.pack(fill=tk.X, padx=14, pady=6)
+        tk.Label(order_frame, text="🛡️ ORDINE DI MARCIA (FORMAZIONE 5e)", font=("Segoe UI", 10, "bold"),
+                 bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(anchor="w", padx=12, pady=(8, 2))
+        tk.Label(order_frame, text="Definisce chi subisce o rileva per primo imboscate e trappole lungo la marcia:",
+                 font=("Segoe UI", 8), bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", padx=12, pady=(0, 6))
+
+        order_var = tk.StringVar(value=getattr(self.active_character, "marching_order", "Centro"))
+        order_options = [
+            ("Avanguardia", "🛡️ Avanguardia (Prima Fila)", "In testa alla formazione. Affronta per prima nemici frontali, trappole e ostacoli."),
+            ("Centro", "📜 Centro (Fila Protetta)", "Al centro del gruppo. Posizione riparata ideale per cartografi, incantatori e convalescenti."),
+            ("Retroguardia", "🏹 Retroguardia (Coda)", "Chiude la fila. Protegge da accerchiamenti e imboscate alle spalle.")
+        ]
+        
+        for val, title, desc in order_options:
+            rb_f = tk.Frame(order_frame, bg=SURFACE_COLOR)
+            rb_f.pack(fill=tk.X, padx=12, pady=2)
+            rb = ttk.Radiobutton(rb_f, text=title, variable=order_var, value=val)
+            rb.pack(anchor="w")
+            tk.Label(rb_f, text=f"   └ {desc}", font=("Segoe UI", 8), bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+
+        # Roster Attuale della Formazione del Party
+        formation_f = tk.Frame(order_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        formation_f.pack(fill=tk.X, padx=12, pady=(8, 10))
+        tk.Label(formation_f, text="Schieramento Attuale del Gruppo:", font=("Segoe UI", 8, "bold"), bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(anchor="w", padx=8, pady=(4, 2))
+        
+        players = gs.get("players", [])
+        front_rank = [p.get("name") for p in players if p.get("marching_order") == "Avanguardia"]
+        mid_rank = [p.get("name") for p in players if p.get("marching_order", "Centro") == "Centro"]
+        rear_rank = [p.get("name") for p in players if p.get("marching_order") == "Retroguardia"]
+        
+        rank_text = f"🛡️ Avan: {', '.join(front_rank) or 'Nessuno'}  |  📜 Centro: {', '.join(mid_rank) or 'Nessuno'}  |  🏹 Retro: {', '.join(rear_rank) or 'Nessuno'}"
+        tk.Label(formation_f, text=rank_text, font=("Segoe UI", 8), bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).pack(anchor="w", padx=8, pady=(0, 6))
+
+        # Sezione 2: Attività di Viaggio (Travel Role)
+        role_frame = tk.Frame(scrollable_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        role_frame.pack(fill=tk.X, padx=14, pady=6)
+        tk.Label(role_frame, text="⛺ ATTIVITÀ DURANTE IL VIAGGIO (5e)", font=("Segoe UI", 10, "bold"),
+                 bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(anchor="w", padx=12, pady=(8, 2))
+        tk.Label(role_frame, text="Seleziona il compito a cui ti dedichi durante le ore di spostamento:",
+                 font=("Segoe UI", 8), bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", padx=12, pady=(0, 6))
+
         role_var = tk.StringVar(value=getattr(self.active_character, "travel_role", "Nessuna"))
-        roles = ["Nessuna", "Navigare", "Fare la Guardia", "Cercare Cibo", "Mappare", "Furtivo"]
-        
-        for r in roles:
-            ttk.Radiobutton(win, text=r, variable=role_var, value=r).pack(anchor="w", padx=40)
-            
+        role_cards = [
+            ("Navigatore", "🧭 Navigatore", "Saggezza (Sopravvivenza) vs CD Terreno per evitare che il gruppo si smarrisca. (-5 con andatura Veloce)."),
+            ("Sentinella", "👁️ Sentinella / All'Erta", "Usa la Percezione Passiva per scorgere pericoli ed evitare imboscate (+5 andatura Lenta, -5 andatura Veloce)."),
+            ("Cacciatore", "🏹 Cacciatore / Cercatore di Cibo", "Sopravvivenza CD 15/20 per trovare cibo e acqua lungo il tragitto (non permessa a passo Veloce)."),
+            ("Cartografo", "🗺️ Cartografo", "Traccia una mappa fedele del tragitto percorso; consente di tornare indietro senza perdersi."),
+            ("Furtivo", "🥷 Esploratore Furtivo", "Avanza furtivamente per sorprendere nemici o passare inosservato (richiede andatura Lenta)."),
+            ("Nessuna", "☕ Nessuna Attività / Riposo", "Ti rilassi, conversi o aiuti casualmente senza assumere una responsabilità primaria.")
+        ]
+
+        for val, title, desc in role_cards:
+            rf = tk.Frame(role_frame, bg=SURFACE_COLOR)
+            rf.pack(fill=tk.X, padx=12, pady=2)
+            rb = ttk.Radiobutton(rf, text=title, variable=role_var, value=val)
+            rb.pack(anchor="w")
+            tk.Label(rf, text=f"   └ {desc}", font=("Segoe UI", 8), bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+
+        # Sezione 3: Sostentamento & Razioni Personali
+        subsist_frame = tk.Frame(scrollable_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        subsist_frame.pack(fill=tk.X, padx=14, pady=6)
+        tk.Label(subsist_frame, text="🥖 SOSTENTAMENTO & PROVVISTE NELLO ZAINO", font=("Segoe UI", 10, "bold"),
+                 bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(anchor="w", padx=12, pady=(8, 2))
+        tk.Label(subsist_frame, text="Ogni giorno di viaggio richiede 1 Razione e 1 Otre d'Acqua per evitare lo Sfinimento.",
+                 font=("Segoe UI", 8), bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", padx=12, pady=(0, 6))
+
+        def get_ration_counts():
+            food, water = 0, 0
+            # Grid inventory
+            for it in getattr(self.active_character, "inventory_grid", []):
+                if not it: continue
+                n = str(it.get("name", "")).lower()
+                q = int(it.get("qty", it.get("quantity", 1)) or 1)
+                if "razion" in n or "cibo" in n:
+                    food += q
+                elif "acqua" in n or "otre" in n:
+                    water += q
+            # Normal inventory list
+            for it in getattr(self.active_character, "inventory", []):
+                if isinstance(it, dict):
+                    n = str(it.get("name", "")).lower()
+                    q = int(it.get("quantity", it.get("qty", 1)) or 1)
+                    if "razion" in n or "cibo" in n:
+                        food += q
+                    elif "acqua" in n or "otre" in n:
+                        water += q
+            return food, water
+
+        food_cnt, water_cnt = get_ration_counts()
+        lbl_rations_status = tk.Label(subsist_frame,
+            text=f"🍞 Razioni Disponibili: {food_cnt}   |   💧 Otri d'Acqua Disponibili: {water_cnt}",
+            font=("Segoe UI", 9, "bold"), bg=SURFACE_COLOR, fg=ACCENT_GOLD if (food_cnt > 0 and water_cnt > 0) else ACCENT_RED)
+        lbl_rations_status.pack(anchor="w", padx=12, pady=4)
+
+        def consume_single_ration():
+            char = self.active_character
+            food_deducted, water_deducted = False, False
+
+            # Check inventory_grid
+            grid = getattr(char, "inventory_grid", [])
+            for idx, it in enumerate(grid):
+                if not it: continue
+                n = str(it.get("name", "")).lower()
+                q = int(it.get("qty", it.get("quantity", 1)) or 1)
+                if not food_deducted and ("razion" in n or "cibo" in n) and q > 0:
+                    if q - 1 <= 0:
+                        grid[idx] = None
+                    else:
+                        if "qty" in it: it["qty"] = q - 1
+                        if "quantity" in it: it["quantity"] = q - 1
+                    food_deducted = True
+                elif not water_deducted and ("acqua" in n or "otre" in n) and q > 0:
+                    if q - 1 <= 0:
+                        grid[idx] = None
+                    else:
+                        if "qty" in it: it["qty"] = q - 1
+                        if "quantity" in it: it["quantity"] = q - 1
+                    water_deducted = True
+
+            # Check inventory
+            inv = getattr(char, "inventory", [])
+            if isinstance(inv, list):
+                for it in inv:
+                    if isinstance(it, dict):
+                        n = str(it.get("name", "")).lower()
+                        q = int(it.get("quantity", it.get("qty", 1)) or 1)
+                        if not food_deducted and ("razion" in n or "cibo" in n) and q > 0:
+                            it["quantity"] = q - 1
+                            food_deducted = True
+                        elif not water_deducted and ("acqua" in n or "otre" in n) and q > 0:
+                            it["quantity"] = q - 1
+                            water_deducted = True
+                char.inventory = [i for i in inv if not isinstance(i, dict) or int(i.get("quantity", i.get("qty", 1)) or 1) > 0]
+
+            self.character_manager.save_characters()
+            if hasattr(self, "network") and self.network.connected:
+                from common.protocol import make_update_full_sheet_request
+                self.network.send(make_update_full_sheet_request(char.to_dict()))
+
+            f_now, w_now = get_ration_counts()
+            lbl_rations_status.config(
+                text=f"🍞 Razioni Disponibili: {f_now}   |   💧 Otri d'Acqua Disponibili: {w_now}",
+                fg=ACCENT_GOLD if (f_now > 0 and w_now > 0) else ACCENT_RED
+            )
+
+            if food_deducted and water_deducted:
+                self.show_toast("Hai consumato 1 razione e 1 otre d'acqua per la giornata di viaggio.", title="🍞 Sostentamento", toast_type="success")
+                if hasattr(self, "send_chat_message"):
+                    self.send_chat_message(f"[VIAGGIO] {char.name} ha consumato la razione e l'acqua giornaliera.")
+            elif food_deducted:
+                self.show_toast("Hai consumato 1 razione, ma non avevi acqua nello zaino!", title="⚠️ Razioni", toast_type="warning")
+            elif water_deducted:
+                self.show_toast("Hai bevuto 1 otre d'acqua, ma non avevi razioni di cibo!", title="⚠️ Razioni", toast_type="warning")
+            else:
+                self.show_toast("Non hai né razioni di cibo né acqua nello zaino!", title="❌ Scorte Esaurite", toast_type="danger")
+
+        btn_consume = ttk.Button(subsist_frame, text="🥖 Consuma Razione e Acqua Giornaliera", command=consume_single_ration, style="Info.TButton")
+        btn_consume.pack(anchor="w", padx=12, pady=(4, 10))
+
+        # Barra dei Bottoni Inferiore
+        btn_bar = tk.Frame(scrollable_frame, bg=BG_COLOR)
+        btn_bar.pack(fill=tk.X, padx=14, pady=16)
+
         def submit():
-            role = role_var.get()
-            self.active_character.travel_role = role
-            from common.protocol import make_set_travel_role_request
-            from common.network_utils import send_message
-            self.network.send(make_set_travel_role_request(role))
-            win.destroy()
+            chosen_role = role_var.get()
+            chosen_order = order_var.get()
+            self.active_character.travel_role = chosen_role
+            self.active_character.marching_order = chosen_order
+            self.character_manager.save_characters()
             
-        ttk.Button(win, text="Conferma", command=submit, style='Success.TButton').pack(pady=15)
+            if hasattr(self, "network") and self.network.connected:
+                from common.protocol import make_set_travel_role_request, make_update_full_sheet_request
+                self.network.send(make_set_travel_role_request(chosen_role, chosen_order))
+                self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
+
+            self.show_toast(f"Ordine [{chosen_order}] e Ruolo '{chosen_role}' salvati!", title="🧭 Viaggio Aggiornato", toast_type="success")
+            win.destroy()
+
+        ttk.Button(btn_bar, text="💾 Salva & Notifica Master", command=submit, style="Success.TButton").pack(side=tk.RIGHT, padx=4)
+        ttk.Button(btn_bar, text="Annulla", command=win.destroy).pack(side=tk.RIGHT, padx=4)
 
     def open_aoe_dialog(self):
         win = tk.Toplevel(self.master)

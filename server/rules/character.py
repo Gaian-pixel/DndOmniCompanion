@@ -98,11 +98,13 @@ def handle_targeted_action(data, player, game_state):
 
 def handle_set_travel_role_request(data, player, game_state):
     role = data.get("role", "Nessuna")
+    marching_order = data.get("marching_order", getattr(player, "marching_order", "Centro"))
     player.travel_role = role
-    from common.protocol import make_game_state
-    # from server.server import broadcast  # Not needed, broadcast is already imported at the top of the file
+    player.marching_order = marching_order
+    from common.protocol import make_game_state, make_chat_broadcast
     game_state._trigger_gui_update()
     broadcast(game_state, make_game_state(game_state.get_state_dict()))
+    broadcast(game_state, make_chat_broadcast("Viaggio", f"🏕️ {player.name} si posiziona in [{marching_order}] con ruolo: {role}"))
 
 def handle_long_rest_request(data, player, game_state):
     if getattr(game_state, "combat_active", False):
