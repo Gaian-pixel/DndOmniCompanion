@@ -281,28 +281,78 @@ class ClientGUI:
         self.btn_disengage.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
         ToolTip(self.btn_disengage, "Spende l'Azione: non provochi attacchi d'opportunità uscendo dalla portata di un nemico")
 
+        # Seconda riga: Schivata & Aiuto
+        econ_quick_actions_2 = tk.Frame(self.economy_frame, bg=SURFACE_COLOR)
+        econ_quick_actions_2.pack(fill=tk.X, pady=(2, 0))
+
+        self.btn_dodge = tk.Button(
+            econ_quick_actions_2, text="🛡️ Schivata", font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_dodge
+        )
+        self.btn_dodge.pack(side=tk.LEFT, padx=(0, 2), fill=tk.X, expand=True)
+        ToolTip(self.btn_dodge, "Spende l'Azione: gli attacchi contro di te avranno svantaggio e hai vantaggio ai TS su Destrezza")
+
+        self.btn_help = tk.Button(
+            econ_quick_actions_2, text="🤝 Aiuto", font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_help
+        )
+        self.btn_help.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
+        ToolTip(self.btn_help, "Spende l'Azione: clicca poi un bersaglio per conferire Vantaggio al prossimo attacco alleato")
+
         # Scelta Personaggio Attivo
         tk.Label(controls_tab, text="Cambia Scheda Personaggio:", font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(4, 2))
         self.active_character_var = tk.StringVar(value=self.name)
         self.active_character_combo = ttk.Combobox(controls_tab, textvariable=self.active_character_var, state="readonly")
-        self.active_character_combo.pack(fill=tk.X, pady=(0, 10))
+        self.active_character_combo.pack(fill=tk.X, pady=(0, 6))
         self.active_character_combo.bind("<<ComboboxSelected>>", self.on_active_character_changed)
         
         # Bottoni Azione Eroe
         self.stats_button = ttk.Button(controls_tab, text="📜 Scheda Personaggio", command=self.open_stats_dialog, style='Gold.TButton')
-        self.stats_button.pack(fill=tk.X, pady=3)
+        self.stats_button.pack(fill=tk.X, pady=2)
         
         self.roll_button = ttk.Button(controls_tab, text="🎲 Tira Dadi", command=getattr(self, "roll_dice_dialog", lambda: None), style="Primary.TButton")
-        self.roll_button.pack(fill=tk.X, pady=3)
+        self.roll_button.pack(fill=tk.X, pady=2)
         
-        self.action_button = ttk.Button(controls_tab, text="⚔️ Azione (Attacco / Cura)", command=getattr(self, "open_action_dialog", lambda: None))
-        self.action_button.pack(fill=tk.X, pady=3)
+        self.action_button = ttk.Button(controls_tab, text="⚔️ Azione (Attacco / Cura / Danno)", command=getattr(self, "open_action_dialog", lambda: None))
+        self.action_button.pack(fill=tk.X, pady=2)
+
+        self.btn_short_rest = ttk.Button(controls_tab, text="☕ Riposo Breve (Dadi Vita)", command=self.open_short_rest_dialog, style='Info.TButton')
+        self.btn_short_rest.pack(fill=tk.X, pady=2)
+
+        # Privilegi di Classe (Guerriero / Barbaro / ecc.)
+        class_features_frame = ttk.LabelFrame(controls_tab, text="Privilegi di Classe")
+        class_features_frame.pack(fill=tk.X, pady=(4, 4))
+
+        cf_row = tk.Frame(class_features_frame, bg=SURFACE_COLOR)
+        cf_row.pack(fill=tk.X, pady=2)
+        self.btn_second_wind = tk.Button(
+            cf_row, text="💨 Secondo Fiato", font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.use_second_wind
+        )
+        self.btn_second_wind.pack(side=tk.LEFT, padx=(0, 2), fill=tk.X, expand=True)
+        ToolTip(self.btn_second_wind, "Guerriero (1/Riposo Breve): recupera 1d10 + Livello HP come Azione Bonus")
+
+        self.btn_action_surge = tk.Button(
+            cf_row, text="⚡ Azione Furente", font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.use_action_surge
+        )
+        self.btn_action_surge.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
+        ToolTip(self.btn_action_surge, "Guerriero (1/Riposo Breve): ottieni un'Azione aggiuntiva in questo turno")
+
+        cf_row_2 = tk.Frame(class_features_frame, bg=SURFACE_COLOR)
+        cf_row_2.pack(fill=tk.X, pady=(2, 0))
+        self.btn_rage = tk.Button(
+            cf_row_2, text="🩸 Ira Barbarica", font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.use_rage
+        )
+        self.btn_rage.pack(fill=tk.X, expand=True)
+        ToolTip(self.btn_rage, "Barbaro: entra in Ira (+2 danni mischia, resistenza a contundente, perforante e tagliente)")
         
         self.travel_button = ttk.Button(controls_tab, text="🧭 Azioni di Viaggio", command=getattr(self, "open_travel_dialog", lambda: None))
-        self.travel_button.pack(fill=tk.X, pady=3)
+        self.travel_button.pack(fill=tk.X, pady=2)
         
         self.combat_btn = ttk.Button(controls_tab, text="⚔️ Richiedi Combattimento", command=lambda: getattr(self, "network", None) and self.network.send({"type": "COMBAT_TOGGLE_REQUEST", "data": {}}))
-        self.combat_btn.pack(fill=tk.X, pady=3)
+        self.combat_btn.pack(fill=tk.X, pady=2)
         
         self.end_turn_btn = ttk.Button(controls_tab, text="⏹ Termina Turno", command=self.end_turn, style='Danger.TButton')
         
@@ -354,9 +404,13 @@ class ClientGUI:
         
         hp_cur = getattr(char, 'hp_current', 0)
         hp_max = getattr(char, 'hp_max', 1) or 1
+        temp_hp = getattr(char, 'temp_hp', 0)
+        temp_str = f" (+{temp_hp} Temp)" if temp_hp > 0 else ""
+        exh = getattr(char, 'exhaustion_level', 0)
+        exh_str = f" [Indebolimento Lv{exh}]" if exh > 0 else ""
         conds = getattr(char, 'conditions', [])
         cond_str = f"  ({', '.join(conds)})" if conds else ""
-        self.hero_hp_lbl.config(text=f"HP: {hp_cur} / {hp_max}{cond_str}")
+        self.hero_hp_lbl.config(text=f"HP: {hp_cur} / {hp_max}{temp_str}{exh_str}{cond_str}")
         
         ratio = max(0.0, min(1.0, hp_cur / max(1, hp_max)))
         bar_color = ACCENT_GREEN if ratio > 0.5 else ("#F59F00" if ratio > 0.25 else ACCENT_RED)
@@ -450,7 +504,144 @@ class ClientGUI:
         self.network.send(make_disengage_request())
         self.action_spent = True
         self.update_action_economy_ui()
-        self.show_toast("Azione di Disimpegno inviata! Non provochi attacchi d'opportunità per questo turno.", title="🛡️ Disimpegno", toast_type="info")
+        self.show_toast("Azione di Disimpegno inviata! Non provochi attacchi d'opportunità per questo turno.", title="💨 Disimpegno", toast_type="info")
+
+    def perform_dodge(self):
+        if not self.is_connected:
+            self.show_toast("Non sei connesso al server.", toast_type="warning")
+            return
+        from common.protocol import make_dodge_request
+        self.network.send(make_dodge_request())
+        self.action_spent = True
+        self.update_action_economy_ui()
+        self.show_toast("Azione di Schivata attivata! Gli attacchi contro di te avranno svantaggio e hai vantaggio ai TS su Destrezza.", title="🛡️ Schivata", toast_type="info")
+
+    def perform_help(self):
+        if not self.is_connected:
+            self.show_toast("Non sei connesso al server.", toast_type="warning")
+            return
+        self.help_targeting_mode = True
+        self.show_toast("Clicca sulla mappa il token del bersaglio da distrarre per Aiutare un alleato.", title="🤝 Aiuto", toast_type="info")
+
+    def use_second_wind(self):
+        if not self.active_character:
+            self.show_toast("Nessun personaggio attivo selezionato.", toast_type="warning")
+            return
+        res = getattr(self.active_character, "class_resources", {})
+        if not res.get("second_wind", True):
+            self.show_toast("Hai già usato Secondo Fiato! Si ricarica con un Riposo Breve o Lungo.", title="💨 Secondo Fiato", toast_type="warning")
+            return
+        lvl = getattr(self.active_character, "level", 1) or 1
+        import random
+        healed = random.randint(1, 10) + lvl
+        self.active_character.hp_current = min(self.active_character.hp_max, self.active_character.hp_current + healed)
+        res["second_wind"] = False
+        self.active_character.class_resources = res
+        self.bonus_spent = True
+        self.character_manager.save_characters()
+        self.update_hero_summary_card()
+        self.update_action_economy_ui()
+        if self.is_connected:
+            from common.protocol import make_update_stats_request
+            self.network.send(make_update_stats_request(self.active_character.hp_current, self.active_character.hp_max, self.active_character.initiative, getattr(self.active_character, "conditions", []), getattr(self.active_character, "temp_hp", 0)))
+            self.send_chat_message(f"💨 {self.name} usa Secondo Fiato e recupera {healed} HP! (HP: {self.active_character.hp_current}/{self.active_character.hp_max})")
+        self.show_toast(f"Secondo Fiato: recuperati {healed} HP! (Azione Bonus spesa)", title="💨 Secondo Fiato", toast_type="success")
+
+    def use_action_surge(self):
+        if not self.active_character:
+            self.show_toast("Nessun personaggio attivo selezionato.", toast_type="warning")
+            return
+        res = getattr(self.active_character, "class_resources", {})
+        if not res.get("action_surge", True):
+            self.show_toast("Hai già usato Azione Furente! Si ricarica con un Riposo Breve o Lungo.", title="⚡ Azione Furente", toast_type="warning")
+            return
+        res["action_surge"] = False
+        self.active_character.class_resources = res
+        self.action_spent = False
+        self.character_manager.save_characters()
+        self.update_action_economy_ui()
+        if self.is_connected:
+            self.send_chat_message(f"⚡ {self.name} scatena Azione Furente e ottiene un'Azione Standard aggiuntiva!")
+        self.show_toast("Azione Furente attivata: Azione Standard ripristinata per questo turno!", title="⚡ Azione Furente", toast_type="success")
+
+    def use_rage(self):
+        if not self.active_character:
+            self.show_toast("Nessun personaggio attivo selezionato.", toast_type="warning")
+            return
+        res = getattr(self.active_character, "class_resources", {})
+        cur_rage = res.get("rage_current", 2)
+        if cur_rage <= 0:
+            self.show_toast("Non hai più utilizzi di Ira disponibili per oggi! Si ricaricano con un Riposo Lungo.", title="🩸 Ira Barbarica", toast_type="warning")
+            return
+        res["rage_current"] = cur_rage - 1
+        self.active_character.class_resources = res
+        conds = getattr(self.active_character, "conditions", [])
+        if "Ira" not in conds:
+            conds.append("Ira")
+            self.active_character.conditions = conds
+        self.bonus_spent = True
+        self.character_manager.save_characters()
+        self.update_hero_summary_card()
+        self.update_action_economy_ui()
+        if self.is_connected:
+            from common.protocol import make_update_stats_request
+            self.network.send(make_update_stats_request(self.active_character.hp_current, self.active_character.hp_max, self.active_character.initiative, self.active_character.conditions, getattr(self.active_character, "temp_hp", 0)))
+            self.send_chat_message(f"🩸 {self.name} entra in IRA! (+2 danni da mischia e resistenza a contundente, perforante e tagliente, rimaste: {cur_rage-1})")
+        self.show_toast(f"Ira Barbarica attivata! (Utilizzi rimasti: {cur_rage-1})", title="🩸 Ira Barbarica", toast_type="success")
+
+    def open_short_rest_dialog(self):
+        if not self.active_character:
+            self.show_toast("Nessun personaggio attivo selezionato.", toast_type="warning")
+            return
+        char = self.active_character
+        hd_cur = getattr(char, "hit_dice_current", 0)
+        hd_tot = getattr(char, "hit_dice_total", 1) or 1
+        hd_type = getattr(char, "hit_dice_type", "d8")
+        
+        win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
+        win.title("Riposo Breve (1 Ora)")
+        win.minsize(320, 240)
+        from common.theme import apply_modern_window_style
+        apply_modern_window_style(win)
+        
+        ttk.Label(win, text="☕ Riposo Breve (1 Ora)", font=("Georgia", 13, "bold"), foreground="#D4AF37").pack(pady=(12, 4))
+        ttk.Label(win, text=f"HP Attuali: {char.hp_current} / {char.hp_max}").pack(pady=2)
+        ttk.Label(win, text=f"Dadi Vita Disponibili: {hd_cur} / {hd_tot} ({hd_type})").pack(pady=2)
+        
+        con_mod = (int(char.attributes.get("COS", 10)) - 10) // 2
+        sign = f"+{con_mod}" if con_mod >= 0 else str(con_mod)
+        ttk.Label(win, text=f"Bonus Costituzione per dado: {sign}", font=FONT_SMALL).pack(pady=2)
+        
+        if hd_cur <= 0:
+            ttk.Label(win, text="Non hai Dadi Vita rimasti. Effettua un Riposo Lungo per recuperarli.", foreground="#ED4245").pack(pady=10)
+            ttk.Button(win, text="Chiudi", command=win.destroy).pack(pady=10)
+            return
+            
+        spend_frame = ttk.Frame(win)
+        spend_frame.pack(pady=10)
+        ttk.Label(spend_frame, text="Dadi da spendere: ").pack(side=tk.LEFT)
+        spend_var = tk.IntVar(value=1)
+        spin = ttk.Spinbox(spend_frame, from_=1, to=hd_cur, textvariable=spend_var, width=5)
+        spin.pack(side=tk.LEFT)
+        
+        def do_rest():
+            n_dice = spend_var.get()
+            if n_dice <= 0 or n_dice > hd_cur:
+                return
+            recovered = char.short_rest(n_dice)
+            self.character_manager.save_characters()
+            self.update_hero_summary_card()
+            if self.is_connected:
+                from common.protocol import make_update_stats_request, make_short_rest_request
+                self.network.send(make_update_stats_request(char.hp_current, char.hp_max, char.initiative, getattr(char, "conditions", []), getattr(char, "temp_hp", 0)))
+                self.network.send(make_short_rest_request(n_dice, recovered))
+            win.destroy()
+            self.show_toast(f"Hai speso {n_dice} Dado/i Vita e recuperato {recovered} HP! Privilegi di classe ricaricati.", title="☕ Riposo Breve Completato", toast_type="success")
+            
+        ttk.Button(win, text="Tira Dadi & Riposa", command=do_rest, style='Primary.TButton').pack(pady=12)
+
 
     def on_hotbar_right_click(self, idx):
         if not self.active_character: return
@@ -572,10 +763,29 @@ class ClientGUI:
                 self.attack_targeting_mode = False
                 params = self.attack_params
                 from common.protocol import make_attack_request
-                self.network.send(make_attack_request(target_name, params["weapon_name"], params["hit_bonus"], params["damage_formula"]))
+                self.network.send(make_attack_request(
+                    target_name, params["weapon_name"], params["hit_bonus"],
+                    params["damage_formula"], params.get("damage_type", "Tagliente")
+                ))
                 self.action_spent = True
                 self.update_action_economy_ui()
                 self.show_toast(f"Attacco contro {target_name} inviato!", title="Attacco Inviato", toast_type="info")
+            else:
+                self.show_toast("Non c'è nessuno in questo esagono.", title="Nessun Bersaglio", toast_type="warning")
+        elif getattr(self, "help_targeting_mode", False):
+            target_name = None
+            for p in self.players_data.values():
+                pos = p.get('position', [0, 0])
+                if pos == [clicked_hex.q, clicked_hex.r]:
+                    target_name = p['name']
+                    break
+            if target_name:
+                self.help_targeting_mode = False
+                from common.protocol import make_help_request
+                self.network.send(make_help_request(target_name))
+                self.action_spent = True
+                self.update_action_economy_ui()
+                self.show_toast(f"Azione di Aiuto inviata contro {target_name}!", title="🤝 Aiuto", toast_type="success")
             else:
                 self.show_toast("Non c'è nessuno in questo esagono.", title="Nessun Bersaglio", toast_type="warning")
         elif getattr(self, "targeting_mode", False):
@@ -603,14 +813,15 @@ class ClientGUI:
             else:
                 self.request_move(clicked_hex)
 
-    def on_attack_action(self, weapon_name, hit_bonus, damage_formula):
+    def on_attack_action(self, weapon_name, hit_bonus, damage_formula, damage_type="Tagliente"):
         self.attack_targeting_mode = True
         self.attack_params = {
             "weapon_name": weapon_name,
             "hit_bonus": hit_bonus,
-            "damage_formula": damage_formula
+            "damage_formula": damage_formula,
+            "damage_type": damage_type
         }
-        self.show_toast(f"Seleziona un bersaglio sulla mappa per attaccare con {weapon_name}!", title="Modalità Bersaglio", toast_type="info")
+        self.show_toast(f"Seleziona un bersaglio sulla mappa per attaccare con {weapon_name} ({damage_type})!", title="Modalità Bersaglio", toast_type="info")
 
 
 
@@ -1018,6 +1229,7 @@ class ClientGUI:
             self.players_data[name]['hp'] = data.get('hp')
             self.players_data[name]['max_hp'] = data.get('max_hp')
             self.players_data[name]['initiative'] = data.get('initiative')
+            self.players_data[name]['temp_hp'] = data.get('temp_hp', 0)
             if 'conditions' in data:
                 self.players_data[name]['conditions'] = data.get('conditions')
             
@@ -1025,6 +1237,7 @@ class ClientGUI:
             self.active_character.hp_current = data.get('hp')
             self.active_character.hp_max = data.get('max_hp')
             self.active_character.initiative = data.get('initiative')
+            self.active_character.temp_hp = data.get('temp_hp', 0)
             if 'conditions' in data:
                 self.active_character.conditions = data.get('conditions')
             self.character_manager.save_characters()
@@ -1037,7 +1250,7 @@ class ClientGUI:
         self.update_player_listbox()
 
     def set_controls_state(self, state):
-        for btn in ['entry', 'roll_button', 'player_listbox', 'stats_button', 'action_button', 'aoe_button', 'travel_button', 'calendar_button', 'combat_btn', 'end_turn_btn', 'btn_act_tracker', 'btn_bonus_tracker', 'btn_react_tracker', 'btn_dash', 'btn_disengage']:
+        for btn in ['entry', 'roll_button', 'player_listbox', 'stats_button', 'action_button', 'aoe_button', 'travel_button', 'calendar_button', 'combat_btn', 'end_turn_btn', 'btn_act_tracker', 'btn_bonus_tracker', 'btn_react_tracker', 'btn_dash', 'btn_disengage', 'btn_dodge', 'btn_help', 'btn_short_rest', 'btn_second_wind', 'btn_action_surge', 'btn_rage']:
             widget = getattr(self, btn, None)
             if widget:
                 try: widget.config(state=state)
@@ -1064,7 +1277,7 @@ class ClientGUI:
         win.transient(self.master)
         win.grab_set()
         win.title(f"Azione su {target_name}")
-        win.minsize(300, 300)
+        win.minsize(320, 360)
         from common.theme import apply_modern_window_style
         apply_modern_window_style(win)
 
@@ -1074,33 +1287,43 @@ class ClientGUI:
         action_var = tk.StringVar(value="damage")
         frame_radio = ttk.Frame(win)
         frame_radio.pack(pady=5)
-        ttk.Radiobutton(frame_radio, text="Danno", variable=action_var, value="damage").pack(side=tk.LEFT, padx=10)
-        ttk.Radiobutton(frame_radio, text="Cura", variable=action_var, value="heal").pack(side=tk.LEFT, padx=10)
+        ttk.Radiobutton(frame_radio, text="Danno", variable=action_var, value="damage").pack(side=tk.LEFT, padx=6)
+        ttk.Radiobutton(frame_radio, text="Cura", variable=action_var, value="heal").pack(side=tk.LEFT, padx=6)
+        ttk.Radiobutton(frame_radio, text="Temp HP", variable=action_var, value="temp_hp").pack(side=tk.LEFT, padx=6)
 
-        ttk.Label(win, text="Formula (es. 1d8+3 oppure 5):").pack(pady=(10, 0))
+        dt_frame = ttk.Frame(win)
+        dt_frame.pack(fill=tk.X, padx=20, pady=(6, 2))
+        ttk.Label(dt_frame, text="Tipo di Danno (se Danno):").pack(anchor="w")
+        damage_types = ["Tagliente", "Perforante", "Contundente", "Fuoco", "Freddo", "Fulmine", "Veleno", "Acido", "Psichico", "Necrotico", "Radioso", "Forza", "Tuono"]
+        dt_combo = ttk.Combobox(dt_frame, values=damage_types, state="readonly")
+        dt_combo.set("Tagliente")
+        dt_combo.pack(fill=tk.X, pady=2)
+
+        ttk.Label(win, text="Formula / Valore (es. 1d8+3 oppure 5):").pack(pady=(6, 0))
         formula_entry = ttk.Entry(win, font=self.default_font)
-        formula_entry.pack(pady=5, padx=20, fill=tk.X)
+        formula_entry.pack(pady=4, padx=20, fill=tk.X)
 
-        ttk.Label(win, text="Arma / Motivo (Opzionale):").pack(pady=(10, 0))
+        ttk.Label(win, text="Arma / Motivo (Opzionale):").pack(pady=(6, 0))
         reason_entry = ttk.Entry(win, font=self.default_font)
-        reason_entry.pack(pady=5, padx=20, fill=tk.X)
+        reason_entry.pack(pady=4, padx=20, fill=tk.X)
 
         def submit():
             action_type = action_var.get()
             formula = formula_entry.get().strip()
             reason = reason_entry.get().strip()
+            damage_type = dt_combo.get().strip()
             
             if not formula:
                 self.show_toast("Devi inserire una formula o un valore numerico.", title="Errore", toast_type="danger")
                 return
                 
-            self.network.send(make_targeted_action_request(target_name, action_type, formula, reason))
+            self.network.send(make_targeted_action_request(target_name, action_type, formula, reason, damage_type=damage_type))
             self.action_spent = True
             self.update_action_economy_ui()
             win.destroy()
             self.show_toast(f"Azione '{action_type}' eseguita su {target_name}!", title="⚔️ Azione Eseguita", toast_type="success")
 
-        ttk.Button(win, text="Esegui Azione", command=submit, style='Primary.TButton').pack(pady=20)
+        ttk.Button(win, text="Esegui Azione", command=submit, style='Primary.TButton').pack(pady=16)
 
     def toggle_mute(self):
         if self.voice_client:

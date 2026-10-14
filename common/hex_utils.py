@@ -8,6 +8,8 @@ class Hex:
         self.s = -q - r
 
     def __eq__(self, other):
+        if not isinstance(other, Hex):
+            return False
         return self.q == other.q and self.r == other.r
 
     def __hash__(self):
@@ -64,18 +66,6 @@ def get_sphere_hexes(origin: Hex, radius: int) -> list[Hex]:
             results.append(Hex(origin.q + dq, origin.r + dr))
     return results
 
-def get_line_hexes(a: Hex, b: Hex) -> list[Hex]:
-    dist = hex_distance(a, b)
-    if dist == 0:
-        return [a]
-    results = []
-    for i in range(dist + 1):
-        t = i / dist
-        q_frac = a.q + (b.q - a.q) * t
-        r_frac = a.r + (b.r - a.r) * t
-        results.append(hex_round(q_frac, r_frac))
-    return results
-
 def hex_linedraw(a: Hex, b: Hex) -> list[Hex]:
     dist = hex_distance(a, b)
     if dist == 0:
@@ -90,41 +80,6 @@ def hex_linedraw(a: Hex, b: Hex) -> list[Hex]:
         r_frac = a_r + (b_r - a_r) * t
         results.append(hex_round(q_frac, r_frac))
     return results
-
-def get_cone_hexes(origin: Hex, target: Hex, length: int) -> list[Hex]:
-    """Approssimazione semplice di un cono in una griglia esagonale. 
-    Il cono si espande verso il target."""
-    if hex_distance(origin, target) == 0:
-        return [origin]
-    
-    # Normalizziamo la direzione verso il target come un vettore 2D (q, r) approssimato
-    dist = hex_distance(origin, target)
-    dq = (target.q - origin.q) / dist
-    dr = (target.r - origin.r) / dist
-    
-    results = []
-    # Scansioniamo una sfera di raggio `length` e prendiamo solo gli esagoni 
-    # che sono nel semispazio "in avanti" e entro un certo angolo.
-    # Usiamo il prodotto scalare per filtrare.
-    for hex in get_sphere_hexes(origin, length):
-        v_q = hex.q - origin.q
-        v_r = hex.r - origin.r
-        dot = v_q * dq + v_r * dr
-        h_dist = hex_distance(origin, hex)
-        # Se il prodotto scalare è proporzionale alla distanza, è "davanti". 
-        # Per un cono largo a ~60 gradi, limitiamo l'angolo.
-        if h_dist > 0:
-            cos_angle = dot / h_dist
-            if cos_angle > 0.5: # Circa 60 gradi
-                results.append(hex)
-    
-    # Aggiungiamo sempre l'origine
-    if origin not in results:
-        results.append(origin)
-    return results
-
-
-# --- Nuove funzioni richieste ---
 
 def get_line_hexes(start_hex: Hex, target_hex: Hex, length_in_hexes: int) -> list[Hex]:
     dist = hex_distance(start_hex, target_hex)
@@ -151,6 +106,8 @@ def get_cone_hexes(start_hex: Hex, target_hex: Hex, length_in_hexes: int) -> lis
     dir_x = target_px[0] - start_px[0]
     dir_y = target_px[1] - start_px[1]
     dir_len = math.hypot(dir_x, dir_y)
+    if dir_len == 0:
+        return [start_hex]
     dir_x /= dir_len
     dir_y /= dir_len
     
@@ -163,6 +120,9 @@ def get_cone_hexes(start_hex: Hex, target_hex: Hex, length_in_hexes: int) -> lis
         v_x = h_px[0] - start_px[0]
         v_y = h_px[1] - start_px[1]
         v_len = math.hypot(v_x, v_y)
+        if v_len == 0:
+            results.append(h)
+            continue
         
         cos_angle = (v_x * dir_x + v_y * dir_y) / v_len
         if cos_angle >= math.cos(math.radians(30)) - 1e-5:
@@ -170,16 +130,43 @@ def get_cone_hexes(start_hex: Hex, target_hex: Hex, length_in_hexes: int) -> lis
             
     return results
 
-def get_visible_hexes(origin: Hex, radius: int, walls: set) -> list[Hex]:
+def has_line_of_sight(origin: Hex, target: Hex, walls) -> bool:
+    """Verifica se c'è linea di vista diretta tra origin e target su griglia esagonale.
+    Se un esagono intermedio è un muro, la linea di vista è ostruita."""
+    if origin == target:
+        return True
+    wall_set = set()
+    for w in walls:
+        if isinstance(w, Hex):
+            wall_set.add((w.q, w.r))
+        elif isinstance(w, (list, tuple)) and len(w) >= 2:
+            wall_set.add((w[0], w[1]))
+            
+    line = hex_linedraw(origin, target)
+    for p in line:
+        if p != origin and p != target and (p.q, p.r) in wall_set:
+            return False
+    return True
+
+def get_visible_hexes(origin: Hex, radius: int, walls) -> list[Hex]:
+    """Restituisce tutti gli esagoni entro il raggio privi di ostruzioni visive da muri."""
     visible = set()
     visible.add(origin)
+    wall_set = set()
+    for w in walls:
+        if isinstance(w, Hex):
+            wall_set.add((w.q, w.r))
+        elif isinstance(w, (list, tuple)) and len(w) >= 2:
+            wall_set.add((w[0], w[1]))
+            
     sphere = get_sphere_hexes(origin, radius)
     for h in sphere:
-        if h == origin: continue
+        if h == origin:
+            continue
         line = hex_linedraw(origin, h)
         is_visible = True
         for p in line:
-            if p in walls and p != origin and p != h:
+            if (p.q, p.r) in wall_set and p != origin and p != h:
                 is_visible = False
                 break
         if is_visible:

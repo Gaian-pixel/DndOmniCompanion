@@ -47,7 +47,7 @@ VoiceClient.stop = lambda self: print("[VoiceClient] (Mocked) Fermato.")
 from server.server import DM_GUI
 from client.client import ClientGUI
 from client.character_manager import Character
-from common.hex_utils import Hex
+from common.hex_utils import Hex, has_line_of_sight, get_visible_hexes
 from common.protocol import (
     make_chat_broadcast, make_game_state, make_attack_request,
     make_move_request, make_give_item_request, make_give_gold_request,
@@ -375,17 +375,140 @@ def run_simulation():
             from server.commands import command_handlers
             handle_update_stats = command_handlers["UPDATE_STATS_REQUEST"]
 
-            class FakeConn:
-                def send(self, b): pass
-            handle_update_stats({"name": "Goblin 1", "hp": 0, "conditions": ["Morto"]}, FakeConn(), gs)
+            handle_update_stats({"name": "Goblin 1", "hp": 0, "max_hp": 7, "initiative": 0, "conditions": ["Morto"]}, goblin_updated, gs)
 
             pump_events(roots, dm_gui, client_guis, steps=10, delay=0.03)
 
             if "Morto" in goblin_updated.conditions and goblin_updated.hp == 0:
                 report["passed"].append("Gestione morte mostro a 0 HP con condizione 'Morto'")
                 print(">> OK: Goblin 1 è a 0 HP con condizione 'Morto'.")
+                loots = gs.current_map.get("loots", []) if gs.current_map else []
+                if any("Goblin 1" in l.get("item", "") for l in loots):
+                    report["passed"].append("Drop automatico spoglie mostro alla morte (Corpse Loot)")
+                    print(">> OK: Forziere spoglie mostro apparso sulla mappa!")
             else:
                 report["failed"].append("Condizione Morto su mostro a 0 HP")
+
+            # 10b. Meccaniche Temp HP
+            print("\n--- FASE 10b: Meccaniche 5e Punti Ferita Temporanei (Temp HP) ---")
+            p1_obj = gs.find_player("Gildor")
+            p1_obj.hp = 20
+            p1_obj.max_hp = 20
+            p1_obj.temp_hp = 10
+            from server.rules.combat import apply_damage
+            
+            # Subisce 4 danni: i 10 Temp HP assorbono tutto -> rimangono 6 Temp HP, 20 HP
+            f_dmg, note, absorbed, to_hp = apply_damage(p1_obj, 4, "Tagliente", gs)
+            assert p1_obj.temp_hp == 6 and p1_obj.hp == 20, f"Atteso 6 Temp e 20 HP, ottenuto {p1_obj.temp_hp} e {p1_obj.hp}"
+            
+            # Subisce 8 danni: assorbe 6 da Temp HP, 2 a HP effettivi -> 0 Temp HP, 18 HP
+            f_dmg, note, absorbed, to_hp = apply_damage(p1_obj, 8, "Tagliente", gs)
+            assert p1_obj.temp_hp == 0 and p1_obj.hp == 18, f"Atteso 0 Temp e 18 HP, ottenuto {p1_obj.temp_hp} e {p1_obj.hp}"
+            
+            report["passed"].append("Punti Ferita Temporanei (Temp HP): assorbimento prima degli HP effettivi")
+            print(">> OK: Temp HP assorbono correttamente i danni prima degli HP.")
+
+            # 10c. Resistenze e Immunità ai Danni 5e
+            print("\n--- FASE 10c: Resistenze, Immunità e Vulnerabilità 5e ---")
+            test_target = gs.find_player("Elidor")
+            test_target.hp = 20
+            test_target.max_hp = 20
+            test_target.temp_hp = 0
+            test_target.damage_resistances = ["Fuoco"]
+            test_target.damage_immunities = ["Veleno"]
+            test_target.damage_vulnerabilities = ["Freddo"]
+            
+            # Fuoco: dimezzato (10 -> 5)
+            f_dmg, note, _, _ = apply_damage(test_target, 10, "Fuoco", gs)
+            assert f_dmg == 5, f"Resistenza Fuoco attesa 5, ottenuta {f_dmg}"
+            
+            # Veleno: immune (10 -> 0)
+            f_dmg, note, _, _ = apply_damage(test_target, 10, "Veleno", gs)
+            assert f_dmg == 0, f"Immunità Veleno attesa 0, ottenuta {f_dmg}"
+            
+            # Freddo: raddoppiato (10 -> 20)
+            f_dmg, note, _, _ = apply_damage(test_target, 10, "Freddo", gs)
+            assert f_dmg == 20, f"Vulnerabilità Freddo attesa 20, ottenuta {f_dmg}"
+            
+            # Ira Barbarica: resistenza automatica a Tagliente
+            test_target.conditions.append("Ira")
+            f_dmg, note, _, _ = apply_damage(test_target, 10, "Tagliente", gs)
+            assert f_dmg == 5, f"Resistenza Ira Tagliente attesa 5, ottenuta {f_dmg}"
+            test_target.conditions.remove("Ira")
+            
+            report["passed"].append("Resistenze, Immunità, Vulnerabilità e Ira Barbarica ai danni 5e")
+            print(">> OK: Resistenze (0.5x), Immunità (0x), Vulnerabilità (2x) e Ira verificate!")
+
+            # 10d. Azioni Standard 5e (Schivata & Aiuto)
+            print("\n--- FASE 10d: Azioni Standard 5e (Schivata & Aiuto) ---")
+            p1_gui.perform_dodge()
+            pump_events(roots, dm_gui, client_guis, steps=5, delay=0.03)
+            p1_obj = gs.find_player("Gildor")
+            assert "Schivata" in getattr(p1_obj, "conditions", []), "Condizione Schivata non applicata"
+            
+            p2_gui.perform_help()
+            p2_gui.help_targeting_mode = False
+            from common.protocol import make_help_request
+            p2_gui.network.send(make_help_request("Gildor"))
+            pump_events(roots, dm_gui, client_guis, steps=5, delay=0.03)
+            assert "Aiutato" in getattr(p1_obj, "conditions", []), "Condizione Aiutato non applicata"
+            
+            report["passed"].append("Azioni Standard 5e: Schivata (Dodge) e Aiuto (Help)")
+            print(">> OK: Schivata e Aiuto registrate e propagate con successo.")
+
+            # 10e. Dadi Vita e Riposo Breve (Short Rest)
+            print("\n--- FASE 10e: Dadi Vita & Riposo Breve ---")
+            char1 = p1_gui.active_character
+            char1.hp_max = 30
+            char1.hp_current = 10
+            char1.hit_dice_total = 4
+            char1.hit_dice_current = 4
+            char1.hit_dice_type = "d10"
+            char1.class_resources["second_wind"] = False
+            
+            rec = char1.short_rest(2)
+            assert char1.hit_dice_current == 2, f"Attesi 2 dadi rimasti, ottenuti {char1.hit_dice_current}"
+            assert char1.hp_current > 10, "Gli HP non sono aumentati con il riposo breve"
+            assert char1.class_resources.get("second_wind") == True, "Secondo Fiato non ripristinato dal riposo breve"
+            
+            report["passed"].append("Hit Dice & Riposo Breve: recupero HP e reset privilegi di classe")
+            print(f">> OK: Riposo breve ha speso 2 Dadi Vita, recuperato {rec} HP e ripristinato Secondo Fiato.")
+
+            # 10f. Iniziativa Massiva Mostri (DM Tool)
+            print("\n--- FASE 10f: Tira Iniziativa Tutti Mostri (DM Tool) ---")
+            from common.game_state import Player
+            orc = Player(name="Orco Berserker")
+            orc.hp = 30
+            orc.max_hp = 30
+            orc.initiative = 0
+            gs.add_player(orc)
+            
+            dm_gui.roll_all_npcs_initiative()
+            pump_events(roots, dm_gui, client_guis, steps=5, delay=0.03)
+            
+            assert orc.initiative > 0, "Iniziativa mostro non tirata"
+            report["passed"].append("Iniziativa automatica per tutti i Mostri/PNG da pannello DM")
+            print(f">> OK: Iniziativa di massa per i mostri calcolata con successo ({orc.name}: {orc.initiative}).")
+
+            # 10g. Line of Sight (LoS) con Raycasting Muri Esagonali
+            print("\n--- FASE 10g: Line of Sight (LoS) con Muri Esagonali ---")
+            walls = [[1, 0], [1, 1]]
+            origin = Hex(0, 0)
+            target_behind_wall = Hex(2, 0)
+            target_clear = Hex(0, 2)
+            
+            los_blocked = has_line_of_sight(origin, target_behind_wall, walls)
+            los_clear = has_line_of_sight(origin, target_clear, walls)
+            
+            assert not los_blocked, "La linea di vista non dovrebbe attraversare il muro in [1, 0]"
+            assert los_clear, "La linea di vista libera dovrebbe essere valida"
+            
+            vis_hexes = get_visible_hexes(origin, 3, walls)
+            assert target_behind_wall not in vis_hexes, "L'esagono dietro il muro non deve essere visibile"
+            assert target_clear in vis_hexes, "L'esagono in campo aperto deve essere visibile"
+            
+            report["passed"].append("True Line of Sight (LoS) su griglia esagonale con blocco muri")
+            print(">> OK: Line of Sight previene la visione a raggi X attraverso i muri.")
 
             # Termina combattimento ora che il Goblin è morto
             gs.end_combat()
@@ -394,7 +517,7 @@ def run_simulation():
             broadcast(gs, make_game_state(gs.get_state_dict()))
             pump_events(roots, dm_gui, client_guis, steps=5, delay=0.03)
         except Exception as e:
-            report["failed"].append(f"Morte mostro: {e}")
+            report["failed"].append(f"Morte mostro o meccaniche 5e: {e}")
 
         # 11. Divisione Loot Monete dal Master
         print("\n--- FASE 11: Divisione Denaro (Loot Split) ---")

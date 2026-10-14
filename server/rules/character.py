@@ -3,20 +3,31 @@ import random
 from common.protocol import *
 from common.network_utils import send_message, broadcast
 import math
+from server.rules.combat import _apply_hp_change, apply_damage
+from common.dice import roll_dice
+
 def handle_update_stats_request(data, player, game_state):
     try:
-        hp = int(data.get("hp"))
-        max_hp = int(data.get("max_hp"))
-        initiative = int(data.get("initiative"))
-        conditions = data.get("conditions", [])
-        player.max_hp = max_hp
-        player.initiative = initiative
-        player.conditions = conditions
-        _apply_hp_change(player, hp, game_state)
+        target = player
+        if not target and data.get("name"):
+            target = game_state.find_player(data.get("name"))
+        if not target:
+            return
+            
+        hp = int(data.get("hp", target.hp))
+        max_hp = int(data.get("max_hp", target.max_hp)) if data.get("max_hp") is not None else target.max_hp
+        initiative = int(data.get("initiative", target.initiative)) if data.get("initiative") is not None else target.initiative
+        conditions = data.get("conditions", getattr(target, "conditions", []))
+        temp_hp = int(data.get("temp_hp", getattr(target, "temp_hp", 0)))
+        target.max_hp = max_hp
+        target.temp_hp = max(0, temp_hp)
+        target.initiative = initiative
+        target.conditions = conditions
+        _apply_hp_change(target, hp, game_state)
         game_state._trigger_gui_update()
-        broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions))
-    except:
-        pass
+        broadcast(game_state, make_player_stats_update(target.name, target.hp, target.max_hp, target.initiative, target.conditions, target.temp_hp))
+    except Exception as e:
+        print("Errore handle_update_stats_request:", e)
 
 def handle_update_full_sheet_request(data, player, game_state):
     char_data = data.get("character")
@@ -39,7 +50,9 @@ def handle_update_full_sheet_request(data, player, game_state):
         player.full_sheet = char_data
         player.hp = char_data.get("hp_current", player.hp)
         player.max_hp = char_data.get("hp_max", player.max_hp)
+        player.temp_hp = char_data.get("temp_hp", getattr(player, "temp_hp", 0))
         player.initiative = char_data.get("initiative", player.initiative)
+        player.exhaustion_level = char_data.get("exhaustion_level", getattr(player, "exhaustion_level", 0))
         game_state._trigger_gui_update()
         broadcast(game_state, make_game_state(game_state.get_state_dict()))
 
@@ -48,6 +61,7 @@ def handle_targeted_action(data, player, game_state):
     action_type = data.get("action_type")
     formula = data.get("formula")
     reason = data.get("reason", "")
+    damage_type = data.get("damage_type", "Tagliente")
     
     target_player = game_state.find_player(target_name)
     if not target_player: return
@@ -59,16 +73,24 @@ def handle_targeted_action(data, player, game_state):
         else:
             val = 0
             
-        if action_type == "danno":
-            _apply_hp_change(target_player, target_player.hp - val, game_state)
-        elif action_type == "cura":
+        note_str = ""
+        if action_type in ["danno", "damage"]:
+            final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(target_player, val, damage_type, game_state)
+            note_str = f" ({damage_type}){note}"
+            if temp_absorbed > 0:
+                note_str += f" [{temp_absorbed} assorbiti da Temp HP]"
+            val = final_dmg
+        elif action_type in ["cura", "heal"]:
             _apply_hp_change(target_player, target_player.hp + val, game_state)
+        elif action_type in ["temp_hp", "temp"]:
+            target_player.temp_hp = max(getattr(target_player, "temp_hp", 0), val)
             
-        log_msg = f"{player.name} usa {reason} su {target_name}: {action_type} di {val}. HP attuali: {target_player.hp}/{target_player.max_hp}"
+        temp_disp = f" (+{target_player.temp_hp} Temp)" if getattr(target_player, "temp_hp", 0) > 0 else ""
+        log_msg = f"{player.name} usa {reason or action_type} su {target_name}: {action_type} di {val}{note_str}. HP attuali: {target_player.hp}/{target_player.max_hp}{temp_disp}"
         game_state.log_dm_message(f"[COMBAT] {log_msg}")
         broadcast(game_state, make_chat_broadcast("Sistema", log_msg))
         
-        broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions))
+        broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
         game_state._trigger_gui_update()
         
     except ValueError as e:

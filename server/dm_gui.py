@@ -324,7 +324,10 @@ class DM_GUI:
         self.btn_combat.pack(fill=tk.X, side=tk.TOP, pady=(0, 4))
         
         self.btn_campaign_encounter = ttk.Button(tab_combat, text="⚡ Schiera Incontro Preparato", command=self.deploy_campaign_encounter_dialog, style='Gold.TButton')
-        self.btn_campaign_encounter.pack(fill=tk.X, side=tk.TOP, pady=(0, 6))
+        self.btn_campaign_encounter.pack(fill=tk.X, side=tk.TOP, pady=(0, 4))
+        
+        self.btn_mass_npc_initiative = ttk.Button(tab_combat, text="🎲 Tira Iniziativa per Tutti i Mostri", command=self.roll_all_npcs_initiative, style='Primary.TButton')
+        self.btn_mass_npc_initiative.pack(fill=tk.X, side=tk.TOP, pady=(0, 6))
         
         # Pulsanti Bottom Tab 2
         btn_frame_bottom = ttk.Frame(tab_combat)
@@ -942,6 +945,39 @@ class DM_GUI:
             ttk.Button(init_dialog, text="Conferma Iniziative", command=submit_init, style="Primary.TButton").pack(pady=10)
 
         ttk.Button(dialog, text="Avanti", command=confirm, style='Primary.TButton').pack(pady=15)
+
+    def roll_all_npcs_initiative(self):
+        """Tira automaticamente l'iniziativa (1d20 + mod DES) per tutti i mostri/PNG."""
+        from common.protocol import make_player_stats_update, make_chat_broadcast, make_game_state
+        import random
+        rolled_count = 0
+        with self.server.game_state.lock:
+            for p in self.server.game_state.players:
+                # Mostri/PNG non hanno una connessione client attiva
+                if not getattr(p, "conn", None):
+                    dex_mod = 0
+                    if getattr(p, "full_sheet", None):
+                        attr = p.full_sheet.get("attributes", {})
+                        if "DES" in attr:
+                            try:
+                                dex_mod = (int(attr["DES"]) - 10) // 2
+                            except (ValueError, TypeError):
+                                pass
+                    d20 = random.randint(1, 20)
+                    p.initiative = d20 + dex_mod
+                    rolled_count += 1
+                    broadcast(self.server.game_state, make_player_stats_update(p.name, p.hp, p.max_hp, p.initiative, getattr(p, "conditions", []), getattr(p, "temp_hp", 0)))
+            if self.server.game_state.combat_active:
+                self.server.game_state.players.sort(key=lambda p: (getattr(p, 'in_combat', True), p.initiative), reverse=True)
+                
+        if rolled_count > 0:
+            self.server.game_state._trigger_gui_update()
+            broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
+            msg = f"🎲 Iniziativa tirata automaticamente per tutti i {rolled_count} Mostri/PNG!"
+            self.log_to_chat(f"[COMBAT] {msg}")
+            broadcast(self.server.game_state, make_chat_broadcast("Sistema", msg))
+        else:
+            self.log_to_chat("[COMBAT] Nessun Mostro/PNG presente per tirare l'iniziativa.")
 
     def next_turn_gui(self):
         self.server.game_state.next_turn()

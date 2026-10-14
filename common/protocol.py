@@ -17,15 +17,15 @@ def make_roll_request(formula, reason=""):
     return {"type": "ROLL_REQUEST", "data": {"formula": formula, "reason": reason}}
 
 def make_move_request(x, y):
-    # Attualmente non usato, ma lo teniamo per il futuro
     return {"type": "MOVE_REQUEST", "data": {"to": [x, y]}}
 
-def make_targeted_action_request(target_name, action_type, formula, reason=""):
+def make_targeted_action_request(target_name, action_type, formula, reason="", damage_type="Tagliente"):
     return {"type": "TARGETED_ACTION_REQUEST", "data": {
         "target_name": target_name,
         "action_type": action_type,
         "formula": formula,
-        "reason": reason
+        "reason": reason,
+        "damage_type": damage_type
     }}
 
 def make_ping_request(q, r, color="yellow"):
@@ -64,14 +64,16 @@ def make_dice_roll_result(player_name, formula, reason, result):
         "result": result
     }}
 
-def make_update_stats_request(hp, max_hp, initiative, conditions=None):
+def make_update_stats_request(hp, max_hp, initiative, conditions=None, temp_hp=0):
     if conditions is None: conditions = []
-    return {"type": "UPDATE_STATS_REQUEST", "data": {"hp": hp, "max_hp": max_hp, "initiative": initiative, "conditions": conditions}}
+    return {"type": "UPDATE_STATS_REQUEST", "data": {
+        "hp": hp, "max_hp": max_hp, "initiative": initiative, "conditions": conditions, "temp_hp": temp_hp
+    }}
 
-def make_player_stats_update(player_name, hp, max_hp, initiative, conditions=None):
+def make_player_stats_update(player_name, hp, max_hp, initiative, conditions=None, temp_hp=0):
     if conditions is None: conditions = []
     return {"type": "PLAYER_STATS_UPDATE", "data": {
-        "name": player_name, "hp": hp, "max_hp": max_hp, "initiative": initiative, "conditions": conditions
+        "name": player_name, "hp": hp, "max_hp": max_hp, "initiative": initiative, "conditions": conditions, "temp_hp": temp_hp
     }}
 
 def make_update_full_sheet_request(character_data):
@@ -104,6 +106,15 @@ def make_dash_request():
 def make_disengage_request():
     return {"type": "DISENGAGE_REQUEST", "data": {}}
 
+def make_dodge_request():
+    return {"type": "DODGE_REQUEST", "data": {}}
+
+def make_help_request(target_name):
+    return {"type": "HELP_REQUEST", "data": {"target_name": target_name}}
+
+def make_short_rest_request(hd_spent=1, hp_recovered=0):
+    return {"type": "SHORT_REST_REQUEST", "data": {"hd_spent": hd_spent, "hp_recovered": hp_recovered}}
+
 def make_opportunity_alert(target_name, message=None):
     return {"type": "OPPORTUNITY_ALERT", "data": {"target_name": target_name, "message": message}}
 
@@ -112,20 +123,32 @@ def make_request_initiative():
 
 def make_submit_initiative(initiative_total):
     return {"type": "SUBMIT_INITIATIVE", "data": {"initiative": initiative_total}}
-def make_attack_request(target_name, weapon_name, hit_bonus, damage_formula):
-    return {"type": "ATTACK_REQUEST", "data": {"target_name": target_name, "weapon_name": weapon_name, "hit_bonus": hit_bonus, "damage_formula": damage_formula}}
 
+def make_attack_request(target_name, weapon_name, hit_bonus, damage_formula, damage_type="Tagliente"):
+    return {"type": "ATTACK_REQUEST", "data": {
+        "target_name": target_name, "weapon_name": weapon_name,
+        "hit_bonus": hit_bonus, "damage_formula": damage_formula,
+        "damage_type": damage_type
+    }}
 
-def make_force_save_request(targets, stat, dc, damage_formula, half_on_success):
-    return {"type": "FORCE_SAVE_REQUEST", "data": {"targets": targets, "stat": stat, "dc": dc, "damage_formula": damage_formula, "half_on_success": half_on_success}}
+def make_force_save_request(targets, stat, dc, damage_formula, half_on_success, damage_type="Fuoco"):
+    return {"type": "FORCE_SAVE_REQUEST", "data": {
+        "targets": targets, "stat": stat, "dc": dc, "damage_formula": damage_formula,
+        "half_on_success": half_on_success, "damage_type": damage_type
+    }}
 
-def make_prompt_save(stat, dc, damage_formula, half_on_success, source_name):
-    return {"type": "PROMPT_SAVE", "data": {"stat": stat, "dc": dc, "damage_formula": damage_formula, "half_on_success": half_on_success, "source_name": source_name}}
+def make_prompt_save(stat, dc, damage_formula, half_on_success, source_name, damage_type="Fuoco"):
+    return {"type": "PROMPT_SAVE", "data": {
+        "stat": stat, "dc": dc, "damage_formula": damage_formula,
+        "half_on_success": half_on_success, "source_name": source_name, "damage_type": damage_type
+    }}
 
-def make_save_result(stat, roll_total, is_crit, is_fail, dc, damage_formula, half_on_success, source_name):
-    return {"type": "SAVE_RESULT", "data": {"stat": stat, "roll_total": roll_total, "is_crit": is_crit, "is_fail": is_fail, "dc": dc, "damage_formula": damage_formula, "half_on_success": half_on_success, "source_name": source_name}}
-
-
+def make_save_result(stat, roll_total, is_crit, is_fail, dc, damage_formula, half_on_success, source_name, damage_type="Fuoco"):
+    return {"type": "SAVE_RESULT", "data": {
+        "stat": stat, "roll_total": roll_total, "is_crit": is_crit, "is_fail": is_fail,
+        "dc": dc, "damage_formula": damage_formula, "half_on_success": half_on_success,
+        "source_name": source_name, "damage_type": damage_type
+    }}
 
 def make_handout_broadcast(title, image_b64=None, content=None):
     return {"type": "HANDOUT_BROADCAST", "data": {"title": title, "image_b64": image_b64, "content": content}}
@@ -179,4 +202,3 @@ def make_update_inspiration(has_inspiration: bool):
 
 def make_give_gold_request(target_name: str, amount: int):
     return {"type": "GIVE_GOLD_REQUEST", "data": {"target_name": target_name, "amount": amount}}
-
