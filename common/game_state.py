@@ -11,6 +11,11 @@ class Player:
         self.position = [0, 0] # Ora rappresenta le coordinate esagonali [q, r]
         self.hp = 10
         self.max_hp = 10
+        self.temp_hp = 0
+        self.damage_resistances = []
+        self.damage_immunities = []
+        self.damage_vulnerabilities = []
+        self.exhaustion_level = 0
         self.initiative = 0
         self.full_sheet = None
         self.conditions = []
@@ -30,6 +35,11 @@ class Player:
             "position": self.position,
             "hp": self.hp,
             "max_hp": self.max_hp,
+            "temp_hp": getattr(self, "temp_hp", 0),
+            "damage_resistances": getattr(self, "damage_resistances", []),
+            "damage_immunities": getattr(self, "damage_immunities", []),
+            "damage_vulnerabilities": getattr(self, "damage_vulnerabilities", []),
+            "exhaustion_level": getattr(self, "exhaustion_level", 0),
             "initiative": self.initiative,
             "full_sheet": self.full_sheet,
             "conditions": self.conditions,
@@ -289,6 +299,11 @@ class GameState:
                     existing.position = p_data.get("position", [0, 0])
                     existing.hp = p_data.get("hp", 10)
                     existing.max_hp = p_data.get("max_hp", 10)
+                    existing.temp_hp = p_data.get("temp_hp", 0)
+                    existing.damage_resistances = p_data.get("damage_resistances", [])
+                    existing.damage_immunities = p_data.get("damage_immunities", [])
+                    existing.damage_vulnerabilities = p_data.get("damage_vulnerabilities", [])
+                    existing.exhaustion_level = p_data.get("exhaustion_level", 0)
                     existing.initiative = p_data.get("initiative", 0)
                     existing.full_sheet = p_data.get("full_sheet")
                     existing.conditions = p_data.get("conditions", [])
@@ -303,6 +318,11 @@ class GameState:
                     p.position = p_data.get("position", [0, 0])
                     p.hp = p_data.get("hp", 10)
                     p.max_hp = p_data.get("max_hp", 10)
+                    p.temp_hp = p_data.get("temp_hp", 0)
+                    p.damage_resistances = p_data.get("damage_resistances", [])
+                    p.damage_immunities = p_data.get("damage_immunities", [])
+                    p.damage_vulnerabilities = p_data.get("damage_vulnerabilities", [])
+                    p.exhaustion_level = p_data.get("exhaustion_level", 0)
                     p.initiative = p_data.get("initiative", 0)
                     p.full_sheet = p_data.get("full_sheet")
                     p.conditions = p_data.get("conditions", [])

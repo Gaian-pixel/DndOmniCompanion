@@ -1,10 +1,11 @@
 import re
 import random
-from common.hex_utils import Hex, hex_distance, get_sphere_hexes, hex_linedraw
+from common.hex_utils import Hex, hex_distance, get_sphere_hexes, hex_linedraw, get_visible_hexes
 from common.network_utils import send_message, broadcast
 import math
+
 def handle_move_request(data, player, game_state):
-    if "Afferrato" in getattr(player, "conditions", []) or "Privo di Sensi" in getattr(player, "conditions", []):
+    if "Afferrato" in getattr(player, "conditions", []) or "Privo di Sensi" in getattr(player, "conditions", []) or getattr(player, "exhaustion_level", 0) >= 5:
         from common.network_utils import send_message
         from common.protocol import make_error_reply
         if player.conn:
@@ -38,6 +39,9 @@ def handle_move_request(data, player, game_state):
             q2, r2 = to_pos[0], to_pos[1]
             dist = max(abs(q1 - q2), abs(q1 + r1 - q2 - r2), abs(r1 - r2))
             speed = getattr(player, "speed", 30)
+            exh = getattr(player, "exhaustion_level", 0)
+            if exh >= 2:
+                speed = speed // 2
             is_dashed = "Scatto" in getattr(player, "conditions", [])
             eff_speed = speed * 2 if is_dashed else speed
             max_hexes = eff_speed // 5
@@ -104,29 +108,18 @@ def handle_move_request(data, player, game_state):
                     except Exception as e:
                         print(f"Errore caricamento mappa teleport {map_file}: {e}")
 
-        
-        # Auto-explore FoW around the player's new position
+        # Auto-explore FoW around the player's new position with true Line of Sight (LoS)
         if getattr(game_state, "current_map", None) and game_state.current_map.get("fow_enabled", False):
-            from common.hex_utils import Hex, get_sphere_hexes, hex_linedraw
             h = Hex(to_pos[0], to_pos[1])
             vision_rad = getattr(player, 'vision_radius', 6)
-            revealed = get_sphere_hexes(h, vision_rad)
+            walls = game_state.current_map.get("walls", [])
+            visible_hexes = get_visible_hexes(h, vision_rad, walls)
             changed = False
             
             fow_rev = game_state.current_map.get("fow_revealed", [])
             fow_draft = game_state.current_map.get("fow_draft", [])
-            walls_list = [Hex(w[0], w[1]) for w in walls_list_pos]
             
-            for rh in revealed:
-                line = hex_linedraw(h, rh)
-                blocked = False
-                for step in line[:-1]:
-                    if step != h and step in walls_list:
-                        blocked = True
-                        break
-                if blocked:
-                    continue
-                    
+            for rh in visible_hexes:
                 pos = [rh.q, rh.r]
                 if pos not in fow_rev:
                     fow_rev.append(pos)
@@ -146,4 +139,3 @@ def handle_move_request(data, player, game_state):
                 
         from common.protocol import make_player_move
         broadcast(game_state, make_player_move(player.name, to_pos))
-

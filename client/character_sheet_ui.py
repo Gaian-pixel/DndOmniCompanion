@@ -927,19 +927,13 @@ class CharacterSheetUI(tk.Toplevel):
         spend = simpledialog.askinteger("Riposo Breve", f"Quanti dadi spendere? ({hd_cur}/{hd_tot} {hd_type} disponibili)", minvalue=1, maxvalue=hd_cur)
         if not spend: return
         
-        cos_mod = (self.character.attributes.get("COS", 10) - 10) // 2
-        import random
-        healed = 0
-        die_sides = int(hd_type.replace("d", "")) if "d" in hd_type else 8
-        for _ in range(spend):
-            roll = random.randint(1, die_sides)
-            healed += max(1, roll + cos_mod)
-            
-        self.character.hit_dice_current -= spend
-        new_hp = min(self.hp_max_var.get(), self.hp_cur_var.get() + healed)
-        self.hp_cur_var.set(new_hp)
+        healed = self.character.short_rest(spend)
+        self.hp_cur_var.set(self.character.hp_current)
         self.manager.update_character(self.character)
-        messagebox.showinfo("Riposo Breve", f"Hai speso {spend} dadi vita e recuperato {healed} HP!")
+        if hasattr(self, "on_save_callback") and self.on_save_callback:
+            try: self.on_save_callback()
+            except Exception: pass
+        messagebox.showinfo("Riposo Breve", f"Hai speso {spend} Dadi Vita e recuperato {healed} HP! Privilegi di classe ricaricati.")
 
     def long_rest(self):
         if hasattr(self, 'long_rest_callback') and self.long_rest_callback:
@@ -949,6 +943,9 @@ class CharacterSheetUI(tk.Toplevel):
                 self.character.long_rest()
                 self.load_data()
                 self.manager.update_character(self.character)
+                if hasattr(self, "on_save_callback") and self.on_save_callback:
+                    try: self.on_save_callback()
+                    except Exception: pass
                 messagebox.showinfo("Riposo Lungo", "Hai effettuato un riposo lungo! HP, Dadi Vita, Tiri contro la Morte e Slot Incantesimo sono stati recuperati.")
 
     def roll_death_save(self):

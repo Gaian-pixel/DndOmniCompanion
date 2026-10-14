@@ -21,6 +21,7 @@ class Character:
         # Valori di Combattimento
         self.hp_max = 10
         self.hp_current = 10
+        self.temp_hp = 0
         self.ac = 10
         self.initiative = 0
         self.speed = 9
@@ -28,6 +29,16 @@ class Character:
         self.hit_dice_total = 1
         self.hit_dice_current = 1
         self.hit_dice_type = "d8"
+        self.exhaustion_level = 0
+        self.damage_resistances = []
+        self.damage_immunities = []
+        self.damage_vulnerabilities = []
+        self.class_resources = {
+            "second_wind": True,
+            "action_surge": True,
+            "rage_current": 2,
+            "rage_max": 2
+        }
         self.death_saves = {"successes": 0, "failures": 0}
         self.currency = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
         self.hotbar = [""] * 10
@@ -50,17 +61,56 @@ class Character:
             "Religione": 0, "Sopravvivenza": 0, "Storia": 0
         }
 
-    
+    def short_rest(self, hd_to_spend=1):
+        """Spende Dadi Vita (XdY + Mod COS) per recuperare HP e ricarica i privilegi da riposo breve."""
+        if hd_to_spend <= 0 or self.hit_dice_current <= 0:
+            return 0
+        actual_spend = min(hd_to_spend, self.hit_dice_current)
+        self.hit_dice_current -= actual_spend
+        
+        cos_val = self.attributes.get("COS", 10)
+        try:
+            cos_mod = (int(cos_val) - 10) // 2
+        except (ValueError, TypeError):
+            cos_mod = 0
+            
+        die_str = str(self.hit_dice_type).lower().replace("d", "")
+        sides = int(die_str) if die_str.isdigit() else 8
+        
+        recovered = 0
+        import random
+        for _ in range(actual_spend):
+            roll = random.randint(1, sides)
+            total = max(1, roll + cos_mod)
+            recovered += total
+            
+        self.hp_current = min(self.hp_max, self.hp_current + recovered)
+        if not hasattr(self, "class_resources") or not isinstance(self.class_resources, dict):
+            self.class_resources = {}
+        self.class_resources["second_wind"] = True
+        self.class_resources["action_surge"] = True
+        return recovered
+
     def long_rest(self):
         self.hp_current = self.hp_max
+        self.temp_hp = 0
         regained = max(1, self.hit_dice_total // 2) if self.hit_dice_total > 0 else 0
         self.hit_dice_current = min(self.hit_dice_total, self.hit_dice_current + regained)
         self.death_saves = {"successes": 0, "failures": 0}
+        self.exhaustion_level = max(0, getattr(self, "exhaustion_level", 0) - 1)
         for lvl in self.spell_slots:
             if isinstance(self.spell_slots[lvl], dict) and "current" in self.spell_slots[lvl]:
                 self.spell_slots[lvl]["current"] = self.spell_slots[lvl]["max"]
             elif isinstance(self.spell_slots[lvl], list):
                 self.spell_slots[lvl][0] = 0
+        lvl = getattr(self, "level", 1) or 1
+        max_rage = 2 if lvl < 3 else (3 if lvl < 6 else (4 if lvl < 12 else 5))
+        self.class_resources = {
+            "second_wind": True,
+            "action_surge": True,
+            "rage_current": max_rage,
+            "rage_max": max_rage
+        }
 
     def to_dict(self):
         return self.__dict__
@@ -119,6 +169,24 @@ class Character:
             
         if not hasattr(c, "journal_notes"):
             c.journal_notes = ""
+            
+        if not hasattr(c, "temp_hp"):
+            c.temp_hp = 0
+        if not hasattr(c, "exhaustion_level"):
+            c.exhaustion_level = 0
+        if not hasattr(c, "damage_resistances"):
+            c.damage_resistances = []
+        if not hasattr(c, "damage_immunities"):
+            c.damage_immunities = []
+        if not hasattr(c, "damage_vulnerabilities"):
+            c.damage_vulnerabilities = []
+        if not hasattr(c, "class_resources") or not isinstance(c.class_resources, dict):
+            c.class_resources = {
+                "second_wind": True,
+                "action_surge": True,
+                "rage_current": 2,
+                "rage_max": 2
+            }
             
         # Se la lista armi è vuota, crea armi base compatibili
         if len(c.weapons) == 0:

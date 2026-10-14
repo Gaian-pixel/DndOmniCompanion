@@ -1,15 +1,105 @@
 import re
+import random
+import math
 from common.protocol import *
 from common.hex_utils import Hex, hex_distance, get_sphere_hexes, hex_linedraw
 from common.network_utils import send_message, broadcast
-import math
-def _apply_hp_change(target_player, new_hp_unbounded, game_state):
-    old_hp = target_player.hp
-    excess_damage = 0
-    if new_hp_unbounded < 0:
-        excess_damage = abs(new_hp_unbounded)
+
+def _spawn_corpse_loot(target_player, game_state):
+    """Spawna automaticamente un forziere con le spoglie sulla mappa quando un mostro o PNG muore a 0 HP."""
+    if not game_state or not getattr(game_state, "current_map", None):
+        return
+    pos = getattr(target_player, "position", None)
+    if not pos:
+        return
+    loots = game_state.current_map.setdefault("loots", [])
+    loot_name = f"Spoglie di {target_player.name}"
+    already_looted = any(l.get("q") == pos[0] and l.get("r") == pos[1] and l.get("item") == loot_name for l in loots)
+    if not already_looted:
+        loots.append({
+            "q": pos[0],
+            "r": pos[1],
+            "item": loot_name,
+            "qty": 1
+        })
+        msg = f"☠️ {target_player.name} è caduto! Un forziere con le sue spoglie è apparso sulla mappa."
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        game_state.log_dm_message(f"[LOOT] {msg}")
+        broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
+
+def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=None):
+    """
+    Applica il danno secondo le regole D&D 5e:
+    1. Resistenze, Immunità e Vulnerabilità (inclusa Ira Barbarica)
+    2. Assorbimento Punti Ferita Temporanei (Temp HP) prima degli HP effettivi
+    3. Morte istantanea (danno residuo >= HP max)
+    4. Condizioni Incosciente/Prono o Morto per i mostri + drop spoglie
+    5. Tiro Salvezza Concentrazione
+    Ritorna: (danno_finale, note_moltiplicatore, temp_assorbiti, danno_a_hp)
+    """
+    if raw_damage <= 0:
+        return 0, "", 0, 0
+        
+    dt = str(damage_type).strip().lower() if damage_type else "tagliente"
     
-    target_player.hp = max(0, min(target_player.max_hp, new_hp_unbounded))
+    # Mappatura bilingue per tipi di danno 5e
+    damage_map = {
+        "tagliente": ["tagliente", "slashing"],
+        "perforante": ["perforante", "piercing"],
+        "contundente": ["contundente", "bludgeoning"],
+        "fuoco": ["fuoco", "fire"],
+        "freddo": ["freddo", "cold"],
+        "fulmine": ["fulmine", "lightning"],
+        "veleno": ["veleno", "poison"],
+        "acido": ["acido", "acid"],
+        "psichico": ["psichico", "psychic"],
+        "necrotico": ["necrotico", "necrotic"],
+        "radioso": ["radioso", "radiant"],
+        "forza": ["forza", "force"],
+        "tuono": ["tuono", "thunder"]
+    }
+    
+    all_target_imm = [str(x).strip().lower() for x in getattr(target_player, "damage_immunities", [])]
+    all_target_res = [str(x).strip().lower() for x in getattr(target_player, "damage_resistances", [])]
+    all_target_vul = [str(x).strip().lower() for x in getattr(target_player, "damage_vulnerabilities", [])]
+    
+    # Ira Barbarica: resistenza ai danni fisici (tagliente, perforante, contundente)
+    if "Ira" in getattr(target_player, "conditions", []):
+        all_target_res.extend(["tagliente", "perforante", "contundente", "slashing", "piercing", "bludgeoning"])
+        
+    is_immune = any(dt in damage_map.get(k, [k]) for k in all_target_imm) or (dt in all_target_imm)
+    is_resistant = any(dt in damage_map.get(k, [k]) for k in all_target_res) or (dt in all_target_res)
+    is_vulnerable = any(dt in damage_map.get(k, [k]) for k in all_target_vul) or (dt in all_target_vul)
+    
+    note = ""
+    if is_immune:
+        multiplier = 0.0
+        note = f" (Immune a {damage_type}: 0 danni!)"
+    elif is_resistant and not is_vulnerable:
+        multiplier = 0.5
+        note = f" (Resistenza a {damage_type}: dimezzato)"
+    elif is_vulnerable and not is_resistant:
+        multiplier = 2.0
+        note = f" (Vulnerabilità a {damage_type}: raddoppiato!)"
+    else:
+        multiplier = 1.0
+        
+    final_dmg = int(raw_damage * multiplier)
+    
+    # Assorbimento Punti Ferita Temporanei (Temp HP)
+    cur_temp = getattr(target_player, "temp_hp", 0)
+    temp_absorbed = 0
+    if cur_temp > 0:
+        temp_absorbed = min(cur_temp, final_dmg)
+        target_player.temp_hp = cur_temp - temp_absorbed
+        dmg_to_hp = final_dmg - temp_absorbed
+    else:
+        dmg_to_hp = final_dmg
+        
+    old_hp = target_player.hp
+    new_hp_unbounded = old_hp - dmg_to_hp
+    excess_damage = abs(new_hp_unbounded) if new_hp_unbounded < 0 else 0
+    target_player.hp = max(0, new_hp_unbounded)
     
     is_npc = not hasattr(target_player, "conn") or target_player.conn is None
     
@@ -18,15 +108,64 @@ def _apply_hp_change(target_player, new_hp_unbounded, game_state):
             if "Morto" not in getattr(target_player, "conditions", []):
                 if not hasattr(target_player, "conditions"): target_player.conditions = []
                 target_player.conditions.append("Morto")
+                _spawn_corpse_loot(target_player, game_state)
+        else:
+            if excess_damage >= target_player.max_hp:
+                if not hasattr(target_player, "conditions"): target_player.conditions = []
+                if "Morto" not in target_player.conditions:
+                    target_player.conditions.append("Morto")
+                    msg = f"!!! {target_player.name} E' MORTO SUL COLPO A CAUSA DI DANNO MASSICCIO ({excess_damage} in eccesso) !!!"
+                    if game_state:
+                        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+                        game_state.log_dm_message(msg)
+            else:
+                if not hasattr(target_player, "conditions"): target_player.conditions = []
+                if "Concentrazione" in target_player.conditions:
+                    target_player.conditions.remove("Concentrazione")
+                if "Incosciente" not in target_player.conditions:
+                    target_player.conditions.append("Incosciente")
+                if "Prono" not in target_player.conditions:
+                    target_player.conditions.append("Prono")
+                if old_hp == 0 and dmg_to_hp > 0:
+                    msg = f"{target_player.name} subisce danni mentre è a 0 HP! Segna un fallimento nel Tiro Salvezza contro la morte!"
+                    if game_state:
+                        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+                        game_state.log_dm_message(msg)
+    elif target_player.hp > 0:
+        if old_hp == 0 and "Incosciente" in getattr(target_player, "conditions", []):
+            target_player.conditions.remove("Incosciente")
+            
+    # Concentrazione 5e (si attiva quando si subiscono danni)
+    if final_dmg > 0 and game_state:
+        _trigger_concentration_check(target_player, final_dmg, game_state)
+        
+    return final_dmg, note, temp_absorbed, dmg_to_hp
+
+def _apply_hp_change(target_player, new_hp_unbounded, game_state):
+    """Gestisce variazioni dirette di HP (cure, comandi DM o statistiche)."""
+    old_hp = target_player.hp
+    excess_damage = 0
+    if new_hp_unbounded < 0:
+        excess_damage = abs(new_hp_unbounded)
+    
+    target_player.hp = max(0, min(target_player.max_hp, new_hp_unbounded))
+    is_npc = not hasattr(target_player, "conn") or target_player.conn is None
+    
+    if target_player.hp == 0:
+        if is_npc:
+            if "Morto" not in getattr(target_player, "conditions", []):
+                if not hasattr(target_player, "conditions"): target_player.conditions = []
+                target_player.conditions.append("Morto")
+                _spawn_corpse_loot(target_player, game_state)
         else:
             if excess_damage >= target_player.max_hp:
                 if "Morto" not in getattr(target_player, "conditions", []):
                     if not hasattr(target_player, "conditions"): target_player.conditions = []
                     target_player.conditions.append("Morto")
                     msg = f"!!! {target_player.name} E' MORTO SUL COLPO A CAUSA DI DANNO MASSICCIO !!!"
-                    from common.protocol import make_chat_broadcast
-                    broadcast(game_state, make_chat_broadcast("Sistema", msg))
-                    game_state.log_dm_message(msg)
+                    if game_state:
+                        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+                        game_state.log_dm_message(msg)
             else:
                 if not hasattr(target_player, "conditions"): target_player.conditions = []
                 if "Concentrazione" in target_player.conditions:
@@ -37,15 +176,15 @@ def _apply_hp_change(target_player, new_hp_unbounded, game_state):
                     target_player.conditions.append("Prono")
                 if old_hp == 0 and new_hp_unbounded < 0:
                     msg = f"{target_player.name} subisce danni mentre è a 0 HP! Segna un fallimento nel Tiro Salvezza contro la morte!"
-                    from common.protocol import make_chat_broadcast
-                    broadcast(game_state, make_chat_broadcast("Sistema", msg))
-                    game_state.log_dm_message(msg)
+                    if game_state:
+                        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+                        game_state.log_dm_message(msg)
     elif target_player.hp > 0:
         if old_hp == 0 and "Incosciente" in getattr(target_player, "conditions", []):
             target_player.conditions.remove("Incosciente")
         
         dmg_val = old_hp - new_hp_unbounded
-        if dmg_val > 0:
+        if dmg_val > 0 and game_state:
             _trigger_concentration_check(target_player, dmg_val, game_state)
 
 def handle_start_combat_request(data, player, game_state):
@@ -57,44 +196,29 @@ def _trigger_concentration_check(target_player, dmg_val, game_state):
         dc = max(10, dmg_val // 2)
         if getattr(target_player, "conn", None):
             from common.protocol import make_prompt_save
-            send_message(target_player.conn, make_prompt_save("COS", dc, "", False, "Sistema (Concentrazione)"))
+            send_message(target_player.conn, make_prompt_save("COS", dc, "", False, "Sistema (Concentrazione)", "Contundente"))
         else:
             from common.dice import roll_dice
             mod = 0
             if target_player.full_sheet:
                 attr = target_player.full_sheet.get("attributes", {})
                 if "COS" in attr:
-                    mod = (int(attr["COS"]) - 10) // 2
+                    try:
+                        mod = (int(attr["COS"]) - 10) // 2
+                    except (ValueError, TypeError):
+                        pass
             mod_str = f"+{mod}" if mod >= 0 else str(mod)
             save_result = roll_dice(f"1d20{mod_str}")
             roll_tot = save_result["total"]
             is_crit = save_result["rolls"][0][0] == 20
             is_fail = save_result["rolls"][0][0] == 1
             import threading
-            threading.Timer(0.1, _process_save_result, args=(target_player.name, "COS", roll_tot, is_crit, is_fail, dc, "", False, "Sistema (Concentrazione)", game_state)).start()
+            threading.Timer(0.1, _process_save_result, args=(target_player.name, "COS", roll_tot, is_crit, is_fail, dc, "", False, "Sistema (Concentrazione)", game_state, "Contundente")).start()
 
 def handle_end_turn_request(data, player, game_state):
-    # Durations tracker
-    current_player = game_state.get_current_turn_player()
-    if current_player and hasattr(current_player, "condition_durations"):
-        expired = []
-        for cond, dur in list(current_player.condition_durations.items()):
-            if dur > 0:
-                current_player.condition_durations[cond] -= 1
-                if current_player.condition_durations[cond] <= 0:
-                    expired.append(cond)
-        
-        for cond in expired:
-            if cond in current_player.conditions:
-                current_player.conditions.remove(cond)
-            del current_player.condition_durations[cond]
-            game_state.log_dm_message(f"[EFFETTO TERMINATO] {cond} su {current_player.name}")
-            from common.protocol import make_chat_broadcast, make_player_stats_update
-            broadcast(game_state, make_chat_broadcast("Sistema", f"L'effetto '{cond}' su {current_player.name} e' svanito!"))
-            broadcast(game_state, make_player_stats_update(current_player.name, current_player.hp, current_player.max_hp, current_player.initiative, current_player.conditions))
-    # Solo chi è di turno può passarlo
     current = game_state.get_current_turn_player()
     if current and current.name == player.name:
+        # Durations tracker
         if hasattr(current, "condition_durations"):
             expired = []
             for cond, dur in list(current.condition_durations.items()):
@@ -106,32 +230,31 @@ def handle_end_turn_request(data, player, game_state):
                 del current.condition_durations[cond]
                 if cond in current.conditions:
                     current.conditions.remove(cond)
-                msg = f"L'effetto di {cond} su {current.name} è terminato."
+                msg = f"L'effetto di '{cond}' su {current.name} è terminato."
                 game_state.log_dm_message(f"[SISTEMA] {msg}")
-                from common.protocol import make_chat_broadcast, make_player_stats_update
                 broadcast(game_state, make_chat_broadcast("Sistema", msg))
                 
             if expired:
-                from common.protocol import make_player_stats_update
-                broadcast(game_state, make_player_stats_update(current.name, current.hp, current.max_hp, current.initiative, current.conditions))
+                broadcast(game_state, make_player_stats_update(current.name, current.hp, current.max_hp, current.initiative, current.conditions, getattr(current, "temp_hp", 0)))
                 game_state._trigger_gui_update()
 
-        # Rimuovi condizioni temporanee del turno (Scatto, Disimpegno)
-        for temp_c in ["Scatto", "Disimpegno"]:
+        # Rimuovi condizioni temporanee del turno (Scatto, Disimpegno, Schivata)
+        changed_temp = False
+        for temp_c in ["Scatto", "Disimpegno", "Schivata"]:
             if temp_c in getattr(current, "conditions", []):
                 current.conditions.remove(temp_c)
-                from common.protocol import make_player_stats_update
-                broadcast(game_state, make_player_stats_update(current.name, current.hp, current.max_hp, current.initiative, current.conditions))
-                game_state._trigger_gui_update()
+                changed_temp = True
+                
+        if changed_temp:
+            broadcast(game_state, make_player_stats_update(current.name, current.hp, current.max_hp, current.initiative, current.conditions, getattr(current, "temp_hp", 0)))
+            game_state._trigger_gui_update()
 
         game_state.next_turn()
-        # Announce turn
         next_p = game_state.get_current_turn_player()
         if next_p:
             msg = f"Round {game_state.round_number} - Turno di {next_p.name}!"
             game_state.log_dm_message(f"[COMBAT] {msg}")
             broadcast(game_state, make_chat_broadcast("Sistema", msg))
-        from common.protocol import make_combat_state_update_broadcast
         next_name = next_p.name if next_p else ""
         broadcast(game_state, make_combat_state_update_broadcast(game_state.combat_active, game_state.turn_index, game_state.round_number, game_state.active_aoes, next_name))
 
@@ -150,47 +273,57 @@ def handle_submit_initiative(data, player, game_state):
                     game_state.turn_index = 0
             
     game_state._trigger_gui_update()
-    broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions))
-    from common.protocol import make_map_data_update_broadcast
+    broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions, getattr(player, "temp_hp", 0)))
     broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
     game_state.log_dm_message(f"[COMBAT] {player.name} tira iniziativa: {init}")
-
 
 def handle_attack_request(data, player, game_state):
     target_name = data.get("target_name")
     weapon_name = data.get("weapon_name", "Attacco")
     hit_bonus = data.get("hit_bonus", 0)
     damage_formula = data.get("damage_formula")
+    damage_type = data.get("damage_type", "Tagliente")
     
     target_player = game_state.find_player(target_name)
     if not target_player: return
     
     try:
         from common.dice import roll_dice
-        import random
         # 1. Roll to Hit
         adv_reasons = []
         dis_reasons = []
-        flanking = False
         
         p_cond = getattr(player, "conditions", [])
         t_cond = getattr(target_player, "conditions", [])
         
+        # Vantaggio per l'attaccante
         if "Invisibile" in p_cond: adv_reasons.append("Invisibile")
         for c in ["Trattenuto", "Paralizzato", "Incosciente", "Accecato", "Pietrificato"]:
             if c in t_cond: adv_reasons.append(f"Bersaglio {c}")
             
+        # Azione di Aiuto: il bersaglio ha 'Aiutato', che conferisce vantaggio al primo attacco alleato
+        if "Aiutato" in t_cond:
+            adv_reasons.append("Aiuto Alleato")
+            t_cond.remove("Aiutato")
+            
+        # Svantaggio per l'attaccante
         for c in ["Accecato", "Avvelenato", "Trattenuto", "Prono"]:
             if c in p_cond: dis_reasons.append(c)
         if "Invisibile" in t_cond: dis_reasons.append("Bersaglio Invisibile")
+        if "Schivata" in t_cond: dis_reasons.append("Bersaglio in Schivata")
         
+        # Indebolimento (Exhaustion) Lv 3+ impone svantaggio a tiri per colpire
+        if getattr(player, "exhaustion_level", 0) >= 3:
+            dis_reasons.append("Indebolimento Lv3+")
+        
+        # Gestione distanza e Prono / Fiancheggiamento
         if hasattr(player, "position") and player.position and hasattr(target_player, "position") and target_player.position:
             q1, r1 = player.position[0], player.position[1]
             q2, r2 = target_player.position[0], target_player.position[1]
             dist = max(abs(q1 - q2), abs(q1 + r1 - q2 - r2), abs(r1 - r2))
             if "Prono" in t_cond:
-                if dist <= 1: adv_reasons.append("Bersaglio Prono")
-                elif dist > 1: dis_reasons.append("Bersaglio Prono")
+                if dist <= 1: adv_reasons.append("Bersaglio Prono (Mischia)")
+                elif dist > 1: dis_reasons.append("Bersaglio Prono (Distanza)")
             if dist <= 1:
                 opp_q = q2 + (q2 - q1)
                 opp_r = r2 + (r2 - r1)
@@ -200,7 +333,6 @@ def handle_attack_request(data, player, game_state):
                             p_c = getattr(p, "conditions", [])
                             if "Invisibile" not in p_c and "Nascosto" not in p_c:
                                 adv_reasons.append("Fiancheggiamento")
-                                flanking = True
                                 break
 
         has_adv = len(adv_reasons) > 0
@@ -231,7 +363,7 @@ def handle_attack_request(data, player, game_state):
             benedizione_bonus = random.randint(1, 4)
             hit_roll += benedizione_bonus
         
-        # 2. Get Target AC
+        # 2. CA Bersaglio
         target_ac = 10
         if target_player.full_sheet:
             try:
@@ -244,13 +376,12 @@ def handle_attack_request(data, player, game_state):
             target_ac += 5
             scudo_applicato = True
                 
-        # Check cover and line of sight
+        # Line of Sight e Copertura
         blocked_by_wall = False
         cover_bonus = 0
         cover_name = None
         
         if hasattr(player, "position") and player.position and hasattr(target_player, "position") and target_player.position:
-            from common.hex_utils import hex_linedraw, Hex
             p_hex = Hex(player.position[0], player.position[1])
             t_hex = Hex(target_player.position[0], target_player.position[1])
             line = hex_linedraw(p_hex, t_hex)
@@ -302,14 +433,23 @@ def handle_attack_request(data, player, game_state):
                 dmg_result = roll_dice(damage_formula)
                 dmg_val = dmg_result["total"]
                 if is_crit:
-                    # Raddoppia i dadi del danno
                     crit_dmg_result = roll_dice(damage_formula)
                     dmg_val += crit_dmg_result["total"]
-                    
-                _apply_hp_change(target_player, target_player.hp - dmg_val, game_state)
-                log_msg += f" Danno: {dmg_val}. HP {target_name}: {target_player.hp}/{target_player.max_hp}"
                 
-                broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions))
+                # Bonus danno Ira Barbarica (+2 per attacchi in mischia)
+                if "Ira" in getattr(player, "conditions", []):
+                    dmg_val += 2
+                    log_msg += " (+2 Ira Barbarica)"
+                    
+                final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(target_player, dmg_val, damage_type, game_state)
+                log_msg += f" Danno: {final_dmg} ({damage_type}){note}."
+                if temp_absorbed > 0:
+                    log_msg += f" [{temp_absorbed} assorbiti da Temp HP]."
+                log_msg += f" HP {target_name}: {target_player.hp}/{target_player.max_hp}"
+                if getattr(target_player, "temp_hp", 0) > 0:
+                    log_msg += f" (+{target_player.temp_hp} Temp)"
+                
+                broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
                 game_state._trigger_gui_update()
         else:
             log_msg += " MANCATO!"
@@ -320,19 +460,22 @@ def handle_attack_request(data, player, game_state):
     except Exception as e:
         send_message(player.conn, make_error_reply(f"Errore nell'attacco: {str(e)}"))
 
-def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, damage_formula, half_on_success, source_name, game_state):
+def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, damage_formula, half_on_success, source_name, game_state, damage_type="Fuoco"):
     target_player = game_state.find_player(target_name)
     if not target_player: return
     
     benedizione_bonus = 0
     if "Benedizione" in getattr(target_player, "conditions", []):
-        import random
         benedizione_bonus = random.randint(1, 4)
         roll_total += benedizione_bonus
         
+    extra_adv_note = ""
+    if stat == "DES" and "Schivata" in getattr(target_player, "conditions", []):
+        extra_adv_note = " (Vantaggio da Schivata)"
+        
     success = is_crit or (not is_fail and roll_total >= dc)
     
-    log_msg = f"{target_name} effettua un TS su {stat} contro CD {dc} di {source_name}. Risultato: {roll_total}"
+    log_msg = f"{target_name} effettua un TS su {stat} contro CD {dc} di {source_name}. Risultato: {roll_total}{extra_adv_note}"
     if benedizione_bonus > 0:
         log_msg += f" (+{benedizione_bonus} Benedizione)"
     log_msg += "."
@@ -343,8 +486,7 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
         if source_name == "Sistema (Concentrazione)":
             if "Concentrazione" in getattr(target_player, "conditions", []):
                 target_player.conditions.remove("Concentrazione")
-                from common.protocol import make_player_stats_update, make_chat_broadcast
-                broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions))
+                broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
                 game_state._trigger_gui_update()
                 
                 break_msg = f"La concentrazione di {target_player.name} si spezza!"
@@ -364,10 +506,14 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
                     dmg_val = 0
                     
             if dmg_val > 0:
-                _apply_hp_change(target_player, target_player.hp - dmg_val, game_state)
-                log_msg += f" Subisce {dmg_val} danni! HP: {target_player.hp}/{target_player.max_hp}"
-                from common.protocol import make_player_stats_update
-                broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions))
+                final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(target_player, dmg_val, damage_type, game_state)
+                log_msg += f" Subisce {final_dmg} danni ({damage_type}){note}!"
+                if temp_absorbed > 0:
+                    log_msg += f" [{temp_absorbed} assorbiti da Temp HP]."
+                log_msg += f" HP: {target_player.hp}/{target_player.max_hp}"
+                if getattr(target_player, "temp_hp", 0) > 0:
+                    log_msg += f" (+{target_player.temp_hp} Temp)"
+                broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
                 game_state._trigger_gui_update()
             else:
                 log_msg += " Non subisce danni."
@@ -375,7 +521,6 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
             log_msg += f" (Errore formula danni: {e})"
             
     game_state.log_dm_message(f"[TS] {log_msg}")
-    from common.protocol import make_chat_broadcast
     broadcast(game_state, make_chat_broadcast("Sistema", log_msg))
 
 def handle_force_save_request(data, player, game_state):
@@ -384,15 +529,14 @@ def handle_force_save_request(data, player, game_state):
     dc = data.get("dc")
     damage_formula = data.get("damage_formula")
     half_on_success = data.get("half_on_success", True)
-    
-    from common.protocol import make_prompt_save
+    damage_type = data.get("damage_type", "Fuoco")
     
     for t_name in targets:
         target_player = game_state.find_player(t_name)
         if not target_player: continue
         
         if getattr(target_player, "conn", None):
-            send_message(target_player.conn, make_prompt_save(stat, dc, damage_formula, half_on_success, player.name))
+            send_message(target_player.conn, make_prompt_save(stat, dc, damage_formula, half_on_success, player.name, damage_type))
         else:
             try:
                 from common.dice import roll_dice
@@ -400,15 +544,24 @@ def handle_force_save_request(data, player, game_state):
                 if target_player.full_sheet:
                     attr = target_player.full_sheet.get("attributes", {})
                     if stat in attr:
-                        mod = (int(attr[stat]) - 10) // 2
+                        try:
+                            mod = (int(attr[stat]) - 10) // 2
+                        except (ValueError, TypeError):
+                            pass
                 
-                mod_str = f"+{mod}" if mod >= 0 else str(mod)
-                save_result = roll_dice(f"1d20{mod_str}")
-                roll_tot = save_result["total"]
-                is_crit = save_result["rolls"][0] == 20
-                is_fail = save_result["rolls"][0] == 1
+                # Vantaggio ai TS su DES per Schivata
+                if stat == "DES" and "Schivata" in getattr(target_player, "conditions", []):
+                    r1 = random.randint(1, 20)
+                    r2 = random.randint(1, 20)
+                    base_roll = max(r1, r2)
+                else:
+                    base_roll = random.randint(1, 20)
+                    
+                roll_tot = base_roll + mod
+                is_crit = (base_roll == 20)
+                is_fail = (base_roll == 1)
                 
-                _process_save_result(target_player.name, stat, roll_tot, is_crit, is_fail, dc, damage_formula, half_on_success, player.name, game_state)
+                _process_save_result(target_player.name, stat, roll_tot, is_crit, is_fail, dc, damage_formula, half_on_success, player.name, game_state, damage_type)
             except Exception as e:
                 print("Errore nel roll NPC per TS:", e)
 
@@ -421,16 +574,16 @@ def handle_save_result_request(data, player, game_state):
     damage_formula = data.get("damage_formula")
     half_on_success = data.get("half_on_success")
     source_name = data.get("source_name")
+    damage_type = data.get("damage_type", "Fuoco")
     
-    _process_save_result(player.name, stat, roll_total, is_crit, is_fail, dc, damage_formula, half_on_success, source_name, game_state)
+    _process_save_result(player.name, stat, roll_total, is_crit, is_fail, dc, damage_formula, half_on_success, source_name, game_state, damage_type)
 
 def handle_dash_request(data, player, game_state):
     if "Scatto" not in getattr(player, "conditions", []):
         if not hasattr(player, "conditions") or player.conditions is None:
             player.conditions = []
         player.conditions.append("Scatto")
-        from common.protocol import make_player_stats_update, make_chat_broadcast
-        broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions))
+        broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions, getattr(player, "temp_hp", 0)))
         broadcast(game_state, make_chat_broadcast("Sistema", f"🏃 {player.name} compie l'Azione di Scatto! Velocità raddoppiata per questo turno."))
         game_state.log_dm_message(f"[COMBAT] {player.name} ha usato Scatto.")
         game_state._trigger_gui_update()
@@ -440,9 +593,38 @@ def handle_disengage_request(data, player, game_state):
         if not hasattr(player, "conditions") or player.conditions is None:
             player.conditions = []
         player.conditions.append("Disimpegno")
-        from common.protocol import make_player_stats_update, make_chat_broadcast
-        broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions))
-        broadcast(game_state, make_chat_broadcast("Sistema", f"🛡️ {player.name} compie l'Azione di Disimpegno! I suoi movimenti non provocheranno attacchi d'opportunità per questo turno."))
+        broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions, getattr(player, "temp_hp", 0)))
+        broadcast(game_state, make_chat_broadcast("Sistema", f"💨 {player.name} compie l'Azione di Disimpegno! I suoi movimenti non provocheranno attacchi d'opportunità per questo turno."))
         game_state.log_dm_message(f"[COMBAT] {player.name} ha usato Disimpegno.")
         game_state._trigger_gui_update()
 
+def handle_dodge_request(data, player, game_state):
+    if "Schivata" not in getattr(player, "conditions", []):
+        if not hasattr(player, "conditions") or player.conditions is None:
+            player.conditions = []
+        player.conditions.append("Schivata")
+        broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions, getattr(player, "temp_hp", 0)))
+        broadcast(game_state, make_chat_broadcast("Sistema", f"🛡️ {player.name} compie l'Azione di Schivata! Gli attacchi contro di lui avranno svantaggio e ha vantaggio ai TS su Destrezza fino all'inizio del suo prossimo turno."))
+        game_state.log_dm_message(f"[COMBAT] {player.name} ha usato Schivata.")
+        game_state._trigger_gui_update()
+
+def handle_help_request(data, player, game_state):
+    target_name = data.get("target_name")
+    if not target_name: return
+    target_player = game_state.find_player(target_name)
+    if not target_player: return
+    if not hasattr(target_player, "conditions") or target_player.conditions is None:
+        target_player.conditions = []
+    if "Aiutato" not in target_player.conditions:
+        target_player.conditions.append("Aiutato")
+    broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
+    broadcast(game_state, make_chat_broadcast("Sistema", f"🤝 {player.name} compie l'Azione di Aiuto contro {target_name}! Il prossimo attacco alleato contro {target_name} avrà Vantaggio."))
+    game_state.log_dm_message(f"[COMBAT] {player.name} ha usato Aiuto contro {target_name}.")
+    game_state._trigger_gui_update()
+
+def handle_short_rest_request(data, player, game_state):
+    hd_spent = data.get("hd_spent", 1)
+    hp_rec = data.get("hp_recovered", 0)
+    msg = f"☕ {player.name} ha completato un Riposo Breve (ha speso {hd_spent} Dado/i Vita e recuperato {hp_rec} HP)!"
+    broadcast(game_state, make_chat_broadcast("Sistema", msg))
+    game_state.log_dm_message(f"[RIPOSO] {msg}")
