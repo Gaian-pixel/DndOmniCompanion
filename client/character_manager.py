@@ -60,6 +60,8 @@ class Character:
             "Percezione": 0, "Persuasione": 0, "Prestidigitazione": 0,
             "Religione": 0, "Sopravvivenza": 0, "Storia": 0
         }
+        self.travel_role = "Nessuna"
+        self.marching_order = "Centro"
 
     def short_rest(self, hd_to_spend=1):
         """Spende Dadi Vita (XdY + Mod COS) per recuperare HP e ricarica i privilegi da riposo breve."""
@@ -187,6 +189,10 @@ class Character:
                 "rage_current": 2,
                 "rage_max": 2
             }
+        if not hasattr(c, "travel_role"):
+            c.travel_role = "Nessuna"
+        if not hasattr(c, "marching_order"):
+            c.marching_order = "Centro"
             
         # Se la lista armi è vuota, crea armi base compatibili
         if len(c.weapons) == 0:

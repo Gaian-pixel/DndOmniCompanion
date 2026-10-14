@@ -91,8 +91,8 @@ def make_create_aoe_request(aoe_data):
 def make_clear_aoes_request():
     return {"type": "CLEAR_AOES_REQUEST", "data": {}}
 
-def make_set_travel_role_request(role):
-    return {"type": "SET_TRAVEL_ROLE_REQUEST", "data": {"role": role}}
+def make_set_travel_role_request(role, marching_order="Centro"):
+    return {"type": "SET_TRAVEL_ROLE_REQUEST", "data": {"role": role, "marching_order": marching_order}}
 
 def make_start_combat_request(initiator_name=None):
     return {"type": "START_COMBAT_REQUEST", "data": {"initiator": initiator_name}}

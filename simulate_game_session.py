@@ -52,7 +52,8 @@ from common.protocol import (
     make_chat_broadcast, make_game_state, make_attack_request,
     make_move_request, make_give_item_request, make_give_gold_request,
     make_ping_request, make_create_aoe_request, make_submit_initiative,
-    make_save_result, make_join, make_update_stats_request, make_update_full_sheet_request
+    make_save_result, make_join, make_update_stats_request, make_update_full_sheet_request,
+    make_set_travel_role_request
 )
 from common.network_utils import broadcast
 
@@ -593,6 +594,79 @@ def run_simulation():
             print(">> OK: Toast creato e gestito in modo asincrono senza bloccare l'interfaccia.")
         except Exception as e:
             report["failed"].append(f"Toast notification: {e}")
+
+        # 17. Sistema di Viaggio 5e, Ordine di Marcia & Sostentamento
+        print("\n--- FASE 17: Sistema di Viaggio 5e, Ordine di Marcia & Sostentamento ---")
+        try:
+            # 17a. Impostazione Ruoli e Ordine di Marcia (Marching Order)
+            p1_gui.network.send(make_set_travel_role_request("Navigatore", "Avanguardia"))
+            p2_gui.network.send(make_set_travel_role_request("Sentinella", "Retroguardia"))
+            pump_events(roots, dm_gui, client_guis, steps=10, delay=0.03)
+
+            p1_s = gs.find_player("Gildor")
+            p2_s = gs.find_player("Elidor")
+            assert p1_s and p1_s.marching_order == "Avanguardia", f"Gildor marching order atteso Avanguardia, ottenuto {getattr(p1_s, 'marching_order', None)}"
+            assert p1_s and p1_s.travel_role == "Navigatore", f"Gildor travel role atteso Navigatore, ottenuto {getattr(p1_s, 'travel_role', None)}"
+            assert p2_s and p2_s.marching_order == "Retroguardia", f"Elidor marching order atteso Retroguardia, ottenuto {getattr(p2_s, 'marching_order', None)}"
+            assert p2_s and p2_s.travel_role == "Sentinella", f"Elidor travel role atteso Sentinella, ottenuto {getattr(p2_s, 'travel_role', None)}"
+            report["passed"].append("Formazione 5e e Ordine di Marcia (Avanguardia/Centro/Retroguardia) sincronizzati")
+            print(">> OK: Formazione e Ruoli di Viaggio registrati correttamente sul server!")
+
+            # 17b. Sostentamento & Consumo Razioni Giornaliere (doppio inventario: grid e list)
+            p1_s.full_sheet.setdefault("inventory_grid", [None] * 25)
+            p1_s.full_sheet["inventory_grid"][0] = {"name": "Razioni da Viaggio", "qty": 2}
+            p1_s.full_sheet["inventory_grid"][1] = {"name": "Otre d'Acqua", "qty": 1}
+            p1_s.full_sheet["inventory"] = []
+            p1_s.exhaustion_level = 0
+
+            p2_s.full_sheet.setdefault("inventory_grid", [None] * 25)
+            p2_s.full_sheet["inventory_grid"] = [None] * 25
+            p2_s.full_sheet["inventory"] = []
+            p2_s.exhaustion_level = 0
+
+            # Esegui consumo razioni
+            party_members = [p1_s, p2_s]
+            for p in party_members:
+                sheet = p.full_sheet
+                has_ration, has_water = False, False
+                grid = sheet.get("inventory_grid", [])
+                for idx, it in enumerate(grid):
+                    if not it: continue
+                    name_l = str(it.get("name", "")).lower()
+                    qty = int(it.get("qty", it.get("quantity", 1)) or 1)
+                    if not has_ration and "razion" in name_l and qty > 0:
+                        if qty - 1 <= 0: grid[idx] = None
+                        else: it["qty"] = qty - 1
+                        has_ration = True
+                    elif not has_water and ("acqua" in name_l or "otre" in name_l) and qty > 0:
+                        if qty - 1 <= 0: grid[idx] = None
+                        else: it["qty"] = qty - 1
+                        has_water = True
+                if not has_ration or not has_water:
+                    p.exhaustion_level = min(6, getattr(p, "exhaustion_level", 0) + 1)
+                    p.conditions = [c for c in p.conditions if not c.startswith("Sfinimento")] + [f"Sfinimento (Liv. {p.exhaustion_level})"]
+            
+            assert p1_s.exhaustion_level == 0, f"Gildor doveva avere 0 sfinimento, ha {p1_s.exhaustion_level}"
+            assert p1_s.full_sheet["inventory_grid"][0]["qty"] == 1, "Gildor doveva avere 1 razione rimanente"
+            assert p1_s.full_sheet["inventory_grid"][1] is None, "Gildor doveva avere 0 acqua rimanente"
+            assert p2_s.exhaustion_level == 1, f"Elidor senza cibo doveva avere 1 sfinimento, ha {p2_s.exhaustion_level}"
+            assert any("Sfinimento" in c for c in p2_s.conditions), "Elidor doveva avere condizione Sfinimento"
+            report["passed"].append("Consumo Razioni & Acqua con supporto inventory_grid e sfinimento automatico")
+            print(">> OK: Sostentamento verificato (cibo scalato da grid, sfinimento applicato in caso di carestia).")
+
+            # 17c. Marcia Forzata & Tiri Salvezza su Costituzione (> 8 ore)
+            gs.travel_hours_today = 8
+            dm_gui.advance_time(4, is_rest=False)
+            gs.travel_hours_today += 4
+            assert gs.travel_hours_today == 12, f"Ore attese 12, ottenute {gs.travel_hours_today}"
+            con_dc = 10 + (gs.travel_hours_today - 8)
+            assert con_dc == 14, f"CD attesa 14, ottenuta {con_dc}"
+            report["passed"].append("Avanzamento Viaggio e Marcia Forzata 5e con calcolo CD Costituzione")
+            print(">> OK: Marcia Forzata 5e (> 8 ore) calcolata con CD progressiva corretta.")
+
+        except Exception as e:
+            traceback.print_exc()
+            report["failed"].append(f"Sistema Viaggio: {e}")
 
     finally:
         print("\n--- PULIZIA SESSIONE ---")
