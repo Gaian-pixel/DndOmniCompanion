@@ -8,6 +8,7 @@ from common.hex_utils import (
     Hex, HexLayout, hex_distance,
     get_sphere_hexes, get_cone_hexes, get_line_hexes, get_visible_hexes
 )
+from common.i18n import _t, get_language
 
 class HexMapCanvas(tk.Canvas):
     """Un widget Canvas riutilizzabile per visualizzare e interagire con una mappa esagonale."""
@@ -242,6 +243,27 @@ class HexMapCanvas(tk.Canvas):
             self._ruler_text_bg_id = None
 
     def _on_canvas_click(self, event):
+        # 1. Controlla click su Carousel di Iniziativa
+        if getattr(self, '_initiative_ribbon_bboxes', None):
+            for bx1, by1, bx2, by2, bname in self._initiative_ribbon_bboxes:
+                if bx1 <= event.x <= bx2 and by1 <= event.y <= by2:
+                    self.center_on_token(bname)
+                    return
+
+        # 2. Controlla click su Controlli HUD Galleggianti (In basso a sinistra)
+        if getattr(self, '_hud_control_bboxes', None):
+            for bx1, by1, bx2, by2, action_key in self._hud_control_bboxes:
+                if bx1 <= event.x <= bx2 and by1 <= event.y <= by2:
+                    if action_key == "center":
+                        self.center_view()
+                    elif action_key == "zoom_in":
+                        self.zoom_in()
+                    elif action_key == "zoom_out":
+                        self.zoom_out()
+                    elif action_key == "ruler":
+                        self.toggle_ruler_mode()
+                    return
+
         if not self.hex_layout: return
         world_x = (event.x - self.pan_offset_x) / self.zoom_level
         world_y = (event.y - self.pan_offset_y) / self.zoom_level
@@ -258,11 +280,13 @@ class HexMapCanvas(tk.Canvas):
         if not self.on_hex_click_callback: return
         
         self.dragging_token_name = None
+        self._drag_start_hex = None
         if getattr(self, 'players_data', None):
             for name, pdata in self.players_data.items():
                 pos = pdata.get('position', [0, 0]) if isinstance(pdata, dict) else pdata
                 if Hex(*pos) == clicked_hex:
                     self.dragging_token_name = name
+                    self._drag_start_hex = clicked_hex
                     break
         
         self._last_clicked_hex = clicked_hex
@@ -272,13 +296,62 @@ class HexMapCanvas(tk.Canvas):
         if getattr(self, "ruler_mode", False) and self._ruler_start_hex:
             self._on_ruler_drag(event)
             return
-        if getattr(self, 'dragging_token_name', None):
+        if getattr(self, 'dragging_token_name', None) and getattr(self, '_drag_start_hex', None) and self.hex_layout:
             self.delete('ghost_token')
-            self.create_oval(event.x-10, event.y-10, event.x+10, event.y+10, fill='', outline='white', dash=(2,2), tags='ghost_token')
+            self.delete('ghost_path')
+            
+            world_x = (event.x - self.pan_offset_x) / self.zoom_level
+            world_y = (event.y - self.pan_offset_y) / self.zoom_level
+            curr_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
+            
+            start_wx, start_wy = self.hex_layout.hex_to_pixel(self._drag_start_hex)
+            start_sx = start_wx * self.zoom_level + self.pan_offset_x
+            start_sy = start_wy * self.zoom_level + self.pan_offset_y
+            
+            target_wx, target_wy = self.hex_layout.hex_to_pixel(curr_hex)
+            target_sx = target_wx * self.zoom_level + self.pan_offset_x
+            target_sy = target_wy * self.zoom_level + self.pan_offset_y
+            
+            dist_hex = self._drag_start_hex.distance(curr_hex)
+            dist_ft = dist_hex * 5
+            
+            pdata = self.players_data.get(self.dragging_token_name, {})
+            base_speed = 30
+            conds = []
+            if isinstance(pdata, dict):
+                base_speed = pdata.get('speed', 30) or 30
+                conds = pdata.get('conditions', [])
+            is_dashed = ("Scatto" in conds or "Dash" in conds)
+            max_speed = base_speed * 2 if is_dashed else base_speed
+            
+            is_over = (dist_ft > max_speed)
+            path_color = "#EF4444" if is_over else "#10B981"
+            
+            # 1. Traccia scia di movimento tratteggiata (Ghost Path)
+            self.create_line(start_sx, start_sy, target_sx, target_sy, fill=path_color, width=3, dash=(6, 4), tags='ghost_path')
+            
+            # 2. Ghost Token di destinazione
+            scaled_r = max(10, int(13 * self.zoom_level))
+            self.create_oval(target_sx - scaled_r, target_sy - scaled_r, target_sx + scaled_r, target_sy + scaled_r,
+                             fill="#111827", outline=path_color, width=2, dash=(3, 2), tags='ghost_path')
+            self.create_text(target_sx, target_sy, text=self.dragging_token_name[:2].upper(),
+                             fill=path_color, font=("Segoe UI", max(7, int(9 * self.zoom_level)), "bold"), tags='ghost_path')
+            
+            # 3. Floating Pill Badge con distanza in piedi live
+            dash_alert = f" • [⚠️ {_t('action_dash')}]" if is_over else ""
+            badge_text = f"👣 {dist_ft} ft ({dist_hex} hex){dash_alert}"
+            badge_y = target_sy - scaled_r - 16
+            bw = len(badge_text) * 3.6 + 12
+            bx1, bx2 = target_sx - bw, target_sx + bw
+            by1, by2 = badge_y - 10, badge_y + 10
+            self.create_rectangle(bx1, by1, bx2, by2, fill="#0F172A", outline=path_color, width=1.5, tags='ghost_path')
+            self.create_text(target_sx, badge_y, text=badge_text, fill="#FFFFFF" if not is_over else "#FCA5A5",
+                             font=("Segoe UI", 9, "bold"), tags='ghost_path')
             return
 
     def _on_canvas_release(self, event):
         self.delete('ghost_token')
+        self.delete('ghost_path')
         if getattr(self, 'dragging_token_name', None):
             if self.hex_layout and self.on_token_drop_callback:
                 world_x = (event.x - self.pan_offset_x) / self.zoom_level
@@ -286,6 +359,7 @@ class HexMapCanvas(tk.Canvas):
                 drop_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
                 self.on_token_drop_callback(self.dragging_token_name, drop_hex.q, drop_hex.r)
             self.dragging_token_name = None
+        self._drag_start_hex = None
 
     def _on_ping_click(self, event):
         if not self.hex_layout or not self.on_ping_callback: return
@@ -325,6 +399,8 @@ class HexMapCanvas(tk.Canvas):
         world_x = (event.x - self.pan_offset_x) / self.zoom_level
         world_y = (event.y - self.pan_offset_y) / self.zoom_level
         hovered_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
+        self._last_hover_hex = hovered_hex
+        self._update_coord_hud(hovered_hex)
         
         token_name = None
         if getattr(self, 'players_data', None):
@@ -497,7 +573,25 @@ class HexMapCanvas(tk.Canvas):
             self.pan_offset_y = ch / 2
         self.redraw()
 
-    def update_data(self, map_data, players_data, player_name="", turn_player_name="", aoes_data=None, time_hour=12, weather="Sereno", combat_active=False, combat_order=None):
+    def center_on_hex(self, target_hex):
+        """Centra la visuale su un esagono specifico."""
+        if not self.hex_layout: return
+        cw = self.winfo_width()
+        ch = self.winfo_height()
+        wx, wy = self.hex_layout.hex_to_pixel(target_hex)
+        self.pan_offset_x = (cw / 2) - (wx * self.zoom_level)
+        self.pan_offset_y = (ch / 2) - (wy * self.zoom_level)
+        self.redraw()
+
+    def center_on_token(self, token_name):
+        """Centra la visuale su un token specificato per nome."""
+        if not getattr(self, 'players_data', None): return
+        pdata = self.players_data.get(token_name)
+        if not pdata: return
+        pos = pdata.get('position', [0, 0]) if isinstance(pdata, dict) else pdata
+        self.center_on_hex(Hex(*pos))
+
+    def update_data(self, map_data, players_data, player_name="", turn_player_name="", aoes_data=None, time_hour=12, weather="Sereno", combat_active=False, combat_order=None, round_number=1):
         """Salva i dati necessari per il ridisegno."""
         if getattr(self, 'map_data', None) is not map_data:
             self._map_hexes_set = None
@@ -510,6 +604,7 @@ class HexMapCanvas(tk.Canvas):
         self.weather = weather
         self.combat_active = combat_active
         self.combat_order = combat_order or []
+        self.round_number = round_number
         self.redraw()
 
     def redraw(self):
@@ -842,15 +937,26 @@ class HexMapCanvas(tk.Canvas):
 
             is_me = (name == self.player_name)
             is_party = pdata.get('is_party_member', False) if isinstance(pdata, dict) else False
+            leg_res = pdata.get('legendary_resistances_max', 0) if isinstance(pdata, dict) else 0
+            leg_act = pdata.get('legendary_actions_max', 0) if isinstance(pdata, dict) else 0
+            is_boss = (leg_res > 0 or leg_act > 0)
+
             if is_me:
-                token_base_color = "#2B8A3E"
-                token_border_color = "#D4AF37"
+                token_base_color = "#059669"
+                token_border_color = "#F59E0B"
+                ring_width = 2.5
             elif is_party:
-                token_base_color = "#1971C2"
-                token_border_color = "#4DABF7"
+                token_base_color = "#2563EB"
+                token_border_color = "#60A5FA"
+                ring_width = 2.0
+            elif is_boss:
+                token_base_color = "#881337"
+                token_border_color = "#F59E0B"
+                ring_width = 2.5
             else:
-                token_base_color = "#C92A2A"
-                token_border_color = "#FF8787"
+                token_base_color = "#DC2626"
+                token_border_color = "#F87171"
+                ring_width = 1.8
 
             # Aura magica ad anelli concentrici
             if aura_radius > 0:
@@ -877,8 +983,13 @@ class HexMapCanvas(tk.Canvas):
                 self.create_oval(sx-(radius+5), sy-(radius+5), sx+(radius+5), sy+(radius+5), fill="", outline="#FCC419", width=2)
                 self.create_oval(sx-(radius+3), sy-(radius+3), sx+(radius+3), sy+(radius+3), fill="", outline="#D4AF37", width=3)
 
-            # Ombreggiatura per profondita token
-            self.create_oval(sx-radius+1, sy-radius+2, sx+radius+1, sy+radius+2, fill="#0A0B0D", outline="")
+            # 3D Soft Drop-Shadow below token base
+            self.create_oval(sx - radius + 1, sy - radius + 3, sx + radius + 1, sy + radius + 4, fill="#050608", outline="")
+            self.create_oval(sx - radius, sy - radius + 2, sx + radius, sy + radius + 2, fill="#0E1015", outline="")
+
+            # Dynamic outer ring halo for Heroes and Bosses
+            if (is_me or is_boss) and not is_turn:
+                self.create_oval(sx - (radius + 1.5), sy - (radius + 1.5), sx + (radius + 1.5), sy + (radius + 1.5), fill="", outline=token_border_color, width=1)
 
             is_invisible = "Invisibile" in conditions
             avatar_b64 = pdata.get('avatar_b64') if isinstance(pdata, dict) else None
@@ -906,22 +1017,20 @@ class HexMapCanvas(tk.Canvas):
                     self.create_image(sx, sy, image=tk_img, anchor="center")
                     ring_outline = "gray" if is_invisible else token_border_color
                     ring_dash = (2, 2) if is_invisible else ""
-                    self.create_oval(sx-radius, sy-radius, sx+radius, sy+radius, fill="", outline=ring_outline, width=2, dash=ring_dash)
+                    self.create_oval(sx-radius, sy-radius, sx+radius, sy+radius, fill="", outline=ring_outline, width=ring_width, dash=ring_dash)
                 else:
                     outline_style = "gray" if is_invisible else token_border_color
                     dash_style = (2, 2) if is_invisible else ""
-                    self.create_oval(sx-radius, sy-radius, sx+radius, sy+radius, fill=token_base_color, outline=outline_style, width=2, dash=dash_style)
+                    self.create_oval(sx-radius, sy-radius, sx+radius, sy+radius, fill=token_base_color, outline=outline_style, width=ring_width, dash=dash_style)
                     self.create_text(sx, sy, text=name[:2].upper(), fill="white", font=("Segoe UI", 8, "bold"))
             else:
                 outline_style = "gray" if is_invisible else token_border_color
                 dash_style = (2, 2) if is_invisible else ""
-                self.create_oval(sx-radius, sy-radius, sx+radius, sy+radius, fill=token_base_color, outline=outline_style, width=2, dash=dash_style)
+                self.create_oval(sx-radius, sy-radius, sx+radius, sy+radius, fill=token_base_color, outline=outline_style, width=ring_width, dash=dash_style)
                 self.create_text(sx, sy, text=name[:2].upper(), fill="white", font=("Segoe UI", 8, "bold"))
 
             # Distintivo Boss Leggendario (👑)
-            leg_res = pdata.get('legendary_resistances_max', 0) if isinstance(pdata, dict) else 0
-            leg_act = pdata.get('legendary_actions_max', 0) if isinstance(pdata, dict) else 0
-            if leg_res > 0 or leg_act > 0:
+            if is_boss:
                 self.create_text(sx - radius, sy - radius, text="👑", font=("Segoe UI Emoji", max(9, int(11 * self.zoom_level))))
 
             if hp_max > 0:
@@ -987,23 +1096,146 @@ class HexMapCanvas(tk.Canvas):
             self.create_rectangle(0, 0, w, h, fill="white", stipple="gray25", outline="", tags="weather_overlay")
             self.create_text(w/2, 40, text="Neve", fill="white", font=("Arial", 12, "bold"))
             
-        # 3. Public Initiative Tracker
+        # 3. Horizontal Initiative Carousel Ribbon (Foundry VTT / D&D Beyond modern style)
+        self._initiative_ribbon_bboxes = []
         if getattr(self, "combat_active", False) and getattr(self, "combat_order", None):
-            order = self.combat_order
-            box_width = 150
-            box_height = 30 + len(order) * 20
-            start_x = w - box_width - 10
-            start_y = 10
-            self.create_rectangle(start_x, start_y, start_x + box_width, start_y + box_height, fill="#2c2f33", outline="gold", width=2)
-            self.create_text(start_x + box_width/2, start_y + 15, text="Iniziativa", fill="gold", font=("Arial", 10, "bold"))
+            order = [name for name in self.combat_order if name in self.players_data]
+            if order:
+                card_w = 72
+                card_h = 56
+                spacing = 6
+                badge_w = 70
+                total_w = len(order) * (card_w + spacing) - spacing + badge_w + 14
+                cw = self.winfo_width()
+                start_x = max(10, (cw - total_w) / 2)
+                start_y = 10
+                
+                # Sfondo bar container arrotondato (dark translucent glassmorphism)
+                self.create_rectangle(
+                    start_x - 6, start_y, start_x + total_w + 6, start_y + card_h + 8,
+                    fill="#111318", outline="#D4AF37", width=1.5, tags="hud_initiative"
+                )
+                
+                # Badge Round sulla sinistra
+                round_num = getattr(self, "round_number", 1)
+                self.create_rectangle(
+                    start_x, start_y + 4, start_x + badge_w, start_y + card_h + 4,
+                    fill="#1F242D", outline="#F59E0B", width=1, tags="hud_initiative"
+                )
+                self.create_text(start_x + badge_w/2, start_y + 20, text=f"⚔️ R{round_num}", fill="#F59E0B", font=("Segoe UI", 11, "bold"), tags="hud_initiative")
+                self.create_text(start_x + badge_w/2, start_y + 38, text="ROUND", fill="#9CA3AF", font=("Segoe UI", 7, "bold"), tags="hud_initiative")
+                
+                # Disegna le card dei partecipanti orizzontalmente
+                cx_offset = start_x + badge_w + 10
+                for idx, name in enumerate(order):
+                    is_current = (name == getattr(self, "turn_player_name", ""))
+                    card_x1 = cx_offset
+                    card_y1 = start_y + 4
+                    card_x2 = card_x1 + card_w
+                    card_y2 = card_y1 + card_h
+                    
+                    pdata = self.players_data.get(name, {})
+                    is_party = pdata.get('is_party_member', False) if isinstance(pdata, dict) else False
+                    hp = pdata.get('hp', 0) if isinstance(pdata, dict) else 0
+                    hp_max = pdata.get('hp_max', 1) if isinstance(pdata, dict) else 1
+                    
+                    # Colori card
+                    if is_current:
+                        card_bg = "#2D2208"
+                        card_border = "#F59E0B"
+                        card_w_border = 2
+                        name_color = "#FDE68A"
+                    else:
+                        card_bg = "#181B22"
+                        card_border = "#3B82F6" if is_party else "#EF4444"
+                        card_w_border = 1
+                        name_color = "#E5E7EB"
+                    
+                    self.create_rectangle(card_x1, card_y1, card_x2, card_y2, fill=card_bg, outline=card_border, width=card_w_border, tags="hud_initiative")
+                    
+                    # Indicatore freccia per il turno corrente
+                    if is_current:
+                        self.create_text((card_x1 + card_x2)/2, card_y1 - 3, text="▼", fill="#F59E0B", font=("Segoe UI", 8, "bold"), tags="hud_initiative")
+                    
+                    # Nome troncato a 8 caratteri
+                    short_name = name[:7] + "…" if len(name) > 8 else name
+                    self.create_text((card_x1 + card_x2)/2, card_y1 + 14, text=short_name, fill=name_color, font=("Segoe UI", 8, "bold" if is_current else "normal"), tags="hud_initiative")
+                    
+                    # Ordine turno
+                    self.create_text(card_x1 + 10, card_y2 - 12, text=f"#{idx+1}", fill="#9CA3AF", font=("Segoe UI", 7), tags="hud_initiative")
+                    
+                    # Mini barra HP sotto la card
+                    hp_ratio = max(0.0, min(1.0, hp / max(1, hp_max)))
+                    hp_bar_w = card_w - 24
+                    hp_bar_x = card_x1 + 18
+                    hp_bar_y = card_y2 - 12
+                    self.create_rectangle(hp_bar_x, hp_bar_y - 2.5, hp_bar_x + hp_bar_w, hp_bar_y + 2.5, fill="#374151", outline="", tags="hud_initiative")
+                    if hp_ratio > 0:
+                        bar_color = "#10B981" if hp_ratio > 0.5 else ("#F59E0B" if hp_ratio > 0.25 else "#EF4444")
+                        self.create_rectangle(hp_bar_x, hp_bar_y - 2.5, hp_bar_x + (hp_bar_w * hp_ratio), hp_bar_y + 2.5, fill=bar_color, outline="", tags="hud_initiative")
+                    
+                    # Registra bounding box per click
+                    self._initiative_ribbon_bboxes.append((card_x1, card_y1, card_x2, card_y2, name))
+                    cx_offset += card_w + spacing
+
+        # 4. Floating Glassmorphism Map Controls (Bottom-Left Minimalist HUD)
+        cw = self.winfo_width()
+        ch = self.winfo_height()
+        if cw > 220 and ch > 160:
+            hud_x = 16
+            hud_y = ch - 52
+            hud_btn_w = 32
+            hud_btn_h = 32
+            hud_spacing = 6
+            buttons = [
+                ("👆", "center"),
+                ("➕", "zoom_in"),
+                ("➖", "zoom_out"),
+                ("📏", "ruler"),
+            ]
+            total_hud_w = len(buttons) * (hud_btn_w + hud_spacing) - hud_spacing + 14
             
-            for i, name in enumerate(order):
-                color = "white"
-                prefix = ""
-                if name == getattr(self, "turn_player_name", ""):
-                    color = "#00ff00"
-                    prefix = "▶ "
-                self.create_text(start_x + 10, start_y + 35 + i * 20, text=f"{prefix}{i+1}. {name}", fill=color, font=("Arial", 9), anchor="w")
+            # Sfondo pillola HUD
+            self.create_rectangle(hud_x, hud_y, hud_x + total_hud_w, hud_y + hud_btn_h + 8,
+                                  fill="#111318", outline="#374151", width=1, tags="hud_controls")
+            
+            self._hud_control_bboxes = []
+            cur_bx = hud_x + 7
+            for icon, action_key in buttons:
+                bx1 = cur_bx
+                by1 = hud_y + 4
+                bx2 = bx1 + hud_btn_w
+                by2 = by1 + hud_btn_h
+                
+                btn_bg = "#2563EB" if (action_key == "ruler" and getattr(self, "ruler_mode", False)) else "#1A1D24"
+                btn_border = "#60A5FA" if (action_key == "ruler" and getattr(self, "ruler_mode", False)) else "#374151"
+                
+                self.create_rectangle(bx1, by1, bx2, by2, fill=btn_bg, outline=btn_border, width=1, tags="hud_controls")
+                self.create_text((bx1 + bx2)/2, (by1 + by2)/2, text=icon, font=("Segoe UI Emoji", 11), tags="hud_controls")
+                
+                self._hud_control_bboxes.append((bx1, by1, bx2, by2, action_key))
+                cur_bx += hud_btn_w + hud_spacing
+
+        # 5. Live Coordinates & Zoom Badge (Bottom-Right HUD)
+        self._update_coord_hud()
+
+    def _update_coord_hud(self, hovered_hex=None):
+        self.delete("hud_coords")
+        cw = self.winfo_width()
+        ch = self.winfo_height()
+        if cw > 350 and ch > 150:
+            zoom_pct = int(self.zoom_level * 100)
+            h_hex = hovered_hex or getattr(self, '_last_hover_hex', None)
+            coord_str = f"⬡ Zoom: {zoom_pct}%"
+            if h_hex:
+                coord_str = f"⬡ q: {h_hex.q}, r: {h_hex.r} • {zoom_pct}%"
+            badge_w = len(coord_str) * 6.5 + 14
+            bx2 = cw - 16
+            bx1 = bx2 - badge_w
+            by2 = ch - 16
+            by1 = by2 - 24
+            self.create_rectangle(bx1, by1, bx2, by2, fill="#0F1115", outline="#374151", width=1, tags="hud_coords")
+            self.create_text((bx1 + bx2)/2, (by1 + by2)/2, text=coord_str, fill="#9CA3AF", font=("Segoe UI", 8, "bold"), tags="hud_coords")
 
 class ToolTip:
     """Finestrella di tooltip mostrata al passaggio del mouse con supporto a callable per i18n dinamico."""
@@ -1109,4 +1341,430 @@ def show_toast(parent, message, title=None, duration=3500, toast_type="info", ic
         return ToastNotification(parent, message, title=title, duration=duration, toast_type=toast_type, icon=icon)
     except Exception:
         return None
+
+
+def show_rule_detail_popup(parent, rule_dict):
+    """Mostra i dettagli completi di una regola in una comoda finestra modale."""
+    win = tk.Toplevel(parent)
+    title = rule_dict.get("title", "Regola 5e")
+    win.title(title)
+    win.geometry("560x440")
+    win.minsize(450, 320)
+    win.configure(bg="#111318")
+    win.transient(parent)
+
+    container = tk.Frame(win, bg="#111318", padx=16, pady=14)
+    container.pack(fill=tk.BOTH, expand=True)
+
+    header = tk.Frame(container, bg="#111318")
+    header.pack(fill=tk.X, pady=(0, 8))
+
+    lbl_title = tk.Label(header, text=title, font=("Segoe UI", 12, "bold"), bg="#111318", fg="#F59E0B")
+    lbl_title.pack(side=tk.LEFT)
+
+    manual_info = f"{rule_dict.get('manual', '5e')} • {rule_dict.get('page_ref', '')}"
+    lbl_ref = tk.Label(header, text=manual_info, font=("Segoe UI", 9), bg="#1F242D", fg="#9CA3AF", padx=6, pady=2)
+    lbl_ref.pack(side=tk.RIGHT)
+
+    txt_content = tk.Text(container, bg="#181B22", fg="#E5E7EB", font=("Segoe UI", 10), wrap=tk.WORD, bd=0, padx=10, pady=10)
+    scroll = tk.Scrollbar(container, orient=tk.VERTICAL, command=txt_content.yview)
+    txt_content.configure(yscrollcommand=scroll.set)
+    scroll.pack(side=tk.RIGHT, fill=tk.Y)
+    txt_content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    body = rule_dict.get("content") or rule_dict.get("summary", "")
+    txt_content.insert(tk.END, body)
+    txt_content.configure(state=tk.DISABLED)
+
+    win.bind("<Escape>", lambda e: win.destroy())
+
+
+class CommandPaletteDialog(tk.Toplevel):
+    """
+    Tavolozza dei Comandi Rapida (Ctrl + K) in stile Foundry VTT / VS Code / Spotlight.
+    Permette di:
+    - Eseguire tiri di dadi istantanei (/roll 1d20+5, 2d6, ecc.)
+    - Cercare e centrare all'istante token e PNG sulla mappa
+    - Ricercare regole, condizioni, mostri e incantesimi dai manuali D&D 5e
+    - Eseguire scorciatoie rapide della UI (Righello, Zoom, Centra, Compendio, Scheda)
+    """
+    def __init__(self, master, map_canvas=None, on_action=None, is_dm=False, player_names=None):
+        super().__init__(master)
+        self.master = master
+        self.map_canvas = map_canvas
+        self.on_action = on_action
+        self.is_dm = is_dm
+        self.player_names = player_names or []
+        
+        self.title(_t("cmd_palette_title", default="Command Palette & Quick Search"))
+        self.configure(bg="#111318")
+        self.minsize(620, 480)
+        self.transient(master)
+
+        # Centra sopra la finestra master
+        try:
+            pw = master.winfo_width()
+            ph = master.winfo_height()
+            px = master.winfo_rootx()
+            py = master.winfo_rooty()
+            if pw > 200 and ph > 200:
+                cw = 640
+                ch = 490
+                cx = max(px + 10, px + (pw - cw) // 2)
+                cy = max(py + 10, py + (ph - ch) // 3)
+                self.geometry(f"{cw}x{ch}+{cx}+{cy}")
+        except Exception:
+            self.geometry("640x490")
+
+        self._manuals_manager = None
+        self._results = []
+        self._active_filter = "ALL"
+
+        self._setup_ui()
+        self.bind("<Escape>", lambda e: self.destroy())
+        self.bind("<Up>", self._on_arrow_up)
+        self.bind("<Down>", self._on_arrow_down)
+        self.bind("<Return>", self._on_enter)
+        
+        self.after(50, lambda: self.search_entry.focus_set())
+        self._perform_search("")
+
+    def _setup_ui(self):
+        main_box = tk.Frame(self, bg="#111318", highlightbackground="#D4AF37", highlightthickness=1.5, padx=12, pady=12)
+        main_box.pack(fill=tk.BOTH, expand=True)
+
+        # 1. Barra di Ricerca Header
+        search_box = tk.Frame(main_box, bg="#181B22", highlightbackground="#374151", highlightthickness=1, padx=8, pady=6)
+        search_box.pack(fill=tk.X, pady=(0, 8))
+
+        lbl_icon = tk.Label(search_box, text="🔍", font=("Segoe UI Emoji", 13), bg="#181B22", fg="#F59E0B")
+        lbl_icon.pack(side=tk.LEFT, padx=(2, 8))
+
+        self.search_var = tk.StringVar()
+        self.search_entry = tk.Entry(
+            search_box, textvariable=self.search_var, font=("Segoe UI", 12),
+            bg="#181B22", fg="#F9FAFB", insertbackground="#F59E0B", bd=0, relief=tk.FLAT
+        )
+        self.search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.search_entry.bind("<KeyRelease>", self._on_search_key)
+
+        lbl_esc = tk.Label(search_box, text="ESC", font=("Segoe UI", 8, "bold"), bg="#242832", fg="#9CA3AF", padx=5, pady=1)
+        lbl_esc.pack(side=tk.RIGHT, padx=2)
+        lbl_esc.bind("<Button-1>", lambda e: self.destroy())
+
+        # 2. Filter Pills
+        filter_bar = tk.Frame(main_box, bg="#111318")
+        filter_bar.pack(fill=tk.X, pady=(0, 8))
+
+        self._filter_buttons = {}
+        filters = [
+            ("ALL", "Tutti"),
+            ("ROLL", _t("cmd_type_roll", default="🎲 Dadi")),
+            ("TOKEN", _t("cmd_type_token", default="📍 Token")),
+            ("RULE", _t("cmd_type_rule", default="📖 Regole")),
+            ("ACTION", _t("cmd_type_action", default="⚡ Azioni")),
+        ]
+        for f_key, f_label in filters:
+            btn = tk.Button(
+                filter_bar, text=f_label, font=("Segoe UI", 8, "bold"),
+                bg="#2563EB" if f_key == "ALL" else "#1F242D",
+                fg="#FFFFFF" if f_key == "ALL" else "#9CA3AF",
+                activebackground="#3B82F6", activeforeground="#FFFFFF",
+                bd=0, relief=tk.FLAT, padx=8, pady=2,
+                command=lambda k=f_key: self._set_filter(k)
+            )
+            btn.pack(side=tk.LEFT, padx=3)
+            self._filter_buttons[f_key] = btn
+
+        # 3. Content Split (Listbox a sinistra, Preview a destra)
+        split_frame = tk.Frame(main_box, bg="#111318")
+        split_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+        split_frame.columnconfigure(0, weight=3)
+        split_frame.columnconfigure(1, weight=2)
+        split_frame.rowconfigure(0, weight=1)
+
+        # Lista Risultati
+        list_container = tk.Frame(split_frame, bg="#14171E", highlightbackground="#2D333F", highlightthickness=1)
+        list_container.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+
+        self.results_listbox = tk.Listbox(
+            list_container, bg="#14171E", fg="#E5E7EB", selectbackground="#1E3A8A",
+            selectforeground="#FDE68A", font=("Segoe UI", 9), activestyle="none",
+            bd=0, highlightthickness=0
+        )
+        scrollbar = tk.Scrollbar(list_container, orient=tk.VERTICAL, command=self.results_listbox.yview)
+        self.results_listbox.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.results_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.results_listbox.bind("<<ListboxSelect>>", self._on_list_select)
+        self.results_listbox.bind("<Double-Button-1>", lambda e: self._execute_selected())
+
+        # Pannello Preview Dettagli a destra
+        preview_container = tk.Frame(split_frame, bg="#181B22", highlightbackground="#2D333F", highlightthickness=1, padx=10, pady=8)
+        preview_container.grid(row=0, column=1, sticky="nsew")
+
+        self.prev_title_lbl = tk.Label(preview_container, text="Seleziona un elemento", font=("Segoe UI", 10, "bold"), bg="#181B22", fg="#F59E0B", wraplength=210, justify=tk.LEFT)
+        self.prev_title_lbl.pack(anchor="w", pady=(0, 4))
+
+        self.prev_badge_lbl = tk.Label(preview_container, text="", font=("Segoe UI", 8), bg="#262C38", fg="#9CA3AF", padx=4, pady=1)
+        self.prev_badge_lbl.pack(anchor="w", pady=(0, 6))
+
+        self.prev_text = tk.Text(
+            preview_container, bg="#14161C", fg="#D1D5DB", font=("Segoe UI", 9),
+            wrap=tk.WORD, bd=0, highlightthickness=0, height=8
+        )
+        self.prev_text.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+        self.prev_text.configure(state=tk.DISABLED)
+
+        self.btn_execute = tk.Button(
+            preview_container, text="↵ Esegui / Seleziona", font=("Segoe UI", 9, "bold"),
+            bg="#2563EB", fg="white", activebackground="#3B82F6", bd=0, relief=tk.FLAT,
+            padx=10, pady=4, command=self._execute_selected
+        )
+        self.btn_execute.pack(fill=tk.X)
+
+        # 4. Status Hint Footer
+        hint_lbl = tk.Label(
+            main_box, text=_t("cmd_palette_hint", default="↑ / ↓ Naviga  •  ↵ Seleziona / Esegui  •  Esc Chiudi"),
+            font=("Segoe UI", 8), bg="#111318", fg="#6B7280"
+        )
+        hint_lbl.pack(anchor="w")
+
+    def _set_filter(self, filter_key):
+        self._active_filter = filter_key
+        for k, btn in self._filter_buttons.items():
+            if k == filter_key:
+                btn.configure(bg="#2563EB", fg="#FFFFFF")
+            else:
+                btn.configure(bg="#1F242D", fg="#9CA3AF")
+        self._perform_search(self.search_var.get())
+
+    def _on_search_key(self, event=None):
+        if event and event.keysym in ("Up", "Down", "Return", "Escape"):
+            return
+        self._perform_search(self.search_var.get())
+
+    def _get_manuals_manager(self):
+        if self._manuals_manager is None:
+            try:
+                from common.manuals_manager import ManualsManager
+                self._manuals_manager = ManualsManager()
+            except Exception as e:
+                print("Error loading ManualsManager in CommandPalette:", e)
+        return self._manuals_manager
+
+    def _perform_search(self, query):
+        q = (query or "").strip().lower()
+        results = []
+
+        # 1. DADI (Roll)
+        is_roll_query = (
+            q.startswith("/roll") or q.startswith("/r") or
+            any(k in q for k in ["d4", "d6", "d8", "d10", "d12", "d20", "d100"]) or
+            ("d" in q and any(c.isdigit() for c in q))
+        )
+        if is_roll_query:
+            formula = q
+            if formula.startswith("/roll"):
+                formula = formula[5:].strip()
+            elif formula.startswith("/r"):
+                formula = formula[2:].strip()
+            formula = formula or "1d20"
+            results.append({
+                "type": "ROLL",
+                "icon": "🎲",
+                "title": f"Lancia: {formula}",
+                "badge": "Tiro Dadi",
+                "summary": f"Invia il tiro dadi '{formula}' al tavolo virtuale.",
+                "payload": formula
+            })
+
+        # 2. TOKEN SULLA MAPPA
+        if self.map_canvas and hasattr(self.map_canvas, "players_data"):
+            p_data = self.map_canvas.players_data
+            for name, data in p_data.items():
+                conds = data.get("conditions", []) if isinstance(data, dict) else []
+                pos = data.get("position", [0, 0]) if isinstance(data, dict) else (data or [0, 0])
+                hp = data.get("hp", "?") if isinstance(data, dict) else "?"
+                hp_max = data.get("hp_max", "?") if isinstance(data, dict) else "?"
+                
+                cond_str = ", ".join(conds) if conds else "Nessuna"
+                matches_token = (not q) or (q in name.lower()) or any(q in c.lower() for c in conds)
+                if matches_token:
+                    results.append({
+                        "type": "TOKEN",
+                        "icon": "📍",
+                        "title": f"Token: {name}",
+                        "badge": f"HP {hp}/{hp_max} • Hex [{pos[0]},{pos[1]}]",
+                        "summary": f"Nome: {name}\nSalute: {hp}/{hp_max}\nPosizione Hex: {pos}\nCondizioni: {cond_str}",
+                        "payload": name
+                    })
+
+        # 3. AZIONI RAPIDE DELLA UI
+        actions = [
+            ("center_map", "👆 Centra Vista Mappa", "Centra il canvas all'origine o sui token del tavolo."),
+            ("toggle_ruler", "📏 Attiva / Disattiva Righello", "Alterna la modalità misuratore di distanza in piedi (ft)."),
+            ("zoom_in", "➕ Ingrandisci Mappa (Zoom +)", "Aumenta il livello di ingrandimento del canvas."),
+            ("zoom_out", "➖ Riduci Mappa (Zoom -)", "Diminuisce il livello di ingrandimento del canvas."),
+            ("open_aoe", "💥 Sagoma Area d'Effetto (AoE)", "Configura e posiziona cerchi, coni, cubi o linee."),
+            ("open_manuals", "📖 Apri Compendio & Manuali", "Esplora i manuali ufficiali 5e e note homebrew."),
+            ("open_sheet", "📜 Apri Scheda Personaggio", "Visualizza la scheda interattiva del tuo eroe."),
+            ("roll_d20", "🎲 Tira 1d20 Istantaneo", "Esegue immediatamente un d20 rapido."),
+        ]
+        for act_id, act_title, act_desc in actions:
+            if (not q) or (q in act_title.lower()) or (q in act_desc.lower()) or (q in act_id):
+                results.append({
+                    "type": "ACTION",
+                    "icon": "⚡",
+                    "title": act_title,
+                    "badge": "Azione Rapida",
+                    "summary": act_desc,
+                    "payload": act_id
+                })
+
+        # 4. REGOLE E COMPENDIO 5e
+        mm = self._get_manuals_manager()
+        if mm:
+            try:
+                rule_hits = mm.search(q if q else "")
+                for r in rule_hits[:15]:
+                    results.append({
+                        "type": "RULE",
+                        "icon": "📖",
+                        "title": r.get("title", "Regola"),
+                        "badge": f"{r.get('manual', '5e')} • {r.get('category', 'Regole')}",
+                        "summary": r.get("summary") or r.get("content", "")[:180],
+                        "payload": r
+                    })
+            except Exception as e:
+                print("Error searching manuals in CommandPalette:", e)
+
+        # Filtra per categoria attiva
+        if self._active_filter != "ALL":
+            results = [r for r in results if r["type"] == self._active_filter]
+
+        self._results = results
+        self.results_listbox.delete(0, tk.END)
+
+        if not results:
+            self.results_listbox.insert(tk.END, "  Nessun risultato trovato")
+            self._update_preview(None)
+            return
+
+        for r in results:
+            self.results_listbox.insert(tk.END, f" {r['icon']}  {r['title']}")
+
+        self.results_listbox.select_set(0)
+        self._update_preview(results[0])
+
+    def _on_list_select(self, event=None):
+        sel = self.results_listbox.curselection()
+        if sel and sel[0] < len(self._results):
+            self._update_preview(self._results[sel[0]])
+
+    def _update_preview(self, item):
+        self.prev_text.configure(state=tk.NORMAL)
+        self.prev_text.delete("1.0", tk.END)
+
+        if not item:
+            self.prev_title_lbl.config(text="Nessun elemento")
+            self.prev_badge_lbl.config(text="")
+            self.prev_text.configure(state=tk.DISABLED)
+            return
+
+        self.prev_title_lbl.config(text=f"{item['icon']} {item['title']}")
+        self.prev_badge_lbl.config(text=item.get("badge", ""))
+        self.prev_text.insert(tk.END, item.get("summary", ""))
+        self.prev_text.configure(state=tk.DISABLED)
+
+        # Testo del bottone contestualizzato
+        if item["type"] == "ROLL":
+            self.btn_execute.config(text="🎲 Lancia Ora")
+        elif item["type"] == "TOKEN":
+            self.btn_execute.config(text="📍 Centra sulla Mappa")
+        elif item["type"] == "RULE":
+            self.btn_execute.config(text="📖 Leggi Regola Completa")
+        else:
+            self.btn_execute.config(text="↵ Esegui Azione")
+
+    def _on_arrow_up(self, event=None):
+        sel = self.results_listbox.curselection()
+        if sel and sel[0] > 0:
+            idx = sel[0] - 1
+            self.results_listbox.selection_clear(0, tk.END)
+            self.results_listbox.selection_set(idx)
+            self.results_listbox.activate(idx)
+            self.results_listbox.see(idx)
+            self._update_preview(self._results[idx])
+        return "break"
+
+    def _on_arrow_down(self, event=None):
+        sel = self.results_listbox.curselection()
+        if sel and sel[0] < len(self._results) - 1:
+            idx = sel[0] + 1
+            self.results_listbox.selection_clear(0, tk.END)
+            self.results_listbox.selection_set(idx)
+            self.results_listbox.activate(idx)
+            self.results_listbox.see(idx)
+            self._update_preview(self._results[idx])
+        elif not sel and self._results:
+            self.results_listbox.selection_set(0)
+            self._update_preview(self._results[0])
+        return "break"
+
+    def _on_enter(self, event=None):
+        self._execute_selected()
+        return "break"
+
+    def _execute_selected(self):
+        sel = self.results_listbox.curselection()
+        if not sel or sel[0] >= len(self._results):
+            return
+
+        item = self._results[sel[0]]
+        itype = item["type"]
+        payload = item["payload"]
+
+        if itype == "ROLL":
+            formula = payload
+            if self.on_action:
+                self.on_action("roll", formula)
+            self.destroy()
+            show_toast(self.master, f"Tiro dadi eseguito: {formula}", title="Tiro Dadi", icon="🎲")
+
+        elif itype == "TOKEN":
+            token_name = payload
+            if self.map_canvas and hasattr(self.map_canvas, "center_on_token"):
+                self.map_canvas.center_on_token(token_name)
+            if self.on_action:
+                self.on_action("center_token", token_name)
+            self.destroy()
+            show_toast(self.master, f"Mappa centrata su: {token_name}", title="Token", icon="📍")
+
+        elif itype == "ACTION":
+            act_id = payload
+            if act_id == "center_map" and self.map_canvas:
+                self.map_canvas.center_view()
+            elif act_id == "zoom_in" and self.map_canvas:
+                self.map_canvas.zoom_in()
+            elif act_id == "zoom_out" and self.map_canvas:
+                self.map_canvas.zoom_out()
+            elif act_id == "toggle_ruler" and self.map_canvas:
+                self.map_canvas.ruler_mode = not getattr(self.map_canvas, "ruler_mode", False)
+                self.map_canvas.redraw()
+            elif act_id == "roll_d20":
+                if self.on_action:
+                    self.on_action("roll", "1d20")
+            elif self.on_action:
+                self.on_action("action", act_id)
+            self.destroy()
+
+        elif itype == "RULE":
+            rule_dict = payload
+            if isinstance(rule_dict, dict):
+                show_rule_detail_popup(self.master, rule_dict)
+            if self.on_action:
+                self.on_action("rule", rule_dict)
+
 

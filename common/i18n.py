@@ -234,6 +234,14 @@ STRINGS = {
         "tool_fow_reveal_all": "Rivela Tutta la Mappa",
         "tool_fow_hide_all": "Nascondi Tutta la Mappa",
         "tool_fow_reset": "Ripristina Nebbia Iniziale",
+        "tool_command_palette": "Tavolozza Comandi Rapida (Ctrl+K)",
+        "cmd_palette_title": "Tavolozza Comandi & Ricerca Rapida",
+        "cmd_palette_placeholder": "🔍 Cerca regole, mostri, token, incantesimi o scrivi /roll...",
+        "cmd_palette_hint": "↑ / ↓ Naviga  •  ↵ Seleziona / Esegui  •  Esc Chiudi",
+        "cmd_type_roll": "🎲 Tiro Dadi",
+        "cmd_type_token": "📍 Token Mappa",
+        "cmd_type_rule": "📖 Regola 5e",
+        "cmd_type_action": "⚡ Azione Rapida",
 
         # --- Pannelli DM ---
         "tab_chat_log": "Chat & Log",
@@ -617,6 +625,14 @@ STRINGS = {
         "tool_fow_reveal_all": "Reveal Full Map",
         "tool_fow_hide_all": "Hide Full Map",
         "tool_fow_reset": "Reset Fog of War",
+        "tool_command_palette": "Quick Command Palette (Ctrl+K)",
+        "cmd_palette_title": "Command Palette & Quick Search",
+        "cmd_palette_placeholder": "🔍 Search rules, monsters, tokens, spells or type /roll...",
+        "cmd_palette_hint": "↑ / ↓ Navigate  •  ↵ Select / Execute  •  Esc Close",
+        "cmd_type_roll": "🎲 Dice Roll",
+        "cmd_type_token": "📍 Map Token",
+        "cmd_type_rule": "📖 5e Rule",
+        "cmd_type_action": "⚡ Quick Action",
 
         # --- DM Panels ---
         "tab_chat_log": "Chat & Log",

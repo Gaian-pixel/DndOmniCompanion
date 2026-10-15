@@ -114,7 +114,7 @@ class DM_GUI:
         tools_menu.add_command(label=_t("menu_share_text"), command=self.share_text_handout)
         tools_menu.add_command(label=_t("menu_download_maps"), command=self.open_map_downloader)
         tools_menu.add_command(label=_t("menu_srd_compendium"), command=self.open_srd_importer)
-        tools_menu.add_command(label=_t("menu_encounter_builder"), command=self.open_encounter_builder)
+        tools_menu.add_command(label=_t("tool_command_palette"), command=self.open_command_palette)
         tools_menu.add_command(label=_t("menu_manuals"), command=self.open_manuals_dialog)
         tools_menu.add_command(label=_t("menu_travel_panel"), command=self.open_travel_panel)
         tools_menu.add_command(label=_t("menu_starter_pack"), command=self.open_campaign_starter_kit_dialog)
@@ -349,6 +349,10 @@ class DM_GUI:
         btn_manuals = ttk.Button(left_toolbar, text="📖", width=3, style="Tool.TButton", command=self.open_manuals_dialog)
         btn_manuals.pack(pady=3)
         ToolTip(btn_manuals, lambda: _t("tool_manuals"))
+
+        btn_palette = ttk.Button(left_toolbar, text="🔍", width=3, style="Tool.TButton", command=self.open_command_palette)
+        btn_palette.pack(pady=3)
+        ToolTip(btn_palette, lambda: _t("tool_command_palette"))
         
         # --- COLONNA 1: MAPPA (Viewport & Status Header) ---
         map_outer_frame = ttk.Frame(main_frame)
@@ -614,8 +618,53 @@ class DM_GUI:
         tab_audio = ttk.Frame(self.right_notebook, padding=5)
         self.right_notebook.add(tab_audio, text=_t("tab_audio_sfx"))
         self.build_audio_tab(tab_audio)
-
         self.setup_player_context_menu()
+
+        # Scorciatoia universale Command Palette (Ctrl+K)
+        self.master.bind("<Control-k>", self.open_command_palette)
+        self.master.bind("<Control-K>", self.open_command_palette)
+
+    def open_command_palette(self, event=None):
+        try:
+            from components.ui_components import CommandPaletteDialog
+            p_names = [p.name for p in self.server.game_state.get_all_players()]
+            CommandPaletteDialog(
+                self.master,
+                map_canvas=self.map_canvas,
+                on_action=self._handle_command_palette_action,
+                is_dm=True,
+                player_names=p_names
+            )
+        except Exception as e:
+            print("Error opening CommandPaletteDialog in DM_GUI:", e)
+
+    def _handle_command_palette_action(self, action_type, payload):
+        if action_type == "roll":
+            formula = payload.strip()
+            if formula.startswith("/roll"):
+                formula = formula[5:].strip()
+            elif formula.startswith("/r"):
+                formula = formula[2:].strip()
+            formula = formula or "1d20"
+            from common.dice import roll_dice
+            res = roll_dice(formula)
+            from common.protocol import make_chat_broadcast
+            from server.network import broadcast
+            msg = f"🎲 [DM Tiro Rapido] {formula} -> Risultato: {res['total']} ({res['rolls']})"
+            broadcast(self.server.game_state, make_chat_broadcast("DM", msg, channel="Globale"))
+            self.add_chat_message("Globale", "DM", msg)
+        elif action_type == "center_token":
+            if self.map_canvas and hasattr(self.map_canvas, "center_on_token"):
+                self.map_canvas.center_on_token(payload)
+        elif action_type == "action":
+            if payload == "open_manuals":
+                self.open_manuals_dialog()
+            elif payload == "toggle_ruler":
+                self.toggle_ruler_mode()
+            elif payload == "open_aoe":
+                self.open_aoe_dialog()
+            elif payload == "center_map" and self.map_canvas:
+                self.map_canvas.center_view()
 
     # ------------------------------------------------------------------
     # AUDIO: libreria di tracce caricate dal DM
@@ -1426,7 +1475,24 @@ class DM_GUI:
     
     def redraw_map_and_players(self):
         map_data = self.server.game_state.current_map
-        players_data = {p.name: p.position for p in self.server.game_state.get_all_players()}
+        players_data = {}
+        for p in self.server.game_state.get_all_players():
+            players_data[p.name] = {
+                "position": p.position,
+                "hp": p.hp,
+                "hp_max": p.max_hp,
+                "is_party_member": getattr(p, "is_party_member", False),
+                "conditions": list(getattr(p, "conditions", [])),
+                "size_mult": getattr(p, "size_mult", 1),
+                "aura_radius": getattr(p, "aura_radius", 0),
+                "aura_color": getattr(p, "aura_color", "yellow"),
+                "light_radius": getattr(p, "light_radius", 0),
+                "light_color": getattr(p, "light_color", "#FFD700"),
+                "avatar_b64": getattr(p, "avatar_b64", None),
+                "is_hidden": getattr(p, "is_hidden", False),
+                "legendary_resistances_max": getattr(p, "legendary_resistances_max", 0),
+                "legendary_actions_max": getattr(p, "legendary_actions_max", 0),
+            }
         turn_player = self.server.game_state.get_current_turn_player()
         turn_name = turn_player.name if turn_player else ""
         view_name = "DM_TEST" if getattr(self, "dm_player_view_var", None) and self.dm_player_view_var.get() else ""
@@ -1435,6 +1501,7 @@ class DM_GUI:
         weather = getattr(self.server.game_state, "weather", "Sereno")
         combat_active = getattr(self.server.game_state, "combat_active", False)
         combat_order = [p.name for p in self.server.game_state.players] if combat_active else []
+        round_number = getattr(self.server.game_state, "round_number", 1)
         
         self.map_canvas.update_data(
             map_data, 
@@ -1445,7 +1512,8 @@ class DM_GUI:
             time_hour=time_hour,
             weather=weather,
             combat_active=combat_active,
-            combat_order=combat_order
+            combat_order=combat_order,
+            round_number=round_number
         )
         
 
