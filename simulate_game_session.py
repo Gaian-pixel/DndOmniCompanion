@@ -770,10 +770,12 @@ def run_simulation():
         print("\n--- FASE 13b: Localizzazione Bilingue Live (IT/EN) ---")
         try:
             from common.i18n import get_language, set_language, toggle_language, _t, translate_condition, translate_ability
-            orig_l = get_language()
+            set_language("it")
+            pump_events(roots, dm_gui, client_guis, steps=3, delay=0.02)
             
             # Switch to English
             new_l = toggle_language()
+            pump_events(roots, dm_gui, client_guis, steps=3, delay=0.02)
             assert new_l == "en", "Lingua non cambiata in EN"
             assert _t("action_dash") == "Dash", "Traduzione Dash errata"
             assert translate_condition("Prono", "en") == "Prone", "Traduzione condizione errata"
@@ -781,6 +783,7 @@ def run_simulation():
             
             # Switch back to Italian
             toggle_language()
+            pump_events(roots, dm_gui, client_guis, steps=3, delay=0.02)
             assert get_language() == "it", "Lingua non ripristinata in IT"
             assert _t("action_dash") == "Scatto (Dash)", "Traduzione Scatto errata"
             

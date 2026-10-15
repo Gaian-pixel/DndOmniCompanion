@@ -76,6 +76,81 @@ ABILITY_NAMES = {
     }
 }
 
+# Dizionario Abilità / Skills 5e
+SKILLS_IT_TO_EN = {
+    "Acrobazia": "Acrobatics",
+    "Addestrare Animali": "Animal Handling",
+    "Arcano": "Arcana",
+    "Atletica": "Athletics",
+    "Furtività": "Stealth",
+    "Indagare": "Investigation",
+    "Inganno": "Deception",
+    "Intimidire": "Intimidation",
+    "Intrattenere": "Performance",
+    "Intuizione": "Insight",
+    "Medicina": "Medicine",
+    "Natura": "Nature",
+    "Percezione": "Perception",
+    "Persuasione": "Persuasion",
+    "Prestidigitazione": "Sleight of Hand",
+    "Religione": "Religion",
+    "Sopravvivenza": "Survival",
+    "Storia": "History"
+}
+
+SKILLS_EN_TO_IT = {v: k for k, v in SKILLS_IT_TO_EN.items()}
+
+
+def translate_skill(skill_name: str, target_lang: str = None) -> str:
+    """Traduce il nome di un'abilità 5e tra Italiano ed Inglese."""
+    if not target_lang:
+        target_lang = get_language()
+    clean = skill_name.strip()
+    if target_lang == "en":
+        return SKILLS_IT_TO_EN.get(clean, clean)
+    else:
+        return SKILLS_EN_TO_IT.get(clean, clean)
+
+
+WEATHER_IT_TO_EN = {
+    "Sereno": "Clear",
+    "Pioggia": "Rain",
+    "Tempesta": "Storm",
+    "Neve": "Snow",
+    "Nebbia": "Fog"
+}
+WEATHER_EN_TO_IT = {v: k for k, v in WEATHER_IT_TO_EN.items()}
+
+def translate_weather(weather_name: str, target_lang: str = None) -> str:
+    """Traduce la condizione meteorologica tra IT ed EN."""
+    if not target_lang:
+        target_lang = get_language()
+    clean = weather_name.strip()
+    if target_lang == "en":
+        return WEATHER_IT_TO_EN.get(clean, clean)
+    else:
+        return WEATHER_EN_TO_IT.get(clean, clean)
+
+
+PERIODS_IT_TO_EN = {
+    "Mattina": "Morning",
+    "Pomeriggio": "Afternoon",
+    "Sera": "Evening",
+    "Notte": "Night"
+}
+PERIODS_EN_TO_IT = {v: k for k, v in PERIODS_IT_TO_EN.items()}
+
+def translate_period(period_name: str, target_lang: str = None) -> str:
+    """Traduce il periodo della giornata tra IT ed EN."""
+    if not target_lang:
+        target_lang = get_language()
+    clean = period_name.strip()
+    if target_lang == "en":
+        return PERIODS_IT_TO_EN.get(clean, clean)
+    else:
+        return PERIODS_EN_TO_IT.get(clean, clean)
+
+
 
 # Dizionario completo traduzioni UI
 STRINGS = {
@@ -235,6 +310,14 @@ STRINGS = {
         "sheet_encumbered": "(INGOMBRATO!)",
         "sheet_you_are_dead": "☠ SEI MORTO ☠",
         "sheet_active_conditions": "Condizioni Attive:",
+        "sheet_currency": "Valuta",
+        "sheet_item": "Oggetto",
+        "sheet_weight_col": "Peso (lbs)",
+        "sheet_attunement": "Sintonia",
+        "sheet_empty_slot": "Vuoto",
+        "sheet_search_compendium": "Cerca nel Compendio",
+        "sheet_give_gold_btn": "🪙 Dona Oro a Compagno",
+        "sheet_spell_slots_header": "Slot Incantesimo (Max / Correnti)",
 
         # --- Viaggio & Esplorazione ---
         "travel_title": "Gestione Viaggio ed Esplorazione 5e",
@@ -278,6 +361,181 @@ STRINGS = {
         "action_use_object": "Usa Oggetto (Use Object)",
         "action_attack": "Attacco (Attack)",
         "action_cast": "Lancia Incantesimo (Cast Spell)",
+
+        # --- Controlli Navigazione & Party Giocatore ---
+        "party_members_header": "👥 Compagnia di Avventura",
+        "chat_tab_global": "Globale",
+        "chat_tab_system": "Sistema",
+        "status_disconnected": "Stato: Disconnesso",
+        "status_connected": "Stato: Connesso",
+        "no_character": "Nessun Personaggio",
+        "adventurer_lvl": "Avventuriero • Livello {lvl}",
+        "select_or_create_char": "Seleziona o crea un PG",
+        "class_adventurer": "Avventuriero",
+        "char_level_prefix": "Livello",
+        "exhaustion_prefix": "Indebolimento",
+        "not_in_combat": "Non in Combattimento",
+
+        # --- Economia Turno & Azioni Rapide ---
+        "turn_economy": "⚡ Economia Turno",
+        "turn_economy_reset": "↺ Reset",
+        "tooltip_reset_economy": "Ripristina le risorse del turno",
+        "btn_act": "⚔️ Azione",
+        "tooltip_act": "Azione Standard: clicca per contrassegnare come spesa/disponibile",
+        "btn_bonus": "✨ Bonus",
+        "tooltip_bonus": "Azione Bonus: clicca per contrassegnare come spesa/disponibile",
+        "btn_react": "🛡️ Reaz",
+        "tooltip_react": "Reazione: clicca per contrassegnare come spesa/disponibile",
+        "lbl_movement": "👟 Movimento: {used} / {total} ft (Rim: {rem} ft)",
+        "btn_dash": "🏃 Scatto",
+        "tooltip_dash": "Spende l'Azione per raddoppiare il movimento in questo turno",
+        "btn_disengage": "💨 Disimpegno",
+        "tooltip_disengage": "Spende l'Azione: non provochi attacchi d'opportunità uscendo dalla portata di un nemico",
+        "btn_dodge": "🛡️ Schivata",
+        "tooltip_dodge": "Spende l'Azione: gli attacchi contro di te avranno svantaggio e hai vantaggio ai TS su Destrezza",
+        "btn_help": "🤝 Aiuto",
+        "tooltip_help": "Spende l'Azione: clicca poi un bersaglio per conferire Vantaggio al prossimo attacco alleato",
+
+        # --- Bottoni Azione Scheda Giocatore ---
+        "change_active_char": "Cambia Scheda Personaggio:",
+        "btn_sheet": "📜 Scheda Personaggio",
+        "btn_roll_dice": "🎲 Tira Dadi",
+        "btn_action": "⚔️ Azione (Attacco / Cura / Danno)",
+        "btn_short_rest": "☕ Riposo Breve (Dadi Vita)",
+        "lbl_class_features": "Privilegi di Classe",
+        "btn_second_wind": "💨 Secondo Fiato",
+        "tooltip_second_wind": "Guerriero (1/Riposo Breve): recupera 1d10 + Livello HP come Azione Bonus",
+        "btn_action_surge": "⚡ Azione Furente",
+        "tooltip_action_surge": "Guerriero (1/Riposo Breve): ottieni un'Azione aggiuntiva in questo turno",
+        "btn_rage": "🩸 Ira Barbarica",
+        "tooltip_rage": "Barbaro: entra in Ira (+2 danni mischia, resistenza a contundente, perforante e tagliente)",
+        "btn_travel_actions": "🧭 Azioni di Viaggio",
+        "btn_manuals": "📖 Consulta Manuali di Gioco",
+        "btn_request_combat": "⚔️ Richiedi Combattimento",
+        "btn_end_turn": "⏹ Termina Turno",
+
+        # --- Tooltip Audio & Voce ---
+        "tooltip_mute_audio": "Muta/Smuta Audio di gioco",
+        "tooltip_deafen": "Muta/Smuta Cuffie",
+        "tooltip_mute_mic": "Muta/Smuta Microfono",
+        "voice_server_active": "🟢 Voice Server: Attivo",
+
+        # --- Tab & Controlli DM ---
+        "tab_world": "Mondo",
+        "tab_audio_sfx": "Audio / SFX",
+        "dm_combatants_header": "⚔️ Avventurieri & Mostri",
+        "lbl_round_num": "⚔️ ROUND {round}",
+        "btn_prev_turn": "⬅ Turno Prec.",
+        "btn_next_turn": "Turno Succ. ➡",
+        "btn_hide_reveal": "👁 Nascondi / Rivela PNG",
+        "npc_actions_header": "Azioni PNG Selezionato",
+        "btn_start_combat": "⚔️ Inizia Combattimento",
+        "btn_end_combat": "⏹ Termina Combattimento",
+        "btn_deploy_prepared": "⚡ Schiera Incontro Preparato",
+        "btn_roll_all_npcs": "🎲 Tira Iniziativa per Tutti i Mostri",
+        "lbl_balance_waiting": "⚔️ Bilanciamento 5e: In attesa dati",
+        "btn_spawn_png": "Spawna PNG",
+        "btn_add_manual_npc": "+ Aggiungi NPC/Mostro Manuale",
+        "btn_split_loot": "💰 Dividi Denaro (Party Loot)",
+        "lbl_bestiary_header": "📖 Bestiario (Monster Manual 2025 & SRD):",
+        "lbl_bestiary_preview_default": "Seleziona un mostro per visualizzare le statistiche.",
+        "btn_spawn_on_map": "⚔️ Spawna sulla Mappa",
+        "btn_full_sheet": "📖 Scheda Completa",
+        "btn_dice": "🎲 Dadi",
+
+        # --- Scheda Personaggio Esecuzione ---
+        "sheet_attributes": "ATTRIBUTI",
+        "sheet_skills": "ABILITÀ",
+        "sheet_saving_throws": "TIRI SALVEZZA",
+        "sheet_armor_class": "CA",
+        "sheet_initiative_short": "INIZ",
+        "sheet_speed_short": "VEL",
+        "sheet_dice_roll": "Tiro Dado:",
+        "sheet_levelup_btn": "🌟 Sali di Livello!",
+        "sheet_short_rest_btn": "☕ Riposo Breve",
+        "sheet_long_rest_btn": "🌙 Riposo Lungo",
+        "sheet_name": "Nome:",
+        "sheet_campaign": "Campagna:",
+        "sheet_class": "Classe:",
+        "sheet_level": "Livello:",
+        "sheet_race": "Razza:",
+        "sheet_exp": "EXP:",
+
+        # --- DM Mappa & Barra FoW ---
+        "dm_tactical_map": "🗺 Mappa Tattica",
+        "fow_tool_label": "Strumento:",
+        "fow_mode_move": "Muovi Token",
+        "fow_mode_erase": "Cancella Nebbia",
+        "fow_mode_draw": "Disegna Nebbia",
+        "fow_player_view": "Vista PG",
+        "fow_send_btn": "Invia Nebbia",
+        "fow_options_btn": "Opzioni FoW",
+        "fow_menu_enable": "Abilita Sistema Nebbia",
+        "fow_menu_hide_all": "Oscura Tutta la Mappa (Nascondi Tutto)",
+        "fow_menu_reveal_all": "Rivela Tutta la Mappa (Rivela Tutto)",
+
+        # --- Pillole di Stato & Meteo ---
+        "period_morning": "Mattina",
+        "period_afternoon": "Pomeriggio",
+        "period_evening": "Sera",
+        "period_night": "Notte",
+        "weather_clear": "Sereno",
+        "weather_rain": "Pioggia",
+        "weather_storm": "Tempesta",
+        "weather_snow": "Neve",
+        "weather_fog": "Nebbia",
+        "status_exploration": "🕊️ Esplorazione",
+        "status_in_combat": "⚔️ In Combattimento (R{round})",
+        "campaign_none": "🏰 Campagna: Nessuna (Sessione Rapida)",
+        "campaign_active": "🏰 Campagna: {name}",
+
+        # --- Tooltips Strumenti DM ---
+        "tool_fog_of_war": "Nebbia di Guerra",
+        "tool_teleport": "Aggiungi/Rimuovi Teletrasporto",
+        "tool_clear_aoe": "Pulisci Aree di Effetto",
+
+        # --- Tab Mondo DM ---
+        "time_mgmt_header": "Gestione Tempo",
+        "time_day_display": "Giorno {day} - {time} ({period})",
+        "time_add_1h": "+1 Ora",
+        "time_add_8h": "+8 Ore (Riposo)",
+        "time_add_1d": "+1 Giorno",
+        "btn_switch_scene": "🗺️ Passa a Scena della Campagna",
+        "btn_open_calendar": "📅 Apri Calendario Campagna",
+        "btn_open_quests": "📜 Diario e Missioni",
+        "btn_open_shops": "🛒 Negozi",
+        "btn_travel_panel": "🧭 Pannello Gestione Viaggio (Hex Crawl)",
+        "weather_header": "Clima",
+
+        # --- Tab Audio DM ---
+        "audio_library_header": "Libreria Audio",
+        "audio_library_desc": "Carica MP3/OGG/WAV/FLAC. I giocatori li scaricano una sola volta.",
+        "audio_upload_btn": "➕ Carica tracce...",
+        "audio_col_name": "Nome",
+        "audio_col_type": "Tipo",
+        "audio_col_duration": "Durata",
+
+        # --- Badge Rapidi Giocatore ---
+        "sheet_ac_badge": "CA",
+        "sheet_speed_badge": "Vel",
+        "sheet_init_badge": "Iniz",
+
+        # --- Menu Contestuale Token ---
+        "ctx_view_sheet": "Visualizza Scheda",
+        "ctx_assign_item": "Assegna Oggetto",
+        "ctx_modify_hp": "Modifica HP",
+        "ctx_modify_conditions": "Modifica Stati/Condizioni",
+        "ctx_execute_action": "Esegui Azione (Danno/Cura)",
+        "ctx_set_aura": "Imposta Aura",
+        "ctx_light_source": "🔦 Sorgente di Luce (Torcia/Lanterna)...",
+        "ctx_config_boss": "👑 Configura Boss Leggendario...",
+        "ctx_spend_legendary": "👑 Spendi Azione Leggendaria...",
+        "ctx_set_owner": "Imposta Proprietario",
+        "ctx_open_private_chat": "Apri Chat Privata",
+        "ctx_toggle_combat": "Aggiungi/Rimuovi da Combattimento",
+        "ctx_toggle_party": "Aggiungi/Rimuovi dal Party",
+        "ctx_toggle_inspiration": "🌟 Assegna/Rimuovi Ispirazione",
+        "ctx_remove_entity": "Rimuovi",
     },
     "en": {
         # --- Common ---
@@ -435,6 +693,14 @@ STRINGS = {
         "sheet_encumbered": "(ENCUMBERED!)",
         "sheet_you_are_dead": "☠ YOU ARE DEAD ☠",
         "sheet_active_conditions": "Active Conditions:",
+        "sheet_currency": "Currency",
+        "sheet_item": "Item",
+        "sheet_weight_col": "Weight (lbs)",
+        "sheet_attunement": "Attunement",
+        "sheet_empty_slot": "Empty",
+        "sheet_search_compendium": "Search Compendium",
+        "sheet_give_gold_btn": "🪙 Give Gold to Ally",
+        "sheet_spell_slots_header": "Spell Slots (Max / Current)",
 
         # --- Travel & Exploration ---
         "travel_title": "5e Travel & Exploration Management",
@@ -478,6 +744,181 @@ STRINGS = {
         "action_use_object": "Use Object",
         "action_attack": "Attack",
         "action_cast": "Cast Spell",
+
+        # --- Player Navigation & Party Controls ---
+        "party_members_header": "👥 Adventuring Party",
+        "chat_tab_global": "Global",
+        "chat_tab_system": "System",
+        "status_disconnected": "Status: Disconnected",
+        "status_connected": "Status: Connected",
+        "no_character": "No Character",
+        "adventurer_lvl": "Adventurer • Level {lvl}",
+        "select_or_create_char": "Select or create a character",
+        "class_adventurer": "Adventurer",
+        "char_level_prefix": "Level",
+        "exhaustion_prefix": "Exhaustion",
+        "not_in_combat": "Not in Combat",
+
+        # --- Turn Economy & Quick Actions ---
+        "turn_economy": "⚡ Turn Economy",
+        "turn_economy_reset": "↺ Reset",
+        "tooltip_reset_economy": "Reset turn resources",
+        "btn_act": "⚔️ Action",
+        "tooltip_act": "Standard Action: click to toggle spent/available",
+        "btn_bonus": "✨ Bonus",
+        "tooltip_bonus": "Bonus Action: click to toggle spent/available",
+        "btn_react": "🛡️ React",
+        "tooltip_react": "Reaction: click to toggle spent/available",
+        "lbl_movement": "👟 Movement: {used} / {total} ft (Left: {rem} ft)",
+        "btn_dash": "🏃 Dash",
+        "tooltip_dash": "Spends Action to double movement this turn",
+        "btn_disengage": "💨 Disengage",
+        "tooltip_disengage": "Spends Action: movement does not provoke opportunity attacks",
+        "btn_dodge": "🛡️ Dodge",
+        "tooltip_dodge": "Spends Action: attackers have disadvantage against you and you have advantage on DEX saves",
+        "btn_help": "🤝 Help",
+        "tooltip_help": "Spends Action: click an enemy to grant advantage to an ally's next attack",
+
+        # --- Player Action Buttons ---
+        "change_active_char": "Change Active Character:",
+        "btn_sheet": "📜 Character Sheet",
+        "btn_roll_dice": "🎲 Roll Dice",
+        "btn_action": "⚔️ Action (Attack / Heal / Damage)",
+        "btn_short_rest": "☕ Short Rest (Hit Dice)",
+        "lbl_class_features": "Class Features",
+        "btn_second_wind": "💨 Second Wind",
+        "tooltip_second_wind": "Fighter (1/Short Rest): regain 1d10 + Level HP as a Bonus Action",
+        "btn_action_surge": "⚡ Action Surge",
+        "tooltip_action_surge": "Fighter (1/Short Rest): gain an additional Action this turn",
+        "btn_rage": "🩸 Barbarian Rage",
+        "tooltip_rage": "Barbarian: enter Rage (+2 melee damage, resistance to bludgeoning, piercing, slashing)",
+        "btn_travel_actions": "🧭 Travel Actions",
+        "btn_manuals": "📖 Browse Rulebooks",
+        "btn_request_combat": "⚔️ Request Combat",
+        "btn_end_turn": "⏹ End Turn",
+
+        # --- Audio & Voice Tooltips ---
+        "tooltip_mute_audio": "Mute/Unmute Game Audio",
+        "tooltip_deafen": "Deafen/Undeafen Voice Audio",
+        "tooltip_mute_mic": "Mute/Unmute Microphone",
+        "voice_server_active": "🟢 Voice Server: Active",
+
+        # --- DM Tabs & Controls ---
+        "tab_world": "World",
+        "tab_audio_sfx": "Audio / SFX",
+        "dm_combatants_header": "⚔️ Adventurers & Monsters",
+        "lbl_round_num": "⚔️ ROUND {round}",
+        "btn_prev_turn": "⬅ Prev Turn",
+        "btn_next_turn": "Next Turn ➡",
+        "btn_hide_reveal": "👁 Hide / Reveal NPC",
+        "npc_actions_header": "Selected NPC Actions",
+        "btn_start_combat": "⚔️ Start Combat",
+        "btn_end_combat": "⏹ End Combat",
+        "btn_deploy_prepared": "⚡ Deploy Prepared Encounter",
+        "btn_roll_all_npcs": "🎲 Roll Initiative for All Monsters",
+        "lbl_balance_waiting": "⚔️ 5e Balance: Awaiting data",
+        "btn_spawn_png": "Spawn NPC",
+        "btn_add_manual_npc": "+ Add Manual NPC/Monster",
+        "btn_split_loot": "💰 Split Gold (Party Loot)",
+        "lbl_bestiary_header": "📖 Bestiary (Monster Manual 2025 & SRD):",
+        "lbl_bestiary_preview_default": "Select a monster to view stats.",
+        "btn_spawn_on_map": "⚔️ Spawn on Map",
+        "btn_full_sheet": "📖 Full Stat Block",
+        "btn_dice": "🎲 Dice",
+
+        # --- Character Sheet Translation ---
+        "sheet_attributes": "ABILITY SCORES",
+        "sheet_skills": "SKILLS",
+        "sheet_saving_throws": "SAVING THROWS",
+        "sheet_armor_class": "AC",
+        "sheet_initiative_short": "INIT",
+        "sheet_speed_short": "SPEED",
+        "sheet_dice_roll": "Dice Roll:",
+        "sheet_levelup_btn": "🌟 Level Up!",
+        "sheet_short_rest_btn": "☕ Short Rest",
+        "sheet_long_rest_btn": "🌙 Long Rest",
+        "sheet_name": "Name:",
+        "sheet_campaign": "Campaign:",
+        "sheet_class": "Class:",
+        "sheet_level": "Level:",
+        "sheet_race": "Race:",
+        "sheet_exp": "EXP:",
+
+        # --- DM Map & FoW Toolbar ---
+        "dm_tactical_map": "🗺 Tactical Map",
+        "fow_tool_label": "Tool:",
+        "fow_mode_move": "Move Token",
+        "fow_mode_erase": "Erase Fog",
+        "fow_mode_draw": "Draw Fog",
+        "fow_player_view": "Player View",
+        "fow_send_btn": "Broadcast Fog",
+        "fow_options_btn": "FoW Options",
+        "fow_menu_enable": "Enable Fog of War",
+        "fow_menu_hide_all": "Obscure Entire Map (Hide All)",
+        "fow_menu_reveal_all": "Reveal Entire Map (Reveal All)",
+
+        # --- Status Pills & Weather ---
+        "period_morning": "Morning",
+        "period_afternoon": "Afternoon",
+        "period_evening": "Evening",
+        "period_night": "Night",
+        "weather_clear": "Clear",
+        "weather_rain": "Rain",
+        "weather_storm": "Storm",
+        "weather_snow": "Snow",
+        "weather_fog": "Fog",
+        "status_exploration": "🕊️ Exploration",
+        "status_in_combat": "⚔️ In Combat (R{round})",
+        "campaign_none": "🏰 Campaign: None (Quick Session)",
+        "campaign_active": "🏰 Campaign: {name}",
+
+        # --- DM Tooltips ---
+        "tool_fog_of_war": "Fog of War",
+        "tool_teleport": "Add/Remove Teleport",
+        "tool_clear_aoe": "Clear Areas of Effect",
+
+        # --- DM World Tab ---
+        "time_mgmt_header": "Time Management",
+        "time_day_display": "Day {day} - {time} ({period})",
+        "time_add_1h": "+1 Hour",
+        "time_add_8h": "+8 Hours (Rest)",
+        "time_add_1d": "+1 Day",
+        "btn_switch_scene": "🗺️ Switch Campaign Scene",
+        "btn_open_calendar": "📅 Open Campaign Calendar",
+        "btn_open_quests": "📜 Quests & Journal",
+        "btn_open_shops": "🛒 Shops & Trading",
+        "btn_travel_panel": "🧭 Travel Management Panel (Hex Crawl)",
+        "weather_header": "Weather",
+
+        # --- DM Audio Tab ---
+        "audio_library_header": "Audio Library",
+        "audio_library_desc": "Upload MP3/OGG/WAV/FLAC. Players download them once.",
+        "audio_upload_btn": "➕ Upload Tracks...",
+        "audio_col_name": "Name",
+        "audio_col_type": "Type",
+        "audio_col_duration": "Duration",
+
+        # --- Player Badges ---
+        "sheet_ac_badge": "AC",
+        "sheet_speed_badge": "Spd",
+        "sheet_init_badge": "Init",
+
+        # --- Context Menu ---
+        "ctx_view_sheet": "View Character Sheet",
+        "ctx_assign_item": "Assign Item",
+        "ctx_modify_hp": "Modify HP",
+        "ctx_modify_conditions": "Modify Conditions/Statuses",
+        "ctx_execute_action": "Perform Action (Damage/Heal)",
+        "ctx_set_aura": "Set Aura",
+        "ctx_light_source": "🔦 Light Source (Torch/Lantern)...",
+        "ctx_config_boss": "👑 Configure Legendary Boss...",
+        "ctx_spend_legendary": "👑 Spend Legendary Action...",
+        "ctx_set_owner": "Set Owner",
+        "ctx_open_private_chat": "Open Private Chat",
+        "ctx_toggle_combat": "Add/Remove from Combat",
+        "ctx_toggle_party": "Add/Remove from Party",
+        "ctx_toggle_inspiration": "🌟 Grant/Remove Inspiration",
+        "ctx_remove_entity": "Remove",
     }
 }
 

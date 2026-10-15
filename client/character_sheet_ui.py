@@ -12,12 +12,13 @@ from common.theme import (
     FONT_MAIN, FONT_TITLE, FONT_HEADER, FONT_BOLD, FONT_SMALL,
     apply_modern_window_style
 )
-from common.i18n import _t, get_language
+from common.i18n import _t, get_language, translate_condition, translate_ability, translate_skill
+
 
 class CharacterSheetUI(tk.Toplevel):
     def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, give_gold_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None, custom_spell_request_callback=None, is_connected=False):
         super().__init__(master)
-        self.title(f"Scheda PG - {character.name}")
+        self.title(f"{_t('sheet_title')} - {character.name}")
         self.minsize(600, 700)
         apply_modern_window_style(self)
         self.character = character
@@ -44,37 +45,37 @@ class CharacterSheetUI(tk.Toplevel):
         header_frame = tk.Frame(main_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
         header_frame.pack(fill=tk.X, pady=(0, 10))
 
-        tk.Label(header_frame, text="Nome:", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).grid(row=0, column=0, sticky="e", padx=(0, 4))
+        tk.Label(header_frame, text=_t("sheet_name"), font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).grid(row=0, column=0, sticky="e", padx=(0, 4))
         self.name_var = tk.StringVar()
         ttk.Entry(header_frame, textvariable=self.name_var, width=16).grid(row=0, column=1, padx=4, pady=3, sticky="ew")
 
-        tk.Label(header_frame, text="Campagna:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=0, column=2, sticky="e", padx=(8, 4))
+        tk.Label(header_frame, text=_t("sheet_campaign"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=0, column=2, sticky="e", padx=(8, 4))
         self.campaign_var = tk.StringVar()
         ttk.Entry(header_frame, textvariable=self.campaign_var, width=14).grid(row=0, column=3, padx=4, pady=3, sticky="ew")
 
-        self.levelup_btn = ttk.Button(header_frame, text="🌟 Sali di Livello!", command=self.level_up, style="Gold.TButton")
+        self.levelup_btn = ttk.Button(header_frame, text=_t("sheet_levelup_btn"), command=self.level_up, style="Gold.TButton")
         self.levelup_btn.grid(row=0, column=4, columnspan=3, padx=(10, 0), pady=3, sticky="ew")
 
-        tk.Label(header_frame, text="Classe:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=1, column=0, sticky="e", padx=(0, 4))
+        tk.Label(header_frame, text=_t("sheet_class"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=1, column=0, sticky="e", padx=(0, 4))
         self.class_var = tk.StringVar()
         ttk.Entry(header_frame, textvariable=self.class_var, width=16).grid(row=1, column=1, padx=4, pady=3, sticky="ew")
 
-        tk.Label(header_frame, text="Livello:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=1, column=2, sticky="e", padx=(8, 4))
+        tk.Label(header_frame, text=_t("sheet_level"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=1, column=2, sticky="e", padx=(8, 4))
         self.level_var = tk.IntVar()
         ttk.Entry(header_frame, textvariable=self.level_var, width=4, state="readonly", justify="center").grid(row=1, column=3, padx=4, pady=3, sticky="w")
         
-        tk.Label(header_frame, text="EXP:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=1, column=4, sticky="e", padx=(8, 4))
+        tk.Label(header_frame, text=_t("sheet_exp"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=1, column=4, sticky="e", padx=(8, 4))
         self.exp_label = tk.Label(header_frame, text="0 / 300", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_COLOR)
         self.exp_label.grid(row=1, column=5, padx=4, pady=3, sticky="w")
         self.exp_progress = ttk.Progressbar(header_frame, length=90, mode='determinate')
         self.exp_progress.grid(row=1, column=6, padx=4, pady=3, sticky="w")
 
-        tk.Label(header_frame, text="Razza:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=2, column=0, sticky="e", padx=(0, 4))
+        tk.Label(header_frame, text=_t("sheet_race"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=2, column=0, sticky="e", padx=(0, 4))
         self.race_var = tk.StringVar()
         ttk.Entry(header_frame, textvariable=self.race_var, width=16).grid(row=2, column=1, padx=4, pady=3, sticky="ew")
 
         self.btn_inspiration = tk.Button(
-            header_frame, text="☆ Nessuna Ispirazione", font=("Segoe UI", 9, "bold"),
+            header_frame, text=_t("insp_none"), font=("Segoe UI", 9, "bold"),
             bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, activebackground=SURFACE_COLOR,
             relief=tk.FLAT, bd=0, padx=8, pady=2, command=self.on_inspiration_clicked
         )
@@ -87,7 +88,7 @@ class CharacterSheetUI(tk.Toplevel):
         # Statistiche (Sinistra - 5e Ability Boxes)
         stats_frame = tk.Frame(body_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=6)
         stats_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
-        tk.Label(stats_frame, text="ATTRIBUTI", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(pady=(2, 6))
+        tk.Label(stats_frame, text=_t("sheet_attributes"), font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(pady=(2, 6))
 
         self.attr_vars = {}
         self.attr_mod_labels = {}
@@ -95,7 +96,8 @@ class CharacterSheetUI(tk.Toplevel):
             box = tk.Frame(stats_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=3)
             box.pack(fill=tk.X, pady=3)
             
-            tk.Label(box, text=attr, font=("Segoe UI", 9, "bold"), bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack()
+            attr_text = translate_ability(attr)
+            tk.Label(box, text=attr_text, font=("Segoe UI", 9, "bold"), bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack()
             
             var = tk.IntVar(value=10)
             self.attr_vars[attr] = var
@@ -127,7 +129,7 @@ class CharacterSheetUI(tk.Toplevel):
         # Abilità
         skills_frame = tk.Frame(body_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=6)
         skills_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
-        tk.Label(skills_frame, text="ABILITÀ", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(pady=(2, 6))
+        tk.Label(skills_frame, text=_t("sheet_skills"), font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(pady=(2, 6))
         
         self.skill_vars = {}
         self.skill_map = {
@@ -156,7 +158,9 @@ class CharacterSheetUI(tk.Toplevel):
         skills_scrollbar.pack(side="right", fill="y")
         
         for i, (skill, stat) in enumerate(self.skill_map.items()):
-            tk.Label(skills_inner_frame, text=f"{skill} ({stat})", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_COLOR).grid(row=i, column=0, sticky="w", pady=2)
+            skill_text = translate_skill(skill)
+            stat_text = translate_ability(stat)
+            tk.Label(skills_inner_frame, text=f"{skill_text} ({stat_text})", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_COLOR).grid(row=i, column=0, sticky="w", pady=2)
             var = tk.IntVar()
             self.skill_vars[skill] = var
             combo = ttk.Combobox(skills_inner_frame, textvariable=var, values=[0, 1, 2], width=2, state="readonly")
@@ -166,7 +170,7 @@ class CharacterSheetUI(tk.Toplevel):
         # Combattimento (Centro)
         combat_frame = tk.Frame(body_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=6)
         combat_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
-        tk.Label(combat_frame, text="COMBATTIMENTO", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(anchor="w", pady=(0, 6))
+        tk.Label(combat_frame, text=_t("sheet_tab_actions"), font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(anchor="w", pady=(0, 6))
 
         # Core 3 badges (CA, Iniziativa, Velocità)
         core_badges = tk.Frame(combat_frame, bg=SURFACE_COLOR)
@@ -175,14 +179,14 @@ class CharacterSheetUI(tk.Toplevel):
         # CA
         ca_box = tk.Frame(core_badges, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=4)
         ca_box.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
-        tk.Label(ca_box, text="🛡️ CA", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack()
+        tk.Label(ca_box, text=f"🛡️ {_t('sheet_armor_class')}", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack()
         self.ac_var = tk.IntVar(value=10)
         ttk.Entry(ca_box, textvariable=self.ac_var, width=3, justify="center").pack(pady=2)
 
         # Iniziativa
         init_box = tk.Frame(core_badges, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=4)
         init_box.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-        tk.Label(init_box, text="⚡ INIZ", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack()
+        tk.Label(init_box, text=f"⚡ {_t('sheet_initiative_short')}", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack()
         self.init_var = tk.IntVar(value=0)
         init_sub = tk.Frame(init_box, bg=SURFACE_COLOR_ALT)
         init_sub.pack(pady=2)
@@ -192,16 +196,16 @@ class CharacterSheetUI(tk.Toplevel):
         # Velocità
         speed_box = tk.Frame(core_badges, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=4)
         speed_box.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
-        tk.Label(speed_box, text="👟 VEL", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack()
+        tk.Label(speed_box, text=f"👟 {_t('sheet_speed_short')}", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack()
         self.speed_var = tk.IntVar(value=30)
         ttk.Entry(speed_box, textvariable=self.speed_var, width=3, justify="center").pack(pady=2)
 
         # Vantaggio / Svantaggio selector
         adv_row = tk.Frame(combat_frame, bg=SURFACE_COLOR)
         adv_row.pack(fill=tk.X, pady=(0, 6))
-        tk.Label(adv_row, text="Tiro Dado:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(side=tk.LEFT, padx=(0, 4))
-        self.adv_dis_var = tk.StringVar(value="Normale")
-        self.adv_dis_combo = ttk.Combobox(adv_row, textvariable=self.adv_dis_var, values=["Normale", "Vantaggio", "Svantaggio"], state="readonly", width=12)
+        tk.Label(adv_row, text=_t("sheet_dice_roll"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(side=tk.LEFT, padx=(0, 4))
+        self.adv_dis_var = tk.StringVar(value=_t("adv_normal"))
+        self.adv_dis_combo = ttk.Combobox(adv_row, textvariable=self.adv_dis_var, values=[_t("adv_normal"), _t("adv_advantage"), _t("adv_disadvantage")], state="readonly", width=12)
         self.adv_dis_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
         # HP Section
@@ -240,14 +244,14 @@ class CharacterSheetUI(tk.Toplevel):
         # Rest buttons
         btn_frame_rest = tk.Frame(combat_frame, bg=SURFACE_COLOR)
         btn_frame_rest.pack(fill=tk.X, pady=(0, 6))
-        ttk.Button(btn_frame_rest, text="Riposo Breve", command=self.short_rest).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
-        ttk.Button(btn_frame_rest, text="Riposo Lungo", command=self.long_rest, style="Primary.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
+        ttk.Button(btn_frame_rest, text=_t("sheet_short_rest"), command=self.short_rest).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
+        ttk.Button(btn_frame_rest, text=_t("sheet_long_rest"), command=self.long_rest, style="Primary.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
 
         # Death Saves
         self.death_saves_frame = tk.Frame(combat_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=6)
         self.death_saves_frame.pack(fill=tk.X, pady=(0, 6))
         
-        tk.Label(self.death_saves_frame, text="Tiri contro la Morte", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(anchor="w")
+        tk.Label(self.death_saves_frame, text=_t("sheet_death_saves"), font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(anchor="w")
         
         self.ds_succ_vars = [tk.BooleanVar() for _ in range(3)]
         self.ds_fail_vars = [tk.BooleanVar() for _ in range(3)]
@@ -255,23 +259,23 @@ class CharacterSheetUI(tk.Toplevel):
         ds_subframe = tk.Frame(self.death_saves_frame, bg=SURFACE_COLOR_ALT)
         ds_subframe.pack(pady=4)
         
-        tk.Label(ds_subframe, text="Succ:", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GREEN).grid(row=0, column=0, sticky="e", padx=(0, 2))
+        tk.Label(ds_subframe, text=f"{_t('sheet_successes')[:4]}:", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GREEN).grid(row=0, column=0, sticky="e", padx=(0, 2))
         for i in range(3):
             cb = ttk.Checkbutton(ds_subframe, variable=self.ds_succ_vars[i], state=tk.DISABLED)
             cb.grid(row=0, column=i+1, padx=1)
             
-        tk.Label(ds_subframe, text=" Fail:", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_RED).grid(row=0, column=4, sticky="e", padx=(4, 2))
+        tk.Label(ds_subframe, text=f" {_t('sheet_failures')[:4]}:", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_RED).grid(row=0, column=4, sticky="e", padx=(4, 2))
         for i in range(3):
             cb = ttk.Checkbutton(ds_subframe, variable=self.ds_fail_vars[i], state=tk.DISABLED)
             cb.grid(row=0, column=i+5, padx=1)
             
-        self.ds_roll_btn = ttk.Button(self.death_saves_frame, text="🎲 Tira TS Morte", command=self.roll_death_save, style="Gold.TButton")
+        self.ds_roll_btn = ttk.Button(self.death_saves_frame, text=f"🎲 {_t('sheet_death_saves')}", command=self.roll_death_save, style="Gold.TButton")
         self.ds_roll_btn.pack(fill=tk.X, pady=(4, 0))
         self.hp_cur_var.trace_add("write", lambda *args: self.update_death_saves_ui())
         
         death_label_container = tk.Frame(combat_frame, bg=SURFACE_COLOR)
         death_label_container.pack(fill=tk.X, pady=4)
-        self.death_label = tk.Label(death_label_container, text="☠ SEI MORTO ☠", fg=ACCENT_RED, bg=SURFACE_COLOR, font=("Georgia", 16, "bold"))
+        self.death_label = tk.Label(death_label_container, text=_t("sheet_you_are_dead"), fg=ACCENT_RED, bg=SURFACE_COLOR, font=("Georgia", 16, "bold"))
         self.death_label.grid(row=0, column=0, padx=10, pady=5)
         self.death_label.grid_remove()
 
@@ -318,7 +322,7 @@ class CharacterSheetUI(tk.Toplevel):
         ttk.Button(btn_frame, text=_t("cancel"), command=self.destroy).pack(side=tk.RIGHT, padx=5)
 
     def create_inventory_tab(self, parent_frame):
-        currency_frame = ttk.LabelFrame(parent_frame, text="Valuta")
+        currency_frame = ttk.LabelFrame(parent_frame, text=_t("sheet_currency"))
         currency_frame.pack(fill=tk.X, padx=5, pady=5)
         self.currency_vars = {}
         for coin in ["MR", "MA", "ME", "MO", "MP"]:
@@ -346,16 +350,16 @@ class CharacterSheetUI(tk.Toplevel):
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
-        ttk.Label(scrollable_frame, text="Oggetto", font=("Georgia", 9, "bold")).grid(row=0, column=0, padx=5, pady=2)
-        ttk.Label(scrollable_frame, text="Peso (lbs)", font=("Georgia", 9, "bold")).grid(row=0, column=1, padx=5, pady=2)
-        ttk.Label(scrollable_frame, text="Sintonia", font=("Georgia", 9, "bold")).grid(row=0, column=2, padx=5, pady=2)
+        ttk.Label(scrollable_frame, text=_t("sheet_item"), font=("Georgia", 9, "bold")).grid(row=0, column=0, padx=5, pady=2)
+        ttk.Label(scrollable_frame, text=_t("sheet_weight_col"), font=("Georgia", 9, "bold")).grid(row=0, column=1, padx=5, pady=2)
+        ttk.Label(scrollable_frame, text=_t("sheet_attunement"), font=("Georgia", 9, "bold")).grid(row=0, column=2, padx=5, pady=2)
         
         self.inventory_buttons = []
         self.weight_vars = []
         self.attuned_vars = []
         
         for i in range(25):
-            btn = ttk.Button(scrollable_frame, text="Vuoto", width=20, command=lambda idx=i: self.on_inventory_click(idx))
+            btn = ttk.Button(scrollable_frame, text=_t("sheet_empty_slot"), width=20, command=lambda idx=i: self.on_inventory_click(idx))
             btn.grid(row=i+1, column=0, padx=5, pady=2)
             self.inventory_buttons.append(btn)
             
@@ -374,13 +378,13 @@ class CharacterSheetUI(tk.Toplevel):
         bottom_frame = ttk.Frame(parent_frame)
         bottom_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=5)
         
-        self.weight_label = ttk.Label(bottom_frame, text="Peso Totale: 0 / 150 lbs", font=("Georgia", 10, "bold"))
+        self.weight_label = ttk.Label(bottom_frame, text=_t("sheet_total_weight", current="0.0", max="150"), font=("Georgia", 10, "bold"))
         self.weight_label.pack(pady=5)
         
-        compendium_btn = ttk.Button(bottom_frame, text="Cerca nel Compendio", command=self.open_inventory_compendium)
+        compendium_btn = ttk.Button(bottom_frame, text=_t("sheet_search_compendium"), command=self.open_inventory_compendium)
         compendium_btn.pack(side=tk.LEFT, padx=4, pady=5)
         
-        btn_give_gold = ttk.Button(bottom_frame, text="🪙 Dona Oro a Compagno", command=self.on_give_gold_click, style="Gold.TButton")
+        btn_give_gold = ttk.Button(bottom_frame, text=_t("sheet_give_gold_btn"), command=self.on_give_gold_click, style="Gold.TButton")
         btn_give_gold.pack(side=tk.RIGHT, padx=4, pady=5)
 
     def calculate_total_weight(self):
@@ -405,9 +409,15 @@ class CharacterSheetUI(tk.Toplevel):
         max_weight = strength * 15
         
         if total > max_weight:
-            self.weight_label.config(text=f"Peso Totale: {total:.1f} / {max_weight} lbs (Ingombrato!)", foreground="red")
+            self.weight_label.config(
+                text=f"{_t('sheet_total_weight', current=f'{total:.1f}', max=max_weight)} {_t('sheet_encumbered')}",
+                foreground="red"
+            )
         else:
-            self.weight_label.config(text=f"Peso Totale: {total:.1f} / {max_weight} lbs", foreground=TEXT_COLOR)
+            self.weight_label.config(
+                text=_t("sheet_total_weight", current=f"{total:.1f}", max=max_weight),
+                foreground=TEXT_COLOR
+            )
 
     def check_attunement(self, changed_idx):
         if not hasattr(self, 'attuned_vars'): return
@@ -417,7 +427,7 @@ class CharacterSheetUI(tk.Toplevel):
             self.attuned_vars[changed_idx].set(False)
 
     def build_spells_tab(self, parent_frame):
-        slots_frame = ttk.LabelFrame(parent_frame, text="Slot Incantesimo (Max / Correnti)")
+        slots_frame = ttk.LabelFrame(parent_frame, text=_t("sheet_spell_slots_header"))
         slots_frame.pack(fill=tk.X, padx=5, pady=5)
         self.slot_vars = {}
         for i in range(1, 10):
@@ -707,7 +717,7 @@ class CharacterSheetUI(tk.Toplevel):
         for i, item in enumerate(self.character.inventory_grid):
             btn = self.inventory_buttons[i]
             if item:
-                name = item.get("name", "Oggetto")
+                name = item.get("name", _t("sheet_item"))
                 qty = item.get("qty", 1)
                 short_name = name[:15] + ".." if len(name) > 15 else name
                 btn.config(text=f"{short_name} (x{qty})", style="SlotFilled.TButton")
@@ -716,7 +726,7 @@ class CharacterSheetUI(tk.Toplevel):
                 if hasattr(self, 'attuned_vars'):
                     self.attuned_vars[i].set(item.get("attuned", False))
             else:
-                btn.config(text="Vuoto", style="Slot.TButton")
+                btn.config(text=_t("sheet_empty_slot"), style="Slot.TButton")
                 if hasattr(self, 'weight_vars'):
                     self.weight_vars[i].set(0.0)
                 if hasattr(self, 'attuned_vars'):
