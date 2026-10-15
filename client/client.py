@@ -92,6 +92,7 @@ class ClientGUI:
         menubar.add_cascade(label=_t("menu_server"), menu=server_menu)
         
         library_menu = tk.Menu(menubar, tearoff=0)
+        library_menu.add_command(label=_t("tool_command_palette"), command=self.open_command_palette)
         library_menu.add_command(label=_t("menu_manuals"), command=self.open_manuals_dialog)
         library_menu.add_command(label=_t("menu_srd_compendium"), command=self.open_srd_compendium)
         menubar.add_cascade(label=_t("menu_library"), menu=library_menu)
@@ -208,6 +209,10 @@ class ClientGUI:
         self.manuals_btn = ttk.Button(left_panel, text="📖", width=3, style="Tool.TButton", command=self.open_manuals_dialog)
         self.manuals_btn.pack(pady=3)
         ToolTip(self.manuals_btn, lambda: _t("tool_manuals"))
+
+        self.cmd_palette_btn = ttk.Button(left_panel, text="🔍", width=3, style="Tool.TButton", command=self.open_command_palette)
+        self.cmd_palette_btn.pack(pady=3)
+        ToolTip(self.cmd_palette_btn, lambda: _t("tool_command_palette"))
         
         # --- COLONNA 1: MAPPA ---
         map_outer_frame = ttk.Frame(main_frame)
@@ -471,6 +476,43 @@ class ClientGUI:
         self.set_controls_state(tk.DISABLED)
         self.update_hero_summary_card()
 
+        # Scorciatoia universale Command Palette (Ctrl+K)
+        self.master.bind("<Control-k>", self.open_command_palette)
+        self.master.bind("<Control-K>", self.open_command_palette)
+
+    def open_command_palette(self, event=None):
+        try:
+            from components.ui_components import CommandPaletteDialog
+            CommandPaletteDialog(
+                self.master,
+                map_canvas=self.map_canvas,
+                on_action=self._handle_command_palette_action,
+                is_dm=False,
+                player_names=list(self.players_data.keys())
+            )
+        except Exception as e:
+            print("Error opening CommandPaletteDialog:", e)
+
+    def _handle_command_palette_action(self, action_type, payload):
+        if action_type == "roll":
+            formula = payload.strip()
+            if not formula.startswith("/"):
+                formula = f"/roll {formula}"
+            self.send_chat_message_text(formula)
+        elif action_type == "center_token":
+            if self.map_canvas and hasattr(self.map_canvas, "center_on_token"):
+                self.map_canvas.center_on_token(payload)
+        elif action_type == "action":
+            if payload == "open_sheet":
+                self.open_stats_dialog()
+            elif payload == "open_manuals":
+                self.open_manuals_dialog()
+            elif payload == "toggle_ruler":
+                self.toggle_ruler_mode()
+            elif payload == "open_aoe":
+                self.open_aoe_dialog()
+            elif payload == "center_map" and self.map_canvas:
+                self.map_canvas.center_view()
 
     def on_active_character_changed(self, event=None):
         new_active = self.active_character_var.get()
@@ -1484,6 +1526,7 @@ class ClientGUI:
         combat_active = self.combat_active
         combat_order = [p["name"] for p in all_players] if combat_active else []
         
+        round_number = getattr(self, "round_number", 1)
         self.map_canvas.update_data(
             self.local_map_data, 
             players_info, 
@@ -1493,7 +1536,8 @@ class ClientGUI:
             time_hour=time_hour,
             weather=weather,
             combat_active=combat_active,
-            combat_order=combat_order
+            combat_order=combat_order,
+            round_number=round_number
         )
 
     def handle_map_data_update(self, data):
