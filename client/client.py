@@ -1329,35 +1329,41 @@ class ClientGUI:
         win = tk.Toplevel(self.master)
         win.transient(self.master)
         win.grab_set()
-        win.title("Lancia Incantesimo / AoE")
+        win.title(_t("aoe_client_dialog_title", default="Lancia Incantesimo / AoE"))
         win.minsize(300, 250)
         apply_modern_window_style(win)
         
-        ttk.Label(win, text="Forma Area:").pack(pady=5)
+        ttk.Label(win, text=_t("aoe_shape", default="Forma Area:")).pack(pady=5)
         type_var = tk.StringVar(value="sfera")
         frame_radio = ttk.Frame(win)
         frame_radio.pack()
-        ttk.Radiobutton(frame_radio, text="Sfera/Cubo", variable=type_var, value="sfera").pack(side=tk.LEFT)
-        ttk.Radiobutton(frame_radio, text="Cono", variable=type_var, value="cono").pack(side=tk.LEFT)
-        ttk.Radiobutton(frame_radio, text="Linea", variable=type_var, value="linea").pack(side=tk.LEFT)
+        ttk.Radiobutton(frame_radio, text=_t("aoe_sphere_cube", default="Sfera/Cubo"), variable=type_var, value="sfera").pack(side=tk.LEFT)
+        ttk.Radiobutton(frame_radio, text=_t("aoe_cone", default="Cono"), variable=type_var, value="cono").pack(side=tk.LEFT)
+        ttk.Radiobutton(frame_radio, text=_t("aoe_line", default="Linea"), variable=type_var, value="linea").pack(side=tk.LEFT)
         
-        ttk.Label(win, text="Raggio / Lunghezza (esagoni):").pack(pady=5)
+        ttk.Label(win, text=_t("aoe_size_hexes", default="Raggio / Lunghezza (esagoni):")).pack(pady=5)
         size_entry = ttk.Entry(win, width=10)
         size_entry.insert(0, "3")
         size_entry.pack()
         
-        ttk.Label(win, text="Colore:").pack(pady=5)
+        ttk.Label(win, text=_t("aoe_color", default="Colore:")).pack(pady=5)
         color_var = tk.StringVar(value="red")
         color_frame = ttk.Frame(win)
         color_frame.pack()
-        colors = {"Rosso": "red", "Blu": "blue", "Verde": "green", "Giallo": "yellow", "Viola": "purple"}
-        for cname, cval in colors.items():
+        colors = [
+            (_t("color_red", default="Rosso"), "red"),
+            (_t("color_blue", default="Blu"), "blue"),
+            (_t("color_green", default="Verde"), "green"),
+            (_t("color_yellow", default="Giallo"), "yellow"),
+            (_t("color_purple", default="Viola"), "purple")
+        ]
+        for cname, cval in colors:
             ttk.Radiobutton(color_frame, text=cname, variable=color_var, value=cval).pack(side=tk.LEFT)
             
         ttk.Separator(win, orient="horizontal").pack(fill="x", pady=10)
         
         req_save_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(win, text="Richiede Tiro Salvezza (Danni Automatici)", variable=req_save_var).pack(pady=2)
+        ttk.Checkbutton(win, text=_t("aoe_save_auto_damage", default="Richiede Tiro Salvezza (Danni Automatici)"), variable=req_save_var).pack(pady=2)
         
         save_frame = ttk.Frame(win)
         save_frame.pack(pady=5)
@@ -1366,31 +1372,31 @@ class ClientGUI:
         stat_var = tk.StringVar(value="DES")
         ttk.Combobox(save_frame, textvariable=stat_var, values=["FOR", "DES", "COS", "INT", "SAG", "CAR"], width=5).grid(row=0, column=1, padx=2)
         
-        ttk.Label(save_frame, text="CD:").grid(row=0, column=2, padx=2)
+        ttk.Label(save_frame, text=_t("aoe_dc", default="CD:")).grid(row=0, column=2, padx=2)
         dc_entry = ttk.Entry(save_frame, width=5)
         dc_entry.insert(0, "15")
         dc_entry.grid(row=0, column=3, padx=2)
         
-        ttk.Label(save_frame, text="Danni:").grid(row=1, column=0, padx=2, pady=5)
+        ttk.Label(save_frame, text=_t("aoe_damage", default="Danni:")).grid(row=1, column=0, padx=2, pady=5)
         dmg_entry = ttk.Entry(save_frame, width=8)
         dmg_entry.insert(0, "8d6")
         dmg_entry.grid(row=1, column=1, padx=2, pady=5)
         
         half_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(save_frame, text="Dimezza Danni", variable=half_var).grid(row=1, column=2, columnspan=2, padx=2)
+        ttk.Checkbutton(save_frame, text=_t("aoe_half_damage", default="Dimezza Danni"), variable=half_var).grid(row=1, column=2, columnspan=2, padx=2)
 
-        ttk.Label(win, text="Consuma Slot Incantesimo:").pack(pady=(6, 2))
+        ttk.Label(win, text=_t("aoe_consume_slot", default="Consuma Slot Incantesimo:")).pack(pady=(6, 2))
         slot_frame = ttk.Frame(win)
         slot_frame.pack(pady=(0, 5))
         
-        slot_combo_values = ["0 - Nessuno / Trucchetto"]
+        slot_combo_values = [_t("aoe_no_slot", default="0 - Nessuno / Trucchetto")]
         char_slots = getattr(self.active_character, "spell_slots", {}) if self.active_character else {}
         for lvl_str in sorted([str(i) for i in range(1, 10)], key=int):
             if isinstance(char_slots, dict) and lvl_str in char_slots:
                 info = char_slots[lvl_str]
                 cur = info.get("current", 0)
                 mx = info.get("max", 0)
-                slot_combo_values.append(f"{lvl_str} - Slot Livello {lvl_str} ({cur}/{mx} disp)")
+                slot_combo_values.append(_t("aoe_slot_lvl", lvl=lvl_str, cur=cur, mx=mx, default=f"{lvl_str} - Slot Livello {lvl_str} ({cur}/{mx} disp)"))
             else:
                 slot_combo_values.append(f"{lvl_str} - Slot Livello {lvl_str}")
         
@@ -1416,10 +1422,10 @@ class ClientGUI:
                 "dmg": dmg_entry.get(), "half": half_var.get(),
                 "slot_level": sel_slot
             }
-            self.show_toast("Clicca sulla mappa per confermare il bersaglio / centro dell'area d'effetto.", title="💥 AoE", toast_type="info")
+            self.show_toast(_t("aoe_click_map_prompt", default="Clicca sulla mappa per confermare il bersaglio / centro dell'area d'effetto."), title="💥 AoE", toast_type="info")
             win.destroy()
             
-        ttk.Button(win, text="Prepara Lancio", command=submit).pack(pady=15)
+        ttk.Button(win, text=_t("btn_prepare_cast", default="Prepara Lancio"), command=submit).pack(pady=15)
 
     def request_long_rest(self):
         if not self.is_connected: return
