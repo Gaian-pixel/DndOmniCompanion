@@ -32,3 +32,7 @@ audio_library/*
 !audio_library/.gitkeep
 client_data/audio_cache/
 
+# Large PDF Manuals (Keep folder structure, ignore heavy binary PDFs)
+manuals_pdf/*
+!manuals_pdf/.gitkeep
+

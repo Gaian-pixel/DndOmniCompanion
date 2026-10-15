@@ -80,6 +80,7 @@ class ClientGUI:
         menubar.add_cascade(label="Server", menu=server_menu)
         
         library_menu = tk.Menu(menubar, tearoff=0)
+        library_menu.add_command(label="📖 Manuali di Gioco (PHB, DMG, MM)", command=self.open_manuals_dialog)
         library_menu.add_command(label="Compendio SRD", command=self.open_srd_compendium)
         menubar.add_cascade(label="Libreria", menu=library_menu)
         
@@ -114,6 +115,10 @@ class ClientGUI:
         self.measure_btn = ttk.Button(left_panel, text="📏", width=3, style="Tool.TButton")
         self.measure_btn.pack(pady=3)
         ToolTip(self.measure_btn, "Misura Distanza")
+
+        self.manuals_btn = ttk.Button(left_panel, text="📖", width=3, style="Tool.TButton", command=self.open_manuals_dialog)
+        self.manuals_btn.pack(pady=3)
+        ToolTip(self.manuals_btn, "Consulta Manuali di Gioco (PHB, DMG, MM)")
         
         # --- COLONNA 1: MAPPA ---
         map_outer_frame = ttk.Frame(main_frame)
@@ -350,6 +355,9 @@ class ClientGUI:
         
         self.travel_button = ttk.Button(controls_tab, text="🧭 Azioni di Viaggio", command=getattr(self, "open_travel_dialog", lambda: None))
         self.travel_button.pack(fill=tk.X, pady=2)
+
+        self.manuals_button = ttk.Button(controls_tab, text="📖 Consulta Manuali di Gioco", command=self.open_manuals_dialog)
+        self.manuals_button.pack(fill=tk.X, pady=2)
         
         self.combat_btn = ttk.Button(controls_tab, text="⚔️ Richiedi Combattimento", command=lambda: getattr(self, "network", None) and self.network.send({"type": "COMBAT_TOGGLE_REQUEST", "data": {}}))
         self.combat_btn.pack(fill=tk.X, pady=2)
@@ -1092,6 +1100,17 @@ class ClientGUI:
 
         ttk.Button(btn_bar, text="💾 Salva & Notifica Master", command=submit, style="Success.TButton").pack(side=tk.RIGHT, padx=4)
         ttk.Button(btn_bar, text="Annulla", command=win.destroy).pack(side=tk.RIGHT, padx=4)
+
+    def open_manuals_dialog(self, initial_query=""):
+        try:
+            from client.manuals_ui import ManualsDialog
+            def on_share(text):
+                if hasattr(self, "send_chat_message"):
+                    self.send_chat_message(text)
+            ManualsDialog(self.master, share_callback=on_share, initial_query=initial_query)
+        except Exception as e:
+            from common.messagebox import messagebox
+            messagebox.showerror("Errore", f"Impossibile aprire i manuali: {e}")
 
     def open_aoe_dialog(self):
         win = tk.Toplevel(self.master)
@@ -2048,14 +2067,43 @@ class ClientGUI:
         text_widget.config(state='disabled')
         text_widget.see(tk.END)
         
-    def send_chat_message(self, event=None):
-        text=self.entry.get().strip()
+    def send_chat_message(self, message_or_event=None):
+        if isinstance(message_or_event, str):
+            text = message_or_event.strip()
+        else:
+            text = self.entry.get().strip()
         if not text: return
+
+        # Se offline e comando /manuale o /rule, rispondi localmente
+        if any(text.lower().startswith(cmd) for cmd in ["/manuale", "/manual", "/regola", "/rule"]):
+            if not getattr(self, "is_connected", False):
+                parts = text.split(" ", 1)
+                query = parts[1].strip() if len(parts) > 1 else ""
+                from common.manuals_manager import ManualsManager
+                mgr = ManualsManager()
+                if not query:
+                    reply = "📖 [MANUALI 5e] Sintassi: `/manuale <argomento>` (es. `/manuale concentrazione`, `/manuale sfinimento`)"
+                else:
+                    m = mgr.quick_lookup(query)
+                    if m:
+                        reply = f"📖 [{m.get('page_ref', '5e')}] {m.get('title')}:\n{m.get('summary')}"
+                    else:
+                        reply = f"📖 [MANUALI] Nessuna regola trovata per '{query}'."
+                self.add_chat_message("Manuali 5e", reply)
+                if not isinstance(message_or_event, str):
+                    self.entry.delete(0, tk.END)
+                return
+
+        if not getattr(self, "is_connected", False):
+            self.show_toast("Non sei connesso al server.", toast_type="warning")
+            return
+
         try: active_tab_name=self.notebook.tab(self.notebook.select(), "text")
         except tk.TclError: return
         if active_tab_name == "Globale": self.network.send(make_chat(text))
         else: self.network.send(make_whisper(active_tab_name, text))
-        self.entry.delete(0, tk.END)
+        if not isinstance(message_or_event, str):
+            self.entry.delete(0, tk.END)
 
     def roll_dice_dialog(self):
         formula=simpledialog.askstring("Tira Dadi", "Inserisci formula (es: 2d6+1):")
