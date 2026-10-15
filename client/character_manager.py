@@ -46,6 +46,7 @@ class Character:
         
         # Testo libero / Griglia
         self.inventory_grid = [None] * 25 # Griglia 5x5
+        self.inventory = []
         self.features = ""
         self.spell_slots = {str(i): {"max": 0, "current": 0} for i in range(1, 10)}
         self.spellbook = []

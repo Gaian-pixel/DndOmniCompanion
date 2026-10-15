@@ -2,7 +2,12 @@ import tkinter as tk
 from common.messagebox import messagebox
 from tkinter import ttk, simpledialog
 import threading
-import requests
+try:
+    import requests
+except ImportError:
+    requests = None
+import urllib.request
+import json
 from common.theme import apply_modern_window_style
 from server.compendium_ui import CompendiumDialog
 
@@ -138,12 +143,21 @@ class LevelUpDialog(tk.Toplevel):
         
         def _fetch():
             try:
-                resp = requests.get(url, timeout=5)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    self.master.after(0, lambda: self.on_api_success(data))
+                if requests:
+                    resp = requests.get(url, timeout=5)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        self.master.after(0, lambda: self.on_api_success(data))
+                    else:
+                        self.master.after(0, lambda: self.on_api_error(f"Errore {resp.status_code}"))
                 else:
-                    self.master.after(0, lambda: self.on_api_error(f"Errore {resp.status_code}"))
+                    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                    with urllib.request.urlopen(req, timeout=5) as response:
+                        if response.status == 200:
+                            data = json.loads(response.read().decode('utf-8'))
+                            self.master.after(0, lambda: self.on_api_success(data))
+                        else:
+                            self.master.after(0, lambda: self.on_api_error(f"Errore {response.status}"))
             except Exception as e:
                 self.master.after(0, lambda: self.on_api_error(str(e)))
                 

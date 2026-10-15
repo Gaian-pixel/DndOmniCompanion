@@ -171,27 +171,49 @@ def handle_chat(data, player, game_state):
         broadcast(game_state, make_chat_broadcast("Manuali 5e", reply))
         return
         
+    # Sussurri privati (/w, /whisper, /sussurra)
+    if text.startswith("/w ") or text.startswith("/whisper ") or text.startswith("/sussurra "):
+        parts = text.split(" ", 2)
+        if len(parts) >= 3:
+            target_name = parts[1].strip()
+            whisper_text = parts[2].strip()
+            handle_whisper({"to": target_name, "text": whisper_text}, player, game_state)
+            return
+        else:
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply("Sintassi sussurro: `/w <nome> <messaggio>`"))
+            return
+
     game_state.log_dm_message(f"[{player.name}]: {text}")
     broadcast(game_state, make_chat_broadcast(player.name, text))
 
 def handle_whisper(data, player, game_state):
-    to_name = data.get("to"); text = data.get("text")
-    if to_name == player.name:
-        from common.protocol import make_error_reply
-        from common.network_utils import send_message
-        send_message(player.conn, make_error_reply("Non puoi sussurrare a te stesso."))
+    from common.network_utils import send_message, broadcast
+    from common.protocol import make_chat_broadcast, make_error_reply
+    to_name = data.get("to")
+    text = data.get("text")
+    if not to_name or not text:
         return
-    if to_name.lower() == "dm":
+    if to_name.lower() == player.name.lower():
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Non puoi sussurrare a te stesso."))
+        return
+    if to_name.lower() == "dm" or to_name.lower() == "master":
         game_state.gui_queue.put({"type": "PRIVATE_MESSAGE_RECEIVED", "payload": {"from": player.name, "text": text}})
-        send_message(player.conn, make_chat_broadcast(f"Tu -> DM", text, is_whisper=True))
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_chat_broadcast(f"Tu -> DM", text, is_whisper=True))
+        game_state.log_dm_message(f"[SUSSURRO A DM] [{player.name}]: {text}")
         return
     target_player = game_state.find_player(to_name)
     if target_player:
-        send_message(target_player.conn, make_chat_broadcast(player.name, text, is_whisper=True))
-        send_message(player.conn, make_chat_broadcast(f"Tu -> {to_name}", text, is_whisper=True))
-        game_state.log_dm_message(f"[{player.name} -> {to_name}]: {text}")
+        if getattr(target_player, "conn", None):
+            send_message(target_player.conn, make_chat_broadcast(player.name, text, is_whisper=True))
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_chat_broadcast(f"Tu -> {target_player.name}", text, is_whisper=True))
+        game_state.log_dm_message(f"[SUSSURRO] [{player.name} -> {target_player.name}]: {text}")
     else:
-        send_message(player.conn, make_error_reply(f"Giocatore '{to_name}' non trovato."))
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply(f"Giocatore '{to_name}' non trovato."))
 
 def handle_roll_request(data, player, game_state):
     formula = data.get("formula"); reason = data.get("reason", "")

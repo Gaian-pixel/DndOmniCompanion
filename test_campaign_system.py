@@ -18,6 +18,7 @@ import unittest
 import tkinter as tk
 
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+os.environ["DND_MOCK_AUDIO"] = "1"
 
 from common.campaign import Campaign, slugify, get_available_campaigns, create_sample_starter_campaign
 from common.game_state import GameState, Player

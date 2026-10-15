@@ -27,6 +27,12 @@ class Player:
         self.aura_radius = 0
         self.aura_color = "yellow"
         self.vision_radius = 6
+        self.light_radius = 0
+        self.light_color = "#FFA500"
+        self.legendary_resistances_max = 0
+        self.legendary_resistances_current = 0
+        self.legendary_actions_max = 0
+        self.legendary_actions_current = 0
         self.is_party_member = False
         self.owner = None
 
@@ -52,9 +58,47 @@ class Player:
             "aura_radius": getattr(self, "aura_radius", 0),
             "aura_color": getattr(self, "aura_color", "yellow"),
             "vision_radius": getattr(self, "vision_radius", 6),
+            "light_radius": getattr(self, "light_radius", 0),
+            "light_color": getattr(self, "light_color", "#FFA500"),
+            "legendary_resistances_max": getattr(self, "legendary_resistances_max", 0),
+            "legendary_resistances_current": getattr(self, "legendary_resistances_current", 0),
+            "legendary_actions_max": getattr(self, "legendary_actions_max", 0),
+            "legendary_actions_current": getattr(self, "legendary_actions_current", 0),
             "avatar_b64": self.full_sheet.get("avatar_b64") if self.full_sheet else None,
             "is_party_member": getattr(self, "is_party_member", False)
         }
+
+    @classmethod
+    def from_dict(cls, data):
+        p = cls(data.get("name", "Unknown"))
+        p.position = data.get("position", [0, 0])
+        p.hp = data.get("hp", 10)
+        p.max_hp = data.get("max_hp", 10)
+        p.temp_hp = data.get("temp_hp", 0)
+        p.initiative = data.get("initiative", 0)
+        p.full_sheet = data.get("full_sheet", None)
+        p.conditions = data.get("conditions", [])
+        p.condition_durations = data.get("condition_durations", {})
+        p.damage_resistances = data.get("damage_resistances", [])
+        p.damage_immunities = data.get("damage_immunities", [])
+        p.damage_vulnerabilities = data.get("damage_vulnerabilities", [])
+        p.exhaustion_level = data.get("exhaustion_level", 0)
+        p.travel_role = data.get("travel_role", "Nessuna")
+        p.marching_order = data.get("marching_order", "Centro")
+        p.is_hidden = data.get("is_hidden", False)
+        p.size = data.get("size", 1)
+        p.aura_radius = data.get("aura_radius", 0)
+        p.aura_color = data.get("aura_color", "yellow")
+        p.vision_radius = data.get("vision_radius", 6)
+        p.light_radius = data.get("light_radius", 0)
+        p.light_color = data.get("light_color", "#FFA500")
+        p.legendary_resistances_max = data.get("legendary_resistances_max", 0)
+        p.legendary_resistances_current = data.get("legendary_resistances_current", 0)
+        p.legendary_actions_max = data.get("legendary_actions_max", 0)
+        p.legendary_actions_current = data.get("legendary_actions_current", 0)
+        p.is_party_member = data.get("is_party_member", False)
+        p.owner = data.get("owner", None)
+        return p
 
 class GameState:
     def __init__(self, gui_queue):
@@ -321,6 +365,12 @@ class GameState:
                     existing.is_party_member = p_data.get("is_party_member", False)
                     existing.travel_role = p_data.get("travel_role", "Nessuna")
                     existing.marching_order = p_data.get("marching_order", "Centro")
+                    existing.light_radius = p_data.get("light_radius", 0)
+                    existing.light_color = p_data.get("light_color", "#FFA500")
+                    existing.legendary_resistances_max = p_data.get("legendary_resistances_max", 0)
+                    existing.legendary_resistances_current = p_data.get("legendary_resistances_current", 0)
+                    existing.legendary_actions_max = p_data.get("legendary_actions_max", 0)
+                    existing.legendary_actions_current = p_data.get("legendary_actions_current", 0)
                     existing.owner = p_data.get("owner", None)
                     loaded_players.append(existing)
                 else:
@@ -339,6 +389,12 @@ class GameState:
                     p.vision_radius = p_data.get("vision_radius", 6)
                     p.aura_radius = p_data.get("aura_radius", 0)
                     p.aura_color = p_data.get("aura_color", "yellow")
+                    p.light_radius = p_data.get("light_radius", 0)
+                    p.light_color = p_data.get("light_color", "#FFA500")
+                    p.legendary_resistances_max = p_data.get("legendary_resistances_max", 0)
+                    p.legendary_resistances_current = p_data.get("legendary_resistances_current", 0)
+                    p.legendary_actions_max = p_data.get("legendary_actions_max", 0)
+                    p.legendary_actions_current = p_data.get("legendary_actions_current", 0)
                     p.is_party_member = p_data.get("is_party_member", False)
                     p.travel_role = p_data.get("travel_role", "Nessuna")
                     p.marching_order = p_data.get("marching_order", "Centro")
