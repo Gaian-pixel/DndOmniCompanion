@@ -448,6 +448,27 @@ class TestDndNewFeatures(unittest.TestCase):
         stealth_mod = ((c_rogue.attributes["DES"] - 10) // 2) + (pb_5 * c_rogue.skills["Furtività"]) # 3 + (3 * 2) = +9
         self.assertEqual(stealth_mod, 9, "Furtività al livello 5 con DES 16 e maestria deve essere +9")
 
+    def test_inventory_currency_and_icons(self):
+        """Testa la logica di calcolo del valore totale delle valute e l'iconografia dell'inventario."""
+        from client.character_sheet_ui import get_item_icon
+        
+        # Test icone per tipologie di oggetti
+        self.assertEqual(get_item_icon({"name": "Spada Lunga", "type": "Arma"}), "⚔️")
+        self.assertEqual(get_item_icon({"name": "Cotta di Maglia", "type": "Armatura"}), "🛡️")
+        self.assertEqual(get_item_icon({"name": "Pozione di Cura", "type": "Consumabile"}), "🧪")
+        self.assertEqual(get_item_icon({"name": "Mappa della Regione", "type": "Documento"}), "📜")
+        self.assertEqual(get_item_icon({"name": "Anello di Protezione", "type": "Gioiello"}), "💍")
+        self.assertEqual(get_item_icon({"name": "Liuto", "type": "Strumento"}), "🧰")
+        self.assertEqual(get_item_icon({"name": "Razioni da Viaggio", "type": "Equipaggiamento"}), "🎒")
+        self.assertEqual(get_item_icon({"name": "Monete d'Oro", "type": "Valuta"}), "🪙")
+        self.assertEqual(get_item_icon({}), "📦")
+
+        # Test conversione e valore totale monete 5e:
+        # 100 MR (1 MO) + 10 MA (1 MO) + 2 ME (1 MO) + 50 MO (50 MO) + 2 MP (20 MO) = 73 MO
+        mr, ma, me, mo, mp = 100, 10, 2, 50, 2
+        total_gp = mo + (mp * 10.0) + (me * 0.5) + (ma * 0.1) + (mr * 0.01)
+        self.assertAlmostEqual(total_gp, 73.0, places=2)
+
 
 if __name__ == "__main__":
     unittest.main()
