@@ -13,13 +13,14 @@ from common.theme import (
     apply_modern_window_style
 )
 from common.i18n import _t, get_language, translate_condition, translate_ability, translate_skill
+from components.ui_components import ToolTip
 
 
 class CharacterSheetUI(tk.Toplevel):
     def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, give_gold_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None, custom_spell_request_callback=None, is_connected=False):
         super().__init__(master)
         self.title(f"{_t('sheet_title')} - {character.name}")
-        self.minsize(600, 700)
+        self.minsize(700, 700)
         apply_modern_window_style(self)
         self.character = character
         self.manager = manager
@@ -62,6 +63,7 @@ class CharacterSheetUI(tk.Toplevel):
 
         tk.Label(header_frame, text=_t("sheet_level"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=1, column=2, sticky="e", padx=(8, 4))
         self.level_var = tk.IntVar()
+        self.level_var.trace_add("write", lambda *args: self.update_skill_modifiers() if hasattr(self, "update_skill_modifiers") else None)
         ttk.Entry(header_frame, textvariable=self.level_var, width=4, state="readonly", justify="center").grid(row=1, column=3, padx=4, pady=3, sticky="w")
         
         tk.Label(header_frame, text=_t("sheet_exp"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=1, column=4, sticky="e", padx=(8, 4))
@@ -123,6 +125,8 @@ class CharacterSheetUI(tk.Toplevel):
                         lbl.config(text=f"+{mod}" if mod >= 0 else str(mod))
                     except (ValueError, tk.TclError):
                         lbl.config(text="+0")
+                    if hasattr(self, "update_skill_modifiers"):
+                        self.update_skill_modifiers()
                 return _update
             var.trace_add("write", make_mod_updater())
 
@@ -132,6 +136,7 @@ class CharacterSheetUI(tk.Toplevel):
         tk.Label(skills_frame, text=_t("sheet_skills"), font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(pady=(2, 6))
         
         self.skill_vars = {}
+        self.skill_mod_labels = {}
         self.skill_map = {
             "Acrobazia": "DES", "Addestrare Animali": "SAG", "Arcano": "INT", "Atletica": "FOR",
             "Furtività": "DES", "Indagare": "INT", "Inganno": "CAR", "Intimidire": "CAR",
@@ -140,7 +145,7 @@ class CharacterSheetUI(tk.Toplevel):
             "Religione": "INT", "Sopravvivenza": "SAG", "Storia": "INT"
         }
         
-        skills_canvas = tk.Canvas(skills_frame, width=220, bg=SURFACE_COLOR, highlightthickness=0)
+        skills_canvas = tk.Canvas(skills_frame, width=280, bg=SURFACE_COLOR, highlightthickness=0)
         skills_scrollbar = ttk.Scrollbar(skills_frame, orient="vertical", command=skills_canvas.yview)
         skills_inner_frame = tk.Frame(skills_canvas, bg=SURFACE_COLOR)
         
@@ -157,15 +162,42 @@ class CharacterSheetUI(tk.Toplevel):
         skills_canvas.pack(side="left", fill="both", expand=True)
         skills_scrollbar.pack(side="right", fill="y")
         
-        for i, (skill, stat) in enumerate(self.skill_map.items()):
+        # Intestazione colonne
+        hdr_prof = tk.Label(skills_inner_frame, text=_t("col_skill_prof"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
+        hdr_prof.grid(row=0, column=0, padx=2, pady=(0, 4), sticky="w")
+        ToolTip(hdr_prof, _t("tooltip_skill_prof"))
+        
+        hdr_name = tk.Label(skills_inner_frame, text=_t("col_skill_name"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
+        hdr_name.grid(row=0, column=1, padx=4, pady=(0, 4), sticky="w")
+        
+        hdr_bonus = tk.Label(skills_inner_frame, text=_t("col_skill_bonus"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
+        hdr_bonus.grid(row=0, column=2, padx=4, pady=(0, 4), sticky="e")
+        ToolTip(hdr_bonus, _t("tooltip_skill_bonus"))
+        
+        hdr_roll = tk.Label(skills_inner_frame, text=_t("col_skill_roll"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
+        hdr_roll.grid(row=0, column=3, padx=2, pady=(0, 4))
+        
+        for i, (skill, stat) in enumerate(self.skill_map.items(), start=1):
+            var = tk.IntVar(value=0)
+            self.skill_vars[skill] = var
+            var.trace_add("write", lambda *args: self.update_skill_modifiers() if hasattr(self, "update_skill_modifiers") else None)
+            
+            combo = ttk.Combobox(skills_inner_frame, textvariable=var, values=[0, 1, 2], width=2, state="readonly")
+            combo.grid(row=i, column=0, padx=2, pady=2, sticky="w")
+            ToolTip(combo, _t("tooltip_skill_combo"))
+
             skill_text = translate_skill(skill)
             stat_text = translate_ability(stat)
-            tk.Label(skills_inner_frame, text=f"{skill_text} ({stat_text})", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_COLOR).grid(row=i, column=0, sticky="w", pady=2)
-            var = tk.IntVar()
-            self.skill_vars[skill] = var
-            combo = ttk.Combobox(skills_inner_frame, textvariable=var, values=[0, 1, 2], width=2, state="readonly")
-            combo.grid(row=i, column=1, padx=4)
-            ttk.Button(skills_inner_frame, text="🎲", width=2, command=lambda s=skill, st=stat: self.roll_skill(s, st)).grid(row=i, column=2, padx=2)
+            name_lbl = tk.Label(skills_inner_frame, text=f"{skill_text} ({stat_text})", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_COLOR)
+            name_lbl.grid(row=i, column=1, sticky="w", padx=4, pady=2)
+            
+            mod_lbl = tk.Label(skills_inner_frame, text="+0", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR, width=4, anchor="e")
+            mod_lbl.grid(row=i, column=2, padx=4, pady=2, sticky="e")
+            self.skill_mod_labels[skill] = mod_lbl
+            ToolTip(mod_lbl, _t("tooltip_skill_bonus"))
+
+            roll_btn = ttk.Button(skills_inner_frame, text="🎲", width=2, command=lambda s=skill, st=stat: self.roll_skill(s, st))
+            roll_btn.grid(row=i, column=3, padx=2, pady=2)
 
         # Combattimento (Centro)
         combat_frame = tk.Frame(body_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=6)
@@ -648,6 +680,14 @@ class CharacterSheetUI(tk.Toplevel):
             self.attr_vars[k].set(v)
             
         if hasattr(self.character, "skills"):
+            total_prof = sum(self.character.skills.values()) if self.character.skills else 0
+            if total_prof == 0 and getattr(self.character, "char_class", ""):
+                from common.starter_equipment import CLASS_DEFAULT_SKILLS
+                char_class = self.character.char_class
+                if char_class in CLASS_DEFAULT_SKILLS:
+                    for sk in CLASS_DEFAULT_SKILLS[char_class]:
+                        if sk in self.character.skills:
+                            self.character.skills[sk] = 2 if char_class in ["Ladro", "Rogue"] and sk in ["Furtività", "Prestidigitazione"] else 1
             for k, v in self.character.skills.items():
                 if k in self.skill_vars:
                     self.skill_vars[k].set(v)
@@ -691,6 +731,46 @@ class CharacterSheetUI(tk.Toplevel):
         self.refresh_weapons_list()
         self.update_inspiration_ui()
         self.update_exp_ui()
+        self.update_skill_modifiers()
+
+    def update_skill_modifiers(self):
+        """Calcola e aggiorna dinamicamente i bonus calcolati (+X / -X) per tutte le abilità."""
+        level = 1
+        try:
+            level = int(self.level_var.get())
+        except (ValueError, AttributeError, tk.TclError):
+            if hasattr(self, "character") and getattr(self.character, "level", None):
+                level = self.character.level
+        level = max(1, level)
+        prof_bonus = ((level - 1) // 4) + 2
+
+        for skill, stat in self.skill_map.items():
+            try:
+                stat_val = int(self.attr_vars[stat].get())
+            except (KeyError, ValueError, tk.TclError):
+                stat_val = 10
+            stat_mod = (stat_val - 10) // 2
+
+            prof_level = 0
+            if skill in self.skill_vars:
+                try:
+                    prof_level = int(self.skill_vars[skill].get())
+                except (ValueError, tk.TclError):
+                    prof_level = 0
+
+            total_mod = stat_mod + (prof_bonus * prof_level)
+            mod_str = f"+{total_mod}" if total_mod >= 0 else str(total_mod)
+
+            lbl = self.skill_mod_labels.get(skill)
+            if lbl:
+                fg_color = TEXT_COLOR
+                if prof_level == 2:
+                    fg_color = ACCENT_GREEN
+                elif prof_level == 1:
+                    fg_color = ACCENT_GOLD
+                elif total_mod < 0:
+                    fg_color = ACCENT_RED
+                lbl.config(text=mod_str, fg=fg_color)
 
     def update_exp_ui(self):
         exp = getattr(self.character, "exp", 0)
@@ -910,13 +990,13 @@ class CharacterSheetUI(tk.Toplevel):
             
             formula = f"1d20{mod_str}"
             adv_state = self.adv_dis_var.get()
-            if adv_state == "Vantaggio":
+            if adv_state in ("Vantaggio", _t("adv_advantage")):
                 formula += " adv"
-            elif adv_state == "Svantaggio":
+            elif adv_state in ("Svantaggio", _t("adv_disadvantage")):
                 formula += " dis"
                 
             self.roll_callback(formula, f"Check {stat_name}")
-        except ValueError:
+        except (ValueError, tk.TclError):
             pass
 
     def roll_skill(self, skill_name, stat_name):
@@ -926,20 +1006,25 @@ class CharacterSheetUI(tk.Toplevel):
             stat_mod = (stat_val - 10) // 2
             
             prof_level = self.skill_vars[skill_name].get()
-            prof_bonus = getattr(self.character, "proficiency_bonus", 2)
+            level = 1
+            try:
+                level = int(self.level_var.get())
+            except (ValueError, AttributeError, tk.TclError):
+                level = getattr(self.character, "level", 1) or 1
+            prof_bonus = getattr(self.character, "proficiency_bonus", ((max(1, level) - 1) // 4) + 2)
             
             total_mod = stat_mod + (prof_bonus * prof_level)
             mod_str = f"+{total_mod}" if total_mod >= 0 else str(total_mod)
             
             formula = f"1d20{mod_str}"
             adv_state = self.adv_dis_var.get()
-            if adv_state == "Vantaggio":
+            if adv_state in ("Vantaggio", _t("adv_advantage")):
                 formula += " adv"
-            elif adv_state == "Svantaggio":
+            elif adv_state in ("Svantaggio", _t("adv_disadvantage")):
                 formula += " dis"
                 
             self.roll_callback(formula, f"Check {skill_name}")
-        except ValueError:
+        except (ValueError, tk.TclError):
             pass
 
     def roll_initiative(self):
@@ -951,13 +1036,13 @@ class CharacterSheetUI(tk.Toplevel):
             
             formula = f"1d20{mod_str}"
             adv_state = self.adv_dis_var.get()
-            if adv_state == "Vantaggio":
+            if adv_state in ("Vantaggio", _t("adv_advantage")):
                 formula += " adv"
-            elif adv_state == "Svantaggio":
+            elif adv_state in ("Svantaggio", _t("adv_disadvantage")):
                 formula += " dis"
 
             self.roll_callback(formula, "Iniziativa")
-        except ValueError:
+        except (ValueError, tk.TclError):
             pass
 
     def short_rest(self):
