@@ -8,10 +8,11 @@ import math
 def handle_move_request(data, player, game_state):
     from common.network_utils import send_message, broadcast
     conds = getattr(player, "conditions", [])
-    if is_condition_active(conds, "Afferrato") or is_condition_active(conds, "Privo di Sensi") or is_condition_active(conds, "Incapacitato") or getattr(player, "exhaustion_level", 0) >= 5:
+    blocking = ["Afferrato", "Privo di Sensi", "Incapacitato", "Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto"]
+    if any(is_condition_active(conds, c) for c in blocking) or getattr(player, "exhaustion_level", 0) >= 5 or getattr(player, "hp", 1) <= 0:
         from common.protocol import make_error_reply
         if player.conn:
-            send_message(player.conn, make_error_reply("La tua velocità è 0. Non puoi muoverti."))
+            send_message(player.conn, make_error_reply("La tua velocità è 0 o sei incapacitato/morto. Non puoi muoverti."))
         return
 
     to_pos = data.get("to")
@@ -36,11 +37,34 @@ def handle_move_request(data, player, game_state):
             return
             
         in_combat = getattr(player, "in_combat", False) or getattr(game_state, "combat_active", False)
+        if in_combat and not is_dm and getattr(game_state, "strict_turn_lock", False):
+            curr_turn = game_state.get_current_turn_player()
+            if curr_turn and curr_turn.name != player.name:
+                from common.protocol import make_error_reply
+                if player.conn:
+                    send_message(player.conn, make_error_reply(f"Non è il tuo turno in combattimento! È il turno di {curr_turn.name}."))
+                return
+
         if in_combat and hasattr(player, "position") and player.position:
             q1, r1 = player.position[0], player.position[1]
             q2, r2 = to_pos[0], to_pos[1]
             dist = max(abs(q1 - q2), abs(q1 + r1 - q2 - r2), abs(r1 - r2))
             speed = getattr(player, "speed", 30)
+
+            # Regola D&D 5e Ingombro (Encumbrance)
+            sheet = getattr(player, "full_sheet", None)
+            if sheet and isinstance(sheet.get("attributes"), dict):
+                try:
+                    str_val = int(sheet["attributes"].get("FOR", 10))
+                    inv_grid = sheet.get("inventory_grid", [])
+                    tot_w = sum(float(it.get("weight", 0.0) or 0.0) * int(it.get("qty", 1) or 1) for it in inv_grid if it and isinstance(it, dict))
+                    if tot_w > (str_val * 15):
+                        speed = max(5, speed - 20)
+                    elif tot_w > (str_val * 10):
+                        speed = max(10, speed - 10)
+                except (ValueError, TypeError):
+                    pass
+
             exh = getattr(player, "exhaustion_level", 0)
             if exh >= 2:
                 speed = speed // 2
@@ -48,16 +72,21 @@ def handle_move_request(data, player, game_state):
             eff_speed = speed * 2 if is_dashed else speed
             max_hexes = eff_speed // 5
             cost = 2 if is_condition_active(conds, "Prono") else 1
-            if dist * cost > max_hexes:
+            
+            spent = getattr(player, "movement_spent_this_turn", 0)
+            req_hexes = dist * cost
+            if (spent + req_hexes) > max_hexes:
                 from common.network_utils import send_message
                 from common.protocol import make_error_reply
                 if getattr(player, "conn", None):
+                    rem = max(0, max_hexes - spent)
                     if cost == 2:
-                        send_message(player.conn, make_error_reply(f"Movimento non consentito: sei Prono, la distanza massima è {max_hexes // 2} esagoni."))
+                        send_message(player.conn, make_error_reply(f"Movimento non consentito: sei Prono. Ti restano {rem // 2} esagoni ({rem * 5}ft)."))
                     else:
                         hint = " (Puoi usare l'Azione di Scatto /dash per raddoppiare la velocità!)" if not is_dashed else ""
-                        send_message(player.conn, make_error_reply(f"Movimento non consentito: la distanza ({dist * 5}ft) supera la tua velocità di {eff_speed}ft.{hint}"))
+                        send_message(player.conn, make_error_reply(f"Movimento non consentito: la distanza supera la velocità rimasta per questo turno ({rem * 5}ft rimasti su {eff_speed}ft).{hint}"))
                 return
+            player.movement_spent_this_turn = spent + req_hexes
 
         # Rilevamento Attacco d'Opportunità (Opportunity Attack)
         from_pos = list(player.position) if hasattr(player, "position") and player.position else None

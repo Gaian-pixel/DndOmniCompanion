@@ -35,6 +35,8 @@ class Player:
         self.legendary_actions_current = 0
         self.is_party_member = False
         self.owner = None
+        self.movement_spent_this_turn = 0
+        self.has_acted_this_turn = False
 
     def to_dict(self):
         return {
@@ -146,12 +148,20 @@ class GameState:
             if participant_names is not None:
                 for p in self.players:
                     p.in_combat = (p.name in participant_names)
+                    p.movement_spent_this_turn = 0
+                    p.has_acted_this_turn = False
             else:
                 for p in self.players:
                     p.in_combat = True
+                    p.movement_spent_this_turn = 0
+                    p.has_acted_this_turn = False
                     
             # Ordina i giocatori in combattimento per iniziativa decrescente, e sposta gli altri in fondo
             self.players.sort(key=lambda p: (getattr(p, 'in_combat', True), p.initiative), reverse=True)
+            active = self.get_current_turn_player()
+            if active:
+                active.movement_spent_this_turn = 0
+                active.has_acted_this_turn = False
         self._trigger_gui_update()
 
     def end_combat(self):
@@ -159,6 +169,8 @@ class GameState:
             self.combat_active = False
             for p in self.players:
                 p.in_combat = False
+                p.movement_spent_this_turn = 0
+                p.has_acted_this_turn = False
         self._trigger_gui_update()
         
     def _get_combatants(self):
@@ -172,6 +184,10 @@ class GameState:
             if self.turn_index >= len(combatants):
                 self.turn_index = 0
                 self.round_number += 1
+            if 0 <= self.turn_index < len(combatants):
+                active = combatants[self.turn_index]
+                active.movement_spent_this_turn = 0
+                active.has_acted_this_turn = False
         self._trigger_gui_update()
 
     def prev_turn(self):
