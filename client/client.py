@@ -2482,6 +2482,9 @@ class ClientGUI:
     def do_trade(self, item, target_name):
         if self.is_connected:
             self.network.send(make_give_item_request(target_name, item))
+            if self.active_character:
+                from common.protocol import make_update_full_sheet_request
+                self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
             self.log_to_chat(f"Hai inviato l'oggetto '{item.get('name')}' a {target_name}.", "Globale", sender="Sistema", color="#00B0F4")
 
     def get_player_names(self):

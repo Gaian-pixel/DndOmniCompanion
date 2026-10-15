@@ -9,6 +9,21 @@ def handle_create_aoe_request(data, player, game_state):
     if not aoe_data:
         return
         
+    aoe_data["caster"] = player.name
+    # Regola D&D 5e: Gestione Concentrazione per AoE
+    if aoe_data.get("concentration", False):
+        conds = getattr(player, "conditions", [])
+        if "Concentrazione" not in conds:
+            conds.append("Concentrazione")
+            broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions, getattr(player, "temp_hp", 0)))
+        
+        # Un incantatore può mantenere una sola concentrazione alla volta: rimuovi AoE precedenti
+        if hasattr(game_state, "active_aoes"):
+            for old in list(game_state.active_aoes):
+                if old.get("caster") == player.name and old.get("concentration"):
+                    game_state.active_aoes.remove(old)
+                    game_state.log_dm_message(f"[CONCENTRAZIONE] La concentrazione di {player.name} sulla precedente AoE si spezza a favore della nuova.")
+
     game_state.add_aoe(aoe_data)
     broadcast(game_state, make_game_state(game_state.get_state_dict()))
     

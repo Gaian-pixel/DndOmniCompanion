@@ -320,6 +320,20 @@ def handle_attack_request(data, player, game_state):
     
     target_player = game_state.find_player(target_name)
     if not target_player: return
+
+    p_cond = getattr(player, "conditions", [])
+    blocking = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto"]
+    if any(is_condition_active(p_cond, c) for c in blocking) or getattr(player, "hp", 1) <= 0:
+        if player and getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Non puoi attaccare mentre sei Incosciente, Paralizzato o a 0 HP!"))
+        return
+
+    if getattr(game_state, "combat_active", False) and getattr(game_state, "strict_turn_lock", False):
+        curr_turn = game_state.get_current_turn_player()
+        if curr_turn and curr_turn.name != player.name:
+            if player and getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply(f"Non è il tuo turno in combattimento! È il turno di {curr_turn.name}."))
+            return
     
     try:
         from common.dice import roll_dice
@@ -327,7 +341,6 @@ def handle_attack_request(data, player, game_state):
         adv_reasons = []
         dis_reasons = []
         
-        p_cond = getattr(player, "conditions", [])
         t_cond = getattr(target_player, "conditions", [])
         
         # Vantaggio per l'attaccante
@@ -530,10 +543,19 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
         if source_name == "Sistema (Concentrazione)":
             if "Concentrazione" in getattr(target_player, "conditions", []):
                 target_player.conditions.remove("Concentrazione")
+                # Rimuovi AoE a concentrazione mantenute da questo personaggio
+                if game_state and hasattr(game_state, "active_aoes"):
+                    removed_aoes = False
+                    for aoe in list(game_state.active_aoes):
+                        if aoe.get("caster") == target_player.name and aoe.get("concentration"):
+                            game_state.active_aoes.remove(aoe)
+                            removed_aoes = True
+                    if removed_aoes:
+                        broadcast(game_state, make_combat_state_update_broadcast(game_state.combat_active, game_state.turn_index, game_state.round_number, game_state.active_aoes))
                 broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
                 game_state._trigger_gui_update()
                 
-                break_msg = f"La concentrazione di {target_player.name} si spezza!"
+                break_msg = f"La concentrazione di {target_player.name} si spezza! L'effetto dell'incantesimo svanisce."
                 broadcast(game_state, make_chat_broadcast("Sistema", break_msg))
                 game_state.log_dm_message(f"[TS] {break_msg}")
         

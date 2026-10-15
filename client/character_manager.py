@@ -92,6 +92,16 @@ class Character:
             self.class_resources = {}
         self.class_resources["second_wind"] = True
         self.class_resources["action_surge"] = True
+        
+        # Regola D&D 5e: I Warlock (Magia del Patto) ricaricano tutti gli slot incantesimo con un Riposo Breve!
+        c_class = str(getattr(self, "char_class", "")).strip().lower()
+        if "warlock" in c_class:
+            for lvl, slot in getattr(self, "spell_slots", {}).items():
+                if isinstance(slot, dict) and "current" in slot:
+                    slot["current"] = slot.get("max", 0)
+                elif isinstance(slot, list) and len(slot) >= 2:
+                    slot[0] = slot[1]
+                    
         return recovered
 
     def long_rest(self):

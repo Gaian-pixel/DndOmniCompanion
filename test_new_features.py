@@ -556,6 +556,99 @@ class TestDndNewFeatures(unittest.TestCase):
         handle_update_full_sheet_request({"character": legit_spend}, p, self.game_state)
         self.assertEqual(p.full_sheet["currency"]["MO"], 30, "La spesa (decremento) di monete deve essere consentita")
 
+    def test_combat_economy_and_rules_consistency(self):
+        """Testa le correzioni concettuali: blocco incapacitati, budget movimento, Warlock rest, e compravendita grid."""
+        from server.rules.movement import handle_move_request
+        from server.rules.combat import handle_attack_request
+        from server.rules.character import handle_targeted_action
+        from server.rules.inventory import handle_buy_item_request, handle_give_gold_request
+        from server.rules.map_interaction import handle_create_aoe_request
+        from client.character_manager import Character
+
+        # 1. Personaggio Incosciente/Morto non può muoversi né attaccare
+        downed = Player(name="EroeCaduto")
+        downed.hp = 0
+        downed.max_hp = 20
+        downed.conditions = ["Incosciente", "Prono"]
+        downed.position = [0, 0]
+        self.game_state.players.append(downed)
+
+        handle_move_request({"to": [1, 0]}, downed, self.game_state)
+        self.assertEqual(downed.position, [0, 0], "Un PG incosciente non deve potersi muovere")
+
+        target = Player(name="Nemico")
+        target.hp = 20
+        target.max_hp = 20
+        target.position = [1, 0]
+        self.game_state.players.append(target)
+
+        handle_attack_request({"target_name": "Nemico", "weapon_name": "Pugno", "hit_bonus": 2, "damage_formula": "1d4"}, downed, self.game_state)
+        self.assertEqual(target.hp, 20, "Un PG incosciente non deve poter attaccare")
+
+        handle_targeted_action({"target_name": "Nemico", "action_type": "danno", "formula": "10"}, downed, self.game_state)
+        self.assertEqual(target.hp, 20, "Un PG incosciente non deve poter eseguire targeted actions")
+
+        # 2. Budget di movimento cumulativo in combattimento
+        hero = Player(name="Combattente")
+        hero.hp = 30
+        hero.speed = 30 # 6 esagoni
+        hero.position = [0, 0]
+        self.game_state.players.append(hero)
+        self.game_state.combat_active = True
+        hero.in_combat = True
+
+        # Primo movimento: 4 esagoni -> consentito
+        handle_move_request({"to": [4, 0]}, hero, self.game_state)
+        self.assertEqual(hero.position, [4, 0])
+        self.assertEqual(hero.movement_spent_this_turn, 4)
+
+        # Secondo movimento nello stesso turno: altri 4 esagoni (totale 8 > 6) -> bloccato!
+        handle_move_request({"to": [8, 0]}, hero, self.game_state)
+        self.assertEqual(hero.position, [4, 0], "Il movimento che supera il budget di turno deve essere bloccato")
+
+        # 3. Warlock ricarica gli slot su Riposo Breve (Magia del Patto 5e)
+        warlock = Character(name="WarlockHero", campaign="Test")
+        warlock.char_class = "Warlock"
+        warlock.spell_slots = {"2": {"max": 2, "current": 0}}
+        warlock.hit_dice_current = 2
+        warlock.hp_current = 10
+        warlock.hp_max = 20
+        warlock.short_rest(1)
+        self.assertEqual(warlock.spell_slots["2"]["current"], 2, "Il Warlock deve ricaricare gli slot con un riposo breve")
+
+        # 4. Compravendita Emporio: detrazione MO e posizionamento nella griglia 25 slot
+        buyer = Player(name="Acquirente")
+        buyer.full_sheet = {
+            "name": "Acquirente",
+            "currency": {"MR": 0, "MA": 0, "ME": 0, "MO": 100, "MP": 0},
+            "inventory_grid": [None] * 25
+        }
+        self.game_state.players.append(buyer)
+        self.game_state.shops = {
+            "Bottega": {
+                "name": "Bottega",
+                "items": [{"name": "Corda di Canapa", "price": 10, "qty": 1, "weight": 10.0}]
+            }
+        }
+        handle_buy_item_request({"shop_name": "Bottega", "item_name": "Corda di Canapa"}, buyer, self.game_state)
+        self.assertEqual(buyer.full_sheet["currency"]["MO"], 90, "Le MO devono essere scalate dall'acquisto")
+        self.assertIsNotNone(buyer.full_sheet["inventory_grid"][0], "L'oggetto deve apparire nella griglia a 25 slot")
+        self.assertEqual(buyer.full_sheet["inventory_grid"][0]["name"], "Corda di Canapa")
+
+        # 5. Concentrazione AoE: sovrascrittura di precedente AoE a concentrazione
+        caster = Player(name="Mago")
+        caster.hp = 20
+        caster.position = [0, 0]
+        self.game_state.players.append(caster)
+        handle_create_aoe_request({"aoe_data": {"origin": [0, 0], "type": "sfera", "size": 2, "concentration": True, "name": "Ragnatela"}}, caster, self.game_state)
+        self.assertEqual(len(self.game_state.active_aoes), 1)
+        self.assertEqual(self.game_state.active_aoes[0]["name"], "Ragnatela")
+
+        # Lancia una seconda magia a concentrazione -> la prima deve cadere
+        handle_create_aoe_request({"aoe_data": {"origin": [2, 0], "type": "sfera", "size": 3, "concentration": True, "name": "Muro di Fuoco"}}, caster, self.game_state)
+        self.assertEqual(len(self.game_state.active_aoes), 1)
+        self.assertEqual(self.game_state.active_aoes[0]["name"], "Muro di Fuoco", "La precedente concentrazione deve essere caduta")
+
 
 if __name__ == "__main__":
     unittest.main()

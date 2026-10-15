@@ -5,6 +5,7 @@ from common.network_utils import send_message, broadcast
 import math
 from server.rules.combat import _apply_hp_change, apply_damage
 from common.dice import roll_dice
+from common.i18n import is_condition_active
 
 def handle_update_stats_request(data, player, game_state):
     try:
@@ -86,6 +87,13 @@ def handle_update_full_sheet_request(data, player, game_state):
         broadcast(game_state, make_game_state(game_state.get_state_dict()))
 
 def handle_targeted_action(data, player, game_state):
+    conds = getattr(player, "conditions", [])
+    blocking = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto"]
+    if any(is_condition_active(conds, c) for c in blocking) or getattr(player, "hp", 1) <= 0:
+        if player and getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Non puoi eseguire azioni mirate mentre sei Incosciente, Paralizzato o a 0 HP!"))
+        return
+
     target_name = data.get("target_name")
     action_type = data.get("action_type")
     formula = data.get("formula")
@@ -135,6 +143,17 @@ def handle_set_travel_role_request(data, player, game_state):
     broadcast(game_state, make_game_state(game_state.get_state_dict()))
     broadcast(game_state, make_chat_broadcast("Viaggio", f"🏕️ {player.name} si posiziona in [{marching_order}] con ruolo: {role}"))
 
+def trigger_group_long_rest(game_state, reason="Il gruppo si è accampato per un Riposo Lungo."):
+    game_state.travel_hours_today = 0
+    from common.protocol import make_chat_broadcast
+    from common.network_utils import send_message, broadcast
+    broadcast(game_state, make_chat_broadcast("Sistema", f"{reason} Tutti recuperano HP e Slot."))
+    for p in getattr(game_state, "players", []):
+        if getattr(p, "conn", None):
+            send_message(p.conn, {"type": "DO_LONG_REST", "data": {}})
+    game_state.ongoing_rest_vote = None
+    game_state._trigger_gui_update()
+
 def handle_long_rest_request(data, player, game_state):
     if getattr(game_state, "combat_active", False):
         from common.network_utils import send_message
@@ -145,8 +164,9 @@ def handle_long_rest_request(data, player, game_state):
     active_conns = len([p for p in players if getattr(p, "conn", None)])
     if active_conns == 0: return
         
-    game_state.ongoing_rest_vote = {"initiator": player.name, "votes_needed": active_conns, "votes_received": 0}
-    game_state.log_dm_message(f"[Sistema] {player.name} ha proposto un Riposo Lungo. In attesa di approvazione da {active_conns} giocatori.")
+    needed = max(1, math.ceil(active_conns / 2))
+    game_state.ongoing_rest_vote = {"initiator": player.name, "votes_needed": needed, "total_conns": active_conns, "votes_received": 0, "votes_rejected": 0}
+    game_state.log_dm_message(f"[Sistema] {player.name} ha proposto un Riposo Lungo. Voti favorevoli necessari: {needed}/{active_conns}.")
     from common.network_utils import send_message
     for p in players:
         if getattr(p, "conn", None):
@@ -158,23 +178,18 @@ def handle_long_rest_vote(data, player, game_state):
     if not vote_data: return
     
     if not vote:
-        game_state.log_dm_message(f"[Sistema] {player.name} ha RIFIUTATO il riposo lungo. Votazione annullata.")
-        from common.protocol import make_chat_broadcast
-        broadcast(game_state, make_chat_broadcast("Sistema", f"Il Riposo Lungo proposto da {vote_data['initiator']} e' stato annullato perche' {player.name} non ha approvato."))
-        game_state.ongoing_rest_vote = None
+        vote_data["votes_rejected"] = vote_data.get("votes_rejected", 0) + 1
+        game_state.log_dm_message(f"[Sistema] {player.name} ha votato NO al riposo lungo.")
+        if vote_data["votes_rejected"] > (vote_data["total_conns"] - vote_data["votes_needed"]):
+            from common.protocol import make_chat_broadcast
+            broadcast(game_state, make_chat_broadcast("Sistema", f"Il Riposo Lungo proposto da {vote_data['initiator']} e' stato respinto dalla maggioranza."))
+            game_state.ongoing_rest_vote = None
         return
         
     vote_data["votes_received"] += 1
     if vote_data["votes_received"] >= vote_data["votes_needed"]:
-        game_state.log_dm_message(f"[Sistema] Tutti i giocatori hanno approvato il Riposo Lungo!")
-        from common.protocol import make_chat_broadcast
-        game_state.travel_hours_today = 0
-        broadcast(game_state, make_chat_broadcast("Sistema", f"Il gruppo si e' accampato per un Riposo Lungo. Tutti recuperano HP e Slot."))
-        from common.network_utils import send_message
-        for p in getattr(game_state, "players", []):
-            if getattr(p, "conn", None):
-                send_message(p.conn, {"type": "DO_LONG_REST", "data": {}})
-        game_state.ongoing_rest_vote = None
+        game_state.log_dm_message(f"[Sistema] La maggioranza dei giocatori ha approvato il Riposo Lungo!")
+        trigger_group_long_rest(game_state, reason="Il gruppo ha approvato il Riposo Lungo!")
 
 def handle_custom_spell_request(data, player, game_state):
     spell = data.get("spell", {})
