@@ -245,6 +245,32 @@ RACE_STARTING_SPELLS = {
     ]
 }
 
+# Competenze nelle Abilità (Skills) standard 5e per ogni classe
+CLASS_DEFAULT_SKILLS = {
+    "Guerriero": ["Atletica", "Percezione"],
+    "Fighter": ["Atletica", "Percezione"],
+    "Ladro": ["Furtività", "Acrobazia", "Prestidigitazione", "Indagare"],
+    "Rogue": ["Furtività", "Acrobazia", "Prestidigitazione", "Indagare"],
+    "Mago": ["Arcano", "Storia"],
+    "Wizard": ["Arcano", "Storia"],
+    "Chierico": ["Religione", "Intuizione"],
+    "Cleric": ["Religione", "Intuizione"],
+    "Barbaro": ["Atletica", "Percezione"],
+    "Barbarian": ["Atletica", "Percezione"],
+    "Bardo": ["Intrattenere", "Inganno", "Persuasione"],
+    "Bard": ["Intrattenere", "Inganno", "Persuasione"],
+    "Paladino": ["Atletica", "Persuasione"],
+    "Paladin": ["Atletica", "Persuasione"],
+    "Ranger": ["Sopravvivenza", "Furtività", "Percezione"],
+    "Druido": ["Natura", "Sopravvivenza"],
+    "Druid": ["Natura", "Sopravvivenza"],
+    "Monaco": ["Acrobazia", "Atletica"],
+    "Monk": ["Acrobazia", "Atletica"],
+    "Stregone": ["Arcano", "Inganno"],
+    "Sorcerer": ["Arcano", "Inganno"],
+    "Warlock": ["Arcano", "Inganno"]
+}
+
 # Equipaggiamento iniziale predefinito della campagna (impostato dal Master)
 DEFAULT_CAMPAIGN_STARTER_KIT = [
     {
@@ -412,7 +438,17 @@ def apply_class_and_race_starter_kit(char_obj_or_dict):
         if sp.get("name") not in existing_spell_names:
             spellbook.append(sp.copy())
             existing_spell_names.add(sp.get("name"))
-            
+
+    # Aggiungi competenze abilità iniziali di classe se non ancora definite
+    skills = get_attr("skills", None)
+    if isinstance(skills, dict):
+        total_p = sum(skills.values()) if skills else 0
+        if total_p == 0 and char_class in CLASS_DEFAULT_SKILLS:
+            for sk in CLASS_DEFAULT_SKILLS[char_class]:
+                if sk in skills:
+                    skills[sk] = 2 if char_class in ["Ladro", "Rogue"] and sk in ["Furtività", "Prestidigitazione"] else 1
+            set_attr("skills", skills)
+
     set_attr("spellbook", spellbook)
     set_attr("starting_kit_applied", True)
     return char_obj_or_dict

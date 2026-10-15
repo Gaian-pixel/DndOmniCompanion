@@ -411,6 +411,43 @@ class TestDndNewFeatures(unittest.TestCase):
         self.assertEqual(h_packet["data"]["content"], "X segna il punto.")
         self.assertEqual(h_packet["data"]["image_b64"], "fake_b64")
 
+    def test_class_default_skills_and_modifiers(self):
+        """Testa l'assegnazione automatica delle competenze abilità di classe e il calcolo del modificatore totale."""
+        from common.starter_equipment import CLASS_DEFAULT_SKILLS, apply_class_and_race_starter_kit
+        from client.character_manager import Character
+        
+        # 1. Fighter
+        c_fighter = Character(name="FighterTest", campaign="Test")
+        c_fighter.char_class = "Guerriero"
+        c_fighter.attributes = {"FOR": 16, "DES": 12, "COS": 14, "INT": 10, "SAG": 14, "CAR": 8}
+        c_fighter.level = 1
+        apply_class_and_race_starter_kit(c_fighter)
+        
+        self.assertEqual(c_fighter.skills["Atletica"], 1, "Guerriero deve avere competenza in Atletica")
+        self.assertEqual(c_fighter.skills["Percezione"], 1, "Guerriero deve avere competenza in Percezione")
+        self.assertEqual(c_fighter.skills["Arcano"], 0, "Guerriero non ha competenza in Arcano")
+        
+        # Calcolo modificatore per Atletica: FOR 16 (+3), livello 1 (PB 2), competenza 1 -> +5
+        pb = ((c_fighter.level - 1) // 4) + 2
+        atletica_mod = ((c_fighter.attributes["FOR"] - 10) // 2) + (pb * c_fighter.skills["Atletica"])
+        self.assertEqual(atletica_mod, 5, "Atletica con FOR 16 e livello 1 deve essere +5")
+        
+        # Calcolo modificatore per Arcano: INT 10 (+0), competenza 0 -> +0
+        arcano_mod = ((c_fighter.attributes["INT"] - 10) // 2) + (pb * c_fighter.skills["Arcano"])
+        self.assertEqual(arcano_mod, 0, "Arcano senza competenza e INT 10 deve essere +0")
+        
+        # 2. Rogue con Maestria (Expertise = 2)
+        c_rogue = Character(name="RogueTest", campaign="Test")
+        c_rogue.char_class = "Ladro"
+        c_rogue.attributes = {"FOR": 8, "DES": 16, "COS": 12, "INT": 14, "SAG": 12, "CAR": 14}
+        c_rogue.level = 5 # PB = 3
+        apply_class_and_race_starter_kit(c_rogue)
+        
+        self.assertEqual(c_rogue.skills["Furtività"], 2, "Ladro ha maestria in Furtività")
+        pb_5 = ((c_rogue.level - 1) // 4) + 2 # 3
+        stealth_mod = ((c_rogue.attributes["DES"] - 10) // 2) + (pb_5 * c_rogue.skills["Furtività"]) # 3 + (3 * 2) = +9
+        self.assertEqual(stealth_mod, 9, "Furtività al livello 5 con DES 16 e maestria deve essere +9")
+
 
 if __name__ == "__main__":
     unittest.main()

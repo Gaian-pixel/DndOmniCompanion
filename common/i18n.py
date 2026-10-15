@@ -705,6 +705,13 @@ STRINGS = {
         "msg_no_players_combat": "Nessun personaggio/NPC per iniziare il combattimento.",
         "msg_combat_end_title": "Fine Combattimento",
         "msg_combat_end_confirm": "Vuoi terminare il combattimento?",
+        "col_skill_prof": "Comp.",
+        "col_skill_name": "Abilità (Stat)",
+        "col_skill_bonus": "Bonus",
+        "col_skill_roll": "Tira",
+        "tooltip_skill_prof": "Livello di Competenza:\n0 = Nessuna\n1 = Competente (+Bonus Comp)\n2 = Maestria (+Doppio Bonus)",
+        "tooltip_skill_bonus": "Modificatore totale calcolato (Caratteristica + Competenza) sommato al d20",
+        "tooltip_skill_combo": "0 = Nessuna Competenza\n1 = Competente (+PB)\n2 = Maestria (+2×PB)",
     },
     "en": {
         # --- Common ---
@@ -1257,6 +1264,13 @@ STRINGS = {
         "msg_no_players_combat": "No character/NPC to start combat.",
         "msg_combat_end_title": "End Combat",
         "msg_combat_end_confirm": "Do you want to end combat?",
+        "col_skill_prof": "Prof.",
+        "col_skill_name": "Skill (Stat)",
+        "col_skill_bonus": "Bonus",
+        "col_skill_roll": "Roll",
+        "tooltip_skill_prof": "Proficiency Level:\n0 = None\n1 = Proficient (+PB)\n2 = Expertise (+2×PB)",
+        "tooltip_skill_bonus": "Total calculated modifier (Ability + Proficiency) added to d20",
+        "tooltip_skill_combo": "0 = None\n1 = Proficient (+PB)\n2 = Expertise (+2×PB)",
     }
 }
 
