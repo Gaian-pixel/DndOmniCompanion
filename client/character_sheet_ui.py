@@ -545,15 +545,48 @@ class CharacterSheetUI(tk.Toplevel):
         ttk.Button(btn_frame, text="Attacca Bersaglio", command=do_attack, style="Danger.TButton").pack(side=tk.LEFT, padx=10)
 
     def search_spell_srd(self):
-        query = simpledialog.askstring("Cerca SRD", "Nome incantesimo (in inglese, es. fireball):")
+        query = simpledialog.askstring("Cerca Incantesimo", "Nome incantesimo (in italiano o inglese, es. Fireball, Palla di Fuoco, Scudo):")
         if not query: return
-        query_safe = urllib.parse.quote(query.lower().strip())
+        query_clean = query.strip().lower()
+        
+        # 1. Ricerca locale offline nei manuali indicizzati (PHB 2024, XGtE, TCoE)
+        try:
+            from common.manuals_manager import ManualsManager
+            mgr = ManualsManager()
+            spell_hits = [r for r in mgr.search(query_clean, category_filter="Incantesimi")]
+            if not spell_hits:
+                spell_hits = [r for r in mgr.search(query_clean) if r.get("category") == "Incantesimi" or "spell" in r.get("title", "").lower() or r.get("manual") in ["PHB", "XGtE", "TCoE"]]
+            
+            if spell_hits:
+                top = spell_hits[0]
+                ref = top.get("page_ref", "PHB 2024")
+                title = top.get("title", query.title())
+                summary = top.get("summary", "")
+                content = top.get("content", "")
+                
+                # Deduci livello incantesimo
+                lvl = 1
+                lvl_m = re.search(r'(\d+)[°\^stndrdth]+\s+level|level\s+(\d+)|livello\s+(\d+)', content, re.IGNORECASE)
+                if lvl_m:
+                    lvl_str = lvl_m.group(1) or lvl_m.group(2) or lvl_m.group(3)
+                    lvl = int(lvl_str)
+                elif "cantrip" in content.lower() or "trucchetto" in content.lower():
+                    lvl = 0
+                
+                if messagebox.askyesno("Incantesimo Trovato nel Manuale", f"Trovato in {ref}:\n\n★ {title}\nLivello stimato: {lvl}\n\n{summary}\n\nAggiungere al Grimorio?"):
+                    self._add_fetched_spell(title, lvl, "1 Azione", "Vedi manuale", content)
+                    return
+        except Exception as e:
+            print("[GRIMORIO] Errore ricerca manuale offline:", e)
+
+        # 2. Fallback online su dnd5eapi.co
+        query_safe = urllib.parse.quote(query_clean)
         
         def fetch_spell():
             try:
                 url = f"https://www.dnd5eapi.co/api/spells/?name={query_safe}"
                 req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req) as response:
+                with urllib.request.urlopen(req, timeout=3.0) as response:
                     data = json.loads(response.read().decode())
                 
                 if data.get("count", 0) > 0:
@@ -562,7 +595,7 @@ class CharacterSheetUI(tk.Toplevel):
                         spell_url = "https://www.dnd5eapi.co" + spell_url
                     
                     req2 = urllib.request.Request(spell_url, headers={'User-Agent': 'Mozilla/5.0'})
-                    with urllib.request.urlopen(req2) as response2:
+                    with urllib.request.urlopen(req2, timeout=3.0) as response2:
                         spell_data = json.loads(response2.read().decode())
                         
                     name = spell_data.get("name", "")
@@ -574,7 +607,7 @@ class CharacterSheetUI(tk.Toplevel):
                     
                     self.after(0, lambda: self._add_fetched_spell(name, level, time, rng, desc))
                 else:
-                    self.after(0, lambda: messagebox.showinfo("Nessun risultato", "Incantesimo non trovato nel SRD."))
+                    self.after(0, lambda: messagebox.showinfo("Nessun risultato", f"Incantesimo '{query}' non trovato nei manuali o online."))
             except Exception as e:
                 self.after(0, lambda: messagebox.showerror("Errore di rete", str(e)))
                 

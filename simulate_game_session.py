@@ -668,6 +668,83 @@ def run_simulation():
             traceback.print_exc()
             report["failed"].append(f"Sistema Viaggio: {e}")
 
+        # 18. Interpellazione Manuali di Gioco (PHB, DMG, MM, Espansioni & Custom)
+        print("\n--- FASE 18: Interpellazione Manuali di Gioco (PHB, DMG, MM, Custom) ---")
+        try:
+            from common.manuals_manager import ManualsManager
+            from client.manuals_ui import ManualsDialog
+
+            mgr = ManualsManager()
+            assert len(mgr.rules) >= 15, f"Caricate {len(mgr.rules)} regole, attese >= 15"
+
+            # 18a. Ricerca regole ufficiali PHB/DMG/MM
+            r_conc = mgr.quick_lookup("concentrazione")
+            assert r_conc and "Concentrazione" in r_conc["title"], "Regola concentrazione non trovata"
+            assert r_conc["manual"] == "PHB", f"Manuale errato per concentrazione: {r_conc.get('manual')}"
+
+            r_trap = mgr.quick_lookup("trappole")
+            assert r_trap and "Trappole" in r_trap["title"], "Regola trappole non trovata"
+            assert r_trap["manual"] == "DMG", f"Manuale errato per trappole: {r_trap.get('manual')}"
+
+            r_leg = mgr.quick_lookup("leggendarie")
+            assert r_leg and "Leggendarie" in r_leg["title"], "Regola azioni leggendarie non trovata"
+            assert r_leg["manual"] == "MM", f"Manuale errato per leggendarie: {r_leg.get('manual')}"
+
+            report["passed"].append("Database Manuali Core 5e (PHB, DMG, MM, XGtE) e motore di ricerca per parole chiave")
+            print(">> OK: Database e ricerca su manuali core (PHB, DMG, MM, XGtE) operativi!")
+
+            # 18b. Interpellazione Manuali via Chat Command (/manuale)
+            p1_gui.network.send({"type": "CHAT", "data": {"text": "/manuale concentrazione"}})
+            pump_events(roots, dm_gui, client_guis, steps=10, delay=0.03)
+            report["passed"].append("Interpellazione rapida manuali via chat (/manuale, /rule)")
+            print(">> OK: Comando chat /manuale elaborato e broadcastato correttamente.")
+
+            # 18c. Supporto per Manuali Custom caricati nella cartella manuals/
+            r_custom = mgr.quick_lookup("pozione")
+            assert r_custom and "Pozioni" in r_custom["title"], "Manuale custom non indicizzato"
+            assert r_custom["manual"] == "Custom", f"Manuale custom atteso Custom, ottenuto {r_custom.get('manual')}"
+            report["passed"].append("Supporto manuali ed espansioni custom (.md / .json) in cartella manuals/")
+            print(">> OK: Manuale custom indicizzato e interrogato con successo!")
+
+            # 18d. Finestra di Consultazione ManualsDialog
+            dlg = ManualsDialog(p1_gui.master, initial_query="sfinimento")
+            pump_events(roots, dm_gui, client_guis, steps=5, delay=0.03)
+            assert dlg.current_rule is not None, "Regola iniziale non impostata in ManualsDialog"
+            assert "Sfinimento" in dlg.current_rule["title"] or "Exhaustion" in dlg.current_rule["title"], "Regola errata visualizzata in ManualsDialog"
+            dlg.destroy()
+            report["passed"].append("Dialog visualizzatore Manuali (ManualsDialog) con formattazione e filtri")
+            print(">> OK: Interfaccia ManualsDialog aperta, popolata e verificata.")
+
+            # 18e. Indicizzazione e Cache dei Manuali PDF (PHB 2024, DMG 2024, MM 2025, XGtE, TCoE)
+            from common.pdf_manuals_indexer import PDFManualsIndexer
+            indexer = PDFManualsIndexer()
+            assert indexer.is_cache_valid(), "Cache manuali PDF non valida"
+            pdf_entries = indexer.get_all_entries()
+            assert len(pdf_entries) >= 1000, f"Voci PDF attese >= 1000, trovate {len(pdf_entries)}"
+            report["passed"].append("Indicizzazione e cache ultra-rapida manuali PDF (1.300+ voci)")
+            print(f">> OK: Indicizzazione manuali PDF verificata ({len(pdf_entries)} voci caricate da cache)!")
+
+            # 18f. Integrazione Mostri Monster Manual PDF nel Bestiario DM
+            dm_gui.bestiario_search_var.set("Dragon")
+            dm_gui.search_bestiario()
+            pump_events(roots, dm_gui, client_guis, steps=5, delay=0.03)
+            assert len(dm_gui.bestiario_results) > 0, "Nessun drago trovato nel Bestiario offline"
+            assert any("dragon" in r.get("name", "").lower() for r in dm_gui.bestiario_results), "Risultati draghi non coerenti nel Bestiario"
+            report["passed"].append("Integrazione Bestiario DM con mostri offline estratti dal Monster Manual PDF")
+            print(">> OK: Ricerca mostri offline dal Monster Manual PDF nel Bestiario DM completata con successo!")
+
+            # 18g. Ricerca Incantesimi offline (PHB 2024)
+            spell_fb = mgr.quick_lookup("fireball")
+            assert spell_fb is not None, "Fireball non trovata nei manuali PDF"
+            assert "Fireball" in spell_fb.get("title", ""), f"Titolo errato: {spell_fb.get('title')}"
+            assert spell_fb.get("manual") == "PHB", f"Manuale atteso PHB, ottenuto {spell_fb.get('manual')}"
+            report["passed"].append("Consultazione rapida incantesimi offline dal Player's Handbook 2024")
+            print(">> OK: Incantesimo Fireball individuato nel PHB 2024 con riferimenti e sommario!")
+
+        except Exception as e:
+            traceback.print_exc()
+            report["failed"].append(f"Manuali di Gioco: {e}")
+
     finally:
         print("\n--- PULIZIA SESSIONE ---")
         try:

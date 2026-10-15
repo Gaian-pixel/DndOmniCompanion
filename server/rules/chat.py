@@ -148,6 +148,28 @@ def handle_chat(data, player, game_state):
             game_state.log_dm_message(f"[SISTEMA] Meteo cambiato in: {new_weather}")
             broadcast(game_state, make_chat_broadcast("Sistema", f"Il meteo è cambiato in: {new_weather}"))
         return
+
+    # Interpellazione dei Manuali di Gioco (PHB, DMG, MM, Espansioni, Custom)
+    if any(text.lower().startswith(cmd) for cmd in ["/manuale", "/manual", "/regola", "/rule"]):
+        parts = text.split(" ", 1)
+        query = parts[1].strip() if len(parts) > 1 else ""
+        from common.manuals_manager import ManualsManager
+        mgr = ManualsManager()
+        if not query:
+            reply = "📖 [MANUALI 5e] Sintassi: `/manuale <argomento>` (es. `/manuale concentrazione`, `/manuale sfinimento`, `/manuale opportunita`, `/manuale copertura`)"
+        else:
+            match = mgr.quick_lookup(query)
+            if match:
+                ref = match.get("page_ref", "Manuale 5e")
+                title = match.get("title", query.title())
+                summary = match.get("summary", "")
+                reply = f"📖 [{ref}] {title}:\n{summary}"
+            else:
+                reply = f"📖 [MANUALI] Nessuna regola trovata per '{query}'. Apri il menu Manuali per consultare l'indice completo o cercare altri argomenti."
+        
+        game_state.log_dm_message(f"[{player.name} -> Regola]: {reply}")
+        broadcast(game_state, make_chat_broadcast("Manuali 5e", reply))
+        return
         
     game_state.log_dm_message(f"[{player.name}]: {text}")
     broadcast(game_state, make_chat_broadcast(player.name, text))
