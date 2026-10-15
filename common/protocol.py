@@ -202,3 +202,15 @@ def make_update_inspiration(has_inspiration: bool):
 
 def make_give_gold_request(target_name: str, amount: int):
     return {"type": "GIVE_GOLD_REQUEST", "data": {"target_name": target_name, "amount": amount}}
+
+def make_currency_request(coin: str, amount: int, reason: str = ""):
+    return {"type": "CURRENCY_REQUEST", "data": {"coin": coin, "amount": amount, "reason": reason}}
+
+def make_currency_response(player_name: str, coin: str, amount: int, approved: bool, reason: str = ""):
+    return {"type": "CURRENCY_RESPONSE", "data": {"player_name": player_name, "coin": coin, "amount": amount, "approved": approved, "reason": reason}}
+
+def make_item_approval_request(item: dict, slot_idx: int = None):
+    return {"type": "ITEM_APPROVAL_REQUEST", "data": {"item": item, "slot_idx": slot_idx}}
+
+def make_item_approval_response(player_name: str, item: dict, slot_idx: int, approved: bool, reason: str = ""):
+    return {"type": "ITEM_APPROVAL_RESPONSE", "data": {"player_name": player_name, "item": item, "slot_idx": slot_idx, "approved": approved, "reason": reason}}

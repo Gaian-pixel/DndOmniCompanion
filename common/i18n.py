@@ -350,6 +350,16 @@ STRINGS = {
         "tooltip_coin_ep": "Monete d'Electrum (ME / ep):\n2 ME = 1 MO",
         "tooltip_coin_gp": "Monete d'Oro (MO / gp):\nValuta standard di riferimento 5e",
         "tooltip_coin_pp": "Monete di Platino (MP / pp):\n1 MP = 10 MO",
+        "btn_request_currency": "🤝 Richiedi Valuta al Master",
+        "title_request_currency": "Richiedi Valuta al Dungeon Master",
+        "lbl_request_coin": "Tipo di Moneta:",
+        "lbl_request_amount": "Quantità da Richiedere:",
+        "lbl_request_reason": "Motivazione (es. ricompensa missione, bottino, vendita):",
+        "msg_request_currency_sent": "Richiesta di {amount} {coin} inviata al Master. Attendi l'approvazione.",
+        "msg_currency_locked_online": "In sessione non puoi aumentarti il denaro da solo. Usa 'Richiedi Valuta al Master' per ottenere monete dal DM.",
+        "msg_item_approval_sent": "La richiesta per '{item}' è stata inviata al Master. Verrà aggiunto appena approvato.",
+        "msg_attr_locked_online": "Caratteristica bloccata durante la sessione. Aumenta solo tramite Level Up o concessione del Master.",
+        "msg_hp_max_locked_online": "I Punti Ferita Massimi sono bloccati durante la sessione.",
 
         # --- Viaggio & Esplorazione ---
         "travel_title": "Gestione Viaggio ed Esplorazione 5e",
@@ -933,6 +943,16 @@ STRINGS = {
         "tooltip_coin_ep": "Electrum pieces (ep):\n2 ep = 1 gp",
         "tooltip_coin_gp": "Gold pieces (gp):\nStandard 5e currency reference",
         "tooltip_coin_pp": "Platinum pieces (pp):\n1 pp = 10 gp",
+        "btn_request_currency": "🤝 Request Currency from DM",
+        "title_request_currency": "Request Currency from Dungeon Master",
+        "lbl_request_coin": "Coin Type:",
+        "lbl_request_amount": "Amount to Request:",
+        "lbl_request_reason": "Reason (e.g. quest reward, loot, trade):",
+        "msg_request_currency_sent": "Request for {amount} {coin} sent to the DM. Waiting for approval.",
+        "msg_currency_locked_online": "During a live session you cannot unilaterally increase currency. Use 'Request Currency from DM' to ask the DM.",
+        "msg_item_approval_sent": "Request for '{item}' sent to the DM. It will be added once approved.",
+        "msg_attr_locked_online": "Attribute score locked during session. Increases occur via Level Up or DM grant.",
+        "msg_hp_max_locked_online": "Max Hit Points are locked during session.",
 
         # --- Travel & Exploration ---
         "travel_title": "5e Travel & Exploration Management",

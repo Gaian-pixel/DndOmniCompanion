@@ -47,6 +47,35 @@ def handle_update_full_sheet_request(data, player, game_state):
                 send_message(player.conn, make_campaign_starter_granted(char_data.get("inventory_grid", []), full_sheet=char_data))
                 broadcast(game_state, make_chat_broadcast("Sistema", f"[CAMPAGNA] {player.name} ha ricevuto l'equipaggiamento iniziale della campagna dal Master!"))
 
+        # Protezione e vincoli di gioco: se il PG ha già un full_sheet registrato sul server,
+        # impedisci aumenti unilaterali di valuta, attributi o spawn abusivo di oggetti senza approvazione del DM
+        if getattr(player, "full_sheet", None):
+            server_currency = player.full_sheet.get("currency", {})
+            client_currency = char_data.get("currency", {})
+            if isinstance(server_currency, dict) and isinstance(client_currency, dict):
+                for c_k in ["MR", "MA", "ME", "MO", "MP", "cp", "sp", "ep", "gp", "pp"]:
+                    if c_k in client_currency and c_k in server_currency:
+                        if client_currency[c_k] > server_currency[c_k]:
+                            client_currency[c_k] = server_currency[c_k]
+                char_data["currency"] = client_currency
+
+            server_attrs = player.full_sheet.get("attributes", {})
+            client_attrs = char_data.get("attributes", {})
+            if isinstance(server_attrs, dict) and isinstance(client_attrs, dict):
+                if char_data.get("level", 1) <= player.full_sheet.get("level", 1):
+                    for a_k, a_val in server_attrs.items():
+                        if a_k in client_attrs and client_attrs[a_k] > a_val:
+                            client_attrs[a_k] = a_val
+                char_data["attributes"] = client_attrs
+
+            server_inv = player.full_sheet.get("inventory_grid", [])
+            client_inv = char_data.get("inventory_grid", [])
+            if isinstance(server_inv, list) and isinstance(client_inv, list) and len(server_inv) == len(client_inv):
+                for s_i in range(len(server_inv)):
+                    if server_inv[s_i] is None and client_inv[s_i] is not None:
+                        client_inv[s_i] = None
+                char_data["inventory_grid"] = client_inv
+
         player.full_sheet = char_data
         player.hp = char_data.get("hp_current", player.hp)
         player.max_hp = char_data.get("hp_max", player.max_hp)
@@ -156,4 +185,35 @@ def handle_custom_spell_request(data, player, game_state):
         "spell": spell
     })
     game_state.log_dm_message(f"[MAGIA] {player.name} richiede l'approvazione per l'incantesimo custom '{spell.get('name', 'Sconosciuto')}'.")
+
+def handle_currency_request(data, player, game_state):
+    coin = data.get("coin", "MO")
+    try:
+        amount = int(data.get("amount", 0))
+    except (ValueError, TypeError):
+        amount = 0
+    reason = data.get("reason", "")
+    if amount <= 0:
+        return
+    game_state.gui_queue.put({
+        "type": "CURRENCY_REQUEST",
+        "player": player,
+        "coin": coin,
+        "amount": amount,
+        "reason": reason
+    })
+    game_state.log_dm_message(f"[VALUTA] {player.name} richiede {amount} {coin}. Motivazione: {reason or 'Nessuna'}")
+
+def handle_item_approval_request(data, player, game_state):
+    item = data.get("item", {})
+    slot_idx = data.get("slot_idx")
+    if not item or not isinstance(item, dict):
+        return
+    game_state.gui_queue.put({
+        "type": "ITEM_APPROVAL_REQUEST",
+        "player": player,
+        "item": item,
+        "slot_idx": slot_idx
+    })
+    game_state.log_dm_message(f"[OGGETTO] {player.name} richiede approvazione per '{item.get('name', 'Oggetto')}'.")
 

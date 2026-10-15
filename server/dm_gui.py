@@ -2287,8 +2287,100 @@ class DM_GUI:
                     self.map_canvas.draw_ping(payload.get("q"), payload.get("r"), payload.get("color", "yellow"))
                 elif msg_type == "CUSTOM_SPELL_REQUEST":
                     self.prompt_custom_spell_approval(msg.get("player"), msg.get("spell"))
+                elif msg_type == "CURRENCY_REQUEST":
+                    self.prompt_currency_approval(msg.get("player"), msg.get("coin"), msg.get("amount"), msg.get("reason"))
+                elif msg_type == "ITEM_APPROVAL_REQUEST":
+                    self.prompt_item_approval(msg.get("player"), msg.get("item"), msg.get("slot_idx"))
         except queue.Empty: pass
         self.master.after(100, self.process_queue)
+
+    def prompt_currency_approval(self, player, coin, amount, reason):
+        if not player or amount <= 0: return
+        p_name = getattr(player, "name", "Giocatore")
+        coin_labels = {
+            "MO": "Monete d'Oro (MO / gp)", "gp": "Monete d'Oro (MO / gp)",
+            "MA": "Monete d'Argento (MA / sp)", "sp": "Monete d'Argento (MA / sp)",
+            "MR": "Monete di Rame (MR / cp)", "cp": "Monete di Rame (MR / cp)",
+            "ME": "Monete d'Electrum (ME / ep)", "ep": "Monete d'Electrum (ME / ep)",
+            "MP": "Monete di Platino (MP / pp)", "pp": "Monete di Platino (MP / pp)"
+        }
+        coin_display = coin_labels.get(coin, coin)
+        reason_display = reason if reason else "Nessuna motivazione specificata"
+        prompt_text = (
+            f"Il giocatore '{p_name}' richiede di ricevere valuta:\n\n"
+            f"• Quantità: +{amount} {coin_display}\n"
+            f"• Motivazione: {reason_display}\n\n"
+            f"Vuoi approvare la richiesta e accreditare le monete a {p_name}?"
+        )
+        approved = messagebox.askyesno("Richiesta Valuta Giocatore", prompt_text, parent=self.master)
+        
+        from common.protocol import make_currency_response, make_chat_broadcast, make_game_state
+        from common.network_utils import send_message, broadcast
+        if approved:
+            sheet = getattr(player, "full_sheet", None)
+            if sheet:
+                if not isinstance(sheet.get("currency"), dict):
+                    sheet["currency"] = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
+                sheet["currency"][coin] = sheet["currency"].get(coin, 0) + amount
+                if coin in ["MO", "gp"]:
+                    sheet["gp"] = sheet.get("gp", 0) + amount
+            if player.conn:
+                send_message(player.conn, make_currency_response(p_name, coin, amount, approved=True, reason=reason))
+            broadcast(self.server.game_state, make_chat_broadcast("Sistema", f"[VALUTA] Il Master ha APPROVATO e concesso +{amount} {coin_display} a {p_name}!"))
+            self.log_to_chat(f"[SISTEMA] Concessi +{amount} {coin_display} a {p_name}.")
+            self.server.game_state._trigger_gui_update()
+            broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
+        else:
+            if player.conn:
+                send_message(player.conn, make_currency_response(p_name, coin, amount, approved=False, reason="Richiesta respinta dal Dungeon Master."))
+            self.log_to_chat(f"[SISTEMA] Respinta richiesta valuta da {p_name} (+{amount} {coin_display}).")
+
+    def prompt_item_approval(self, player, item, slot_idx):
+        if not player or not item: return
+        p_name = getattr(player, "name", "Giocatore")
+        it_name = item.get("name", "Oggetto Sconosciuto")
+        it_type = item.get("type", "Equipaggiamento")
+        it_qty = item.get("qty", 1)
+        it_weight = item.get("weight", 0.0)
+        it_attuned = "Sì" if item.get("attuned") else "No"
+        it_desc = item.get("desc", "")
+        
+        prompt_text = (
+            f"Il giocatore '{p_name}' richiede di aggiungere un oggetto allo zaino:\n\n"
+            f"• Oggetto: {it_name}\n"
+            f"• Categoria: {it_type} (Quantità: {it_qty}, Peso: {it_weight} lbs)\n"
+            f"• Richiede Sintonia: {it_attuned}\n\n"
+            f"Descrizione:\n{it_desc}\n\n"
+            f"Vuoi approvare questo oggetto per l'inventario di {p_name}?"
+        )
+        approved = messagebox.askyesno("Approvazione Oggetto Inventario", prompt_text, parent=self.master)
+        
+        from common.protocol import make_item_approval_response, make_chat_broadcast, make_game_state
+        from common.network_utils import send_message, broadcast
+        if approved:
+            sheet = getattr(player, "full_sheet", None)
+            if sheet:
+                if not isinstance(sheet.get("inventory_grid"), list):
+                    sheet["inventory_grid"] = [None] * 25
+                target_slot = slot_idx if (slot_idx is not None and 0 <= slot_idx < 25) else None
+                if target_slot is None or sheet["inventory_grid"][target_slot] is not None:
+                    for s_i in range(len(sheet["inventory_grid"])):
+                        if sheet["inventory_grid"][s_i] is None:
+                            target_slot = s_i
+                            break
+                if target_slot is not None and target_slot < 25:
+                    sheet["inventory_grid"][target_slot] = item
+                    slot_idx = target_slot
+            if player.conn:
+                send_message(player.conn, make_item_approval_response(p_name, item, slot_idx, approved=True))
+            broadcast(self.server.game_state, make_chat_broadcast("Sistema", f"[INVENTARIO] Il Master ha APPROVATO l'oggetto '{it_name}' per {p_name}!"))
+            self.log_to_chat(f"[SISTEMA] Approvato oggetto '{it_name}' per {p_name}.")
+            self.server.game_state._trigger_gui_update()
+            broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
+        else:
+            if player.conn:
+                send_message(player.conn, make_item_approval_response(p_name, item, slot_idx, approved=False, reason="Il Master ha respinto l'aggiunta di questo oggetto."))
+            self.log_to_chat(f"[SISTEMA] Respinto oggetto '{it_name}' per {p_name}.")
 
     def prompt_custom_spell_approval(self, player, spell):
         if not player or not spell: return

@@ -1873,6 +1873,8 @@ class ClientGUI:
             "AUDIO_STOP": self.handle_audio_stop,
             "AUDIO_TRACK_CHUNK": self.handle_audio_track_chunk,
             "CUSTOM_SPELL_RESPONSE": self.handle_custom_spell_response,
+            "CURRENCY_RESPONSE": self.handle_currency_response,
+            "ITEM_APPROVAL_RESPONSE": self.handle_item_approval_response,
             "CAMPAIGN_STARTER_GRANTED": self.handle_campaign_starter_granted,
             "UPDATE_INSPIRATION": self.handle_update_inspiration,
             "PROMPT_SAVE": self.handle_prompt_save,
@@ -1953,6 +1955,52 @@ class ClientGUI:
             reason = data.get("reason", "Il Master ha respinto la richiesta.")
             self.show_toast(f"Il Dungeon Master ha RESPINTO '{spell_name}'.\nMotivo: {reason}", title="Incantesimo Rifiutato", toast_type="warning")
 
+    def handle_currency_response(self, data):
+        approved = data.get("approved", False)
+        coin = data.get("coin", "MO")
+        amount = data.get("amount", 0)
+        reason = data.get("reason", "")
+        if approved:
+            if self.active_character:
+                if not hasattr(self.active_character, "currency") or not isinstance(self.active_character.currency, dict):
+                    self.active_character.currency = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
+                self.active_character.currency[coin] = self.active_character.currency.get(coin, 0) + amount
+                self.character_manager.save_characters()
+                if hasattr(self, 'stats_window') and self.stats_window and self.stats_window.winfo_exists():
+                    if hasattr(self.stats_window, "currency_vars") and coin in self.stats_window.currency_vars:
+                        self.stats_window.currency_vars[coin].set(self.active_character.currency[coin])
+                    if hasattr(self.stats_window, "initial_currency"):
+                        self.stats_window.initial_currency[coin] = self.active_character.currency[coin]
+            self.show_toast(f"Il Dungeon Master ha APPROVATO la richiesta!\nHai ricevuto +{amount} {coin}.", title="Valuta Accreditata!", toast_type="gold")
+        else:
+            msg = reason or "La tua richiesta di valuta è stata respinta dal Master."
+            self.show_toast(msg, title="Richiesta Respinta", toast_type="warning")
+
+    def handle_item_approval_response(self, data):
+        approved = data.get("approved", False)
+        item = data.get("item", {})
+        slot_idx = data.get("slot_idx")
+        reason = data.get("reason", "")
+        it_name = item.get("name", "Oggetto")
+        if approved:
+            if self.active_character:
+                if not hasattr(self.active_character, "inventory_grid") or not isinstance(self.active_character.inventory_grid, list):
+                    self.active_character.inventory_grid = [None] * 25
+                if slot_idx is not None and 0 <= slot_idx < len(self.active_character.inventory_grid):
+                    self.active_character.inventory_grid[slot_idx] = item
+                else:
+                    for i in range(len(self.active_character.inventory_grid)):
+                        if self.active_character.inventory_grid[i] is None:
+                            self.active_character.inventory_grid[i] = item
+                            break
+                self.character_manager.save_characters()
+                if hasattr(self, 'stats_window') and self.stats_window and self.stats_window.winfo_exists():
+                    self.stats_window.refresh_inventory_grid()
+            self.show_toast(f"Il Dungeon Master ha APPROVATO '{it_name}'!\nL'oggetto è stato aggiunto al tuo inventario.", title="Oggetto Approvato!", toast_type="success")
+        else:
+            msg = reason or f"La richiesta per '{it_name}' è stata respinta dal Master."
+            self.show_toast(msg, title="Oggetto Respinto", toast_type="warning")
+
     def handle_campaign_starter_granted(self, data):
         full_sheet = data.get("full_sheet")
         if full_sheet and self.active_character:
@@ -1979,6 +2027,24 @@ class ClientGUI:
             return True
         else:
             messagebox.showwarning("Non Connesso", "Devi essere connesso al server per richiedere l'approvazione di un incantesimo al Master!")
+            return False
+
+    def request_currency(self, coin, amount, reason=""):
+        if self.is_connected:
+            from common.protocol import make_currency_request
+            self.network.send(make_currency_request(coin, amount, reason))
+            return True
+        else:
+            messagebox.showwarning("Non Connesso", "Devi essere connesso per richiedere valuta al Master.")
+            return False
+
+    def request_item_approval(self, item, slot_idx=None):
+        if self.is_connected:
+            from common.protocol import make_item_approval_request
+            self.network.send(make_item_approval_request(item, slot_idx))
+            return True
+        else:
+            messagebox.showwarning("Non Connesso", "Devi essere connesso per richiedere l'approvazione di oggetti al Master.")
             return False
 
     def handle_audio_play(self, data):
@@ -2409,6 +2475,8 @@ class ClientGUI:
                          attack_callback=self.on_attack_action, 
                          players_list_callback=self.get_player_names,
                          custom_spell_request_callback=self.request_custom_spell,
+                         request_currency_callback=self.request_currency,
+                         request_item_callback=self.request_item_approval,
                          is_connected=self.is_connected)
 
     def do_trade(self, item, target_name):
