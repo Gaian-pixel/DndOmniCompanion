@@ -1006,7 +1006,7 @@ class HexMapCanvas(tk.Canvas):
                 self.create_text(start_x + 10, start_y + 35 + i * 20, text=f"{prefix}{i+1}. {name}", fill=color, font=("Arial", 9), anchor="w")
 
 class ToolTip:
-    """Finestrella di tooltip mostrata al passaggio del mouse."""
+    """Finestrella di tooltip mostrata al passaggio del mouse con supporto a callable per i18n dinamico."""
     def __init__(self, widget, text):
         self.widget = widget
         self.text = text
@@ -1014,8 +1014,14 @@ class ToolTip:
         self.widget.bind("<Enter>", self.show_tip)
         self.widget.bind("<Leave>", self.hide_tip)
 
+    def set_text(self, text):
+        self.text = text
+
     def show_tip(self, event=None):
-        if self.tip_window or not self.text:
+        if self.tip_window:
+            return
+        tip_text = self.text() if callable(self.text) else self.text
+        if not tip_text:
             return
         x, y, cx, cy = self.widget.bbox("insert") or (0, 0, 0, 0)
         x = x + self.widget.winfo_rootx() + 25
@@ -1023,7 +1029,7 @@ class ToolTip:
         self.tip_window = tw = tk.Toplevel(self.widget)
         tw.wm_overrideredirect(True)
         tw.wm_geometry(f"+{x}+{y}")
-        label = tk.Label(tw, text=self.text, justify=tk.LEFT,
+        label = tk.Label(tw, text=tip_text, justify=tk.LEFT,
                          background="#ffffe0", relief=tk.SOLID, borderwidth=1,
                          font=("tahoma", "8", "normal"))
         label.pack(ipadx=1)

@@ -22,7 +22,7 @@ from client.login_ui import LoginDialog
 from client.character_sheet_ui import CharacterSheetUI
 from client.voice_client import VoiceClient
 from common.audio_player import AudioManager
-from common.i18n import _t, get_language, set_language, register_language_listener
+from common.i18n import _t, get_language, set_language, register_language_listener, unregister_language_listener
 
 from common.theme import (
     setup_theme, apply_modern_window_style,
@@ -64,6 +64,7 @@ class ClientGUI:
         self.reaction_spent = False
         self.movement_spent_ft = 0
         self.network = ClientNetwork(self.gui_queue, lambda: self.master.after(0, self.handle_disconnection))
+        register_language_listener(self.on_language_changed)
         self.setup_gui()
         self.master.after(100, self.process_queue)
 
@@ -74,17 +75,16 @@ class ClientGUI:
         set_language(lang_code)
         lang_name = "Italiano 🇮🇹" if lang_code == "it" else "English 🇬🇧"
         self.show_toast(_t("language_changed_toast", lang=lang_name), title=_t("language"), toast_type="success")
-        if hasattr(self, 'right_notebook'):
-            try:
-                self.right_notebook.tab(0, text=_t("tab_chat"))
-                self.right_notebook.tab(1, text=_t("tab_player_controls"))
-            except Exception:
-                pass
+        self.refresh_ui_language()
 
-    def setup_gui(self):
-        # 1. MENU BAR GLOBALE
+    def on_language_changed(self, lang_code):
+        if hasattr(self, 'master') and self.master.winfo_exists():
+            self.master.after(0, self.refresh_ui_language)
+
+    def setup_menubar(self):
         menubar = tk.Menu(self.master)
         self.master.config(menu=menubar)
+        self.main_menubar = menubar
         
         server_menu = tk.Menu(menubar, tearoff=0)
         server_menu.add_command(label=_t("menu_connect"), command=self.connect_to_server)
@@ -102,6 +102,76 @@ class ClientGUI:
         lang_menu.add_radiobutton(label="Italiano 🇮🇹", variable=self.lang_var, value="it", command=lambda: self.switch_language("it"))
         lang_menu.add_radiobutton(label="English 🇬🇧", variable=self.lang_var, value="en", command=lambda: self.switch_language("en"))
         menubar.add_cascade(label=_t("menu_language"), menu=lang_menu)
+
+    def refresh_ui_language(self):
+        self.master.title(f"{_t('app_title')} • Player")
+        self.setup_menubar()
+
+        # Aggiorna tab del notebook laterale
+        if hasattr(self, 'right_notebook'):
+            try:
+                self.right_notebook.tab(0, text=_t("tab_chat"))
+                self.right_notebook.tab(1, text=_t("tab_player_controls"))
+            except Exception:
+                pass
+
+        # Aggiorna tab chat
+        if hasattr(self, 'lbl_party_header'):
+            self.lbl_party_header.config(text=_t("party_members_header"))
+        if hasattr(self, 'btn_send_chat'):
+            self.btn_send_chat.config(text=_t("btn_send"))
+        if hasattr(self, 'voice_status_lbl'):
+            v_status = _t("voice_status_connected") if (self.voice_client and getattr(self.voice_client, "is_running", False)) else _t("voice_status_disconnected")
+            self.voice_status_lbl.config(text=f"⚪ Voice: {v_status}")
+
+        # Aggiorna controlli PG
+        if hasattr(self, 'status_label'):
+            self.status_label.config(text=_t("status_connected") if self.is_connected else _t("status_disconnected"))
+        if hasattr(self, 'lbl_econ_hdr'):
+            self.lbl_econ_hdr.config(text=_t("turn_economy"))
+        if hasattr(self, 'btn_reset_econ'):
+            self.btn_reset_econ.config(text=_t("turn_economy_reset"))
+        if hasattr(self, 'lbl_change_char'):
+            self.lbl_change_char.config(text=_t("change_active_char"))
+        if hasattr(self, 'stats_button'):
+            self.stats_button.config(text=_t("btn_sheet"))
+        if hasattr(self, 'roll_button'):
+            self.roll_button.config(text=_t("btn_roll_dice"))
+        if hasattr(self, 'action_button'):
+            self.action_button.config(text=_t("btn_action"))
+        if hasattr(self, 'btn_short_rest'):
+            self.btn_short_rest.config(text=_t("btn_short_rest"))
+        if hasattr(self, 'class_features_frame'):
+            self.class_features_frame.config(text=_t("lbl_class_features"))
+        if hasattr(self, 'btn_second_wind'):
+            self.btn_second_wind.config(text=_t("btn_second_wind"))
+        if hasattr(self, 'btn_action_surge'):
+            self.btn_action_surge.config(text=_t("btn_action_surge"))
+        if hasattr(self, 'btn_rage'):
+            self.btn_rage.config(text=_t("btn_rage"))
+        if hasattr(self, 'travel_button'):
+            self.travel_button.config(text=_t("btn_travel_actions"))
+        if hasattr(self, 'manuals_button'):
+            self.manuals_button.config(text=_t("btn_manuals"))
+        if hasattr(self, 'combat_btn'):
+            self.combat_btn.config(text=_t("btn_request_combat"))
+        if hasattr(self, 'end_turn_btn'):
+            self.end_turn_btn.config(text=_t("btn_end_turn"))
+        if hasattr(self, 'btn_dash'):
+            self.btn_dash.config(text=_t("btn_dash"))
+        if hasattr(self, 'btn_disengage'):
+            self.btn_disengage.config(text=_t("btn_disengage"))
+        if hasattr(self, 'btn_dodge'):
+            self.btn_dodge.config(text=_t("btn_dodge"))
+        if hasattr(self, 'btn_help'):
+            self.btn_help.config(text=_t("btn_help"))
+
+        self.update_action_economy_ui()
+        self.update_hero_summary_card()
+
+    def setup_gui(self):
+        # 1. MENU BAR GLOBALE
+        self.setup_menubar()
         
         # 2. LAYOUT PRINCIPALE (3 Colonne: Sinistra=Toolbar, Centro=Mappa, Destra=Notebook)
         main_frame = ttk.Frame(self.master, padding="5")
@@ -117,27 +187,27 @@ class ClientGUI:
         
         self.center_map_btn = ttk.Button(left_panel, text='👆', width=3, style="Tool.TButton", command=lambda: self.map_canvas.center_view() if self.map_canvas else None)
         self.center_map_btn.pack(pady=3)
-        ToolTip(self.center_map_btn, _t("tool_center_map"))
+        ToolTip(self.center_map_btn, lambda: _t("tool_center_map"))
 
         self.zoom_in_btn = ttk.Button(left_panel, text='➕', width=3, style="Tool.TButton", command=lambda: self.map_canvas.zoom_in() if self.map_canvas else None)
         self.zoom_in_btn.pack(pady=3)
-        ToolTip(self.zoom_in_btn, _t("tool_zoom_in"))
+        ToolTip(self.zoom_in_btn, lambda: _t("tool_zoom_in"))
 
         self.zoom_out_btn = ttk.Button(left_panel, text='➖', width=3, style="Tool.TButton", command=lambda: self.map_canvas.zoom_out() if self.map_canvas else None)
         self.zoom_out_btn.pack(pady=3)
-        ToolTip(self.zoom_out_btn, _t("tool_zoom_out"))
+        ToolTip(self.zoom_out_btn, lambda: _t("tool_zoom_out"))
         
         self.aoe_button = ttk.Button(left_panel, text="💥", width=3, style="Tool.TButton", command=self.open_aoe_dialog)
         self.aoe_button.pack(pady=3)
-        ToolTip(self.aoe_button, _t("tool_aoe"))
+        ToolTip(self.aoe_button, lambda: _t("tool_aoe"))
         
         self.measure_btn = ttk.Button(left_panel, text="📏", width=3, style="Tool.TButton", command=self.toggle_ruler_mode)
         self.measure_btn.pack(pady=3)
-        ToolTip(self.measure_btn, _t("tool_measure"))
+        ToolTip(self.measure_btn, lambda: _t("tool_measure"))
 
         self.manuals_btn = ttk.Button(left_panel, text="📖", width=3, style="Tool.TButton", command=self.open_manuals_dialog)
         self.manuals_btn.pack(pady=3)
-        ToolTip(self.manuals_btn, _t("tool_manuals"))
+        ToolTip(self.manuals_btn, lambda: _t("tool_manuals"))
         
         # --- COLONNA 1: MAPPA ---
         map_outer_frame = ttk.Frame(main_frame)
@@ -167,7 +237,8 @@ class ClientGUI:
         chat_tab = ttk.Frame(self.right_notebook)
         self.right_notebook.add(chat_tab, text=_t("tab_chat"))
         
-        tk.Label(chat_tab, text="👥 Compagnia di Avventura", font=FONT_BOLD, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w", padx=6, pady=(6, 2))
+        self.lbl_party_header = tk.Label(chat_tab, text=_t("party_members_header"), font=FONT_BOLD, bg=BG_COLOR, fg=ACCENT_GOLD)
+        self.lbl_party_header.pack(anchor="w", padx=6, pady=(6, 2))
         
         list_container = tk.Frame(chat_tab, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
         list_container.pack(fill=tk.X, padx=6, pady=(0, 6))
@@ -188,7 +259,8 @@ class ClientGUI:
         self.entry = ttk.Entry(chat_cmd_frame, font=FONT_MAIN)
         self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
         self.entry.bind("<Return>", self.send_chat_message)
-        ttk.Button(chat_cmd_frame, text=_t("btn_send"), command=self.send_chat_message, style="Primary.TButton").pack(side=tk.LEFT)
+        self.btn_send_chat = ttk.Button(chat_cmd_frame, text=_t("btn_send"), command=self.send_chat_message, style="Primary.TButton")
+        self.btn_send_chat.pack(side=tk.LEFT)
 
         # Barra Voice Discord-like
         self.voice_controls_frame = tk.Frame(chat_tab, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, pady=4, padx=6)
@@ -197,29 +269,29 @@ class ClientGUI:
         self.voice_status_lbl.pack(side=tk.LEFT, padx=3)
         self.btn_audio_mute = tk.Button(self.voice_controls_frame, text=" 🔊 ", bg=SURFACE_COLOR, fg="white", activebackground=SURFACE_COLOR_ALT, relief=tk.FLAT, bd=0, command=self.toggle_audio_mute)
         self.btn_audio_mute.pack(side=tk.RIGHT, padx=2)
-        ToolTip(self.btn_audio_mute, "Muta/Smuta Audio di gioco")
+        ToolTip(self.btn_audio_mute, lambda: _t("tooltip_mute_audio"))
         self.btn_deafen = tk.Button(self.voice_controls_frame, text=" 🎧 ", bg=SURFACE_COLOR, fg="white", activebackground=SURFACE_COLOR_ALT, relief=tk.FLAT, bd=0, command=self.toggle_deafen)
         self.btn_deafen.pack(side=tk.RIGHT, padx=2)
-        ToolTip(self.btn_deafen, "Muta/Smuta Audio voce")
+        ToolTip(self.btn_deafen, lambda: _t("tooltip_deafen"))
         self.btn_mute = tk.Button(self.voice_controls_frame, text=" 🎤 ", bg=SURFACE_COLOR, fg="white", activebackground=SURFACE_COLOR_ALT, relief=tk.FLAT, bd=0, command=self.toggle_mute)
         self.btn_mute.pack(side=tk.RIGHT, padx=2)
-        ToolTip(self.btn_mute, "Muta/Smuta Microfono")
+        ToolTip(self.btn_mute, lambda: _t("tooltip_mute_mic"))
         
         # --- TAB 2: CONTROLLI PG ---
         controls_tab = ttk.Frame(self.right_notebook, padding=10)
         self.right_notebook.add(controls_tab, text=_t("tab_player_controls"))
         
-        self.status_label = ttk.Label(controls_tab, text="Stato: Disconnesso", style="Danger.TLabel", font=FONT_SMALL)
+        self.status_label = ttk.Label(controls_tab, text=_t("status_disconnected"), style="Danger.TLabel", font=FONT_SMALL)
         self.status_label.pack(anchor="w", pady=(0, 6))
         
         # --- HERO SUMMARY CARD ---
         hero_card = tk.Frame(controls_tab, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
         hero_card.pack(fill=tk.X, pady=(0, 10))
         
-        self.hero_name_lbl = tk.Label(hero_card, text=self.name or "Nessun Personaggio", font=FONT_HEADER, bg=SURFACE_COLOR, fg=ACCENT_GOLD)
+        self.hero_name_lbl = tk.Label(hero_card, text=self.name or _t("no_character"), font=FONT_HEADER, bg=SURFACE_COLOR, fg=ACCENT_GOLD)
         self.hero_name_lbl.pack(anchor="w")
         
-        self.hero_class_lbl = tk.Label(hero_card, text="Avventuriero • Livello 1", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
+        self.hero_class_lbl = tk.Label(hero_card, text=_t("adventurer_lvl", lvl=1), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
         self.hero_class_lbl.pack(anchor="w", pady=(0, 6))
         
         # Barra HP Visuale
@@ -236,11 +308,11 @@ class ClientGUI:
         # Badge Rapidi (CA, Velocità, Iniziativa)
         pill_row = tk.Frame(hero_card, bg=SURFACE_COLOR)
         pill_row.pack(fill=tk.X, pady=(4, 0))
-        self.hero_ac_badge = tk.Label(pill_row, text="🛡️ CA: 10", bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_SMALL, padx=5, pady=2, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        self.hero_ac_badge = tk.Label(pill_row, text=f"🛡️ {_t('sheet_ac_badge')}: 10", bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_SMALL, padx=5, pady=2, highlightbackground=BORDER_COLOR, highlightthickness=1)
         self.hero_ac_badge.pack(side=tk.LEFT, padx=(0, 4))
-        self.hero_speed_badge = tk.Label(pill_row, text="👟 Vel: 30ft", bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_SMALL, padx=5, pady=2, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        self.hero_speed_badge = tk.Label(pill_row, text=f"👟 {_t('sheet_speed_badge')}: 30ft", bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_SMALL, padx=5, pady=2, highlightbackground=BORDER_COLOR, highlightthickness=1)
         self.hero_speed_badge.pack(side=tk.LEFT, padx=2)
-        self.hero_init_badge = tk.Label(pill_row, text="⚡ Iniz: +0", bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_SMALL, padx=5, pady=2, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        self.hero_init_badge = tk.Label(pill_row, text=f"⚡ {_t('sheet_init_badge')}: +0", bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_SMALL, padx=5, pady=2, highlightbackground=BORDER_COLOR, highlightthickness=1)
         self.hero_init_badge.pack(side=tk.LEFT, padx=2)
         
         # --- ACTION ECONOMY TRACKER (D&D 5e) ---
@@ -249,40 +321,41 @@ class ClientGUI:
         
         econ_hdr = tk.Frame(self.economy_frame, bg=SURFACE_COLOR)
         econ_hdr.pack(fill=tk.X, pady=(0, 4))
-        tk.Label(econ_hdr, text="⚡ Economia Turno", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(side=tk.LEFT)
-        btn_reset_econ = tk.Label(econ_hdr, text="↺ Reset", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED, cursor="hand2")
-        btn_reset_econ.pack(side=tk.RIGHT)
-        btn_reset_econ.bind("<Button-1>", lambda e: self.reset_turn_resources())
-        ToolTip(btn_reset_econ, "Ripristina le risorse del turno")
+        self.lbl_econ_hdr = tk.Label(econ_hdr, text=_t("turn_economy"), font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD)
+        self.lbl_econ_hdr.pack(side=tk.LEFT)
+        self.btn_reset_econ = tk.Label(econ_hdr, text=_t("turn_economy_reset"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED, cursor="hand2")
+        self.btn_reset_econ.pack(side=tk.RIGHT)
+        self.btn_reset_econ.bind("<Button-1>", lambda e: self.reset_turn_resources())
+        ToolTip(self.btn_reset_econ, lambda: _t("tooltip_reset_economy"))
 
         # Slot Azioni (Pillole / Toggle)
         econ_badges = tk.Frame(self.economy_frame, bg=SURFACE_COLOR)
         econ_badges.pack(fill=tk.X, pady=(2, 4))
 
         self.btn_act_tracker = tk.Button(
-            econ_badges, text="⚔️ Azione", font=FONT_SMALL, relief=tk.FLAT, bd=0, padx=4, pady=2,
+            econ_badges, text=_t("btn_act"), font=FONT_SMALL, relief=tk.FLAT, bd=0, padx=4, pady=2,
             bg=ACCENT_GREEN, fg="white", activebackground=SURFACE_COLOR_ALT, command=self.toggle_action
         )
         self.btn_act_tracker.pack(side=tk.LEFT, padx=(0, 2), fill=tk.X, expand=True)
-        ToolTip(self.btn_act_tracker, "Azione Standard: clicca per contrassegnare come spesa/disponibile")
+        ToolTip(self.btn_act_tracker, lambda: _t("tooltip_act"))
 
         self.btn_bonus_tracker = tk.Button(
-            econ_badges, text="✨ Bonus", font=FONT_SMALL, relief=tk.FLAT, bd=0, padx=4, pady=2,
+            econ_badges, text=_t("btn_bonus"), font=FONT_SMALL, relief=tk.FLAT, bd=0, padx=4, pady=2,
             bg="#3B82F6", fg="white", activebackground=SURFACE_COLOR_ALT, command=self.toggle_bonus
         )
         self.btn_bonus_tracker.pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
-        ToolTip(self.btn_bonus_tracker, "Azione Bonus: clicca per contrassegnare come spesa/disponibile")
+        ToolTip(self.btn_bonus_tracker, lambda: _t("tooltip_bonus"))
 
         self.btn_react_tracker = tk.Button(
-            econ_badges, text="🛡️ Reaz", font=FONT_SMALL, relief=tk.FLAT, bd=0, padx=4, pady=2,
+            econ_badges, text=_t("btn_react"), font=FONT_SMALL, relief=tk.FLAT, bd=0, padx=4, pady=2,
             bg="#F59E0B", fg="white", activebackground=SURFACE_COLOR_ALT, command=self.toggle_reaction
         )
         self.btn_react_tracker.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
-        ToolTip(self.btn_react_tracker, "Reazione: clicca per contrassegnare come spesa/disponibile")
+        ToolTip(self.btn_react_tracker, lambda: _t("tooltip_react"))
 
         # Tracker Movimento
         self.lbl_movement_tracker = tk.Label(
-            self.economy_frame, text="👟 Movimento: 0 / 30 ft (Rim: 30 ft)",
+            self.economy_frame, text=_t("lbl_movement", used=0, total=30, rem=30),
             font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_COLOR
         )
         self.lbl_movement_tracker.pack(anchor="w", pady=(2, 4))
@@ -292,96 +365,97 @@ class ClientGUI:
         econ_quick_actions.pack(fill=tk.X, pady=(2, 0))
 
         self.btn_dash = tk.Button(
-            econ_quick_actions, text="🏃 Scatto", font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            econ_quick_actions, text=_t("btn_dash"), font=FONT_SMALL, relief=tk.FLAT, bd=0,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_dash
         )
         self.btn_dash.pack(side=tk.LEFT, padx=(0, 2), fill=tk.X, expand=True)
-        ToolTip(self.btn_dash, "Spende l'Azione per raddoppiare il movimento in questo turno")
+        ToolTip(self.btn_dash, lambda: _t("tooltip_dash"))
 
         self.btn_disengage = tk.Button(
-            econ_quick_actions, text="💨 Disimpegno", font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            econ_quick_actions, text=_t("btn_disengage"), font=FONT_SMALL, relief=tk.FLAT, bd=0,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_disengage
         )
         self.btn_disengage.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
-        ToolTip(self.btn_disengage, "Spende l'Azione: non provochi attacchi d'opportunità uscendo dalla portata di un nemico")
+        ToolTip(self.btn_disengage, lambda: _t("tooltip_disengage"))
 
         # Seconda riga: Schivata & Aiuto
         econ_quick_actions_2 = tk.Frame(self.economy_frame, bg=SURFACE_COLOR)
         econ_quick_actions_2.pack(fill=tk.X, pady=(2, 0))
 
         self.btn_dodge = tk.Button(
-            econ_quick_actions_2, text="🛡️ Schivata", font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            econ_quick_actions_2, text=_t("btn_dodge"), font=FONT_SMALL, relief=tk.FLAT, bd=0,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_dodge
         )
         self.btn_dodge.pack(side=tk.LEFT, padx=(0, 2), fill=tk.X, expand=True)
-        ToolTip(self.btn_dodge, "Spende l'Azione: gli attacchi contro di te avranno svantaggio e hai vantaggio ai TS su Destrezza")
+        ToolTip(self.btn_dodge, lambda: _t("tooltip_dodge"))
 
         self.btn_help = tk.Button(
-            econ_quick_actions_2, text="🤝 Aiuto", font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            econ_quick_actions_2, text=_t("btn_help"), font=FONT_SMALL, relief=tk.FLAT, bd=0,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_help
         )
         self.btn_help.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
-        ToolTip(self.btn_help, "Spende l'Azione: clicca poi un bersaglio per conferire Vantaggio al prossimo attacco alleato")
+        ToolTip(self.btn_help, lambda: _t("tooltip_help"))
 
         # Scelta Personaggio Attivo
-        tk.Label(controls_tab, text="Cambia Scheda Personaggio:", font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(4, 2))
+        self.lbl_change_char = tk.Label(controls_tab, text=_t("change_active_char"), font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED)
+        self.lbl_change_char.pack(anchor="w", pady=(4, 2))
         self.active_character_var = tk.StringVar(value=self.name)
         self.active_character_combo = ttk.Combobox(controls_tab, textvariable=self.active_character_var, state="readonly")
         self.active_character_combo.pack(fill=tk.X, pady=(0, 6))
         self.active_character_combo.bind("<<ComboboxSelected>>", self.on_active_character_changed)
         
         # Bottoni Azione Eroe
-        self.stats_button = ttk.Button(controls_tab, text="📜 Scheda Personaggio", command=self.open_stats_dialog, style='Gold.TButton')
+        self.stats_button = ttk.Button(controls_tab, text=_t("btn_sheet"), command=self.open_stats_dialog, style='Gold.TButton')
         self.stats_button.pack(fill=tk.X, pady=2)
         
-        self.roll_button = ttk.Button(controls_tab, text="🎲 Tira Dadi", command=getattr(self, "roll_dice_dialog", lambda: None), style="Primary.TButton")
+        self.roll_button = ttk.Button(controls_tab, text=_t("btn_roll_dice"), command=getattr(self, "roll_dice_dialog", lambda: None), style="Primary.TButton")
         self.roll_button.pack(fill=tk.X, pady=2)
         
-        self.action_button = ttk.Button(controls_tab, text="⚔️ Azione (Attacco / Cura / Danno)", command=getattr(self, "open_action_dialog", lambda: None))
+        self.action_button = ttk.Button(controls_tab, text=_t("btn_action"), command=getattr(self, "open_action_dialog", lambda: None))
         self.action_button.pack(fill=tk.X, pady=2)
 
-        self.btn_short_rest = ttk.Button(controls_tab, text="☕ Riposo Breve (Dadi Vita)", command=self.open_short_rest_dialog, style='Info.TButton')
+        self.btn_short_rest = ttk.Button(controls_tab, text=_t("btn_short_rest"), command=self.open_short_rest_dialog, style='Info.TButton')
         self.btn_short_rest.pack(fill=tk.X, pady=2)
 
         # Privilegi di Classe (Guerriero / Barbaro / ecc.)
-        class_features_frame = ttk.LabelFrame(controls_tab, text="Privilegi di Classe")
-        class_features_frame.pack(fill=tk.X, pady=(4, 4))
+        self.class_features_frame = ttk.LabelFrame(controls_tab, text=_t("lbl_class_features"))
+        self.class_features_frame.pack(fill=tk.X, pady=(4, 4))
 
-        cf_row = tk.Frame(class_features_frame, bg=SURFACE_COLOR)
+        cf_row = tk.Frame(self.class_features_frame, bg=SURFACE_COLOR)
         cf_row.pack(fill=tk.X, pady=2)
         self.btn_second_wind = tk.Button(
-            cf_row, text="💨 Secondo Fiato", font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            cf_row, text=_t("btn_second_wind"), font=FONT_SMALL, relief=tk.FLAT, bd=0,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.use_second_wind
         )
         self.btn_second_wind.pack(side=tk.LEFT, padx=(0, 2), fill=tk.X, expand=True)
-        ToolTip(self.btn_second_wind, "Guerriero (1/Riposo Breve): recupera 1d10 + Livello HP come Azione Bonus")
+        ToolTip(self.btn_second_wind, lambda: _t("tooltip_second_wind"))
 
         self.btn_action_surge = tk.Button(
-            cf_row, text="⚡ Azione Furente", font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            cf_row, text=_t("btn_action_surge"), font=FONT_SMALL, relief=tk.FLAT, bd=0,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.use_action_surge
         )
         self.btn_action_surge.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
-        ToolTip(self.btn_action_surge, "Guerriero (1/Riposo Breve): ottieni un'Azione aggiuntiva in questo turno")
+        ToolTip(self.btn_action_surge, lambda: _t("tooltip_action_surge"))
 
-        cf_row_2 = tk.Frame(class_features_frame, bg=SURFACE_COLOR)
+        cf_row_2 = tk.Frame(self.class_features_frame, bg=SURFACE_COLOR)
         cf_row_2.pack(fill=tk.X, pady=(2, 0))
         self.btn_rage = tk.Button(
-            cf_row_2, text="🩸 Ira Barbarica", font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            cf_row_2, text=_t("btn_rage"), font=FONT_SMALL, relief=tk.FLAT, bd=0,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.use_rage
         )
         self.btn_rage.pack(fill=tk.X, expand=True)
-        ToolTip(self.btn_rage, "Barbaro: entra in Ira (+2 danni mischia, resistenza a contundente, perforante e tagliente)")
+        ToolTip(self.btn_rage, lambda: _t("tooltip_rage"))
         
-        self.travel_button = ttk.Button(controls_tab, text="🧭 Azioni di Viaggio", command=getattr(self, "open_travel_dialog", lambda: None))
+        self.travel_button = ttk.Button(controls_tab, text=_t("btn_travel_actions"), command=getattr(self, "open_travel_dialog", lambda: None))
         self.travel_button.pack(fill=tk.X, pady=2)
 
-        self.manuals_button = ttk.Button(controls_tab, text="📖 Consulta Manuali di Gioco", command=self.open_manuals_dialog)
+        self.manuals_button = ttk.Button(controls_tab, text=_t("btn_manuals"), command=self.open_manuals_dialog)
         self.manuals_button.pack(fill=tk.X, pady=2)
         
-        self.combat_btn = ttk.Button(controls_tab, text="⚔️ Richiedi Combattimento", command=lambda: getattr(self, "network", None) and self.network.send({"type": "COMBAT_TOGGLE_REQUEST", "data": {}}))
+        self.combat_btn = ttk.Button(controls_tab, text=_t("btn_request_combat"), command=lambda: getattr(self, "network", None) and self.network.send({"type": "COMBAT_TOGGLE_REQUEST", "data": {}}))
         self.combat_btn.pack(fill=tk.X, pady=2)
         
-        self.end_turn_btn = ttk.Button(controls_tab, text="⏹ Termina Turno", command=self.end_turn, style='Danger.TButton')
+        self.end_turn_btn = ttk.Button(controls_tab, text=_t("btn_end_turn"), command=self.end_turn, style='Danger.TButton')
         
         # Hotbar al fondo del right_panel
         self.hotbar_frame = tk.Frame(self.right_notebook.master, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, pady=4, padx=4)
@@ -415,26 +489,29 @@ class ClientGUI:
         if not hasattr(self, 'hero_name_lbl'): return
         char = getattr(self, 'active_character', None)
         if not char:
-            self.hero_name_lbl.config(text=self.name or "Nessun Personaggio")
-            self.hero_class_lbl.config(text="Seleziona o crea un PG")
+            self.hero_name_lbl.config(text=self.name or _t("no_character"))
+            self.hero_class_lbl.config(text=_t("select_or_create_char"))
             self.hero_hp_lbl.config(text="HP: -- / --")
+            self.hero_ac_badge.config(text=f"🛡️ {_t('sheet_ac_badge')}: 10")
+            self.hero_speed_badge.config(text=f"👟 {_t('sheet_speed_badge')}: 30ft")
+            self.hero_init_badge.config(text=f"⚡ {_t('sheet_init_badge')}: +0")
             try: self.hero_hp_bar_fill.place_forget()
             except Exception: pass
             return
         
         self.hero_name_lbl.config(text=char.name)
-        cls = getattr(char, 'char_class', 'Avventuriero') or 'Avventuriero'
+        cls = getattr(char, 'char_class', _t('class_adventurer')) or _t('class_adventurer')
         lvl = getattr(char, 'level', 1) or 1
         race = getattr(char, 'race', '')
         race_str = f" • {race}" if race else ""
-        self.hero_class_lbl.config(text=f"Livello {lvl} {cls}{race_str}")
+        self.hero_class_lbl.config(text=f"{_t('char_level_prefix')} {lvl} {cls}{race_str}")
         
         hp_cur = getattr(char, 'hp_current', 0)
         hp_max = getattr(char, 'hp_max', 1) or 1
         temp_hp = getattr(char, 'temp_hp', 0)
         temp_str = f" (+{temp_hp} Temp)" if temp_hp > 0 else ""
         exh = getattr(char, 'exhaustion_level', 0)
-        exh_str = f" [Indebolimento Lv{exh}]" if exh > 0 else ""
+        exh_str = f" [{_t('exhaustion_prefix')} Lv{exh}]" if exh > 0 else ""
         conds = getattr(char, 'conditions', [])
         cond_str = f"  ({', '.join(conds)})" if conds else ""
         self.hero_hp_lbl.config(text=f"HP: {hp_cur} / {hp_max}{temp_str}{exh_str}{cond_str}")
@@ -448,12 +525,12 @@ class ClientGUI:
         self.hero_hp_bar_fill.place(x=0, y=0, width=fill_w, relheight=1.0)
         
         ac = getattr(char, 'ac', 10) or 10
-        self.hero_ac_badge.config(text=f"🛡️ CA: {ac}")
+        self.hero_ac_badge.config(text=f"🛡️ {_t('sheet_ac_badge')}: {ac}")
         speed = getattr(char, 'speed', 30) or 30
-        self.hero_speed_badge.config(text=f"👟 Vel: {speed}ft")
+        self.hero_speed_badge.config(text=f"👟 {_t('sheet_speed_badge')}: {speed}ft")
         init = getattr(char, 'initiative', 0) or 0
         init_str = f"+{init}" if init >= 0 else str(init)
-        self.hero_init_badge.config(text=f"⚡ Iniz: {init_str}")
+        self.hero_init_badge.config(text=f"⚡ {_t('sheet_init_badge')}: {init_str}")
         self.update_action_economy_ui()
 
     def toggle_action(self):
@@ -480,19 +557,19 @@ class ClientGUI:
             return
 
         if self.action_spent:
-            self.btn_act_tracker.config(text="⚔️ Azione (❌)", bg="#33373B", fg="#888888")
+            self.btn_act_tracker.config(text=f"{_t('btn_act')} (❌)", bg="#33373B", fg="#888888")
         else:
-            self.btn_act_tracker.config(text="⚔️ Azione (✔)", bg=ACCENT_GREEN, fg="white")
+            self.btn_act_tracker.config(text=f"{_t('btn_act')} (✔)", bg=ACCENT_GREEN, fg="white")
 
         if self.bonus_spent:
-            self.btn_bonus_tracker.config(text="✨ Bonus (❌)", bg="#33373B", fg="#888888")
+            self.btn_bonus_tracker.config(text=f"{_t('btn_bonus')} (❌)", bg="#33373B", fg="#888888")
         else:
-            self.btn_bonus_tracker.config(text="✨ Bonus (✔)", bg="#3B82F6", fg="white")
+            self.btn_bonus_tracker.config(text=f"{_t('btn_bonus')} (✔)", bg="#3B82F6", fg="white")
 
         if self.reaction_spent:
-            self.btn_react_tracker.config(text="🛡️ Reaz (❌)", bg="#33373B", fg="#888888")
+            self.btn_react_tracker.config(text=f"{_t('btn_react')} (❌)", bg="#33373B", fg="#888888")
         else:
-            self.btn_react_tracker.config(text="🛡️ Reaz (✔)", bg="#F59E0B", fg="white")
+            self.btn_react_tracker.config(text=f"{_t('btn_react')} (✔)", bg="#F59E0B", fg="white")
 
         base_speed = 30
         if self.active_character and hasattr(self.active_character, 'speed'):
@@ -501,16 +578,16 @@ class ClientGUI:
         is_dashed = False
         if self.name in getattr(self, "players_data", {}):
             conds = self.players_data[self.name].get("conditions", [])
-            is_dashed = "Scatto" in conds
+            is_dashed = "Scatto" in conds or "Dash" in conds
         elif self.active_character and hasattr(self.active_character, "conditions"):
-            is_dashed = "Scatto" in getattr(self.active_character, "conditions", [])
+            is_dashed = "Scatto" in getattr(self.active_character, "conditions", []) or "Dash" in getattr(self.active_character, "conditions", [])
         
         eff_speed = base_speed * 2 if is_dashed else base_speed
         rem_ft = max(0, eff_speed - self.movement_spent_ft)
-        status_tag = " [🏃 Scatto]" if is_dashed else ""
+        status_tag = f" [🏃 {_t('action_dash')}]" if is_dashed else ""
         if hasattr(self, 'lbl_movement_tracker'):
             self.lbl_movement_tracker.config(
-                text=f"👟 Movimento: {self.movement_spent_ft}/{eff_speed} ft (Rim: {rem_ft} ft){status_tag}"
+                text=_t("lbl_movement", used=self.movement_spent_ft, total=eff_speed, rem=rem_ft) + status_tag
             )
 
     def prompt_death_save(self):
@@ -1698,6 +1775,10 @@ class ClientGUI:
         self.is_connected = False
 
     def on_closing(self):
+        try:
+            unregister_language_listener(self.on_language_changed)
+        except Exception:
+            pass
         self.disconnect()
         self.master.destroy()
 
