@@ -41,6 +41,8 @@ class HexMapCanvas(tk.Canvas):
         self._ruler_start_hex = None
         self._ruler_line_id = None
         self._ruler_text_id = None
+        self._ruler_text_bg_id = None
+        self.ruler_mode = False
 
         self.bind("<MouseWheel>", self._zoom)
         self.bind("<Button-4>", self._zoom)
@@ -221,11 +223,39 @@ class HexMapCanvas(tk.Canvas):
         else:
             self._on_ping_click(event)
 
+    def toggle_ruler_mode(self):
+        self.ruler_mode = not getattr(self, "ruler_mode", False)
+        if not self.ruler_mode:
+            self.clear_ruler()
+        return self.ruler_mode
+
+    def clear_ruler(self):
+        self._ruler_start_hex = None
+        if getattr(self, '_ruler_line_id', None):
+            self.delete(self._ruler_line_id)
+            self._ruler_line_id = None
+        if getattr(self, '_ruler_text_id', None):
+            self.delete(self._ruler_text_id)
+            self._ruler_text_id = None
+        if getattr(self, '_ruler_text_bg_id', None):
+            self.delete(self._ruler_text_bg_id)
+            self._ruler_text_bg_id = None
+
     def _on_canvas_click(self, event):
-        if not self.hex_layout or not self.on_hex_click_callback: return
+        if not self.hex_layout: return
         world_x = (event.x - self.pan_offset_x) / self.zoom_level
         world_y = (event.y - self.pan_offset_y) / self.zoom_level
         clicked_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
+
+        if getattr(self, "ruler_mode", False):
+            if self._ruler_start_hex is None:
+                self._ruler_start_hex = clicked_hex
+            else:
+                self._on_ruler_drag(event)
+                self._ruler_start_hex = None
+            return
+
+        if not self.on_hex_click_callback: return
         
         self.dragging_token_name = None
         if getattr(self, 'players_data', None):
@@ -239,6 +269,9 @@ class HexMapCanvas(tk.Canvas):
         self.on_hex_click_callback(clicked_hex)
 
     def _on_canvas_drag(self, event):
+        if getattr(self, "ruler_mode", False) and self._ruler_start_hex:
+            self._on_ruler_drag(event)
+            return
         if getattr(self, 'dragging_token_name', None):
             self.delete('ghost_token')
             self.create_oval(event.x-10, event.y-10, event.x+10, event.y+10, fill='', outline='white', dash=(2,2), tags='ghost_token')
@@ -284,8 +317,10 @@ class HexMapCanvas(tk.Canvas):
 
         self._ruler_start_hex = clicked_hex
 
-
     def _on_mouse_motion(self, event):
+        if getattr(self, "ruler_mode", False) and self._ruler_start_hex:
+            self._on_ruler_drag(event)
+            return
         if not getattr(self, 'hex_layout', None): return
         world_x = (event.x - self.pan_offset_x) / self.zoom_level
         world_y = (event.y - self.pan_offset_y) / self.zoom_level
@@ -741,6 +776,25 @@ class HexMapCanvas(tk.Canvas):
                 if is_dm:
                     self.create_text(sx, sy-15, text="🚪", font=("", max(8, int(10*self.zoom_level))))
 
+        # Draw Traps (Trappole D&D 5e)
+        traps_data = self.map_data.get("traps", [])
+        for tr in traps_data:
+            tr_q = tr.get("q", 0)
+            tr_r = tr.get("r", 0)
+            is_trig = tr.get("triggered", False)
+            is_hid = tr.get("hidden", True)
+            if not is_dm and is_hid and not is_trig:
+                continue
+            if fow_enabled and not is_dm and (tr_q, tr_r) not in fow_revealed:
+                continue
+            cx = step_x * tr_q
+            cy = hex_size * (sqrt3 * 0.5 * tr_q + sqrt3 * tr_r)
+            sx = cx * self.zoom_level + self.pan_offset_x
+            sy = cy * self.zoom_level + self.pan_offset_y
+            if scr_x1 <= sx <= scr_x2 and scr_y1 <= sy <= scr_y2:
+                icon = "💥" if is_trig else "⚠️"
+                self.create_text(sx, sy, text=icon, font=("Arial", max(9, int(13 * self.zoom_level))))
+
         # Draw Spawn Point
         spawn_point = self.map_data.get("spawn_point")
         if spawn_point and is_dm:
@@ -808,6 +862,15 @@ class HexMapCanvas(tk.Canvas):
                                  sx + inner_aura_r, sy + inner_aura_r,
                                  fill="", outline=aura_color, dash=(4, 4), width=1)
 
+            # Luce Dinamica (Torcia, Lanterna, Incantesimo Luce)
+            light_radius = pdata.get('light_radius', 0) if isinstance(pdata, dict) else 0
+            light_color = pdata.get('light_color', '#FFD700') if isinstance(pdata, dict) else '#FFD700'
+            if light_radius > 0:
+                screen_light_r = (light_radius * hex_size * sqrt3 * self.zoom_level)
+                self.create_oval(sx - screen_light_r, sy - screen_light_r,
+                                 sx + screen_light_r, sy + screen_light_r,
+                                 fill="", outline=light_color, dash=(5, 5), width=2)
+
             # Evidenziazione Turno Attivo (Doppio anello oro radiante)
             is_turn = getattr(self, "turn_player_name", "") == name
             if is_turn:
@@ -855,6 +918,12 @@ class HexMapCanvas(tk.Canvas):
                 self.create_oval(sx-radius, sy-radius, sx+radius, sy+radius, fill=token_base_color, outline=outline_style, width=2, dash=dash_style)
                 self.create_text(sx, sy, text=name[:2].upper(), fill="white", font=("Segoe UI", 8, "bold"))
 
+            # Distintivo Boss Leggendario (👑)
+            leg_res = pdata.get('legendary_resistances_max', 0) if isinstance(pdata, dict) else 0
+            leg_act = pdata.get('legendary_actions_max', 0) if isinstance(pdata, dict) else 0
+            if leg_res > 0 or leg_act > 0:
+                self.create_text(sx - radius, sy - radius, text="👑", font=("Segoe UI Emoji", max(9, int(11 * self.zoom_level))))
+
             if hp_max > 0:
                 bar_w = radius * 2.2
                 bar_h = 4
@@ -867,21 +936,37 @@ class HexMapCanvas(tk.Canvas):
                     self.create_rectangle(bar_x, bar_y, bar_x + (bar_w * hp_ratio), bar_y + bar_h, fill=bar_color, outline="")
 
             if conditions:
-                cond_colors = {
-                    "Avvelenato": "green", "Accecato": "gray", "Prono": "brown", "Stordito": "yellow",
-                    "Spaventato": "purple", "Invisibile": "white", "Incapacitato": "orange", "Paralizzato": "blue"
+                cond_badge_map = {
+                    "Morto": ("#2B0000", "💀"),
+                    "Incosciente": ("#1864AB", "💤"),
+                    "Privo di Sensi": ("#1864AB", "💤"),
+                    "Prono": ("#8F4F00", "🔻"),
+                    "Concentrazione": ("#D9480F", "⚡"),
+                    "Schivata": ("#1971C2", "🛡️"),
+                    "Aiuto": ("#2F9E44", "🤝"),
+                    "Avvelenato": ("#2B8A3E", "🤢"),
+                    "Accecato": ("#495057", "👁️"),
+                    "Paralizzato": ("#0C8599", "⚡"),
+                    "Trattenuto": ("#6741D9", "🕸️"),
+                    "Invisibile": ("#868E96", "👻"),
+                    "Spaventato": ("#A61E4D", "😱"),
+                    "Stabilizzato": ("#099268", "🩹"),
+                    "Sordo": ("#495057", "🔇"),
+                    "Afferrato": ("#E67700", "✊"),
+                    "Incantato": ("#D6336C", "💖"),
+                    "Pietrificato": ("#5C5F66", "🗿")
                 }
-                box_size = 10
-                start_x = sx + radius - box_size/2
-                start_y = sy - radius - box_size/2
-                for i, cond in enumerate(conditions):
-                    c_x = start_x + (i * box_size)
-                    bg_color = cond_colors.get(cond, "red")
-                    fg_color = "black" if bg_color in ["yellow", "white", "green"] else "white"
-                    abbrev_map = {"Avvelenato": "Av", "Prono": "P", "Trattenuto": "Tr"}
-                    abbrev = abbrev_map.get(cond, cond[:2].capitalize())
-                    self.create_rectangle(c_x, start_y, c_x + box_size, start_y + box_size, fill=bg_color, outline="black")
-                    self.create_text(c_x + box_size/2, start_y + box_size/2, text=abbrev, fill=fg_color, font=("Arial", 6, "bold"))
+                badge_r = max(6, int(8 * min(self.zoom_level, 1.2)))
+                start_x = sx - radius
+                start_y = sy - radius - badge_r - 2
+                for i, cond in enumerate(conditions[:5]):
+                    badge_info = cond_badge_map.get(cond, ("#C92A2A", cond[:2].upper()))
+                    bg_color, symbol = badge_info
+                    b_x = start_x + (i * (badge_r * 2 + 2))
+                    b_y = start_y
+                    self.create_oval(b_x - badge_r, b_y - badge_r, b_x + badge_r, b_y + badge_r, fill=bg_color, outline="#FFFFFF", width=1)
+                    font_size = max(6, int(badge_r * 1.1))
+                    self.create_text(b_x, b_y, text=symbol, font=("Segoe UI Emoji", font_size), fill="white")
 
         # --- ENVIRONMENTS & COMBAT OVERLAYS ---
         w = self.winfo_width()

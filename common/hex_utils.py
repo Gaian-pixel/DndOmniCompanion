@@ -172,3 +172,53 @@ def get_visible_hexes(origin: Hex, radius: int, walls) -> list[Hex]:
         if is_visible:
             visible.add(h)
     return list(visible)
+
+def get_cover_between(origin: Hex, target: Hex, half_cover=None, three_quarters=None, intermediate_creatures=None) -> tuple[int, str]:
+    """
+    Calcola la Copertura D&D 5e tra origin e target.
+    Regole 5e:
+    - Se la traiettoria interseca una creatura (alleata o nemica): Mezza Copertura (+2 CA e +2 TS Des).
+    - Se interseca un ostacolo di mezza copertura (muretto, rocce basse): +2 CA.
+    - Se interseca un ostacolo di tre quarti (grata, feritoia, tronco massiccio): +5 CA.
+    Ritorna: (bonus_ca, nome_copertura)
+    """
+    if origin == target:
+        return (0, "")
+        
+    line = hex_linedraw(origin, target)
+    intermediate = [p for p in line if p != origin and p != target]
+    if not intermediate:
+        return (0, "")
+        
+    half_set = set()
+    if half_cover:
+        for h in half_cover:
+            if isinstance(h, Hex): half_set.add((h.q, h.r))
+            elif isinstance(h, (list, tuple)) and len(h) >= 2: half_set.add((h[0], h[1]))
+            
+    tq_set = set()
+    if three_quarters:
+        for t in three_quarters:
+            if isinstance(t, Hex): tq_set.add((t.q, t.r))
+            elif isinstance(t, (list, tuple)) and len(t) >= 2: tq_set.add((t[0], t[1]))
+
+    creature_set = set()
+    if intermediate_creatures:
+        for c in intermediate_creatures:
+            if isinstance(c, Hex): creature_set.add((c.q, c.r))
+            elif isinstance(c, (list, tuple)) and len(c) >= 2: creature_set.add((c[0], c[1]))
+            elif hasattr(c, "position") and c.position: creature_set.add((c.position[0], c.position[1]))
+
+    # Check Tre Quarti (+5 CA)
+    for p in intermediate:
+        if (p.q, p.r) in tq_set:
+            return (5, "Tre Quarti di Copertura")
+
+    # Check Mezza Copertura (+2 CA)
+    for p in intermediate:
+        if (p.q, p.r) in half_set:
+            return (2, "Mezza Copertura (Ostacolo)")
+        if (p.q, p.r) in creature_set:
+            return (2, "Mezza Copertura (Creatura interposta)")
+
+    return (0, "")

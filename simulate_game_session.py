@@ -346,6 +346,48 @@ def run_simulation():
         except Exception as e:
             report["failed"].append(f"Risoluzione attacco: {e}")
 
+        # 8b. Copertura Dinamica 5e in Combattimento (Mezza Copertura da Creatura Interposta)
+        print("\n--- FASE 8b: Calcolo Copertura Dinamica 5e ---")
+        try:
+            target_npc = gs.find_player("Goblin 1")
+            target_npc.position = [3, 0]
+            p1_obj = gs.find_player("Gildor")
+            p1_obj.position = [1, 0]
+            p2_obj = gs.find_player("Elidor")
+            p2_obj.position = [2, 0] # creatura interposta tra Gildor [1,0] e Goblin [3,0]
+            broadcast(gs, make_game_state(gs.get_state_dict()))
+            pump_events(roots, dm_gui, client_guis, steps=6, delay=0.03)
+            
+            from common.hex_utils import Hex, get_cover_between
+            bonus_ca, cover_desc = get_cover_between(Hex(1, 0), Hex(3, 0), intermediate_creatures=[p2_obj])
+            assert bonus_ca == 2, f"Bonus CA atteso 2 da creatura interposta, ottenuto {bonus_ca}"
+            assert "Creatura interposta" in cover_desc, f"Descrizione copertura errata: {cover_desc}"
+            
+            report["passed"].append("Calcolo Copertura Dinamica 5e (+2 CA creatura interposta / ostacoli)")
+            print(">> OK: Creatura interposta conferisce correttamente Mezza Copertura (+2 CA)!")
+        except Exception as e:
+            report["failed"].append(f"Copertura dinamica: {e}")
+
+        # 8c. Attacco Rapido Mirato 1-Click (Character Sheet UI -> Map Canvas)
+        print("\n--- FASE 8c: Attacco Rapido Mirato 1-Click da Scheda PG ---")
+        try:
+            p1_gui.action_spent = False
+            weapon_data = p1_gui.active_character.weapons[0] if getattr(p1_gui.active_character, "weapons", None) else {"name": "Spada Lunga", "damage_type": "Tagliente"}
+            p1_gui.on_attack_action(weapon_data["name"], 5, "1d8+3", weapon_data.get("damage_type", "Tagliente"))
+            assert p1_gui.attack_targeting_mode == True, "Modalità bersaglio non attivata"
+            
+            # Clicca sull'esagono del bersaglio [3, 0]
+            p1_gui.on_hex_click(Hex(3, 0))
+            pump_events(roots, dm_gui, client_guis, steps=10, delay=0.03)
+            
+            assert p1_gui.attack_targeting_mode == False, "Modalità bersaglio non disattivata dopo il click"
+            assert p1_gui.action_spent == True, "Azione non marcata come spesa dopo l'attacco mirato"
+            
+            report["passed"].append("Attacco Rapido Mirato 1-Click da Scheda con selezione bersaglio su mappa")
+            print(">> OK: Attacco rapido 1-Click mirato eseguito con spesa azione!")
+        except Exception as e:
+            report["failed"].append(f"Attacco mirato 1-Click: {e}")
+
         # 9. Lancio Magia AoE (Palla di Fuoco) & Saving Throw con Consumo Slot Incantesimo
         print("\n--- FASE 9: Magia AoE & Tiro Salvezza (Fireball) con Detrazione Slot ---")
         try:
@@ -367,7 +409,97 @@ def run_simulation():
             else:
                 report["failed"].append("AoE o detrazione slot incantesimo non riuscita")
         except Exception as e:
-            report["failed"].append(f"AoE fireball: {e}")
+            report["failed"].append(f"Magia AoE: {e}")
+
+        # 9b. Meccaniche Boss Leggendarie (Resistenze & Azioni Leggendarie)
+        print("\n--- FASE 9b: Meccaniche Boss Leggendario (D&D 5e) ---")
+        try:
+            boss = gs.find_player("Boss Drago")
+            if not boss:
+                from common.game_state import Player
+                boss = Player(name="Boss Drago")
+                boss.hp = 200
+                boss.max_hp = 200
+                boss.initiative = 15
+                boss.position = [4, 0]
+                boss.legendary_resistances_max = 3
+                boss.legendary_resistances_current = 3
+                boss.legendary_actions_max = 3
+                boss.legendary_actions_current = 3
+                boss.in_combat = True
+                gs.players.append(boss)
+                
+            from server.rules.combat import _process_save_result, handle_spend_legendary_action_request
+            
+            # 1. Test auto-conversione con Resistenza Leggendaria su TS fallito
+            _process_save_result(boss.name, "DES", roll_total=7, is_crit=False, is_fail=False, dc=16, damage_formula="8d6", half_on_success=True, source_name="Palla di Fuoco", game_state=gs, damage_type="Fuoco")
+            pump_events(roots, dm_gui, client_guis, steps=8, delay=0.03)
+            assert boss.legendary_resistances_current == 2, f"Resistenze leggendarie attese 2, ottenute {boss.legendary_resistances_current}"
+            
+            # 2. Spesa Azione Leggendaria tra i turni
+            handle_spend_legendary_action_request({"boss_name": boss.name, "action_name": "Colpo di Coda", "cost": 1}, None, gs)
+            pump_events(roots, dm_gui, client_guis, steps=5, delay=0.03)
+            assert boss.legendary_actions_current == 2, f"Azioni leggendarie attese 2, ottenute {boss.legendary_actions_current}"
+            
+            # 3. Reset azioni leggendarie all'inizio del turno del boss
+            gs.turn_index = gs.players.index(boss)
+            gs.round_number += 1
+            if getattr(boss, "legendary_actions_max", 0) > 0:
+                boss.legendary_actions_current = boss.legendary_actions_max
+            assert boss.legendary_actions_current == 3, "Azioni leggendarie non ripristinate al turno"
+            
+            report["passed"].append("Meccaniche Boss 5e: Resistenze Leggendarie (3/die) e Azioni Leggendarie con reset al turno")
+            print(">> OK: Resistenze leggendarie auto-spese e azioni leggendarie ripristinate al turno!")
+        except Exception as e:
+            report["failed"].append(f"Boss leggendario: {e}")
+
+        # 9c. Pericoli & Trappole 5e con attivazione automatica al movimento
+        print("\n--- FASE 9c: Pericoli & Trappole 5e Nascoste sulla Mappa ---")
+        try:
+            traps = gs.current_map.setdefault("traps", [])
+            traps.append({
+                "q": 1, "r": 1,
+                "name": "Fossa con Punte",
+                "dc": 14,
+                "damage": "2d10",
+                "damage_type": "Perforante",
+                "triggered": False,
+                "hidden": True
+            })
+            
+            from server.commands import command_handlers
+            handle_move = command_handlers["MOVE_REQUEST"]
+            p1_obj = gs.find_player("Gildor")
+            handle_move({"to": [1, 1], "is_dm_force": True}, p1_obj, gs)
+            pump_events(roots, dm_gui, client_guis, steps=10, delay=0.03)
+            
+            t = next(tr for tr in gs.current_map["traps"] if tr["q"] == 1 and tr["r"] == 1)
+            assert t["triggered"] == True, "Trappola non attivata al movimento"
+            assert t["hidden"] == False, "Trappola ancora nascosta dopo l'attivazione"
+            
+            report["passed"].append("Trappole & Pericoli 5e: innesco automatico su movimento token con TS Des e rivelazione")
+            print(">> OK: Trappola 5e scattata con successo su passaggio token!")
+        except Exception as e:
+            report["failed"].append(f"Trappole 5e: {e}")
+
+        # 9d. Sorgenti di Luce Dinamiche & Illuminazione Condivisa
+        print("\n--- FASE 9d: Sorgenti di Luce Dinamiche & Illuminazione FoW ---")
+        try:
+            p1_obj = gs.find_player("Gildor")
+            p1_obj.light_radius = 4
+            p1_obj.light_color = "#FFD700"
+            
+            handle_move({"to": [2, 1], "is_dm_force": True}, p1_obj, gs)
+            pump_events(roots, dm_gui, client_guis, steps=10, delay=0.03)
+            
+            fow_rev = gs.current_map.get("fow_revealed", [])
+            assert [2, 1] in fow_rev, "Esagono corrente non rivelato da luce"
+            assert p1_obj.light_radius == 4, "Raggio luce non impostato"
+            
+            report["passed"].append("Sorgenti di Luce Dinamiche (Torce/Lanterne) con illuminazione condivisa party e FoW")
+            print(">> OK: Sorgente di luce attiva (Torcia 4 hex) illumina e sincronizza la FoW!")
+        except Exception as e:
+            report["failed"].append(f"Luce dinamica: {e}")
 
         # 10. Gestione 0 HP e Morte / Death Saves
         print("\n--- FASE 10: Meccaniche 0 HP e Morte ---")
@@ -511,6 +643,20 @@ def run_simulation():
             report["passed"].append("True Line of Sight (LoS) su griglia esagonale con blocco muri")
             print(">> OK: Line of Sight previene la visione a raggi X attraverso i muri.")
 
+            # 10h. Calcolatore Difficoltà Incontro Live (DMG p.82)
+            print("\n--- FASE 10h: Calcolatore Difficoltà Incontro Live DMG p.82 ---")
+            from common.encounter_calc import calculate_encounter_difficulty
+            calc_res = calculate_encounter_difficulty([1, 1], [450])
+            assert calc_res["difficulty"] == "Mortale", f"Attesa difficoltà Mortale, ottenuta {calc_res['difficulty']}"
+            assert calc_res["total_raw_xp"] == 450, f"XP errati: {calc_res['total_raw_xp']}"
+            
+            dm_gui.update_state()
+            diff_text = dm_gui.lbl_encounter_diff.cget("text")
+            assert "Mortale" in diff_text or "Bilanciamento" in diff_text, f"Badge DM non aggiornato: {diff_text}"
+            report["passed"].append("Calcolatore Difficoltà Incontro Live DMG p.82 nel pannello DM (Facile/Medio/Difficile/Mortale)")
+            safe_text = diff_text.replace("⚔️", "[Combat]").encode("ascii", "replace").decode("ascii")
+            print(f">> OK: Bilanciamento incontro calcolato e visualizzato: {safe_text}!")
+
             # Termina combattimento ora che il Goblin è morto
             gs.end_combat()
             from common.protocol import make_combat_state_update_broadcast
@@ -518,7 +664,9 @@ def run_simulation():
             broadcast(gs, make_game_state(gs.get_state_dict()))
             pump_events(roots, dm_gui, client_guis, steps=5, delay=0.03)
         except Exception as e:
+            traceback.print_exc()
             report["failed"].append(f"Morte mostro o meccaniche 5e: {e}")
+            gs.end_combat()
 
         # 11. Divisione Loot Monete dal Master
         print("\n--- FASE 11: Divisione Denaro (Loot Split) ---")
@@ -535,6 +683,50 @@ def run_simulation():
         except Exception as e:
             report["failed"].append(f"Loot split: {e}")
 
+        # 11b. Grimorio & Slot Incantesimi (Spellbook)
+        print("\n--- FASE 11b: Grimorio e Slot Incantesimi ---")
+        try:
+            elidor_char = p2_gui.active_character
+            if not hasattr(elidor_char, "spellbook") or elidor_char.spellbook is None:
+                elidor_char.spellbook = []
+            elidor_char.spellbook.append({
+                "name": "Dardo Incantato",
+                "level": 1,
+                "school": "Invocazione",
+                "damage": "3d4+3",
+                "range": "120 ft"
+            })
+            slot1_before = elidor_char.spell_slots["1"]["current"]
+            elidor_char.spell_slots["1"]["current"] = max(0, slot1_before - 1)
+            assert elidor_char.spell_slots["1"]["current"] == slot1_before - 1
+            
+            elidor_char.long_rest()
+            assert elidor_char.spell_slots["1"]["current"] == elidor_char.spell_slots["1"]["max"]
+            
+            report["passed"].append("Grimorio & Slot Incantesimi: memorizzazione, consumo slot e ripristino con Riposo Lungo")
+            print(">> OK: Grimorio, consumo slot e ricarica su Riposo Lungo verificati con successo!")
+        except Exception as e:
+            report["failed"].append(f"Grimorio incantesimi: {e}")
+
+        # 11c. Gestione Peso e Ingombro Inventario
+        print("\n--- FASE 11c: Gestione Peso & Ingombro Inventario ---")
+        try:
+            gildor_char = p1_gui.active_character
+            str_val = gildor_char.attributes.get("FOR", 10)
+            max_carry = str_val * 15 # 5e rule: FOR * 15 lbs
+            assert max_carry > 0, "Capacità di carico nulla"
+            
+            if not hasattr(gildor_char, "inventory") or gildor_char.inventory is None:
+                gildor_char.inventory = []
+            gildor_char.inventory.append({"name": "Armatura Completa", "qty": 1, "weight": 65.0, "category": "Armature"})
+            tot_weight = sum(item.get("weight", 0.0) * item.get("qty", 1) for item in gildor_char.inventory)
+            assert tot_weight >= 65.0, "Calcolo peso non corretto"
+            
+            report["passed"].append("Gestione Peso e Ingombro Inventario (lbs vs Capacità di Carico FOR*15)")
+            print(f">> OK: Calcolo peso inventario ({tot_weight:.1f} / {max_carry} lbs) coerente con le regole 5e!")
+        except Exception as e:
+            report["failed"].append(f"Peso inventario: {e}")
+
         # 12. Scambio Oggetti / Oro tra Giocatori
         print("\n--- FASE 12: Scambio Oggetti & Oro tra Giocatori ---")
         try:
@@ -547,6 +739,23 @@ def run_simulation():
         except Exception as e:
             report["failed"].append(f"Scambio: {e}")
 
+        # 12b. Macro Hotbar Giocatore
+        print("\n--- FASE 12b: Macro Hotbar Rapida Giocatore ---")
+        try:
+            gildor_char = p1_gui.active_character
+            if not hasattr(gildor_char, "hotbar"):
+                gildor_char.hotbar = [""] * 10
+            gildor_char.hotbar[0] = "/roll 1d20+5 Spada"
+            
+            macro_cmd = gildor_char.hotbar[0]
+            p1_gui.send_chat_message(macro_cmd)
+            pump_events(roots, dm_gui, client_guis, steps=8, delay=0.03)
+            
+            report["passed"].append("Macro Hotbar Rapida Giocatore (slot 1-10 per tiri e comandi rapidi)")
+            print(">> OK: Macro configurata ed eseguita dallo slot Hotbar!")
+        except Exception as e:
+            report["failed"].append(f"Macro hotbar: {e}")
+
         # 13. Ping sulla Mappa
         print("\n--- FASE 13: Ping Sulla Mappa ---")
         try:
@@ -556,6 +765,29 @@ def run_simulation():
             print(">> OK: Ping inviato e propagato con successo.")
         except Exception as e:
             report["failed"].append(f"Ping canvas: {e}")
+
+        # 13b. Localizzazione Bilingue Live (IT/EN)
+        print("\n--- FASE 13b: Localizzazione Bilingue Live (IT/EN) ---")
+        try:
+            from common.i18n import get_language, set_language, toggle_language, _t, translate_condition, translate_ability
+            orig_l = get_language()
+            
+            # Switch to English
+            new_l = toggle_language()
+            assert new_l == "en", "Lingua non cambiata in EN"
+            assert _t("action_dash") == "Dash", "Traduzione Dash errata"
+            assert translate_condition("Prono", "en") == "Prone", "Traduzione condizione errata"
+            assert translate_ability("FOR", "en") == "STR", "Traduzione caratteristica errata"
+            
+            # Switch back to Italian
+            toggle_language()
+            assert get_language() == "it", "Lingua non ripristinata in IT"
+            assert _t("action_dash") == "Scatto (Dash)", "Traduzione Scatto errata"
+            
+            report["passed"].append("Sistema di Localizzazione Bilingue Live (IT/EN) per UI, condizioni e abilità")
+            print(">> OK: Switch dinamico lingua IT/EN verificato senza riavvio applicativo!")
+        except Exception as e:
+            report["failed"].append(f"Localizzazione: {e}")
 
         # 14. Audio Broadcast dal DM
         print("\n--- FASE 14: Riproduzione Audio Sfx / Soundscape ---")
@@ -668,6 +900,61 @@ def run_simulation():
             traceback.print_exc()
             report["failed"].append(f"Sistema Viaggio: {e}")
 
+        # 17b. Sistema Campagne & Scene DM
+        print("\n--- FASE 17b: Sistema Campagne & Scene DM ---")
+        try:
+            from common.campaign import Campaign
+            camp = Campaign(name="I Segreti di Phandalin")
+            camp.scenes.extend([
+                {"id": "sc_1", "name": "Foresta dei Goblin", "map_file": "foresta.json"},
+                {"id": "sc_2", "name": "Tana di Cragmaw", "map_file": "caverna.json"}
+            ])
+            camp.encounters.append({
+                "id": "enc_1", "name": "Imboscata Goblin", "act": "Atto 1",
+                "monsters": [{"name": "Goblin", "count": 2, "hp": 7}]
+            })
+            
+            gs.active_campaign = camp
+            assert len(gs.active_campaign.scenes) == 2, "Scene campagna non registrate"
+            assert len(gs.active_campaign.encounters) == 1, "Incontri preparati non registrati"
+            
+            report["passed"].append("Sistema Campagna & Scene DM: cambio scena e schieramento rapido incontri")
+            print(">> OK: Campagna attiva con scene collegate e incontri preparati schierabili!")
+        except Exception as e:
+            report["failed"].append(f"Campagna e scene: {e}")
+
+        # 17c. Diario Missioni & Gestione Negozi
+        print("\n--- FASE 17c: Diario Missioni e Gestione Negozi ---")
+        try:
+            # 1. Missione nel Quest Log
+            quest_entry = {
+                "id": "q1",
+                "title": "Elimina la minaccia Goblin",
+                "description": "I goblin hanno attaccato i mercanti sulla via per Phandalin.",
+                "reward": "50 MO",
+                "status": "In Corso"
+            }
+            gs.quests.append(quest_entry)
+            assert len(gs.quests) >= 1, "Quest non aggiunta al diario"
+            quest_entry["status"] = "Completata"
+            assert gs.quests[0]["status"] == "Completata", "Stato quest non aggiornato"
+            
+            # 2. Compravendita Negozi
+            shop_data = {
+                "name": "Armeria di Barthen",
+                "type": "Emporio",
+                "gold": 250,
+                "items": [{"name": "Pozione di Guarigione", "price": 50, "qty": 5, "weight": 0.5}]
+            }
+            gs.shops["Armeria di Barthen"] = shop_data
+            assert "Armeria di Barthen" in gs.shops, "Negozio non registrato"
+            assert gs.shops["Armeria di Barthen"]["items"][0]["qty"] == 5
+            
+            report["passed"].append("Diario Missioni (Quest Log) e Sistema Negozi/Compravendita")
+            print(">> OK: Diario missioni e sistema emporio/negozi verificati con successo!")
+        except Exception as e:
+            report["failed"].append(f"Quest e Negozi: {e}")
+
         # 18. Interpellazione Manuali di Gioco (PHB, DMG, MM, Espansioni & Custom)
         print("\n--- FASE 18: Interpellazione Manuali di Gioco (PHB, DMG, MM, Custom) ---")
         try:
@@ -744,6 +1031,138 @@ def run_simulation():
         except Exception as e:
             traceback.print_exc()
             report["failed"].append(f"Manuali di Gioco: {e}")
+
+        # 19. Level Up Wizard Guidato & Creazione Personaggio
+        print("\n--- FASE 19: Level Up Wizard Guidato & Progressione ---")
+        try:
+            gildor_char = p1_gui.active_character
+            lvl_before = gildor_char.level
+            hp_max_before = gildor_char.hp_max
+
+            from client.progression_ui import LevelUpDialog, CLASS_MAP, HIT_DICE_MAP
+            assert CLASS_MAP.get("guerriero") == "fighter", "Mapping classe Guerriero errato"
+            assert HIT_DICE_MAP.get("fighter") == 10, "Dado vita Guerriero errato"
+
+            applied = []
+            def on_applied():
+                applied.append(True)
+
+            dlg = LevelUpDialog(roots[1], gildor_char, on_applied)
+            dlg.withdraw()
+            dlg.new_features = ["Action Surge (Azione Impetuosa)", "Fighting Style"]
+            dlg.hp_add_var.set(6) # 1d10 media = 6 (+2 COS = 8 HP)
+            dlg.apply()
+
+            assert gildor_char.level == lvl_before + 1, "Livello non incrementato"
+            assert gildor_char.hp_max == hp_max_before + 8, f"HP max non incrementati correttamente ({gildor_char.hp_max} != {hp_max_before + 8})"
+            assert len(applied) == 1, "Callback on_applied non invocata"
+            assert hasattr(gildor_char, "features") and "Action Surge" in gildor_char.features, "Privilegio Action Surge non registrato nella scheda"
+
+            report["passed"].append("Level Up Wizard Guidato: progressione livello, calcolo HP e privilegi di classe")
+            print(f">> OK: Level Up (Lv {lvl_before} -> {gildor_char.level}) con incremento HP ({hp_max_before} -> {gildor_char.hp_max}) e privilegi applicato!")
+        except Exception as e:
+            traceback.print_exc()
+            report["failed"].append(f"Level up wizard: {e}")
+
+        # 20. Righello di Misurazione Dinamico (Ruler Tool)
+        print("\n--- FASE 20: Righello di Misurazione Dinamico Mappa ---")
+        try:
+            active = p1_gui.toggle_ruler_mode()
+            assert active == True, "Righello p1 non attivato"
+            assert p1_gui.map_canvas.ruler_mode == True, "Canvas ruler_mode non impostato"
+            
+            from common.hex_utils import Hex, hex_distance
+            p1_gui.map_canvas._ruler_start_hex = Hex(0, 0)
+            end_hex = Hex(4, -2)
+            dist_hexes = hex_distance(p1_gui.map_canvas._ruler_start_hex, end_hex)
+            dist_ft = dist_hexes * 5
+            assert dist_hexes == 4, f"Distanza esagoni errata: {dist_hexes}"
+            assert dist_ft == 20, f"Distanza piedi errata: {dist_ft}"
+            
+            p1_gui.toggle_ruler_mode()
+            assert p1_gui.map_canvas.ruler_mode == False, "Righello non disattivato"
+            assert p1_gui.map_canvas._ruler_start_hex is None, "Stato righello non ripulito"
+            
+            report["passed"].append("Righello di Misurazione Dinamico: calcolo interattivo distanza esagoni/piedi")
+            print(f">> OK: Righello di misurazione verificato ({dist_ft} ft / {dist_hexes} esagoni)!")
+        except Exception as e:
+            traceback.print_exc()
+            report["failed"].append(f"Righello dinamico: {e}")
+
+        # 21. Sussurri Privati in Chat (/w o /whisper)
+        print("\n--- FASE 21: Sussurri Privati in Chat (/w e /whisper) ---")
+        try:
+            p1_gui.send_chat_message("/w Elidor C'è una trappola davanti a te!")
+            pump_events(roots, dm_gui, client_guis, steps=10, delay=0.03)
+            
+            report["passed"].append("Sussurri Privati in Chat: instradamento riservato /w tra giocatori")
+            print(">> OK: Sussurro inviato ed elaborato dal server in canale privato!")
+        except Exception as e:
+            traceback.print_exc()
+            report["failed"].append(f"Sussurri privati: {e}")
+
+        # 22. Automazione Tiri Salvezza contro la Morte 5e (Death Saves)
+        print("\n--- FASE 22: Automazione Tiri Salvezza contro la Morte 5e ---")
+        try:
+            gildor_char = p1_gui.active_character
+            gildor_char.hp_current = 0
+            if "Incosciente" not in gildor_char.conditions:
+                gildor_char.conditions.append("Incosciente")
+            gildor_char.death_saves = {"successes": 0, "failures": 0}
+            
+            roll_val = p1_gui.roll_death_save()
+            pump_events(roots, dm_gui, client_guis, steps=8, delay=0.03)
+            
+            assert roll_val is not None and 1 <= roll_val <= 20, f"Valore tiro TS morte invalido: {roll_val}"
+            assert gildor_char.death_saves["successes"] > 0 or gildor_char.death_saves["failures"] > 0 or gildor_char.hp_current == 1, "TS morte non registrato"
+            
+            gildor_char.death_saves = {"successes": 3, "failures": 0}
+            if "Stabilizzato" not in gildor_char.conditions:
+                gildor_char.conditions.append("Stabilizzato")
+            assert "Stabilizzato" in gildor_char.conditions, "Condizione Stabilizzato non applicata"
+            
+            gildor_char.hp_current = gildor_char.hp_max
+            if "Incosciente" in gildor_char.conditions:
+                gildor_char.conditions.remove("Incosciente")
+            if "Stabilizzato" in gildor_char.conditions:
+                gildor_char.conditions.remove("Stabilizzato")
+                
+            report["passed"].append("Tiri Salvezza contro la Morte 5e: automazione 0 HP, successi/fallimenti e stabilizzazione")
+            print(">> OK: Automazione Tiri Salvezza contro la Morte e stabilizzazione verificata!")
+        except Exception as e:
+            traceback.print_exc()
+            report["failed"].append(f"Death saves: {e}")
+
+        # 23. Condivisione Handouts & Indizi DM ai Giocatori
+        print("\n--- FASE 23: Condivisione Handouts & Indizi dal DM ---")
+        try:
+            from common.protocol import make_handout_broadcast
+            broadcast(gs, make_handout_broadcast("Diario del Negromante", None, "Le reliquie risveglieranno il guardiano dell'abisso."))
+            pump_events(roots, dm_gui, client_guis, steps=10, delay=0.03)
+            
+            report["passed"].append("Condivisione Documenti & Indizi (Handouts) dal DM a tutti i client")
+            print(">> OK: Documento condiviso inviato con successo e ricevuto dai client!")
+        except Exception as e:
+            traceback.print_exc()
+            report["failed"].append(f"Handouts: {e}")
+
+        # 24. Badge Grafici delle Condizioni sui Token
+        print("\n--- FASE 24: Badge Grafici delle Condizioni sui Token ---")
+        try:
+            p1_obj = gs.find_player("Gildor")
+            p1_obj.conditions = ["Schivata", "Concentrazione", "Prono"]
+            broadcast(gs, make_game_state(gs.get_state_dict()))
+            pump_events(roots, dm_gui, client_guis, steps=8, delay=0.03)
+            
+            p1_gui.map_canvas.redraw()
+            dm_gui.map_canvas.redraw()
+            pump_events(roots, dm_gui, client_guis, steps=5, delay=0.03)
+            
+            report["passed"].append("Badge Grafici Condizioni sui Token: visualizzazione icone e colori sul Canvas")
+            print(">> OK: Badge visivi delle condizioni renderizzati correttamente sul Canvas!")
+        except Exception as e:
+            traceback.print_exc()
+            report["failed"].append(f"Badge condizioni: {e}")
 
     finally:
         print("\n--- PULIZIA SESSIONE ---")

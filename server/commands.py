@@ -40,4 +40,5 @@ command_handlers = {
     "DODGE_REQUEST": handle_dodge_request,
     "HELP_REQUEST": handle_help_request,
     "SHORT_REST_REQUEST": handle_short_rest_request,
+    "SPEND_LEGENDARY_ACTION_REQUEST": handle_spend_legendary_action_request,
 }

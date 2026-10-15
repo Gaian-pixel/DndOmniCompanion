@@ -12,6 +12,7 @@ from common.theme import (
     FONT_MAIN, FONT_TITLE, FONT_HEADER, FONT_BOLD, FONT_SMALL,
     apply_modern_window_style
 )
+from common.i18n import _t, get_language
 
 class CharacterSheetUI(tk.Toplevel):
     def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, give_gold_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None, custom_spell_request_callback=None, is_connected=False):
@@ -283,12 +284,12 @@ class CharacterSheetUI(tk.Toplevel):
 
         self.text_widgets = {}
         tabs_def = [
-            ("⚔️ Armi & Attacchi", "weapons"),
-            ("🎒 Inventario", "inventory_grid"),
-            ("🌟 Tratti & Privilegi", "features"),
-            ("📖 Grimorio", "spellbook"),
-            ("📜 Diario & Note", "journal_notes"),
-            ("📝 Note Rapide", "notes")
+            (_t("sheet_tab_weapons"), "weapons"),
+            (_t("sheet_tab_inventory"), "inventory_grid"),
+            (_t("sheet_tab_features"), "features"),
+            (_t("sheet_tab_spellbook"), "spellbook"),
+            (_t("sheet_tab_journal"), "journal_notes"),
+            (_t("sheet_tab_quick_notes"), "notes")
         ]
         for tab_name, attr in tabs_def:
             frame = ttk.Frame(self.notebook)
@@ -313,8 +314,8 @@ class CharacterSheetUI(tk.Toplevel):
         # Pulsanti (in fondo alla scheda)
         btn_frame = ttk.Frame(main_frame, padding=(0, 10))
         btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
-        ttk.Button(btn_frame, text="Salva", command=self.save_character, style="Primary.TButton").pack(side=tk.RIGHT, padx=5)
-        ttk.Button(btn_frame, text="Annulla", command=self.destroy).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(btn_frame, text=_t("save"), command=self.save_character, style="Primary.TButton").pack(side=tk.RIGHT, padx=5)
+        ttk.Button(btn_frame, text=_t("cancel"), command=self.destroy).pack(side=tk.RIGHT, padx=5)
 
     def create_inventory_tab(self, parent_frame):
         currency_frame = ttk.LabelFrame(parent_frame, text="Valuta")
@@ -987,32 +988,52 @@ class CharacterSheetUI(tk.Toplevel):
         if not hasattr(self.character, "death_saves"):
             self.character.death_saves = {"successes": 0, "failures": 0}
             
-        succ = self.character.death_saves["successes"]
-        fail = self.character.death_saves["failures"]
+        succ = self.character.death_saves.get("successes", 0)
+        fail = self.character.death_saves.get("failures", 0)
+        conds = getattr(self.character, "conditions", [])
         
+        flavor = ""
         if roll == 1:
             fail += 2
+            flavor = "💥 Fallimento critico! (2 fallimenti)"
         elif roll <= 9:
             fail += 1
+            flavor = "❌ Fallimento."
         elif roll <= 19:
             succ += 1
+            flavor = "✅ Successo."
         elif roll == 20:
-            succ += 1
+            self.character.hp_current = 1
             self.hp_cur_var.set(1)
             succ = 0
             fail = 0
-            
-        self.character.death_saves["successes"] = min(3, succ)
-        self.character.death_saves["failures"] = min(3, fail)
+            if "Incosciente" in conds:
+                conds.remove("Incosciente")
+            flavor = "🌟 Critico naturale (20)! Ti risvegli con 1 HP."
+
+        if roll != 20:
+            succ = min(3, succ)
+            fail = min(3, fail)
+            if fail >= 3:
+                if "Morto" not in conds:
+                    conds.append("Morto")
+                flavor += " 💀 Sei MORTO!"
+            elif succ >= 3:
+                if "Stabilizzato" not in conds:
+                    conds.append("Stabilizzato")
+                flavor += " 🩹 Ti sei STABILIZZATO!"
+
+        self.character.conditions = conds
+        self.character.death_saves["successes"] = succ
+        self.character.death_saves["failures"] = fail
         self.update_death_saves_ui()
         self.manager.update_character(self.character)
-        
-        msg = f"Tiro: {roll}. "
-        if roll == 1: msg += "Fallimento critico! (2 fallimenti)"
-        elif roll <= 9: msg += "Fallimento."
-        elif roll <= 19: msg += "Successo."
-        else: msg += "Successo critico! Recuperi 1 HP."
-        messagebox.showinfo("Tiro contro la Morte", msg)
+        if hasattr(self, "on_save_callback") and self.on_save_callback:
+            try: self.on_save_callback()
+            except Exception: pass
+            
+        msg = f"Tiro 1d20: {roll}. {flavor}\n(Successi: {succ}/3 | Fallimenti: {fail}/3)"
+        messagebox.showinfo("Tiro contro la Morte", msg, parent=self)
 
     def update_dynamic_stats(self):
         self.hp_cur_var.set(self.character.hp_current)
@@ -1155,8 +1176,14 @@ class CharacterSheetUI(tk.Toplevel):
             r4 = tk.Frame(card, bg=SURFACE_COLOR)
             r4.pack(fill=tk.X)
             
-            btn_attack = ttk.Button(r4, text=f"🎯 Colpisci ({txc_str})", command=lambda weapon=w, txc=total_txc: self.execute_weapon_attack(weapon, txc), style="Gold.TButton")
-            btn_attack.pack(side=tk.LEFT, padx=(0, 4))
+            if getattr(self, "attack_callback", None):
+                btn_target = ttk.Button(r4, text=f"🎯 Bersaglio ({txc_str})", command=lambda weapon=w, txc=total_txc, dmg=dmg_str: self.execute_targeted_attack(weapon, txc, dmg), style="Gold.TButton")
+                btn_target.pack(side=tk.LEFT, padx=(0, 4))
+                btn_attack = ttk.Button(r4, text="🎲 Tira TxC", command=lambda weapon=w, txc=total_txc: self.execute_weapon_attack(weapon, txc), style="Primary.TButton")
+                btn_attack.pack(side=tk.LEFT, padx=(0, 4))
+            else:
+                btn_attack = ttk.Button(r4, text=f"🎯 Colpisci ({txc_str})", command=lambda weapon=w, txc=total_txc: self.execute_weapon_attack(weapon, txc), style="Gold.TButton")
+                btn_attack.pack(side=tk.LEFT, padx=(0, 4))
             
             btn_damage = ttk.Button(r4, text="💥 Danno", command=lambda weapon=w, dmod=dmg_mod: self.execute_weapon_damage(weapon, dmod), style="Primary.TButton")
             btn_damage.pack(side=tk.LEFT, padx=(0, 4))
@@ -1166,6 +1193,14 @@ class CharacterSheetUI(tk.Toplevel):
 
             btn_edit = ttk.Button(r4, text="✏️", width=3, command=lambda weapon=w, idx=i: self.open_edit_weapon_dialog(weapon, idx))
             btn_edit.pack(side=tk.RIGHT, padx=(0, 4))
+
+    def execute_targeted_attack(self, weapon, total_txc, dmg_str):
+        if getattr(self, "attack_callback", None):
+            w_name = weapon.get("name", "Arma")
+            d_type = weapon.get("damage_type", "Tagliente")
+            self.attack_callback(w_name, total_txc, dmg_str, d_type)
+        else:
+            self.execute_weapon_attack(weapon, total_txc)
 
     def open_add_weapon_dialog(self):
         def _on_save(w_data):

@@ -19,6 +19,12 @@ class VoiceClient:
         self.chunk = 512 # small chunk to avoid UDP fragmentation
 
     def start(self):
+        import os
+        if os.environ.get("DND_MOCK_AUDIO") == "1":
+            self.running = True
+            print("[VoiceClient] (Mocked via DND_MOCK_AUDIO) Avviato.")
+            return
+
         self.running = True
         try:
             self.sock.sendto(b'JOIN', (self.server_ip, self.server_port))
@@ -34,6 +40,12 @@ class VoiceClient:
         print("[VoiceClient] Avviato.")
 
     def stop(self):
+        import os
+        if os.environ.get("DND_MOCK_AUDIO") == "1":
+            self.running = False
+            print("[VoiceClient] (Mocked via DND_MOCK_AUDIO) Fermato.")
+            return
+
         self.running = False
         try:
             self.sock.sendto(b'LEAVE', (self.server_ip, self.server_port))

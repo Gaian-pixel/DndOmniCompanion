@@ -22,6 +22,7 @@ from client.login_ui import LoginDialog
 from client.character_sheet_ui import CharacterSheetUI
 from client.voice_client import VoiceClient
 from common.audio_player import AudioManager
+from common.i18n import _t, get_language, set_language, register_language_listener
 
 from common.theme import (
     setup_theme, apply_modern_window_style,
@@ -69,20 +70,38 @@ class ClientGUI:
     def show_toast(self, message, title=None, duration=3500, toast_type="info", icon=None):
         return show_toast(self.master, message, title=title, duration=duration, toast_type=toast_type, icon=icon)
 
+    def switch_language(self, lang_code):
+        set_language(lang_code)
+        lang_name = "Italiano 🇮🇹" if lang_code == "it" else "English 🇬🇧"
+        self.show_toast(_t("language_changed_toast", lang=lang_name), title=_t("language"), toast_type="success")
+        if hasattr(self, 'right_notebook'):
+            try:
+                self.right_notebook.tab(0, text=_t("tab_chat"))
+                self.right_notebook.tab(1, text=_t("tab_player_controls"))
+            except Exception:
+                pass
+
     def setup_gui(self):
         # 1. MENU BAR GLOBALE
         menubar = tk.Menu(self.master)
         self.master.config(menu=menubar)
         
         server_menu = tk.Menu(menubar, tearoff=0)
-        server_menu.add_command(label="Connetti al Server...", command=self.connect_to_server)
-        server_menu.add_command(label="Riconnetti Ultimo Server", command=self.reconnect_to_server)
-        menubar.add_cascade(label="Server", menu=server_menu)
+        server_menu.add_command(label=_t("menu_connect"), command=self.connect_to_server)
+        server_menu.add_command(label=_t("menu_reconnect"), command=self.reconnect_to_server)
+        menubar.add_cascade(label=_t("menu_server"), menu=server_menu)
         
         library_menu = tk.Menu(menubar, tearoff=0)
-        library_menu.add_command(label="📖 Manuali di Gioco (PHB, DMG, MM)", command=self.open_manuals_dialog)
-        library_menu.add_command(label="Compendio SRD", command=self.open_srd_compendium)
-        menubar.add_cascade(label="Libreria", menu=library_menu)
+        library_menu.add_command(label=_t("menu_manuals"), command=self.open_manuals_dialog)
+        library_menu.add_command(label=_t("menu_srd_compendium"), command=self.open_srd_compendium)
+        menubar.add_cascade(label=_t("menu_library"), menu=library_menu)
+
+        # Menu Lingua / Language
+        lang_menu = tk.Menu(menubar, tearoff=0)
+        self.lang_var = tk.StringVar(value=get_language())
+        lang_menu.add_radiobutton(label="Italiano 🇮🇹", variable=self.lang_var, value="it", command=lambda: self.switch_language("it"))
+        lang_menu.add_radiobutton(label="English 🇬🇧", variable=self.lang_var, value="en", command=lambda: self.switch_language("en"))
+        menubar.add_cascade(label=_t("menu_language"), menu=lang_menu)
         
         # 2. LAYOUT PRINCIPALE (3 Colonne: Sinistra=Toolbar, Centro=Mappa, Destra=Notebook)
         main_frame = ttk.Frame(self.master, padding="5")
@@ -98,27 +117,27 @@ class ClientGUI:
         
         self.center_map_btn = ttk.Button(left_panel, text='👆', width=3, style="Tool.TButton", command=lambda: self.map_canvas.center_view() if self.map_canvas else None)
         self.center_map_btn.pack(pady=3)
-        ToolTip(self.center_map_btn, "Centra Mappa")
+        ToolTip(self.center_map_btn, _t("tool_center_map"))
 
         self.zoom_in_btn = ttk.Button(left_panel, text='➕', width=3, style="Tool.TButton", command=lambda: self.map_canvas.zoom_in() if self.map_canvas else None)
         self.zoom_in_btn.pack(pady=3)
-        ToolTip(self.zoom_in_btn, "Ingrandisci Mappa (+)")
+        ToolTip(self.zoom_in_btn, _t("tool_zoom_in"))
 
         self.zoom_out_btn = ttk.Button(left_panel, text='➖', width=3, style="Tool.TButton", command=lambda: self.map_canvas.zoom_out() if self.map_canvas else None)
         self.zoom_out_btn.pack(pady=3)
-        ToolTip(self.zoom_out_btn, "Rimpicciolisci Mappa (-)")
+        ToolTip(self.zoom_out_btn, _t("tool_zoom_out"))
         
         self.aoe_button = ttk.Button(left_panel, text="💥", width=3, style="Tool.TButton", command=self.open_aoe_dialog)
         self.aoe_button.pack(pady=3)
-        ToolTip(self.aoe_button, "Area di Effetto")
+        ToolTip(self.aoe_button, _t("tool_aoe"))
         
-        self.measure_btn = ttk.Button(left_panel, text="📏", width=3, style="Tool.TButton")
+        self.measure_btn = ttk.Button(left_panel, text="📏", width=3, style="Tool.TButton", command=self.toggle_ruler_mode)
         self.measure_btn.pack(pady=3)
-        ToolTip(self.measure_btn, "Misura Distanza")
+        ToolTip(self.measure_btn, _t("tool_measure"))
 
         self.manuals_btn = ttk.Button(left_panel, text="📖", width=3, style="Tool.TButton", command=self.open_manuals_dialog)
         self.manuals_btn.pack(pady=3)
-        ToolTip(self.manuals_btn, "Consulta Manuali di Gioco (PHB, DMG, MM)")
+        ToolTip(self.manuals_btn, _t("tool_manuals"))
         
         # --- COLONNA 1: MAPPA ---
         map_outer_frame = ttk.Frame(main_frame)
@@ -146,7 +165,7 @@ class ClientGUI:
         
         # --- TAB 1: CHAT ---
         chat_tab = ttk.Frame(self.right_notebook)
-        self.right_notebook.add(chat_tab, text="Chat")
+        self.right_notebook.add(chat_tab, text=_t("tab_chat"))
         
         tk.Label(chat_tab, text="👥 Compagnia di Avventura", font=FONT_BOLD, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w", padx=6, pady=(6, 2))
         
@@ -169,12 +188,12 @@ class ClientGUI:
         self.entry = ttk.Entry(chat_cmd_frame, font=FONT_MAIN)
         self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
         self.entry.bind("<Return>", self.send_chat_message)
-        ttk.Button(chat_cmd_frame, text="Invia", command=self.send_chat_message, style="Primary.TButton").pack(side=tk.LEFT)
+        ttk.Button(chat_cmd_frame, text=_t("btn_send"), command=self.send_chat_message, style="Primary.TButton").pack(side=tk.LEFT)
 
         # Barra Voice Discord-like
         self.voice_controls_frame = tk.Frame(chat_tab, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, pady=4, padx=6)
         self.voice_controls_frame.pack(fill=tk.X, side=tk.BOTTOM, padx=6, pady=(0, 4))
-        self.voice_status_lbl = tk.Label(self.voice_controls_frame, text="⚪ Voice: Disconnesso", bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, font=FONT_SMALL)
+        self.voice_status_lbl = tk.Label(self.voice_controls_frame, text=f"⚪ Voice: {_t('voice_status_disconnected')}", bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, font=FONT_SMALL)
         self.voice_status_lbl.pack(side=tk.LEFT, padx=3)
         self.btn_audio_mute = tk.Button(self.voice_controls_frame, text=" 🔊 ", bg=SURFACE_COLOR, fg="white", activebackground=SURFACE_COLOR_ALT, relief=tk.FLAT, bd=0, command=self.toggle_audio_mute)
         self.btn_audio_mute.pack(side=tk.RIGHT, padx=2)
@@ -188,7 +207,7 @@ class ClientGUI:
         
         # --- TAB 2: CONTROLLI PG ---
         controls_tab = ttk.Frame(self.right_notebook, padding=10)
-        self.right_notebook.add(controls_tab, text="Controlli PG")
+        self.right_notebook.add(controls_tab, text=_t("tab_player_controls"))
         
         self.status_label = ttk.Label(controls_tab, text="Stato: Disconnesso", style="Danger.TLabel", font=FONT_SMALL)
         self.status_label.pack(anchor="w", pady=(0, 6))
@@ -493,6 +512,72 @@ class ClientGUI:
             self.lbl_movement_tracker.config(
                 text=f"👟 Movimento: {self.movement_spent_ft}/{eff_speed} ft (Rim: {rem_ft} ft){status_tag}"
             )
+
+    def prompt_death_save(self):
+        char = self.active_character
+        if not char: return
+        self.show_toast(
+            f"{char.name} è a 0 HP! È il tuo turno: esegui un Tiro Salvezza contro la Morte con /tsmorte o dalla scheda.",
+            title="💀 TIRO SALVEZZA MORTE", duration=5000, toast_type="danger"
+        )
+
+    def roll_death_save(self):
+        char = self.active_character
+        if not char: return None
+        if not hasattr(char, "death_saves") or not isinstance(char.death_saves, dict):
+            char.death_saves = {"successes": 0, "failures": 0}
+            
+        import random
+        roll = random.randint(1, 20)
+        succ = char.death_saves.get("successes", 0)
+        fail = char.death_saves.get("failures", 0)
+        conds = getattr(char, "conditions", [])
+        
+        flavor = ""
+        if roll == 1:
+            fail += 2
+            flavor = "💥 FALLIMENTO CRITICO (2 fallimenti)!"
+        elif roll <= 9:
+            fail += 1
+            flavor = "❌ Fallimento."
+        elif roll <= 19:
+            succ += 1
+            flavor = "✅ Successo."
+        elif roll == 20:
+            char.hp_current = 1
+            succ = 0
+            fail = 0
+            if "Incosciente" in conds:
+                conds.remove("Incosciente")
+            flavor = "🌟 CRITICO NATURALE (20)! Ti risvegli con 1 HP!"
+            
+        if roll != 20:
+            succ = min(3, succ)
+            fail = min(3, fail)
+            if fail >= 3:
+                if "Morto" not in conds:
+                    conds.append("Morto")
+                flavor += " 💀 Sei MORTO!"
+            elif succ >= 3:
+                if "Stabilizzato" not in conds:
+                    conds.append("Stabilizzato")
+                flavor += " 🩹 Ti sei STABILIZZATO!"
+                
+        char.conditions = conds
+        char.death_saves["successes"] = succ
+        char.death_saves["failures"] = fail
+        self.character_manager.save_characters()
+        
+        from common.protocol import make_update_stats_request
+        self.network.send(make_update_stats_request(
+            char.hp_current, char.hp_max, char.initiative, char.conditions
+        ))
+        
+        ds_msg = f"🎲 [TS MORTE] {char.name} tira 1d20: {roll}. {flavor} (Successi: {succ}/3 | Fallimenti: {fail}/3)"
+        self.send_chat_message(ds_msg)
+        self.show_toast(f"Tiro Morte: {roll}\n{flavor}", title="Tiro Salvezza Morte", toast_type="danger" if fail > succ else "success")
+        self.update_hero_summary_card()
+        return roll
 
     def perform_dash(self):
         if not self.is_connected:
@@ -1112,6 +1197,15 @@ class ClientGUI:
             from common.messagebox import messagebox
             messagebox.showerror("Errore", f"Impossibile aprire i manuali: {e}")
 
+    def toggle_ruler_mode(self):
+        active = self.map_canvas.toggle_ruler_mode()
+        style = "Gold.TButton" if active else "Tool.TButton"
+        if hasattr(self, 'measure_btn'):
+            self.measure_btn.configure(style=style)
+        msg = "Righello attivato: clicca due punti sulla mappa per misurare la distanza." if active else "Righello disattivato."
+        self.show_toast(msg, title="📏 Righello", toast_type="info" if active else "secondary")
+        return active
+
     def open_aoe_dialog(self):
         win = tk.Toplevel(self.master)
         win.transient(self.master)
@@ -1353,6 +1447,10 @@ class ClientGUI:
             if not was_my_turn:
                 self.reset_turn_resources()
                 self.show_turn_banner()
+                if self.active_character and getattr(self.active_character, "hp_current", 1) == 0:
+                    conds = getattr(self.active_character, "conditions", [])
+                    if "Morto" not in conds and "Stabilizzato" not in conds:
+                        self.prompt_death_save()
         else:
             if hasattr(self, 'end_turn_btn'):
                 self.end_turn_btn.pack_forget()
@@ -1647,10 +1745,57 @@ class ClientGUI:
             "CAMPAIGN_STARTER_GRANTED": self.handle_campaign_starter_granted,
             "UPDATE_INSPIRATION": self.handle_update_inspiration,
             "PROMPT_SAVE": self.handle_prompt_save,
-            "OPPORTUNITY_ALERT": self.handle_opportunity_alert
+            "OPPORTUNITY_ALERT": self.handle_opportunity_alert,
+            "HANDOUT_BROADCAST": self.handle_handout_broadcast
         }
         handler=handler_map.get(msg_type)
         if handler: handler(data)
+
+    def handle_handout_broadcast(self, data):
+        title = data.get("title", "Documento Condiviso")
+        content = data.get("content", "")
+        img_b64 = data.get("image_b64")
+
+        self.show_toast(f"Il Dungeon Master ha condiviso: '{title}'", title="📜 Nuovo Documento", toast_type="gold")
+        self.log_to_chat(f"📜 [DOCUMENTO DM] '{title}' condiviso con il party.", "Globale", color="#E5A50A")
+
+        win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.title(f"📜 {title}")
+        win.minsize(480, 420)
+        apply_modern_window_style(win)
+
+        header_frame = tk.Frame(win, bg="#1A1B1E", padx=12, pady=10)
+        header_frame.pack(fill=tk.X)
+        tk.Label(header_frame, text=f"📜 {title}", font=("Georgia", 14, "bold"), bg="#1A1B1E", fg="#D4AF37").pack(anchor="w")
+
+        content_frame = tk.Frame(win, bg="#212529", padx=14, pady=12)
+        content_frame.pack(fill=tk.BOTH, expand=True)
+
+        if img_b64:
+            try:
+                from PIL import Image, ImageTk
+                import base64
+                from io import BytesIO
+                img_data = base64.b64decode(img_b64)
+                img = Image.open(BytesIO(img_data))
+                img.thumbnail((420, 320))
+                tk_img = ImageTk.PhotoImage(img)
+                lbl_img = tk.Label(content_frame, image=tk_img, bg="#212529")
+                lbl_img.image = tk_img
+                lbl_img.pack(pady=6)
+            except Exception as e:
+                print("Errore rendering immagine handout:", e)
+
+        if content:
+            txt = tk.Text(content_frame, wrap="word", font=("Georgia", 11), bg="#2B2D31", fg="#F8F9FA", padx=10, pady=10, relief="flat", height=10)
+            txt.pack(fill=tk.BOTH, expand=True, pady=6)
+            txt.insert("1.0", content)
+            txt.configure(state="disabled")
+
+        btn_box = tk.Frame(win, bg="#1A1B1E", padx=10, pady=8)
+        btn_box.pack(fill=tk.X)
+        ttk.Button(btn_box, text="Chiudi", command=win.destroy).pack(side=tk.RIGHT)
 
     def handle_opportunity_alert(self, data):
         enemy_name = data.get("enemy_name", "Un nemico")
@@ -1825,8 +1970,8 @@ class ClientGUI:
             from tkinter import ttk
             
             top = tk.Toplevel(self.master)
-            top.transient(self.master)
-            top.grab_set()
+            try: top.grab_set()
+            except Exception: pass
             top.title(title)
             
             if img_b64:
@@ -1969,12 +2114,14 @@ class ClientGUI:
 
     def handle_chat_broadcast(self, data):
         sender, text, is_whisper=data.get('sender'), data.get('text'), data.get('is_whisper')
-        if not is_whisper: self.log_to_chat(text, "Globale", sender=sender, color="#5865F2")
+        if not is_whisper:
+            self.log_to_chat(text, "Globale", sender=sender, color="#5865F2")
         else:
             tab_name=sender.replace("Tu -> ", "") if sender.startswith("Tu -> ") else sender
             prefix="Tu" if sender.startswith("Tu -> ") else sender
             self.create_chat_tab(tab_name)
             self.log_to_chat(text, tab_name, sender=prefix, color="#EB459E")
+            self.log_to_chat(f"🔒 [Sussurro] {text}", "Globale", sender=sender, color="#EB459E")
 
     def handle_dice_roll(self, data):
         res, reason_text=data.get('result', {}), f" ({data.get('reason')})" if data.get('reason') else ""
@@ -2096,6 +2243,12 @@ class ClientGUI:
 
         if not getattr(self, "is_connected", False):
             self.show_toast("Non sei connesso al server.", toast_type="warning")
+            return
+
+        if text.lower() in ["/tsmorte", "/deathsave", "/morte", "/ds"]:
+            self.roll_death_save()
+            if not isinstance(message_or_event, str):
+                self.entry.delete(0, tk.END)
             return
 
         try: active_tab_name=self.notebook.tab(self.notebook.select(), "text")

@@ -21,13 +21,14 @@ from common.theme import (
     TEXT_COLOR, TEXT_MUTED, FONT_TITLE, FONT_HEADER, FONT_MAIN, FONT_BOLD, FONT_SMALL
 )
 from common.manuals_manager import ManualsManager, MANUALS_DIR
+from common.i18n import _t, get_language
 
 
 class ManualsDialog(tk.Toplevel):
     def __init__(self, master, share_callback=None, initial_query=""):
         super().__init__(master)
         self.transient(master)
-        self.title("📖 Consulta Manuali di Gioco (PHB, DMG, MM, Espansioni)")
+        self.title(f"📖 {_t('manuals_title')}")
         self.minsize(860, 640)
         apply_modern_window_style(self)
         

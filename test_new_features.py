@@ -186,6 +186,230 @@ class TestDndNewFeatures(unittest.TestCase):
         self.assertEqual(msg_revoke["type"], "UPDATE_INSPIRATION")
         self.assertFalse(msg_revoke["data"]["has_inspiration"])
 
+    def test_i18n_language_system(self):
+        """Testa il sistema di internazionalizzazione (Italiano/Inglese), toggle e condizioni bilingue."""
+        from common.i18n import (
+            _t, get_language, set_language, toggle_language,
+            translate_condition, is_condition_active,
+            translate_ability, get_ability_name
+        )
+        
+        orig_lang = get_language()
+        try:
+            # 1. Imposta Italiano
+            set_language("it")
+            self.assertEqual(get_language(), "it")
+            self.assertEqual(_t("menu_exit"), "Esci")
+            self.assertEqual(_t("action_dash"), "Scatto (Dash)")
+            self.assertEqual(_t("lbl_round", round=5), "Round: 5")
+            self.assertEqual(translate_ability("FOR", "it"), "FOR")
+            self.assertEqual(get_ability_name("FOR", "it"), "Forza")
+            
+            # 2. Toggle verso Inglese
+            new_lang = toggle_language()
+            self.assertEqual(new_lang, "en")
+            self.assertEqual(get_language(), "en")
+            self.assertEqual(_t("menu_exit"), "Exit")
+            self.assertEqual(_t("action_dash"), "Dash")
+            self.assertEqual(_t("lbl_round", round=5), "Round: 5")
+            self.assertEqual(translate_ability("FOR", "en"), "STR")
+            self.assertEqual(get_ability_name("FOR", "en"), "Strength")
+            
+            # 3. Test Traduzione Condizioni
+            self.assertEqual(translate_condition("Prono", "en"), "Prone")
+            self.assertEqual(translate_condition("Prone", "it"), "Prono")
+            self.assertEqual(translate_condition("Dead", "it"), "Morto")
+            self.assertEqual(translate_condition("Concentrazione", "en"), "Concentration")
+            
+            # 4. Test is_condition_active con liste miste
+            conds_it = ["Prono", "Concentrazione", "Invisibile"]
+            conds_en = ["Prone", "Concentration", "Invisible"]
+            
+            self.assertTrue(is_condition_active(conds_it, "Prono"))
+            self.assertTrue(is_condition_active(conds_en, "Prono"))
+            self.assertTrue(is_condition_active(conds_it, "Prone"))
+            self.assertTrue(is_condition_active(conds_en, "Prone"))
+            self.assertTrue(is_condition_active(conds_en, "Concentrazione"))
+            self.assertFalse(is_condition_active(conds_en, "Dead"))
+        finally:
+            set_language(orig_lang)
+
+    def test_dynamic_cover_5e(self):
+        """Testa il calcolo della copertura D&D 5e: +2 per creature o ostacoli bassi, +5 per ostacoli 3/4."""
+        from common.hex_utils import Hex, get_cover_between
+        
+        origin = Hex(0, 0)
+        target = Hex(4, 0)
+        # Linea da (0,0) a (4,0): (1,0), (2,0), (3,0)
+        
+        # 1. Nessun ostacolo intermedio
+        bonus, name = get_cover_between(origin, target)
+        self.assertEqual(bonus, 0)
+        
+        # 2. Ostacolo di mezza copertura
+        bonus, name = get_cover_between(origin, target, half_cover=[[2, 0]])
+        self.assertEqual(bonus, 2)
+        self.assertIn("Mezza Copertura", name)
+        
+        # 3. Ostacolo di tre quarti di copertura
+        bonus, name = get_cover_between(origin, target, three_quarters=[[2, 0]])
+        self.assertEqual(bonus, 5)
+        self.assertIn("Tre Quarti", name)
+        
+        # 4. Creatura interposta (Regola 5e: una creatura alleata o nemica conferisce mezza copertura)
+        dummy_creature = type("Creature", (), {"position": [2, 0], "name": "Goblin"})()
+        bonus, name = get_cover_between(origin, target, intermediate_creatures=[dummy_creature])
+        self.assertEqual(bonus, 2)
+        self.assertIn("Creatura interposta", name)
+
+    def test_legendary_boss_mechanics(self):
+        """Testa le resistenze leggendarie (auto-conversione del TS) e le azioni leggendarie."""
+        boss = Player(name="Drago Rosso Antico")
+        boss.hp = 546
+        boss.max_hp = 546
+        boss.initiative = 10
+        boss.legendary_resistances_max = 3
+        boss.legendary_resistances_current = 3
+        boss.legendary_actions_max = 3
+        boss.legendary_actions_current = 3
+        self.game_state.players.append(boss)
+        
+        # 1. Test Resistenza Leggendaria su TS fallito
+        # Tiro roll_total=8 vs CD 18 -> Fallimento, ma la resistenza deve convertirlo in successo
+        _process_save_result(
+            target_name=boss.name, stat="DES", roll_total=8, is_crit=False, is_fail=False,
+            dc=18, damage_formula="10d6", half_on_success=True, source_name="Palla di Fuoco",
+            game_state=self.game_state, damage_type="Fuoco"
+        )
+        self.assertEqual(boss.legendary_resistances_current, 2)
+        
+        # 2. Test Spesa Azione Leggendaria
+        from server.rules.combat import handle_spend_legendary_action_request
+        handle_spend_legendary_action_request(
+            {"boss_name": boss.name, "action_name": "Colpo di Coda", "cost": 1},
+            boss, self.game_state
+        )
+        self.assertEqual(boss.legendary_actions_current, 2)
+
+    def test_hazards_and_traps(self):
+        """Testa l'attivazione automatica di trappole quando un token si muove sull'esagono."""
+        from server.rules.movement import handle_move_request
+        
+        player = Player(name="Esploratore")
+        player.hp = 20
+        player.max_hp = 20
+        player.initiative = 12
+        player.position = [0, 0]
+        player.full_sheet = {"attributes": {"DES": 14}}
+        self.game_state.players.append(player)
+        self.game_state.current_map = {
+            "hex_size": 60,
+            "fow_enabled": False,
+            "walls": [],
+            "traps": [
+                {
+                    "q": 1, "r": 0,
+                    "name": "Fossa con Punte",
+                    "dc": 14,
+                    "damage": "2d10",
+                    "damage_type": "Perforante",
+                    "triggered": False,
+                    "hidden": True
+                }
+            ]
+        }
+        
+        # Muovi il giocatore sulla trappola a [1, 0]
+        handle_move_request({"to": [1, 0]}, player, self.game_state)
+        
+        trap = self.game_state.current_map["traps"][0]
+        self.assertTrue(trap["triggered"], "La trappola deve risultare attivata")
+        self.assertFalse(trap["hidden"], "La trappola deve essere visibile dopo essere scattata")
+
+    def test_encounter_difficulty_calculator(self):
+        """Testa il calcolo del bilanciamento incontri DMG 5e (p.82)."""
+        from common.encounter_calc import calculate_encounter_difficulty
+        
+        # 4 personaggi di livello 1: soglia Facile = 100 XP
+        # 1 Goblin (CR 1/4 = 50 XP, moltiplicatore 1.0 = 50 XP effettivi < 100) -> Banale
+        res_trivial = calculate_encounter_difficulty([1, 1, 1, 1], ["1/4"])
+        self.assertEqual(res_trivial["difficulty"], "Banale")
+        self.assertEqual(res_trivial["raw_xp"], 50)
+        
+        # 2 Goblin (2 * 50 = 100 XP, moltiplicatore 1.5 = 150 XP effettivi, >= 100 e < 200) -> Facile
+        res_easy = calculate_encounter_difficulty([1, 1, 1, 1], ["1/4", "1/4"])
+        self.assertEqual(res_easy["difficulty"], "Facile")
+        self.assertEqual(res_easy["adjusted_xp"], 150)
+        
+        # 4 personaggi di livello 1 vs 4 Goblin (4 * 50 = 200 XP * 2 = 400 XP) -> Mortale (soglia Mortale = 400)
+        res_deadly = calculate_encounter_difficulty([1, 1, 1, 1], ["1/4", "1/4", "1/4", "1/4"])
+        self.assertEqual(res_deadly["difficulty"], "Mortale")
+        self.assertEqual(res_deadly["adjusted_xp"], 400)
+
+    def test_dynamic_light_and_player_model(self):
+        """Testa il salvataggio e caricamento dei campi luce e boss nel modello Player."""
+        p = Player(name="Mago")
+        p.hp = 30
+        p.max_hp = 30
+        p.initiative = 15
+        p.light_radius = 6
+        p.light_color = "#66D9E8"
+        p.legendary_resistances_max = 3
+        p.legendary_resistances_current = 2
+        p.legendary_actions_max = 3
+        p.legendary_actions_current = 1
+        
+        d = p.to_dict()
+        self.assertEqual(d["light_radius"], 6)
+        self.assertEqual(d["light_color"], "#66D9E8")
+        self.assertEqual(d["legendary_resistances_max"], 3)
+        self.assertEqual(d["legendary_resistances_current"], 2)
+        
+        p2 = Player.from_dict(d)
+        self.assertEqual(p2.light_radius, 6)
+        self.assertEqual(p2.light_color, "#66D9E8")
+        self.assertEqual(p2.legendary_actions_current, 1)
+
+    def test_ruler_measurement_tool(self):
+        """Testa il funzionamento del righello interattivo e il calcolo delle distanze in piedi/esagoni."""
+        from common.hex_utils import Hex, hex_distance
+        h1 = Hex(0, 0)
+        h2 = Hex(4, -2)
+        dist_hexes = hex_distance(h1, h2)
+        dist_ft = dist_hexes * 5
+        self.assertEqual(dist_hexes, 4)
+        self.assertEqual(dist_ft, 20)
+
+    def test_whisper_chat_routing(self):
+        """Testa l'instradamento corretto dei sussurri privati (/w, /whisper) senza broadcast pubblico."""
+        from server.rules.chat import handle_chat
+        
+        p_alice = Player(name="Alice")
+        p_alice.conn = DummySocket()
+        p_bob = Player(name="Bob")
+        p_bob.conn = DummySocket()
+        p_claire = Player(name="Claire")
+        p_claire.conn = DummySocket()
+        self.game_state.players = [p_alice, p_bob, p_claire]
+
+        # Alice sussurra a Bob
+        handle_chat({"text": "/w Bob Questo è un segreto"}, p_alice, self.game_state)
+        
+        # Bob deve aver ricevuto il messaggio privato
+        self.assertTrue(len(p_bob.conn.sent_messages) > 0, "Bob deve ricevere il sussurro")
+        # Alice riceve la conferma del sussurro inviato
+        self.assertTrue(len(p_alice.conn.sent_messages) > 0, "Alice deve ricevere la conferma del sussurro")
+        # Claire NON deve aver ricevuto alcun messaggio!
+        self.assertEqual(len(p_claire.conn.sent_messages), 0, "Claire non deve intercettare il sussurro privato")
+
+    def test_handout_protocol(self):
+        """Testa la corretta generazione del payload per i documenti/indizi DM."""
+        from common.protocol import make_handout_broadcast
+        h_packet = make_handout_broadcast("Mappa del Tesoro", image_b64="fake_b64", content="X segna il punto.")
+        self.assertEqual(h_packet["type"], "HANDOUT_BROADCAST")
+        self.assertEqual(h_packet["data"]["title"], "Mappa del Tesoro")
+        self.assertEqual(h_packet["data"]["content"], "X segna il punto.")
+        self.assertEqual(h_packet["data"]["image_b64"], "fake_b64")
 
 
 if __name__ == "__main__":

@@ -2,8 +2,9 @@ import re
 import random
 import math
 from common.protocol import *
-from common.hex_utils import Hex, hex_distance, get_sphere_hexes, hex_linedraw
+from common.hex_utils import Hex, hex_distance, get_sphere_hexes, hex_linedraw, get_cover_between
 from common.network_utils import send_message, broadcast
+from common.i18n import is_condition_active
 
 def _spawn_corpse_loot(target_player, game_state):
     """Spawna automaticamente un forziere con le spoglie sulla mappa quando un mostro o PNG muore a 0 HP."""
@@ -192,7 +193,7 @@ def handle_start_combat_request(data, player, game_state):
     game_state.gui_queue.put({"type": "SHOW_COMBAT_CONFIG", "payload": {"initiator": initiator_name}})
 
 def _trigger_concentration_check(target_player, dmg_val, game_state):
-    if dmg_val > 0 and "Concentrazione" in getattr(target_player, "conditions", []):
+    if dmg_val > 0 and is_condition_active(getattr(target_player, "conditions", []), "Concentrazione"):
         dc = max(10, dmg_val // 2)
         if getattr(target_player, "conn", None):
             from common.protocol import make_prompt_save
@@ -252,11 +253,44 @@ def handle_end_turn_request(data, player, game_state):
         game_state.next_turn()
         next_p = game_state.get_current_turn_player()
         if next_p:
+            # D&D 5e: Le creature leggendarie recuperano le loro azioni leggendarie all'inizio del proprio turno
+            if getattr(next_p, "legendary_actions_max", 0) > 0:
+                next_p.legendary_actions_current = next_p.legendary_actions_max
+                game_state._trigger_gui_update()
             msg = f"Round {game_state.round_number} - Turno di {next_p.name}!"
             game_state.log_dm_message(f"[COMBAT] {msg}")
             broadcast(game_state, make_chat_broadcast("Sistema", msg))
         next_name = next_p.name if next_p else ""
         broadcast(game_state, make_combat_state_update_broadcast(game_state.combat_active, game_state.turn_index, game_state.round_number, game_state.active_aoes, next_name))
+
+def handle_spend_legendary_action_request(data, player, game_state):
+    """
+    Gestisce la spesa di Azioni Leggendarie (D&D 5e).
+    Un boss leggendario spende azioni tra un turno e l'altro (costo solitamente 1, 2 o 3).
+    """
+    target_name = data.get("boss_name") or data.get("target_name") or (player.name if player else "")
+    action_name = data.get("action_name", "Azione Leggendaria")
+    cost = int(data.get("cost", 1))
+    
+    boss = game_state.find_player(target_name)
+    if not boss:
+        if player and getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply(f"Creatura '{target_name}' non trovata."))
+        return
+        
+    cur_actions = getattr(boss, "legendary_actions_current", 0)
+    max_actions = getattr(boss, "legendary_actions_max", 0)
+    
+    if cur_actions < cost:
+        if player and getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply(f"Azioni leggendarie insufficienti: {cur_actions}/{max_actions} (richieste: {cost})."))
+        return
+        
+    boss.legendary_actions_current = cur_actions - cost
+    msg = f"👑 {boss.name} usa l'Azione Leggendaria '{action_name}' (Costo: {cost})! Azioni rimaste: {boss.legendary_actions_current}/{max_actions}."
+    broadcast(game_state, make_chat_broadcast("Sistema", msg))
+    game_state.log_dm_message(f"[BOSS] {msg}")
+    game_state._trigger_gui_update()
 
 def handle_submit_initiative(data, player, game_state):
     init = data.get("initiative", 0)
@@ -297,20 +331,21 @@ def handle_attack_request(data, player, game_state):
         t_cond = getattr(target_player, "conditions", [])
         
         # Vantaggio per l'attaccante
-        if "Invisibile" in p_cond: adv_reasons.append("Invisibile")
+        if is_condition_active(p_cond, "Invisibile"): adv_reasons.append("Invisibile")
         for c in ["Trattenuto", "Paralizzato", "Incosciente", "Accecato", "Pietrificato"]:
-            if c in t_cond: adv_reasons.append(f"Bersaglio {c}")
+            if is_condition_active(t_cond, c): adv_reasons.append(f"Bersaglio {c}")
             
         # Azione di Aiuto: il bersaglio ha 'Aiutato', che conferisce vantaggio al primo attacco alleato
-        if "Aiutato" in t_cond:
+        if is_condition_active(t_cond, "Aiutato"):
             adv_reasons.append("Aiuto Alleato")
-            t_cond.remove("Aiutato")
+            if "Aiutato" in t_cond: t_cond.remove("Aiutato")
+            elif "Helped" in t_cond: t_cond.remove("Helped")
             
         # Svantaggio per l'attaccante
         for c in ["Accecato", "Avvelenato", "Trattenuto", "Prono"]:
-            if c in p_cond: dis_reasons.append(c)
-        if "Invisibile" in t_cond: dis_reasons.append("Bersaglio Invisibile")
-        if "Schivata" in t_cond: dis_reasons.append("Bersaglio in Schivata")
+            if is_condition_active(p_cond, c): dis_reasons.append(c)
+        if is_condition_active(t_cond, "Invisibile"): dis_reasons.append("Bersaglio Invisibile")
+        if is_condition_active(t_cond, "Schivata"): dis_reasons.append("Bersaglio in Schivata")
         
         # Indebolimento (Exhaustion) Lv 3+ impone svantaggio a tiri per colpire
         if getattr(player, "exhaustion_level", 0) >= 3:
@@ -321,7 +356,7 @@ def handle_attack_request(data, player, game_state):
             q1, r1 = player.position[0], player.position[1]
             q2, r2 = target_player.position[0], target_player.position[1]
             dist = max(abs(q1 - q2), abs(q1 + r1 - q2 - r2), abs(r1 - r2))
-            if "Prono" in t_cond:
+            if is_condition_active(t_cond, "Prono"):
                 if dist <= 1: adv_reasons.append("Bersaglio Prono (Mischia)")
                 elif dist > 1: dis_reasons.append("Bersaglio Prono (Distanza)")
             if dist <= 1:
@@ -376,7 +411,7 @@ def handle_attack_request(data, player, game_state):
             target_ac += 5
             scudo_applicato = True
                 
-        # Line of Sight e Copertura
+        # Line of Sight e Copertura D&D 5e (Ostacoli e Creature Interposte)
         blocked_by_wall = False
         cover_bonus = 0
         cover_name = None
@@ -388,22 +423,19 @@ def handle_attack_request(data, player, game_state):
             
             if getattr(game_state, "current_map", None):
                 walls = game_state.current_map.get("walls", [])
-                half_cover = game_state.current_map.get("half_cover", [])
-                three_quarters = game_state.current_map.get("three_quarters_cover", [])
-                
                 for step in line[1:]:
-                    pos = [step.q, step.r]
-                    if pos in walls:
+                    if [step.q, step.r] in walls:
                         blocked_by_wall = True
                         break
-                    elif pos in three_quarters:
-                        if cover_bonus < 5:
-                            cover_bonus = 5
-                            cover_name = "Tre Quarti di Copertura"
-                    elif pos in half_cover:
-                        if cover_bonus < 2:
-                            cover_bonus = 2
-                            cover_name = "Mezza Copertura"
+                
+                if not blocked_by_wall:
+                    half_cover = game_state.current_map.get("half_cover", [])
+                    three_quarters = game_state.current_map.get("three_quarters_cover", [])
+                    other_creatures = [
+                        p for p in game_state.players 
+                        if p.name != player.name and p.name != target_player.name and getattr(p, "position", None)
+                    ]
+                    cover_bonus, cover_name = get_cover_between(p_hex, t_hex, half_cover, three_quarters, other_creatures)
 
         if cover_bonus > 0 and not blocked_by_wall:
             target_ac += cover_bonus
@@ -475,11 +507,23 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
         
     success = is_crit or (not is_fail and roll_total >= dc)
     
+    # D&D 5e: Resistenze Leggendarie (es. 3/giorno)
+    # Se la creatura fallisce un TS, può scegliere di considerarlo automaticamente un successo.
+    used_legendary_resistance = False
+    if not success and getattr(target_player, "legendary_resistances_current", 0) > 0:
+        target_player.legendary_resistances_current -= 1
+        success = True
+        used_legendary_resistance = True
+        if game_state:
+            game_state._trigger_gui_update()
+    
     log_msg = f"{target_name} effettua un TS su {stat} contro CD {dc} di {source_name}. Risultato: {roll_total}{extra_adv_note}"
     if benedizione_bonus > 0:
         log_msg += f" (+{benedizione_bonus} Benedizione)"
     log_msg += "."
-    if success:
+    if used_legendary_resistance:
+        log_msg += f" 👑 RESISTENZA LEGGENDARIA USATA! Il fallimento si trasforma in SUCCESSO! (Rimaste: {target_player.legendary_resistances_current}/{target_player.legendary_resistances_max})"
+    elif success:
         log_msg += " SUPERATO!"
     else:
         log_msg += " FALLITO!"

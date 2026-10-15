@@ -28,9 +28,10 @@ from server.map_downloader import MapDownloaderDialog
 from .network import Server
 from common.hex_utils import Hex
 from common.network_utils import send_message, receive_message, broadcast
-from components.ui_components import HexMapCanvas, ToolTip
+from components.ui_components import HexMapCanvas, ToolTip, show_toast
 from client.voice_client import VoiceClient
 from common.audio_player import AudioManager
+from common.i18n import _t, get_language, set_language, register_language_listener
 from server.dm_dialogs import (
     TextHandoutDialog,
     CustomNPCDialog,
@@ -69,38 +70,59 @@ class DM_GUI:
         self.voice_client.start()
         self.master.after(100, self.process_queue)
 
+    def show_toast(self, message, title=None, duration=3500, toast_type="info", icon=None):
+        return show_toast(self.master, message, title=title, duration=duration, toast_type=toast_type, icon=icon)
+
+    def switch_language(self, lang_code):
+        set_language(lang_code)
+        lang_name = "Italiano 🇮🇹" if lang_code == "it" else "English 🇬🇧"
+        self.show_toast(_t("language_changed_toast", lang=lang_name), title=_t("language"), toast_type="success")
+        if hasattr(self, 'right_notebook'):
+            try:
+                self.right_notebook.tab(0, text=_t("tab_chat_log"))
+                self.right_notebook.tab(1, text=_t("tab_party_initiative"))
+            except Exception:
+                pass
+
     def setup_gui(self):
         # 1. MENU BAR GLOBALE
         menubar = tk.Menu(self.master)
         self.master.config(menu=menubar)
         
         file_menu = tk.Menu(menubar, tearoff=0)
-        file_menu.add_command(label="Nuova Campagna...", command=self.open_new_campaign_dialog)
-        file_menu.add_command(label="Carica Campagna...", command=self.open_load_campaign_dialog)
-        file_menu.add_command(label="Editor Campagna Attiva...", command=self.open_campaign_editor_dialog)
+        file_menu.add_command(label=_t("menu_new_campaign"), command=self.open_new_campaign_dialog)
+        file_menu.add_command(label=_t("menu_load_campaign"), command=self.open_load_campaign_dialog)
+        file_menu.add_command(label=_t("menu_edit_active_campaign"), command=self.open_campaign_editor_dialog)
         file_menu.add_separator()
-        file_menu.add_command(label="Carica Mappa...", command=self.load_map_from_file)
+        file_menu.add_command(label=_t("menu_load_map"), command=self.load_map_from_file)
         file_menu.add_separator()
-        file_menu.add_command(label="Salva Sessione...", command=self.save_session)
-        file_menu.add_command(label="Carica Sessione...", command=self.load_session)
+        file_menu.add_command(label=_t("menu_save_session"), command=self.save_session)
+        file_menu.add_command(label=_t("menu_load_session"), command=self.load_session)
         file_menu.add_separator()
-        file_menu.add_command(label="Esci", command=self.on_closing)
-        menubar.add_cascade(label="File", menu=file_menu)
+        file_menu.add_command(label=_t("menu_exit"), command=self.on_closing)
+        menubar.add_cascade(label=_t("menu_file"), menu=file_menu)
         
         tools_menu = tk.Menu(menubar, tearoff=0)
-        tools_menu.add_command(label="Editor / Prepara Campagna", command=self.open_campaign_editor_dialog)
-        tools_menu.add_command(label="💰 Generatore di Bottino (Loot 5e)", command=self.open_loot_generator_dialog)
-        tools_menu.add_command(label="🎭 Generatore Rapido PNG", command=self.open_random_npc_dialog)
-        tools_menu.add_command(label="Editor Mappe", command=self.open_map_editor)
-        tools_menu.add_command(label="Condividi Immagine (Handout)", command=self.share_image_handout)
-        tools_menu.add_command(label="Condividi Documento testuale", command=self.share_text_handout)
-        tools_menu.add_command(label="Scarica Mappe Famose", command=self.open_map_downloader)
-        tools_menu.add_command(label="Compendio & SRD", command=self.open_srd_importer)
-        tools_menu.add_command(label="Preparazione Combattimenti", command=self.open_encounter_builder)
-        tools_menu.add_command(label="📖 Consulta Manuali di Gioco (PHB, DMG, MM)", command=self.open_manuals_dialog)
-        tools_menu.add_command(label="Pannello Viaggio", command=self.open_travel_panel)
-        tools_menu.add_command(label="Starter Pack Campagna", command=self.open_campaign_starter_kit_dialog)
-        menubar.add_cascade(label="Strumenti", menu=tools_menu)
+        tools_menu.add_command(label=_t("menu_new_campaign"), command=self.open_campaign_editor_dialog)
+        tools_menu.add_command(label=_t("menu_loot_gen"), command=self.open_loot_generator_dialog)
+        tools_menu.add_command(label=_t("menu_npc_gen"), command=self.open_random_npc_dialog)
+        tools_menu.add_command(label=_t("menu_map_editor"), command=self.open_map_editor)
+        tools_menu.add_command(label=_t("menu_share_image"), command=self.share_image_handout)
+        tools_menu.add_command(label=_t("menu_share_text"), command=self.share_text_handout)
+        tools_menu.add_command(label=_t("menu_download_maps"), command=self.open_map_downloader)
+        tools_menu.add_command(label=_t("menu_srd_compendium"), command=self.open_srd_importer)
+        tools_menu.add_command(label=_t("menu_encounter_builder"), command=self.open_encounter_builder)
+        tools_menu.add_command(label=_t("menu_manuals"), command=self.open_manuals_dialog)
+        tools_menu.add_command(label=_t("menu_travel_panel"), command=self.open_travel_panel)
+        tools_menu.add_command(label=_t("menu_starter_pack"), command=self.open_campaign_starter_kit_dialog)
+        menubar.add_cascade(label=_t("menu_tools"), menu=tools_menu)
+
+        # Menu Lingua / Language
+        lang_menu = tk.Menu(menubar, tearoff=0)
+        self.lang_var = tk.StringVar(value=get_language())
+        lang_menu.add_radiobutton(label="Italiano 🇮🇹", variable=self.lang_var, value="it", command=lambda: self.switch_language("it"))
+        lang_menu.add_radiobutton(label="English 🇬🇧", variable=self.lang_var, value="en", command=lambda: self.switch_language("en"))
+        menubar.add_cascade(label=_t("menu_language"), menu=lang_menu)
         
         # 2. LAYOUT PRINCIPALE (3 Colonne: Sinistra=Toolbar, Centro=Mappa, Destra=Notebook)
         main_frame = ttk.Frame(self.master, padding="10 10 10 10")
@@ -130,9 +152,9 @@ class DM_GUI:
         btn2.pack(pady=3)
         ToolTip(btn2, "Nebbia di Guerra")
         
-        btn3 = ttk.Button(left_toolbar, text="📏", width=3, style="Tool.TButton", command=lambda: print("Misura: Placeholder"))
-        btn3.pack(pady=3)
-        ToolTip(btn3, "Misura Distanza")
+        self.btn_ruler = ttk.Button(left_toolbar, text="📏", width=3, style="Tool.TButton", command=self.toggle_ruler_mode)
+        self.btn_ruler.pack(pady=3)
+        ToolTip(self.btn_ruler, "Misura Distanza")
         
         self.btn_aoe = ttk.Button(left_toolbar, text="💥", width=3, style="Tool.TButton", command=self.open_aoe_dialog)
         self.btn_aoe.pack(pady=3)
@@ -342,7 +364,10 @@ class DM_GUI:
         self.btn_campaign_encounter.pack(fill=tk.X, side=tk.TOP, pady=(0, 4))
         
         self.btn_mass_npc_initiative = ttk.Button(tab_combat, text="🎲 Tira Iniziativa per Tutti i Mostri", command=self.roll_all_npcs_initiative, style='Primary.TButton')
-        self.btn_mass_npc_initiative.pack(fill=tk.X, side=tk.TOP, pady=(0, 6))
+        self.btn_mass_npc_initiative.pack(fill=tk.X, side=tk.TOP, pady=(0, 4))
+        
+        self.lbl_encounter_diff = tk.Label(tab_combat, text="⚔️ Bilanciamento 5e: In attesa dati", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, padx=6, pady=4, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        self.lbl_encounter_diff.pack(fill=tk.X, side=tk.TOP, pady=(0, 6))
         
         # Pulsanti Bottom Tab 2
         btn_frame_bottom = ttk.Frame(tab_combat)
@@ -401,6 +426,9 @@ class DM_GUI:
         self.player_menu.add_command(label="Modifica Stati/Condizioni", command=self.open_conditions_dialog)
         self.player_menu.add_command(label="Esegui Azione (Danno/Cura)", command=self.open_action_dialog)
         self.player_menu.add_command(label="Imposta Aura", command=self.open_aura_dialog)
+        self.player_menu.add_command(label="🔦 Sorgente di Luce (Torcia/Lanterna)...", command=self.open_light_source_dialog)
+        self.player_menu.add_command(label="👑 Configura Boss Leggendario...", command=self.open_boss_config_dialog)
+        self.player_menu.add_command(label="👑 Spendi Azione Leggendaria...", command=self.open_spend_legendary_action_dialog)
         self.player_menu.add_command(label="Imposta Proprietario", command=self.open_set_owner_dialog)
         self.player_menu.add_command(label="Apri Chat Privata", command=self.open_private_chat_from_context)
         self.player_menu.add_separator()
@@ -1134,6 +1162,20 @@ class DM_GUI:
             # Menu contestuale della mappa (hex vuoto)
             map_menu = tk.Menu(self.master, tearoff=0)
             map_menu.add_command(label="Imposta Punto di Spawn", command=lambda: self.set_spawn_point(clicked_hex))
+            
+            cur_map = getattr(self.server.game_state, "current_map", None)
+            traps = cur_map.get("traps", []) if cur_map else []
+            trap_here = next((t for t in traps if t.get("q") == clicked_hex.q and t.get("r") == clicked_hex.r), None)
+            
+            if trap_here:
+                map_menu.add_command(label=f"🗑️ Rimuovi Trappola ({trap_here.get('name', 'Trappola')})", 
+                                    command=lambda: self.remove_trap_at(clicked_hex))
+                if trap_here.get("triggered", False):
+                    map_menu.add_command(label="🔄 Resetta Trappola (Riattiva)", 
+                                        command=lambda: self.reset_trap_at(clicked_hex))
+            else:
+                map_menu.add_command(label="⚠️ Piazza Trappola 5e...", command=lambda: self.open_place_trap_dialog(clicked_hex))
+
             try:
                 map_menu.tk_popup(event.x_root, event.y_root)
             finally:
@@ -1831,6 +1873,9 @@ class DM_GUI:
         ttk.Button(btn_box, text="Passa a Questa Scena", command=do_switch, style="Gold.TButton").pack(side=tk.RIGHT)
         ttk.Button(btn_box, text="Annulla", command=dlg.destroy).pack(side=tk.RIGHT, padx=6)
 
+    def update_state(self):
+        self.update_player_list()
+
     def update_player_list(self):
         current_selection=self.player_listbox.curselection()
         self.player_listbox.delete(0, tk.END)
@@ -1880,6 +1925,40 @@ class DM_GUI:
             self.btn_next_turn.config(state=tk.DISABLED)
             if hasattr(self, "top_status_combat_lbl"):
                 self.top_status_combat_lbl.config(text="🕊️ Esplorazione", fg=TEXT_MUTED)
+
+        # Calcolo Difficoltà Incontro (D&D 5e DMG p.82)
+        if hasattr(self, "lbl_encounter_diff") and self.server.game_state:
+            from common.encounter_calc import calculate_encounter_difficulty
+            party_members = [p for p in self.server.game_state.players if getattr(p, "is_party_member", False)]
+            party_levels = []
+            for p in party_members:
+                lvl = 1
+                if getattr(p, "full_sheet", None):
+                    lvl = p.full_sheet.get("level", 1) or 1
+                party_levels.append(int(lvl))
+            
+            monsters = [p for p in self.server.game_state.players if not getattr(p, "is_party_member", False) and getattr(p, "in_combat", True)]
+            monster_crs = []
+            for m in monsters:
+                cr = 1
+                if getattr(m, "full_sheet", None):
+                    cr = m.full_sheet.get("cr", 1) or 1
+                monster_crs.append(cr)
+                
+            if party_levels and monster_crs:
+                calc_res = calculate_encounter_difficulty(party_levels, monster_crs)
+                diff = calc_res["difficulty"]
+                eff_xp = calc_res["adjusted_xp"]
+                diff_colors = {
+                    "Facile": "#51CF66",
+                    "Medio": "#339AF0",
+                    "Difficile": "#FF922B",
+                    "Mortale": "#FF6B6B"
+                }
+                c = diff_colors.get(diff, ACCENT_GOLD)
+                self.lbl_encounter_diff.config(text=f"⚔️ Bilanciamento: {diff} ({eff_xp} XP eff.)", fg=c)
+            else:
+                self.lbl_encounter_diff.config(text="⚔️ Bilanciamento 5e: Nessun nemico", fg=TEXT_MUTED)
 
         if self.server.game_state:
             players = self.server.game_state.get_all_players()
@@ -2280,6 +2359,316 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
                 messagebox.showerror("Errore", "Il raggio deve essere un numero intero.")
 
         ttk.Button(win, text="Applica", command=submit).pack(pady=20)
+
+    def get_selected_player_name(self):
+        sel = self.player_listbox.curselection()
+        if not sel: return None
+        display_text = self.player_listbox.get(sel[0])
+        if display_text.startswith('---'): return None
+        name = display_text.split(" (HP")[0].replace("▶", "").replace("[N]", "").strip()
+        return name
+
+    def open_light_source_dialog(self):
+        player_name = self.get_selected_player_name()
+        if not player_name: return
+        player = self.server.game_state.find_player(player_name)
+        if not player: return
+
+        win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
+        apply_modern_window_style(win)
+        win.title(f"Sorgente di Luce: {player_name}")
+        win.minsize(360, 320)
+
+        container = tk.Frame(win, bg=BG_COLOR, padx=16, pady=12)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(container, text=f"🔦 Sorgente Luminosa - {player_name}", font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w", pady=(0, 10))
+
+        presets = [
+            ("Spento / Nessuna Luce", 0, "#FFD700"),
+            ("Torcia (4 hex / 20 ft)", 4, "#FFD700"),
+            ("Lanterna Schermata (6 hex / 30 ft)", 6, "#FFA500"),
+            ("Incantesimo Luce (4 hex - Bianca)", 4, "#66D9E8"),
+            ("Luce Diurna (12 hex / 60 ft)", 12, "#FFFFFF")
+        ]
+
+        tk.Label(container, text="Preset Rapido:", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        preset_var = tk.StringVar(value=presets[1][0] if getattr(player, "light_radius", 0) > 0 else presets[0][0])
+        preset_combo = ttk.Combobox(container, textvariable=preset_var, values=[p[0] for p in presets], state="readonly")
+        preset_combo.pack(fill=tk.X, pady=(2, 10))
+
+        tk.Label(container, text="Raggio Personalizzato (Esagoni):", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        rad_entry = ttk.Entry(container)
+        rad_entry.insert(0, str(getattr(player, "light_radius", 0)))
+        rad_entry.pack(fill=tk.X, pady=(2, 10))
+
+        tk.Label(container, text="Colore Luce (Esadecimale o Nome):", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        color_entry = ttk.Entry(container)
+        color_entry.insert(0, getattr(player, "light_color", "#FFD700"))
+        color_entry.pack(fill=tk.X, pady=(2, 12))
+
+        def on_preset_select(e):
+            sel_text = preset_var.get()
+            for name, r, c in presets:
+                if name == sel_text:
+                    rad_entry.delete(0, tk.END); rad_entry.insert(0, str(r))
+                    color_entry.delete(0, tk.END); color_entry.insert(0, c)
+                    break
+        preset_combo.bind("<<ComboboxSelected>>", on_preset_select)
+
+        def save_light():
+            try:
+                r = int(rad_entry.get().strip())
+                c = color_entry.get().strip() or "#FFD700"
+                player.light_radius = max(0, r)
+                player.light_color = c
+                self.server.game_state._trigger_gui_update()
+                from common.protocol import make_player_stats_update
+                from server.network import broadcast
+                broadcast(self.server.game_state, make_player_stats_update(
+                    player.name, player.hp, player.max_hp, player.initiative, player.conditions, getattr(player, "temp_hp", 0)
+                ))
+                self.redraw_map_and_players()
+                self.log_to_chat(f"[LUCE] Luce per {player.name} impostata a {r} hex ({c}).")
+                win.destroy()
+            except ValueError:
+                messagebox.showerror("Errore", "Il raggio deve essere un numero intero.", parent=win)
+
+        btn_row = tk.Frame(container, bg=BG_COLOR)
+        btn_row.pack(fill=tk.X, pady=(8, 0))
+        ttk.Button(btn_row, text="Salva Luce", command=save_light, style="Gold.TButton").pack(side=tk.RIGHT)
+        ttk.Button(btn_row, text="Annulla", command=win.destroy).pack(side=tk.RIGHT, padx=6)
+
+    def open_boss_config_dialog(self):
+        player_name = self.get_selected_player_name()
+        if not player_name: return
+        player = self.server.game_state.find_player(player_name)
+        if not player: return
+
+        win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
+        apply_modern_window_style(win)
+        win.title(f"👑 Configura Boss Leggendario: {player_name}")
+        win.minsize(360, 320)
+
+        container = tk.Frame(win, bg=BG_COLOR, padx=16, pady=12)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(container, text=f"👑 Meccaniche Boss - {player_name}", font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w", pady=(0, 10))
+
+        tk.Label(container, text="Resistenze Leggendarie Max (es. 3):", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        res_max_entry = ttk.Entry(container)
+        res_max_entry.insert(0, str(getattr(player, "legendary_resistances_max", 3)))
+        res_max_entry.pack(fill=tk.X, pady=(2, 6))
+
+        tk.Label(container, text="Resistenze Leggendarie Attuali:", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        res_cur_entry = ttk.Entry(container)
+        res_cur_entry.insert(0, str(getattr(player, "legendary_resistances_current", getattr(player, "legendary_resistances_max", 3))))
+        res_cur_entry.pack(fill=tk.X, pady=(2, 10))
+
+        tk.Label(container, text="Azioni Leggendarie per Round (es. 3):", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        act_max_entry = ttk.Entry(container)
+        act_max_entry.insert(0, str(getattr(player, "legendary_actions_max", 3)))
+        act_max_entry.pack(fill=tk.X, pady=(2, 6))
+
+        tk.Label(container, text="Azioni Leggendarie Attuali:", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        act_cur_entry = ttk.Entry(container)
+        act_cur_entry.insert(0, str(getattr(player, "legendary_actions_current", getattr(player, "legendary_actions_max", 3))))
+        act_cur_entry.pack(fill=tk.X, pady=(2, 12))
+
+        def save_boss():
+            try:
+                rmax = int(res_max_entry.get().strip())
+                rcur = int(res_cur_entry.get().strip())
+                amax = int(act_max_entry.get().strip())
+                acur = int(act_cur_entry.get().strip())
+                player.legendary_resistances_max = max(0, rmax)
+                player.legendary_resistances_current = max(0, min(rmax, rcur))
+                player.legendary_actions_max = max(0, amax)
+                player.legendary_actions_current = max(0, min(amax, acur))
+                self.server.game_state._trigger_gui_update()
+                self.redraw_map_and_players()
+                self.log_to_chat(f"[BOSS] {player.name} configurato: {rmax} Resistenze, {amax} Azioni.")
+                win.destroy()
+            except ValueError:
+                messagebox.showerror("Errore", "Tutti i valori devono essere numeri interi.", parent=win)
+
+        btn_row = tk.Frame(container, bg=BG_COLOR)
+        btn_row.pack(fill=tk.X, pady=(8, 0))
+        ttk.Button(btn_row, text="Salva Boss", command=save_boss, style="Gold.TButton").pack(side=tk.RIGHT)
+        ttk.Button(btn_row, text="Annulla", command=win.destroy).pack(side=tk.RIGHT, padx=6)
+
+    def open_spend_legendary_action_dialog(self):
+        player_name = self.get_selected_player_name()
+        if not player_name: return
+        player = self.server.game_state.find_player(player_name)
+        if not player: return
+
+        cur_act = getattr(player, "legendary_actions_current", 0)
+        max_act = getattr(player, "legendary_actions_max", 0)
+        if max_act == 0:
+            messagebox.showinfo("Non è un Boss", f"{player_name} non ha azioni leggendarie configurate.\nConfigurale prima da 'Configura Boss Leggendario'.", parent=self.master)
+            return
+
+        win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
+        apply_modern_window_style(win)
+        win.title(f"👑 Spendi Azione Leggendaria: {player_name}")
+        win.minsize(360, 240)
+
+        container = tk.Frame(win, bg=BG_COLOR, padx=16, pady=12)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(container, text=f"👑 Azioni Disponibili: {cur_act}/{max_act}", font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w", pady=(0, 10))
+
+        tk.Label(container, text="Nome Azione (es. Colpo di Coda, Movimento, Soffio):", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        name_entry = ttk.Entry(container)
+        name_entry.insert(0, "Azione Leggendaria")
+        name_entry.pack(fill=tk.X, pady=(2, 8))
+
+        tk.Label(container, text="Costo Azioni (1, 2 o 3):", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        cost_combo = ttk.Combobox(container, values=["1", "2", "3"], state="readonly")
+        cost_combo.set("1")
+        cost_combo.pack(fill=tk.X, pady=(2, 12))
+
+        def do_spend():
+            cost = int(cost_combo.get())
+            if cur_act < cost:
+                messagebox.showerror("Azioni Insufficienti", f"Questo boss ha solo {cur_act} azioni rimaste (richieste: {cost}).", parent=win)
+                return
+            act_name = name_entry.get().strip() or "Azione Leggendaria"
+            from server.commands import command_handlers
+            command_handlers["SPEND_LEGENDARY_ACTION_REQUEST"]({"boss_name": player.name, "action_name": act_name, "cost": cost}, player, self.server.game_state)
+            win.destroy()
+
+        btn_row = tk.Frame(container, bg=BG_COLOR)
+        btn_row.pack(fill=tk.X, pady=(8, 0))
+        ttk.Button(btn_row, text="⚡ Esegui Azione", command=do_spend, style="Gold.TButton").pack(side=tk.RIGHT)
+        ttk.Button(btn_row, text="Annulla", command=win.destroy).pack(side=tk.RIGHT, padx=6)
+
+    def open_place_trap_dialog(self, clicked_hex):
+        if not self.server.game_state.current_map:
+            messagebox.showinfo("Nessuna Mappa", "Nessuna mappa attiva su cui piazzare trappole.", parent=self.master)
+            return
+
+        win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
+        apply_modern_window_style(win)
+        win.title(f"⚠️ Piazza Trappola 5e [{clicked_hex.q}, {clicked_hex.r}]")
+        win.minsize(380, 360)
+
+        container = tk.Frame(win, bg=BG_COLOR, padx=16, pady=12)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(container, text=f"⚠️ Nuova Trappola D&D 5e - Hex ({clicked_hex.q}, {clicked_hex.r})", font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w", pady=(0, 10))
+
+        presets = [
+            ("Fossa con Punte (CD 13, 2d10 Perforante)", "Trappola a Fossa con Punte", 13, "2d10", "Perforante"),
+            ("Dardi Avvelenati (CD 15, 2d8 Veleno)", "Trappola a Dardi Avvelenati", 15, "2d8", "Veleno"),
+            ("Runa di Fuoco (CD 14, 4d6 Fuoco)", "Runa Esplosiva di Fuoco", 14, "4d6", "Fuoco"),
+            ("Gabbia Cadente (CD 12, 1d10 Contundente)", "Trappola a Gabbia Pesante", 12, "1d10", "Contundente"),
+            ("Spruzzo d'Acido (CD 14, 3d6 Acido)", "Trappola a Getto d'Acido", 14, "3d6", "Acido")
+        ]
+
+        tk.Label(container, text="Preset Trappola:", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        preset_var = tk.StringVar(value=presets[0][0])
+        preset_combo = ttk.Combobox(container, textvariable=preset_var, values=[p[0] for p in presets], state="readonly")
+        preset_combo.pack(fill=tk.X, pady=(2, 6))
+
+        tk.Label(container, text="Nome Trappola:", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        name_entry = ttk.Entry(container)
+        name_entry.insert(0, presets[0][1])
+        name_entry.pack(fill=tk.X, pady=(2, 6))
+
+        tk.Label(container, text="CD Tiro Salvezza (Destrezza):", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        dc_entry = ttk.Entry(container)
+        dc_entry.insert(0, str(presets[0][2]))
+        dc_entry.pack(fill=tk.X, pady=(2, 6))
+
+        tk.Label(container, text="Formula Danno (es. 2d10, 4d6):", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        dmg_entry = ttk.Entry(container)
+        dmg_entry.insert(0, presets[0][3])
+        dmg_entry.pack(fill=tk.X, pady=(2, 6))
+
+        tk.Label(container, text="Tipo di Danno:", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        dtype_combo = ttk.Combobox(container, values=["Perforante", "Tagliente", "Contundente", "Fuoco", "Veleno", "Acido", "Fulmine"], state="readonly")
+        dtype_combo.set(presets[0][4])
+        dtype_combo.pack(fill=tk.X, pady=(2, 8))
+
+        hidden_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(container, text="Nascosta ai giocatori finché non scatta", variable=hidden_var).pack(anchor="w", pady=(0, 10))
+
+        def on_preset_sel(e):
+            sel_text = preset_var.get()
+            for p_title, p_name, p_dc, p_dmg, p_type in presets:
+                if p_title == sel_text:
+                    name_entry.delete(0, tk.END); name_entry.insert(0, p_name)
+                    dc_entry.delete(0, tk.END); dc_entry.insert(0, str(p_dc))
+                    dmg_entry.delete(0, tk.END); dmg_entry.insert(0, p_dmg)
+                    dtype_combo.set(p_type)
+                    break
+        preset_combo.bind("<<ComboboxSelected>>", on_preset_sel)
+
+        def save_trap():
+            try:
+                dc = int(dc_entry.get().strip())
+                name = name_entry.get().strip() or "Trappola"
+                dmg = dmg_entry.get().strip() or "1d10"
+                dtype = dtype_combo.get() or "Perforante"
+                traps = self.server.game_state.current_map.setdefault("traps", [])
+                traps.append({
+                    "q": clicked_hex.q,
+                    "r": clicked_hex.r,
+                    "name": name,
+                    "dc": dc,
+                    "damage": dmg,
+                    "damage_type": dtype,
+                    "triggered": False,
+                    "hidden": hidden_var.get()
+                })
+                self.redraw_map_and_players()
+                from common.protocol import make_map_data_update_broadcast
+                from server.network import broadcast
+                broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
+                self.log_to_chat(f"[MAPPA] Trappola '{name}' (CD {dc}, {dmg} {dtype}) piazzata a [{clicked_hex.q}, {clicked_hex.r}].")
+                win.destroy()
+            except ValueError:
+                messagebox.showerror("Errore", "La CD deve essere un numero intero.", parent=win)
+
+        btn_row = tk.Frame(container, bg=BG_COLOR)
+        btn_row.pack(fill=tk.X, pady=(8, 0))
+        ttk.Button(btn_row, text="⚠️ Piazza Trappola", command=save_trap, style="Gold.TButton").pack(side=tk.RIGHT)
+        ttk.Button(btn_row, text="Annulla", command=win.destroy).pack(side=tk.RIGHT, padx=6)
+
+    def remove_trap_at(self, clicked_hex):
+        cur_map = getattr(self.server.game_state, "current_map", None)
+        if not cur_map: return
+        traps = cur_map.get("traps", [])
+        cur_map["traps"] = [t for t in traps if not (t.get("q") == clicked_hex.q and t.get("r") == clicked_hex.r)]
+        self.redraw_map_and_players()
+        from common.protocol import make_map_data_update_broadcast
+        from server.network import broadcast
+        broadcast(self.server.game_state, make_map_data_update_broadcast(cur_map))
+        self.log_to_chat(f"[MAPPA] Trappola a [{clicked_hex.q}, {clicked_hex.r}] rimossa.")
+
+    def reset_trap_at(self, clicked_hex):
+        cur_map = getattr(self.server.game_state, "current_map", None)
+        if not cur_map: return
+        traps = cur_map.get("traps", [])
+        for t in traps:
+            if t.get("q") == clicked_hex.q and t.get("r") == clicked_hex.r:
+                t["triggered"] = False
+                t["hidden"] = True
+        self.redraw_map_and_players()
+        from common.protocol import make_map_data_update_broadcast
+        from server.network import broadcast
+        broadcast(self.server.game_state, make_map_data_update_broadcast(cur_map))
+        self.log_to_chat(f"[MAPPA] Trappola a [{clicked_hex.q}, {clicked_hex.r}] riattivata e nascosta.")
 
 
     def split_loot_dialog(self):
@@ -2752,6 +3141,14 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
             
         self.server.game_state._trigger_gui_update()
         messagebox.showinfo("Ispirazione", f"Ispirazione per {p.name}: {'CONCESSA (⭐)' if new_val else 'RIMOSSA'}", parent=self.master)
+
+    def toggle_ruler_mode(self):
+        active = self.map_canvas.toggle_ruler_mode()
+        style = "Gold.TButton" if active else "Tool.TButton"
+        if hasattr(self, 'btn_ruler'):
+            self.btn_ruler.configure(style=style)
+        msg = "Righello attivato: clicca due punti sulla mappa per misurare la distanza." if active else "Righello disattivato."
+        self.show_toast(msg, title="📏 Righello", toast_type="info" if active else "secondary")
 
     def open_aoe_dialog(self):
         win = tk.Toplevel(self.master)

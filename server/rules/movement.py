@@ -2,11 +2,13 @@ import re
 import random
 from common.hex_utils import Hex, hex_distance, get_sphere_hexes, hex_linedraw, get_visible_hexes
 from common.network_utils import send_message, broadcast
+from common.i18n import is_condition_active
 import math
 
 def handle_move_request(data, player, game_state):
-    if "Afferrato" in getattr(player, "conditions", []) or "Privo di Sensi" in getattr(player, "conditions", []) or getattr(player, "exhaustion_level", 0) >= 5:
-        from common.network_utils import send_message
+    from common.network_utils import send_message, broadcast
+    conds = getattr(player, "conditions", [])
+    if is_condition_active(conds, "Afferrato") or is_condition_active(conds, "Privo di Sensi") or is_condition_active(conds, "Incapacitato") or getattr(player, "exhaustion_level", 0) >= 5:
         from common.protocol import make_error_reply
         if player.conn:
             send_message(player.conn, make_error_reply("La tua velocità è 0. Non puoi muoverti."))
@@ -42,10 +44,10 @@ def handle_move_request(data, player, game_state):
             exh = getattr(player, "exhaustion_level", 0)
             if exh >= 2:
                 speed = speed // 2
-            is_dashed = "Scatto" in getattr(player, "conditions", [])
+            is_dashed = is_condition_active(conds, "Scatto")
             eff_speed = speed * 2 if is_dashed else speed
             max_hexes = eff_speed // 5
-            cost = 2 if "Prono" in getattr(player, "conditions", []) else 1
+            cost = 2 if is_condition_active(conds, "Prono") else 1
             if dist * cost > max_hexes:
                 from common.network_utils import send_message
                 from common.protocol import make_error_reply
@@ -60,7 +62,7 @@ def handle_move_request(data, player, game_state):
         # Rilevamento Attacco d'Opportunità (Opportunity Attack)
         from_pos = list(player.position) if hasattr(player, "position") and player.position else None
         if in_combat and from_pos and from_pos != to_pos:
-            disengaged = "Disimpegno" in getattr(player, "conditions", [])
+            disengaged = is_condition_active(conds, "Disimpegno")
             if not disengaged:
                 for other in getattr(game_state, "players", []):
                     if other.name != player.name and getattr(other, "hp", 0) > 0 and hasattr(other, "position") and other.position:
@@ -71,7 +73,8 @@ def handle_move_request(data, player, game_state):
                             dist_to = max(abs(to_pos[0] - qo), abs(to_pos[0] + to_pos[1] - qo - ro), abs(to_pos[1] - ro))
                             if dist_from <= 1 and dist_to > 1:
                                 incaps = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto"]
-                                if not any(c in getattr(other, "conditions", []) for c in incaps):
+                                o_conds = getattr(other, "conditions", [])
+                                if not any(is_condition_active(o_conds, c) for c in incaps):
                                     opp_alert = f"⚠️ [OPPORTUNITÀ] {player.name} esce dalla portata di mischia di {other.name}! {other.name} può usare la Reazione per un Attacco d'Opportunità!"
                                     game_state.log_dm_message(f"[COMBAT] {opp_alert}")
                                     from common.protocol import make_chat_broadcast, make_opportunity_alert
@@ -80,6 +83,42 @@ def handle_move_request(data, player, game_state):
                                         send_message(other.conn, make_opportunity_alert(player.name, f"{player.name} si sta allontanando da te!"))
 
         game_state.move_player(player.name, to_pos)
+        
+        # Gestione Trappole D&D 5e sulla mappa
+        if getattr(game_state, "current_map", None):
+            traps = game_state.current_map.get("traps", [])
+            for trap in traps:
+                if trap.get("q") == to_pos[0] and trap.get("r") == to_pos[1] and not trap.get("triggered", False):
+                    trap["triggered"] = True
+                    trap["hidden"] = False
+                    trap_name = trap.get("name", "Trappola a Trabocchetto")
+                    trap_dc = trap.get("dc", 13)
+                    trap_dmg = trap.get("damage", "2d10")
+                    trap_dtype = trap.get("damage_type", "Perforante")
+                    
+                    alert = f"💥 [TRAPPOLA 5e] {player.name} attiva una trappola ({trap_name})!"
+                    game_state.log_dm_message(f"[TRAPPOLA] {alert}")
+                    from common.protocol import make_chat_broadcast, make_map_data_update_broadcast
+                    broadcast(game_state, make_chat_broadcast("Sistema", alert))
+                    broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
+                    
+                    if getattr(player, "conn", None):
+                        from common.protocol import make_prompt_save
+                        send_message(player.conn, make_prompt_save("DES", trap_dc, trap_dmg, True, trap_name, trap_dtype))
+                    else:
+                        from server.rules.combat import _process_save_result
+                        from common.dice import roll_dice
+                        mod = 0
+                        if getattr(player, "full_sheet", None):
+                            attr = player.full_sheet.get("attributes", {})
+                            if "DES" in attr:
+                                try: mod = (int(attr["DES"]) - 10) // 2
+                                except: pass
+                        mod_str = f"+{mod}" if mod >= 0 else str(mod)
+                        res = roll_dice(f"1d20{mod_str}")
+                        is_crit = res["rolls"][0] == 20
+                        is_fail = res["rolls"][0] == 1
+                        _process_save_result(player.name, "DES", res["total"], is_crit, is_fail, trap_dc, trap_dmg, True, trap_name, game_state, trap_dtype)
         
         if getattr(game_state, "current_map", None):
             teleports = game_state.current_map.get("teleports", {})
@@ -108,14 +147,25 @@ def handle_move_request(data, player, game_state):
                     except Exception as e:
                         print(f"Errore caricamento mappa teleport {map_file}: {e}")
 
-        # Auto-explore FoW around the player's new position with true Line of Sight (LoS)
+        # Auto-explore FoW around the player's new position with true Line of Sight (LoS) and Dynamic Light
         if getattr(game_state, "current_map", None) and game_state.current_map.get("fow_enabled", False):
             h = Hex(to_pos[0], to_pos[1])
             vision_rad = getattr(player, 'vision_radius', 6)
+            light_rad = getattr(player, 'light_radius', 0)
+            effective_rad = max(vision_rad, light_rad)
             walls = game_state.current_map.get("walls", [])
-            visible_hexes = get_visible_hexes(h, vision_rad, walls)
-            changed = False
+            visible_hexes = get_visible_hexes(h, effective_rad, walls)
             
+            # Luce condivisa dai membri del party con sorgenti luminose attive (Torcia, Lanterna)
+            for other_p in game_state.players:
+                if other_p.name != player.name and getattr(other_p, 'is_party_member', False) and getattr(other_p, 'light_radius', 0) > 0:
+                    o_pos = getattr(other_p, 'position', None)
+                    if o_pos:
+                        o_hex = Hex(o_pos[0], o_pos[1])
+                        o_light_hexes = get_visible_hexes(o_hex, other_p.light_radius, walls)
+                        visible_hexes.extend(o_light_hexes)
+
+            changed = False
             fow_rev = game_state.current_map.get("fow_revealed", [])
             fow_draft = game_state.current_map.get("fow_draft", [])
             
