@@ -1053,7 +1053,7 @@ class DM_GUI:
         if not self.server.game_state.combat_active:
             self.open_combat_config()
         else:
-            if messagebox.askyesno("Fine Combattimento", "Vuoi terminare il combattimento?"):
+            if messagebox.askyesno(_t("msg_combat_end_title", default="Fine Combattimento"), _t("msg_combat_end_confirm", default="Vuoi terminare il combattimento?")):
                 self.server.game_state.end_combat()
                 self._auto_restore_scene_music()
                 self.server.game_state.add_calendar_event(f"Combattimento Terminato al Round {self.server.game_state.combat_round}")
@@ -1064,16 +1064,16 @@ class DM_GUI:
 
     def open_combat_config(self, initiator_name=None):
         if self.server.game_state.combat_active:
-            messagebox.showinfo("Combattimento", "Un combattimento è già in corso.")
+            messagebox.showinfo(_t("combat", default="Combattimento"), _t("msg_combat_already_running", default="Un combattimento è già in corso."))
             return
 
         all_players = self.server.game_state.get_all_players()
         if not all_players:
-            messagebox.showinfo("Combattimento", "Nessun personaggio/NPC per iniziare il combattimento.")
+            messagebox.showinfo(_t("combat", default="Combattimento"), _t("msg_no_players_combat", default="Nessun personaggio/NPC per iniziare il combattimento."))
             return
 
         dialog = tk.Toplevel(self.master)
-        dialog.title("Configurazione Combattimento")
+        dialog.title(_t("combat_config_title", default="Configurazione Combattimento"))
         dialog.minsize(400, 550)
         dialog.transient(self.master)
         dialog.grab_set()
@@ -1085,15 +1085,15 @@ class DM_GUI:
             ttk.Label(dialog, text=f"{initiator_name} ha richiesto l'inizio del combattimento!", font=self.default_font, foreground="#D4AF37").pack(pady=(10, 5))
 
         # Filtro per distanza
-        filter_frame = ttk.LabelFrame(dialog, text="Filtro per Distanza (Auto-selezione)")
+        filter_frame = ttk.LabelFrame(dialog, text=_t("combat_filter_distance", default="Filtro per Distanza (Auto-selezione)"))
         filter_frame.pack(fill=tk.X, padx=10, pady=5)
         
-        ttk.Label(filter_frame, text="Origine:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
+        ttk.Label(filter_frame, text=_t("combat_origin", default="Origine:")).grid(row=0, column=0, padx=5, pady=5, sticky="e")
         origin_var = tk.StringVar(value=initiator_name if initiator_name else all_players[0].name)
         origin_combo = ttk.Combobox(filter_frame, textvariable=origin_var, values=[p.name for p in all_players], state="readonly")
         origin_combo.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
         
-        ttk.Label(filter_frame, text="Raggio (esagoni):").grid(row=1, column=0, padx=5, pady=5, sticky="e")
+        ttk.Label(filter_frame, text=_t("combat_radius_hex", default="Raggio (esagoni):")).grid(row=1, column=0, padx=5, pady=5, sticky="e")
         radius_var = tk.StringVar(value="6")
         ttk.Entry(filter_frame, textvariable=radius_var, width=5).grid(row=1, column=1, padx=5, pady=5, sticky="w")
         
@@ -1114,9 +1114,9 @@ class DM_GUI:
                 dist = o_hex.distance(p_hex)
                 checkbox_vars[p.name].set(dist <= rad)
 
-        ttk.Button(filter_frame, text="Seleziona Vicini", command=apply_filter).grid(row=1, column=2, padx=5, pady=5)
+        ttk.Button(filter_frame, text=_t("btn_select_nearby", default="Seleziona Vicini"), command=apply_filter).grid(row=1, column=2, padx=5, pady=5)
 
-        ttk.Label(dialog, text="Partecipanti:", font=self.default_font).pack(pady=(10,0))
+        ttk.Label(dialog, text=_t("combat_participants", default="Partecipanti:"), font=self.default_font).pack(pady=(10,0))
 
         listbox_frame = ttk.Frame(dialog)
         listbox_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
@@ -1166,7 +1166,7 @@ class DM_GUI:
         def confirm():
             selected_names = [name for name, var in checkbox_vars.items() if var.get()]
             if not selected_names:
-                messagebox.showwarning("Attenzione", "Seleziona almeno un partecipante.")
+                messagebox.showwarning(_t("warning", default="Attenzione"), _t("msg_select_at_least_one_participant", default="Seleziona almeno un partecipante."))
                 return
             
             import random
@@ -1178,13 +1178,13 @@ class DM_GUI:
                 
             # Mostra dialog per l'iniziativa degli NPC
             init_dialog = tk.Toplevel(dialog)
-            init_dialog.title("Iniziativa NPC")
+            init_dialog.title(_t("npc_init_dialog_title", default="Iniziativa NPC"))
             init_dialog.minsize(300, 400)
             init_dialog.transient(dialog)
             init_dialog.grab_set()
             apply_modern_window_style(init_dialog)
             
-            ttk.Label(init_dialog, text="Inserisci l'iniziativa per gli NPC:", font=self.default_font).pack(pady=10)
+            ttk.Label(init_dialog, text=_t("npc_init_dialog_prompt", default="Inserisci l'iniziativa per gli NPC:"), font=self.default_font).pack(pady=10)
             
             entries = {}
             frame = ttk.Frame(init_dialog)
@@ -1219,9 +1219,9 @@ class DM_GUI:
                 init_dialog.destroy()
                 finalize_combat(selected_names, npc_initiatives)
                 
-            ttk.Button(init_dialog, text="Conferma Iniziative", command=submit_init, style="Primary.TButton").pack(pady=10)
+            ttk.Button(init_dialog, text=_t("btn_confirm_initiatives", default="Conferma Iniziative"), command=submit_init, style="Primary.TButton").pack(pady=10)
 
-        ttk.Button(dialog, text="Avanti", command=confirm, style='Primary.TButton').pack(pady=15)
+        ttk.Button(dialog, text=_t("btn_next", default="Avanti"), command=confirm, style='Primary.TButton').pack(pady=15)
 
     def roll_all_npcs_initiative(self):
         """Tira automaticamente l'iniziativa (1d20 + mod DES) per tutti i mostri/PNG."""
@@ -1993,12 +1993,12 @@ class DM_GUI:
     def deploy_campaign_encounter_dialog(self):
         active_camp = getattr(self.server.game_state, 'active_campaign', None)
         if not active_camp or not active_camp.encounters:
-            if messagebox.askyesno("Nessun Incontro", "Nessuna campagna attiva con incontri preparati. Vuoi aprire l'Editor Campagna?", parent=self.master):
+            if messagebox.askyesno(_t("msg_no_encounter_title", default="Nessun Incontro"), _t("msg_no_encounter_desc", default="Nessuna campagna attiva con incontri preparati. Vuoi aprire l'Editor Campagna?"), parent=self.master):
                 self.open_campaign_editor_dialog()
             return
             
         dlg = tk.Toplevel(self.master)
-        dlg.title("Schiera Incontro della Campagna")
+        dlg.title(_t("deploy_encounter_title", default="Schiera Incontro della Campagna"))
         dlg.minsize(520, 360)
         dlg.transient(self.master)
         dlg.grab_set()
@@ -2008,18 +2008,18 @@ class DM_GUI:
         container = tk.Frame(dlg, bg=BG_COLOR, padx=15, pady=12)
         container.pack(fill=tk.BOTH, expand=True)
         
-        tk.Label(container, text="⚔️ Incontri Preparati della Campagna", font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w", pady=(0, 4))
-        tk.Label(container, text="Seleziona l'incontro da schierare sulla mappa corrente:", font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 8))
+        tk.Label(container, text=_t("deploy_encounter_header", default="⚔️ Incontri Preparati della Campagna"), font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w", pady=(0, 4))
+        tk.Label(container, text=_t("deploy_encounter_subtitle", default="Seleziona l'incontro da schierare sulla mappa corrente:"), font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 8))
         
         tree_frame = tk.Frame(container, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
         tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
         
         cols = ("Nome", "Atto", "Mostri", "Descrizione")
         tree = ttk.Treeview(tree_frame, columns=cols, show="headings", height=6)
-        tree.heading("Nome", text="Nome Incontro")
-        tree.heading("Atto", text="Atto")
-        tree.heading("Mostri", text="Mostri")
-        tree.heading("Descrizione", text="Note")
+        tree.heading("Nome", text=_t("col_encounter_name", default="Nome Incontro"))
+        tree.heading("Atto", text=_t("col_act", default="Atto"))
+        tree.heading("Mostri", text=_t("col_monsters", default="Mostri"))
+        tree.heading("Descrizione", text=_t("col_notes", default="Note"))
         tree.column("Nome", width=160)
         tree.column("Atto", width=90)
         tree.column("Mostri", width=60, anchor="center")
@@ -2053,17 +2053,17 @@ class DM_GUI:
             
         btn_box = tk.Frame(container, bg=BG_COLOR)
         btn_box.pack(fill=tk.X)
-        ttk.Button(btn_box, text="⚡ Schiera sulla Mappa", command=do_deploy, style="Gold.TButton").pack(side=tk.RIGHT)
-        ttk.Button(btn_box, text="Annulla", command=dlg.destroy).pack(side=tk.RIGHT, padx=6)
+        ttk.Button(btn_box, text=_t("btn_deploy_on_map", default="⚡ Schiera sulla Mappa"), command=do_deploy, style="Gold.TButton").pack(side=tk.RIGHT)
+        ttk.Button(btn_box, text=_t("cancel", default="Annulla"), command=dlg.destroy).pack(side=tk.RIGHT, padx=6)
 
     def switch_campaign_scene_dialog(self):
         active_camp = getattr(self.server.game_state, 'active_campaign', None)
         if not active_camp or not active_camp.scenes:
-            messagebox.showinfo("Nessuna Scena", "Nessuna campagna attiva con scene collegate.", parent=self.master)
+            messagebox.showinfo(_t("msg_no_scene_title", default="Nessuna Scena"), _t("msg_no_scene_desc", default="Nessuna campagna attiva con scene collegate."), parent=self.master)
             return
             
         dlg = tk.Toplevel(self.master)
-        dlg.title("Passa a Scena della Campagna")
+        dlg.title(_t("switch_scene_title", default="Passa a Scena della Campagna"))
         dlg.minsize(480, 320)
         dlg.transient(self.master)
         dlg.grab_set()
@@ -2073,7 +2073,7 @@ class DM_GUI:
         container = tk.Frame(dlg, bg=BG_COLOR, padx=15, pady=12)
         container.pack(fill=tk.BOTH, expand=True)
         
-        tk.Label(container, text="🗺️ Scene della Campagna", font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w", pady=(0, 6))
+        tk.Label(container, text=_t("switch_scene_header", default="🗺️ Scene della Campagna"), font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w", pady=(0, 6))
         
         lb_scenes = tk.Listbox(container, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=FONT_MAIN,
                                selectbackground=ACCENT_GOLD, selectforeground=TEXT_DARK,
@@ -2115,13 +2115,13 @@ class DM_GUI:
                     broadcast(self.server.game_state, make_chat_broadcast("DM", f"Il DM ha spostato il gruppo nella scena: {sc.get('name')}"))
                     self.log_to_chat(f"[SISTEMA] Scena cambiata in: '{sc.get('name')}'.")
                 except Exception as e:
-                    messagebox.showerror("Errore", f"Impossibile caricare la mappa: {e}", parent=dlg)
+                    messagebox.showerror(_t("error", default="Errore"), f"Impossibile caricare la mappa: {e}", parent=dlg)
             dlg.destroy()
             
         btn_box = tk.Frame(container, bg=BG_COLOR)
         btn_box.pack(fill=tk.X)
-        ttk.Button(btn_box, text="Passa a Questa Scena", command=do_switch, style="Gold.TButton").pack(side=tk.RIGHT)
-        ttk.Button(btn_box, text="Annulla", command=dlg.destroy).pack(side=tk.RIGHT, padx=6)
+        ttk.Button(btn_box, text=_t("btn_switch_scene", default="Passa a Questa Scena"), command=do_switch, style="Gold.TButton").pack(side=tk.RIGHT)
+        ttk.Button(btn_box, text=_t("cancel", default="Annulla"), command=dlg.destroy).pack(side=tk.RIGHT, padx=6)
 
     def update_state(self):
         self.update_player_list()
@@ -3411,35 +3411,41 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         win = tk.Toplevel(self.master)
         win.transient(self.master)
         win.grab_set()
-        win.title("Piazza Area d'Effetto (AoE)")
+        win.title(_t("aoe_dialog_title", default="Piazza Area d'Effetto (AoE)"))
         win.minsize(360, 380)
         apply_modern_window_style(win)
 
-        ttk.Label(win, text="Forma Area:", font=FONT_BOLD).pack(pady=5)
+        ttk.Label(win, text=_t("aoe_shape", default="Forma Area:"), font=FONT_BOLD).pack(pady=5)
         type_var = tk.StringVar(value="sfera")
         frame_radio = ttk.Frame(win)
         frame_radio.pack()
-        ttk.Radiobutton(frame_radio, text="Sfera/Cubo", variable=type_var, value="sfera").pack(side=tk.LEFT, padx=3)
-        ttk.Radiobutton(frame_radio, text="Cono", variable=type_var, value="cono").pack(side=tk.LEFT, padx=3)
-        ttk.Radiobutton(frame_radio, text="Linea", variable=type_var, value="linea").pack(side=tk.LEFT, padx=3)
+        ttk.Radiobutton(frame_radio, text=_t("aoe_sphere_cube", default="Sfera/Cubo"), variable=type_var, value="sfera").pack(side=tk.LEFT, padx=3)
+        ttk.Radiobutton(frame_radio, text=_t("aoe_cone", default="Cono"), variable=type_var, value="cono").pack(side=tk.LEFT, padx=3)
+        ttk.Radiobutton(frame_radio, text=_t("aoe_line", default="Linea"), variable=type_var, value="linea").pack(side=tk.LEFT, padx=3)
 
-        ttk.Label(win, text="Raggio / Lunghezza (esagoni):", font=FONT_BOLD).pack(pady=5)
+        ttk.Label(win, text=_t("aoe_size_hexes", default="Raggio / Lunghezza (esagoni):"), font=FONT_BOLD).pack(pady=5)
         size_entry = ttk.Entry(win, width=10)
         size_entry.insert(0, "3")
         size_entry.pack()
 
-        ttk.Label(win, text="Colore:").pack(pady=5)
+        ttk.Label(win, text=_t("aoe_color", default="Colore:")).pack(pady=5)
         color_var = tk.StringVar(value="red")
         color_frame = ttk.Frame(win)
         color_frame.pack()
-        colors = {"Rosso": "red", "Blu": "blue", "Verde": "green", "Giallo": "yellow", "Viola": "purple"}
-        for cname, cval in colors.items():
+        colors = [
+            (_t("color_red", default="Rosso"), "red"),
+            (_t("color_blue", default="Blu"), "blue"),
+            (_t("color_green", default="Verde"), "green"),
+            (_t("color_yellow", default="Giallo"), "yellow"),
+            (_t("color_purple", default="Viola"), "purple")
+        ]
+        for cname, cval in colors:
             ttk.Radiobutton(color_frame, text=cname, variable=color_var, value=cval).pack(side=tk.LEFT, padx=2)
 
         ttk.Separator(win, orient="horizontal").pack(fill="x", pady=8)
 
         req_save_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(win, text="Richiede Tiro Salvezza (Auto-roll per NPC)", variable=req_save_var).pack(pady=2)
+        ttk.Checkbutton(win, text=_t("aoe_save_auto_npc", default="Richiede Tiro Salvezza (Auto-roll per NPC)"), variable=req_save_var).pack(pady=2)
 
         save_frame = ttk.Frame(win)
         save_frame.pack(pady=4)
@@ -3448,18 +3454,18 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         stat_var = tk.StringVar(value="DES")
         ttk.Combobox(save_frame, textvariable=stat_var, values=["FOR", "DES", "COS", "INT", "SAG", "CAR"], width=5).grid(row=0, column=1, padx=2)
 
-        ttk.Label(save_frame, text="CD:").grid(row=0, column=2, padx=2)
+        ttk.Label(save_frame, text=_t("aoe_dc", default="CD:")).grid(row=0, column=2, padx=2)
         dc_entry = ttk.Entry(save_frame, width=5)
         dc_entry.insert(0, "15")
         dc_entry.grid(row=0, column=3, padx=2)
 
-        ttk.Label(save_frame, text="Danni:").grid(row=1, column=0, padx=2, pady=5)
+        ttk.Label(save_frame, text=_t("aoe_damage", default="Danni:")).grid(row=1, column=0, padx=2, pady=5)
         dmg_entry = ttk.Entry(save_frame, width=8)
         dmg_entry.insert(0, "8d6")
         dmg_entry.grid(row=1, column=1, padx=2, pady=5)
 
         half_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(save_frame, text="Dimezza Danni", variable=half_var).grid(row=1, column=2, columnspan=2, padx=2)
+        ttk.Checkbutton(save_frame, text=_t("aoe_half_damage", default="Dimezza Danni"), variable=half_var).grid(row=1, column=2, columnspan=2, padx=2)
 
         def submit():
             try: sz = int(size_entry.get())
@@ -3475,10 +3481,10 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
                 "req_save": req_save_var.get(), "stat": stat_var.get(), "dc": dc,
                 "dmg": dmg_entry.get(), "half": half_var.get()
             }
-            messagebox.showinfo("AoE", "Clicca sulla mappa per confermare il bersaglio / centro dell'area d'effetto.", parent=win)
+            messagebox.showinfo("AoE", _t("aoe_click_map_prompt", default="Clicca sulla mappa per confermare il bersaglio / centro dell'area d'effetto."), parent=win)
             win.destroy()
 
-        ttk.Button(win, text="Conferma & Seleziona Centro", command=submit, style="Primary.TButton").pack(pady=10)
+        ttk.Button(win, text=_t("btn_confirm_select_center", default="Conferma & Seleziona Centro"), command=submit, style="Primary.TButton").pack(pady=10)
 
     def _auto_play_battle_music(self):
         try:
