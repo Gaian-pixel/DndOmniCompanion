@@ -16,6 +16,31 @@ from common.i18n import _t, get_language, translate_condition, translate_ability
 from components.ui_components import ToolTip
 
 
+def get_item_icon(item):
+    """Restituisce l'emoji più appropriata per la tipologia di oggetto."""
+    if not item or not isinstance(item, dict):
+        return "📦"
+    t = str(item.get("type", "")).lower().strip()
+    n = str(item.get("name", "")).lower()
+    if any(k in t or k in n for k in ["armatura", "armor", "scudo", "shield", "cuoio", "leather", "maglia", "chain", "piastre", "plate", "pettorale"]):
+        return "🛡️"
+    if any(k in t or k in n for k in ["arma", "weapon", "spada", "sword", "arco", "bow", "pugnale", "dagger", "balestra", "crossbow", "ascia", "axe", "martello", "hammer", "bastone", "staff", "lancia", "spear", "stocco", "rapier", "scimitarra", "scimitar", "dardo", "dart", "giavellotto", "javelin"]):
+        return "⚔️"
+    if any(k in t or k in n for k in ["pozione", "potion", "consumabile", "consumable", "elisir", "elixir", "fiala", "vial", "unguento", "olio"]):
+        return "🧪"
+    if any(k in t or k in n for k in ["pergamena", "scroll", "documento", "document", "libro", "book", "mappa", "map", "lettera", "letter"]):
+        return "📜"
+    if any(k in t or k in n for k in ["anello", "ring", "amuleto", "amulet", "collana", "necklace", "gemma", "gem", "gioiello", "talismano"]):
+        return "💍"
+    if any(k in t or k in n for k in ["attrezzi", "strumento", "tools", "kit", "liuto", "lute", "flauto", "grimaldello", "lockpick", "focus"]):
+        return "🧰"
+    if any(k in t or k in n for k in ["razion", "ration", "cibo", "food", "acqua", "water", "otre", "torcia", "torch", "corda", "rope", "zaino", "backpack", "coperta", "equipaggiamento", "equipment"]):
+        return "🎒"
+    if any(k in t or k in n for k in ["valuta", "currency", "moneta", "coin", "borsa"]):
+        return "🪙"
+    return "📦"
+
+
 class CharacterSheetUI(tk.Toplevel):
     def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, give_gold_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None, custom_spell_request_callback=None, is_connected=False):
         super().__init__(master)
@@ -354,85 +379,197 @@ class CharacterSheetUI(tk.Toplevel):
         ttk.Button(btn_frame, text=_t("cancel"), command=self.destroy).pack(side=tk.RIGHT, padx=5)
 
     def create_inventory_tab(self, parent_frame):
-        currency_frame = ttk.LabelFrame(parent_frame, text=_t("sheet_currency"))
-        currency_frame.pack(fill=tk.X, padx=5, pady=5)
+        # 1. Borsa delle Monete (Currency Cards)
+        currency_box = tk.Frame(parent_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=6)
+        currency_box.pack(fill=tk.X, padx=6, pady=(6, 4))
+        
+        c_hdr = tk.Frame(currency_box, bg=SURFACE_COLOR_ALT)
+        c_hdr.pack(fill=tk.X, pady=(0, 4))
+        tk.Label(c_hdr, text=f"💰 {_t('sheet_currency')}", font=FONT_BOLD, fg=ACCENT_GOLD, bg=SURFACE_COLOR_ALT).pack(side=tk.LEFT)
+        
+        self.currency_total_lbl = tk.Label(c_hdr, text=f"{_t('sheet_currency_total')}: ≈ 0.00 MO", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR_ALT)
+        self.currency_total_lbl.pack(side=tk.RIGHT)
+        ToolTip(self.currency_total_lbl, "Valore totale stimato in Monete d'Oro (1 MO = 10 MA = 100 MR, 1 MP = 10 MO, 1 ME = 0.5 MO)")
+
+        cards_row = tk.Frame(currency_box, bg=SURFACE_COLOR_ALT)
+        cards_row.pack(fill=tk.X, pady=2)
+        
+        COIN_CONFIG = [
+            ("MR", "coin_cp_title", "coin_cp_sub", "tooltip_coin_cp", "#C87D55", "#241E1A"),
+            ("MA", "coin_sp_title", "coin_sp_sub", "tooltip_coin_sp", "#CBD5E1", "#1E242B"),
+            ("ME", "coin_ep_title", "coin_ep_sub", "tooltip_coin_ep", "#38BDF8", "#1A232E"),
+            ("MO", "coin_gp_title", "coin_gp_sub", "tooltip_coin_gp", "#F1C40F", "#2B2615"),
+            ("MP", "coin_pp_title", "coin_pp_sub", "tooltip_coin_pp", "#DDD6FE", "#231F33"),
+        ]
+        
         self.currency_vars = {}
-        for coin in ["MR", "MA", "ME", "MO", "MP"]:
-            c_frame = ttk.Frame(currency_frame)
-            c_frame.pack(side=tk.LEFT, expand=True, padx=2)
-            ttk.Label(c_frame, text=coin).pack(side=tk.TOP)
+        for coin, title_k, sub_k, tip_k, color, bg_tint in COIN_CONFIG:
+            card = tk.Frame(cards_row, bg=bg_tint, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=4)
+            card.pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=3)
+            
+            lbl_title = tk.Label(card, text=_t(title_k), font=("Segoe UI", 9, "bold"), fg=color, bg=bg_tint)
+            lbl_title.pack(side=tk.TOP, pady=(1, 2))
+            
             var = tk.IntVar(value=0)
             self.currency_vars[coin] = var
-            ttk.Entry(c_frame, textvariable=var, width=5, justify="center").pack(side=tk.TOP)
+            var.trace_add("write", lambda *args: self.update_currency_total())
             
-        list_frame = ttk.Frame(parent_frame)
-        list_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        
-        canvas = tk.Canvas(list_frame)
-        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
+            entry = ttk.Entry(card, textvariable=var, width=6, justify="center")
+            entry.pack(side=tk.TOP, pady=2)
+            
+            lbl_sub = tk.Label(card, text=_t(sub_k), font=("Segoe UI", 7), fg=TEXT_MUTED, bg=bg_tint)
+            lbl_sub.pack(side=tk.TOP, pady=(1, 1))
+            
+            ToolTip(card, _t(tip_k))
+            ToolTip(lbl_title, _t(tip_k))
+            ToolTip(entry, _t(tip_k))
 
+        # 2. Toolbar & Status Bar (Sintonia)
+        inv_bar = tk.Frame(parent_frame, bg=BG_COLOR)
+        inv_bar.pack(fill=tk.X, padx=6, pady=(4, 2))
+        
+        tk.Label(inv_bar, text=f"🎒 {_t('sheet_tab_inventory')} (25 Slot)", font=FONT_BOLD, fg=ACCENT_GOLD, bg=BG_COLOR).pack(side=tk.LEFT)
+        
+        self.attunement_label = tk.Label(inv_bar, text=_t("sheet_attunement_count", count=0), font=FONT_BOLD, fg=ACCENT_BLUE, bg=BG_COLOR)
+        self.attunement_label.pack(side=tk.RIGHT, padx=4)
+        ToolTip(self.attunement_label, "Oggetti Magici Sintonizzati (Regola 5e: Massimo 3 oggetti attivi contemporaneamente)")
+
+        # 3. Lista Griglia 25 Slot (Canvas Dark con auto-stretch e zero bordi bianchi)
+        list_frame = tk.Frame(parent_frame, bg=BG_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=6, pady=2)
+        
+        canvas = tk.Canvas(list_frame, bg=BG_COLOR, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg=BG_COLOR)
+        
+        canvas_window = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        def _on_canvas_resize(e):
+            canvas.itemconfig(canvas_window, width=e.width)
+        canvas.bind("<Configure>", _on_canvas_resize)
+        
         scrollable_frame.bind(
             "<Configure>",
             lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
         )
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
         
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        ttk.Label(scrollable_frame, text=_t("sheet_item"), font=("Georgia", 9, "bold")).grid(row=0, column=0, padx=5, pady=2)
-        ttk.Label(scrollable_frame, text=_t("sheet_weight_col"), font=("Georgia", 9, "bold")).grid(row=0, column=1, padx=5, pady=2)
-        ttk.Label(scrollable_frame, text=_t("sheet_attunement"), font=("Georgia", 9, "bold")).grid(row=0, column=2, padx=5, pady=2)
+        def _on_mousewheel(event):
+            try:
+                canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            except tk.TclError:
+                pass
+        canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", _on_mousewheel))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
         
+        # Intestazione Colonne
+        hdr_frame = tk.Frame(scrollable_frame, bg=SURFACE_COLOR_ALT, padx=4, pady=3)
+        hdr_frame.pack(fill=tk.X, padx=2, pady=(0, 2))
+        
+        tk.Label(hdr_frame, text="#", font=FONT_BOLD, fg=TEXT_MUTED, bg=SURFACE_COLOR_ALT, width=3).pack(side=tk.LEFT)
+        tk.Label(hdr_frame, text=_t("sheet_item"), font=FONT_BOLD, fg=TEXT_MUTED, bg=SURFACE_COLOR_ALT).pack(side=tk.LEFT, padx=6, expand=True, fill=tk.X)
+        tk.Label(hdr_frame, text=_t("sheet_weight_col"), font=FONT_BOLD, fg=TEXT_MUTED, bg=SURFACE_COLOR_ALT, width=10).pack(side=tk.RIGHT, padx=4)
+        tk.Label(hdr_frame, text="🔮 " + _t("sheet_attunement"), font=FONT_BOLD, fg=TEXT_MUTED, bg=SURFACE_COLOR_ALT, width=8).pack(side=tk.RIGHT, padx=4)
+
         self.inventory_buttons = []
         self.weight_vars = []
         self.attuned_vars = []
         
         for i in range(25):
-            btn = ttk.Button(scrollable_frame, text=_t("sheet_empty_slot"), width=20, command=lambda idx=i: self.on_inventory_click(idx))
-            btn.grid(row=i+1, column=0, padx=5, pady=2)
+            row_bg = SURFACE_COLOR if (i % 2 == 0) else SURFACE_COLOR_ALT
+            row_frame = tk.Frame(scrollable_frame, bg=row_bg, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=2)
+            row_frame.pack(fill=tk.X, padx=2, pady=1)
+            
+            # Indice slot #i+1
+            lbl_idx = tk.Label(row_frame, text=f"#{i+1:02d}", font=FONT_SMALL, fg=TEXT_MUTED, bg=row_bg, width=3)
+            lbl_idx.pack(side=tk.LEFT, padx=(2, 4))
+            
+            # Bottone Oggetto
+            btn = ttk.Button(row_frame, text=_t("sheet_empty_slot_desc"), command=lambda idx=i: self.on_inventory_click(idx), style="Slot.TButton")
+            btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
             self.inventory_buttons.append(btn)
             
+            # Peso
+            w_frame = tk.Frame(row_frame, bg=row_bg)
+            w_frame.pack(side=tk.RIGHT, padx=4)
             w_var = tk.DoubleVar(value=0.0)
             w_var.trace_add("write", lambda *args: self.calculate_total_weight())
-            w_entry = ttk.Entry(scrollable_frame, textvariable=w_var, width=8)
-            w_entry.grid(row=i+1, column=1, padx=5, pady=2)
+            w_entry = ttk.Entry(w_frame, textvariable=w_var, width=5, justify="center")
+            w_entry.pack(side=tk.LEFT)
+            tk.Label(w_frame, text="lbs", font=FONT_SMALL, fg=TEXT_MUTED, bg=row_bg).pack(side=tk.LEFT, padx=1)
             self.weight_vars.append(w_var)
             
+            # Sintonia
+            a_frame = tk.Frame(row_frame, bg=row_bg)
+            a_frame.pack(side=tk.RIGHT, padx=6)
             a_var = tk.BooleanVar(value=False)
             a_var.trace_add("write", lambda *args, idx=i: self.check_attunement(idx))
-            cb = ttk.Checkbutton(scrollable_frame, variable=a_var)
-            cb.grid(row=i+1, column=2, padx=5, pady=2)
+            cb = ttk.Checkbutton(a_frame, variable=a_var)
+            cb.pack(side=tk.LEFT)
             self.attuned_vars.append(a_var)
-            
-        bottom_frame = ttk.Frame(parent_frame)
-        bottom_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=5)
+            ToolTip(cb, "Sintonizza questo oggetto magico (Max 3 contemporaneamente)")
+
+        # 4. Barra Inferiore (Peso, Capacità di Carico e Pulsanti)
+        bottom_frame = tk.Frame(parent_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=6)
+        bottom_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=6, pady=4)
         
-        self.weight_label = ttk.Label(bottom_frame, text=_t("sheet_total_weight", current="0.0", max="150"), font=("Georgia", 10, "bold"))
-        self.weight_label.pack(pady=5)
+        weight_row = tk.Frame(bottom_frame, bg=SURFACE_COLOR_ALT)
+        weight_row.pack(fill=tk.X, pady=(0, 4))
         
-        compendium_btn = ttk.Button(bottom_frame, text=_t("sheet_search_compendium"), command=self.open_inventory_compendium)
-        compendium_btn.pack(side=tk.LEFT, padx=4, pady=5)
+        self.weight_label = tk.Label(weight_row, text=_t("sheet_total_weight", current="0.0", max="150"), font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR_ALT)
+        self.weight_label.pack(side=tk.LEFT)
         
-        btn_give_gold = ttk.Button(bottom_frame, text=_t("sheet_give_gold_btn"), command=self.on_give_gold_click, style="Gold.TButton")
-        btn_give_gold.pack(side=tk.RIGHT, padx=4, pady=5)
+        self.weight_bar = ttk.Progressbar(weight_row, length=180, mode='determinate')
+        self.weight_bar.pack(side=tk.RIGHT, padx=4)
+        
+        btn_bar = tk.Frame(bottom_frame, bg=SURFACE_COLOR_ALT)
+        btn_bar.pack(fill=tk.X, pady=(4, 0))
+        
+        compendium_btn = ttk.Button(btn_bar, text=_t("sheet_search_compendium"), command=self.open_inventory_compendium)
+        compendium_btn.pack(side=tk.LEFT, padx=2)
+        
+        custom_btn = ttk.Button(btn_bar, text=_t("sheet_add_custom_item"), command=self.open_custom_item_dialog)
+        custom_btn.pack(side=tk.LEFT, padx=4)
+        
+        btn_give_gold = ttk.Button(btn_bar, text=_t("sheet_give_gold_btn"), command=self.on_give_gold_click, style="Gold.TButton")
+        btn_give_gold.pack(side=tk.RIGHT, padx=2)
+
+    def update_currency_total(self, *args):
+        if not hasattr(self, "currency_vars") or not hasattr(self, "currency_total_lbl"):
+            return
+        try:
+            mr = self.currency_vars.get("MR", tk.IntVar(value=0)).get()
+            ma = self.currency_vars.get("MA", tk.IntVar(value=0)).get()
+            me = self.currency_vars.get("ME", tk.IntVar(value=0)).get()
+            mo = self.currency_vars.get("MO", tk.IntVar(value=0)).get()
+            mp = self.currency_vars.get("MP", tk.IntVar(value=0)).get()
+            total_gp = mo + (mp * 10.0) + (me * 0.5) + (ma * 0.1) + (mr * 0.01)
+            is_it = (get_language() == "it")
+            unit = "MO" if is_it else "gp"
+            self.currency_total_lbl.config(
+                text=f"{_t('sheet_currency_total')}: ≈ {total_gp:.2f} {unit}"
+            )
+        except (ValueError, tk.TclError, KeyError):
+            pass
 
     def calculate_total_weight(self):
         if not hasattr(self, 'weight_vars') or not hasattr(self, 'weight_label'):
             return
         total = 0.0
         for i in range(25):
-            item = self.character.inventory_grid[i]
-            if item:
-                try:
-                    w = float(self.weight_vars[i].get())
-                    qty = item.get("qty", 1)
-                    total += w * qty
-                except (tk.TclError, ValueError):
-                    pass
-                    
+            if i < len(self.character.inventory_grid):
+                item = self.character.inventory_grid[i]
+                if item:
+                    try:
+                        w = float(self.weight_vars[i].get())
+                        qty = item.get("qty", 1)
+                        total += w * qty
+                    except (tk.TclError, ValueError):
+                        pass
+                        
         try:
             strength = int(self.attr_vars["FOR"].get())
         except (tk.TclError, ValueError, KeyError):
@@ -440,21 +577,31 @@ class CharacterSheetUI(tk.Toplevel):
             
         max_weight = strength * 15
         
+        if hasattr(self, 'weight_bar'):
+            self.weight_bar['maximum'] = max(1.0, max_weight)
+            self.weight_bar['value'] = min(max_weight, total)
+        
         if total > max_weight:
             self.weight_label.config(
                 text=f"{_t('sheet_total_weight', current=f'{total:.1f}', max=max_weight)} {_t('sheet_encumbered')}",
-                foreground="red"
+                fg=ACCENT_RED
             )
         else:
             self.weight_label.config(
                 text=_t("sheet_total_weight", current=f"{total:.1f}", max=max_weight),
-                foreground=TEXT_COLOR
+                fg=TEXT_COLOR
             )
 
-    def check_attunement(self, changed_idx):
+    def check_attunement(self, changed_idx=None):
         if not hasattr(self, 'attuned_vars'): return
         attuned_count = sum(1 for var in self.attuned_vars if var.get())
-        if attuned_count > 3:
+        if hasattr(self, 'attunement_label'):
+            color = ACCENT_RED if attuned_count > 3 else (ACCENT_GOLD if attuned_count == 3 else ACCENT_BLUE)
+            self.attunement_label.config(
+                text=_t("sheet_attunement_count", count=attuned_count),
+                fg=color
+            )
+        if attuned_count > 3 and changed_idx is not None:
             messagebox.showwarning("Sintonia", "Non puoi sintonizzarti con più di 3 oggetti contemporaneamente!")
             self.attuned_vars[changed_idx].set(False)
 
@@ -799,81 +946,259 @@ class CharacterSheetUI(tk.Toplevel):
             if item:
                 name = item.get("name", _t("sheet_item"))
                 qty = item.get("qty", 1)
-                short_name = name[:15] + ".." if len(name) > 15 else name
-                btn.config(text=f"{short_name} (x{qty})", style="SlotFilled.TButton")
-                if hasattr(self, 'weight_vars'):
+                icon = get_item_icon(item)
+                item_type = item.get("type", "")
+                type_str = f" [{item_type}]" if item_type else ""
+                short_name = name[:20] + ".." if len(name) > 20 else name
+                btn.config(text=f"{icon} {short_name} (x{qty}){type_str}", style="SlotFilled.TButton")
+                if hasattr(self, 'weight_vars') and i < len(self.weight_vars):
                     self.weight_vars[i].set(item.get("weight", 0.0))
-                if hasattr(self, 'attuned_vars'):
+                if hasattr(self, 'attuned_vars') and i < len(self.attuned_vars):
                     self.attuned_vars[i].set(item.get("attuned", False))
+                desc = item.get("desc", "")
+                weight = item.get("weight", 0.0)
+                tip_text = f"{name} (x{qty})\nTipo: {item_type}\nPeso: {weight} lbs\n\n{desc}" if desc else f"{name} (x{qty})\nTipo: {item_type}\nPeso: {weight} lbs"
+                ToolTip(btn, tip_text)
             else:
-                btn.config(text=_t("sheet_empty_slot"), style="Slot.TButton")
-                if hasattr(self, 'weight_vars'):
+                btn.config(text=f"➕ {_t('sheet_empty_slot_desc')}", style="Slot.TButton")
+                ToolTip(btn, _t("sheet_empty_slot_desc"))
+                if hasattr(self, 'weight_vars') and i < len(self.weight_vars):
                     self.weight_vars[i].set(0.0)
-                if hasattr(self, 'attuned_vars'):
+                if hasattr(self, 'attuned_vars') and i < len(self.attuned_vars):
                     self.attuned_vars[i].set(False)
+        if hasattr(self, 'check_attunement'):
+            self.check_attunement()
         if hasattr(self, 'calculate_total_weight'):
             self.calculate_total_weight()
+        if hasattr(self, 'update_currency_total'):
+            self.update_currency_total()
 
     def on_inventory_click(self, idx):
         item = self.character.inventory_grid[idx]
-        if not item: return
-        
-        info = f"Nome: {item.get('name')}\nTipo: {item.get('type')}\nQuantità: {item.get('qty')}\n\nDescrizione:\n{item.get('desc')}"
-        
+        if not item:
+            self.prompt_add_item_dialog(idx)
+            return
+        self.open_item_details_dialog(idx, item)
+
+    def prompt_add_item_dialog(self, idx):
         win = tk.Toplevel(self)
         win.transient(self)
         win.grab_set()
         apply_modern_window_style(win)
-        win.title("Dettagli Oggetto")
-        win.minsize(300, 300)
+        win.title(f"Aggiungi Oggetto - Slot #{idx+1}")
+        win.minsize(360, 220)
+        
+        container = tk.Frame(win, bg=SURFACE_COLOR, padx=16, pady=16)
+        container.pack(fill=tk.BOTH, expand=True)
+        
+        tk.Label(container, text=f"Slot #{idx+1} Vuoto", font=FONT_TITLE, fg=ACCENT_GOLD, bg=SURFACE_COLOR).pack(pady=(0, 10))
+        tk.Label(container, text="Scegli come aggiungere l'oggetto allo zaino:", font=FONT_MAIN, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(pady=(0, 14))
+        
+        btn_frame = tk.Frame(container, bg=SURFACE_COLOR)
+        btn_frame.pack(fill=tk.X, pady=6)
+        
+        def from_comp():
+            win.destroy()
+            self.open_inventory_compendium_for_slot(idx)
+            
+        def from_custom():
+            win.destroy()
+            self.open_custom_item_dialog(idx)
+            
+        ttk.Button(btn_frame, text="📚 Cerca nel Compendio 5e", command=from_comp, style="Gold.TButton").pack(fill=tk.X, pady=4)
+        ttk.Button(btn_frame, text="✏️ Crea Oggetto Personalizzato", command=from_custom).pack(fill=tk.X, pady=4)
+        ttk.Button(btn_frame, text="Annulla", command=win.destroy).pack(fill=tk.X, pady=4)
+
+    def open_custom_item_dialog(self, target_idx=None):
+        if target_idx is None:
+            for i, it in enumerate(self.character.inventory_grid):
+                if not it:
+                    target_idx = i
+                    break
+        if target_idx is None:
+            messagebox.showerror("Zaino Pieno", "Non c'è spazio libero nello zaino per un nuovo oggetto!")
+            return
+            
+        win = tk.Toplevel(self)
+        win.transient(self)
+        win.grab_set()
         apply_modern_window_style(win)
+        win.title(f"Nuovo Oggetto - Slot #{target_idx+1}")
+        win.minsize(420, 440)
         
-        ttk.Label(win, text=info, justify="left", wraplength=280).pack(pady=10, padx=10, fill=tk.BOTH, expand=True)
+        body = tk.Frame(win, bg=SURFACE_COLOR, padx=14, pady=12)
+        body.pack(fill=tk.BOTH, expand=True)
         
-        btn_frame = ttk.Frame(win)
-        btn_frame.pack(fill=tk.X, pady=10)
+        tk.Label(body, text=f"✨ Nuovo Oggetto (Slot #{target_idx+1})", font=FONT_TITLE, fg=ACCENT_GOLD, bg=SURFACE_COLOR).pack(anchor="w", pady=(0, 8))
         
+        tk.Label(body, text="Nome Oggetto:", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(anchor="w", pady=(2, 1))
+        name_entry = ttk.Entry(body, width=35)
+        name_entry.pack(fill=tk.X, pady=(0, 6))
+        name_entry.focus_set()
+        
+        tk.Label(body, text="Tipo / Categoria:", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(anchor="w", pady=(2, 1))
+        type_combo = ttk.Combobox(body, values=["Arma", "Armatura", "Scudo", "Pozione", "Pergamena", "Attrezzi", "Equipaggiamento", "Altro"], state="normal")
+        type_combo.set("Equipaggiamento")
+        type_combo.pack(fill=tk.X, pady=(0, 6))
+        
+        qp_frame = tk.Frame(body, bg=SURFACE_COLOR)
+        qp_frame.pack(fill=tk.X, pady=4)
+        
+        tk.Label(qp_frame, text="Quantità:", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(side=tk.LEFT, padx=(0, 4))
+        qty_var = tk.IntVar(value=1)
+        ttk.Entry(qp_frame, textvariable=qty_var, width=5, justify="center").pack(side=tk.LEFT, padx=(0, 16))
+        
+        tk.Label(qp_frame, text="Peso Unitario (lbs):", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(side=tk.LEFT, padx=(0, 4))
+        weight_var = tk.DoubleVar(value=1.0)
+        ttk.Entry(qp_frame, textvariable=weight_var, width=6, justify="center").pack(side=tk.LEFT)
+        
+        attune_var = tk.BooleanVar(value=False)
+        cb_attune = ttk.Checkbutton(body, text="Richiede Sintonia Magica 🔮", variable=attune_var)
+        cb_attune.pack(anchor="w", pady=4)
+        
+        tk.Label(body, text="Descrizione / Proprietà:", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(anchor="w", pady=(4, 1))
+        desc_text = tk.Text(body, height=5, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_MAIN, wrap=tk.WORD, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        desc_text.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+        
+        def save_custom():
+            nm = name_entry.get().strip()
+            if not nm:
+                messagebox.showwarning("Nome Mancante", "Inserisci il nome dell'oggetto.", parent=win)
+                return
+            entry = {
+                "name": nm,
+                "type": type_combo.get().strip() or "Equipaggiamento",
+                "qty": max(1, qty_var.get()),
+                "weight": max(0.0, weight_var.get()),
+                "attuned": attune_var.get(),
+                "desc": desc_text.get("1.0", tk.END).strip()
+            }
+            self.character.inventory_grid[target_idx] = entry
+            self.manager.update_character(self.character)
+            if hasattr(self.manager, 'save_characters'):
+                self.manager.save_characters()
+            self.refresh_inventory_grid()
+            win.destroy()
+            messagebox.showinfo("Oggetto Creato", f"'{nm}' aggiunto allo slot #{target_idx+1}!")
+            
+        btn_box = tk.Frame(body, bg=SURFACE_COLOR)
+        btn_box.pack(fill=tk.X, pady=(4, 0))
+        ttk.Button(btn_box, text="💾 Salva nello Zaino", command=save_custom, style="Gold.TButton").pack(side=tk.RIGHT, padx=4)
+        ttk.Button(btn_box, text="Annulla", command=win.destroy).pack(side=tk.RIGHT, padx=4)
+
+    def open_item_details_dialog(self, idx, item):
+        win = tk.Toplevel(self)
+        win.transient(self)
+        win.grab_set()
+        apply_modern_window_style(win)
+        win.title(f"Dettagli Oggetto - Slot #{idx+1}")
+        win.minsize(420, 460)
+        
+        body = tk.Frame(win, bg=SURFACE_COLOR, padx=14, pady=12)
+        body.pack(fill=tk.BOTH, expand=True)
+        
+        icon = get_item_icon(item)
+        name = item.get("name", _t("sheet_item"))
+        
+        hdr = tk.Frame(body, bg=SURFACE_COLOR)
+        hdr.pack(fill=tk.X, pady=(0, 8))
+        tk.Label(hdr, text=f"{icon} {name}", font=FONT_TITLE, fg=ACCENT_GOLD, bg=SURFACE_COLOR).pack(side=tk.LEFT)
+        
+        tk.Label(body, text="Nome:", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(anchor="w", pady=(2, 1))
+        name_entry = ttk.Entry(body)
+        name_entry.insert(0, name)
+        name_entry.pack(fill=tk.X, pady=(0, 4))
+        
+        tk.Label(body, text="Tipo / Categoria:", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(anchor="w", pady=(2, 1))
+        type_combo = ttk.Combobox(body, values=["Arma", "Armatura", "Scudo", "Pozione", "Pergamena", "Attrezzi", "Equipaggiamento", "Altro"])
+        type_combo.set(item.get("type", "Equipaggiamento"))
+        type_combo.pack(fill=tk.X, pady=(0, 4))
+        
+        qp_frame = tk.Frame(body, bg=SURFACE_COLOR)
+        qp_frame.pack(fill=tk.X, pady=4)
+        
+        tk.Label(qp_frame, text="Quantità:", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(side=tk.LEFT, padx=(0, 4))
+        qty_var = tk.IntVar(value=item.get("qty", 1))
+        ttk.Button(qp_frame, text="-", width=2, command=lambda: qty_var.set(max(1, qty_var.get() - 1))).pack(side=tk.LEFT)
+        ttk.Entry(qp_frame, textvariable=qty_var, width=4, justify="center").pack(side=tk.LEFT, padx=2)
+        ttk.Button(qp_frame, text="+", width=2, command=lambda: qty_var.set(qty_var.get() + 1)).pack(side=tk.LEFT, padx=(0, 14))
+        
+        tk.Label(qp_frame, text="Peso Unitario (lbs):", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(side=tk.LEFT, padx=(0, 4))
+        w_var = tk.DoubleVar(value=item.get("weight", 0.0))
+        ttk.Entry(qp_frame, textvariable=w_var, width=5, justify="center").pack(side=tk.LEFT)
+        
+        attune_var = tk.BooleanVar(value=item.get("attuned", False))
+        cb_attune = ttk.Checkbutton(body, text="Oggetto Sintonizzato 🔮", variable=attune_var)
+        cb_attune.pack(anchor="w", pady=4)
+        
+        tk.Label(body, text="Descrizione / Proprietà:", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(anchor="w", pady=(4, 1))
+        desc_text = tk.Text(body, height=5, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_MAIN, wrap=tk.WORD, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        desc_text.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        desc_text.insert("1.0", item.get("desc", ""))
+        
+        btn_frame = tk.Frame(body, bg=SURFACE_COLOR)
+        btn_frame.pack(fill=tk.X, pady=4)
+        
+        def save_item():
+            item["name"] = name_entry.get().strip() or name
+            item["type"] = type_combo.get().strip() or "Equipaggiamento"
+            item["qty"] = max(1, qty_var.get())
+            item["weight"] = max(0.0, w_var.get())
+            item["attuned"] = attune_var.get()
+            item["desc"] = desc_text.get("1.0", tk.END).strip()
+            self.refresh_inventory_grid()
+            self.manager.update_character(self.character)
+            if hasattr(self.manager, 'save_characters'):
+                self.manager.save_characters()
+            win.destroy()
+            
         def discard():
-            if messagebox.askyesno("Conferma", "Vuoi scartare questo oggetto? Andrà perso.", parent=win):
+            if messagebox.askyesno("Conferma Scarto", _t("sheet_discard_confirm"), parent=win):
                 self.character.inventory_grid[idx] = None
                 self.refresh_inventory_grid()
+                self.manager.update_character(self.character)
+                if hasattr(self.manager, 'save_characters'):
+                    self.manager.save_characters()
                 win.destroy()
                 
         def trade():
             if not hasattr(self, 'players_list_callback') or not hasattr(self, 'trade_callback'):
-                messagebox.showinfo("Errore", "Funzione non disponibile offline.", parent=win)
+                messagebox.showinfo("Offline", "Funzione non disponibile offline.", parent=win)
                 return
             players = self.players_list_callback()
             if not players:
                 messagebox.showinfo("Nessuno", "Non ci sono altri giocatori connessi.", parent=win)
                 return
-                
             target = simpledialog.askstring("Dona Oggetto", "A chi vuoi donare l'oggetto?\nScegli tra: " + ", ".join(players), parent=win)
             if target and target in players:
                 self.trade_callback(item, target)
                 self.character.inventory_grid[idx] = None
                 self.refresh_inventory_grid()
+                self.manager.update_character(self.character)
+                if hasattr(self.manager, 'save_characters'):
+                    self.manager.save_characters()
                 win.destroy()
             elif target:
                 messagebox.showerror("Errore", "Giocatore non trovato.", parent=win)
+                
+        ttk.Button(btn_frame, text="💾 Salva", command=save_item, style="Gold.TButton").pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_frame, text="🤝 Dona", command=trade).pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_frame, text="🗑️ Scarta", command=discard, style="Danger.TButton").pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_frame, text="Chiudi", command=win.destroy).pack(side=tk.RIGHT, padx=3)
 
-        ttk.Button(btn_frame, text="Dona a...", command=trade).pack(side=tk.LEFT, padx=15)
-        ttk.Button(btn_frame, text="Scarta", command=discard).pack(side=tk.RIGHT, padx=15)
-
-    def open_inventory_compendium(self):
+    def open_inventory_compendium_for_slot(self, slot_idx):
         from server.compendium_ui import CompendiumDialog
-        CompendiumDialog(self.master, on_import_callback=self.import_from_compendium, is_dm=False)
+        def on_import(item_data, category):
+            self.import_from_compendium_to_slot(item_data, category, slot_idx)
+        CompendiumDialog(self.master, on_import_callback=on_import, is_dm=False)
 
-    def import_from_compendium(self, item_data, category):
-        # Update spell list if category is Incantesimi
+    def import_from_compendium_to_slot(self, item_data, category, target_idx=None):
         if category == "Incantesimi":
             if not hasattr(self.character, "spellbook"):
                 self.character.spellbook = []
-            
             desc = item_data.get("desc", "")
             if isinstance(desc, list):
                 desc = "\n".join(desc)
-                
             self.character.spellbook.append({
                 "name": item_data.get("name", ""),
                 "level": item_data.get("level", 0),
@@ -885,16 +1210,15 @@ class CharacterSheetUI(tk.Toplevel):
             self.manager.update_character(self.character)
             if hasattr(self.manager, 'save_characters'):
                 self.manager.save_characters()
-            messagebox.showinfo("Importato", f"{item_data.get('name')} importato con successo come Incantesimo!")
+            messagebox.showinfo("Importato", f"{item_data.get('name')} importato come Incantesimo!")
             return
 
-        # Find first empty slot in inventory
-        empty_idx = -1
-        for i, item in enumerate(self.character.inventory_grid):
-            if not item:
-                empty_idx = i
-                break
-        if empty_idx == -1:
+        if target_idx is None:
+            for i, it in enumerate(self.character.inventory_grid):
+                if not it:
+                    target_idx = i
+                    break
+        if target_idx is None:
             messagebox.showerror("Zaino Pieno", "Non c'è spazio nello zaino!")
             return
             
@@ -902,21 +1226,33 @@ class CharacterSheetUI(tk.Toplevel):
         if isinstance(desc, list):
             desc = "\n".join(desc)
             
+        weight = 0.0
+        try:
+            weight = float(item_data.get("weight", 0.0) or 0.0)
+        except (ValueError, TypeError):
+            weight = 0.0
+            
         entry = {
             "name": item_data.get("name"),
             "type": category,
             "qty": 1,
+            "weight": weight,
+            "attuned": False,
             "desc": desc
         }
-            
-        self.character.inventory_grid[empty_idx] = entry
-        
+        self.character.inventory_grid[target_idx] = entry
         self.manager.update_character(self.character)
         if hasattr(self.manager, 'save_characters'):
             self.manager.save_characters()
-            
         self.refresh_inventory_grid()
-        messagebox.showinfo("Importato", f"{item_data.get('name')} importato con successo!")
+        messagebox.showinfo("Importato", f"'{item_data.get('name')}' importato nello slot #{target_idx+1}!")
+
+    def open_inventory_compendium(self):
+        from server.compendium_ui import CompendiumDialog
+        CompendiumDialog(self.master, on_import_callback=self.import_from_compendium, is_dm=False)
+
+    def import_from_compendium(self, item_data, category):
+        return self.import_from_compendium_to_slot(item_data, category, None)
 
     def save_character(self):
         try:
