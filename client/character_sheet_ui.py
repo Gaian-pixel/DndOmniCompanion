@@ -42,7 +42,7 @@ def get_item_icon(item):
 
 
 class CharacterSheetUI(tk.Toplevel):
-    def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, give_gold_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None, custom_spell_request_callback=None, is_connected=False):
+    def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, give_gold_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None, custom_spell_request_callback=None, request_currency_callback=None, request_item_callback=None, is_connected=False):
         super().__init__(master)
         self.title(f"{_t('sheet_title')} - {character.name}")
         self.minsize(700, 700)
@@ -57,8 +57,11 @@ class CharacterSheetUI(tk.Toplevel):
         self.players_list_callback = players_list_callback
         self.attack_callback = attack_callback
         self.custom_spell_request_callback = custom_spell_request_callback
+        self.request_currency_callback = request_currency_callback
+        self.request_item_callback = request_item_callback
         self.is_connected = is_connected
         self.default_font = ("Georgia", 10)
+        self.initial_currency = {}
         
         self.setup_ui()
         self.load_data()
@@ -137,6 +140,9 @@ class CharacterSheetUI(tk.Toplevel):
             bottom_row.pack(pady=(1, 2))
             
             entry = ttk.Entry(bottom_row, textvariable=var, width=3, justify="center")
+            if self.is_connected:
+                entry.configure(state="readonly")
+                ToolTip(entry, _t("msg_attr_locked_online"))
             entry.pack(side=tk.LEFT, padx=2)
             
             btn = ttk.Button(bottom_row, text="🎲", width=2, command=lambda a=attr, v=var: self.roll_stat(a, v.get()))
@@ -276,7 +282,11 @@ class CharacterSheetUI(tk.Toplevel):
         ttk.Entry(hp_inputs, textvariable=self.hp_cur_var, width=4, justify="center").pack(side=tk.LEFT)
         tk.Label(hp_inputs, text="/", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED).pack(side=tk.LEFT, padx=3)
         self.hp_max_var = tk.IntVar()
-        ttk.Entry(hp_inputs, textvariable=self.hp_max_var, width=4, justify="center").pack(side=tk.LEFT)
+        self.hp_max_entry = ttk.Entry(hp_inputs, textvariable=self.hp_max_var, width=4, justify="center")
+        if self.is_connected:
+            self.hp_max_entry.configure(state="readonly")
+            ToolTip(self.hp_max_entry, _t("msg_hp_max_locked_online"))
+        self.hp_max_entry.pack(side=tk.LEFT)
         
         # Health bar fill
         self.sheet_hp_bg = tk.Frame(hp_card, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, height=10)
@@ -424,6 +434,10 @@ class CharacterSheetUI(tk.Toplevel):
             ToolTip(lbl_title, _t(tip_k))
             ToolTip(entry, _t(tip_k))
 
+        if self.is_connected:
+            btn_req_currency = ttk.Button(currency_box, text=_t("btn_request_currency"), command=self.open_request_currency_dialog, style="Gold.TButton")
+            btn_req_currency.pack(fill=tk.X, pady=(4, 2))
+
         # 2. Toolbar & Status Bar (Sintonia)
         inv_bar = tk.Frame(parent_frame, bg=BG_COLOR)
         inv_bar.pack(fill=tk.X, padx=6, pady=(4, 2))
@@ -554,6 +568,65 @@ class CharacterSheetUI(tk.Toplevel):
             )
         except (ValueError, tk.TclError, KeyError):
             pass
+
+    def open_request_currency_dialog(self):
+        if not self.is_connected:
+            return
+        win = tk.Toplevel(self)
+        win.transient(self)
+        win.grab_set()
+        apply_modern_window_style(win)
+        win.title(_t("title_request_currency"))
+        win.minsize(380, 320)
+        
+        body = tk.Frame(win, bg=SURFACE_COLOR, padx=16, pady=14)
+        body.pack(fill=tk.BOTH, expand=True)
+        
+        tk.Label(body, text=f"🤝 {_t('title_request_currency')}", font=FONT_TITLE, fg=ACCENT_GOLD, bg=SURFACE_COLOR).pack(anchor="w", pady=(0, 10))
+        
+        tk.Label(body, text=_t("lbl_request_coin"), font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(anchor="w", pady=(2, 1))
+        coin_opts = ["MO (Oro / Gold)", "MA (Argento / Silver)", "MR (Rame / Copper)", "ME (Electrum)", "MP (Platino / Platinum)"]
+        coin_combo = ttk.Combobox(body, values=coin_opts, state="readonly")
+        coin_combo.set(coin_opts[0])
+        coin_combo.pack(fill=tk.X, pady=(0, 8))
+        
+        tk.Label(body, text=_t("lbl_request_amount"), font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(anchor="w", pady=(2, 1))
+        amount_var = tk.IntVar(value=10)
+        amt_entry = ttk.Entry(body, textvariable=amount_var, width=10, justify="center")
+        amt_entry.pack(anchor="w", pady=(0, 8))
+        
+        tk.Label(body, text=_t("lbl_request_reason"), font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(anchor="w", pady=(2, 1))
+        reason_text = tk.Text(body, height=3, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_MAIN, wrap=tk.WORD, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        reason_text.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        def submit_request():
+            try:
+                amt = int(amount_var.get())
+            except (ValueError, tk.TclError):
+                amt = 0
+            if amt <= 0:
+                messagebox.showwarning("Quantità Non Valida", "Inserisci una quantità positiva di monete.", parent=win)
+                return
+            
+            sel = coin_combo.get()
+            coin_code = "MO"
+            if "MA" in sel: coin_code = "MA"
+            elif "MR" in sel: coin_code = "MR"
+            elif "ME" in sel: coin_code = "ME"
+            elif "MP" in sel: coin_code = "MP"
+            
+            reason_val = reason_text.get("1.0", tk.END).strip()
+            
+            if self.request_currency_callback:
+                self.request_currency_callback(coin_code, amt, reason_val)
+            
+            win.destroy()
+            messagebox.showinfo("Richiesta Inviata", _t("msg_request_currency_sent", amount=amt, coin=coin_code), parent=self)
+            
+        btn_box = tk.Frame(body, bg=SURFACE_COLOR)
+        btn_box.pack(fill=tk.X, pady=(4, 0))
+        ttk.Button(btn_box, text="Invia Richiesta al Master", command=submit_request, style="Gold.TButton").pack(side=tk.RIGHT, padx=4)
+        ttk.Button(btn_box, text="Annulla", command=win.destroy).pack(side=tk.RIGHT, padx=4)
 
     def calculate_total_weight(self):
         if not hasattr(self, 'weight_vars') or not hasattr(self, 'weight_label'):
@@ -859,6 +932,9 @@ class CharacterSheetUI(tk.Toplevel):
         if hasattr(self.character, "currency"):
             for coin, var in self.currency_vars.items():
                 var.set(self.character.currency.get(coin, 0))
+            self.initial_currency = dict(self.character.currency)
+        else:
+            self.initial_currency = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
                 
         self.update_death_saves_ui()
                 
@@ -1073,6 +1149,12 @@ class CharacterSheetUI(tk.Toplevel):
                 "attuned": attune_var.get(),
                 "desc": desc_text.get("1.0", tk.END).strip()
             }
+            if self.is_connected and self.request_item_callback:
+                self.request_item_callback(entry, target_idx)
+                win.destroy()
+                messagebox.showinfo("Richiesta Inviata", _t("msg_item_approval_sent", item=nm), parent=self)
+                return
+
             self.character.inventory_grid[target_idx] = entry
             self.manager.update_character(self.character)
             if hasattr(self.manager, 'save_characters'):
@@ -1240,6 +1322,11 @@ class CharacterSheetUI(tk.Toplevel):
             "attuned": False,
             "desc": desc
         }
+        if self.is_connected and self.request_item_callback:
+            self.request_item_callback(entry, target_idx)
+            messagebox.showinfo("Richiesta Inviata", _t("msg_item_approval_sent", item=item_data.get('name')), parent=self)
+            return
+
         self.character.inventory_grid[target_idx] = entry
         self.manager.update_character(self.character)
         if hasattr(self.manager, 'save_characters'):
@@ -1285,11 +1372,21 @@ class CharacterSheetUI(tk.Toplevel):
                 
             if not hasattr(self.character, "currency"):
                 self.character.currency = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
+            currency_blocked = False
             for coin, var in self.currency_vars.items():
                 try:
-                    self.character.currency[coin] = var.get()
+                    val = var.get()
+                    if self.is_connected and hasattr(self, "initial_currency"):
+                        init_val = self.initial_currency.get(coin, 0)
+                        if val > init_val:
+                            val = init_val
+                            var.set(init_val)
+                            currency_blocked = True
+                    self.character.currency[coin] = val
                 except tk.TclError:
                     pass
+            if currency_blocked:
+                messagebox.showwarning("Valuta Bloccata", _t("msg_currency_locked_online"), parent=self)
                 
             # Salva slot incantesimi
             if not hasattr(self.character, "spell_slots"):

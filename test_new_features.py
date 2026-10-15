@@ -469,6 +469,93 @@ class TestDndNewFeatures(unittest.TestCase):
         total_gp = mo + (mp * 10.0) + (me * 0.5) + (ma * 0.1) + (mr * 0.01)
         self.assertAlmostEqual(total_gp, 73.0, places=2)
 
+    def test_game_constraints_and_dm_approval(self):
+        """Testa i vincoli di gioco: restrizione valuta/attributi e richieste di approvazione DM."""
+        from common.protocol import (
+            make_currency_request, make_currency_response,
+            make_item_approval_request, make_item_approval_response
+        )
+        from server.rules.character import (
+            handle_currency_request, handle_item_approval_request,
+            handle_update_full_sheet_request
+        )
+
+        # 1. Test protocol packets
+        req_pkt = make_currency_request("MO", 150, "Bottino antico forziere")
+        self.assertEqual(req_pkt["type"], "CURRENCY_REQUEST")
+        self.assertEqual(req_pkt["data"]["coin"], "MO")
+        self.assertEqual(req_pkt["data"]["amount"], 150)
+
+        res_pkt = make_currency_response("Guerriero", "MO", 150, approved=True)
+        self.assertEqual(res_pkt["type"], "CURRENCY_RESPONSE")
+        self.assertTrue(res_pkt["data"]["approved"])
+
+        item_sample = {"name": "Stocco Elfico +1", "type": "Arma", "qty": 1, "weight": 2.0}
+        item_req = make_item_approval_request(item_sample, slot_idx=3)
+        self.assertEqual(item_req["type"], "ITEM_APPROVAL_REQUEST")
+        self.assertEqual(item_req["data"]["slot_idx"], 3)
+
+        item_res = make_item_approval_response("Ladro", item_sample, slot_idx=3, approved=True)
+        self.assertEqual(item_res["type"], "ITEM_APPROVAL_RESPONSE")
+        self.assertTrue(item_res["data"]["approved"])
+
+        # 2. Test server queuing of currency & item requests
+        p = Player(name="TestHero")
+        handle_currency_request({"coin": "MO", "amount": 100, "reason": "Taglia"}, p, self.game_state)
+        self.assertFalse(self.game_state.gui_queue.empty())
+        
+        # Estrai elementi dalla coda saltando i LOG_MESSAGE
+        def get_next_action(expected_type):
+            while not self.game_state.gui_queue.empty():
+                item = self.game_state.gui_queue.get()
+                if item.get("type") == expected_type:
+                    return item
+            return None
+
+        q_item = get_next_action("CURRENCY_REQUEST")
+        self.assertIsNotNone(q_item)
+        self.assertEqual(q_item["amount"], 100)
+
+        handle_item_approval_request({"item": item_sample, "slot_idx": 5}, p, self.game_state)
+        q_item2 = get_next_action("ITEM_APPROVAL_REQUEST")
+        self.assertIsNotNone(q_item2)
+        self.assertEqual(q_item2["item"]["name"], "Stocco Elfico +1")
+
+        # 3. Test Server Authority in handle_update_full_sheet_request
+        # Il giocatore ha 50 MO approvate dal server e attributo FOR a 14
+        p.full_sheet = {
+            "name": "TestHero",
+            "level": 3,
+            "currency": {"MR": 0, "MA": 0, "ME": 0, "MO": 50, "MP": 0},
+            "attributes": {"FOR": 14, "DES": 12, "COS": 14, "INT": 10, "SAG": 10, "CAR": 10},
+            "inventory_grid": [None] * 25,
+            "starting_kit_applied": True,
+            "campaign_starter_received": True
+        }
+
+        # Scenario A: Il client tenta un aumento unilaterale a 9999 MO e FOR a 20 -> il server deve bloccare
+        cheat_sheet = dict(p.full_sheet)
+        cheat_sheet["currency"] = {"MR": 0, "MA": 0, "ME": 0, "MO": 9999, "MP": 0}
+        cheat_sheet["attributes"] = {"FOR": 20, "DES": 12, "COS": 14, "INT": 10, "SAG": 10, "CAR": 10}
+        # Tenta anche di spawnare un oggetto in uno slot vuoto
+        cheat_inv = [None] * 25
+        cheat_inv[0] = {"name": "Spada Vorpal Hack", "type": "Arma", "qty": 1}
+        cheat_sheet["inventory_grid"] = cheat_inv
+
+        handle_update_full_sheet_request({"character": cheat_sheet}, p, self.game_state)
+        # Verifica che il server abbia mantenuto le 50 MO iniziali
+        self.assertEqual(p.full_sheet["currency"]["MO"], 50, "Il server deve bloccare aumenti unilaterali di monete")
+        # Verifica che il server abbia mantenuto FOR a 14
+        self.assertEqual(p.full_sheet["attributes"]["FOR"], 14, "Il server deve bloccare aumenti unilaterali di attributi")
+        # Verifica che il server abbia bloccato l'oggetto abusivo
+        self.assertIsNone(p.full_sheet["inventory_grid"][0], "Il server deve impedire l'aggiunta di oggetti non approvati")
+
+        # Scenario B: Il client spende monete legittimamente (da 50 a 30 MO) -> il decremento deve essere consentito
+        legit_spend = dict(p.full_sheet)
+        legit_spend["currency"] = {"MR": 0, "MA": 0, "ME": 0, "MO": 30, "MP": 0}
+        handle_update_full_sheet_request({"character": legit_spend}, p, self.game_state)
+        self.assertEqual(p.full_sheet["currency"]["MO"], 30, "La spesa (decremento) di monete deve essere consentita")
+
 
 if __name__ == "__main__":
     unittest.main()
