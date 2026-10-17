@@ -357,25 +357,11 @@ class DM_GUI:
         left_toolbar = tk.Frame(main_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=6)
         left_toolbar.grid(row=0, column=0, sticky="ns", padx=(0, 6))
         
-        btn1 = ttk.Button(left_toolbar, text="👆", width=3, style="Tool.TButton", command=lambda: self.map_canvas.center_view() if self.map_canvas else None)
-        btn1.pack(pady=3)
-        ToolTip(btn1, lambda: _t("tool_center_map"))
+        self.btn_ruler = None
 
-        btn_zin = ttk.Button(left_toolbar, text="➕", width=3, style="Tool.TButton", command=lambda: self.map_canvas.zoom_in() if self.map_canvas else None)
-        btn_zin.pack(pady=3)
-        ToolTip(btn_zin, lambda: _t("tool_zoom_in"))
-
-        btn_zout = ttk.Button(left_toolbar, text="➖", width=3, style="Tool.TButton", command=lambda: self.map_canvas.zoom_out() if self.map_canvas else None)
-        btn_zout.pack(pady=3)
-        ToolTip(btn_zout, lambda: _t("tool_zoom_out"))
-        
         self.btn_fow_tool = ttk.Button(left_toolbar, text="☁️", width=3, style="Tool.TButton", command=self.toggle_fow_quick_tool)
         self.btn_fow_tool.pack(pady=3)
         ToolTip(self.btn_fow_tool, lambda: _t("tool_fog_of_war"))
-        
-        self.btn_ruler = ttk.Button(left_toolbar, text="📏", width=3, style="Tool.TButton", command=self.toggle_ruler_mode)
-        self.btn_ruler.pack(pady=3)
-        ToolTip(self.btn_ruler, lambda: _t("tool_measure"))
         
         self.btn_aoe = ttk.Button(left_toolbar, text="💥", width=3, style="Tool.TButton", command=self.open_aoe_dialog)
         self.btn_aoe.pack(pady=3)
@@ -3625,7 +3611,7 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
     def toggle_ruler_mode(self):
         active = self.map_canvas.toggle_ruler_mode()
         style = "ToolActive.TButton" if active else "Tool.TButton"
-        if hasattr(self, 'btn_ruler'):
+        if hasattr(self, 'btn_ruler') and self.btn_ruler:
             self.btn_ruler.configure(style=style)
         msg = "Righello attivato: clicca e trascina sulla mappa per misurare la distanza." if active else "Righello disattivato."
         self.show_toast(msg, title="📏 Righello", toast_type="info" if active else "secondary")
