@@ -405,6 +405,86 @@ def handle_attack_request(data, player, game_state):
                 if dist >= 3:
                     dis_reasons.append("Neve e bufera (Scarsa visibilità)")
 
+            # Oscurità Ambientale o Magica (D&D 5e PHB p. 183 & p. 194-195)
+            is_global_darkness = weather_val in ("oscurita", "oscurità", "darkness", "buio")
+            in_magical_darkness_aoe = False
+            for aoe in getattr(game_state, "active_aoes", []):
+                aoe_name = str(aoe.get("name", "")).lower()
+                aoe_type = str(aoe.get("type", "")).lower()
+                if "oscurit" in aoe_name or "darkness" in aoe_name or aoe_type == "darkness":
+                    aoe_orig = aoe.get("origin", [0, 0])
+                    aoe_r = aoe.get("size", 3)
+                    d_att = max(abs(q1 - aoe_orig[0]), abs(q1 + r1 - aoe_orig[0] - aoe_orig[1]), abs(r1 - aoe_orig[1]))
+                    d_def = max(abs(q2 - aoe_orig[0]), abs(q2 + r2 - aoe_orig[0] - aoe_orig[1]), abs(r2 - aoe_orig[1]))
+                    if d_att <= aoe_r or d_def <= aoe_r:
+                        in_magical_darkness_aoe = True
+                        break
+
+            if is_global_darkness or in_magical_darkness_aoe:
+                def is_illuminated(pos_q, pos_r, entity_obj):
+                    if getattr(entity_obj, "light_radius", 0) > 0:
+                        return True
+                    for other in getattr(game_state, "players", []):
+                        if getattr(other, "light_radius", 0) > 0 and getattr(other, "position", None):
+                            d_l = max(abs(pos_q - other.position[0]), abs(pos_q + pos_r - other.position[0] - other.position[1]), abs(pos_r - other.position[1]))
+                            if d_l <= other.light_radius:
+                                return True
+                    return False
+
+                att_in_light = is_illuminated(q1, r1, player)
+                def_in_light = is_illuminated(q2, r2, target_player)
+
+                def entity_has_darkvision(entity_obj):
+                    if in_magical_darkness_aoe:
+                        conds = [str(c).lower() for c in getattr(entity_obj, "conditions", [])]
+                        sheet = getattr(entity_obj, "full_sheet", None) or {}
+                        feats = [str(f).lower() for f in sheet.get("features", [])]
+                        traits = [str(t).lower() for t in sheet.get("traits", [])]
+                        all_text = " ".join(conds + feats + traits)
+                        return "vista del diavolo" in all_text or "devil's sight" in all_text or "truesight" in all_text or "visione del vero" in all_text
+                    
+                    if getattr(entity_obj, "has_darkvision", None) is not None:
+                        return bool(entity_obj.has_darkvision)
+                    conds = [str(c).lower() for c in getattr(entity_obj, "conditions", [])]
+                    if any("scurovisione" in c or "darkvision" in c for c in conds):
+                        return True
+                    sheet = getattr(entity_obj, "full_sheet", None)
+                    if isinstance(sheet, dict):
+                        race = str(sheet.get("race", "")).lower()
+                        dv_races = ("elfo", "elf", "nano", "dwarf", "mezzelfo", "half-elf", "mezzorco", "half-orc", "gnomo", "gnome", "tiefling", "drow", "duergar", "dragonide")
+                        if any(r in race for r in dv_races):
+                            return True
+                        senses = str(sheet.get("senses", "")).lower()
+                        if "scurovisione" in senses or "darkvision" in senses:
+                            return True
+                        traits = [str(t).lower() for t in sheet.get("traits", [])]
+                        if any("scurovisione" in t or "darkvision" in t for t in traits):
+                            return True
+                        feats = [str(f).lower() for f in sheet.get("features", [])]
+                        if any("scurovisione" in f or "darkvision" in f for f in feats):
+                            return True
+                    return getattr(entity_obj, "vision_radius", 6) > 6
+
+                att_has_dv = entity_has_darkvision(player)
+                def_has_dv = entity_has_darkvision(target_player)
+
+                att_dv_range = getattr(player, "vision_radius", 12)
+                def_dv_range = getattr(target_player, "vision_radius", 12)
+
+                att_sees_def = def_in_light or (att_has_dv and dist <= att_dv_range)
+                def_sees_att = att_in_light or (def_has_dv and dist <= def_dv_range)
+
+                if not att_sees_def and not def_sees_att:
+                    # Entrambi nel buio: vantaggio e svantaggio si annullano
+                    dis_reasons.append("Bersaglio non visibile al buio")
+                    adv_reasons.append("Attaccante celato nel buio")
+                elif att_sees_def and not def_sees_att:
+                    # Attaccante vede ma bersaglio non lo vede -> Vantaggio
+                    adv_reasons.append("Attaccante Invisibile nell'Oscurità (Scurovisione/Luce)")
+                elif not att_sees_def and def_sees_att:
+                    # Bersaglio vede l'attaccante ma l'attaccante non vede il bersaglio -> Svantaggio
+                    dis_reasons.append("Bersaglio Non Visibile nell'Oscurità (Attaccante Cieco)")
+
             # Terreni Difficili & Pericolosi D&D 5e sulla mappa
             cur_map = getattr(game_state, "current_map", None)
             diff_terrain = cur_map.get("difficult_terrain", {}) if cur_map else {}
@@ -447,9 +527,11 @@ def handle_attack_request(data, player, game_state):
 
         has_adv = len(adv_reasons) > 0
         has_dis = len(dis_reasons) > 0
+        had_both_cancel = False
         if has_adv and has_dis:
             has_adv = False
             has_dis = False
+            had_both_cancel = True
             
         roll1 = random.randint(1, 20)
         roll2 = random.randint(1, 20)
@@ -525,6 +607,8 @@ def handle_attack_request(data, player, game_state):
             log_msg += f" Tiro con Vantaggio (causa: {', '.join(adv_reasons)})."
         elif has_dis:
             log_msg += f" Tiro con Svantaggio (causa: {', '.join(dis_reasons)})."
+        elif had_both_cancel:
+            log_msg += f" Tiro Normale (Vantaggio e Svantaggio si annullano: {', '.join(adv_reasons)} vs {', '.join(dis_reasons)})."
         log_msg += f" Tiro per colpire: {hit_roll} [d20: {d20_detail}]"
         if benedizione_bonus > 0:
             log_msg += f" (+{benedizione_bonus} Benedizione)"

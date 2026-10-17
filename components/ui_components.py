@@ -1228,9 +1228,12 @@ class HexMapCanvas(tk.Canvas):
             light_color = pdata.get('light_color', '#FFD700') if isinstance(pdata, dict) else '#FFD700'
             if light_radius > 0:
                 screen_light_r = (light_radius * step_dist * self.zoom_level)
+                is_dark_active = str(getattr(self, "weather", "")).lower() in ("oscurita", "oscurità", "darkness", "buio")
+                glow_fill = "#FEF08A" if is_dark_active else ""
+                glow_stip = "gray12" if is_dark_active else ""
                 self.create_oval(sx - screen_light_r, sy - screen_light_r,
                                  sx + screen_light_r, sy + screen_light_r,
-                                 fill="", outline=light_color, dash=(5, 5), width=2)
+                                 fill=glow_fill, stipple=glow_stip, outline=light_color, dash=(5, 5), width=2)
 
             # Evidenziazione Turno Attivo (Doppio anello oro radiante)
             is_turn = getattr(self, "turn_player_name", "") == name
@@ -1544,7 +1547,12 @@ class HexMapCanvas(tk.Canvas):
             "fog": "nebbia",
             "foggy": "nebbia",
             "mist": "nebbia",
-            "misty": "nebbia"
+            "misty": "nebbia",
+            "oscurita": "oscurita",
+            "oscurità": "oscurita",
+            "darkness": "oscurita",
+            "dark": "oscurita",
+            "buio": "oscurita"
         }
         w_key = WEATHER_MAP.get(norm, "sereno")
 
@@ -1655,6 +1663,28 @@ class HexMapCanvas(tk.Canvas):
                 fcol = rng.choice(["#64748b", "#94a3b8", "#cbd5e1", "#e2e8f0"])
                 self.create_oval(cx - rx, cy - ry, cx + rx, cy + ry, fill=fcol, stipple=stip, outline="", tags="weather_overlay")
 
+        elif w_key == "oscurita":
+            # Filtro Oscurità Totale (D&D 5e Pitch Darkness & Shadow Vignette)
+            self.create_rectangle(0, 0, w, h, fill="#010204", stipple="gray75", outline="", tags="weather_overlay")
+            self.create_rectangle(0, 0, w, h, fill="#080314", stipple="gray25", outline="", tags="weather_overlay")
+            
+            # Vignettatura profonda sui 4 bordi del viewport per restringere il campo visivo
+            v_thick = min(90, max(30, int(w * 0.08)))
+            self.create_rectangle(0, 0, w, v_thick, fill="#000000", stipple="gray50", outline="", tags="weather_overlay")
+            self.create_rectangle(0, h - v_thick, w, h, fill="#000000", stipple="gray50", outline="", tags="weather_overlay")
+            self.create_rectangle(0, 0, v_thick, h, fill="#000000", stipple="gray50", outline="", tags="weather_overlay")
+            self.create_rectangle(w - v_thick, 0, w, h, fill="#000000", stipple="gray50", outline="", tags="weather_overlay")
+            
+            # Volute di fumo d'ombra ed energia oscura fluttuante
+            shadow_count = min(30, max(12, int((w * h) / 28000)))
+            for _ in range(shadow_count):
+                cx = rng.randint(0, w)
+                cy = rng.randint(0, h)
+                rx = rng.randint(60, 160)
+                ry = rng.randint(30, 90)
+                stip = rng.choice(["gray25", "gray50", "gray25"])
+                self.create_oval(cx - rx, cy - ry, cx + rx, cy + ry, fill="#05030a", stipple=stip, outline="", tags="weather_overlay")
+
         # 4. Elegante Pill HUD Clima & Notte in alto a destra
         WEATHER_META = {
             "sereno": ("☀️", "Sereno", "#EAB308", "#FEF08A"),
@@ -1662,6 +1692,7 @@ class HexMapCanvas(tk.Canvas):
             "tempesta": ("⛈️", "Tempesta", "#F59E0B", "#FDE68A"),
             "neve": ("❄️", "Neve", "#67E8F9", "#E0F2FE"),
             "nebbia": ("🌫️", "Nebbia", "#94A3B8", "#F1F5F9"),
+            "oscurita": ("🌑", "Oscurità", "#A855F7", "#F3E8FF"),
         }
         icon, canon_name, border_col, text_col = WEATHER_META.get(w_key, ("☀️", "Sereno", "#EAB308", "#FEF08A"))
         

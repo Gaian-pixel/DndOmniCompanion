@@ -319,7 +319,7 @@ class CampaignEditorDialog(tk.Toplevel):
         sub_wt = tk.Frame(row_lv, bg=SURFACE_COLOR)
         sub_wt.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(6, 0))
         tk.Label(sub_wt, text="Meteo Iniziale:", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(anchor="w")
-        self.combo_weather = ttk.Combobox(sub_wt, values=["Sereno", "Pioggia", "Tempesta", "Neve", "Nebbia"], state="readonly")
+        self.combo_weather = ttk.Combobox(sub_wt, values=["Sereno", "Pioggia", "Tempesta", "Neve", "Nebbia", "Oscurità"], state="readonly")
         self.combo_weather.set(self.campaign.start_weather)
         self.combo_weather.pack(fill=tk.X, pady=(2, 0))
         

@@ -40,6 +40,31 @@ class Player:
         self.movement_spent_this_turn = 0
         self.has_acted_this_turn = False
         self.layer = "token"
+        self.has_darkvision = None
+
+    def check_has_darkvision(self) -> bool:
+        """Determina se il personaggio possiede Scurovisione secondo le regole D&D 5e."""
+        if getattr(self, "has_darkvision", None) is not None:
+            return bool(self.has_darkvision)
+        conds = [str(c).lower() for c in getattr(self, "conditions", [])]
+        if any("scurovisione" in c or "darkvision" in c for c in conds):
+            return True
+        sheet = getattr(self, "full_sheet", None)
+        if isinstance(sheet, dict):
+            race = str(sheet.get("race", "")).lower()
+            dv_races = ("elfo", "elf", "nano", "dwarf", "mezzelfo", "half-elf", "mezzorco", "half-orc", "gnomo", "gnome", "tiefling", "drow", "duergar", "dragonide")
+            if any(r in race for r in dv_races):
+                return True
+            senses = str(sheet.get("senses", "")).lower()
+            if "scurovisione" in senses or "darkvision" in senses:
+                return True
+            traits = [str(t).lower() for t in sheet.get("traits", [])]
+            if any("scurovisione" in t or "darkvision" in t for t in traits):
+                return True
+            feats = [str(f).lower() for f in sheet.get("features", [])]
+            if any("scurovisione" in f or "darkvision" in f for f in feats):
+                return True
+        return getattr(self, "vision_radius", 6) > 6
 
     def to_dict(self):
         return {
@@ -74,7 +99,8 @@ class Player:
             "owner": getattr(self, "owner", None),
             "speed": getattr(self, "speed", 30),
             "speed_unit": getattr(self, "speed_unit", None),
-            "layer": getattr(self, "layer", "token")
+            "layer": getattr(self, "layer", "token"),
+            "has_darkvision": getattr(self, "has_darkvision", None)
         }
 
     @classmethod
@@ -110,7 +136,15 @@ class Player:
         p.speed = data.get("speed", 30)
         p.speed_unit = data.get("speed_unit", None)
         p.layer = data.get("layer", "token")
+        p.has_darkvision = data.get("has_darkvision", None)
         return p
+
+
+def player_has_darkvision(player) -> bool:
+    """Verifica se una creatura o token possiede Scurovisione attiva (D&D 5e)."""
+    if hasattr(player, "check_has_darkvision"):
+        return player.check_has_darkvision()
+    return False
 
 class GameState:
     def __init__(self, gui_queue):

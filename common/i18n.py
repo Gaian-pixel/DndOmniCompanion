@@ -117,7 +117,8 @@ WEATHER_IT_TO_EN = {
     "Pioggia": "Rain",
     "Tempesta": "Storm",
     "Neve": "Snow",
-    "Nebbia": "Fog"
+    "Nebbia": "Fog",
+    "Oscurità": "Darkness"
 }
 WEATHER_EN_TO_IT = {v: k for k, v in WEATHER_IT_TO_EN.items()}
 
@@ -559,6 +560,7 @@ STRINGS = {
         "weather_storm": "Tempesta",
         "weather_snow": "Neve",
         "weather_fog": "Nebbia",
+        "weather_darkness": "Oscurità",
         "status_exploration": "🕊️ Esplorazione",
         "status_in_combat": "⚔️ In Combattimento (R{round})",
         "campaign_none": "🏰 Campagna: Nessuna (Sessione Rapida)",
@@ -1221,6 +1223,7 @@ STRINGS = {
         "weather_storm": "Storm",
         "weather_snow": "Snow",
         "weather_fog": "Fog",
+        "weather_darkness": "Darkness",
         "status_exploration": "🕊️ Exploration",
         "status_in_combat": "⚔️ In Combat (R{round})",
         "campaign_none": "🏰 Campaign: None (Quick Session)",

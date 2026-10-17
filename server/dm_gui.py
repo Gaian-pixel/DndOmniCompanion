@@ -268,7 +268,7 @@ class DM_GUI:
         if hasattr(self, 'lbl_weather_hdr'):
             self.lbl_weather_hdr.config(text=_t("weather_header"))
         if hasattr(self, 'weather_combo'):
-            self.weather_combo['values'] = [_t("weather_clear"), _t("weather_rain"), _t("weather_storm"), _t("weather_snow"), _t("weather_fog")]
+            self.weather_combo['values'] = [_t("weather_clear"), _t("weather_rain"), _t("weather_storm"), _t("weather_snow"), _t("weather_fog"), _t("weather_darkness")]
 
         # Aggiorna Tab Audio
         if hasattr(self, 'lbl_audio_lib'):
@@ -392,6 +392,10 @@ class DM_GUI:
         self.btn_terrain = ttk.Button(left_toolbar, text="🪨", width=3, style="Tool.TButton", command=self.toggle_terrain_paint_tool)
         self.btn_terrain.pack(pady=3)
         ToolTip(self.btn_terrain, "Pennello Terreno Difficile (Click per dipingere Fango/Ghiaccio/Rovi/Macerie/Palude)")
+
+        self.btn_darkness = ttk.Button(left_toolbar, text="🌑", width=3, style="Tool.TButton", command=self.toggle_darkness_filter)
+        self.btn_darkness.pack(pady=3)
+        ToolTip(self.btn_darkness, "Filtro Oscurità D&D 5e (Click per attivare/disattivare l'oscurità sulla mappa)")
 
         btn_manuals = ttk.Button(left_toolbar, text="📖", width=3, style="Tool.TButton", command=self.open_manuals_dialog)
         btn_manuals.pack(pady=3)
@@ -678,7 +682,7 @@ class DM_GUI:
         self.lbl_weather_hdr = tk.Label(tab_world, text=_t("weather_header"), font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD)
         self.lbl_weather_hdr.pack(anchor="w", pady=(12, 4))
         self.weather_var = tk.StringVar(value=_t("weather_clear"))
-        self.weather_combo = ttk.Combobox(tab_world, textvariable=self.weather_var, values=[_t("weather_clear"), _t("weather_rain"), _t("weather_storm"), _t("weather_snow"), _t("weather_fog")], state="readonly")
+        self.weather_combo = ttk.Combobox(tab_world, textvariable=self.weather_var, values=[_t("weather_clear"), _t("weather_rain"), _t("weather_storm"), _t("weather_snow"), _t("weather_fog"), _t("weather_darkness")], state="readonly")
         self.weather_combo.pack(fill=tk.X)
         self.weather_combo.bind("<<ComboboxSelected>>", self.on_weather_changed)
         
@@ -1328,12 +1332,15 @@ class DM_GUI:
         canonical = WEATHER_EN_TO_IT.get(raw_val.strip(), raw_val.strip())
         gs.weather = canonical
         weather_icons = {
-            "Sereno": "☀️", "Pioggia": "🌧️", "Tempesta": "⛈️", "Neve": "❄️", "Nebbia": "🌫️",
-            "Clear": "☀️", "Rain": "🌧️", "Storm": "⛈️", "Snow": "❄️", "Fog": "🌫️"
+            "Sereno": "☀️", "Pioggia": "🌧️", "Tempesta": "⛈️", "Neve": "❄️", "Nebbia": "🌫️", "Oscurità": "🌑",
+            "Clear": "☀️", "Rain": "🌧️", "Storm": "⛈️", "Snow": "❄️", "Fog": "🌫️", "Darkness": "🌑"
         }
         w_icon = weather_icons.get(canonical, "🌤️")
         disp_weather = translate_weather(canonical)
-        msg = f"{w_icon} Il clima cambia in: {disp_weather}"
+        if canonical in ("Oscurità", "Darkness"):
+            msg = f"{w_icon} Filtro Oscurità D&D 5e attivato! (Svantaggio all'attacco per chi non vede, Vantaggio per chi possiede Scurovisione)"
+        else:
+            msg = f"{w_icon} Il clima cambia in: {disp_weather}"
         self.log_to_chat(msg)
         from common.protocol import make_chat_broadcast, make_game_state
         from server.network import broadcast
@@ -1414,6 +1421,8 @@ class DM_GUI:
                 diff_menu.add_command(label=f"🗑️ Rimuovi Terreno Difficile ({str(current_t).capitalize()})", command=lambda: self.remove_difficult_terrain_at(clicked_hex))
 
             map_menu.add_cascade(label=f"🌾 Terreno Difficile{' (' + str(current_t).capitalize() + ')' if current_t else ''}...", menu=diff_menu)
+            map_menu.add_separator()
+            map_menu.add_command(label="🌑 Piazza Sfera di Oscurità Magica (R=3)", command=lambda: self.place_darkness_sphere_at(clicked_hex))
 
             try:
                 map_menu.tk_popup(event.x_root, event.y_root)
@@ -1491,6 +1500,53 @@ class DM_GUI:
         bx = self.btn_terrain.winfo_rootx() + self.btn_terrain.winfo_width()
         by = self.btn_terrain.winfo_rooty()
         menu.tk_popup(bx, by)
+
+    def toggle_darkness_filter(self):
+        """Attiva o disattiva istantaneamente il filtro di Oscurità ambientale sulla mappa (D&D 5e)."""
+        gs = self.server.game_state
+        cur_w = str(getattr(gs, "weather", "Sereno")).strip().lower()
+        if cur_w in ("oscurita", "oscurità", "darkness", "buio"):
+            new_w = "Sereno"
+            if hasattr(self, "btn_darkness"):
+                self.btn_darkness.config(style="Tool.TButton")
+            msg = "☀️ Filtro Oscurità disattivato. L'ambiente torna Sereno / Illuminato."
+        else:
+            new_w = "Oscurità"
+            if hasattr(self, "btn_darkness"):
+                self.btn_darkness.config(style="Primary.TButton")
+            msg = "🌑 Filtro Oscurità D&D 5e attivato! (Svantaggio all'attacco per chi non vede, Vantaggio per chi possiede Scurovisione)."
+        
+        gs.weather = new_w
+        if hasattr(self, "weather_var"):
+            from common.i18n import translate_weather
+            self.weather_var.set(translate_weather(new_w))
+        self.log_to_chat(msg)
+        from common.protocol import make_chat_broadcast, make_game_state
+        from server.network import broadcast
+        broadcast(gs, make_chat_broadcast("Sistema", msg))
+        gs._trigger_gui_update()
+        broadcast(gs, make_game_state(gs.get_state_dict()))
+        self.update_state()
+        self.redraw_map_and_players()
+
+    def place_darkness_sphere_at(self, clicked_hex, radius=3):
+        """Piazza un'area di Oscurità Magica (AoE) centrata sull'esagono selezionato."""
+        aoes = self.server.game_state.active_aoes
+        aoe_entry = {
+            "type": "sfera",
+            "size": radius,
+            "origin": [clicked_hex.q, clicked_hex.r],
+            "color": "#09090b",
+            "name": "Oscurità Magica",
+            "creator": "DM"
+        }
+        aoes.append(aoe_entry)
+        from common.protocol import make_game_state, make_chat_broadcast
+        from server.network import broadcast
+        self.server.game_state._trigger_gui_update()
+        broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
+        broadcast(self.server.game_state, make_chat_broadcast("Sistema", f"🌑 Una sfera di Oscurità Magica (Raggio={radius}) avvolge le coordinate [{clicked_hex.q}, {clicked_hex.r}]!"))
+        self.redraw_map_and_players()
             
     def on_hex_clicked(self, clicked_hex):
         if not self.server.game_state.current_map: return
@@ -2478,10 +2534,13 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             time_icon = "☀️" if 6 <= gs.time_hour < 18 else "🌙"
             self.top_status_time_lbl.config(text=f"{time_icon} {time_str} ({period})")
         if hasattr(self, "top_status_weather_lbl"):
-            weather_icons = {"Sereno": "🌤️", "Pioggia": "🌧️", "Tempesta": "⛈️", "Neve": "❄️", "Nebbia": "🌫️",
-                             "Clear": "🌤️", "Rain": "🌧️", "Storm": "⛈️", "Snow": "❄️", "Fog": "🌫️"}
+            weather_icons = {"Sereno": "🌤️", "Pioggia": "🌧️", "Tempesta": "⛈️", "Neve": "❄️", "Nebbia": "🌫️", "Oscurità": "🌑",
+                             "Clear": "🌤️", "Rain": "🌧️", "Storm": "⛈️", "Snow": "❄️", "Fog": "🌫️", "Darkness": "🌑"}
             w_icon = weather_icons.get(gs.weather, "🌤️")
             self.top_status_weather_lbl.config(text=f"{w_icon} {translate_weather(gs.weather)}")
+        if hasattr(self, "btn_darkness"):
+            is_dark = str(getattr(gs, "weather", "")).lower() in ("oscurita", "oscurità", "darkness", "buio")
+            self.btn_darkness.config(style="Primary.TButton" if is_dark else "Tool.TButton")
             
         if self.server.game_state.combat_active:
             # Mostra banner combattimento

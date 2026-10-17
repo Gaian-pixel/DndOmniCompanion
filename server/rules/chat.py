@@ -159,19 +159,40 @@ def handle_chat(data, player, game_state):
                 pass
         return
         
-    if text.startswith("/meteo "):
+    if text.startswith("/meteo ") or text.startswith("/weather "):
         if not is_dm:
             if getattr(player, "conn", None):
                 send_message(player.conn, make_error_reply("Comando /meteo riservato al Dungeon Master."))
             return
         parts = text.split(" ", 1)
         if len(parts) >= 2:
-            new_weather = parts[1].strip().capitalize()
+            raw_w = parts[1].strip()
+            from common.i18n import WEATHER_EN_TO_IT, translate_weather
+            new_weather = WEATHER_EN_TO_IT.get(raw_w.capitalize(), raw_w.capitalize())
             game_state.weather = new_weather
             game_state._trigger_gui_update()
             broadcast(game_state, make_game_state(game_state.get_state_dict()))
             game_state.log_dm_message(f"[SISTEMA] Meteo cambiato in: {new_weather}")
-            broadcast(game_state, make_chat_broadcast("Sistema", f"Il meteo è cambiato in: {new_weather}"))
+            broadcast(game_state, make_chat_broadcast("Sistema", f"Il meteo è cambiato in: {translate_weather(new_weather)}"))
+        return
+
+    if text.strip() in ("/darkness", "/oscurita", "/oscurità"):
+        if not is_dm:
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply("Comando /darkness riservato al Dungeon Master."))
+            return
+        cur_w = str(getattr(game_state, "weather", "Sereno")).strip().lower()
+        if cur_w in ("oscurita", "oscurità", "darkness", "buio"):
+            new_weather = "Sereno"
+            msg = "☀️ Filtro Oscurità disattivato. L'ambiente torna Sereno / Illuminato."
+        else:
+            new_weather = "Oscurità"
+            msg = "🌑 Filtro Oscurità D&D 5e attivato! (Svantaggio all'attacco per chi non vede, Vantaggio per chi possiede Scurovisione)."
+        game_state.weather = new_weather
+        game_state._trigger_gui_update()
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        game_state.log_dm_message(f"[SISTEMA] {msg}")
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
         return
 
     # Interpellazione dei Manuali di Gioco (PHB, DMG, MM, Espansioni, Custom)

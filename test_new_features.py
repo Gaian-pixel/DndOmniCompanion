@@ -1747,6 +1747,157 @@ class TestDndNewFeatures(unittest.TestCase):
         DM_GUI.remove_difficult_terrain_at(dm, h1)
         self.assertNotIn("1,0", self.game_state.current_map["difficult_terrain"])
 
+    def test_darkness_filter_visual_overlay(self):
+        """Testa che il filtro Oscurità (Darkness) crei correttamente gli elementi visivi sul canvas."""
+        import tkinter as tk
+        from components.ui_components import HexMapCanvas
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            canvas = HexMapCanvas(root, bg="#121316", width=800, height=600)
+            canvas.pack()
+            map_data = {
+                "hex_size": 20,
+                "grid_type": "hex",
+                "hexes": [[0, 0], [1, 0]],
+                "walls": [],
+                "fow_enabled": False
+            }
+
+            # Test Oscurità (IT)
+            canvas.update_data(map_data, {}, weather="Oscurità")
+            root.update()
+            dark_items = canvas.find_withtag("weather_overlay")
+            self.assertGreater(len(dark_items), 10, "Oscurità deve creare elementi visivi di buio e vignettatura")
+
+            # Test Darkness (EN)
+            canvas.update_data(map_data, {}, weather="Darkness")
+            root.update()
+            dark_en_items = canvas.find_withtag("weather_overlay")
+            self.assertGreater(len(dark_en_items), 10, "Darkness (EN) deve creare elementi visivi di oscurità")
+        finally:
+            root.destroy()
+
+    def test_darkness_combat_mechanics(self):
+        """Testa le regole di combattimento D&D 5e nell'Oscurità (Scurovisione, Torce e Attaccanti Celati)."""
+        from unittest.mock import patch
+        from server.rules.combat import handle_attack_request
+
+        attacker = Player(name="DrowLadro")
+        attacker.position = [0, 0]
+        attacker.hp = 20
+        attacker.max_hp = 20
+        attacker.ac = 12
+
+        defender = Player(name="UmanoGuerriero")
+        defender.position = [2, 0]
+        defender.hp = 20
+        defender.max_hp = 20
+        defender.ac = 14
+
+        self.game_state.players = [attacker, defender]
+        self.game_state.weather = "Oscurità"
+
+        # 1. Attaccante con Scurovisione vs Difensore senza Scurovisione -> Attaccante ha Vantaggio
+        attacker.has_darkvision = True
+        defender.has_darkvision = False
+        attacker.light_radius = 0
+        defender.light_radius = 0
+
+        # roll1=3 (manca contro CA 14), roll2=16 (colpisce). Con vantaggio prende max(3, 16) = 16 -> Colpito!
+        with patch("common.dice.random.randint", side_effect=[3, 16, 5]):
+            handle_attack_request(
+                {"target_name": "UmanoGuerriero", "hit_bonus": 0, "damage_formula": "1d6"},
+                attacker,
+                self.game_state,
+            )
+        self.assertEqual(defender.hp, 15, "Attaccante con Scurovisione contro bersaglio al buio deve avere Vantaggio")
+
+        # 2. Difensore accende una torcia (light_radius = 1) a distanza 3:
+        # L'umano a distanza 3 è illuminato dalla propria torcia, ma il ladro a [0, 0] è al buio fuori dal raggio della torcia!
+        attacker.has_darkvision = False
+        defender.position = [3, 0]
+        defender.light_radius = 1
+        defender.hp = 20
+
+        with patch("common.dice.random.randint", side_effect=[2, 17, 6]):
+            handle_attack_request(
+                {"target_name": "UmanoGuerriero", "hit_bonus": 0, "damage_formula": "1d6"},
+                attacker,
+                self.game_state,
+            )
+        self.assertEqual(defender.hp, 14, "Attaccante celato nel buio contro bersaglio illuminato da torcia ha Vantaggio")
+
+        # 3. Attaccante ha la torcia (light_radius = 1), Difensore a distanza 3 è nascosto nel buio con Scurovisione:
+        # Il difensore vede l'attaccante illuminato, ma l'attaccante non vede il difensore nel buio -> Svantaggio per l'attaccante!
+        attacker.light_radius = 1
+        attacker.has_darkvision = False
+        defender.light_radius = 0
+        defender.has_darkvision = True
+        defender.hp = 20
+
+        # roll1=18, roll2=4 -> con svantaggio prende min(18, 4) = 4 -> Manca contro CA 14!
+        with patch("common.dice.random.randint", side_effect=[18, 4, 6]):
+            handle_attack_request(
+                {"target_name": "UmanoGuerriero", "hit_bonus": 0, "damage_formula": "1d6"},
+                attacker,
+                self.game_state,
+            )
+        self.assertEqual(defender.hp, 20, "Attaccante illuminato contro difensore con Scurovisione nel buio subisce Svantaggio")
+
+        # 4. Oscurità Totale (entrambi senza scurovisione e senza torcia):
+        # In D&D 5e: Svantaggio (non vedo bersaglio) + Vantaggio (bersaglio non mi vede) si annullano -> Tiro Normale!
+        attacker.light_radius = 0
+        attacker.has_darkvision = False
+        defender.light_radius = 0
+        defender.has_darkvision = False
+        defender.hp = 20
+
+        # Tiro normale (roll1=15 colpisce CA 14 con danno 5)
+        with patch("common.dice.random.randint", side_effect=[15, 15, 5]):
+            handle_attack_request(
+                {"target_name": "UmanoGuerriero", "hit_bonus": 0, "damage_formula": "1d6"},
+                attacker,
+                self.game_state,
+            )
+        self.assertEqual(defender.hp, 15, "Nell'oscurità totale vantaggio e svantaggio si annullano (tiro normale)")
+
+    def test_dm_darkness_toggle_and_chat_commands(self):
+        """Testa il toggle del filtro oscurità da parte del DM e i comandi chat."""
+        from common.hex_utils import Hex
+        from server.dm_gui import DM_GUI
+        from server.rules.chat import handle_chat
+        from unittest.mock import MagicMock
+
+        dm = MagicMock()
+        dm.server.game_state = self.game_state
+        self.game_state.weather = "Sereno"
+
+        # Toggle DM
+        DM_GUI.toggle_darkness_filter(dm)
+        self.assertEqual(self.game_state.weather, "Oscurità", "Toggle deve attivare Oscurità")
+
+        DM_GUI.toggle_darkness_filter(dm)
+        self.assertEqual(self.game_state.weather, "Sereno", "Secondo toggle deve riportare a Sereno")
+
+        # Piazza Sfera di Oscurità Magica
+        h_dark = Hex(2, 2)
+        DM_GUI.place_darkness_sphere_at(dm, h_dark, radius=3)
+        self.assertTrue(any("Oscurità" in aoe.get("name", "") for aoe in self.game_state.active_aoes))
+
+        # Comando Chat /darkness
+        dm_player = Player("Master")
+        dm_player.role = "DM"
+        dm_player.conn = DummySocket()
+        self.game_state.players = [dm_player]
+
+        handle_chat({"text": "/darkness"}, dm_player, self.game_state)
+        self.assertEqual(self.game_state.weather, "Oscurità")
+
+        handle_chat({"text": "/darkness"}, dm_player, self.game_state)
+        self.assertEqual(self.game_state.weather, "Sereno")
+
 
 if __name__ == "__main__":
     unittest.main()
