@@ -12,29 +12,34 @@ Questa guida illustra passo dopo passo come avviare una sessione, configurare l'
 
 1. [Avvio Rapido e Connessione](#1-avvio-rapido-e-connessione)
 2. [Panoramica dell'Interfaccia e Impostazioni Globali](#2-panoramica-dellinterfaccia-e-impostazioni-globali)
-   - [Barra dei Menu: Lingua e Unità di Misura](#barra-dei-menu-lingua-e-unità-di-misura)
-   - [Layout a 3 Colonne e HUD sulla Mappa](#layout-a-3-colonne-e-hud-sulla-mappa)
+   - [Barra dei Menu: Lingua, Unità di Misura ed Esportazione Log](#barra-dei-menu-lingua-unità-di-misura-ed-esportazione-log)
+   - [Layout a 3 Colonne, HUD e Strumenti Lavagna (`[ ✏️ ]`)](#layout-a-3-colonne-hud-e-strumenti-lavagna---)
    - [Tavolozza Comandi Rapida (`Ctrl+K`)](#tavolozza-comandi-rapida-ctrlk)
-3. [Sistema di Unità di Misura, Scale Mappa e Righello](#3-sistema-di-unità-di-misura-scale-mappa-e-righello)
+3. [Sistema di Unità di Misura, Scale Mappa, Griglie e Righello](#3-sistema-di-unità-di-misura-scale-mappa-griglie-e-righello)
    - [Scelta tra Piedi/Miglia (`ft/mi`) e Metri/Chilometri (`m/km`)](#scelta-tra-piedimiglia-ftmi-e-metrichilometri-mkm)
    - [Le 4 Scale della Mappa (DMG p. 14)](#le-4-scale-della-mappa-dmg-p-14)
+   - [Supporto Multi-Griglia: Esagonale, Quadrata e Senza Griglia](#supporto-multi-griglia-esagonale-quadrata-e-senza-griglia)
    - [Utilizzo del Righello Dinamico (`[ 📏 ]`)](#utilizzo-del-righello-dinamico---)
 4. [Guida per il Giocatore (Player)](#4-guida-per-il-giocatore-player)
    - [Creazione Personaggio (Wizard) e Level-Up](#creazione-personaggio-wizard-e-level-up)
    - [Hero Summary Card e Scheda Personaggio Interattiva](#hero-summary-card-e-scheda-personaggio-interattiva)
+   - [Risorse di Classe Speciali (Ki, Ira, Ispirazione Bardica, ecc.)](#risorse-di-classe-speciali-ki-ira-ispirazione-bardica-ecc)
    - [Economia del Turno: Esplorazione vs Combattimento](#economia-del-turno-esplorazione-vs-combattimento)
-   - [Azioni in Combattimento e Incantesimi ad Area (AoE)](#azioni-in-combattimento-e-incantesimi-ad-area-aoe)
+   - [Azioni in Combattimento, Incantesimi AoE e Upcasting](#azioni-in-combattimento-incantesimi-aoe-e-upcasting)
    - [Punti Ferita, Riposi e Tiri Salvezza contro la Morte](#punti-ferita-riposi-e-tiri-salvezza-contro-la-morte)
    - [Inventario, Ingombro, Scambi e Richieste al DM](#inventario-ingombro-scambi-e-richieste-al-dm)
+   - [Esportazione Scheda Personaggio (JSON e HTML Stampabile)](#esportazione-scheda-personaggio-json-e-html-stampabile)
    - [Macro Hotbar (Slot Rapidi 1–10)](#macro-hotbar-slot-rapidi-110)
 5. [Guida per il Dungeon Master (DM)](#5-guida-per-il-dungeon-master-dm)
    - [Gestione Campagne, Atti, Scene e Starter Pack](#gestione-campagne-atti-scene-e-starter-pack)
    - [Gestione Mappe, Editor Mappe, Muri, Trappole e Portali](#gestione-mappe-editor-mappe-muri-trappole-e-portali)
-   - [Nebbia di Guerra (FoW), Line of Sight e Illuminazione](#nebbia-di-guerra-fow-line-of-sight-e-illuminazione)
+   - [Nebbia di Guerra (FoW), Pennello Manuale, Line of Sight e Luci](#nebbia-di-guerra-fow-pennello-manuale-line-of-sight-e-luci)
+   - [Taglie Creature (Dimensioni Token) e Livello Nascosto DM (GM Layer)](#taglie-creature-dimensioni-token-e-livello-nascosto-dm-gm-layer)
    - [Gestione del Combattimento e Bilanciatore Incontri (DMG p. 82)](#gestione-del-combattimento-e-bilanciatore-incontri-dmg-p-82)
    - [Bestiario SRD, Manuali PDF Offline e Generatori Procedurali](#bestiario-srd-manuali-pdf-offline-e-generatori-procedurali)
    - [Mondo, Calendario, Meteo, Viaggio, Negozi e Quest](#mondo-calendario-meteo-viaggio-negozi-e-quest)
    - [Handout (Documenti/Immagini) e Soundboard Audio](#handout-documentiimmagini-e-soundboard-audio)
+   - [Lavagna Tattica Condivisa (Whiteboard) ed Esportazione Session Log](#lavagna-tattica-condivisa-whiteboard-ed-esportazione-session-log)
 6. [Successi Critici (`20 Naturale`) e Fallimenti Critici (`1 Naturale`)](#6-successi-critici-20-naturale-e-fallimenti-critici-1-naturale)
 7. [Chat Stile Discord, Sussurri e Voice Chat UDP](#7-chat-stile-discord-sussurri-e-voice-chat-udp)
 8. [Riferimento Rapido: Comandi Chat e Scorciatoie](#8-riferimento-rapido-comandi-chat-e-scorciatoie)
@@ -60,17 +65,26 @@ Questa guida illustra passo dopo passo come avviare una sessione, configurare l'
 
 ## 2. Panoramica dell'Interfaccia e Impostazioni Globali
 
-### Barra dei Menu: Lingua e Unità di Misura
-Nella barra superiore (sia lato DM che lato Giocatore) trovi due menu di configurazione istantanea salvati automaticamente in `client_data/settings.json`:
+### Barra dei Menu: Lingua, Unità di Misura ed Esportazione Log
+Nella barra superiore (sia lato DM che lato Giocatore) trovi menu di configurazione rapida e strumenti di gestione sessione:
 * **`🌐 Lingua / Language`**: cambia in tempo reale tutta l'interfaccia, le condizioni, le abilità e i messaggi di sistema tra **Italiano 🇮🇹** e **English 🇬🇧** senza riavviare l'applicazione.
 * **`📏 Unità di Misura` (`📏 Distance Units`)**: permette di scegliere in qualsiasi momento tra:
   * **Piedi / Miglia (`ft / mi`)** — Sistema Imperiale standard USA (1 esagono tattico = `5 ft`).
   * **Metri / Chilometri (`m / km`)** — Sistema Metrico edizione italiana (1 esagono tattico = `1.5 m`).
+* **`File -> 📜 Esporta Registro di Sessione...`**: consente sia al DM che ai Giocatori di esportare l'intera cronologia della sessione (chat, tiri di dado, eventi tattici, danni ed evocazioni) in un comodo file **Markdown (`.md`)** formattato o in formato **HTML interattivo**.
 
-### Layout a 3 Colonne e HUD sulla Mappa
+### Layout a 3 Colonne, HUD e Strumenti Lavagna (`[ ✏️ ]`)
 L'interfaccia è divisa in tre aree ergonomiche:
-1. **Toolbar Sinistra (Strumenti Mappa)**: barra compatta con pulsanti iconici per interagire con la griglia esagonale (`👆` Centra/Seleziona, `💥` Area d'Effetto, `📏` Misura Distanza, `📍` Ping, `📖` Manuali, più `☁️` Nebbia e `🚪` Porta/Teletrasporto per il DM).
-2. **Viewport Centrale (`HexMapCanvas`)**: la mappa esagonale interattiva, arricchita da due HUD sovrapposti:
+1. **Toolbar Sinistra (Strumenti Mappa e Lavagna)**: barra compatta con pulsanti iconici per interagire con la mappa:
+   * `👆` Centra/Seleziona token e mappa.
+   * `💥` Template Incantesimi ad Area (AoE).
+   * `📏` Righello dinamico di misurazione distanze e tempi di marcia.
+   * `📍` Segnale di Ping animato condiviso.
+   * `📖` Consultazione rapida manuali di gioco PDF offline.
+   * `[ ✏️ ]` **Lavagna / Penna Tattica**: permette a DM e Giocatori di disegnare a mano libera annotazioni, frecce di manovra e percorsi sulla mappa in tempo reale.
+   * `[ 🧹 ]` / `[ 🗑️ ]` **Cancella Lavagna**: rimuove istantaneamente tutti i tratti disegnati sulla mappa sia in locale che sui client connessi.
+   * `☁️` Nebbia di Guerra (FoW con raggio pennello) e `🚪` Portali/Teletrasporti (solo DM).
+2. **Viewport Centrale (`HexMapCanvas`)**: la mappa interattiva (esagonale, quadrata o senza griglia), arricchita da due HUD sovrapposti:
    * **Initiative Ribbon HUD (in alto al centro)**: appare automaticamente durante il combattimento mostrando le card di tutti i combattenti in ordine di turno (`#1`, `#2`...), la freccia `▼` sul turno attivo e una mini-barra PV per ciascuno. Cliccando su una card la mappa si centra su quel token.
    * **Controlli Mappa Glassmorphism (in basso a sinistra)**: pulsanti flottanti `[ - ]`, `[ 100% ]`, `[ + ]` e `[ ⌖ ]` per regolare lo zoom o ricentrare la visuale con un click.
 3. **Sidebar Destra (Pannello a Tab)**: contiene la Chat & Voice Chat, i Controlli PG / Tracker Iniziativa, il Mondo/Calendario, il Bestiario e la Soundboard Audio.
@@ -83,7 +97,7 @@ Premendo **`Ctrl+K`** in qualsiasi momento (o da `Strumenti/Libreria -> Tavolozz
 
 ---
 
-## 3. Sistema di Unità di Misura, Scale Mappa e Righello
+## 3. Sistema di Unità di Misura, Scale Mappa, Griglie e Righello
 
 ### Scelta tra Piedi/Miglia (`ft/mi`) e Metri/Chilometri (`m/km`)
 Quando cambi l'unità dal menu **`📏 Unità di Misura`**, l'intero applicativo converte automaticamente:
@@ -103,6 +117,13 @@ Ogni mappa ha una propria scala geografica. Il DM può visualizzarla e cambiarla
 
 > [!TIP]
 > Quando il DM cambia la scala dal selettore rapido `📏 Scala`, la modifica viene salvata e trasmessa in tempo reale a tutti i giocatori connessi!
+
+### Supporto Multi-Griglia: Esagonale, Quadrata e Senza Griglia
+OmniCompanion supporta tre diverse modalità di griglia per adattarsi a qualsiasi stile di mappa:
+* **Griglia Esagonale (`hex`)**: la modalità tattica preferita per le campagne aperte e la precisione geometrica di coni e sfere.
+* **Griglia a Scacchiera / Quadrata (`square`)**: la classica griglia da dungeon D&D 5e. Utilizza la metrica di Chebyshev standard per il movimento (ogni spostamento diagonale conta $5\text{ ft} / 1.5\text{ m}$, esattamente come un passo ortogonale).
+* **Senza Griglia (`none` / `gridless`)**: nasconde ogni linea di griglia per mappe pittoriche a mano libera; il righello e il movimento calcolano la reale distanza euclidea.
+* **Cambio Rapido Griglia**: il DM può cambiare il tipo di griglia in tempo reale con un click sul pulsante **`📐 Griglia: ...`** nella barra superiore sopra la mappa.
 
 ### Utilizzo del Righello Dinamico (`[ 📏 ]`)
 1. Clicca sul pulsante **`[ 📏 ]`** nella toolbar a sinistra per attivare la modalità Righello (il bottone si illumina d'oro).
@@ -134,7 +155,14 @@ Cliccando su **`📋 Scheda PG`** si apre la scheda completa divisa in schede:
 2. **⚔️ Armi & Attacchi**: elenco delle armi con calcolo automatico del bonus al tiro per colpire e del danno.
 3. **🎒 Inventario**: gestione oggetti con peso individuale, sintonizzazione magica (max 3 oggetti `🔮`), Borsa delle Monete (`MR`, `MA`, `ME`, `MO`, `MP`) e calcolo automatico dell'**Ingombro** ($\text{Forza} \times 15\text{ lbs}$).
 4. **📖 Grimorio**: contatori degli Slot Incantesimo dal livello 1 al 9, ricerca incantesimi SRD e pulsante **Lancia** che scala automaticamente lo slot e annuncia l'incantesimo in chat.
-5. **🌟 Privilegi & Note / 📜 Diario**: tratti razziali, privilegi di classe e appunti di sessione.
+5. **🌟 Privilegi & Note / 📜 Diario**: tratti razziali, privilegi di classe, tracciatore risorse speciali e appunti di sessione.
+
+### Risorse di Classe Speciali (Ki, Ira, Ispirazione Bardica, ecc.)
+Nel tab **`🌟 Privilegi`** della Scheda PG è presente il riquadro interattivo **`⚡ Risorse di Classe Speciali`**:
+* **Popolamento Automatico**: alla creazione del PG o al Level-Up, il sistema assegna automaticamente le risorse ufficiali della classe (es. *Punti Ki* per il Monaco, *Usi d'Ira* per il Barbaro, *Dadi di Ispirazione Bardica* per il Bardo, *Forme Selvatiche* per il Druido, *Canale di Divinità* per Chierico/Paladino, *Azione Impetuosa* e *Secondo Fiato* per il Guerriero, *Punti Stregoneria* per lo Stregone, *Imposizione delle Mani* per il Paladino).
+* **Contatori Rapidi `[-]` / `[+]`**: spendi o ricarica le tue cariche con un click durante la sessione.
+* **Risorse Personalizzate**: puoi aggiungere nuove risorse personalizzate tramite il pulsante **`+ Aggiungi Risorsa`** specificando Nome, Valore Massimo e Tipo di Recupero (*Riposo Breve* o *Riposo Lungo*), oppure eliminarle con `🗑️`.
+* **Ricarica Intelligente nei Riposi**: quando effettui un *Riposo Breve* o un *Riposo Lungo*, il sistema ripristina automaticamente solo le risorse che recuperano con quel tipo di riposo.
 
 ### Economia del Turno: Esplorazione vs Combattimento
 La sezione **Economia Turno** nel tab `Controlli PG` si adatta automaticamente alla fase di gioco:
@@ -149,13 +177,17 @@ La sezione **Economia Turno** nel tab `Controlli PG` si adatta automaticamente a
   * Puoi anche cliccare manualmente sui singoli badge per segnarli come usati/disponibili (es. se usi una `🛡️ Reazione` per *Scudo* o un *Attacco di Opportunità*), oppure cliccare su **`↺ Reset`** per ripristinarli.
   * Tutte le risorse si **resettano automaticamente** all'inizio di ogni tuo turno e quando il combattimento inizia o termina.
 
-### Azioni in Combattimento e Incantesimi ad Area (AoE)
+### Azioni in Combattimento, Incantesimi AoE e Upcasting
 * **Pulsante `⚔️ Azione`**: apre la finestra Azioni Standard 5e:
   * **Attacco con Arma / Incantesimo**: scegli il bersaglio, l'arma, eventuale Vantaggio/Svantaggio e invia l'attacco al server.
   * **Azioni Tattiche 5e**: **Scatto (Dash)** (raddoppia il movimento del turno), **Disimpegno (Disengage)** (evita attacchi di opportunità), **Schivata (Dodge)** (infligge svantaggio agli attaccanti), **Aiuto (Help)** (conferisce vantaggio a un alleato).
 * **Pulsante `[ 💥 ]` (Area d'Effetto)**:
   * Scegli la forma geometrica (**Sfera**, **Cono**, **Linea**), la dimensione in esagoni, il colore e (opzionalmente) il Tiro Salvezza richiesto (es. `DES CD 15` con `8d6` danni da fuoco).
   * Clicca sulla mappa per posizionare l'area: il server calcola automaticamente tutti i bersagli coinvolti, richiede i Tiri Salvezza e applica i danni (dimezzati in caso di successo).
+* **Lancio Incantesimi & Upcasting (Slot di Livello Superiore)**:
+  * Quando clicchi su **`Lancia`** su un incantesimo dal Grimorio, se l'incantesimo è di 1° livello o superiore appare una finestra modale di scelta dello slot.
+  * Puoi scegliere di lanciarlo al suo livello base oppure effettuare l'**Upcast** spendendo uno slot di livello più alto disponibile (es. lanciare *Dardo Incantato* di 1° livello con uno slot di 3° livello).
+  * Il sistema deduce automaticamente lo slot selezionato e trasmette in chat l'annuncio specificando sia il livello base sia il livello dell'upcast effettivo.
 * **Pulsante `⏭️ Termina Turno`**: attivo durante il tuo turno di combattimento; passa immediatamente l'iniziativa al combattente successivo.
 
 ### Punti Ferita, Riposi e Tiri Salvezza contro la Morte
@@ -167,12 +199,17 @@ La sezione **Economia Turno** nel tab `Controlli PG` si adatta automaticamente a
     * **`2–9`**: +1 Fallimento.
     * **`1 Naturale`**: **+2 Fallimenti** (a 3 fallimenti il personaggio muore).
 * **Riposo Breve e Riposo Lungo**:
-  * **Riposo Breve**: permette di spendere i Dadi Vita disponibili per curarsi ($\text{Dado Vita} + \text{Mod. COS}$) e ricarica le abilità a riposo breve.
-  * **Riposo Lungo**: ripristina tutti i PV, tutti gli Slot Incantesimo, metà dei Dadi Vita totali e riduce di 1 livello l'Indebolimento (*Exhaustion*).
+  * **Riposo Breve**: permette di spendere i Dadi Vita disponibili per curarsi ($\text{Dado Vita} + \text{Mod. COS}$) e ricarica le risorse a riposo breve.
+  * **Riposo Lungo**: ripristina tutti i PV, tutti gli Slot Incantesimo, metà dei Dadi Vita totali, azzera i livelli di Indebolimento e ricarica tutte le risorse di classe.
 
 ### Inventario, Ingombro, Scambi e Richieste al DM
 * **Sicurezza Online (Approvazione DM)**: mentre sei connesso a una sessione live, i punteggi di caratteristica e i PV massimi sono protetti. Per aggiungere monete o oggetti custom puoi cliccare su **`🤝 Richiedi Valuta al DM`** o aggiungere un oggetto: il DM riceverà un pop-up di approvazione istantanea.
 * **Scambi con Alleati (`Dai` / `🤝 Dai Oro a Compagno`)**: puoi trasferire oggetti o monete direttamente a un altro giocatore connesso.
+
+### Esportazione Scheda Personaggio (JSON e HTML Stampabile)
+In cima alla finestra della Scheda PG trovi il pulsante **`💾 Esporta Scheda`**:
+* **Esporta JSON (`.json`)**: salva l'intera struttura dati del personaggio per backup, condivisione o per importarlo in altre campagne.
+* **Esporta HTML Stampabile (`.html`)**: genera una scheda personaggio web pronta per la stampa o l'esportazione PDF (`Ctrl+P`). Il layout rispetta fedelmente la grafica classica di D&D 5e con blocchi ordinati per caratteristiche, modificatori, tiri salvezza, competenze abilità, armi con bonus, inventario, grimorio completo e riepilogo delle risorse speciali di classe.
 
 ### Macro Hotbar (Slot Rapidi 1–10)
 In fondo alla finestra del Giocatore è presente una barra con **10 pulsanti numerati (`1`–`10`)**:
@@ -198,12 +235,24 @@ Dal menu **`File`** e **`Strumenti`** della plancia DM:
   * Piazza **Luci** ambientali e **Oggetti / Bottino (Loot)** raccoglibili.
 * **Porte e Teletrasporti (`[ 🚪 ]`)**: clicca sullo strumento `[ 🚪 ]` nella toolbar sinistra e poi su un esagono per collegarlo a un altro file mappa (es. `cripta_livello2.json`). Quando un giocatore cammina su quell'esagono, il server carica automaticamente la nuova mappa per tutto il gruppo.
 
-### Nebbia di Guerra (FoW), Line of Sight e Illuminazione
-* Cliccando su **`[ ☁️ ]`** nella toolbar sinistra del DM si apre il menu rapido della **Nebbia di Guerra**:
+### Nebbia di Guerra (FoW), Pennello Manuale, Line of Sight e Luci
+* Cliccando su **`[ ☁️ ]`** nella toolbar sinistra del DM si apre la barra avanzata della **Nebbia di Guerra**:
   * **Attiva / Disattiva Nebbia di Guerra**.
   * **Rivela Tutta la Mappa** / **Nascondi Tutta la Mappa** / **Ripristina Nebbia Iniziale**.
-* Quando la FoW è attiva, i giocatori vedono solo gli esagoni entro il proprio raggio visivo e non bloccati dai muri (Line of Sight).
-* Usa il comando chat `/vision <NomePG> <RaggioInEsagoni>` (es. `/vision Gildor 12` per Scurovisione a $60\text{ ft} / 18\text{ m}$) per modificare il raggio visivo di un personaggio.
+  * **Pennello Manuale FoW (`Raggio: 0, 1, 2, 3`)**: seleziona il raggio del pennello dal menu a tendina. Cliccando con il tasto sinistro (rivela) o destro (nasconde) su una cella della mappa, la nebbia viene dipinta o rimossa su un'intera area circolare, permettendo al DM di scoprire o coprire stanze complesse con pochi gesti.
+* Quando la FoW è attiva, i giocatori vedono solo le celle entro il proprio raggio visivo e non bloccate dai muri (Line of Sight dinamica).
+* Usa il comando chat `/vision <NomePG> <Raggio>` (es. `/vision Gildor 12` per Scurovisione a $60\text{ ft} / 18\text{ m}$) per impostare la vista del token.
+
+### Taglie Creature (Dimensioni Token) e Livello Nascosto DM (GM Layer)
+* **Taglie Creature Ufficiali 5e**:
+  * OmniCompanion gestisce le 6 categorie di taglia 5e: **Minuscola (Tiny)** ($0.5\times$), **Piccola (Small)** ($0.8\times$), **Media (Medium)** ($1.0\times$), **Grande (Large)** ($1.8\times$), **Enorme (Huge)** ($2.6\times$) e **Mastodontica (Gargantuan)** ($3.5\times$).
+  * Il token si espande o restringe visivamente sul canvas occupando la proporzione corretta di spazio tattico.
+  * Per cambiare la taglia: fai **Click Destro** sul token o sulla voce nella lista PG $\rightarrow$ **`Taglia Creatura (Size)`** $\rightarrow$ scegli la dimensione desiderata.
+* **Livello Nascosto del DM (GM Layer)**:
+  * Permette di preparare mostri, trappole o elementi di scena tenendoli completamente invisibili ai giocatori.
+  * **Visibilità DM**: il token appare semitrasparente con un anello tratteggiato viola (`#A855F7`) e un badge `[GM]`.
+  * **Isolamento Giocatori e Sicurezza di Rete**: i token sul GM Layer non vengono renderizzati sul canvas dei giocatori e vengono filtrati direttamente dal server nei broadcast TCP (`GAME_STATE`, `PLAYER_JOINED`, `PLAYER_MOVE`), garantendo l'assoluta assenza di fughe di dati (*anti-metagame*).
+  * Per spostare un token sul GM Layer o riportarlo sul livello visibile: **Click Destro** sul token $\rightarrow$ **`👁️ Livello DM (GM Layer)`**.
 
 ### Gestione del Combattimento e Bilanciatore Incontri (DMG p. 82)
 Nel tab **`Iniziativa & PG`** della sidebar destra del DM:
@@ -230,6 +279,10 @@ Nel tab **`Iniziativa & PG`** della sidebar destra del DM:
 ### Handout (Documenti/Immagini) e Soundboard Audio
 * **Condividi Immagine / Documento (`Strumenti -> Condividi Immagine / Condividi Documento testuale`)**: mostra istantaneamente sullo schermo di tutti i giocatori un'illustrazione (ritratto di un PNG, mappa antica) o una pergamena leggibile.
 * **Tab `Audio / SFX`**: riproduci musica d'ambiente (Taverna, Combattimento, Dungeon) ed effetti sonori sincronizzati su tutti i client connessi.
+
+### Lavagna Tattica Condivisa (Whiteboard) ed Esportazione Session Log
+* **Lavagna Tattica (`[ ✏️ ]` / `[ 🗑️ ]`)**: traccia linee e annotazioni direttamente sulla mappa; con il pulsante `[ 🗑️ ]` svuoti la lavagna per tutti i partecipanti con un solo click.
+* **Esportazione Log di Sessione (`File -> 📜 Esporta Registro di Sessione...`)**: salva e scarica l'intero registro della sessione in formato **Markdown (`.md`)** pulito o **HTML stampabile**, ideale come diario d'avventura o resoconto narrativo.
 
 ---
 

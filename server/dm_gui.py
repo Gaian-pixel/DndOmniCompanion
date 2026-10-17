@@ -118,6 +118,8 @@ class DM_GUI:
         file_menu.add_command(label=_t("menu_save_session"), command=self.save_session)
         file_menu.add_command(label=_t("menu_load_session"), command=self.load_session)
         file_menu.add_separator()
+        file_menu.add_command(label=_t("menu_export_session_log"), command=self.export_session_log)
+        file_menu.add_separator()
         file_menu.add_command(label=_t("menu_exit"), command=self.on_closing)
         menubar.add_cascade(label=_t("menu_file"), menu=file_menu)
         
@@ -316,6 +318,21 @@ class DM_GUI:
         self.player_menu.add_command(label=_t("ctx_set_owner"), command=self.open_set_owner_dialog)
         self.player_menu.add_command(label=_t("ctx_open_private_chat"), command=self.open_private_chat_from_context)
         self.player_menu.add_separator()
+        size_menu = tk.Menu(
+            self.player_menu, tearoff=0,
+            bg=SURFACE_COLOR, fg=TEXT_COLOR,
+            activebackground=ACCENT_GOLD, activeforeground=TEXT_DARK,
+            font=self.default_font
+        )
+        size_menu.add_command(label=_t("size_tiny"), command=lambda: self.set_selected_player_size("tiny"))
+        size_menu.add_command(label=_t("size_small"), command=lambda: self.set_selected_player_size("small"))
+        size_menu.add_command(label=_t("size_medium"), command=lambda: self.set_selected_player_size("medium"))
+        size_menu.add_command(label=_t("size_large"), command=lambda: self.set_selected_player_size("large"))
+        size_menu.add_command(label=_t("size_huge"), command=lambda: self.set_selected_player_size("huge"))
+        size_menu.add_command(label=_t("size_gargantuan"), command=lambda: self.set_selected_player_size("gargantuan"))
+        self.player_menu.add_cascade(label=_t("token_size_menu"), menu=size_menu)
+        self.player_menu.add_command(label=_t("ctx_toggle_gm_layer"), command=self.toggle_selected_player_gm_layer)
+        self.player_menu.add_separator()
         self.player_menu.add_command(label=_t("ctx_toggle_combat"), command=self.toggle_player_combat_status)
         self.player_menu.add_command(label=_t("ctx_toggle_party"), command=self.toggle_party_status)
         self.player_menu.add_command(label=_t("ctx_toggle_inspiration"), command=self.toggle_inspiration)
@@ -365,6 +382,14 @@ class DM_GUI:
         self.btn_clear_aoe = ttk.Button(left_toolbar, text="🧹", width=3, style="Tool.TButton", command=self.clear_aoes)
         self.btn_clear_aoe.pack(pady=3)
         ToolTip(self.btn_clear_aoe, lambda: _t("tool_clear_aoe"))
+
+        self.btn_pen = ttk.Button(left_toolbar, text="✏️", width=3, style="Tool.TButton", command=self.toggle_whiteboard_pen)
+        self.btn_pen.pack(pady=3)
+        ToolTip(self.btn_pen, lambda: _t("tool_pen"))
+
+        self.btn_clear_drawings = ttk.Button(left_toolbar, text="🗑️", width=3, style="Tool.TButton", command=self.clear_whiteboard_drawings)
+        self.btn_clear_drawings.pack(pady=3)
+        ToolTip(self.btn_clear_drawings, lambda: _t("tool_clear_drawings"))
         
         # Separatore sottile
         tk.Frame(left_toolbar, bg=BORDER_COLOR, height=1).pack(fill=tk.X, pady=6)
@@ -427,6 +452,15 @@ class DM_GUI:
         self.top_status_scale_lbl.pack(side=tk.LEFT, padx=3)
         self.top_status_scale_lbl.bind("<Button-1>", self._show_map_scale_menu)
         ToolTip(self.top_status_scale_lbl, "Scala Mappa Attiva (Clicca per cambiare scala del righello)")
+
+        self.top_status_grid_lbl = tk.Label(
+            pills_frame, text="🌐 Griglia: Esagonale", font=FONT_SMALL,
+            bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD, padx=6, pady=2,
+            highlightbackground=BORDER_COLOR, highlightthickness=1, cursor="hand2"
+        )
+        self.top_status_grid_lbl.pack(side=tk.LEFT, padx=3)
+        self.top_status_grid_lbl.bind("<Button-1>", self._show_grid_type_menu)
+        ToolTip(self.top_status_grid_lbl, lambda: _t("grid_type_menu"))
         
         # Toolbar Fog of War a destra
         fow_toolbar = tk.Frame(map_top_bar, bg=SURFACE_COLOR)
@@ -441,6 +475,13 @@ class DM_GUI:
         self.map_tool_combo = ttk.Combobox(fow_toolbar, textvariable=self.fow_mode_var, state="readonly", width=15)
         self.map_tool_combo['values'] = (_t("fow_mode_move"), _t("fow_mode_erase"), _t("fow_mode_draw"))
         self.map_tool_combo.pack(side=tk.LEFT, padx=3)
+
+        self.fow_brush_radius_var = tk.IntVar(value=0)
+        self.lbl_fow_brush = tk.Label(fow_toolbar, text=_t("fow_brush_radius"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
+        self.lbl_fow_brush.pack(side=tk.LEFT, padx=(4, 2))
+        self.fow_brush_combo = ttk.Combobox(fow_toolbar, textvariable=self.fow_brush_radius_var, values=[0, 1, 2, 3], state="readonly", width=3)
+        self.fow_brush_combo.pack(side=tk.LEFT, padx=(0, 4))
+        ToolTip(self.fow_brush_combo, "Raggio del Pennello Nebbia (0 = singolo esagono, 1-3 = area)")
         
         self.dm_player_view_var = tk.BooleanVar(value=False)
         self.chk_player_view = ttk.Checkbutton(fow_toolbar, text=_t("fow_player_view"), variable=self.dm_player_view_var, command=self.redraw_map_and_players)
@@ -1505,18 +1546,24 @@ class DM_GUI:
         if mode in ("reveal", "hide"):
             drafted = {Hex(h[0], h[1]) for h in self.server.game_state.current_map.get("fow_draft", self.server.game_state.current_map.get("fow_revealed", []))}
             changed = False
-            
-            if mode == "reveal" and clicked_hex not in drafted:
-                drafted.add(clicked_hex)
-                changed = True
-            elif mode == "hide" and clicked_hex in drafted:
-                drafted.remove(clicked_hex)
-                changed = True
+            brush_rad = self.fow_brush_radius_var.get() if hasattr(self, 'fow_brush_radius_var') else 0
+            if brush_rad > 0:
+                target_hexes = get_sphere_hexes(clicked_hex, brush_rad)
+            else:
+                target_hexes = [clicked_hex]
+                
+            for h in target_hexes:
+                if h in map_hexes:
+                    if mode == "reveal" and h not in drafted:
+                        drafted.add(h)
+                        changed = True
+                    elif mode == "hide" and h in drafted:
+                        drafted.remove(h)
+                        changed = True
                 
             if changed:
                 self.server.game_state.current_map["fow_draft"] = [[h.q, h.r] for h in drafted]
                 self.redraw_map_and_players()
-                # Broadcast manuale tramite il bottone "Invia Nebbia"
             return
 
         sel_indices = self.player_listbox.curselection()
@@ -1656,7 +1703,152 @@ class DM_GUI:
             title="Scala Mappa",
             toast_type="info"
         )
-        
+
+    def _show_grid_type_menu(self, event=None):
+        menu = tk.Menu(self.master, tearoff=0, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=self.default_font)
+        menu.add_command(label=_t("grid_hex"), command=lambda: self.set_map_grid_type("hex"))
+        menu.add_command(label=_t("grid_square"), command=lambda: self.set_map_grid_type("square"))
+        menu.add_command(label=_t("grid_none"), command=lambda: self.set_map_grid_type("none"))
+        try:
+            x = event.x_root if event else self.top_status_grid_lbl.winfo_rootx()
+            y = event.y_root if event else (self.top_status_grid_lbl.winfo_rooty() + self.top_status_grid_lbl.winfo_height())
+            menu.tk_popup(x, y)
+        finally:
+            menu.grab_release()
+
+    def set_map_grid_type(self, grid_type):
+        if not hasattr(self, "server") or not getattr(self.server, "game_state", None):
+            return
+        if not getattr(self.server.game_state, "current_map", None):
+            return
+        cur_map = self.server.game_state.current_map
+        cur_map["grid_type"] = grid_type
+        grid_names = {"hex": _t("grid_hex"), "square": _t("grid_square"), "none": _t("grid_none")}
+        name_str = grid_names.get(grid_type, grid_type)
+        if hasattr(self, "top_status_grid_lbl"):
+            self.top_status_grid_lbl.config(text=f"🌐 {_t('grid_type_menu')}: {name_str}")
+        self.redraw_map_and_players()
+        from common.protocol import make_map_data_update_broadcast
+        from server.network import broadcast
+        broadcast(self.server.game_state, make_map_data_update_broadcast(cur_map))
+        self.show_toast(f"Tipo griglia impostato a: {name_str}", title=_t("grid_type_menu"), toast_type="info")
+
+    def set_selected_player_size(self, size_name):
+        player_name = self.get_selected_player_name()
+        if not player_name:
+            return
+        player = self.server.game_state.find_player(player_name)
+        if player:
+            player.size = size_name
+            self.server.game_state._trigger_gui_update()
+            from common.protocol import make_game_state
+            from server.network import broadcast
+            broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
+            self.redraw_map_and_players()
+            self.show_toast(f"Dimensioni di {player_name}: {size_name.title()}", title="Token Size", toast_type="info")
+
+    def toggle_selected_player_gm_layer(self):
+        player_name = self.get_selected_player_name()
+        if not player_name:
+            return
+        player = self.server.game_state.find_player(player_name)
+        if player:
+            cur_layer = getattr(player, "layer", "token")
+            new_layer = "gm" if cur_layer != "gm" else "token"
+            player.layer = new_layer
+            self.server.game_state._trigger_gui_update()
+            from common.protocol import make_game_state
+            from server.network import broadcast
+            broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
+            self.redraw_map_and_players()
+            status_text = "spostato nel LIVELLO GM (invisibile ai giocatori)" if new_layer == "gm" else "spostato nel LIVELLO TOKEN (visibile)"
+            self.show_toast(f"{player_name} {status_text}", title="GM Layer", toast_type="info")
+
+    def toggle_whiteboard_pen(self):
+        if not self.map_canvas: return
+        is_active = self.map_canvas.toggle_pen_mode()
+        if hasattr(self, "btn_pen"):
+            self.btn_pen.config(style="Accent.TButton" if is_active else "Tool.TButton")
+        self.show_toast("Modalità Penna Disegno: " + ("Attiva" if is_active else "Disattivata"), title="Lavagna", toast_type="info")
+
+    def clear_whiteboard_drawings(self):
+        if not messagebox.askyesno(_t("tool_clear_drawings"), "Cancellare tutti i disegni a mano libera dalla mappa?"):
+            return
+        if self.map_canvas:
+            self.map_canvas.clear_drawings()
+        if hasattr(self, "server") and hasattr(self.server, "game_state"):
+            self.server.game_state.drawn_lines = []
+            from common.protocol import make_clear_drawings_broadcast
+            from server.network import broadcast
+            broadcast(self.server.game_state, make_clear_drawings_broadcast())
+            self.server.game_state._trigger_gui_update()
+        self.show_toast("Disegni mappa cancellati", title="Lavagna", toast_type="info")
+
+    def export_session_log(self):
+        log_text = ""
+        if hasattr(self, "chat_tabs"):
+            for tname, txt_widget in self.chat_tabs.items():
+                content = txt_widget.get("1.0", tk.END).strip()
+                if content:
+                    log_text += f"\n\n--- [TAB: {tname}] ---\n\n" + content
+        elif hasattr(self, "chat_display"):
+            log_text = self.chat_display.get("1.0", tk.END).strip()
+
+        if not log_text.strip():
+            messagebox.showinfo(_t("export_log_title"), _t("export_log_empty"))
+            return
+
+        from tkinter import filedialog
+        from datetime import datetime
+        default_filename = f"Session_Log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+        filepath = filedialog.asksaveasfilename(
+            title=_t("menu_export_session_log"),
+            initialfile=default_filename,
+            filetypes=[("Markdown (*.md)", "*.md"), ("HTML (*.html)", "*.html"), ("Text (*.txt)", "*.txt")]
+        )
+        if not filepath:
+            return
+
+        now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        campaign_name = getattr(self.server.game_state, 'active_campaign', None)
+        campaign_str = campaign_name.name if campaign_name else "D&D Session"
+
+        if filepath.endswith(".html"):
+            html_content = f"""<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>{_t('export_log_title')} - {campaign_str}</title>
+<style>
+body {{ background-color: #121316; color: #E5E7EB; font-family: 'Segoe UI', Tahoma, sans-serif; padding: 24px; line-height: 1.6; }}
+h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
+.meta {{ color: #9CA3AF; font-size: 0.9em; margin-bottom: 20px; }}
+.log-box {{ background-color: #1A1B1E; border: 1px solid #374151; border-radius: 8px; padding: 18px; white-space: pre-wrap; font-family: 'Consolas', monospace; }}
+</style>
+</head>
+<body>
+<h1>📜 {_t('export_log_title')} - {campaign_str}</h1>
+<div class="meta">Esportato il: {now_str} • D&D OmniCompanion</div>
+<div class="log-box">{log_text}</div>
+</body>
+</html>"""
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(html_content)
+        else:
+            md_content = f"""# 📜 {_t('export_log_title')} - {campaign_str}
+**Data Esportazione:** {now_str}
+**Piattaforma:** D&D OmniCompanion
+
+---
+
+```
+{log_text}
+```
+"""
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(md_content)
+
+        messagebox.showinfo(_t("export_log_title"), _t("export_log_saved").format(path=filepath))
 
     def open_calendar_dialog(self):
         try:

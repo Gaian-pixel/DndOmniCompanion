@@ -60,7 +60,35 @@ def receive_message(sock):
 
 def broadcast(game_state, message_data, exclude_player=None):
     """ NUOVO: La funzione broadcast ora vive qui per evitare import circolari. """
+    msg_type = message_data.get("type") if isinstance(message_data, dict) else None
+    
+    # Pre-filter for GAME_STATE
+    player_filtered_game_state = None
+    if msg_type == "GAME_STATE" and isinstance(message_data.get("data"), dict):
+        base_data = message_data["data"]
+        raw_players = base_data.get("players", [])
+        filtered_players = [pl for pl in raw_players if pl.get("layer", "token") != "gm"]
+        copy_data = dict(base_data)
+        copy_data["players"] = filtered_players
+        player_filtered_game_state = {"type": "GAME_STATE", "data": copy_data}
+
     for p in game_state.get_all_players():
         if exclude_player and p.name == exclude_player.name:
             continue
-        send_message(p.conn, message_data)
+        if not getattr(p, "conn", None):
+            continue
+
+        # If token on GM layer, don't broadcast movements or joins to regular player clients
+        if msg_type == "PLAYER_JOINED" and isinstance(message_data.get("data"), dict):
+            if message_data["data"].get("layer", "token") == "gm":
+                continue
+        elif msg_type == "PLAYER_MOVE" and isinstance(message_data.get("data"), dict):
+            mv_name = message_data["data"].get("name")
+            target_p = game_state.find_player(mv_name)
+            if target_p and getattr(target_p, "layer", "token") == "gm":
+                continue
+
+        if player_filtered_game_state is not None:
+            send_message(p.conn, player_filtered_game_state)
+        else:
+            send_message(p.conn, message_data)

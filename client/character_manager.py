@@ -41,6 +41,8 @@ class Character:
             "rage_current": 2,
             "rage_max": 2
         }
+        self.custom_resources = []
+        self.size = "medium"
         self.death_saves = {"successes": 0, "failures": 0}
         self.currency = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
         self.hotbar = [""] * 10
@@ -95,6 +97,11 @@ class Character:
         self.class_resources["second_wind"] = True
         self.class_resources["action_surge"] = True
         
+        # Reset custom class resources configured for Short Rest
+        for res in getattr(self, "custom_resources", []):
+            if isinstance(res, dict) and res.get("reset_on") == "short":
+                res["current"] = res.get("max", 0)
+        
         # Regola D&D 5e: I Warlock (Magia del Patto) ricaricano tutti gli slot incantesimo con un Riposo Breve!
         c_class = str(getattr(self, "char_class", "")).strip().lower()
         if "warlock" in c_class:
@@ -126,6 +133,44 @@ class Character:
             "rage_current": max_rage,
             "rage_max": max_rage
         }
+        # Reset ALL custom class resources on Long Rest
+        for res in getattr(self, "custom_resources", []):
+            if isinstance(res, dict):
+                res["current"] = res.get("max", 0)
+
+    def auto_populate_class_resources(self):
+        """Popola le risorse 5e note in base alla classe se custom_resources è vuota."""
+        if getattr(self, "custom_resources", None):
+            return
+        self.custom_resources = []
+        c_cls = str(getattr(self, "char_class", "")).lower()
+        lvl = max(1, int(getattr(self, "level", 1) or 1))
+        car = int(self.attributes.get("CAR", 10))
+        car_mod = max(1, (car - 10) // 2)
+        
+        if any(k in c_cls for k in ["barbar", "barbarian"]):
+            rage = 2 if lvl < 3 else (3 if lvl < 6 else (4 if lvl < 12 else 5))
+            self.custom_resources.append({"name": "Ira (Rage)", "current": rage, "max": rage, "reset_on": "long"})
+        elif any(k in c_cls for k in ["monk", "monaco"]):
+            self.custom_resources.append({"name": "Punti Ki", "current": lvl, "max": lvl, "reset_on": "short"})
+        elif any(k in c_cls for k in ["bard", "bardo"]):
+            rst = "short" if lvl >= 5 else "long"
+            self.custom_resources.append({"name": "Ispirazione Bardica", "current": car_mod, "max": car_mod, "reset_on": rst})
+        elif any(k in c_cls for k in ["druid", "druido"]):
+            self.custom_resources.append({"name": "Forma Selvatica", "current": 2, "max": 2, "reset_on": "short"})
+        elif any(k in c_cls for k in ["paladin", "paladino"]):
+            self.custom_resources.append({"name": "Mani Curative (Lay on Hands)", "current": lvl * 5, "max": lvl * 5, "reset_on": "long"})
+            self.custom_resources.append({"name": "Canale di Divinità", "current": 1, "max": 1, "reset_on": "short"})
+        elif any(k in c_cls for k in ["cleric", "chierico"]):
+            ch_uses = 1 if lvl < 6 else (2 if lvl < 18 else 3)
+            self.custom_resources.append({"name": "Canale di Divinità", "current": ch_uses, "max": ch_uses, "reset_on": "short"})
+        elif any(k in c_cls for k in ["fighter", "guerriero"]):
+            self.custom_resources.append({"name": "Secondo Fiato (Second Wind)", "current": 1, "max": 1, "reset_on": "short"})
+            act = 2 if lvl >= 17 else 1
+            self.custom_resources.append({"name": "Azione Impetuosa (Action Surge)", "current": act, "max": act, "reset_on": "short"})
+        elif any(k in c_cls for k in ["sorcerer", "stregone"]):
+            if lvl >= 2:
+                self.custom_resources.append({"name": "Punti Stregoneria", "current": lvl, "max": lvl, "reset_on": "long"})
 
     def to_dict(self):
         return self.__dict__
@@ -202,6 +247,11 @@ class Character:
                 "rage_current": 2,
                 "rage_max": 2
             }
+        if not hasattr(c, "custom_resources") or not isinstance(c.custom_resources, list):
+            c.custom_resources = []
+            c.auto_populate_class_resources()
+        if not hasattr(c, "size") or not c.size:
+            c.size = "medium"
         if not hasattr(c, "travel_role"):
             c.travel_role = "Nessuna"
         if not hasattr(c, "marching_order"):

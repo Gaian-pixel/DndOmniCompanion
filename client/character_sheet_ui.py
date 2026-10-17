@@ -396,6 +396,8 @@ class CharacterSheetUI(tk.Toplevel):
                 self.create_weapons_tab(frame)
             elif attr == "inventory_grid":
                 self.create_inventory_tab(frame)
+            elif attr == "features":
+                self.create_features_tab(frame)
             elif attr == "spellbook":
                 self.build_spells_tab(frame)
             elif attr == "journal_notes":
@@ -411,11 +413,235 @@ class CharacterSheetUI(tk.Toplevel):
         # Pulsanti (in fondo alla scheda)
         btn_frame = ttk.Frame(main_frame, padding=(0, 10))
         btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
+        
+        ttk.Button(btn_frame, text="📥 Esporta Scheda...", command=self.export_character_dialog).pack(side=tk.LEFT, padx=5)
+        
         save_btn = ttk.Button(btn_frame, text=f"{_t('save')} (Ctrl+S)", command=self.save_character, style="Primary.TButton")
         save_btn.pack(side=tk.RIGHT, padx=5)
         ttk.Button(btn_frame, text=_t("cancel"), command=self.destroy).pack(side=tk.RIGHT, padx=5)
         self.bind("<Control-s>", self.save_character)
         self.bind("<Control-S>", self.save_character)
+
+    def create_features_tab(self, parent_frame):
+        # 1. Box Risorse Speciali di Classe (Punti Ki, Furore, Ispirazione, ecc.)
+        res_card = tk.Frame(parent_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=6)
+        res_card.pack(fill=tk.X, padx=4, pady=(4, 6))
+        
+        hdr_row = tk.Frame(res_card, bg=SURFACE_COLOR_ALT)
+        hdr_row.pack(fill=tk.X, pady=(0, 4))
+        tk.Label(hdr_row, text="⚡ Risorse di Classe Speciali (Ki, Furore, Ispirazione, ecc.)", font=FONT_BOLD, fg=ACCENT_GOLD, bg=SURFACE_COLOR_ALT).pack(side=tk.LEFT)
+        ttk.Button(hdr_row, text="+ Nuova Risorsa", command=self.add_custom_resource_dialog, style="Success.TButton").pack(side=tk.RIGHT)
+        
+        self.resources_container = tk.Frame(res_card, bg=SURFACE_COLOR_ALT)
+        self.resources_container.pack(fill=tk.X, pady=2)
+        self.refresh_custom_resources_ui()
+        
+        # 2. Box Privilegi e Tratti di Classe (Testo)
+        txt_hdr = tk.Frame(parent_frame, bg=SURFACE_COLOR)
+        txt_hdr.pack(fill=tk.X, padx=4, pady=(4, 2))
+        tk.Label(txt_hdr, text="📜 Privilegi, Tratti Razziali e Capacità:", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(anchor="w")
+        
+        txt = tk.Text(parent_frame, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=self.default_font, wrap=tk.WORD)
+        txt.pack(fill=tk.BOTH, expand=True, padx=4, pady=2)
+        self.text_widgets["features"] = txt
+
+    def refresh_custom_resources_ui(self):
+        if not hasattr(self, "resources_container") or not self.resources_container.winfo_exists():
+            return
+        for w in self.resources_container.winfo_children():
+            w.destroy()
+        
+        resources = getattr(self.character, "custom_resources", [])
+        if not resources:
+            tk.Label(self.resources_container, text="Nessuna risorsa speciale registrata. Clicca '+ Nuova Risorsa' per tracciare Ki, Furore, Ispirazione Bardica, ecc.",
+                     font=FONT_SMALL, fg=TEXT_MUTED, bg=SURFACE_COLOR_ALT).pack(anchor="w", pady=4)
+            return
+            
+        for idx, res in enumerate(resources):
+            r_name = res.get("name", "Risorsa")
+            cur = res.get("current", 0)
+            mx = res.get("max", 0)
+            rst = res.get("reset_on", "long")
+            rst_lbl = "Riposo Breve" if rst == "short" else "Riposo Lungo"
+            
+            row = tk.Frame(self.resources_container, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=3)
+            row.pack(fill=tk.X, pady=2)
+            
+            tk.Label(row, text=f"★ {r_name}", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR, width=24, anchor="w").pack(side=tk.LEFT)
+            tk.Label(row, text=f"[{rst_lbl}]", font=FONT_SMALL, fg=TEXT_MUTED, bg=SURFACE_COLOR, width=14, anchor="w").pack(side=tk.LEFT)
+            
+            val_lbl = tk.Label(row, text=f"{cur} / {mx}", font=FONT_BOLD, fg=ACCENT_GOLD, bg=SURFACE_COLOR, width=8, anchor="center")
+            
+            def make_adjust(i=idx, delta=1, v_lbl=val_lbl):
+                def _cmd():
+                    res_obj = self.character.custom_resources[i]
+                    res_obj["current"] = max(0, min(res_obj.get("max", 0), res_obj.get("current", 0) + delta))
+                    v_lbl.config(text=f"{res_obj['current']} / {res_obj.get('max', 0)}")
+                    self.manager.save_characters()
+                return _cmd
+
+            def make_delete(i=idx):
+                def _del():
+                    if messagebox.askyesno("Elimina Risorsa", f"Vuoi eliminare la risorsa '{self.character.custom_resources[i].get('name')}'?"):
+                        self.character.custom_resources.pop(i)
+                        self.manager.save_characters()
+                        self.refresh_custom_resources_ui()
+                return _del
+
+            ttk.Button(row, text="-", width=2, command=make_adjust(idx, -1)).pack(side=tk.LEFT, padx=1)
+            val_lbl.pack(side=tk.LEFT, padx=2)
+            ttk.Button(row, text="+", width=2, command=make_adjust(idx, 1)).pack(side=tk.LEFT, padx=1)
+            ttk.Button(row, text="🗑", width=2, command=make_delete(idx)).pack(side=tk.RIGHT, padx=2)
+
+    def add_custom_resource_dialog(self):
+        name = simpledialog.askstring("Nuova Risorsa di Classe", "Nome risorsa (es. Punti Ki, Furore, Ispirazione Bardica):", parent=self)
+        if not name or not name.strip():
+            return
+        mx = simpledialog.askinteger("Usi Massimi", "Numero massimo di utilizzi:", initialvalue=3, minvalue=1, maxvalue=999, parent=self)
+        if not mx:
+            return
+        is_short = messagebox.askyesno("Ricarica Risorsa", "Questa risorsa si ricarica con un Riposo Breve?\n\n(Sì = Riposo Breve, No = Riposo Lungo)", parent=self)
+        reset_on = "short" if is_short else "long"
+        
+        if not hasattr(self.character, "custom_resources") or not isinstance(self.character.custom_resources, list):
+            self.character.custom_resources = []
+            
+        self.character.custom_resources.append({
+            "name": name.strip(),
+            "current": mx,
+            "max": mx,
+            "reset_on": reset_on
+        })
+        self.manager.save_characters()
+        self.refresh_custom_resources_ui()
+
+    def export_character_dialog(self):
+        from tkinter import filedialog
+        choice = messagebox.askyesno("Formato Esportazione", "Vuoi esportare come Scheda HTML Stampabile (Sì) o come file dati JSON (No)?", parent=self)
+        
+        char_data = self.character.to_dict()
+        safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', self.character.name or "personaggio")
+        
+        if choice: # HTML
+            file_path = filedialog.asksaveasfilename(
+                parent=self,
+                title="Esporta Scheda Personaggio (HTML)",
+                initialfile=f"{safe_name}_scheda.html",
+                defaultextension=".html",
+                filetypes=[("File HTML", "*.html")]
+            )
+            if not file_path: return
+            
+            html = self._generate_character_html(char_data)
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(html)
+            messagebox.showinfo("Esportazione Completata", f"Scheda esportata con successo in:\n{file_path}\n\nPuoi aprirla e stamparla con qualsiasi browser web!")
+        else: # JSON
+            file_path = filedialog.asksaveasfilename(
+                parent=self,
+                title="Esporta Dati Personaggio (JSON)",
+                initialfile=f"{safe_name}.json",
+                defaultextension=".json",
+                filetypes=[("File JSON", "*.json")]
+            )
+            if not file_path: return
+            with open(file_path, "w", encoding="utf-8") as f:
+                json.dump(char_data, f, indent=2, ensure_ascii=False)
+            messagebox.showinfo("Esportazione Completata", f"Dati personaggio salvati con successo in:\n{file_path}")
+
+    @staticmethod
+    def _generate_character_html(data):
+        if hasattr(data, "to_dict"):
+            data = data.to_dict()
+        name = data.get("name", "Eroe")
+        char_cls = data.get("char_class", "")
+        race = data.get("race", "")
+        lvl = data.get("level", 1)
+        hp = data.get("hp_current", 10)
+        hp_max = data.get("hp_max", 10)
+        ac = data.get("ac", 10)
+        speed = data.get("speed", 30)
+        attrs = data.get("attributes", {})
+        
+        attr_html = ""
+        for a in ["FOR", "DES", "COS", "INT", "SAG", "CAR"]:
+            val = attrs.get(a, 10)
+            mod = (val - 10) // 2
+            mod_str = f"+{mod}" if mod >= 0 else str(mod)
+            attr_html += f"""
+            <div style="background:#262930; border:1px solid #3c4048; border-radius:6px; padding:10px; text-align:center; min-width:80px;">
+                <div style="font-size:12px; font-weight:bold; color:#f59e0b;">{a}</div>
+                <div style="font-size:24px; font-weight:bold; color:#fff;">{val}</div>
+                <div style="font-size:14px; font-weight:bold; color:#10b981;">{mod_str}</div>
+            </div>
+            """
+            
+        res_html = ""
+        for r in data.get("custom_resources", []):
+            res_html += f"<li><strong>{r.get('name')}</strong>: {r.get('current')}/{r.get('max')} (Reset: {r.get('reset_on')})</li>"
+        if not res_html: res_html = "<li>Nessuna risorsa registrata</li>"
+        
+        weap_html = ""
+        for w in data.get("weapons", []):
+            weap_html += f"<tr><td>{w.get('name')}</td><td>{w.get('bonus', 0):+d}</td><td>{w.get('damage_dice', '1d6')} {w.get('damage_type', '')}</td></tr>"
+            
+        spells_html = ""
+        for s in data.get("spellbook", []):
+            spells_html += f"<li><strong>Lv {s.get('level', 0)} - {s.get('name')}</strong> ({s.get('time', '-')}, {s.get('range', '-')})</li>"
+
+        return f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Scheda: {name}</title>
+    <style>
+        body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background:#121316; color:#e0e0e0; margin:30px; }}
+        .header {{ border-bottom: 2px solid #f59e0b; padding-bottom: 12px; margin-bottom: 20px; }}
+        h1 {{ color:#f59e0b; margin:0 0 5px 0; }}
+        .badge {{ display:inline-block; background:#1f2937; border:1px solid #374151; border-radius:4px; padding:4px 10px; margin-right:8px; font-size:14px; }}
+        .stats-grid {{ display:flex; gap:12px; margin:20px 0; flex-wrap:wrap; }}
+        .card {{ background:#1a1c23; border:1px solid #2d3748; border-radius:8px; padding:15px; margin-bottom:20px; }}
+        table {{ width:100%; border-collapse:collapse; }}
+        th, td {{ border:1px solid #374151; padding:8px; text-align:left; }}
+        th {{ background:#2d3748; color:#f59e0b; }}
+        @media print {{ body {{ background:#fff; color:#000; }} .card {{ border:1px solid #ccc; background:#fff; }} }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>{name}</h1>
+        <div>
+            <span class="badge">Razza: {race}</span>
+            <span class="badge">Classe: {char_cls} Lv {lvl}</span>
+            <span class="badge">🛡️ CA: {ac}</span>
+            <span class="badge">❤️ PV: {hp} / {hp_max}</span>
+            <span class="badge">👟 Velocità: {speed}</span>
+        </div>
+    </div>
+    
+    <h2>Caratteristiche Base</h2>
+    <div class="stats-grid">{attr_html}</div>
+    
+    <div class="card">
+        <h3>⚡ Risorse di Classe Speciali</h3>
+        <ul>{res_html}</ul>
+    </div>
+    
+    <div class="card">
+        <h3>⚔️ Armi e Attacchi</h3>
+        <table>
+            <tr><th>Arma</th><th>Bonus Txc</th><th>Danno</th></tr>
+            {weap_html}
+        </table>
+    </div>
+    
+    <div class="card">
+        <h3>📖 Grimorio & Incantesimi</h3>
+        <ul>{spells_html}</ul>
+    </div>
+</body>
+</html>
+"""
 
     def create_inventory_tab(self, parent_frame):
         # 1. Borsa delle Monete (Currency Cards)
@@ -796,27 +1022,57 @@ class CharacterSheetUI(tk.Toplevel):
         txt.config(state=tk.DISABLED)
         txt.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
+        base_lvl = int(spell.get('level', 0))
+        upcast_var = tk.IntVar(value=max(1, base_lvl) if base_lvl > 0 else 0)
+        
+        if base_lvl > 0:
+            upcast_row = tk.Frame(win, bg="#1e1e1e")
+            upcast_row.pack(fill=tk.X, padx=10, pady=(0, 6))
+            tk.Label(upcast_row, text="⚡ Lancia a Livello (Upcasting):", font=FONT_BOLD, fg=ACCENT_GOLD, bg="#1e1e1e").pack(side=tk.LEFT, padx=(0, 6))
+            
+            levels_available = []
+            for l in range(base_lvl, 10):
+                l_str = str(l)
+                cur_slots = 0
+                if l_str in self.slot_vars:
+                    cur_slots = self.slot_vars[l_str]["current"].get()
+                levels_available.append(f"Livello {l} ({cur_slots} slot rimasti)")
+                
+            upcast_combo = ttk.Combobox(upcast_row, values=levels_available, state="readonly", width=26)
+            upcast_combo.current(0)
+            upcast_combo.pack(side=tk.LEFT)
+            
+            def on_upcast_change(e):
+                sel_idx = upcast_combo.current()
+                upcast_var.set(base_lvl + sel_idx)
+            upcast_combo.bind("<<ComboboxSelected>>", on_upcast_change)
+
         btn_frame = ttk.Frame(win)
         btn_frame.pack(fill=tk.X, pady=10)
         
         def do_cast():
-            lvl = str(spell.get('level', 0))
-            if spell.get('level', 0) > 0 and lvl in self.slot_vars:
-                massimi_var = self.slot_vars[lvl]["max"]
-                usati_var = self.slot_vars[lvl]["current"]
-                if usati_var.get() > 0:
-                    usati_var.set(usati_var.get() - 1)
-                    if not hasattr(self.character, "spell_slots"):
-                        self.character.spell_slots = {str(i): {"max": 0, "current": 0} for i in range(1, 10)}
-                    self.character.spell_slots[lvl]["current"] = usati_var.get()
-                    self.character.spell_slots[lvl]["max"] = massimi_var.get()
-                    self.manager.update_character(self.character)
-                else:
-                    if not messagebox.askyesno("Slot Esauriti", f"Non hai piu' slot di livello {lvl}. Vuoi lanciarlo lo stesso?", parent=win):
-                        return
+            lvl = int(spell.get('level', 0))
+            cast_level = lvl
+            if lvl > 0:
+                cast_level = upcast_var.get()
+                lvl_str = str(cast_level)
+                if lvl_str in self.slot_vars:
+                    massimi_var = self.slot_vars[lvl_str]["max"]
+                    usati_var = self.slot_vars[lvl_str]["current"]
+                    if usati_var.get() > 0:
+                        usati_var.set(usati_var.get() - 1)
+                        if not hasattr(self.character, "spell_slots"):
+                            self.character.spell_slots = {str(i): {"max": 0, "current": 0} for i in range(1, 10)}
+                        self.character.spell_slots[lvl_str]["current"] = usati_var.get()
+                        self.character.spell_slots[lvl_str]["max"] = massimi_var.get()
+                        self.manager.update_character(self.character)
+                    else:
+                        if not messagebox.askyesno("Slot Esauriti", f"Non hai piu' slot di livello {lvl_str}. Vuoi lanciarlo lo stesso?", parent=win):
+                            return
             
             if self.roll_callback:
-                chat_msg = f"{self.character.name} lancia {spell.get('name', '')}!"
+                upcast_info = f" (Potenziato al Livello {cast_level}!)" if cast_level > lvl else ""
+                chat_msg = f"{self.character.name} lancia {spell.get('name', '')}{upcast_info}!"
                 self.roll_callback("0d0", chat_msg)
             win.destroy()
             

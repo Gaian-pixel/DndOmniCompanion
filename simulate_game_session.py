@@ -569,12 +569,19 @@ def run_simulation():
             f_dmg, note, _, _ = apply_damage(test_target, 10, "Tagliente", gs)
             assert f_dmg == 5, f"Resistenza Ira Tagliente attesa 5, ottenuta {f_dmg}"
             test_target.conditions.remove("Ira")
+            test_target.hp = 20
+            test_target.conditions = []
             
             report["passed"].append("Resistenze, Immunità, Vulnerabilità e Ira Barbarica ai danni 5e")
             print(">> OK: Resistenze (0.5x), Immunità (0x), Vulnerabilità (2x) e Ira verificate!")
 
             # 10d. Azioni Standard 5e (Schivata & Aiuto)
             print("\n--- FASE 10d: Azioni Standard 5e (Schivata & Aiuto) ---")
+            gs.combat_active = True
+            p1_gui.combat_active = True
+            p2_gui.combat_active = True
+            p1_gui.action_spent = False
+            p2_gui.action_spent = False
             p1_gui.perform_dodge()
             pump_events(roots, dm_gui, client_guis, steps=5, delay=0.03)
             p1_obj = gs.find_player("Gildor")
@@ -586,6 +593,9 @@ def run_simulation():
             p2_gui.network.send(make_help_request("Gildor"))
             pump_events(roots, dm_gui, client_guis, steps=5, delay=0.03)
             assert "Aiutato" in getattr(p1_obj, "conditions", []), "Condizione Aiutato non applicata"
+            gs.combat_active = False
+            p1_gui.combat_active = False
+            p2_gui.combat_active = False
             
             report["passed"].append("Azioni Standard 5e: Schivata (Dodge) e Aiuto (Help)")
             print(">> OK: Schivata e Aiuto registrate e propagate con successo.")

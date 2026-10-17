@@ -927,6 +927,163 @@ class TestDndNewFeatures(unittest.TestCase):
         self.assertEqual(p1.full_sheet["conditions"], ["Avvelenato"])
         self.assertEqual(p2.conditions, [], "end_combat deve ripulire Aiutato dal bersaglio")
 
+    def test_class_resources_system(self):
+        """Testa le risorse di classe speciali (Ira, Ki, Ispirazione Bardica, ecc.) e recupero con riposi."""
+        # 1. Barbaro: Ira ricarica su Riposo Lungo
+        barb = Character(name="Conan")
+        barb.char_class = "Barbaro"
+        barb.level = 3
+        barb.auto_populate_class_resources()
+        self.assertTrue(any(r["name"] == "Ira (Rage)" for r in barb.custom_resources))
+        rage = next(r for r in barb.custom_resources if r["name"] == "Ira (Rage)")
+        self.assertEqual(rage["max"], 3)
+        self.assertEqual(rage["current"], 3)
+        self.assertEqual(rage["reset_on"], "long")
+        # Consuma 1 Ira
+        rage["current"] -= 1
+        barb.short_rest()
+        self.assertEqual(rage["current"], 2, "Ira non si ricarica con Riposo Breve")
+        barb.long_rest()
+        self.assertEqual(rage["current"], 3, "Ira si ricarica con Riposo Lungo")
+
+        # 2. Monaco: Punti Ki ricaricano su Riposo Breve
+        monk = Character(name="Lee")
+        monk.char_class = "Monaco"
+        monk.level = 5
+        monk.auto_populate_class_resources()
+        ki = next(r for r in monk.custom_resources if "Punti Ki" in r["name"])
+        self.assertEqual(ki["max"], 5)
+        self.assertEqual(ki["reset_on"], "short")
+        ki["current"] = 1
+        monk.short_rest()
+        self.assertEqual(ki["current"], 5, "I Punti Ki si ricaricano interamente con Riposo Breve")
+
+        # 3. Guerriero: Action Surge e Second Wind ricaricano su Riposo Breve
+        fighter = Character(name="Aragorn")
+        fighter.char_class = "Guerriero"
+        fighter.level = 4
+        fighter.auto_populate_class_resources()
+        surge = next(r for r in fighter.custom_resources if "Action Surge" in r["name"])
+        wind = next(r for r in fighter.custom_resources if "Secondo Fiato" in r["name"])
+        surge["current"] = 0
+        wind["current"] = 0
+        fighter.short_rest()
+        self.assertEqual(surge["current"], 1, "Action Surge recuperato con Riposo Breve")
+        self.assertEqual(wind["current"], 1, "Secondo Fiato recuperato con Riposo Breve")
+
+    def test_character_sheet_html_export(self):
+        """Testa la generazione del file HTML stampabile della scheda personaggio."""
+        c = Character(name="Gandalf")
+        c.char_class = "Mago"
+        c.race = "Umano"
+        c.level = 5
+        c.hp = 28
+        c.max_hp = 28
+        c.attributes["INT"] = 18
+        c.custom_resources = [{"name": "Punti Stregoneria", "current": 3, "max": 5, "reset_on": "long"}]
+        c.spellbook = [{"name": "Palla di Fuoco", "level": 3, "school": "Evocazione"}]
+
+        from client.character_sheet_ui import CharacterSheetUI
+        html = CharacterSheetUI._generate_character_html(c)
+        self.assertIn("Gandalf", html)
+        self.assertIn("Mago", html)
+        self.assertIn("Lv 5", html)
+        self.assertIn("Punti Stregoneria", html)
+        self.assertIn("Palla di Fuoco", html)
+        self.assertIn("<!DOCTYPE html>", html)
+
+    def test_creature_token_sizes_and_multipliers(self):
+        """Testa le taglie dei token (Tiny, Small, Medium, Large, Huge, Gargantuan) e il mapping visivo."""
+        SIZE_MAP = {
+            "tiny": 0.5, "minuscola": 0.5,
+            "small": 0.8, "piccola": 0.8,
+            "medium": 1.0, "media": 1.0,
+            "large": 1.8, "grande": 1.8,
+            "huge": 2.6, "enorme": 2.6,
+            "gargantuan": 3.5, "mastodontica": 3.5
+        }
+        self.assertEqual(SIZE_MAP["tiny"], 0.5)
+        self.assertEqual(SIZE_MAP["medium"], 1.0)
+        self.assertEqual(SIZE_MAP["large"], 1.8)
+        self.assertEqual(SIZE_MAP["huge"], 2.6)
+        self.assertEqual(SIZE_MAP["gargantuan"], 3.5)
+
+        p = Player(name="DragoRosso")
+        p.size = "huge"
+        d = p.to_dict()
+        self.assertEqual(d["size"], "huge")
+        p2 = Player.from_dict(d)
+        self.assertEqual(p2.size, "huge")
+
+    def test_gm_hidden_layer(self):
+        """Testa il Livello GM: i token nascosti sono filtrati per i giocatori e visibili solo al DM."""
+        p_normal = Player(name="Chierico")
+        p_normal.layer = "token"
+        p_secret = Player(name="AssassinoInvisibile")
+        p_secret.layer = "gm"
+
+        self.game_state.players = [p_normal, p_secret]
+
+        # 1. get_state_dict(is_dm=True) deve contenere entrambi i token
+        dm_state = self.game_state.get_state_dict(is_dm=True)
+        dm_player_names = [pl["name"] for pl in dm_state["players"]]
+        self.assertIn("Chierico", dm_player_names)
+        self.assertIn("AssassinoInvisibile", dm_player_names)
+
+        # 2. get_state_dict(is_dm=False) per i giocatori NON deve contenere il token del GM layer!
+        player_state = self.game_state.get_state_dict(is_dm=False)
+        player_names = [pl["name"] for pl in player_state["players"]]
+        self.assertIn("Chierico", player_names)
+        self.assertNotIn("AssassinoInvisibile", player_names, "Il token nel livello GM deve essere invisibile ai giocatori!")
+
+    def test_multi_grid_support(self):
+        """Testa il supporto multi-griglia (Quadrata, Esagonale, Gridless) e le formule di distanza."""
+        from common.hex_utils import SquareLayout, Hex, grid_distance
+
+        # 1. SquareLayout: coordinate e conversione pixel <-> grid
+        sq_layout = SquareLayout(size=50, origin=(0, 0))
+        h = Hex(2, 3)
+        px, py = sq_layout.hex_to_pixel(h)
+        self.assertEqual((px, py), (125.0, 175.0), "Il centro della cella (2, 3) deve essere (125, 175)")
+        recovered_hex = sq_layout.pixel_to_hex((px, py))
+        self.assertEqual(recovered_hex, h)
+
+        # 2. Distanza su griglia quadrata (Chebyshev / D&D 5e: diagonale costa 1 casella)
+        start = Hex(0, 0)
+        diag = Hex(3, 3)
+        self.assertEqual(grid_distance(start, diag, "square"), 3, "In D&D 5e su griglia quadrata una diagonale di 3 caselle è distanza 3")
+
+        # 3. Distanza su griglia libera (Euclidea)
+        euclid_dist = grid_distance(start, diag, "none")
+        self.assertAlmostEqual(euclid_dist, 4.2426, places=3)
+
+        # 4. Distanza su griglia esagonale (Cubo esagonale)
+        hex_dist = grid_distance(start, diag, "hex")
+        self.assertEqual(hex_dist, 6)
+
+    def test_whiteboard_drawing_and_clear_packets(self):
+        """Testa la lavagna condivisa: invio disegni e cancellazione sincronizzata."""
+        from server.rules.map_interaction import handle_draw_request, handle_clear_drawings_request
+        from common.protocol import make_clear_drawings_request, make_clear_drawings_broadcast
+
+        self.game_state.drawn_lines = []
+        p = Player(name="Disegnatore")
+
+        # 1. Aggiungi linea
+        handle_draw_request({"points": [(10, 10), (20, 20)], "color": "blue"}, p, self.game_state)
+        self.assertEqual(len(self.game_state.drawn_lines), 1)
+        self.assertEqual(self.game_state.drawn_lines[0]["color"], "blue")
+
+        # 2. Protocol helpers
+        req = make_clear_drawings_request()
+        self.assertEqual(req["type"], "CLEAR_DRAWINGS_REQUEST")
+        bcast = make_clear_drawings_broadcast()
+        self.assertEqual(bcast["type"], "CLEAR_DRAWINGS_BROADCAST")
+
+        # 3. Cancella linee
+        handle_clear_drawings_request({}, p, self.game_state)
+        self.assertEqual(self.game_state.drawn_lines, [], "handle_clear_drawings_request deve svuotare le linee disegnate")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -15,8 +15,49 @@ class Hex:
     def __hash__(self):
         return hash((self.q, self.r))
 
-    def distance(self, other: "Hex") -> int:
-        return hex_distance(self, other)
+    def __getitem__(self, item):
+        if item == 0:
+            return self.q
+        elif item == 1:
+            return self.r
+        elif item == 2:
+            return self.s
+        raise IndexError("Hex index out of range")
+
+    def distance(self, other: "Hex", grid_type: str = "hex") -> int:
+        return int(grid_distance(self, other, grid_type))
+
+class SquareLayout:
+    def __init__(self, size, origin=(0, 0)):
+        self.size = size
+        self.origin = origin
+
+    def hex_to_pixel(self, h: "Hex") -> tuple[float, float]:
+        """Convert grid cell (q, r) to pixel center coordinates."""
+        q = getattr(h, 'q', h[0])
+        r = getattr(h, 'r', h[1])
+        x = self.origin[0] + (q + 0.5) * self.size
+        y = self.origin[1] + (r + 0.5) * self.size
+        return x, y
+
+    def pixel_to_hex(self, p: tuple[float, float]) -> Hex:
+        """Convert pixel coordinates to grid cell (q, r)."""
+        px = p[0] - self.origin[0]
+        py = p[1] - self.origin[1]
+        q = int(math.floor(px / self.size))
+        r = int(math.floor(py / self.size))
+        return Hex(q, r)
+
+    def hex_corners(self, h: "Hex") -> list[tuple[float, float]]:
+        """Return 4 corner points of the square cell."""
+        cx, cy = self.hex_to_pixel(h)
+        half = self.size / 2.0
+        return [
+            (cx - half, cy - half),
+            (cx + half, cy - half),
+            (cx + half, cy + half),
+            (cx - half, cy + half)
+        ]
 
 class HexLayout:
     def __init__(self, size, origin):
@@ -59,8 +100,22 @@ def hex_round(q_frac, r_frac) -> Hex:
         r = -q - s
     return Hex(q, r)
 
+def grid_distance(a: Hex, b: Hex, grid_type: str = "hex") -> float:
+    aq = a.q if hasattr(a, 'q') else a[0]
+    ar = a.r if hasattr(a, 'r') else a[1]
+    bq = b.q if hasattr(b, 'q') else b[0]
+    br = b.r if hasattr(b, 'r') else b[1]
+    if grid_type == "square":
+        return max(abs(aq - bq), abs(ar - br))
+    elif grid_type in ("none", "gridless"):
+        return math.hypot(aq - bq, ar - br)
+    else:
+        as_ = a.s if hasattr(a, 's') else (-aq - ar)
+        bs_ = b.s if hasattr(b, 's') else (-bq - br)
+        return max(abs(aq - bq), abs(ar - br), abs(as_ - bs_))
+
 def hex_distance(a: Hex, b: Hex) -> int:
-    return max(abs(a.q - b.q), abs(a.r - b.r), abs(a.s - b.s))
+    return int(grid_distance(a, b, "hex"))
 
 def get_sphere_hexes(origin: Hex, radius: int) -> list[Hex]:
     results = []

@@ -27,19 +27,23 @@
 
 ## 🌟 Caratteristiche Principali
 
-### 🗺️ Virtual Tabletop (VTT) Esagonale & Multi-Scala
+### 🗺️ Virtual Tabletop (VTT) Multi-Griglia & Multi-Scala
+* **Supporto Multi-Griglia (Esagonale, Quadrata, Senza Griglia)**:
+  * **Griglia Esagonale (`hex`)**: La classica griglia tattica esagonale per avventure e dungeon.
+  * **Griglia a Scacchiera / Quadrata (`square`)**: Standard D&D 5e con **distanza di Chebyshev** (le diagonali contano come un passo da 5 ft / 1.5 m).
+  * **Senza Griglia (`none` / `gridless`)**: Mappe libere senza reticolo con distanze euclidee reali in pixel.
+  * **Selettore Griglia Live (`📐 Griglia: ...`)**: Il DM può cambiare la griglia al volo con 1 click.
 * **Navigazione Fluida e HUD Moderni**: Canvas infinito con zoom centrato sul cursore, panning con tasto destro/centrale, **HUD Glassmorphism** in basso a sinistra per zoom/centratura rapida e **Initiative Ribbon HUD** in alto al centro durante i combattimenti.
 * **Sistema Multi-Scala (DMG p. 14) & Righello Intelligente (`[ 📏 ]`)**:
-  * Supporta 4 scale mappa selezionabili in tempo reale dal DM (`📏 Scala`):
-    * **Combattimento**: $1\text{ esagono} = 5\text{ ft}$ ($1.5\text{ m}$).
-    * **Esplorazione / Provincia (POI)**: $1\text{ esagono} = 1\text{ mi}$ ($1.5\text{ km}$) con stima del tempo di marcia ($\sim 20\text{ min/hex}$).
-    * **Mondo / Regione**: $1\text{ esagono} = 6\text{ mi}$ ($9\text{ km}$) con stima del tempo di viaggio ($2\text{ h/hex}$, $4\text{ hex} = 1\text{ giorno}$).
-    * **Scala Personalizzata**: Valore e unità (`ft`, `m`, `mi`, `km`) configurabili per singola mappa.
-  * Il **Righello (`[ 📏 ]`)** calcola automaticamente la distanza nella scala della mappa attiva, nell'unità di misura scelta dall'utente e mostra il tempo di viaggio stimato sulle mappe d'esplorazione/regionali.
-* **Doppio Sistema di Unità di Misura (`📏 Unità di Misura`)**: Passaggio istantaneo a runtime tra **Sistema Imperiale (`Piedi / Miglia - ft / mi`)** e **Sistema Metrico (`Metri / Chilometri - m / km`)**, con conversione automatica di velocità del PG, distanze di movimento, righello e gittate.
-* **Nebbia di Guerra Dinamica (FoW) & Line of Sight (LoS)**: Esplorazione basata sui token con visione condivisa del party, raggio di scurovisione personalizzabile (`/vision`) e raycasting esagonale che blocca la vista attraverso i muri.
+  * Supporta 4 scale mappa selezionabili in tempo reale dal DM (`📏 Scala`): **Combattimento** ($5\text{ ft} / 1.5\text{ m}$), **Esplorazione** ($1\text{ mi} / 1.5\text{ km}$, $\sim 20\text{ min/hex}$), **Mondo** ($6\text{ mi} / 9\text{ km}$, $2\text{ h/hex}$), e **Scala Personalizzata**.
+  * Il **Righello (`[ 📏 ]`)** calcola automaticamente la distanza nella scala e nella griglia della mappa attiva, mostrando tempi di viaggio stimati per marce e viaggi.
+* **Doppio Sistema di Unità di Misura (`📏 Unità di Misura`)**: Passaggio istantaneo a runtime tra **Sistema Imperiale (`ft / mi`)** e **Sistema Metrico (`m / km`)**, con conversione automatica di velocità del PG, distanze di movimento, righello e gittate.
+* **Taglie Creature (Dimensioni Token)**: Scalatura visiva sul canvas per le 6 categorie 5e (da *Minuscola* $0.5\times$ a *Mastodontica* $3.5\times$) con menu rapido click destro.
+* **Livello Nascosto DM (GM Layer)**: Schiera mostri in imboscata o elementi segreti visibili solo al DM (semitrasparenti con anello viola e badge `[GM]`). Isolamento a livello di rete TCP (`GAME_STATE`, `PLAYER_JOINED`, `PLAYER_MOVE`) che impedisce qualunque fuga di dati verso i client dei giocatori.
+* **Nebbia di Guerra Dinamica (FoW) & Pennello Manuale**: Esplorazione con Line of Sight (LoS) automatica dei token, visione condivisa del party, scurovisione (`/vision`) e **Pennello Manuale FoW** (raggio 0–3) per rivelare o nascondere stanze con precisione.
+* **Lavagna Tattica Condivisa (`[ ✏️ ]` / `[ 🧹 ]`)**: Disegno a mano libera in tempo reale sincronizzato tra DM e giocatori, con pulsante di cancellazione rapida.
 * **Illuminazione Dinamica e Aure**: Torce, lanterne, incantesimi di luce e aure magiche proiettano anelli luminosi in tempo reale mentre i token si muovono.
-* **Template Incantesimi ad Area (`[ 💥 ]`)**: Sfere, Coni ($60^\circ / 90^\circ$) e Linee con anteprima geometrica sulla griglia esagonale.
+* **Template Incantesimi ad Area (`[ 💥 ]`)**: Sfere, Coni ($60^\circ / 90^\circ$) e Linee con anteprima geometrica sulla griglia.
 * **Ping Animato sulla Mappa**: Click centrale (o strumento `[ 📍 ]`) per inviare un indicatore visivo animato a tutti i giocatori.
 * **Badge Condizioni sui Token**: Indicatori visivi renderizzati direttamente sui token (`💀` Morto, `💤` Incosciente, `🔻` Prono, `⚡` Paralizzato/Concentrazione, `🛡️` Schivata, `🤝` Aiuto, `🤢` Avvelenato, `👁️` Accecato, ecc.).
 
@@ -58,15 +62,18 @@
 
 ### 🧙‍♂️ Creazione Personaggio, Scheda PG & Progressione
 * **Wizard Stile Baldur's Gate**: Creazione guidata al Livello 1 e Level-Up assistito con recupero automatico di privilegi di classe, dadi vita e slot incantesimo dal Compendio SRD 5e.
+* **Sistema Risorse di Classe Speciali**: Popolazione e tracciamento automatico di Punti Ki, Ira, Ispirazione Bardica, Forma Selvatica, Canale di Divinità, Azione Impetuosa, Secondo Fiato, Punti Stregoneria, ecc., con ricarica intelligente al Riposo Breve/Lungo.
 * **Hero Summary Card & Scheda Interattiva**:
   * Card riassuntiva sempre visibile nella sidebar con barra PV reattiva, CA, Velocità (in `ft` o `m`) e Iniziativa.
-  * Scheda completa divisa in tab: **Combattimento**, **Statistiche & Abilità** (con Competenza e Maestria $2\times\text{PB}$), **Armi & Attacchi**, **Inventario & Ingombro** ($\text{FOR} \times 15\text{ lbs}$), **Grimorio & Slot Incantesimo (1–9)**, **Privilegi & Diario**.
+  * Scheda completa divisa in tab: **Combattimento**, **Statistiche & Abilità** (con Competenza e Maestria $2\times\text{PB}$), **Armi & Attacchi**, **Inventario & Ingombro** ($\text{FOR} \times 15\text{ lbs}$), **Grimorio & Slot Incantesimo (1–9)** con dialog di **Upcasting**, **Privilegi & Diario**.
+* **Esportazione Scheda Personaggio (JSON e HTML Stampabile)**: Esportazione in 1 click in `.json` (backup/migrazione) o `.html` grafico pronto per la stampa o salvataggio PDF (`Ctrl+P`).
 * **Approvazione DM Anti-Cheat in Sessione**: Durante le sessioni online, l'aggiunta manuale di valuta o oggetti custom invia una richiesta di approvazione al DM (`🤝 Richiedi Valuta al DM`).
 * **Scambi Peer-to-Peer e Macro Hotbar**: Scambio diretto di oggetti/monete con gli alleati e barra rapida a 10 slot personalizzabili.
 
 ### 📜 Suite Operativa per il Dungeon Master
 * **Calcolatore Difficoltà Incontri Live (DMG p. 82)**: Valutazione in tempo reale (**Banale**, **Facile**, **Medio**, **Difficile**, **Mortale**) con moltiplicatori XP per numero di mostri.
 * **Gestore Campagne, Scene & Starter Pack**: Prepara atti, scene collegate a mappe/mostri da schierare con 1 click e configura l'equipaggiamento iniziale automatico per i nuovi PG.
+* **Esportazione Registro di Sessione**: Salva l'intera cronologia della sessione (tiri, eventi di combattimento, chat, sussurri) in formato Markdown (`.md`) o HTML da `File -> Esporta Registro di Sessione`.
 * **Generatori Procedurali & Handout**: Generatore di Bottino 5e, Generatore Rapido PNG, condivisione di immagini e documenti su pergamena.
 * **Manuali PDF Offline & Tavolozza Comandi (`Ctrl+K`)**: Ricerca istantanea su manuali PDF ufficiali indicizzati, regole, mostri, incantesimi e token.
 * **Viaggio, Calendario, Meteo, Negozi e Quest**: Ordine di marcia, ruoli di viaggio, razioni/acqua, marcia forzata, calendario fantasy interattivo, negozi e registro missioni.

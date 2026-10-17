@@ -27,19 +27,23 @@
 
 ## 🌟 Key Highlights
 
-### 🗺️ Multi-Scale Hex Virtual Tabletop (VTT)
+### 🗺️ Multi-Grid & Multi-Scale Virtual Tabletop (VTT)
+* **Multi-Grid Geometries (Hexagonal, Square, Gridless)**:
+  * **Hex Grid (`hex`)**: Classic tactical hex grid for wilderness and dungeons.
+  * **Square Grid (`square`)**: Standard 5e dungeon battlemap grid using official **Chebyshev distance** (diagonal steps count as 5 ft / 1 cell).
+  * **Gridless Mode (`none` / `gridless`)**: Freeform placement on illustrative battlemaps with exact Euclidean pixel distance.
+  * **Live Grid Switcher (`📐 Grid: ...`)**: DM can switch grid geometry on the fly with 1 click.
 * **Smooth Navigation & Modern HUDs**: Infinite canvas with cursor-centered mouse-wheel zoom, right/middle-click panning, a bottom-left **Glassmorphism HUD** for quick zoom/recentering, and a top-center **Initiative Ribbon HUD** during combat.
 * **Multi-Scale Map System (DMG p. 14) & Scale-Aware Ruler (`[ 📏 ]`)**:
-  * Supports 4 map scales switchable in real time by the DM (`📏 Scale`):
-    * **Combat**: $1\text{ hex} = 5\text{ ft}$ ($1.5\text{ m}$).
-    * **Exploration / Province (POI)**: $1\text{ hex} = 1\text{ mi}$ ($1.5\text{ km}$) with marching travel-time estimation ($\sim 20\text{ min/hex}$).
-    * **World / Kingdom**: $1\text{ hex} = 6\text{ mi}$ ($9\text{ km}$) with overland travel-time estimation ($2\text{ h/hex}$, $4\text{ hexes} = 1\text{ day}$).
-    * **Custom Scale**: Configurable value and unit (`ft`, `m`, `mi`, `km`) per map.
-  * The **Ruler (`[ 📏 ]`)** automatically computes distances according to the active map scale and the user's selected measurement system, displaying estimated travel times on exploration and world maps.
-* **Dual Distance Unit System (`📏 Distance Units`)**: Instant runtime switching between **Imperial (`Feet / Miles - ft / mi`)** and **Metric (`Meters / Kilometers - m / km`)**, automatically converting character speed badges, movement bars, ruler readouts, and ranges.
-* **Dynamic Fog of War (FoW) & Line of Sight (LoS)**: Token-based exploration with shared party vision, customizable darkvision radii (`/vision`), and hex raycasting that blocks sight through collision walls.
-* **Dynamic Lighting & Auras**: Torches, lanterns, light spells, and magical auras project live rings on the canvas as tokens move.
-* **AoE Spells & Templates (`[ 💥 ]`)**: Spheres, Cones ($60^\circ / 90^\circ$), and Lines with geometric hex previews and 1-click casting.
+  * Supports 4 map scales switchable in real time by the DM (`📏 Scale`): **Combat** ($5\text{ ft} / 1.5\text{ m}$), **Exploration** ($1\text{ mi} / 1.5\text{ km}$, $\sim 20\text{ min/hex}$), **World** ($6\text{ mi} / 9\text{ km}$, $2\text{ h/hex}$), and **Custom Scale**.
+  * The **Ruler (`[ 📏 ]`)** computes distances according to active scale, grid type, and measurement units with overland travel time estimations.
+* **Dual Distance Unit System (`📏 Distance Units`)**: Instant runtime switching between **Imperial (`ft / mi`)** and **Metric (`m / km`)**, automatically converting character speed badges, movement bars, ruler readouts, and ranges.
+* **Creature Token Sizes (Tiny to Gargantuan)**: Native visual radius scaling for the 6 official 5e size categories ($0.5\times$ to $3.5\times$) with quick right-click sizing.
+* **DM Hidden Layer (GM Layer)**: Place ambushing monsters or secret tokens visible only to the DM (semi-transparent with dashed purple ring and `[GM]` badge). Filtered at the network protocol level (`GAME_STATE`, `PLAYER_JOINED`, `PLAYER_MOVE`) to guarantee zero client-side data leaks.
+* **Dynamic Fog of War (FoW) & Manual Brush**: Automated token Line of Sight (LoS) exploration, shared party vision, customizable darkvision (`/vision`), and a **Manual FoW Brush** (radius 0–3) to reveal or shroud rooms in seconds.
+* **Shared Tactical Whiteboard (`[ ✏️ ]` / `[ 🧹 ]`)**: Freehand sketching on the live map canvas broadcast to all players in real time with instant clearing.
+* **Dynamic Lighting & Auras**: Live light halos (torches, lanterns) and magical aura rings.
+* **AoE Spells & Templates (`[ 💥 ]`)**: Spheres, Cones ($60^\circ / 90^\circ$), and Lines with geometric grid previews and 1-click casting.
 * **Animated Map Ping**: Middle-click (or `[ 📍 ]` tool) to drop an animated broadcast marker for all connected players.
 * **Token Condition Badges**: Visual status indicators rendered directly on tokens (`💀` Dead, `💤` Unconscious, `🔻` Prone, `⚡` Paralyzed/Concentration, `🛡️` Dodge, `🤝` Help, `🤢` Poisoned, `👁️` Blinded, etc.).
 
@@ -58,15 +62,18 @@
 
 ### 🧙‍♂️ Character Creation, Sheet & Progression
 * **Baldur's Gate Styled Wizard**: Guided Level 1 creation and Level-Up wizard with automatic SRD 5e class features, Hit Dice, and spell slot progression.
+* **Special Class Resources System**: Automatic population and tracking of Ki Points, Rage, Bardic Inspiration, Wild Shape, Channel Divinity, Action Surge, Second Wind, Sorcery Points, etc., with automated Short/Long Rest recovery.
 * **Hero Summary Card & Interactive Character Sheet**:
   * Always-visible sidebar summary card with responsive HP bar, AC, converted Speed (`ft` or `m`), and Initiative.
-  * Full tabbed sheet: **Combat**, **Stats & Skills** (with Proficiency & Expertise $2\times\text{PB}$), **Weapons & Attacks**, **Inventory & Encumbrance** ($\text{STR} \times 15\text{ lbs}$), **Spellbook & Spell Slots (1–9)**, **Features & Journal**.
-* **Online Anti-Cheat & DM Approval**: During live connected sessions, requesting currency (`🤝 Request Currency from DM`) or adding custom items sends an approval request to the DM.
+  * Full tabbed sheet: **Combat**, **Stats & Skills** (with Proficiency & Expertise $2\times\text{PB}$), **Weapons & Attacks**, **Inventory & Encumbrance** ($\text{STR} \times 15\text{ lbs}$), **Spellbook & Spell Slots (1–9)** with **Spell Upcasting** modal, **Features & Journal**.
+* **Character Sheet Export (JSON & Printable HTML)**: 1-click export to `.json` for backup and migration, or `.html` for high-quality printing and PDF generation (`Ctrl+P`).
+* **Online Anti-Cheat & DM Approval**: Requesting currency (`🤝 Request Currency from DM`) or adding custom items requires DM authorization.
 * **Peer-to-Peer Trading & Macro Hotbar**: Direct item/gold transfers between allies and a 10-slot customizable quick macro bar.
 
 ### 📜 Dungeon Master Operations Suite
 * **Live DMG p. 82 Encounter Balancer**: Real-time evaluation of encounter difficulty (**Trivial**, **Easy**, **Medium**, **Hard**, **Deadly**) with monster count XP multipliers.
 * **Campaigns, Scenes & Starter Pack Manager**: Prepare acts, scenes linked to maps/monsters for 1-click deployment, and configure starting equipment automatically granted to new PCs.
+* **Session Log / Chronicle Export**: Export complete session logs (rolls, tactical actions, chat, whispers) to Markdown (`.md`) or HTML from `File -> Export Session Log`.
 * **Procedural Generators & Handouts**: 5e Loot Generator, Quick NPC Generator, and parchment document/image handouts.
 * **Offline PDF Rulebooks & Command Palette (`Ctrl+K`)**: Instant search across indexed official 5e PDF rulebooks, rules, monsters, spells, and map tokens.
 * **Overland Travel, Calendar, Weather, Shops & Quests**: Marching order, travel roles, rations/water, forced march saves, interactive fantasy calendar, merchant shops, and quest logs.

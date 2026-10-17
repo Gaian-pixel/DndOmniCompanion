@@ -39,6 +39,7 @@ class Player:
         self.speed_unit = None
         self.movement_spent_this_turn = 0
         self.has_acted_this_turn = False
+        self.layer = "token"
 
     def to_dict(self):
         return {
@@ -72,7 +73,8 @@ class Player:
             "is_party_member": getattr(self, "is_party_member", False),
             "owner": getattr(self, "owner", None),
             "speed": getattr(self, "speed", 30),
-            "speed_unit": getattr(self, "speed_unit", None)
+            "speed_unit": getattr(self, "speed_unit", None),
+            "layer": getattr(self, "layer", "token")
         }
 
     @classmethod
@@ -107,6 +109,7 @@ class Player:
         p.owner = data.get("owner", None)
         p.speed = data.get("speed", 30)
         p.speed_unit = data.get("speed_unit", None)
+        p.layer = data.get("layer", "token")
         return p
 
 class GameState:
@@ -297,16 +300,22 @@ class GameState:
         with self.lock:
             return self.players[:]
 
-    def get_state_dict(self):
+    def get_state_dict(self, is_dm=True):
         """Restituisce una rappresentazione dell'intero stato del gioco come dizionario."""
         with self.lock:
+            players_data = []
+            for p in self.players:
+                if not is_dm and getattr(p, "layer", "token") == "gm":
+                    continue
+                players_data.append(p.to_dict())
             return {
-                "players": [p.to_dict() for p in self.players],
+                "players": players_data,
                 "map": self.current_map,
                 "combat_active": self.combat_active,
                 "turn_index": self.turn_index,
                 "round_number": self.round_number,
                 "active_aoes": self.active_aoes,
+                "drawn_lines": getattr(self, "drawn_lines", []),
                 "time_day": getattr(self, 'time_day', 1),
                 "time_month": getattr(self, 'time_month', 1),
                 "time_year": getattr(self, 'time_year', 1492),

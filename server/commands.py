@@ -43,4 +43,5 @@ command_handlers = {
     "SPEND_LEGENDARY_ACTION_REQUEST": handle_spend_legendary_action_request,
     "CURRENCY_REQUEST": handle_currency_request,
     "ITEM_APPROVAL_REQUEST": handle_item_approval_request,
+    "CLEAR_DRAWINGS_REQUEST": handle_clear_drawings_request,
 }

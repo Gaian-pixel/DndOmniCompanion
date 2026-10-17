@@ -87,10 +87,13 @@ flowchart TD
 ```
 
 ### Core Subsystems
-* **`common/network_utils.py` & `common/protocol.py`**: Custom binary-length-prefixed framing over TCP socket streams, ensuring zero JSON chunk fragmentation regardless of network latency or payload size.
-* **`common/hex_utils.py`**: Cubic coordinate system ($q, r, s$ where $q + r + s = 0$) for high-precision distance calculations, line of sight (LoS) raycasting, cone projection ($60^\circ / 90^\circ$), spheres, and straight-line AoEs.
-* **`server/rules/`**: Decoupled 5e rule modules isolating combat (`combat.py`), movement (`movement.py`), character damage/death (`character.py`), chat commands (`chat.py`), inventory/trading (`inventory.py`), map interactions (`map_interaction.py`), and audio (`audio.py`).
-* **`common/i18n.py`**: Real-time bilingual translation dictionary (`IT`/`EN`), Imperial/Metric unit conversion (`ft`/`mi` $\leftrightarrow$ `m`/`km`), and multi-scale map distance/travel-time calculation.
+* **`common/network_utils.py` & `common/protocol.py`**: Custom binary-length-prefixed framing over TCP socket streams, ensuring zero JSON chunk fragmentation regardless of network latency or payload size. Includes **GM Layer Protocol Filtering** (the server automatically excludes tokens with `layer == "gm"` when broadcasting `GAME_STATE`, `PLAYER_JOINED`, and `PLAYER_MOVE` to regular player sockets) and whiteboard protocol messages (`CLEAR_DRAWINGS_REQUEST`, `CLEAR_DRAWINGS_BROADCAST`).
+* **`common/hex_utils.py`**: Mathematical engine for geometric grids:
+  * Cubic coordinate system ($q, r, s$ where $q + r + s = 0$) with `HexLayout` for hexagonal maps, line of sight (LoS) raycasting, cone projections ($60^\circ / 90^\circ$), spheres, and straight-line AoEs.
+  * `SquareLayout` for chess/square dungeon battlemaps and pixel $\leftrightarrow$ cell conversion.
+  * Polymorphic `grid_distance(a, b, grid_type)` function supporting Chebyshev distance (standard 5e rule where diagonals cost 5 ft / 1 cell), cubic hex distance, and Euclidean distance for gridless maps (`none`/`gridless`).
+* **`server/rules/`**: Decoupled 5e rule modules isolating combat (`combat.py`), movement (`movement.py`), character damage/death (`character.py`), chat commands (`chat.py`), inventory/trading (`inventory.py`), map & whiteboard interactions (`map_interaction.py`), and audio (`audio.py`).
+* **`common/i18n.py`**: Real-time bilingual translation dictionary (`IT`/`EN`), Imperial/Metric unit conversion (`ft`/`mi` $\leftrightarrow$ `m`/`km`), localization of token sizes, GM layer, whiteboard tools, and multi-scale map distance/travel-time calculation.
 
 ---
 
@@ -131,26 +134,35 @@ Both the DM and Player interfaces are built with **ttkbootstrap** in modern dark
 
 ## 4. Dungeon Master (DM) Operations
 
-### Map Management, Multi-Scale Grid & Scale-Aware Ruler
-* **Loading Maps**: Navigate to `File -> Carica Mappa` (or `Load Map`). Supported formats: `.png`, `.jpg`, `.jpeg`, `.json`.
+### Map Management, Multi-Grid & Scale-Aware Ruler
+* **Loading Maps**: Navigate to `File -> Load Map`. Supported formats: `.png`, `.jpg`, `.jpeg`, `.json`.
+* **Multi-Grid Geometry Engine (Hex, Square, Gridless)**:
+  * **Hexagonal Grid (`hex`)**: cubic coordinate math with flat-topped and pointy-topped layouts.
+  * **Square Grid (`square`)**: matrix layout using official D&D 5e **Chebyshev distance** (diagonal steps cost a standard 5 ft / 1 cell).
+  * **Gridless Mode (`none` / `gridless`)**: suppresses on-screen grid lines for pictorial artwork; tokens move freely calculating true Euclidean distance.
+  * **Live Grid Switcher (`📐 Grid: ...`)**: top status bar button allowing the DM to switch the active map's grid type live during session.
 * **Multi-Scale Map Engine (DMG p. 14)**:
   * **Combat Scale** (`hex_size=30` or `60`): $1\text{ hex} = 5\text{ ft}$ ($1.5\text{ m}$).
   * **Exploration / Province Scale** (`hex_size=35`): $1\text{ hex} = 1\text{ mi}$ ($1.5\text{ km}$, $\sim 20\text{ min}$ marching/hex).
   * **World / Kingdom Scale** (`hex_size=15`): $1\text{ hex} = 6\text{ mi}$ ($9\text{ km}$, $2\text{ hours}$ marching/hex; $4\text{ hexes} = 1\text{ day}$).
   * **Custom Scale**: Any custom distance value and unit (`ft`, `m`, `mi`, `km`) per hex.
-  * **Quick Scale Switcher (`📏 Scala`)**: Click the scale pill in the DM top bar to switch the active map's scale on the fly and broadcast it live to all connected players.
-* **Map Editor**: Choose `Strumenti -> Editor Mappe` to configure:
-  * Hex grid radius, offset, and map scale (`map_scale_type`, `hex_scale_value`, `hex_scale_unit`).
-  * Static collision walls (blocks movement and Line of Sight).
-  * Traps and secret triggers.
-  * Teleportation points between different map files.
-  * Pre-placed Points of Interest (POIs) and Light sources.
+  * **Quick Scale Switcher (`📏 Scale`)**: Click the scale pill in the DM top bar to switch the active map's scale on the fly and broadcast it live to all connected players.
+* **Map Editor**: Choose `Tools -> Map Editor` to configure grid radius, grid geometry type (`grid_type`), offset, scale, static walls, traps, portals, and lights.
 
-### Fog of War, Dynamic Lighting & Line of Sight
-* **Dynamic Fog of War (FoW)**: The canvas automatically conceals unexplored hexes for players.
-* **Shared Party Vision**: As any party token moves, hexes within its vision radius are revealed.
-* **Dynamic Lighting**: Tokens carrying light sources (e.g., Torches: 20 ft bright / 20 ft dim; Lanterns: 30 ft bright / 30 ft dim) illuminate hexes dynamically for all players in real time.
-* **True Line of Sight (LoS)**: Hex raycasting evaluates line-of-sight against walls (`wall_hexes`). Tokens behind impenetrable walls cannot be seen or targeted through FoW.
+### Fog of War, Manual Brush, Dynamic Lighting & Line of Sight
+* **Dynamic Fog of War (FoW)**: The canvas automatically conceals unexplored cells for players.
+* **Manual FoW Brush (`Radius: 0, 1, 2, 3`)**: In the FoW control bar (`[ ☁️ ]`), the DM can select a brush radius and left-click (reveal) or right-click (hide) to paint or restore fog across contiguous circular areas.
+* **Shared Party Vision**: As any party token moves, cells within its vision radius are revealed.
+* **Dynamic Lighting**: Tokens carrying light sources (e.g., Torches: 20 ft bright / 20 ft dim; Lanterns: 30 ft bright / 30 ft dim) illuminate dynamically in real time.
+* **True Line of Sight (LoS)**: Geometric raycasting evaluates line-of-sight against walls (`wall_hexes`). Tokens behind impenetrable walls cannot be seen through FoW.
+
+### Creature Token Sizes & DM Hidden Layer (GM Layer)
+* **Official 5e Creature Token Sizes**: Full support for the 6 standard categories (**Tiny**, **Small**, **Medium**, **Large**, **Huge**, **Gargantuan**), with visual canvas radius scaling from $0.5\times$ to $3.5\times$. Configurable via right-click $\rightarrow$ `Creature Size`.
+* **DM Hidden Layer (GM Layer)**:
+  * Conceals monster or trap tokens from player clients.
+  * DM Rendering: token renders semi-transparently with a dashed purple ring and a `[GM]` badge.
+  * Network Security Filter: at the TCP protocol layer (`network_utils.py` and `game_state.py`), `GAME_STATE`, `PLAYER_JOINED`, and `PLAYER_MOVE` packets systematically filter out `layer == "gm"` tokens for non-DM sockets, eliminating metagame data leaks.
+  * Toggle via right-click on token $\rightarrow$ `👁️ GM Layer`.
 
 ### Traps, Hazards & Portals (Teleports)
 * **Traps**: When a token enters a trap hex, the server:
@@ -193,6 +205,10 @@ Both the DM and Player interfaces are built with **ttkbootstrap** in modern dark
 ### Audio Soundboard
 * The `Audio/Sfx` tab provides instant atmospheric soundscape broadcast buttons (e.g., Tavern, Battle, Dungeon Ambience) played synchronously on client browsers/media players.
 
+### Shared Tactical Whiteboard & Session Log Export
+* **Tactical Whiteboard (`[ ✏️ ]` / `[ 🗑️ ]`)**: real-time freehand sketching broadcast live to all clients. Instant clear button with TCP broadcast.
+* **Session Log Export (`File -> 📜 Export Session Log...`)**: export the entire session transcript (dice rolls, combat events, chat, whispers) into formatted Markdown (`.md`) or HTML.
+
 ---
 
 ## 5. Player Operations
@@ -211,8 +227,14 @@ Organized in clean tabs:
 * **Combat Tab**: Current/Max HP, Temp HP, Armor Class, Speed, Initiative bonus, Active Conditions with visual status badges, Death Saves, Hit Dice tracker.
 * **Stats & Skills Tab**: Six core ability scores, saving throw proficiencies, passive perception, and all 18 skill proficiencies with automatic modifier computation.
 * **Inventory Tab**: Grid-based inventory with item weights, quantity, attuned items, and total weight vs carrying capacity ($\text{STR} \times 15\text{ lbs}$).
-* **Spellbook Tab**: Level 1 to 9 spell slots with current/max counters, spell search, and 1-click casting with automatic slot deduction.
-* **Features & Traits**: Racial traits, class privileges, feats, and custom notes.
+* **Spellbook Tab**: Level 1 to 9 spell slots with current/max counters, spell search, modal **Spell Upcasting**, and 1-click casting with automatic slot deduction.
+* **Features & Traits**: Racial traits, class privileges, **Special Class Resources** tracker, feats, and custom notes.
+
+### Special Class Resources System
+* **Class Automation**: When creating a character or leveling up, standard 5e class resources are automatically populated (e.g., *Ki Points*, *Rage*, *Bardic Inspiration*, *Wild Shape*, *Channel Divinity*, *Action Surge*, *Second Wind*, *Sorcery Points*, *Lay on Hands*).
+* **Interactive Adjusters**: Quick `[-]` / `[+]` counter buttons to expend or replenish charges live during play.
+* **Custom Resources**: Add custom resource pools with Name, Max Value, and Recovery Rule (*Short Rest* vs *Long Rest*).
+* **Automated Rest Recovery**: Triggering a Short Rest or Long Rest automatically resets only the resources configured for that rest duration.
 
 ### Combat Actions & Context-Aware 5e Turn Economy
 The Player Action Economy panel automatically adapts to whether combat is active:
@@ -246,10 +268,15 @@ The Player Action Economy panel automatically adapts to whether combat is active
 * If total inventory weight exceeds carrying capacity, the weight counter turns red with an **Ingombrato (Encumbered)** warning.
 * **Online DM Approval**: During live connected sessions, adding custom items or requesting gold (`🤝 Request Currency from DM`) sends an approval prompt to the DM (`CURRENCY_REQUEST` / `ITEM_APPROVAL_REQUEST`).
 
-### Spellbook & Spell Slot Management
+### Spellbook, Slot Management & Spell Upcasting
 * Add spells using the built-in SRD browser.
-* Clicking **Lancia** (Cast) checks if a slot is available, decrements the slot, announces the spell in chat, and prompts saving throws or damage rolls to affected targets.
+* **Automatic Upcasting**: Clicking **Cast** on a 1st+ level spell opens a modal selector displaying all available slots up to 9th level. Choosing a higher-level slot consumes that slot and broadcasts the cast announcement with both base and upcast levels.
 * **Long Rest** restores all spell slots to maximum.
+
+### Character Sheet Export (JSON & Printable HTML)
+* Click **`💾 Export Sheet`** at the top of the character sheet:
+  * **JSON**: Raw structured data for backup, editing, and campaign import/export.
+  * **Printable HTML**: Fully styled standalone D&D 5e character sheet ready for browser viewing, direct printing, or PDF saving (`Ctrl+P`).
 
 ### Peer-to-Peer Player Trading
 * Open player trade via the context menu or inventory tab.
