@@ -83,6 +83,8 @@ def get_default_template_path() -> Optional[str]:
         os.path.join(current_dir, "..", "dnd_blankcharactersheet_it.pdf"),
         os.path.join(current_dir, "dnd_blankcharactersheet_it.pdf"),
         os.path.abspath("dnd_blankcharactersheet_it.pdf"),
+        os.path.expanduser(r"~\Downloads\dnd_blankcharactersheet_it.pdf"),
+        r"C:\Users\gaian\Downloads\dnd_blankcharactersheet_it.pdf",
     ]
     for path in candidates:
         if os.path.isfile(path):
@@ -106,7 +108,12 @@ def _draw_wrapped_lines(can: "canvas.Canvas", text: str, x: float, start_y: floa
     for para in paragraphs:
         words = para.strip().split()
         if not words:
-            current_y -= line_height * 0.7
+            # Riga vuota: avanza esattamente di 1.0 * line_height per rimanere
+            # perfettamente sincronizzati con la griglia rigata del template ufficiale
+            current_y -= line_height
+            lines_drawn += 1
+            if lines_drawn >= max_lines:
+                return current_y
             continue
         
         current_line = []
@@ -335,7 +342,7 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
     if not prof_langs_text:
         prof_langs_text.append("Competenze standard armi e armature di classe.")
 
-    _draw_wrapped_lines(can, "\n".join(prof_langs_text), 40, 142, 150, 9.5, max_lines=11, font_size=7.5)
+    _draw_wrapped_lines(can, "\n".join(prof_langs_text), 27, 156.9, 168, 11.0, max_lines=12, font_size=7.5)
 
     # 8. Valori di Combattimento (CA, Iniziativa, Velocità)
     ac = data.get("ac", 10 + mods.get("DES", 0))
@@ -391,7 +398,7 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
     # 11. Attacchi & Incantesimi
     weapons = data.get("weapons", [])
     if isinstance(weapons, list):
-        attack_rows_y = [385, 370, 355]
+        attack_rows_y = [386.5, 366.0, 345.5]
         for idx, w in enumerate(weapons[:3]):
             y_r = attack_rows_y[idx]
             w_name = str(w.get("name", "Arma"))[:14]
@@ -404,7 +411,7 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
             can.setFont("Helvetica-Bold", 8)
             can.drawString(216, y_r, w_name)
             can.setFont("Helvetica", 8)
-            can.drawCentredString(298, y_r, b_str)
+            can.drawCentredString(299, y_r, b_str)
             can.drawString(322, y_r, dmg_str)
 
     # Note attacco aggiuntive (armi oltre le prime 3, resistenze, immunità)
@@ -420,17 +427,17 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
         extra_atk_lines.append(f"Immunità: {imm}")
 
     if extra_atk_lines:
-        _draw_wrapped_lines(can, "\n".join(extra_atk_lines), 216, 335, 160, 9.0, max_lines=9, font_size=7)
+        _draw_wrapped_lines(can, "\n".join(extra_atk_lines), 214, 332.9, 172, 11.0, max_lines=8, font_size=7.5)
 
     # 12. Monete (MR, MA, ME, MO, MP)
     curr = data.get("currency", {})
     if isinstance(curr, dict):
         can.setFont("Helvetica-Bold", 8)
-        can.drawCentredString(228, 179, str(curr.get("MR", 0)))
-        can.drawCentredString(228, 153, str(curr.get("MA", 0)))
-        can.drawCentredString(228, 127, str(curr.get("ME", 0)))
-        can.drawCentredString(228, 101, str(curr.get("MO", 0)))
-        can.drawCentredString(228, 75, str(curr.get("MP", 0)))
+        can.drawCentredString(237.3, 179.5, str(curr.get("MR", 0)))
+        can.drawCentredString(237.3, 153.5, str(curr.get("MA", 0)))
+        can.drawCentredString(237.3, 127.5, str(curr.get("ME", 0)))
+        can.drawCentredString(237.3, 101.5, str(curr.get("MO", 0)))
+        can.drawCentredString(237.3, 75.5, str(curr.get("MP", 0)))
 
     # 13. Equipaggiamento / Inventario
     inv_items = []
@@ -454,7 +461,7 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
             inv_items.extend(raw_inv.split("\n"))
 
     if inv_items:
-        _draw_wrapped_lines(can, "\n".join(inv_items), 256, 195, 118, 8.5, max_lines=18, font_size=7)
+        _draw_wrapped_lines(can, "\n".join(inv_items), 260, 189.9, 124, 11.0, max_lines=15, font_size=7.5)
 
     # 14. Colonna destra (Tratti, Ideali, Legami, Difetti)
     traits = data.get("personality_traits", "") or data.get("traits", "")
@@ -462,10 +469,10 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
     bonds = data.get("bonds", "")
     flaws = data.get("flaws", "")
 
-    _draw_wrapped_lines(can, str(traits), 410, 630, 150, 9.0, max_lines=5, font_size=7.5)
-    _draw_wrapped_lines(can, str(ideals), 410, 575, 150, 9.0, max_lines=4, font_size=7.5)
-    _draw_wrapped_lines(can, str(bonds), 410, 520, 150, 9.0, max_lines=4, font_size=7.5)
-    _draw_wrapped_lines(can, str(flaws), 410, 465, 150, 9.0, max_lines=4, font_size=7.5)
+    _draw_wrapped_lines(can, str(traits), 410, 642.8, 156, 12.5, max_lines=4, font_size=7.5)
+    _draw_wrapped_lines(can, str(ideals), 410, 573.7, 156, 12.5, max_lines=3, font_size=7.5)
+    _draw_wrapped_lines(can, str(bonds), 410, 518.4, 156, 12.5, max_lines=3, font_size=7.5)
+    _draw_wrapped_lines(can, str(flaws), 410, 462.8, 156, 12.5, max_lines=3, font_size=7.5)
 
     # 15. Privilegi e Tratti (Features & Traits - Colonna destra inferiore)
     features_lines = []
@@ -490,7 +497,7 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
             features_lines.append(f"• {f}")
 
     if features_lines:
-        _draw_wrapped_lines(can, "\n".join(features_lines), 410, 405, 150, 9.0, max_lines=38, font_size=7)
+        _draw_wrapped_lines(can, "\n".join(features_lines), 404, 398.9, 170, 11.0, max_lines=34, font_size=7.5)
 
     can.showPage()
 
@@ -512,26 +519,26 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
 
     # Aspetto Personaggio
     appearance = data.get("appearance", "")
-    _draw_wrapped_lines(can, str(appearance), 45, 640, 160, 9.5, max_lines=18, font_size=7.5)
+    _draw_wrapped_lines(can, str(appearance), 35, 650, 150, 10.0, max_lines=21, font_size=7.5)
 
     # Alleati & Organizzazioni
     allies = data.get("allies", "")
     campaign_info = data.get("campaign", "")
     if campaign_info and campaign_info != "Nessuna Campagna":
         allies = f"Campagna: {campaign_info}\n" + str(allies)
-    _draw_wrapped_lines(can, str(allies), 225, 640, 160, 9.5, max_lines=18, font_size=7.5)
+    _draw_wrapped_lines(can, str(allies), 214, 654.6, 168, 11.0, max_lines=20, font_size=7.5)
 
     # Tratti e Privilegi Aggiuntivi
     add_traits = data.get("additional_traits", "") or data.get("notes", "")
-    _draw_wrapped_lines(can, str(add_traits), 225, 420, 340, 9.5, max_lines=18, font_size=7.5)
+    _draw_wrapped_lines(can, str(add_traits), 214, 412.5, 352, 11.0, max_lines=19, font_size=7.5)
 
     # Storia del Personaggio (Backstory)
     backstory = data.get("backstory", "") or data.get("journal_notes", "")
-    _draw_wrapped_lines(can, str(backstory), 45, 420, 160, 9.5, max_lines=36, font_size=7.5)
+    _draw_wrapped_lines(can, str(backstory), 25, 401.5, 166, 11.0, max_lines=34, font_size=7.5)
 
     # Tesoro
     treasure = data.get("treasure", "")
-    _draw_wrapped_lines(can, str(treasure), 225, 195, 340, 9.5, max_lines=14, font_size=7.5)
+    _draw_wrapped_lines(can, str(treasure), 214, 181.5, 352, 11.0, max_lines=14, font_size=7.5)
 
     can.showPage()
 
@@ -549,28 +556,28 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
     if not spell_ability:
         spell_ability = CLASS_SPELLCASTING_ABILITY.get(str(char_class).lower(), "INT")
 
-    can.drawCentredString(285, 718, str(spell_ability))
+    can.drawCentredString(308, 718, str(spell_ability))
 
     spell_mod = mods.get(spell_ability, 0)
     spell_dc = 8 + prof_bonus + spell_mod
     spell_atk = prof_bonus + spell_mod
     atk_str = f"+{spell_atk}" if spell_atk >= 0 else str(spell_atk)
 
-    can.drawCentredString(385, 718, str(spell_dc))
-    can.drawCentredString(485, 718, atk_str)
+    can.drawCentredString(411, 718, str(spell_dc))
+    can.drawCentredString(513, 718, atk_str)
 
     # 2. Configurazione Colonne e Livelli Incantesimo
     level_sections = {
-        0: {"x": 42, "prep_x": None, "y_start": 615, "max_items": 8, "has_slots": False},
-        1: {"x": 56, "prep_x": 45, "y_start": 425, "max_items": 12, "has_slots": True, "slot_tot_x": 68, "slot_tot_y": 463, "slot_spd_x": 115, "slot_spd_y": 463},
-        2: {"x": 56, "prep_x": 45, "y_start": 195, "max_items": 13, "has_slots": True, "slot_tot_x": 68, "slot_tot_y": 234, "slot_spd_x": 115, "slot_spd_y": 234},
-        3: {"x": 244, "prep_x": 233, "y_start": 590, "max_items": 13, "has_slots": True, "slot_tot_x": 256, "slot_tot_y": 630, "slot_spd_x": 303, "slot_spd_y": 630},
-        4: {"x": 244, "prep_x": 233, "y_start": 365, "max_items": 13, "has_slots": True, "slot_tot_x": 256, "slot_tot_y": 404, "slot_spd_x": 303, "slot_spd_y": 404},
-        5: {"x": 244, "prep_x": 233, "y_start": 140, "max_items": 9, "has_slots": True, "slot_tot_x": 256, "slot_tot_y": 178, "slot_spd_x": 303, "slot_spd_y": 178},
-        6: {"x": 432, "prep_x": 421, "y_start": 590, "max_items": 9, "has_slots": True, "slot_tot_x": 443, "slot_tot_y": 630, "slot_spd_x": 490, "slot_spd_y": 630},
-        7: {"x": 432, "prep_x": 421, "y_start": 420, "max_items": 9, "has_slots": True, "slot_tot_x": 443, "slot_tot_y": 460, "slot_spd_x": 490, "slot_spd_y": 460},
-        8: {"x": 432, "prep_x": 421, "y_start": 250, "max_items": 7, "has_slots": True, "slot_tot_x": 443, "slot_tot_y": 290, "slot_spd_x": 490, "slot_spd_y": 290},
-        9: {"x": 432, "prep_x": 421, "y_start": 110, "max_items": 7, "has_slots": True, "slot_tot_x": 443, "slot_tot_y": 150, "slot_spd_x": 490, "slot_spd_y": 150},
+        0: {"x": 42, "prep_x": None, "y_start": 607.3, "max_items": 8, "has_slots": False},
+        1: {"x": 56, "prep_x": 42, "y_start": 436.2, "max_items": 13, "has_slots": True, "slot_tot_x": 68, "slot_tot_y": 463, "slot_spd_x": 115, "slot_spd_y": 463},
+        2: {"x": 56, "prep_x": 42, "y_start": 209.6, "max_items": 13, "has_slots": True, "slot_tot_x": 68, "slot_tot_y": 234, "slot_spd_x": 115, "slot_spd_y": 234},
+        3: {"x": 244, "prep_x": 230, "y_start": 606.0, "max_items": 13, "has_slots": True, "slot_tot_x": 256, "slot_tot_y": 630, "slot_spd_x": 303, "slot_spd_y": 630},
+        4: {"x": 244, "prep_x": 230, "y_start": 380.3, "max_items": 13, "has_slots": True, "slot_tot_x": 256, "slot_tot_y": 404, "slot_spd_x": 303, "slot_spd_y": 404},
+        5: {"x": 244, "prep_x": 230, "y_start": 153.7, "max_items": 9, "has_slots": True, "slot_tot_x": 256, "slot_tot_y": 178, "slot_spd_x": 303, "slot_spd_y": 178},
+        6: {"x": 432, "prep_x": 418, "y_start": 606.0, "max_items": 9, "has_slots": True, "slot_tot_x": 443, "slot_tot_y": 630, "slot_spd_x": 490, "slot_spd_y": 630},
+        7: {"x": 432, "prep_x": 418, "y_start": 436.2, "max_items": 9, "has_slots": True, "slot_tot_x": 443, "slot_tot_y": 460, "slot_spd_x": 490, "slot_spd_y": 460},
+        8: {"x": 432, "prep_x": 418, "y_start": 266.3, "max_items": 7, "has_slots": True, "slot_tot_x": 443, "slot_tot_y": 290, "slot_spd_x": 490, "slot_spd_y": 290},
+        9: {"x": 432, "prep_x": 418, "y_start": 125.6, "max_items": 7, "has_slots": True, "slot_tot_x": 443, "slot_tot_y": 150, "slot_spd_x": 490, "slot_spd_y": 150},
     }
 
     # Raggruppa incantesimi per livello da spellbook
@@ -622,7 +629,7 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
             if sec.get("prep_x") and sp.get("prepared", False):
                 can.circle(sec["prep_x"], cur_y + 2.5, 2.0, fill=1, stroke=0)
             can.drawString(sec["x"], cur_y, sp_name)
-            cur_y -= 11.5
+            cur_y -= 14.0
 
     can.showPage()
     can.save()
