@@ -43,6 +43,10 @@ class VoiceClient:
         import os
         if os.environ.get("DND_MOCK_AUDIO") == "1":
             self.running = False
+            try:
+                self.sock.close()
+            except Exception:
+                pass
             print("[VoiceClient] (Mocked via DND_MOCK_AUDIO) Fermato.")
             return
 
