@@ -273,10 +273,10 @@ The Player Action Economy panel automatically adapts to whether combat is active
 * **Automatic Upcasting**: Clicking **Cast** on a 1st+ level spell opens a modal selector displaying all available slots up to 9th level. Choosing a higher-level slot consumes that slot and broadcasts the cast announcement with both base and upcast levels.
 * **Long Rest** restores all spell slots to maximum.
 
-### Character Sheet Export (JSON & Printable HTML)
-* Click **`💾 Export Sheet`** at the top of the character sheet:
-  * **JSON**: Raw structured data for backup, editing, and campaign import/export.
-  * **Printable HTML**: Fully styled standalone D&D 5e character sheet ready for browser viewing, direct printing, or PDF saving (`Ctrl+P`).
+### Character Sheet Export (Official PDF & JSON)
+* Click **`📥 Esporta Scheda...`** at the bottom of the character sheet:
+  * **Official PDF**: Prompts you to select your blank PDF template (e.g., `dnd_blankcharactersheet_it.pdf`) and compiles the official 3-page sheet with complete stats, skill proficiency dots, hit dice, weapons, currency, inventory, notes, and full spellbook. Ready for printing and archival.
+  * **JSON**: Raw structured data for backup, editing, and campaign migration.
 
 ### Peer-to-Peer Player Trading
 * Open player trade via the context menu or inventory tab.

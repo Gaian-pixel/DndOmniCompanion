@@ -36,3 +36,8 @@ client_data/audio_cache/
 manuals_pdf/*
 !manuals_pdf/.gitkeep
 
+# User provided PDF character sheet templates & output PDFs
+dnd_blankcharactersheet*.pdf
+*.pdf
+
+

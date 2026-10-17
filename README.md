@@ -66,7 +66,7 @@
 * **Hero Summary Card & Interactive Character Sheet**:
   * Always-visible sidebar summary card with responsive HP bar, AC, converted Speed (`ft` or `m`), and Initiative.
   * Full tabbed sheet: **Combat**, **Stats & Skills** (with Proficiency & Expertise $2\times\text{PB}$), **Weapons & Attacks**, **Inventory & Encumbrance** ($\text{STR} \times 15\text{ lbs}$), **Spellbook & Spell Slots (1–9)** with **Spell Upcasting** modal, **Features & Journal**.
-* **Character Sheet Export (JSON & Printable HTML)**: 1-click export to `.json` for backup and migration, or `.html` for high-quality printing and PDF generation (`Ctrl+P`).
+* **Character Sheet Export (Official D&D 5e PDF & JSON Data)**: Dedicated modal dialog to choose between **Official PDF** (prompts for the blank 3-page D&D 5e PDF template in input, generating a fully filled sheet ready for print or sharing) and **JSON** (full raw backup for campaign import/export).
 * **Online Anti-Cheat & DM Approval**: Requesting currency (`🤝 Request Currency from DM`) or adding custom items requires DM authorization.
 * **Peer-to-Peer Trading & Macro Hotbar**: Direct item/gold transfers between allies and a 10-slot customizable quick macro bar.
 

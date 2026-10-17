@@ -27,7 +27,7 @@ This manual walks you step by step through starting a session, configuring the i
    - [Combat Actions, AoE Spells & Upcasting](#combat-actions-aoe-spells--upcasting)
    - [Hit Points, Rests & Death Saving Throws](#hit-points-rests--death-saving-throws)
    - [Inventory, Encumbrance, Trading & DM Approval](#inventory-encumbrance-trading--dm-approval)
-   - [Character Sheet Export (JSON & Printable HTML)](#character-sheet-export-json--printable-html)
+   - [Character Sheet Export (Official D&D 5e PDF & JSON)](#character-sheet-export-official-dd-5e-pdf--json)
    - [Macro Hotbar (Quick Slots 1–10)](#macro-hotbar-quick-slots-110)
 5. [Dungeon Master (DM) Guide](#5-dungeon-master-dm-guide)
    - [Campaigns, Acts, Scenes & Starter Pack](#campaigns-acts-scenes--starter-pack)
@@ -205,10 +205,13 @@ The **Turn Economy** section in the `Player Controls` tab automatically adapts t
 * **Online Security (DM Approval)**: while connected to a live session, ability scores and Max HP are locked. To add currency or custom items, click **`🤝 Request Currency from DM`** or add an item: the DM receives an instant approval prompt.
 * **Trading with Allies (`Give` / `🤝 Give Gold to Ally`)**: transfer items or gold pieces directly to another connected party member.
 
-### Character Sheet Export (JSON & Printable HTML)
-At the top of the Character Sheet window, click **`💾 Export Sheet`**:
-* **Export JSON (`.json`)**: exports complete raw character data for backup, sharing, or importing into other campaigns.
-* **Export Printable HTML (`.html`)**: compiles a standalone, beautifully styled 5e sheet ready for desktop printing or PDF export (`Ctrl+P` in any browser). Cleanly formats stats, saving throws, skills, weapons, inventory, spellbook, and special class resources.
+### Character Sheet Export (Official D&D 5e PDF & JSON)
+At the bottom of the Character Sheet window, click **`📥 Esporta Scheda...`**: a dedicated modal selection window opens, allowing you to choose between two formats:
+* **📄 Official D&D 5e Character Sheet (PDF)**: prompts you to select your blank 3-page D&D 5e PDF template (e.g., `dnd_blankcharactersheet_it.pdf`, not bundled in Git for size and licensing reasons) and compiles the sheet directly. Includes:
+  - **Page 1**: Full header, ability scores and modifiers centered in their boxes, Inspiration check, Proficiency Bonus, Saving Throws with proficiency dots, all 18 Skills (with single dot for proficiency and double circle for expertise), Passive Perception, Armor Class in shield, Initiative, Speed, HP (Max, Current, Temp), Hit Dice total & current, Death Saves tracked, Weapons Table with bonuses and damage/types, Coins in their respective hexagons (CP, SP, EP, GP, PP), Equipment & Inventory, Personality Traits, Ideals, Bonds, Flaws, and Class Features (with tracking for Rage, Second Wind, Ki, etc.).
+  - **Page 2**: Character details, age, height, weight, eyes, skin, hair, physical appearance, allies and organizations, full backstory notes, and treasure.
+  - **Page 3 (Spellbook)**: Spellcasting class, primary ability, Save DC, Spell Attack Bonus, total and expended slots for each level from 1 to 9, and full spell list with prepared indicators.
+* **💾 Raw Character Data (JSON)**: exports structured `.json` data with clean formatting, ideal for backups, external manual editing, or importing into other campaigns.
 
 ### Macro Hotbar (Quick Slots 1–10)
 At the bottom of the Player window is a bar with **10 numbered macro buttons (`1`–`10`)**:

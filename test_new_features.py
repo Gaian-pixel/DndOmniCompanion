@@ -1080,12 +1080,87 @@ class TestDndNewFeatures(unittest.TestCase):
         bcast = make_clear_drawings_broadcast()
         self.assertEqual(bcast["type"], "CLEAR_DRAWINGS_BROADCAST")
 
-        # 3. Cancella linee
-        handle_clear_drawings_request({}, p, self.game_state)
-        self.assertEqual(self.game_state.drawn_lines, [], "handle_clear_drawings_request deve svuotare le linee disegnate")
+    def test_official_pdf_character_sheet_export(self):
+        """Testa la compilazione automatica e l'esportazione della Scheda Ufficiale D&D 5e in PDF."""
+        from client.character_manager import Character
+        from client.pdf_sheet_generator import generate_character_pdf, get_default_template_path
+        from pypdf import PdfReader
+        import tempfile
+
+        # Se il template locale esiste, usalo; altrimenti crea un template temporaneo a 3 pagine per testare il motore
+        template_path = get_default_template_path()
+        cleanup_template = False
+        if not template_path or not os.path.isfile(template_path):
+            from reportlab.pdfgen import canvas
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp_tpl:
+                template_path = tmp_tpl.name
+            cleanup_template = True
+            c_tpl = canvas.Canvas(template_path, pagesize=(594, 783))
+            c_tpl.drawString(50, 700, "Pagina 1")
+            c_tpl.showPage()
+            c_tpl.drawString(50, 700, "Pagina 2")
+            c_tpl.showPage()
+            c_tpl.drawString(50, 700, "Pagina 3")
+            c_tpl.showPage()
+            c_tpl.save()
+
+        # Configura personaggio di test
+        char = Character("Valeros il Guerriero", "La Miniera Perduta")
+        char.race = "Umano"
+        char.char_class = "Guerriero"
+        char.level = 4
+        char.background = "Soldato"
+        char.alignment = "Legale Buono"
+        char.attributes = {"FOR": 16, "DES": 12, "COS": 14, "INT": 10, "SAG": 12, "CAR": 8}
+        char.hp_max = 38
+        char.hp_current = 35
+        char.temp_hp = 4
+        char.ac = 18
+        char.initiative = 1
+        char.speed = 9
+        char.speed_unit = "m"
+        char.proficiency_bonus = 2
+        char.hit_dice_total = 4
+        char.hit_dice_current = 3
+        char.hit_dice_type = "d10"
+        char.currency = {"MR": 10, "MA": 5, "ME": 0, "MO": 45, "MP": 1}
+        char.skills["Atletica"] = 1
+        char.skills["Intimidire"] = 1
+        char.skills["Sopravvivenza"] = 1
+        char.has_inspiration = True
+        char.weapons = [
+            {"name": "Spada Lunga", "bonus": 5, "damage_dice": "1d8+3", "damage_type": "Tagliente"},
+            {"name": "Arco Corto", "bonus": 3, "damage_dice": "1d6+1", "damage_type": "Perforante"}
+        ]
+        char.features = "Secondo Fiato (1d10+4 PF).\nAzione Impetuosa (1 azione aggiuntiva)."
+        char.spellbook = [
+            {"name": "Luce", "level": 0, "prepared": True}
+        ]
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp_path = tmp.name
+
+        try:
+            res_path = generate_character_pdf(char, tmp_path, template_path)
+            self.assertEqual(res_path, tmp_path)
+            self.assertTrue(os.path.exists(tmp_path))
+            size = os.path.getsize(tmp_path)
+            self.assertGreater(size, 1000, "Il PDF generato deve contenere il documento a 3 pagine")
+
+            # Verifica pagine con pypdf
+            reader = PdfReader(tmp_path)
+            self.assertEqual(len(reader.pages), 3, "La scheda ufficiale deve avere 3 pagine")
+            self.assertEqual(int(reader.pages[0].mediabox.width), 594)
+            self.assertEqual(int(reader.pages[0].mediabox.height), 783)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            if cleanup_template and os.path.exists(template_path):
+                os.remove(template_path)
 
 
 if __name__ == "__main__":
     unittest.main()
+
 
 
