@@ -78,13 +78,16 @@ Nella barra superiore (sia lato DM che lato Giocatore) trovi menu di configurazi
 L'interfaccia è divisa in tre aree ergonomiche:
 1. **Toolbar Sinistra (Strumenti Mappa e Lavagna)**: barra compatta con pulsanti iconici per interagire con la mappa:
    * `👆` Centra/Seleziona token e mappa.
-   * `💥` Template Incantesimi ad Area (AoE).
+   * `💥` Template Incantesimi ad Area (AoE) e Sfere di Oscurità Magica.
    * `📏` Righello dinamico di misurazione distanze e tempi di marcia.
    * `📍` Segnale di Ping animato condiviso.
    * `📖` Consultazione rapida manuali di gioco PDF offline.
    * `[ ✏️ ]` **Lavagna / Penna Tattica**: permette a DM e Giocatori di disegnare a mano libera annotazioni, frecce di manovra e percorsi sulla mappa in tempo reale.
    * `[ 🧹 ]` / `[ 🗑️ ]` **Cancella Lavagna**: rimuove istantaneamente tutti i tratti disegnati sulla mappa sia in locale che sui client connessi.
-   * `☁️` Nebbia di Guerra (FoW con raggio pennello) e `🚪` Portali/Teletrasporti (solo DM).
+   * `🚪` Portali e Teletrasporti tra mappe (solo DM).
+   * `[ 🪨 ]` **Pennello Terreni Difficili (solo DM)**: permette di selezionare un tipo di terreno (Fango, Ghiaccio, Rovi, Macerie, Palude, Gomma) e dipingerlo o cancellarlo al volo sulle caselle della mappa attiva.
+   * `[ 🌑 ]` **Filtro Oscurità 1-Click (solo DM)**: attiva o disattiva all'istante il filtro di Oscurità ambientale sulla mappa, con gestione automatica delle regole D&D 5e su visibilità e Scurovisione.
+   * `☁️` Nebbia di Guerra (FoW con raggio pennello da 0 a 3, solo DM).
 2. **Viewport Centrale (`HexMapCanvas`)**: la mappa interattiva (esagonale, quadrata o senza griglia), arricchita da due HUD sovrapposti:
    * **Initiative Ribbon HUD (in alto al centro)**: appare automaticamente durante il combattimento mostrando le card di tutti i combattenti in ordine di turno (`#1`, `#2`...), la freccia `▼` sul turno attivo e una mini-barra PV per ciascuno. Cliccando su una card la mappa si centra su quel token.
    * **Controlli Mappa Glassmorphism (in basso a sinistra)**: pulsanti flottanti `[ - ]`, `[ 100% ]`, `[ + ]` e `[ ⌖ ]` per regolare lo zoom o ricentrare la visuale con un click.
@@ -247,6 +250,15 @@ Dal menu **`File`** e **`Strumenti`** della plancia DM:
   * Disegna **Muri / Ostacoli** (bloccano il movimento e la Line of Sight).
   * Piazza **Trappole** (con CD di Percezione Passiva, CD del Tiro Salvezza e formula del danno, es. `2d6`).
   * Piazza **Luci** ambientali e **Oggetti / Bottino (Loot)** raccoglibili.
+  * **Pittura Terreni Difficili**: clicca su **`🌾 Terreno Difficile`**, scegli la tipologia (Fango, Ghiaccio, Rovi, Macerie, Palude) dal menu a tendina e dipingi le celle direttamente sulla mappa con texture e colori distintivi. Salva la mappa in formato JSON per conservare i dati.
+* **Terreni Difficili al Volo in Sessione (`[ 🪨 ]` e Tasto Destro)**:
+  * **Pennello Toolbar `[ 🪨 ]`**: cliccando sul pulsante nella toolbar sinistra si apre il menu rapido di selezione pennello (**💩 Fango**, **🧊 Ghiaccio**, **🌿 Rovi**, **🪨 Macerie**, **🌊 Palude**, **🗑️ Gomma**). Clicca sulle caselle della mappa per applicare o rimuovere istantaneamente il terreno difficile durante la sessione.
+  * **Menu Contestuale Tasto Destro**: fai click destro su una qualsiasi cella della mappa $\rightarrow$ **`🌾 Terreno Difficile...`** per impostare o cancellare il tipo di superficie.
+  * **Regole D&D 5e Integrate**:
+    * **Movimento**: il costo di movimento è raddoppiato per ogni casella difficile calcolata lungo la traiettoria (`hex_linedraw`); se la creatura è anche **Prona**, il costo sale a 3 esagoni di budget per casella.
+    * **Pericoli al Passaggio**: entrare sul Ghiaccio richiede un **TS Destrezza CD 10** o si cade Proni; entrare nei Rovi infligge **1d4 danni perforanti**.
+    * **Combattimento**: attaccare stando su terreno instabile (Ghiaccio, Macerie, Palude, Fango) impone **Svantaggio**; attaccare bersagli intralciati nei Rovi o bloccati nel Fango conferisce **Vantaggio**.
+    * **HUD Coordinate**: passando il cursore sopra una cella, la targhetta in basso a destra visualizza il tipo di terreno e il moltiplicatore (es. `⬡ q:2, r:1 [Ghiaccio x2 Mov]`).
 * **Porte e Teletrasporti (`[ 🚪 ]`)**: clicca sullo strumento `[ 🚪 ]` nella toolbar sinistra e poi su un esagono per collegarlo a un altro file mappa (es. `cripta_livello2.json`). Quando un giocatore cammina su quell'esagono, il server carica automaticamente la nuova mappa per tutto il gruppo.
 
 ### Nebbia di Guerra (FoW), Pennello Manuale, Line of Sight e Luci
@@ -286,7 +298,18 @@ Nel tab **`Iniziativa & PG`** della sidebar destra del DM:
 
 ### Mondo, Calendario, Meteo, Viaggio, Negozi e Quest
 * **Tab `Mondo` e `Strumenti -> Pannello Viaggio`**:
-  * Gestisci il **Calendario di Harptos (Forgotten Realms)** o standard, l'ora del giorno (con filtro luce diurno/notturno sulla mappa) e il **Meteo dinamico** (Sereno, Pioggia, Nebbia, Tempesta, Neve).
+  * Gestisci il **Calendario di Harptos (Forgotten Realms)** o standard, l'ora del giorno (con filtro luce diurno, alba, tramonto e notturno) e il **Meteo dinamico** con 6 condizioni ambientali animate:
+    * **☀️ Sereno**: visuale limpida standard.
+    * **🌧️ Pioggia**: scrosci d'acqua e increspature; Svantaggio a lunga gittata ($\ge 4$ esagoni).
+    * **⛈️ Tempesta**: pioggia battente, raffiche di vento e fulmini animati ramificati; **Svantaggio a tutti gli attacchi a distanza** ($> 1$ esagono).
+    * **❄️ Neve**: tormenta di fiocchi e cristalli di brina; Svantaggio a lunga gittata ($\ge 3$ esagoni).
+    * **🌫️ Nebbia**: banchi di nebbia densi volumetrici; **Svantaggio a tutti gli attacchi a distanza** ($> 1$ esagono).
+    * **🌑 Oscurità**: buio pesto stipple, vignettatura ai bordi e volute di tenebra fluttuanti.
+  * **Filtro Oscurità 1-Click e Scurovisione (`[ 🌑 ]`)**:
+    * Cliccando sul pulsante **`[ 🌑 ]`** nella toolbar sinistra del DM, o digitando `/darkness` o `/oscurita`, la mappa piomba nelle tenebre.
+    * **Luce Dinamica di Torce e Lanterne**: le entità con `light_radius > 0` proiettano un raggio dorato che squarcia l'oscurità illuminando l'area circostante.
+    * **Sfera di Oscurità Magica**: click destro su un esagono $\rightarrow$ **`🌑 Piazza Sfera di Oscurità Magica (R=3)`** per creare una zona di oscurità magica impenetrabile alla normale Scurovisione (richiede *Vista del Diavolo*).
+    * **Regole di Combattimento 5e (Unseen Attackers)**: chi attacca dalle tenebre vedendo il bersaglio ha **Vantaggio**; chi non vede il bersaglio ha **Svantaggio**; nell'oscurità totale reciproca i due effetti si annullano.
   * Gestisci l'**Ordine di Marcia** del party (Avanguardia, Centro, Retroguardia), i ruoli di viaggio (Esploratore, Navigatore, Foraggiatore), il consumo di razioni/acqua e i Tiri Salvezza su Costituzione per la **Marcia Forzata**.
   * Apri e trasmetti ai giocatori i **Negozi dei Mercanti** (`shop_ui.py`) e il **Registro delle Missioni (Quest Log)** (`quest_ui.py`).
 
@@ -340,4 +363,6 @@ Il motore di gioco rileva automaticamente ogni `20 Naturale` e `1 Naturale` tira
 | `/rule <termine>` | Tutti | Alias per la ricerca nei manuali PDF | `/rule concentration` |
 | `/tsmorte` / `/deathsave` / `/ds` | Giocatori (a 0 PV) | Esegue un Tiro Salvezza contro la Morte | `/ds` |
 | `/vision <nome> <raggio_hex>` | Solo DM | Imposta il raggio visivo (in esagoni) di un token | `/vision Gildor 12` |
+| `/darkness` / `/oscurita` | Solo DM | Attiva/Disattiva all'istante il filtro Oscurità sulla mappa | `/darkness` |
+| `/meteo <clima>` / `/weather <clima>` | Solo DM | Imposta la condizione meteo attiva | `/meteo Tempesta` |
 

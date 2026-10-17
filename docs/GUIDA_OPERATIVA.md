@@ -153,6 +153,10 @@ Sia l'interfaccia DM che quella Giocatore sono realizzate con **ttkbootstrap** i
 * **Pennello Manuale FoW (`Raggio: 0, 1, 2, 3`)**: Nel pannello FoW (`[ ☁️ ]`), il DM può selezionare un raggio circolare e cliccare sulla mappa con tasto sinistro (scopri) o tasto destro (nascondi) per dipingere o ripristinare la nebbia su gruppi di celle contigue.
 * **Visione Condivisa del Party**: Man mano che un token del party si muove, le celle entro il suo raggio visivo vengono rivelate.
 * **Illuminazione Dinamica**: I token che portano fonti di luce (es. Torce: 20 ft intensa / 20 ft fioca; Lanterne: 30 ft intensa / 30 ft fioca) illuminano dinamicamente in tempo reale.
+* **Filtro Oscurità (`[ 🌑 ]`) & Oscurità Magica**:
+  * Toggle a 1-click sulla toolbar del DM (`[ 🌑 ]`) o comando chat `/darkness` / `/oscurita`: immerge l'intera mappa nell'oscurità totale (`#000000`).
+  * Regole di visibilità dinamica: le celle non illuminate da torce/lanterne o scurovisione appaiono oscurate.
+  * Sfere di Oscurità Magica: posizionabili con click destro sulla mappa $\rightarrow$ `🌑 Piazza Sfera di Oscurità Magica (R=3)`. La normale Scurovisione non penetra l'oscurità magica (PHB p. 194-195).
 * **Line of Sight Reale (LoS)**: Il raycasting geometrico valuta la linea di tiro/vista bloccandola contro i muri (`wall_hexes`).
 
 ### Taglie Creature e Livello Nascosto DM (GM Layer)
@@ -163,11 +167,16 @@ Sia l'interfaccia DM che quella Giocatore sono realizzate con **ttkbootstrap** i
   * Filtro Sicurezza Rete: a livello di protocollo TCP (`network_utils.py` e `game_state.py`), i pacchetti `GAME_STATE`, `PLAYER_JOINED` e `PLAYER_MOVE` escludono integralmente le entità con `layer == "gm"` per i socket dei giocatori, garantendo zero fughe di metagame.
   * Attivazione/disattivazione rapida con click destro sul token $\rightarrow$ `👁️ Livello DM (GM Layer)`.
 
-### Trappole, Pericoli e Portali (Teletrasporti)
+### Trappole, Terreni Difficili, Pericoli e Portali (Teletrasporti)
 * **Trappole**: Quando un token entra in un esagono trappola, il server:
   1. Confronta la Percezione Passiva con la CD di Individuazione della trappola.
   2. Se attivata, calcola il danno e richiede al giocatore un Tiro Salvezza su Destrezza.
   3. Rivela visivamente la trappola sulla mappa con un avviso in chat.
+* **Terreni Difficili e Pericolosi (Hazard)**:
+  * 5 tipologie con texture e colori distintivi: **Fango** (`mud`), **Ghiaccio Scivoloso** (`ice`), **Rovi Spinosi** (`briars`), **Macerie** (`rubble`), **Palude Profonda** (`swamp`).
+  * **Movimento Rallentato**: Il calcolo di percorso (`hex_linedraw`) applica costo di movimento $\times 2$ (cumulativo con la condizione `Prono`).
+  * **Pericoli all'Ingresso**: Entrare in un esagono di Ghiaccio richiede un Tiro Salvezza su Destrezza con CD 10 per non cadere Prono; entrare nei Rovi infligge automaticamente $1d4$ danni perforanti con avviso in chat.
+  * **Applicazione al Volo e Pennello DM**: Il DM può applicare terreni con click destro sull'esagono $\rightarrow$ `🌾 Terreno Difficile...` oppure tramite il pannello pennello `[ 🪨 ]` sulla toolbar sinistra (raggio 0, 1, 2 con selezione tipologia).
 * **Portali e Teletrasporti**: Cliccando su `[ 🚪 ]` nella toolbar del DM è possibile associare una coordinata esagonale (es. `5,5`) a un file mappa di destinazione (es. `dungeon_level2.json`). Quando un token calpesta l'esagono, il server trasferisce automaticamente il party sulla nuova mappa.
 
 ### Gestione Combattimento e Bilanciatore Incontri Live
@@ -286,17 +295,26 @@ Il motore dei dadi (`roll_dice_detailed`) analizza tutti i tiri di `d20` (inclus
   * Evidenzia `🌟 20 NATURALE!` (oro) e `💀 1 NATURALE!` (cremisi) nel log di chat e invia una notifica toast `CRITICAL_ROLL_BROADCAST` a tutti i client connessi.
 
 ### Calcolo di Vantaggio e Svantaggio
-Il motore di combattimento calcola dinamicamente vantaggio e svantaggio in base allo stato dei token:
+Il motore di combattimento calcola dinamicamente vantaggio e svantaggio in base allo stato dei token, alle condizioni ambientali e al terreno:
 * **L'attaccante ottiene Vantaggio se**:
   * L'attaccante è `Invisibile`.
   * Il bersaglio è `Trattenuto`, `Paralizzato`, `Incosciente`, `Accecato` o `Pietrificato`.
   * Il bersaglio è `Prono` E l'attacco è in mischia (distanza $\le 1$ esagono).
+  * Il bersaglio è intrappolato in un terreno instabile o vincolante (**Rovi Spinosi** o **Fango Profondo**).
+  * L'attaccante è immerso nel buio ma è in grado di vedere il bersaglio (tramite **Scurovisione** o perché il bersaglio porta una **fonte di luce attiva** come una Torcia/Lanterna), mentre il bersaglio non vede l'attaccante.
 * **L'attaccante subisce Svantaggio se**:
   * L'attaccante è `Accecato`, `Avvelenato`, `Trattenuto` o `Prono`.
   * Il bersaglio è `Prono` E l'attacco è a distanza (distanza $> 1$ esagono).
   * Il bersaglio è `Invisibile`.
   * Il bersaglio ha effettuato l'azione `Schivata` (Dodge).
-* **Annullamento Reciproco**: Avere contemporaneamente vantaggio e svantaggio produce un tiro normale come da regole 5e.
+  * L'attaccante si trova su una superficie scivolosa o instabile (**Ghiaccio**, **Palude**, **Macerie**).
+  * **Filtro Oscurità Totale**: L'attaccante non può vedere il bersaglio nel buio.
+  * **Condizioni Atmosferiche e Meteo**:
+    * **Tempesta** o **Nebbia Fitta**: Svantaggio su tutti gli attacchi a distanza con gittata $> 1$ esagono per scarsa visibilità e venti impetuosi.
+    * **Pioggia Battente**: Svantaggio sugli attacchi a distanza con gittata lunga $\ge 4$ esagoni.
+    * **Tormenta di Neve**: Svantaggio sugli attacchi a distanza con gittata lunga $\ge 3$ esagoni.
+* **Oscurità Magica**: La normale Scurovisione non penetra le sfere di oscurità magica; chiunque si trovi all'interno o attacchi verso l'interno è considerato accecato (PHB p. 194-195).
+* **Annullamento Reciproco**: Se sono presenti contemporaneamente fonti di vantaggio e di svantaggio (inclusa la reciproca cecità nel buio totale tra creature prive di scurovisione), queste si annullano producendo un tiro normale, con motivazione dettagliata registrata nel log di combattimento.
 
 ### Sistema di Copertura Dinamica
 * Se un'altra creatura o un ostacolo si trova direttamente sul raggio esagonale tra attaccante e bersaglio, il bersaglio ottiene automaticamente **Mezza Copertura (+2 CA)**.
@@ -349,6 +367,8 @@ Il motore di combattimento calcola dinamicamente vantaggio e svantaggio in base 
 | `/rule <termine>` | Alias per ricerca manuali | `/rule grappling` |
 | `/tsmorte`, `/deathsave`, `/ds` | Esegue un Tiro Salvezza contro la Morte | `/ds` |
 | `/vision <nome> <raggio>` | Solo DM: imposta il raggio di scurovisione | `/vision Gildor 12` |
+| `/darkness`, `/oscurita` | Solo DM: attiva o disattiva il filtro oscurità globale sulla mappa | `/darkness`, `/oscurita` |
+| `/weather <cond>`, `/meteo <cond>` | Solo DM: imposta il meteo dinamico (`clear`, `rain`, `storm`, `snow`, `fog`, `darkness`) | `/weather storm`, `/meteo nebbia` |
 
 ### Controlli Canvas e Scorciatoie
 
@@ -362,6 +382,8 @@ Il motore di combattimento calcola dinamicamente vantaggio e svantaggio in base 
 | **Misura Distanza** | Clicca `[ 📏 ]` poi Trascina | Distanza multi-scala in esagoni, `ft`/`m` o `mi`/`km` + tempo di viaggio. |
 | **Seleziona / Centra** | Clicca `[ 👆 ]` poi Clicca Token | Centra la visuale / seleziona il token. |
 | **Posiziona AoE** | Clicca `[ 💥 ]` poi Clicca Esagono Origine | Mostra l'anteprima e posiziona il template dell'incantesimo. |
+| **Terreni Difficili** | Clicca `[ 🪨 ]` sulla toolbar sinistra | Apre il popup pennello per dipingere Fango, Ghiaccio, Rovi, Macerie, Palude. |
+| **Toggle Oscurità** | Clicca `[ 🌑 ]` sulla toolbar sinistra | Attiva/disattiva con 1-click l'oscurità totale della mappa con regole di visione 5e. |
 
 ---
 

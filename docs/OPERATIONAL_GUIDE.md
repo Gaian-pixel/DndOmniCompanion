@@ -154,6 +154,10 @@ Both the DM and Player interfaces are built with **ttkbootstrap** in modern dark
 * **Manual FoW Brush (`Radius: 0, 1, 2, 3`)**: In the FoW control bar (`[ ☁️ ]`), the DM can select a brush radius and left-click (reveal) or right-click (hide) to paint or restore fog across contiguous circular areas.
 * **Shared Party Vision**: As any party token moves, cells within its vision radius are revealed.
 * **Dynamic Lighting**: Tokens carrying light sources (e.g., Torches: 20 ft bright / 20 ft dim; Lanterns: 30 ft bright / 30 ft dim) illuminate dynamically in real time.
+* **Darkness Filter (`[ 🌑 ]`) & Magical Darkness**:
+  * 1-Click toolbar toggle (`[ 🌑 ]`) or `/darkness` / `/oscurita` chat command: immerses the entire map in total pitch-black darkness (`#000000`).
+  * Dynamic visibility rules: cells not lit by active torches/lanterns or uncovered by Darkvision appear pitch black.
+  * Magical Darkness Spheres: placeable via right-click $\rightarrow$ `🌑 Piazza Sfera di Oscurità Magica (R=3)`. Non-magical Darkvision cannot see through magical darkness (PHB p. 194-195).
 * **True Line of Sight (LoS)**: Geometric raycasting evaluates line-of-sight against walls (`wall_hexes`). Tokens behind impenetrable walls cannot be seen through FoW.
 
 ### Creature Token Sizes & DM Hidden Layer (GM Layer)
@@ -164,11 +168,16 @@ Both the DM and Player interfaces are built with **ttkbootstrap** in modern dark
   * Network Security Filter: at the TCP protocol layer (`network_utils.py` and `game_state.py`), `GAME_STATE`, `PLAYER_JOINED`, and `PLAYER_MOVE` packets systematically filter out `layer == "gm"` tokens for non-DM sockets, eliminating metagame data leaks.
   * Toggle via right-click on token $\rightarrow$ `👁️ GM Layer`.
 
-### Traps, Hazards & Portals (Teleports)
+### Traps, Difficult Terrain, Hazards & Portals (Teleports)
 * **Traps**: When a token enters a trap hex, the server:
   1. Checks Passive Perception against the trap's Detection DC.
   2. If triggered, rolls damage and prompts the player for a Dexterity Saving Throw.
   3. Reveals the trap visually on the map with an alert in chat.
+* **Difficult Terrain & Hazardous Surfaces**:
+  * 5 distinct terrain types with unique textures and color schemes: **Mud** (`mud`), **Slippery Ice** (`ice`), **Briars** (`briars`), **Rubble** (`rubble`), **Deep Swamp** (`swamp`).
+  * **Movement Penalties**: Pathfinding (`hex_linedraw`) applies double movement cost ($\times 2$, stacks with the `Prono` / Prone condition).
+  * **Entry Hazards**: Stepping onto Ice requires a DC 10 Dexterity saving throw or fall Prone; stepping into Briars deals $1d4$ piercing damage automatically with an alert in chat.
+  * **On-the-Fly Painting & DM Tools**: DM can apply terrain via right-click on hex $\rightarrow$ `🌾 Terreno Difficile...` or using the `[ 🪨 ]` brush popup on the left toolbar (radius 0, 1, 2 with terrain type selector).
 * **Portals & Teleports**: Clicking `[ 🚪 ]` on the DM toolbar allows binding an hex coordinate (e.g., `5,5`) to a destination map file (e.g., `dungeon_level2.json`). When a token steps on the hex, the server automatically transitions the party to the new map.
 
 ### Combat Management & Live Encounter Balancer
@@ -306,17 +315,26 @@ The dice engine (`roll_dice_detailed`) inspects all `d20` rolls (including Advan
   * Highlights `🌟 20 NATURALE!` (gold) and `💀 1 NATURALE!` (crimson) in the chat log and dispatches a `CRITICAL_ROLL_BROADCAST` toast notification to all connected clients.
 
 ### Advantage & Disadvantage Computation
-The combat engine calculates advantage and disadvantage dynamically based on token states:
+The combat engine calculates advantage and disadvantage dynamically based on token states, environmental hazards, and lighting:
 * **Attacker gains Advantage if**:
   * Attacker is `Invisibile`.
   * Target is `Trattenuto`, `Paralizzato`, `Incosciente`, `Accecato`, or `Pietrificato`.
   * Target is `Prono` AND attack is melee (distance $\le 1$ hex).
+  * Target is trapped in hazardous or restrictive terrain (**Briars** or **Deep Mud**).
+  * Attacker is concealed in darkness and can see the target (via **Darkvision** or target carrying an **active light source** such as a Torch/Lantern), while target cannot see attacker.
 * **Attacker suffers Disadvantage if**:
   * Attacker is `Accecato`, `Avvelenato`, `Trattenuto`, or `Prono`.
   * Target is `Prono` AND attack is ranged (distance $> 1$ hex).
   * Target is `Invisibile`.
   * Target took the `Schivata` (Dodge) action.
-* **Mutual Cancellation**: Having both advantage and disadvantage resolves to a normal roll as per 5e rules.
+  * Attacker is standing on an unstable or slippery surface (**Ice**, **Swamp**, **Rubble**).
+  * **Pitch-Black Darkness**: Attacker cannot see the target in darkness.
+  * **Dynamic Weather Modifiers**:
+    * **Storm** or **Dense Fog**: Disadvantage on all ranged attacks beyond 1 hex due to heavy rain, howling winds, and zero visibility.
+    * **Heavy Rain**: Disadvantage on long-range attacks at distance $\ge 4$ hexes.
+    * **Blizzard / Snow**: Disadvantage on long-range attacks at distance $\ge 3$ hexes.
+* **Magical Darkness**: Standard Darkvision cannot penetrate magical darkness; anyone inside or attacking into magical darkness is blinded (PHB p. 194-195).
+* **Mutual Cancellation**: Having both advantage and disadvantage (including mutual blindness in pitch-black darkness between creatures without darkvision) cancels out to a normal roll as per 5e rules, with full transparent reasoning recorded in the combat log.
 
 ### Dynamic Cover System
 * If another creature or obstacle lies directly on the hex ray between the attacker and target, the target gains **Mezza Copertura (+2 CA)** automatically.
@@ -371,6 +389,8 @@ The combat engine calculates advantage and disadvantage dynamically based on tok
 | `/rule <termine>` | Alias for manual lookup | `/rule grappling` |
 | `/tsmorte`, `/deathsave`, `/ds` | Roll 5e Death Saving Throw | `/ds` |
 | `/vision <name> <radius>` | DM only: sets character darkvision radius | `/vision Gildor 12` |
+| `/darkness`, `/oscurita` | DM only: toggles global map darkness filter | `/darkness`, `/oscurita` |
+| `/weather <cond>`, `/meteo <cond>` | DM only: sets dynamic weather (`clear`, `rain`, `storm`, `snow`, `fog`, `darkness`) | `/weather storm`, `/meteo nebbia` |
 
 ### Canvas & Hotkey Controls
 
@@ -384,6 +404,8 @@ The combat engine calculates advantage and disadvantage dynamically based on tok
 | **Measure Distance** | Click `[ 📏 ]` then Drag | Scale-aware distance in hexes, `ft`/`m` or `mi`/`km` + travel time. |
 | **Target Select** | Click `[ 👆 ]` then Click Target | Centers view / targets token. |
 | **Place AoE** | Click `[ 💥 ]` then Click Origin Hex | Previews and drops spell template. |
+| **Difficult Terrain** | Click `[ 🪨 ]` on left toolbar | Opens brush popup to paint Mud, Ice, Briars, Rubble, Swamp. |
+| **Darkness Toggle** | Click `[ 🌑 ]` on left toolbar | 1-click toggle for global pitch-black darkness with 5e vision rules. |
 
 ---
 

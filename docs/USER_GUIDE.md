@@ -77,13 +77,16 @@ At the top menu bar (on both DM and Player clients) you will find instant config
 The workspace is divided into three ergonomic columns:
 1. **Left Toolbar (Map & Whiteboard Tools)**: compact icon bar for interacting with the map:
    * `👆` Select / Center token and map.
-   * `💥` Area of Effect (AoE) spell templates.
+   * `💥` Area of Effect (AoE) spell templates and Magical Darkness Spheres.
    * `📏` Dynamic measurement ruler with travel time estimations.
    * `📍` Shared animated broadcast ping.
    * `📖` Offline PDF rulebooks browser.
    * `[ ✏️ ]` **Tactical Whiteboard / Pen**: lets both DM and Players sketch freehand tactical lines, arrows, and routes directly on the shared canvas in real time.
    * `[ 🧹 ]` / `[ 🗑️ ]` **Clear Whiteboard**: immediately clears all drawings from the map locally and across all connected clients.
-   * `☁️` Fog of War (with multi-radius brush) and `🚪` Portals/Teleports (DM only).
+   * `🚪` Doors and Teleport Transitions between maps (DM only).
+   * `[ 🪨 ]` **Difficult Terrain Brush (DM only)**: select a terrain brush (Mud, Ice, Briars, Rubble, Swamp, Eraser) and paint or clear surfaces directly on the live session battlemap.
+   * `[ 🌑 ]` **1-Click Darkness Filter (DM only)**: instantly toggles map-wide Darkness with automated D&D 5e visibility, torchlight, and Darkvision rules.
+   * `☁️` Fog of War (with multi-radius brush from 0 to 3, DM only).
 2. **Center Viewport (`HexMapCanvas`)**: the interactive map (hexagonal, square, or gridless), enhanced by two floating HUD overlays:
    * **Initiative Ribbon HUD (top-center)**: automatically appears during combat, displaying cards for all combatants in turn order (`#1`, `#2`...), an active turn arrow `▼`, and a mini HP bar for each combatant. Clicking any card centers the camera on that token.
    * **Glassmorphism Map Controls (bottom-left)**: floating `[ - ]`, `[ 100% ]`, `[ + ]`, and `[ ⌖ ]` buttons to zoom or recenter the viewport with 1 click.
@@ -246,6 +249,15 @@ From the DM **`File`** and **`Tools`** menus:
   * Paint **Walls / Obstacles** (blocks movement and Line of Sight).
   * Place **Traps** (with Passive Perception DC, Saving Throw DC, and damage formula, e.g., `2d6`).
   * Place ambient **Lights** and pickable **Loot** items.
+  * **Paint Difficult Terrain**: click **`🌾 Difficult Terrain`**, select a terrain category (Mud, Ice, Briars, Rubble, Swamp) from the dropdown, and paint cells directly on the grid with distinct textures and colors. Maps save terrain in JSON format (`"difficult_terrain"`).
+* **Live Session Difficult Terrain (`[ 🪨 ]` & Right-Click)**:
+  * **Left Toolbar Brush `[ 🪨 ]`**: click the toolbar button to open the quick brush selector (**💩 Mud**, **🧊 Ice**, **🌿 Briars**, **🪨 Rubble**, **🌊 Swamp**, **🗑️ Eraser**). Click map hexes to instantly paint or erase terrain during live play.
+  * **Right-Click Context Menu**: right-click any map cell $\rightarrow$ **`🌾 Difficult Terrain...`** to apply or remove terrain on the fly.
+  * **Integrated 5e Rules**:
+    * **Movement**: movement costs are doubled for each difficult hex along the path (`hex_linedraw`); if a creature is **Prone**, movement cost increases to 3 hexes per cell.
+    * **Hazards on Entry**: stepping onto Ice triggers a **DC 10 Dex saving throw** or falls Prone; entering Briars inflicts **1d4 piercing damage**.
+    * **Combat Modifiers**: attacking from unstable footing (Ice, Rubble, Swamp, Mud) imposes **Disadvantage**; striking targets entangled in Briars or stuck in Mud grants **Advantage**.
+    * **Coordinate HUD**: hovering over any hex displays its terrain type and movement cost (e.g., `⬡ q:2, r:1 [Ice x2 Mov]`).
 * **Doors & Teleports (`[ 🚪 ]`)**: click the `[ 🚪 ]` tool on the left toolbar and click a hex to link it to another map file (e.g., `crypt_level2.json`). Stepping on that hex automatically transitions the party to the destination map.
 
 ### Fog of War (FoW), Manual Brush, Line of Sight & Lighting
@@ -285,7 +297,18 @@ In the DM **`Initiative & Characters`** tab:
 
 ### World, Calendar, Weather, Travel, Shops & Quests
 * **`World` Tab & `Tools -> Travel Panel`**:
-  * Manage the **Calendar of Harptos (Forgotten Realms)** or standard calendar, time of day (with day/night map lighting tint), and **Dynamic Weather** (Clear, Rain, Fog, Storm, Snow).
+  * Manage the **Calendar of Harptos (Forgotten Realms)** or standard calendar, time of day (with day, sunrise, sunset, and night tint), and **Dynamic Weather** with 6 animated atmospheric environments:
+    * **☀️ Clear**: standard unobstructed vision.
+    * **🌧️ Rain**: rainfall streaks and water ripples; Disadvantage at long range ($\ge 4$ hexes).
+    * **⛈️ Storm**: heavy rain, gale-force winds, and branching animated lightning bolts; **Disadvantage on all ranged attacks** ($> 1$ hex).
+    * **❄️ Snow**: swirling snowflakes and frost crystals; Disadvantage at long range ($\ge 3$ hexes).
+    * **🌫️ Fog**: dense volumetric mist banks; **Disadvantage on all ranged attacks** ($> 1$ hex).
+    * **🌑 Darkness**: deep stippled pitch black, dark edge vignette, and floating shadowy tendrils.
+  * **1-Click Darkness Filter & Darkvision (`[ 🌑 ]`)**:
+    * Click the **`[ 🌑 ]`** button on the DM's left toolbar, or type `/darkness` or `/weather Darkness`, to cloak the map in complete darkness.
+    * **Dynamic Torchlight & Lanterns**: tokens with `light_radius > 0` project a warm golden halo that pierces through the darkness.
+    * **Magical Darkness Sphere**: right-click any hex $\rightarrow$ **`🌑 Place Magical Darkness Sphere (R=3)`** to create a zone of magical darkness impenetrable to normal Darkvision (requires *Devil's Sight* or *Truesight*).
+    * **D&D 5e Combat Rules (Unseen Attackers & Targets)**: attacking from darkness while seeing the target grants **Advantage**; attacking a target you cannot see imposes **Disadvantage**; mutual darkness cancels out to a normal roll.
   * Manage party **Marching Order** (Front, Middle, Rear), travel roles (Scout, Navigator, Forager), ration/water consumption, and **Forced March** Constitution saving throws.
   * Open and broadcast **Merchant Shops** (`shop_ui.py`) and the **Quest Log** (`quest_ui.py`).
 
@@ -339,4 +362,6 @@ The rules engine automatically detects every `Natural 20` and `Natural 1` rolled
 | `/rule <term>` | Everyone | Alias for PDF rulebook search | `/rule concentration` |
 | `/tsmorte` / `/deathsave` / `/ds` | Players (at 0 HP) | Rolls a 5e Death Saving Throw | `/ds` |
 | `/vision <name> <radius_hex>` | DM Only | Sets a token's vision radius (in hexes) | `/vision Gildor 12` |
+| `/darkness` / `/oscurita` | DM Only | Toggles environmental darkness on/off on the map | `/darkness` |
+| `/weather <condition>` / `/meteo <condition>` | DM Only | Sets active weather condition | `/weather Storm` |
 

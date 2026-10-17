@@ -41,11 +41,17 @@
 * **Creature Token Sizes (Tiny to Gargantuan)**: Native visual radius scaling for the 6 official 5e size categories ($0.5\times$ to $3.5\times$) with quick right-click sizing.
 * **DM Hidden Layer (GM Layer)**: Place ambushing monsters or secret tokens visible only to the DM (semi-transparent with dashed purple ring and `[GM]` badge). Filtered at the network protocol level (`GAME_STATE`, `PLAYER_JOINED`, `PLAYER_MOVE`) to guarantee zero client-side data leaks.
 * **Dynamic Fog of War (FoW) & Manual Brush**: Automated token Line of Sight (LoS) exploration, shared party vision, customizable darkvision (`/vision`), and a **Manual FoW Brush** (radius 0–3) to reveal or shroud rooms in seconds.
+* **Difficult Terrain & Hazardous Surfaces (D&D 5e)**: Full support for 5 terrain types (Mud, Ice, Briars, Rubble, Swamp) with step-by-step movement cost doubling along the path (`hex_linedraw`), prone movement penalty (+1), hazard checks on entry (DC 10 Dex save on Ice or fall Prone, 1d4 piercing damage on Briars), DM live brush tool (`[ 🪨 ]`), right-click menu, and Map Editor JSON serialization.
+* **Atmospheric Weather Filters & Dynamic Darkness**:
+  * 6 animated environmental filters: **Clear**, **Rain**, **Storm** (lightning bolts & rain), **Snow** (frost & snowflakes), **Fog** (volumetric mist banks), and **Darkness** (pitch black & vignette).
+  * 24-hour day/night cycle (Day, Sunrise, Sunset, Night) with responsive HUD pill badge.
+  * Live dynamic torchlight and lantern glow (`light_radius > 0`) that cuts through the darkness with a warm golden radius.
+  * 1-click DM Darkness toggle `[ 🌑 ]` and chat shortcuts (`/darkness`, `/weather Darkness`).
 * **Shared Tactical Whiteboard (`[ ✏️ ]` / `[ 🧹 ]`)**: Freehand sketching on the live map canvas broadcast to all players in real time with instant clearing.
 * **Dynamic Lighting & Auras**: Live light halos (torches, lanterns) and magical aura rings.
-* **AoE Spells & Templates (`[ 💥 ]`)**: Spheres, Cones ($60^\circ / 90^\circ$), and Lines with geometric grid previews and 1-click casting.
+* **AoE Spells & Templates (`[ 💥 ]`)**: Spheres, Cones ($60^\circ / 90^\circ$), Lines, and Magical Darkness Spheres with geometric grid previews and 1-click casting.
 * **Animated Map Ping**: Middle-click (or `[ 📍 ]` tool) to drop an animated broadcast marker for all connected players.
-* **Token Condition Badges**: Visual status indicators rendered directly on tokens (`💀` Dead, `💤` Unconscious, `🔻` Prone, `⚡` Paralyzed/Concentration, `🛡️` Dodge, `🤝` Help, `🤢` Poisoned, `👁️` Blinded, etc.).
+* **Token Condition Badges**: Visual status indicators rendered directly on tokens (`💀` Dead, `💤` Unconscious, `🔻` Prono, `⚡` Paralyzed/Concentration, `🛡️` Dodge, `🤝` Help, `🤢` Poisoned, `👁️` Blinded, etc.).
 
 ### ⚔️ D&D 5e Combat Engine & Context-Aware Turn Economy
 * **Context-Aware Turn Economy (Exploration vs. Combat)**:
@@ -55,6 +61,10 @@
   * **Attack Rolls**: `Natural 20` is an automatic hit that automatically doubles all damage dice; `Natural 1` is an automatic miss.
   * **Saving Throws, Ability/Skill Checks & `1d20` Rolls**: Gold/crimson chat banners and broadcast Toast notifications (`CRITICAL_ROLL_BROADCAST`) across all connected clients.
 * **Dynamic Advantage, Disadvantage & Cover**: Automatically computed from conditions (Invisible, Prone in melee vs. ranged, Blinded, Paralyzed, Dodge, Help) and intervening obstacles (+2 AC for Half Cover).
+* **Environmental Combat Modifiers (Weather & Difficult Terrain)**:
+  * **Weather (DMG p. 109-110)**: Violent storms and dense fog impose Disadvantage on ranged attacks (> 1 hex); torrential rain and blizzards impose Disadvantage on long-range attacks.
+  * **Difficult Terrain**: Attacking from unstable footing (Ice, Rubble, Swamp, Mud) imposes Disadvantage; striking targets entangled in Briars or trapped in Mud grants **Advantage**.
+  * **Darkness & Darkvision Rules (PHB p. 194-195)**: Attacking from darkness with Darkvision (or attacking a torch-bearing enemy) grants **Advantage** (*Unseen Attacker*); attacking an unseen target imposes **Disadvantage**; mutual darkness cancels out both to a normal roll.
 * **Automated Opportunity Attacks**: Detects when a combatant leaves hostile melee reach without having taken the *Disengage* action.
 * **Automated Concentration Checks**: Taking damage while concentrating automatically prompts a Constitution saving throw ($\text{DC} = \max(10, \lfloor\text{Damage}/2\rfloor)$).
 * **Death Saves & Instant Death**: Complete 0 HP handling (`Natural 20` = revive at 1 HP, `Natural 1` = 2 failures, 3 successes = Stabilized, 3 failures or excess damage $\ge \text{Max HP}$ = Instant Death).

@@ -41,9 +41,15 @@
 * **Taglie Creature (Dimensioni Token)**: Scalatura visiva sul canvas per le 6 categorie 5e (da *Minuscola* $0.5\times$ a *Mastodontica* $3.5\times$) con menu rapido click destro.
 * **Livello Nascosto DM (GM Layer)**: Schiera mostri in imboscata o elementi segreti visibili solo al DM (semitrasparenti con anello viola e badge `[GM]`). Isolamento a livello di rete TCP (`GAME_STATE`, `PLAYER_JOINED`, `PLAYER_MOVE`) che impedisce qualunque fuga di dati verso i client dei giocatori.
 * **Nebbia di Guerra Dinamica (FoW) & Pennello Manuale**: Esplorazione con Line of Sight (LoS) automatica dei token, visione condivisa del party, scurovisione (`/vision`) e **Pennello Manuale FoW** (raggio 0–3) per rivelare o nascondere stanze con precisione.
+* **Terreni Difficili & Pericolosi (D&D 5e)**: Gestione completa di 5 tipologie di terreno (Fango, Ghiaccio, Rovi, Macerie, Palude) con raddoppio del costo di movimento per cella calcolato lungo la traiettoria (`hex_linedraw`), penalità aumentata se Prono (+1), pericoli istantanei (TS Des CD 10 sul Ghiaccio o Prono, 1d4 danni perforanti sui Rovi), pennello DM rapido `[ 🪨 ]`, menu tasto destro ed Editor Mappe con salvataggio JSON.
+* **Filtri Atmosferici, Meteo & Oscurità Dinamica**:
+  * 6 condizioni ambientali animate: **Sereno**, **Pioggia**, **Tempesta** (fulmini e vento), **Neve** (fiocchi e brina), **Nebbia** (banchi di nebbia volumetrici) e **Oscurità** (buio profondo e vignettatura).
+  * Ciclo orario (Giorno, Tramonto, Alba, Notte) con badge HUD reattivo.
+  * Luce dinamica di torce e lanterne (`light_radius > 0`) che rischiara l'oscurità squarciando le tenebre con un bagliore dorato.
+  * Toggle rapido del DM `[ 🌑 ]` per attivare o disattivare il filtro Oscurità con 1 click o tramite comandi chat (`/darkness`, `/meteo Oscurità`).
 * **Lavagna Tattica Condivisa (`[ ✏️ ]` / `[ 🧹 ]`)**: Disegno a mano libera in tempo reale sincronizzato tra DM e giocatori, con pulsante di cancellazione rapida.
 * **Illuminazione Dinamica e Aure**: Torce, lanterne, incantesimi di luce e aure magiche proiettano anelli luminosi in tempo reale mentre i token si muovono.
-* **Template Incantesimi ad Area (`[ 💥 ]`)**: Sfere, Coni ($60^\circ / 90^\circ$) e Linee con anteprima geometrica sulla griglia.
+* **Template Incantesimi ad Area (`[ 💥 ]`)**: Sfere, Coni ($60^\circ / 90^\circ$), Linee e Sfere di Oscurità Magica con anteprima geometrica sulla griglia.
 * **Ping Animato sulla Mappa**: Click centrale (o strumento `[ 📍 ]`) per inviare un indicatore visivo animato a tutti i giocatori.
 * **Badge Condizioni sui Token**: Indicatori visivi renderizzati direttamente sui token (`💀` Morto, `💤` Incosciente, `🔻` Prono, `⚡` Paralizzato/Concentrazione, `🛡️` Schivata, `🤝` Aiuto, `🤢` Avvelenato, `👁️` Accecato, ecc.).
 
@@ -55,6 +61,10 @@
   * **Tiri per Colpire**: `20 Naturale` colpisce sempre e raddoppia automaticamente tutti i dadi di danno; `1 Naturale` manca automaticamente.
   * **Tiri Salvezza, Prove di Abilità/Caratteristica e Tiri `1d20`**: Evidenziazione dorata/cremisi in chat e notifiche Toast broadcast (`CRITICAL_ROLL_BROADCAST`) a tutto il tavolo.
 * **Vantaggio, Svantaggio e Copertura Dinamica**: Calcolo automatico in base a condizioni (Invisibile, Prono in mischia vs distanza, Accecato, Paralizzato, Schivata, Aiuto) e ostacoli sulla traiettoria (+2 CA per Mezza Copertura).
+* **Modificatori Ambientali di Combattimento (Meteo & Terreni Difficili)**:
+  * **Meteo (DMG p. 109-110)**: Tempesta violenta e Nebbia fitta impongono Svantaggio agli attacchi a distanza (> 1 esagono); pioggia battente e bufere di neve impongono Svantaggio a lunga gittata.
+  * **Terreni Difficili**: Attaccare da superfici instabili (Ghiaccio, Macerie, Palude, Fango) impone Svantaggio; attaccare nemici intralciati nei Rovi o bloccati nel Fango conferisce **Vantaggio**.
+  * **Regole Oscurità e Scurovisione (PHB p. 194-195)**: Attaccare dalle tenebre con Scurovisione (o contro un bersaglio che impugna una torcia) conferisce **Vantaggio** (*Attaccante Celato*); attaccare un bersaglio che non si vede impone **Svantaggio**; nell'oscurità totale reciproca vantaggio e svantaggio si annullano.
 * **Attacchi di Opportunità Automatizzati**: Rileva quando un combattente esce dalla portata di mischia ostile senza aver usato *Disimpegno*.
 * **Controlli di Concentrazione Automatici**: Subire danni con la condizione `Concentrazione` attiva richiede automaticamente un Tiro Salvezza su Costituzione ($\text{CD} = \max(10, \lfloor\text{Danni}/2\rfloor)$).
 * **Tiri Salvezza contro la Morte e Morte Istantanea**: Gestione completa a 0 PV (`20 Naturale` = risveglio a 1 PV, `1 Naturale` = 2 fallimenti, 3 successi = Stabilizzato, 3 fallimenti o danno eccessivo $\ge \text{PV Max}$ = Morto).
