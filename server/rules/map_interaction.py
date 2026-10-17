@@ -43,7 +43,7 @@ def handle_create_aoe_request(data, player, game_state):
         hexes = get_cone_hexes(origin, target, size)
     elif aoe_type == "linea":
         target = Hex(*aoe_data.get("target", aoe_data["origin"]))
-        hexes = get_line_hexes(origin, target)
+        hexes = get_line_hexes(origin, target, size)
     else:
         hexes = []
         
@@ -94,7 +94,13 @@ def handle_create_aoe_request(data, player, game_state):
                 game_state.log_dm_message(f"[AoE] Errore tiro automatico TS per {p.name}: {e}")
 
 def handle_clear_aoes_request(data, player, game_state):
-    game_state.clear_aoes()
+    is_dm = (getattr(player, "role", "") == "DM" or getattr(player, "conn", None) is None)
+    if is_dm:
+        game_state.clear_aoes()
+    else:
+        if hasattr(game_state, "active_aoes"):
+            game_state.active_aoes = [a for a in game_state.active_aoes if a.get("caster") != player.name]
+            game_state._trigger_gui_update()
     broadcast(game_state, make_game_state(game_state.get_state_dict()))
 
 def handle_ping_request(data, player, game_state):
@@ -107,6 +113,11 @@ def handle_ping_request(data, player, game_state):
 
 
 def handle_toggle_wall_request(data, player, game_state):
+    is_dm = (getattr(player, "role", "") == "DM" or getattr(player, "conn", None) is None)
+    if not is_dm:
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Solo il Dungeon Master può modificare i muri sulla mappa."))
+        return
     q, r = data.get("q"), data.get("r")
     if q is None or r is None: return
     
@@ -125,6 +136,11 @@ def handle_toggle_wall_request(data, player, game_state):
     broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
 
 def handle_toggle_cover_request(data, player, game_state):
+    is_dm = (getattr(player, "role", "") == "DM" or getattr(player, "conn", None) is None)
+    if not is_dm:
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Solo il Dungeon Master può modificare le coperture sulla mappa."))
+        return
     q, r = data.get("q"), data.get("r")
     cover_type = data.get("cover_type")
     if q is None or r is None or not cover_type: return

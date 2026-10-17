@@ -35,6 +35,8 @@ class Player:
         self.legendary_actions_current = 0
         self.is_party_member = False
         self.owner = None
+        self.speed = 30
+        self.speed_unit = None
         self.movement_spent_this_turn = 0
         self.has_acted_this_turn = False
 
@@ -67,7 +69,10 @@ class Player:
             "legendary_actions_max": getattr(self, "legendary_actions_max", 0),
             "legendary_actions_current": getattr(self, "legendary_actions_current", 0),
             "avatar_b64": self.full_sheet.get("avatar_b64") if self.full_sheet else None,
-            "is_party_member": getattr(self, "is_party_member", False)
+            "is_party_member": getattr(self, "is_party_member", False),
+            "owner": getattr(self, "owner", None),
+            "speed": getattr(self, "speed", 30),
+            "speed_unit": getattr(self, "speed_unit", None)
         }
 
     @classmethod
@@ -100,6 +105,8 @@ class Player:
         p.legendary_actions_current = data.get("legendary_actions_current", 0)
         p.is_party_member = data.get("is_party_member", False)
         p.owner = data.get("owner", None)
+        p.speed = data.get("speed", 30)
+        p.speed_unit = data.get("speed_unit", None)
         return p
 
 class GameState:
@@ -165,21 +172,34 @@ class GameState:
         self._trigger_gui_update()
 
     def end_combat(self):
+        temp_combat_conds = {"Scatto", "Disimpegno", "Schivata", "Aiutato", "Dash", "Disengage", "Dodge", "Helped"}
         with self.lock:
             self.combat_active = False
             for p in self.players:
                 p.in_combat = False
                 p.movement_spent_this_turn = 0
                 p.has_acted_this_turn = False
+                if hasattr(p, "conditions") and p.conditions:
+                    p.conditions = [c for c in p.conditions if c not in temp_combat_conds]
+                if getattr(p, "full_sheet", None) and isinstance(p.full_sheet.get("conditions"), list):
+                    p.full_sheet["conditions"] = [c for c in p.full_sheet["conditions"] if c not in temp_combat_conds]
         self._trigger_gui_update()
         
     def _get_combatants(self):
         return [p for p in self.players if getattr(p, 'in_combat', True)]
 
     def next_turn(self):
+        end_of_turn_conds = {"Scatto", "Disimpegno", "Dash", "Disengage"}
+        start_of_turn_conds = {"Schivata", "Dodge", "Scatto", "Disimpegno", "Dash", "Disengage"}
         with self.lock:
             combatants = self._get_combatants()
             if not self.combat_active or not combatants: return
+            if 0 <= self.turn_index < len(combatants):
+                prev_active = combatants[self.turn_index]
+                if hasattr(prev_active, "conditions") and prev_active.conditions:
+                    prev_active.conditions = [c for c in prev_active.conditions if c not in end_of_turn_conds]
+                if getattr(prev_active, "full_sheet", None) and isinstance(prev_active.full_sheet.get("conditions"), list):
+                    prev_active.full_sheet["conditions"] = [c for c in prev_active.full_sheet["conditions"] if c not in end_of_turn_conds]
             self.turn_index += 1
             if self.turn_index >= len(combatants):
                 self.turn_index = 0
@@ -188,6 +208,10 @@ class GameState:
                 active = combatants[self.turn_index]
                 active.movement_spent_this_turn = 0
                 active.has_acted_this_turn = False
+                if hasattr(active, "conditions") and active.conditions:
+                    active.conditions = [c for c in active.conditions if c not in start_of_turn_conds]
+                if getattr(active, "full_sheet", None) and isinstance(active.full_sheet.get("conditions"), list):
+                    active.full_sheet["conditions"] = [c for c in active.full_sheet["conditions"] if c not in start_of_turn_conds]
         self._trigger_gui_update()
 
     def prev_turn(self):
@@ -237,10 +261,11 @@ class GameState:
         self._trigger_gui_update()
 
     def remove_player(self, player_to_remove):
+        target_name = player_to_remove if isinstance(player_to_remove, str) else getattr(player_to_remove, "name", None)
         with self.lock:
             idx_to_remove = -1
             for i, p in enumerate(self.players):
-                if p.name == player_to_remove.name:
+                if p.name == target_name:
                     idx_to_remove = i
                     break
             if idx_to_remove != -1:

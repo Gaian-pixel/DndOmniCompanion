@@ -32,7 +32,8 @@ from components.ui_components import HexMapCanvas, ToolTip, show_toast
 from client.voice_client import VoiceClient
 from common.i18n import (
     _t, get_language, set_language, register_language_listener, unregister_language_listener,
-    translate_weather, translate_period
+    translate_weather, translate_period,
+    get_distance_unit, set_distance_unit, register_unit_listener
 )
 from server.dm_dialogs import (
     TextHandoutDialog,
@@ -72,6 +73,7 @@ class DM_GUI:
         self.voice_client = VoiceClient("127.0.0.1", 53912)
         self.voice_client.start()
         register_language_listener(self.on_language_changed)
+        register_unit_listener(self.on_unit_changed)
         self.master.after(100, self.process_queue)
 
     def show_toast(self, message, title=None, duration=3500, toast_type="info", icon=None):
@@ -86,6 +88,20 @@ class DM_GUI:
     def on_language_changed(self, lang_code):
         if hasattr(self, 'master') and self.master.winfo_exists():
             self.master.after(0, self.refresh_ui_language)
+
+    def switch_distance_unit(self, unit_code):
+        set_distance_unit(unit_code)
+        unit_label = _t("unit_feet") if unit_code == "ft" else _t("unit_meters")
+        self.show_toast(_t("unit_changed_toast", unit=unit_label), title=_t("menu_units"), toast_type="info")
+        self.on_unit_changed(unit_code)
+
+    def on_unit_changed(self, unit_code):
+        if hasattr(self, 'master') and self.master.winfo_exists():
+            if hasattr(self, 'unit_var'):
+                self.unit_var.set(unit_code)
+            self._update_map_scale_pill()
+            if self.map_canvas:
+                self.map_canvas.redraw()
 
     def setup_menubar(self):
         menubar = tk.Menu(self.master)
@@ -126,6 +142,13 @@ class DM_GUI:
         lang_menu.add_radiobutton(label="Italiano 🇮🇹", variable=self.lang_var, value="it", command=lambda: self.switch_language("it"))
         lang_menu.add_radiobutton(label="English 🇬🇧", variable=self.lang_var, value="en", command=lambda: self.switch_language("en"))
         menubar.add_cascade(label=_t("menu_language"), menu=lang_menu)
+
+        # Menu Unità di Misura (Piedi / Metri)
+        unit_menu = tk.Menu(menubar, tearoff=0)
+        self.unit_var = tk.StringVar(value=get_distance_unit())
+        unit_menu.add_radiobutton(label=_t("unit_feet"), variable=self.unit_var, value="ft", command=lambda: self.switch_distance_unit("ft"))
+        unit_menu.add_radiobutton(label=_t("unit_meters"), variable=self.unit_var, value="m", command=lambda: self.switch_distance_unit("m"))
+        menubar.add_cascade(label=_t("menu_units"), menu=unit_menu)
 
     def refresh_ui_language(self):
         self.master.title(f"{_t('app_title')} • Dungeon Master")
@@ -275,7 +298,12 @@ class DM_GUI:
         self.fow_options_menu.add_command(label=_t("fow_menu_reveal_all"), command=self.reveal_all_fow)
 
     def setup_player_context_menu(self):
-        self.player_menu = tk.Menu(self.master, tearoff=0, bg="#3E2723", fg="#F5F5DC", font=self.default_font)
+        self.player_menu = tk.Menu(
+            self.master, tearoff=0,
+            bg=SURFACE_COLOR, fg=TEXT_COLOR,
+            activebackground=ACCENT_GOLD, activeforeground=TEXT_DARK,
+            font=self.default_font
+        )
         self.player_menu.add_command(label=_t("ctx_view_sheet"), command=self.view_player_sheet)
         self.player_menu.add_command(label=_t("ctx_assign_item"), command=self.open_assign_item_dialog)
         self.player_menu.add_command(label=_t("ctx_modify_hp"), command=self.open_modify_hp_dialog)
@@ -322,9 +350,9 @@ class DM_GUI:
         btn_zout.pack(pady=3)
         ToolTip(btn_zout, lambda: _t("tool_zoom_out"))
         
-        btn2 = ttk.Button(left_toolbar, text="☁️", width=3, style="Tool.TButton", command=lambda: print("Nebbia: Placeholder"))
-        btn2.pack(pady=3)
-        ToolTip(btn2, lambda: _t("tool_fog_of_war"))
+        self.btn_fow_tool = ttk.Button(left_toolbar, text="☁️", width=3, style="Tool.TButton", command=self.toggle_fow_quick_tool)
+        self.btn_fow_tool.pack(pady=3)
+        ToolTip(self.btn_fow_tool, lambda: _t("tool_fog_of_war"))
         
         self.btn_ruler = ttk.Button(left_toolbar, text="📏", width=3, style="Tool.TButton", command=self.toggle_ruler_mode)
         self.btn_ruler.pack(pady=3)
@@ -390,6 +418,15 @@ class DM_GUI:
             highlightbackground=BORDER_COLOR, highlightthickness=1
         )
         self.top_status_combat_lbl.pack(side=tk.LEFT, padx=3)
+
+        self.top_status_scale_lbl = tk.Label(
+            pills_frame, text="🗺️ 1 hex = 5 ft", font=FONT_SMALL,
+            bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD, padx=6, pady=2,
+            highlightbackground=BORDER_COLOR, highlightthickness=1, cursor="hand2"
+        )
+        self.top_status_scale_lbl.pack(side=tk.LEFT, padx=3)
+        self.top_status_scale_lbl.bind("<Button-1>", self._show_map_scale_menu)
+        ToolTip(self.top_status_scale_lbl, "Scala Mappa Attiva (Clicca per cambiare scala del righello)")
         
         # Toolbar Fog of War a destra
         fow_toolbar = tk.Frame(map_top_bar, bg=SURFACE_COLOR)
@@ -472,9 +509,22 @@ class DM_GUI:
         self.btn_bestiary_full = ttk.Button(b_btn_frame, text=_t("btn_full_sheet"), command=self.open_bestiario_manual_entry, style="Info.TButton")
         self.btn_bestiary_full.pack(side=tk.LEFT, padx=(2, 0))
 
+        # 1-Click Quick Dice Strip (DM)
+        dm_quick_dice_strip = tk.Frame(tab_chat, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=3)
+        dm_quick_dice_strip.pack(fill=tk.X, pady=(4, 0))
+        tk.Label(dm_quick_dice_strip, text="🎲", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(side=tk.LEFT, padx=(2, 4))
+        for die_sides in (4, 6, 8, 10, 12, 20, 100):
+            d_btn = ttk.Button(dm_quick_dice_strip, text=f"d{die_sides}", width=4 if die_sides == 100 else 3, style="QuickDie.TButton")
+            d_btn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
+            d_btn.bind("<ButtonRelease-1>", lambda e, s=die_sides: self.quick_roll_dm_die(s, e))
+            if die_sides == 20:
+                ToolTip(d_btn, "Click: Tira 1d20 | Shift+Click: Vantaggio | Ctrl+Click: Svantaggio")
+            else:
+                ToolTip(d_btn, f"Tiro rapido 1d{die_sides}")
+
         # Chat Input Frame
         chat_input_frame = ttk.Frame(tab_chat)
-        chat_input_frame.pack(fill=tk.X, pady=(5, 3))
+        chat_input_frame.pack(fill=tk.X, pady=(4, 3))
         self.chat_entry = ttk.Entry(chat_input_frame)
         self.chat_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
         self.chat_entry.bind("<Return>", lambda e: self.send_dm_chat())
@@ -579,13 +629,13 @@ class DM_GUI:
         self.btn_switch_scene = ttk.Button(tab_world, text=_t("btn_switch_scene"), command=self.switch_campaign_scene_dialog, style='Info.TButton')
         self.btn_switch_scene.pack(fill=tk.X, pady=(0, 8))
         
-        self.lbl_time_mgmt = ttk.Label(tab_world, text=_t("time_mgmt_header"), font=("Arial", 12, "bold"))
-        self.lbl_time_mgmt.pack(anchor="w", pady=(5, 5))
+        self.lbl_time_mgmt = tk.Label(tab_world, text=_t("time_mgmt_header"), font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD)
+        self.lbl_time_mgmt.pack(anchor="w", pady=(4, 4))
         self.lbl_time = ttk.Label(tab_world, text="")
-        self.lbl_time.pack(anchor="w", pady=(0, 10))
+        self.lbl_time.pack(anchor="w", pady=(0, 8))
         
         time_btn_frame = ttk.Frame(tab_world)
-        time_btn_frame.pack(fill=tk.X, pady=5)
+        time_btn_frame.pack(fill=tk.X, pady=4)
         self.btn_add_1h = ttk.Button(time_btn_frame, text=_t("time_add_1h"), command=lambda: self.advance_time(1))
         self.btn_add_1h.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
         self.btn_add_8h = ttk.Button(time_btn_frame, text=_t("time_add_8h"), command=lambda: self.advance_time(8, is_rest=True))
@@ -594,21 +644,21 @@ class DM_GUI:
         self.btn_add_1d.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
         
         self.btn_calendar = ttk.Button(tab_world, text=_t("btn_open_calendar"), command=self.open_calendar_dialog, style='Info.TButton')
-        self.btn_calendar.pack(fill=tk.X, pady=10)
+        self.btn_calendar.pack(fill=tk.X, pady=(8, 4))
         
         self.btn_quests = ttk.Button(tab_world, text=_t("btn_open_quests"), command=self.open_quest_dialog, style='Info.TButton')
-        self.btn_quests.pack(fill=tk.X, pady=5)
+        self.btn_quests.pack(fill=tk.X, pady=4)
         
         self.btn_shops = ttk.Button(tab_world, text=_t("btn_open_shops"), command=self.open_shop_dialog, style='Info.TButton')
-        self.btn_shops.pack(fill=tk.X, pady=5)
+        self.btn_shops.pack(fill=tk.X, pady=4)
         
         self.btn_travel = ttk.Button(tab_world, text=_t("btn_travel_panel"), command=self.open_travel_panel, style='Primary.TButton')
-        self.btn_travel.pack(fill=tk.X, pady=(10, 5))
+        self.btn_travel.pack(fill=tk.X, pady=(8, 4))
         self.btn_world_manuals = ttk.Button(tab_world, text=_t("btn_manuals"), command=self.open_manuals_dialog, style='Info.TButton')
-        self.btn_world_manuals.pack(fill=tk.X, pady=(0, 5))
+        self.btn_world_manuals.pack(fill=tk.X, pady=(0, 4))
         
-        self.lbl_weather_hdr = ttk.Label(tab_world, text=_t("weather_header"), font=("Arial", 12, "bold"))
-        self.lbl_weather_hdr.pack(anchor="w", pady=(15, 5))
+        self.lbl_weather_hdr = tk.Label(tab_world, text=_t("weather_header"), font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD)
+        self.lbl_weather_hdr.pack(anchor="w", pady=(12, 4))
         self.weather_var = tk.StringVar(value=_t("weather_clear"))
         self.weather_combo = ttk.Combobox(tab_world, textvariable=self.weather_var, values=[_t("weather_clear"), _t("weather_rain"), _t("weather_storm"), _t("weather_snow"), _t("weather_fog")], state="readonly")
         self.weather_combo.pack(fill=tk.X)
@@ -650,9 +700,18 @@ class DM_GUI:
             res = roll_dice(formula)
             from common.protocol import make_chat_broadcast
             from server.network import broadcast
-            msg = f"🎲 [DM Tiro Rapido] {formula} -> Risultato: {res['total']} ({res['rolls']})"
-            broadcast(self.server.game_state, make_chat_broadcast("DM", msg, channel="Globale"))
-            self.add_chat_message("Globale", "DM", msg)
+            crit_badge = ""
+            if res.get("is_crit"):
+                crit_badge = " 🌟 SUCCESSO CRITICO! (20 Naturale)"
+                if hasattr(self, "show_toast"):
+                    self.show_toast(f"20 NATURALE su {formula} (Totale: {res['total']})!", title="🌟 Successo Critico!", toast_type="gold")
+            elif res.get("is_fumble"):
+                crit_badge = " 💀 FALLIMENTO CRITICO! (1 Naturale)"
+                if hasattr(self, "show_toast"):
+                    self.show_toast(f"1 NATURALE su {formula} (Totale: {res['total']})!", title="💀 Fallimento Critico!", toast_type="danger")
+            msg = f"🎲 [DM Tiro Rapido] {formula} -> Risultato: {res['total']} ({res['rolls']}){crit_badge}"
+            broadcast(self.server.game_state, make_chat_broadcast("DM", msg))
+            self.log_to_chat(f"[DM]: {msg}")
         elif action_type == "center_token":
             if self.map_canvas and hasattr(self.map_canvas, "center_on_token"):
                 self.map_canvas.center_on_token(payload)
@@ -1054,9 +1113,10 @@ class DM_GUI:
             self.open_combat_config()
         else:
             if messagebox.askyesno(_t("msg_combat_end_title", default="Fine Combattimento"), _t("msg_combat_end_confirm", default="Vuoi terminare il combattimento?")):
+                ended_round = getattr(self.server.game_state, "round_number", 1)
                 self.server.game_state.end_combat()
                 self._auto_restore_scene_music()
-                self.server.game_state.add_calendar_event(f"Combattimento Terminato al Round {self.server.game_state.combat_round}")
+                self.server.game_state.add_calendar_event(f"Combattimento Terminato al Round {ended_round}")
                 self.log_to_chat("[SISTEMA] Fine Combattimento.")
                 from common.protocol import make_chat_broadcast, make_game_state
                 broadcast(self.server.game_state, make_chat_broadcast("Sistema", "Fine Combattimento."))
@@ -1279,7 +1339,16 @@ class DM_GUI:
             from common.dice import roll_dice
             try:
                 result = roll_dice(formula)
-                log_msg = f"DM tira {formula} {'(' + reason + ')' if reason else ''}: {result['rolls']} + {result['modifier']} = {result['total']}"
+                crit_badge = ""
+                if result.get("is_crit"):
+                    crit_badge = " 🌟 SUCCESSO CRITICO! (20 Naturale)"
+                    if hasattr(self, "show_toast"):
+                        self.show_toast(f"20 NATURALE su {reason or formula} (Totale: {result['total']})!", title="🌟 Successo Critico!", toast_type="gold")
+                elif result.get("is_fumble"):
+                    crit_badge = " 💀 FALLIMENTO CRITICO! (1 Naturale)"
+                    if hasattr(self, "show_toast"):
+                        self.show_toast(f"1 NATURALE su {reason or formula} (Totale: {result['total']})!", title="💀 Fallimento Critico!", toast_type="danger")
+                log_msg = f"DM tira {formula} {'(' + reason + ')' if reason else ''}: {result['rolls']} + {result['modifier']} = {result['total']}{crit_badge}"
                 self.log_to_chat(f"[ROLL] {log_msg}")
                 broadcast(self.server.game_state, make_dice_roll_result("DM", formula, reason, result))
             except Exception as e:
@@ -1287,18 +1356,6 @@ class DM_GUI:
 
     def toggle_fow(self):
         if not self.server.game_state.current_map: return
-        
-        if getattr(self, "aoe_mode", False):
-            self.aoe_mode = False
-            origin = [clicked_hex.q, clicked_hex.r]
-            aoe_data = getattr(self, "aoe_params", {})
-            aoe_data["origin"] = origin
-            from server.rules.map_interaction import handle_create_aoe_request
-            from common.game_state import Player
-            handle_create_aoe_request({"aoe_data": aoe_data}, Player("DM", None, None), self.server.game_state)
-            self.redraw_map_and_players()
-            self.log_to_chat(f"[AoE] Il DM ha piazzato un'Area d'Effetto in {origin}.")
-            return
         self.server.game_state.current_map["fow_enabled"] = self.fow_enabled_var.get()
         self.redraw_map_and_players()
         self._broadcast_fow_update()
@@ -1503,6 +1560,7 @@ class DM_GUI:
         combat_order = [p.name for p in self.server.game_state.players] if combat_active else []
         round_number = getattr(self.server.game_state, "round_number", 1)
         
+        self._update_map_scale_pill()
         self.map_canvas.update_data(
             map_data, 
             players_data, 
@@ -1514,6 +1572,89 @@ class DM_GUI:
             combat_active=combat_active,
             combat_order=combat_order,
             round_number=round_number
+        )
+
+    def _update_map_scale_pill(self):
+        if not hasattr(self, "top_status_scale_lbl"):
+            return
+        from common.i18n import get_map_scale_info
+        cur_map = getattr(self.server.game_state, "current_map", None) if hasattr(self, "server") and hasattr(self.server, "game_state") else None
+        info = get_map_scale_info(cur_map)
+        per_hex = info["per_hex"]
+        per_hex_str = str(int(per_hex)) if per_hex == int(per_hex) else f"{per_hex:g}"
+        self.top_status_scale_lbl.config(
+            text=f"🗺️ {info['scale_name']}: 1 hex = {per_hex_str} {info['unit_label']}"
+        )
+
+    def _show_map_scale_menu(self, event=None):
+        menu = tk.Menu(self.master, tearoff=0)
+        menu.add_command(
+            label="⚔️ Combattimento (1 hex = 5 ft / 1.5 m)",
+            command=lambda: self._set_active_map_scale("combat")
+        )
+        menu.add_command(
+            label="🧭 Esplorazione / POI (1 hex = 1 mi / 1.5 km)",
+            command=lambda: self._set_active_map_scale("exploration")
+        )
+        menu.add_command(
+            label="🌍 Mondo / Regione (1 hex = 6 mi / 9 km)",
+            command=lambda: self._set_active_map_scale("world")
+        )
+        menu.add_separator()
+        menu.add_command(
+            label="📏 Scala Personalizzata...",
+            command=lambda: self._set_active_map_scale("custom")
+        )
+        try:
+            x = event.x_root if event else self.top_status_scale_lbl.winfo_rootx()
+            y = event.y_root if event else (self.top_status_scale_lbl.winfo_rooty() + self.top_status_scale_lbl.winfo_height())
+            menu.tk_popup(x, y)
+        finally:
+            menu.grab_release()
+
+    def _set_active_map_scale(self, scale_type: str):
+        if not hasattr(self, "server") or not getattr(self.server.game_state, "current_map", None):
+            return
+        cur_map = self.server.game_state.current_map
+        if scale_type == "custom":
+            from common.i18n import get_distance_unit
+            u_default = "m" if get_distance_unit() == "m" else "ft"
+            val_str = simpledialog.askstring(
+                "Scala Mappa Personalizzata",
+                f"Inserisci la distanza per 1 esagono (es. '10 ft', '3 m', '24 mi', '36 km'):",
+                initialvalue=f"10 {u_default}",
+                parent=self.master
+            )
+            if not val_str:
+                return
+            parts = val_str.strip().replace(",", ".").split()
+            try:
+                val_num = float(parts[0])
+            except (ValueError, IndexError):
+                messagebox.showerror("Errore", "Valore numerico non valido per la scala.")
+                return
+            u_custom = parts[1].lower() if len(parts) > 1 and parts[1].lower() in ("ft", "m", "mi", "km") else u_default
+            cur_map["map_scale_type"] = "custom"
+            cur_map["hex_scale_value"] = val_num
+            cur_map["hex_scale_unit"] = u_custom
+        else:
+            cur_map["map_scale_type"] = scale_type
+            cur_map.pop("hex_scale_value", None)
+            cur_map.pop("hex_scale_unit", None)
+
+        self._update_map_scale_pill()
+        self.redraw_map_and_players()
+        from common.protocol import make_map_data_update_broadcast
+        from server.network import broadcast
+        broadcast(self.server.game_state, make_map_data_update_broadcast(cur_map))
+        from common.i18n import get_map_scale_info
+        info = get_map_scale_info(cur_map)
+        per_hex = info["per_hex"]
+        per_hex_str = str(int(per_hex)) if per_hex == int(per_hex) else f"{per_hex:g}"
+        self.show_toast(
+            f"Scala mappa aggiornata: {info['scale_name']} (1 hex = {per_hex_str} {info['unit_label']})",
+            title="Scala Mappa",
+            toast_type="info"
         )
         
 
@@ -2588,7 +2729,20 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
                 messagebox.showerror("Errore", "Il nome dell'oggetto è obbligatorio.")
                 return
             
-            send_message(player.conn, make_receive_item(item))
+            with self.server.game_state.lock:
+                if not getattr(player, "full_sheet", None) or not isinstance(player.full_sheet, dict):
+                    player.full_sheet = {}
+                grid = player.full_sheet.get("inventory_grid")
+                if not isinstance(grid, list) or len(grid) == 0:
+                    grid = [None] * 25
+                for idx in range(len(grid)):
+                    if grid[idx] is None:
+                        grid[idx] = dict(item)
+                        break
+                player.full_sheet["inventory_grid"] = grid
+
+            if player.conn:
+                send_message(player.conn, make_receive_item(item))
             messagebox.showinfo("Successo", f"Oggetto inviato a {player_name}!")
             win.destroy()
 
@@ -3491,12 +3645,74 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         self.server.game_state._trigger_gui_update()
         messagebox.showinfo("Ispirazione", f"Ispirazione per {p.name}: {'CONCESSA (⭐)' if new_val else 'RIMOSSA'}", parent=self.master)
 
+    def toggle_fow_quick_tool(self):
+        """Abilita la Nebbia di Guerra e cicla rapidamente lo strumento Nebbia (Muovi -> Cancella -> Disegna)."""
+        modes = [_t("fow_mode_move"), _t("fow_mode_erase"), _t("fow_mode_draw")]
+        cur_mode = self.fow_mode_var.get()
+        if not self.fow_enabled_var.get():
+            self.fow_enabled_var.set(True)
+            self.toggle_fow()
+            next_mode = _t("fow_mode_erase")
+        else:
+            try:
+                idx = (modes.index(cur_mode) + 1) % len(modes)
+                next_mode = modes[idx]
+            except ValueError:
+                next_mode = modes[0]
+        self.fow_mode_var.set(next_mode)
+        is_fow_brush = next_mode != _t("fow_mode_move")
+        if hasattr(self, "btn_fow_tool"):
+            self.btn_fow_tool.configure(style="ToolActive.TButton" if is_fow_brush else "Tool.TButton")
+        if self.map_canvas:
+            self.map_canvas.config(cursor="dotbox" if is_fow_brush else "")
+        self.show_toast(
+            f"Modalità Nebbia: {next_mode} (Nebbia {'Attiva' if self.fow_enabled_var.get() else 'Disattivata'})",
+            title="☁️ Nebbia di Guerra",
+            toast_type="gold" if is_fow_brush else "info"
+        )
+
+    def quick_roll_dm_die(self, sides, event=None):
+        """Tira rapidamente 1dX dalla barra sopra la chat DM (Shift+Click=Vantaggio, Ctrl+Click=Svantaggio su d20)."""
+        from common.dice import roll_dice
+        from common.protocol import make_chat_broadcast
+        from server.network import broadcast
+        state = getattr(event, "state", 0) if event else 0
+        is_shift = bool(state & 0x0001)
+        is_ctrl = bool(state & 0x0004)
+        formula = f"1d{sides}"
+        adv_tag = ""
+        if sides == 20 and (is_shift or is_ctrl):
+            r1 = roll_dice("1d20")["total"]
+            r2 = roll_dice("1d20")["total"]
+            chosen = max(r1, r2) if is_shift else min(r1, r2)
+            adv_tag = " [Vantaggio]" if is_shift else " [Svantaggio]"
+            res = {
+                "total": chosen,
+                "rolls": [r1, r2],
+                "is_crit": (chosen == 20),
+                "is_fumble": (chosen == 1)
+            }
+        else:
+            res = roll_dice(formula)
+
+        crit_badge = ""
+        if res.get("is_crit"):
+            crit_badge = " 🌟 SUCCESSO CRITICO! (20 Naturale)"
+            self.show_toast(f"20 NATURALE su {formula}{adv_tag}!", title="🌟 Successo Critico!", toast_type="gold")
+        elif res.get("is_fumble"):
+            crit_badge = " 💀 FALLIMENTO CRITICO! (1 Naturale)"
+            self.show_toast(f"1 NATURALE su {formula}{adv_tag}!", title="💀 Fallimento Critico!", toast_type="danger")
+
+        msg = f"🎲 [DM Tiro Rapido] {formula}{adv_tag} -> Risultato: {res['total']} ({res['rolls']}){crit_badge}"
+        broadcast(self.server.game_state, make_chat_broadcast("DM", msg))
+        self.log_to_chat(msg, tab_name="Sistema", sender="DM", color="#EB459E")
+
     def toggle_ruler_mode(self):
         active = self.map_canvas.toggle_ruler_mode()
-        style = "Gold.TButton" if active else "Tool.TButton"
+        style = "ToolActive.TButton" if active else "Tool.TButton"
         if hasattr(self, 'btn_ruler'):
             self.btn_ruler.configure(style=style)
-        msg = "Righello attivato: clicca due punti sulla mappa per misurare la distanza." if active else "Righello disattivato."
+        msg = "Righello attivato: clicca e trascina sulla mappa per misurare la distanza." if active else "Righello disattivato."
         self.show_toast(msg, title="📏 Righello", toast_type="info" if active else "secondary")
 
     def open_aoe_dialog(self):

@@ -7,8 +7,13 @@ import math
 def handle_chat(data, player, game_state):
     text = data.get("text", "").strip()
     if not text: return
+    is_dm = (player is None or getattr(player, "role", "") == "DM" or getattr(player, "conn", None) is None)
     
     if text.startswith("/setsize "):
+        if not is_dm:
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply("Comando /setsize riservato al Dungeon Master."))
+            return
         parts = text.split(" ")
         if len(parts) >= 3:
             p_name = parts[1]
@@ -28,6 +33,10 @@ def handle_chat(data, player, game_state):
         parts = text.split(" ")
         if len(parts) >= 3:
             p_name = parts[1]
+            if not is_dm and p_name.lower() != player.name.lower():
+                if getattr(player, "conn", None):
+                    send_message(player.conn, make_error_reply("Puoi modificare solo la tua aura."))
+                return
             try:
                 aura_rad = int(parts[2])
                 color = parts[3] if len(parts) >= 4 else "yellow"
@@ -43,6 +52,10 @@ def handle_chat(data, player, game_state):
         return
 
     if text.startswith("/vision "):
+        if not is_dm:
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply("Comando /vision riservato al Dungeon Master."))
+            return
         parts = text.split(" ")
         if len(parts) >= 3:
             p_name = parts[1]
@@ -88,6 +101,10 @@ def handle_chat(data, player, game_state):
         return
         
     if text.startswith("/light "):
+        if not is_dm:
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply("Comando /light riservato al Dungeon Master (usa /torch per accendere una torcia)."))
+            return
         parts = text.split(" ")
         if len(parts) >= 4 and getattr(game_state, "current_map", None):
             try:
@@ -122,6 +139,10 @@ def handle_chat(data, player, game_state):
         return
         
     if text.startswith("/loot "):
+        if not is_dm:
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply("Comando /loot riservato al Dungeon Master."))
+            return
         parts = text.split(" ", 4)
         if len(parts) >= 4 and getattr(game_state, "current_map", None):
             try:
@@ -139,6 +160,10 @@ def handle_chat(data, player, game_state):
         return
         
     if text.startswith("/meteo "):
+        if not is_dm:
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply("Comando /meteo riservato al Dungeon Master."))
+            return
         parts = text.split(" ", 1)
         if len(parts) >= 2:
             new_weather = parts[1].strip().capitalize()
@@ -184,6 +209,24 @@ def handle_chat(data, player, game_state):
                 send_message(player.conn, make_error_reply("Sintassi sussurro: `/w <nome> <messaggio>`"))
             return
 
+    # Tiri di dado rapidi da chat (/roll, /r)
+    if text.lower().startswith("/roll ") or text.lower().startswith("/r ") or text.lower() in ("/roll", "/r"):
+        cmd_len = 5 if text.lower().startswith("/roll") else 2
+        rest = text[cmd_len:].strip()
+        if not rest:
+            formula, reason = "1d20", ""
+        else:
+            # Supporta "1d20+5 adv Percepire" oppure "1d20+5 Percepire"
+            tokens = rest.split()
+            if len(tokens) >= 2 and tokens[1].lower() in ("adv", "dis", "vantaggio", "svantaggio"):
+                formula = f"{tokens[0]} {tokens[1]}"
+                reason = " ".join(tokens[2:])
+            else:
+                formula = tokens[0]
+                reason = " ".join(tokens[1:])
+        handle_roll_request({"formula": formula, "reason": reason}, player, game_state)
+        return
+
     game_state.log_dm_message(f"[{player.name}]: {text}")
     broadcast(game_state, make_chat_broadcast(player.name, text))
 
@@ -217,11 +260,24 @@ def handle_whisper(data, player, game_state):
 
 def handle_roll_request(data, player, game_state):
     formula = data.get("formula"); reason = data.get("reason", "")
+    if not formula or str(formula).strip().lower() == "0d0":
+        if reason:
+            game_state.log_dm_message(f"[{player.name}]: {reason}")
+            broadcast(game_state, make_chat_broadcast(player.name, reason))
+        return
     try:
+        from common.dice import roll_dice
         result = roll_dice(formula)
-        log_msg = f"{player.name} tira {formula} ({reason}) e ottiene {result['total']}"
+        crit_badge = ""
+        if result.get("is_crit"):
+            crit_badge = " 🌟 SUCCESSO CRITICO! [20 Naturale]"
+        elif result.get("is_fumble"):
+            crit_badge = " 💀 FALLIMENTO CRITICO! [1 Naturale]"
+        reason_part = f" ({reason})" if reason else ""
+        log_msg = f"{player.name} tira {formula}{reason_part} e ottiene {result['total']} (dadi: {result.get('rolls')}, mod: {result.get('modifier')}){crit_badge}"
         game_state.log_dm_message(f"[ROLL] {log_msg}")
         broadcast(game_state, make_dice_roll_result(player.name, formula, reason, result))
     except ValueError as e:
         send_message(player.conn, make_error_reply(str(e)))
+
 

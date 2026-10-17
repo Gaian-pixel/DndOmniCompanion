@@ -49,14 +49,20 @@ class Server:
         for p in players:
             if p.full_sheet is None:
                 p.full_sheet = {}
-            if "gp" not in p.full_sheet:
-                p.full_sheet["gp"] = 0
-            p.full_sheet["gp"] += share
+            try:
+                cur_gp = int(p.full_sheet.get("gp", 0) or 0)
+            except (ValueError, TypeError):
+                cur_gp = 0
             
-            if "currency" not in p.full_sheet:
-                p.full_sheet["currency"] = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
-            if isinstance(p.full_sheet["currency"], dict):
-                p.full_sheet["currency"]["MO"] = p.full_sheet["currency"].get("MO", 0) + share
+            if "currency" not in p.full_sheet or not isinstance(p.full_sheet["currency"], dict):
+                p.full_sheet["currency"] = {"MR": 0, "MA": 0, "ME": 0, "MO": cur_gp, "MP": 0}
+            try:
+                cur_mo = int(p.full_sheet["currency"].get("MO", cur_gp) or 0)
+            except (ValueError, TypeError):
+                cur_mo = cur_gp
+            new_mo = cur_mo + share
+            p.full_sheet["currency"]["MO"] = new_mo
+            p.full_sheet["gp"] = new_mo
                 
             if getattr(p, 'conn', None):
                 send_message(p.conn, {"type": "RECEIVE_GOLD", "data": {"amount": share}})
@@ -91,8 +97,8 @@ class Server:
             
             existing_player = self.game_state.find_player(name)
             if existing_player:
-                if existing_player.conn is None:
-                    # Riconnessione di un giocatore offline
+                if existing_player.conn is None and (getattr(existing_player, "is_party_member", False) or getattr(existing_player, "addr", None) is not None):
+                    # Riconnessione di un giocatore offline (non un PNG del DM)
                     existing_player.conn = conn
                     existing_player.addr = addr
                     existing_player.is_party_member = True
@@ -101,7 +107,7 @@ class Server:
                     broadcast(self.game_state, make_player_joined(player.to_dict()), exclude_player=player)
                     self.game_state._trigger_gui_update()
                 else:
-                    send_message(conn, make_error_reply(f"Il nome '{name}' è già in uso.")); return
+                    send_message(conn, make_error_reply(f"Il nome '{name}' è già in uso o appartiene a un PNG.")); return
             else:
                 player = Player(name, addr, conn)
                 player.is_party_member = True

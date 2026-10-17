@@ -1,4 +1,5 @@
 import tkinter as tk
+import re
 import threading
 import urllib.request
 import urllib.parse
@@ -12,7 +13,10 @@ from common.theme import (
     FONT_MAIN, FONT_TITLE, FONT_HEADER, FONT_BOLD, FONT_SMALL,
     apply_modern_window_style
 )
-from common.i18n import _t, get_language, translate_condition, translate_ability, translate_skill
+from common.i18n import (
+    _t, get_language, translate_condition, translate_ability, translate_skill,
+    get_distance_unit, set_distance_unit, convert_speed_value
+)
 from components.ui_components import ToolTip
 
 
@@ -192,6 +196,15 @@ class CharacterSheetUI(tk.Toplevel):
         
         skills_canvas.pack(side="left", fill="both", expand=True)
         skills_scrollbar.pack(side="right", fill="y")
+
+        def _on_skills_mousewheel(event):
+            try:
+                skills_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            except tk.TclError:
+                pass
+
+        skills_frame.bind("<Enter>", lambda e: skills_canvas.bind_all("<MouseWheel>", _on_skills_mousewheel))
+        skills_frame.bind("<Leave>", lambda e: skills_canvas.unbind_all("<MouseWheel>"))
         
         # Intestazione colonne
         hdr_prof = tk.Label(skills_inner_frame, text=_t("col_skill_prof"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
@@ -260,8 +273,16 @@ class CharacterSheetUI(tk.Toplevel):
         speed_box = tk.Frame(core_badges, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=4)
         speed_box.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
         tk.Label(speed_box, text=f"👟 {_t('sheet_speed_short')}", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack()
-        self.speed_var = tk.IntVar(value=30)
-        ttk.Entry(speed_box, textvariable=self.speed_var, width=3, justify="center").pack(pady=2)
+        speed_input_row = tk.Frame(speed_box, bg=SURFACE_COLOR_ALT)
+        speed_input_row.pack(pady=2)
+        self.speed_var = tk.StringVar(value="30")
+        ttk.Entry(speed_input_row, textvariable=self.speed_var, width=4, justify="center").pack(side=tk.LEFT, padx=(0, 2))
+        self.speed_unit_var = tk.StringVar(value=get_distance_unit())
+        self._last_speed_unit = self.speed_unit_var.get()
+        self.speed_unit_combo = ttk.Combobox(speed_input_row, textvariable=self.speed_unit_var, values=["ft", "m"], width=3, state="readonly")
+        self.speed_unit_combo.pack(side=tk.LEFT)
+        self.speed_unit_combo.bind("<<ComboboxSelected>>", self._on_speed_unit_changed)
+        ToolTip(self.speed_unit_combo, "Scegli unità di misura: Piedi (ft) o Metri (m)")
 
         # Vantaggio / Svantaggio selector
         adv_row = tk.Frame(combat_frame, bg=SURFACE_COLOR)
@@ -287,12 +308,19 @@ class CharacterSheetUI(tk.Toplevel):
             self.hp_max_entry.configure(state="readonly")
             ToolTip(self.hp_max_entry, _t("msg_hp_max_locked_online"))
         self.hp_max_entry.pack(side=tk.LEFT)
+
+        # Pulsanti Rapidi Danno/Cura (-5, -1, +1, +5)
+        hp_quick_row = tk.Frame(hp_card, bg=SURFACE_COLOR_ALT)
+        hp_quick_row.pack(fill=tk.X, pady=(2, 2))
+        for delta, lbl, st in [(-5, "-5", "Danger.TButton"), (-1, "-1", "Danger.TButton"), (1, "+1", "Success.TButton"), (5, "+5", "Success.TButton")]:
+            q_btn = ttk.Button(hp_quick_row, text=lbl, width=3, style=st, command=lambda d=delta: self._adjust_hp_quick(d))
+            q_btn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
         
         # Health bar fill
         self.sheet_hp_bg = tk.Frame(hp_card, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, height=10)
         self.sheet_hp_bg.pack(fill=tk.X, pady=(2, 2))
         self.sheet_hp_fill = tk.Frame(self.sheet_hp_bg, bg=ACCENT_GREEN, height=8)
-        self.sheet_hp_fill.place(x=0, y=0, width=0, relheight=1.0)
+        self.sheet_hp_fill.place(x=0, y=0, width=0, relwidth=0.0, relheight=1.0)
         
         def update_sheet_hp_bar(*args):
             try:
@@ -301,9 +329,7 @@ class CharacterSheetUI(tk.Toplevel):
                 ratio = max(0.0, min(1.0, cur / mx))
                 color = ACCENT_GREEN if ratio > 0.5 else ("#F59F00" if ratio > 0.25 else ACCENT_RED)
                 self.sheet_hp_fill.config(bg=color)
-                w = self.sheet_hp_bg.winfo_width()
-                if w <= 10: w = 180
-                self.sheet_hp_fill.place(x=0, y=0, width=max(0, int(w * ratio)), relheight=1.0)
+                self.sheet_hp_fill.place(x=0, y=0, width=0, relwidth=ratio, relheight=1.0)
             except (ValueError, tk.TclError): pass
         self.hp_cur_var.trace_add("write", update_sheet_hp_bar)
         self.hp_max_var.trace_add("write", update_sheet_hp_bar)
@@ -385,8 +411,11 @@ class CharacterSheetUI(tk.Toplevel):
         # Pulsanti (in fondo alla scheda)
         btn_frame = ttk.Frame(main_frame, padding=(0, 10))
         btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
-        ttk.Button(btn_frame, text=_t("save"), command=self.save_character, style="Primary.TButton").pack(side=tk.RIGHT, padx=5)
+        save_btn = ttk.Button(btn_frame, text=f"{_t('save')} (Ctrl+S)", command=self.save_character, style="Primary.TButton")
+        save_btn.pack(side=tk.RIGHT, padx=5)
         ttk.Button(btn_frame, text=_t("cancel"), command=self.destroy).pack(side=tk.RIGHT, padx=5)
+        self.bind("<Control-s>", self.save_character)
+        self.bind("<Control-S>", self.save_character)
 
     def create_inventory_tab(self, parent_frame):
         # 1. Borsa delle Monete (Currency Cards)
@@ -916,7 +945,15 @@ class CharacterSheetUI(tk.Toplevel):
         self.hp_max_var.set(self.character.hp_max)
         self.ac_var.set(self.character.ac)
         self.init_var.set(self.character.initiative)
-        self.speed_var.set(self.character.speed)
+        spd = getattr(self.character, "speed", 30)
+        try:
+            u = getattr(self.character, "speed_unit", None) or ("m" if float(spd) <= 18 else "ft")
+        except (ValueError, TypeError):
+            u = "ft"
+        self.speed_var.set(str(spd))
+        if hasattr(self, "speed_unit_var"):
+            self.speed_unit_var.set(u)
+            self._last_speed_unit = u
         if "Morto" in getattr(self.character, "conditions", []):
             self.death_label.grid()
         else:
@@ -1341,7 +1378,16 @@ class CharacterSheetUI(tk.Toplevel):
     def import_from_compendium(self, item_data, category):
         return self.import_from_compendium_to_slot(item_data, category, None)
 
-    def save_character(self):
+    def _adjust_hp_quick(self, delta: int):
+        try:
+            cur = int(self.hp_cur_var.get())
+            mx = max(1, int(self.hp_max_var.get()))
+            new_hp = max(0, min(mx, cur + delta))
+            self.hp_cur_var.set(new_hp)
+        except (ValueError, tk.TclError):
+            pass
+
+    def save_character(self, event=None):
         try:
             self.character.name = self.name_var.get()
             self.character.campaign = self.campaign_var.get()
@@ -1364,7 +1410,11 @@ class CharacterSheetUI(tk.Toplevel):
             self.character.hp_max = self.hp_max_var.get()
             self.character.ac = self.ac_var.get()
             self.character.initiative = self.init_var.get()
-            self.character.speed = self.speed_var.get()
+            spd_raw = float(str(self.speed_var.get()).replace(",", "."))
+            self.character.speed = int(spd_raw) if spd_raw == int(spd_raw) else round(spd_raw, 1)
+            if hasattr(self, "speed_unit_var"):
+                self.character.speed_unit = self.speed_unit_var.get()
+                set_distance_unit(self.character.speed_unit)
             
             for attr, txt in self.text_widgets.items():
                 val = txt.get("1.0", tk.END).strip()
@@ -1414,6 +1464,20 @@ class CharacterSheetUI(tk.Toplevel):
         except ValueError:
             messagebox.showerror("Errore", "Assicurati di inserire valori numerici validi nei campi numerici.")
 
+    def _on_speed_unit_changed(self, event=None):
+        new_u = self.speed_unit_var.get()
+        old_u = getattr(self, "_last_speed_unit", new_u)
+        if new_u != old_u:
+            try:
+                cur_val = float(str(self.speed_var.get()).replace(",", "."))
+                converted = convert_speed_value(cur_val, old_u, new_u)
+                self.speed_var.set(str(converted))
+            except (ValueError, TypeError):
+                self.speed_var.set("9" if new_u == "m" else "30")
+            self._last_speed_unit = new_u
+            self.character.speed_unit = new_u
+            set_distance_unit(new_u)
+
     def roll_stat(self, stat_name, stat_val):
         if not self.roll_callback: return
         try:
@@ -1428,6 +1492,7 @@ class CharacterSheetUI(tk.Toplevel):
             elif adv_state in ("Svantaggio", _t("adv_disadvantage")):
                 formula += " dis"
                 
+            self.adv_dis_var.set(_t("adv_normal"))
             self.roll_callback(formula, f"Check {stat_name}")
         except (ValueError, tk.TclError):
             pass
@@ -1456,6 +1521,7 @@ class CharacterSheetUI(tk.Toplevel):
             elif adv_state in ("Svantaggio", _t("adv_disadvantage")):
                 formula += " dis"
                 
+            self.adv_dis_var.set(_t("adv_normal"))
             self.roll_callback(formula, f"Check {skill_name}")
         except (ValueError, tk.TclError):
             pass
@@ -1474,6 +1540,7 @@ class CharacterSheetUI(tk.Toplevel):
             elif adv_state in ("Svantaggio", _t("adv_disadvantage")):
                 formula += " dis"
 
+            self.adv_dis_var.set(_t("adv_normal"))
             self.roll_callback(formula, "Iniziativa")
         except (ValueError, tk.TclError):
             pass
@@ -1493,7 +1560,7 @@ class CharacterSheetUI(tk.Toplevel):
         self.hp_cur_var.set(self.character.hp_current)
         self.manager.update_character(self.character)
         if hasattr(self, "on_save_callback") and self.on_save_callback:
-            try: self.on_save_callback()
+            try: self.on_save_callback(self.character)
             except Exception: pass
         messagebox.showinfo("Riposo Breve", f"Hai speso {spend} Dadi Vita e recuperato {healed} HP! Privilegi di classe ricaricati.")
 
@@ -1506,7 +1573,7 @@ class CharacterSheetUI(tk.Toplevel):
                 self.load_data()
                 self.manager.update_character(self.character)
                 if hasattr(self, "on_save_callback") and self.on_save_callback:
-                    try: self.on_save_callback()
+                    try: self.on_save_callback(self.character)
                     except Exception: pass
                 messagebox.showinfo("Riposo Lungo", "Hai effettuato un riposo lungo! HP, Dadi Vita, Tiri contro la Morte e Slot Incantesimo sono stati recuperati.")
 
@@ -1523,7 +1590,7 @@ class CharacterSheetUI(tk.Toplevel):
         flavor = ""
         if roll == 1:
             fail += 2
-            flavor = "💥 Fallimento critico! (2 fallimenti)"
+            flavor = "💀 FALLIMENTO CRITICO (1 Naturale)! (2 fallimenti)"
         elif roll <= 9:
             fail += 1
             flavor = "❌ Fallimento."
@@ -1537,7 +1604,7 @@ class CharacterSheetUI(tk.Toplevel):
             fail = 0
             if "Incosciente" in conds:
                 conds.remove("Incosciente")
-            flavor = "🌟 Critico naturale (20)! Ti risvegli con 1 HP."
+            flavor = "🌟 SUCCESSO CRITICO (20 Naturale)! Ti risvegli con 1 HP."
 
         if roll != 20:
             succ = min(3, succ)
@@ -1557,9 +1624,13 @@ class CharacterSheetUI(tk.Toplevel):
         self.update_death_saves_ui()
         self.manager.update_character(self.character)
         if hasattr(self, "on_save_callback") and self.on_save_callback:
-            try: self.on_save_callback()
+            try: self.on_save_callback(self.character)
             except Exception: pass
             
+        if self.roll_callback:
+            chat_msg = f"💀 Tiro contro la Morte di {self.character.name}: [d20: {roll}] -> {flavor} (Successi: {succ}/3 | Fallimenti: {fail}/3)"
+            self.roll_callback("0d0", chat_msg)
+
         msg = f"Tiro 1d20: {roll}. {flavor}\n(Successi: {succ}/3 | Fallimenti: {fail}/3)"
         messagebox.showinfo("Tiro contro la Morte", msg, parent=self)
 
@@ -1579,9 +1650,9 @@ class CharacterSheetUI(tk.Toplevel):
             hp = 1
             
         if hp <= 0:
-            self.death_saves_frame.grid()
+            self.death_saves_frame.pack(fill=tk.X, pady=(0, 6))
         else:
-            self.death_saves_frame.grid_remove()
+            self.death_saves_frame.pack_forget()
             if hasattr(self.character, "death_saves"):
                 self.character.death_saves["successes"] = 0
                 self.character.death_saves["failures"] = 0
@@ -1682,7 +1753,8 @@ class CharacterSheetUI(tk.Toplevel):
             dmg_mod = mod + w_bonus
             dmg_mod_str = f"+{dmg_mod}" if dmg_mod > 0 else (str(dmg_mod) if dmg_mod < 0 else "")
             dice = w.get("damage_dice", "1d8")
-            dmg_str = f"{dice}{dmg_mod_str} {w.get('damage_type', '')}"
+            dmg_formula = f"{dice}{dmg_mod_str}"
+            dmg_str = f"{dmg_formula} {w.get('damage_type', '')}"
             
             r1 = tk.Frame(card, bg=SURFACE_COLOR)
             r1.pack(fill=tk.X)
@@ -1705,7 +1777,7 @@ class CharacterSheetUI(tk.Toplevel):
             r4.pack(fill=tk.X)
             
             if getattr(self, "attack_callback", None):
-                btn_target = ttk.Button(r4, text=f"🎯 Bersaglio ({txc_str})", command=lambda weapon=w, txc=total_txc, dmg=dmg_str: self.execute_targeted_attack(weapon, txc, dmg), style="Gold.TButton")
+                btn_target = ttk.Button(r4, text=f"🎯 Bersaglio ({txc_str})", command=lambda weapon=w, txc=total_txc, dmg=dmg_formula: self.execute_targeted_attack(weapon, txc, dmg), style="Gold.TButton")
                 btn_target.pack(side=tk.LEFT, padx=(0, 4))
                 btn_attack = ttk.Button(r4, text="🎲 Tira TxC", command=lambda weapon=w, txc=total_txc: self.execute_weapon_attack(weapon, txc), style="Primary.TButton")
                 btn_attack.pack(side=tk.LEFT, padx=(0, 4))
@@ -1759,17 +1831,17 @@ class CharacterSheetUI(tk.Toplevel):
             if messagebox.askyesno("Usa Ispirazione", "Possiedi l'Ispirazione! Vuoi spenderla per ottenere VANTAGGIO a questo attacco?"):
                 self.character.has_inspiration = False
                 self.update_inspiration_ui()
-                self.adv_dis_var.set("Vantaggio")
+                self.adv_dis_var.set(_t("adv_advantage"))
                 self.manager.save_characters()
                 
         adv_state = self.adv_dis_var.get()
         r1 = random.randint(1, 20)
         r2 = random.randint(1, 20)
         
-        if adv_state == "Vantaggio":
+        if adv_state in ("Vantaggio", _t("adv_advantage")):
             base_roll = max(r1, r2)
             rolls_str = f"max({r1}, {r2})"
-        elif adv_state == "Svantaggio":
+        elif adv_state in ("Svantaggio", _t("adv_disadvantage")):
             base_roll = min(r1, r2)
             rolls_str = f"min({r1}, {r2})"
         else:
@@ -1784,17 +1856,18 @@ class CharacterSheetUI(tk.Toplevel):
         is_fail = (base_roll == 1)
         weapon["_last_crit"] = is_crit
         
-        adv_text = f" ({adv_state})" if adv_state != "Normale" else ""
+        adv_text = f" ({adv_state})" if adv_state not in ("Normale", _t("adv_normal"), "") else ""
         
         if is_crit:
-            msg = f"⚔️ {self.character.name} attacca con {w_name}{adv_text}: [d20: {rolls_str}] {txc_sign} = {total} ⭐ COLPO CRITICO (20)!"
-            messagebox.showinfo("COLPO CRITICO!", f"⭐ COLPO CRITICO!\nUn naturale 20 con {w_name}!\nIl prossimo tiro dei danni raddoppierà automaticamente i dadi!")
+            msg = f"⚔️ {self.character.name} attacca con {w_name}{adv_text}: [d20: {rolls_str}] {txc_sign} = {total} 🌟 COLPO CRITICO (20 Naturale)!"
+            messagebox.showinfo("COLPO CRITICO!", f"🌟 COLPO CRITICO!\nUn 20 Naturale con {w_name}!\nIl prossimo tiro dei danni raddoppierà automaticamente i dadi!")
         elif is_fail:
-            msg = f"⚔️ {self.character.name} attacca con {w_name}{adv_text}: [d20: {rolls_str}] {txc_sign} = {total} 💥 FALLIMENTO CRITICO (1)!"
+            msg = f"⚔️ {self.character.name} attacca con {w_name}{adv_text}: [d20: {rolls_str}] {txc_sign} = {total} 💀 FALLIMENTO CRITICO (1 Naturale)! Mancato automatico!"
+            messagebox.showwarning("FALLIMENTO CRITICO!", f"💀 FALLIMENTO CRITICO!\nUn 1 Naturale con {w_name}: l'attacco manca automaticamente il bersaglio!")
         else:
             msg = f"⚔️ {self.character.name} attacca con {w_name}{adv_text}: [d20: {rolls_str}] {txc_sign} = {total}"
             
-        self.adv_dis_var.set("Normale")
+        self.adv_dis_var.set(_t("adv_normal"))
         if self.roll_callback:
             self.roll_callback("0d0", msg)
         else:

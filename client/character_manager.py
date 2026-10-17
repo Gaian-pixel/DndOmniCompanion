@@ -24,7 +24,9 @@ class Character:
         self.temp_hp = 0
         self.ac = 10
         self.initiative = 0
-        self.speed = 9
+        from common.i18n import get_distance_unit
+        self.speed_unit = get_distance_unit()
+        self.speed = 9 if self.speed_unit == "m" else 30
         self.proficiency_bonus = 2
         self.hit_dice_total = 1
         self.hit_dice_current = 1
@@ -204,6 +206,11 @@ class Character:
             c.travel_role = "Nessuna"
         if not hasattr(c, "marching_order"):
             c.marching_order = "Centro"
+        if "speed_unit" not in data or data.get("speed_unit") not in ("ft", "m"):
+            try:
+                c.speed_unit = "m" if float(getattr(c, "speed", 30)) <= 18 else "ft"
+            except (ValueError, TypeError):
+                c.speed_unit = "ft"
             
         # Se la lista armi è vuota, crea armi base compatibili
         if len(c.weapons) == 0:

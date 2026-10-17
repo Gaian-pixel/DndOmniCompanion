@@ -29,6 +29,7 @@ from common.theme import apply_modern_window_style
 
 class MapEditorWindow(tk.Toplevel):
     MAP_SCALES={"Mappa del Mondo / Regione": 15, "Mappa di Esplorazione (POI)": 35, "Mappa di Combattimento": 60}
+    MAP_SCALE_TYPES={"Mappa del Mondo / Regione": "world", "Mappa di Esplorazione (POI)": "exploration", "Mappa di Combattimento": "combat"}
     POI_COLOR = "#FFD700" # Oro per i POI
 
     def __init__(self, parent):
@@ -136,7 +137,7 @@ class MapEditorWindow(tk.Toplevel):
         """ ### MODIFICATO: Trasforma un esagono in un POI ### """
         if not self.hex_layout: return
         
-        target_hex = self.hex_layout.pixel_to_hex((x, y))
+        target_hex = self.hex_layout.pixel_to_hex((x / self.zoom_level, y / self.zoom_level))
         
         # Controlla se l'esagono esiste nella griglia
         if target_hex not in self.grid_hexes:
@@ -163,7 +164,7 @@ class MapEditorWindow(tk.Toplevel):
         canvas_x = self.canvas.canvasx(event.x)
         canvas_y = self.canvas.canvasy(event.y)
         
-        hovered_hex = self.hex_layout.pixel_to_hex((canvas_x, canvas_y)) if self.hex_layout else None
+        hovered_hex = self.hex_layout.pixel_to_hex((canvas_x / self.zoom_level, canvas_y / self.zoom_level)) if self.hex_layout else None
         
         # Se l'esagono sotto il mouse è un POI, mostra il tooltip
         if hovered_hex and hovered_hex in self.pois:
@@ -176,7 +177,7 @@ class MapEditorWindow(tk.Toplevel):
             self.tooltip.hide()
 
     def save_map(self):
-        """ ### MODIFICATO: Salva i POI nel nuovo formato ### """
+        """ ### MODIFICATO: Salva i POI e la scala della mappa nel nuovo formato ### """
         if not self.hex_layout: messagebox.showerror("Errore", "Non puoi salvare una mappa senza una scala."); return
         import os
         maps_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "maps")
@@ -185,10 +186,12 @@ class MapEditorWindow(tk.Toplevel):
         
         # Converte le chiavi Hex in stringhe per il salvataggio in JSON
         pois_to_save = {f"{h.q},{h.r}": data for h, data in self.pois.items()}
+        scale_type = self.MAP_SCALE_TYPES.get(self.map_scale_var.get(), "combat")
         
         map_data = {
             "base_image_path": self.base_image_path,
             "hex_size": self.hex_layout.size,
+            "map_scale_type": scale_type,
             "hex_border_color": self.hex_border_color,
             "hexes": [[h.q, h.r] for h in self.grid_hexes],
             "pois": pois_to_save
@@ -205,7 +208,7 @@ class MapEditorWindow(tk.Toplevel):
             messagebox.showwarning("Scala non impostata", "Prima scegli un tipo di mappa dal menu in alto.")
             return
 
-        target_hex = self.hex_layout.pixel_to_hex((x, y))
+        target_hex = self.hex_layout.pixel_to_hex((x / self.zoom_level, y / self.zoom_level))
         
         # Aggiungi l'esagono solo se non esiste già
         if target_hex not in self.grid_hexes:
@@ -216,7 +219,7 @@ class MapEditorWindow(tk.Toplevel):
         """Cancella un esagono nella posizione del mouse."""
         if not self.hex_layout: return
 
-        target_hex = self.hex_layout.pixel_to_hex((x, y))
+        target_hex = self.hex_layout.pixel_to_hex((x / self.zoom_level, y / self.zoom_level))
         
         # Cancella l'esagono solo se esiste
         if target_hex in self.grid_hexes:
@@ -249,10 +252,10 @@ class MapEditorWindow(tk.Toplevel):
         if self.hex_layout and not self.add_poi_mode:
             canvas_x=self.canvas.canvasx(event.x); canvas_y=self.canvas.canvasy(event.y)
             if self.preview_hex_id: self.canvas.delete(self.preview_hex_id)
-            target_hex = self.hex_layout.pixel_to_hex((canvas_x, canvas_y))
+            target_hex = self.hex_layout.pixel_to_hex((canvas_x / self.zoom_level, canvas_y / self.zoom_level))
             if target_hex not in self.grid_hexes: self.preview_hex_id = self._draw_single_hex(target_hex, is_preview=True)
     def _draw_single_hex(self, h: Hex, is_preview=False):
-        corners = self.hex_layout.hex_corners(h)
+        corners = [(cx * self.zoom_level, cy * self.zoom_level) for cx, cy in self.hex_layout.hex_corners(h)]
         style = {"fill": "", "outline": "red", "width": 2} if is_preview else {"fill": "gray50", "stipple": "gray25", "outline": self.hex_border_color, "width": 1}
         canvas_id = self.canvas.create_polygon(corners, **style, tags="hex")
         if not is_preview: self.hex_to_canvas_id[h] = canvas_id

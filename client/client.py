@@ -22,7 +22,10 @@ from client.login_ui import LoginDialog
 from client.character_sheet_ui import CharacterSheetUI
 from client.voice_client import VoiceClient
 from common.audio_player import AudioManager
-from common.i18n import _t, get_language, set_language, register_language_listener, unregister_language_listener
+from common.i18n import (
+    _t, get_language, set_language, register_language_listener, unregister_language_listener,
+    get_distance_unit, set_distance_unit, register_unit_listener, speed_to_hexes, format_distance_hexes
+)
 
 from common.theme import (
     setup_theme, apply_modern_window_style,
@@ -65,6 +68,7 @@ class ClientGUI:
         self.movement_spent_ft = 0
         self.network = ClientNetwork(self.gui_queue, lambda: self.master.after(0, self.handle_disconnection))
         register_language_listener(self.on_language_changed)
+        register_unit_listener(self.on_unit_changed)
         self.setup_gui()
         self.master.after(100, self.process_queue)
 
@@ -80,6 +84,21 @@ class ClientGUI:
     def on_language_changed(self, lang_code):
         if hasattr(self, 'master') and self.master.winfo_exists():
             self.master.after(0, self.refresh_ui_language)
+
+    def switch_distance_unit(self, unit_code):
+        set_distance_unit(unit_code)
+        unit_label = _t("unit_feet") if unit_code == "ft" else _t("unit_meters")
+        self.show_toast(_t("unit_changed_toast", unit=unit_label), title=_t("menu_units"), toast_type="info")
+        self.on_unit_changed(unit_code)
+
+    def on_unit_changed(self, unit_code):
+        if hasattr(self, 'master') and self.master.winfo_exists():
+            if hasattr(self, 'unit_var'):
+                self.unit_var.set(unit_code)
+            self.update_hero_summary_card()
+            self.update_action_economy_ui()
+            if self.map_canvas:
+                self.map_canvas.redraw()
 
     def setup_menubar(self):
         menubar = tk.Menu(self.master)
@@ -103,6 +122,13 @@ class ClientGUI:
         lang_menu.add_radiobutton(label="Italiano 🇮🇹", variable=self.lang_var, value="it", command=lambda: self.switch_language("it"))
         lang_menu.add_radiobutton(label="English 🇬🇧", variable=self.lang_var, value="en", command=lambda: self.switch_language("en"))
         menubar.add_cascade(label=_t("menu_language"), menu=lang_menu)
+
+        # Menu Unità di Misura (Piedi / Metri)
+        unit_menu = tk.Menu(menubar, tearoff=0)
+        self.unit_var = tk.StringVar(value=get_distance_unit())
+        unit_menu.add_radiobutton(label=_t("unit_feet"), variable=self.unit_var, value="ft", command=lambda: self.switch_distance_unit("ft"))
+        unit_menu.add_radiobutton(label=_t("unit_meters"), variable=self.unit_var, value="m", command=lambda: self.switch_distance_unit("m"))
+        menubar.add_cascade(label=_t("menu_units"), menu=unit_menu)
 
     def refresh_ui_language(self):
         self.master.title(f"{_t('app_title')} • Player")
@@ -258,12 +284,26 @@ class ClientGUI:
         self.notebook = ttk.Notebook(chat_tab)
         self.create_chat_tab("Globale")
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=6, pady=2)
+
+        # Barra Tiri Rapidi 1-Click (d4, d6, d8, d10, d12, d20, d100)
+        quick_dice_frame = tk.Frame(chat_tab, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=3)
+        quick_dice_frame.pack(fill=tk.X, padx=6, pady=(2, 0))
+        tk.Label(quick_dice_frame, text="🎲", font=FONT_SMALL, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(side=tk.LEFT, padx=(2, 4))
+        for die_faces in ("d4", "d6", "d8", "d10", "d12", "d20", "d100"):
+            d_btn = ttk.Button(quick_dice_frame, text=die_faces, width=4, style="QuickDie.TButton")
+            d_btn.pack(side=tk.LEFT, padx=1, expand=True, fill=tk.X)
+            d_btn.bind("<Button-1>", lambda e, d=die_faces: self.quick_roll_die(d, e))
+            if die_faces == "d20":
+                ToolTip(d_btn, "Click: Tira 1d20 • Shift+Click: Vantaggio (adv) • Ctrl+Click: Svantaggio (dis)")
+            else:
+                ToolTip(d_btn, f"Click: Tira rapidamente 1{die_faces}")
         
         chat_cmd_frame = ttk.Frame(chat_tab)
         chat_cmd_frame.pack(fill=tk.X, padx=6, pady=(4, 6))
         self.entry = ttk.Entry(chat_cmd_frame, font=FONT_MAIN)
         self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
         self.entry.bind("<Return>", self.send_chat_message)
+        ToolTip(self.entry, "Scrivi un messaggio, /w <nome> <testo> per sussurrare, o /roll 1d20+5")
         self.btn_send_chat = ttk.Button(chat_cmd_frame, text=_t("btn_send"), command=self.send_chat_message, style="Primary.TButton")
         self.btn_send_chat.pack(side=tk.LEFT)
 
@@ -291,7 +331,7 @@ class ClientGUI:
         
         # --- HERO SUMMARY CARD ---
         hero_card = tk.Frame(controls_tab, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
-        hero_card.pack(fill=tk.X, pady=(0, 10))
+        hero_card.pack(fill=tk.X, pady=(0, 8))
         
         self.hero_name_lbl = tk.Label(hero_card, text=self.name or _t("no_character"), font=FONT_HEADER, bg=SURFACE_COLOR, fg=ACCENT_GOLD)
         self.hero_name_lbl.pack(anchor="w")
@@ -308,7 +348,7 @@ class ClientGUI:
         self.hero_hp_bar_bg = tk.Frame(hero_card, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, height=12)
         self.hero_hp_bar_bg.pack(fill=tk.X, pady=(2, 6))
         self.hero_hp_bar_fill = tk.Frame(self.hero_hp_bar_bg, bg=ACCENT_GREEN, height=10)
-        self.hero_hp_bar_fill.place(x=0, y=0, width=0, relheight=1.0)
+        self.hero_hp_bar_fill.place(x=0, y=0, width=0, relwidth=0.0, relheight=1.0)
         
         # Badge Rapidi (CA, Velocità, Iniziativa)
         pill_row = tk.Frame(hero_card, bg=SURFACE_COLOR)
@@ -403,24 +443,35 @@ class ClientGUI:
 
         # Scelta Personaggio Attivo
         self.lbl_change_char = tk.Label(controls_tab, text=_t("change_active_char"), font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED)
-        self.lbl_change_char.pack(anchor="w", pady=(4, 2))
+        self.lbl_change_char.pack(anchor="w", pady=(2, 2))
         self.active_character_var = tk.StringVar(value=self.name)
         self.active_character_combo = ttk.Combobox(controls_tab, textvariable=self.active_character_var, state="readonly")
         self.active_character_combo.pack(fill=tk.X, pady=(0, 6))
         self.active_character_combo.bind("<<ComboboxSelected>>", self.on_active_character_changed)
         
-        # Bottoni Azione Eroe
-        self.stats_button = ttk.Button(controls_tab, text=_t("btn_sheet"), command=self.open_stats_dialog, style='Gold.TButton')
-        self.stats_button.pack(fill=tk.X, pady=2)
-        
-        self.roll_button = ttk.Button(controls_tab, text=_t("btn_roll_dice"), command=getattr(self, "roll_dice_dialog", lambda: None), style="Primary.TButton")
-        self.roll_button.pack(fill=tk.X, pady=2)
-        
-        self.action_button = ttk.Button(controls_tab, text=_t("btn_action"), command=getattr(self, "open_action_dialog", lambda: None))
-        self.action_button.pack(fill=tk.X, pady=2)
+        # Griglia Compatta 2x3 Azioni Eroe (Previene overflow verticale su schermi compatti)
+        actions_grid = ttk.Frame(controls_tab)
+        actions_grid.pack(fill=tk.X, pady=(0, 4))
+        actions_grid.columnconfigure(0, weight=1)
+        actions_grid.columnconfigure(1, weight=1)
 
-        self.btn_short_rest = ttk.Button(controls_tab, text=_t("btn_short_rest"), command=self.open_short_rest_dialog, style='Info.TButton')
-        self.btn_short_rest.pack(fill=tk.X, pady=2)
+        self.stats_button = ttk.Button(actions_grid, text=_t("btn_sheet"), command=self.open_stats_dialog, style='Gold.TButton')
+        self.stats_button.grid(row=0, column=0, sticky="ew", padx=(0, 2), pady=2)
+        
+        self.roll_button = ttk.Button(actions_grid, text=_t("btn_roll_dice"), command=getattr(self, "roll_dice_dialog", lambda: None), style="Primary.TButton")
+        self.roll_button.grid(row=0, column=1, sticky="ew", padx=(2, 0), pady=2)
+        
+        self.action_button = ttk.Button(actions_grid, text=_t("btn_action"), command=getattr(self, "open_action_dialog", lambda: None))
+        self.action_button.grid(row=1, column=0, sticky="ew", padx=(0, 2), pady=2)
+
+        self.btn_short_rest = ttk.Button(actions_grid, text=_t("btn_short_rest"), command=self.open_short_rest_dialog, style='Info.TButton')
+        self.btn_short_rest.grid(row=1, column=1, sticky="ew", padx=(2, 0), pady=2)
+
+        self.travel_button = ttk.Button(actions_grid, text=_t("btn_travel_actions"), command=getattr(self, "open_travel_dialog", lambda: None))
+        self.travel_button.grid(row=2, column=0, sticky="ew", padx=(0, 2), pady=2)
+
+        self.manuals_button = ttk.Button(actions_grid, text=_t("btn_manuals"), command=self.open_manuals_dialog)
+        self.manuals_button.grid(row=2, column=1, sticky="ew", padx=(2, 0), pady=2)
 
         # Privilegi di Classe (Guerriero / Barbaro / ecc.)
         self.class_features_frame = ttk.LabelFrame(controls_tab, text=_t("lbl_class_features"))
@@ -451,12 +502,6 @@ class ClientGUI:
         self.btn_rage.pack(fill=tk.X, expand=True)
         ToolTip(self.btn_rage, lambda: _t("tooltip_rage"))
         
-        self.travel_button = ttk.Button(controls_tab, text=_t("btn_travel_actions"), command=getattr(self, "open_travel_dialog", lambda: None))
-        self.travel_button.pack(fill=tk.X, pady=2)
-
-        self.manuals_button = ttk.Button(controls_tab, text=_t("btn_manuals"), command=self.open_manuals_dialog)
-        self.manuals_button.pack(fill=tk.X, pady=2)
-        
         self.combat_btn = ttk.Button(controls_tab, text=_t("btn_request_combat"), command=lambda: getattr(self, "network", None) and self.network.send({"type": "COMBAT_TOGGLE_REQUEST", "data": {}}))
         self.combat_btn.pack(fill=tk.X, pady=2)
         
@@ -471,7 +516,10 @@ class ClientGUI:
             btn.grid(row=0, column=i, padx=1)
             btn.bind("<Button-1>", lambda e, idx=i: getattr(self, "on_hotbar_click")(idx))
             btn.bind("<Button-3>", lambda e, idx=i: getattr(self, "on_hotbar_right_click")(idx))
+            ToolTip(btn, lambda idx=i: self._get_hotbar_tooltip(idx))
             self.hotbar_buttons.append(btn)
+            key_num = str((i + 1) % 10)
+            self.master.bind(f"<Alt-Key-{key_num}>", lambda e, idx=i: self.on_hotbar_click(idx))
         
         self.set_controls_state(tk.DISABLED)
         self.update_hero_summary_card()
@@ -498,7 +546,7 @@ class ClientGUI:
             formula = payload.strip()
             if not formula.startswith("/"):
                 formula = f"/roll {formula}"
-            self.send_chat_message_text(formula)
+            self.send_chat_message(formula)
         elif action_type == "center_token":
             if self.map_canvas and hasattr(self.map_canvas, "center_on_token"):
                 self.map_canvas.center_on_token(payload)
@@ -530,12 +578,14 @@ class ClientGUI:
     def update_hero_summary_card(self):
         if not hasattr(self, 'hero_name_lbl'): return
         char = getattr(self, 'active_character', None)
+        pref_unit = get_distance_unit()
+        default_spd_str = format_distance_hexes(6, pref_unit).replace(" ", "")
         if not char:
             self.hero_name_lbl.config(text=self.name or _t("no_character"))
             self.hero_class_lbl.config(text=_t("select_or_create_char"))
             self.hero_hp_lbl.config(text="HP: -- / --")
             self.hero_ac_badge.config(text=f"🛡️ {_t('sheet_ac_badge')}: 10")
-            self.hero_speed_badge.config(text=f"👟 {_t('sheet_speed_badge')}: 30ft")
+            self.hero_speed_badge.config(text=f"👟 {_t('sheet_speed_badge')}: {default_spd_str}")
             self.hero_init_badge.config(text=f"⚡ {_t('sheet_init_badge')}: +0")
             try: self.hero_hp_bar_fill.place_forget()
             except Exception: pass
@@ -561,15 +611,15 @@ class ClientGUI:
         ratio = max(0.0, min(1.0, hp_cur / max(1, hp_max)))
         bar_color = ACCENT_GREEN if ratio > 0.5 else ("#F59F00" if ratio > 0.25 else ACCENT_RED)
         self.hero_hp_bar_fill.config(bg=bar_color)
-        total_w = self.hero_hp_bar_bg.winfo_width()
-        if total_w <= 10: total_w = 260
-        fill_w = max(0, int(total_w * ratio))
-        self.hero_hp_bar_fill.place(x=0, y=0, width=fill_w, relheight=1.0)
+        self.hero_hp_bar_fill.place(x=0, y=0, width=0, relwidth=ratio, relheight=1.0)
         
         ac = getattr(char, 'ac', 10) or 10
         self.hero_ac_badge.config(text=f"🛡️ {_t('sheet_ac_badge')}: {ac}")
         speed = getattr(char, 'speed', 30) or 30
-        self.hero_speed_badge.config(text=f"👟 {_t('sheet_speed_badge')}: {speed}ft")
+        char_unit = getattr(char, 'speed_unit', None)
+        hexes = speed_to_hexes(speed, char_unit)
+        spd_display = format_distance_hexes(hexes, pref_unit).replace(" ", "")
+        self.hero_speed_badge.config(text=f"👟 {_t('sheet_speed_badge')}: {spd_display}")
         init = getattr(char, 'initiative', 0) or 0
         init_str = f"+{init}" if init >= 0 else str(init)
         self.hero_init_badge.config(text=f"⚡ {_t('sheet_init_badge')}: {init_str}")
@@ -594,43 +644,145 @@ class ClientGUI:
         self.movement_spent_ft = 0
         self.update_action_economy_ui()
 
+    def _has_cunning_action(self) -> bool:
+        """Verifica se il personaggio attivo possiede Azione Scaltra (Ladro Lv 2+), che consente Scatto/Disimpegno come Azione Bonus."""
+        char = getattr(self, "active_character", None)
+        if not char:
+            return False
+        cls_name = str(getattr(char, "char_class", "") or "").strip().lower()
+        lvl = int(getattr(char, "level", 1) or 1)
+        if cls_name in ("ladro", "rogue") and lvl >= 2:
+            return True
+        feats = [str(f).lower() for f in getattr(char, "features", []) if f]
+        return any("azione scaltra" in f or "cunning action" in f for f in feats)
+
     def update_action_economy_ui(self):
         if not hasattr(self, 'btn_act_tracker'):
             return
 
-        if self.action_spent:
-            self.btn_act_tracker.config(text=f"{_t('btn_act')} (❌)", bg="#33373B", fg="#888888")
-        else:
-            self.btn_act_tracker.config(text=f"{_t('btn_act')} (✔)", bg=ACCENT_GREEN, fg="white")
+        in_combat = bool(getattr(self, "combat_active", False))
+        my_turn = bool(in_combat and getattr(self, "_is_my_turn", False))
+        connected = bool(getattr(self, "is_connected", False))
 
-        if self.bonus_spent:
-            self.btn_bonus_tracker.config(text=f"{_t('btn_bonus')} (❌)", bg="#33373B", fg="#888888")
-        else:
-            self.btn_bonus_tracker.config(text=f"{_t('btn_bonus')} (✔)", bg="#3B82F6", fg="white")
+        # 1. Intestazione e bordo contestuale (Esplorazione vs Tuo Turno vs Turno Altrui)
+        if hasattr(self, 'lbl_econ_hdr') and hasattr(self, 'economy_frame'):
+            if not in_combat:
+                self.lbl_econ_hdr.config(
+                    text=_t("turn_economy_exploration", default="⚡ Economia Turno • 🧭 Esplorazione"),
+                    fg=TEXT_MUTED
+                )
+                self.economy_frame.config(highlightbackground=BORDER_COLOR, highlightthickness=1)
+            elif my_turn:
+                self.lbl_econ_hdr.config(
+                    text=_t("turn_economy_my_turn", default="⚡ Economia Turno • 🟢 TUO TURNO"),
+                    fg=ACCENT_GREEN
+                )
+                self.economy_frame.config(highlightbackground=ACCENT_GOLD, highlightthickness=2)
+            else:
+                self.lbl_econ_hdr.config(
+                    text=_t("turn_economy_other_turn", default="⚡ Economia Turno • ⏳ Turno Altrui"),
+                    fg="#F59E0B"
+                )
+                self.economy_frame.config(highlightbackground=BORDER_COLOR, highlightthickness=1)
 
-        if self.reaction_spent:
-            self.btn_react_tracker.config(text=f"{_t('btn_react')} (❌)", bg="#33373B", fg="#888888")
-        else:
-            self.btn_react_tracker.config(text=f"{_t('btn_react')} (✔)", bg="#F59E0B", fg="white")
+        # 2. Pillole Azione / Bonus / Reazione
+        act_state = tk.NORMAL if (connected and in_combat and my_turn) else tk.DISABLED
+        bonus_state = tk.NORMAL if (connected and in_combat and my_turn) else tk.DISABLED
+        react_state = tk.NORMAL if (connected and in_combat) else tk.DISABLED
 
+        if not in_combat:
+            self.btn_act_tracker.config(text=f"{_t('btn_act')} (-)", bg="#2A2D32", fg="#666666", state=act_state)
+            self.btn_bonus_tracker.config(text=f"{_t('btn_bonus')} (-)", bg="#2A2D32", fg="#666666", state=bonus_state)
+            self.btn_react_tracker.config(text=f"{_t('btn_react')} (-)", bg="#2A2D32", fg="#666666", state=react_state)
+        else:
+            if self.action_spent:
+                self.btn_act_tracker.config(text=f"{_t('btn_act')} (❌)", bg="#33373B", fg="#888888", state=act_state)
+            else:
+                self.btn_act_tracker.config(text=f"{_t('btn_act')} (✔)", bg=ACCENT_GREEN if my_turn else "#2E5A44", fg="white", state=act_state)
+
+            if self.bonus_spent:
+                self.btn_bonus_tracker.config(text=f"{_t('btn_bonus')} (❌)", bg="#33373B", fg="#888888", state=bonus_state)
+            else:
+                self.btn_bonus_tracker.config(text=f"{_t('btn_bonus')} (✔)", bg="#3B82F6" if my_turn else "#2B4C7E", fg="white", state=bonus_state)
+
+            if self.reaction_spent:
+                self.btn_react_tracker.config(text=f"{_t('btn_react')} (❌)", bg="#33373B", fg="#888888", state=react_state)
+            else:
+                self.btn_react_tracker.config(text=f"{_t('btn_react')} (✔)", bg="#F59E0B", fg="white", state=react_state)
+
+        # 3. Velocità Base e Tracker Movimento
         base_speed = 30
+        char_unit = None
         if self.active_character and hasattr(self.active_character, 'speed'):
             base_speed = self.active_character.speed or 30
+            char_unit = getattr(self.active_character, 'speed_unit', None)
         
-        is_dashed = False
-        if self.name in getattr(self, "players_data", {}):
-            conds = self.players_data[self.name].get("conditions", [])
-            is_dashed = "Scatto" in conds or "Dash" in conds
-        elif self.active_character and hasattr(self.active_character, "conditions"):
-            is_dashed = "Scatto" in getattr(self.active_character, "conditions", []) or "Dash" in getattr(self.active_character, "conditions", [])
-        
-        eff_speed = base_speed * 2 if is_dashed else base_speed
-        rem_ft = max(0, eff_speed - self.movement_spent_ft)
-        status_tag = f" [🏃 {_t('action_dash')}]" if is_dashed else ""
-        if hasattr(self, 'lbl_movement_tracker'):
-            self.lbl_movement_tracker.config(
-                text=_t("lbl_movement", used=self.movement_spent_ft, total=eff_speed, rem=rem_ft) + status_tag
+        base_hexes = speed_to_hexes(base_speed, char_unit)
+        pref_unit = get_distance_unit()
+
+        if not in_combat:
+            base_spd_str = format_distance_hexes(base_hexes, pref_unit)
+            mov_text = _t(
+                "lbl_movement_exploration",
+                base=base_spd_str,
+                default=f"🧭 Esplorazione: Movimento libero (Base: {base_spd_str})"
             )
+            if hasattr(self, 'lbl_movement_tracker'):
+                self.lbl_movement_tracker.config(text=mov_text, fg=TEXT_MUTED)
+        else:
+            is_dashed = False
+            if self.name in getattr(self, "players_data", {}):
+                conds = self.players_data[self.name].get("conditions", [])
+                is_dashed = "Scatto" in conds or "Dash" in conds
+            elif self.active_character and hasattr(self.active_character, "conditions"):
+                is_dashed = "Scatto" in getattr(self.active_character, "conditions", []) or "Dash" in getattr(self.active_character, "conditions", [])
+            
+            eff_hexes = base_hexes * 2 if is_dashed else base_hexes
+            spent_hexes = self.movement_spent_ft // 5
+            rem_hexes = max(0, eff_hexes - spent_hexes)
+
+            if pref_unit == "m":
+                def _fmt_m(h):
+                    v = round(h * 1.5, 1)
+                    return int(v) if v == int(v) else v
+                used_val, total_val, rem_val = _fmt_m(spent_hexes), _fmt_m(eff_hexes), _fmt_m(rem_hexes)
+                mov_text = _t("lbl_movement", used=used_val, total=total_val, rem=rem_val).replace(" ft", " m")
+            else:
+                used_val, total_val, rem_val = spent_hexes * 5, eff_hexes * 5, rem_hexes * 5
+                mov_text = _t("lbl_movement", used=used_val, total=total_val, rem=rem_val)
+
+            status_tag = f" [🏃 {_t('action_dash')}]" if is_dashed else ""
+            if hasattr(self, 'lbl_movement_tracker'):
+                self.lbl_movement_tracker.config(text=mov_text + status_tag, fg=TEXT_COLOR if my_turn else TEXT_MUTED)
+
+        # 4. Abilitazione contestuale dei pulsanti tattici e privilegi di classe
+        can_std = connected and in_combat and (not self.action_spent)
+        can_cunning = connected and in_combat and self._has_cunning_action() and (not self.action_spent or not self.bonus_spent)
+        can_bonus = connected and in_combat and (not self.bonus_spent)
+
+        def _cfg_tactical_btn(btn_attr, enabled):
+            btn = getattr(self, btn_attr, None)
+            if not btn:
+                return
+            if enabled:
+                btn.config(state=tk.NORMAL, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR)
+            else:
+                btn.config(state=tk.DISABLED, bg="#25282C", fg="#666666")
+
+        _cfg_tactical_btn("btn_dash", can_std or can_cunning)
+        _cfg_tactical_btn("btn_disengage", can_std or can_cunning)
+        _cfg_tactical_btn("btn_dodge", can_std)
+        _cfg_tactical_btn("btn_help", can_std)
+
+        res = getattr(self.active_character, "class_resources", {}) if self.active_character else {}
+        has_sw = res.get("second_wind", True)
+        has_as = res.get("action_surge", True)
+        has_rage = res.get("rage_current", 2) > 0
+
+        # Secondo Fiato può essere usato anche fuori dal combattimento per curarsi, ma in combattimento richiede l'Azione Bonus
+        _cfg_tactical_btn("btn_second_wind", connected and has_sw and (not in_combat or can_bonus))
+        _cfg_tactical_btn("btn_action_surge", connected and in_combat and has_as)
+        _cfg_tactical_btn("btn_rage", connected and in_combat and can_bonus and has_rage)
 
     def prompt_death_save(self):
         char = self.active_character
@@ -702,25 +854,55 @@ class ClientGUI:
         if not self.is_connected:
             self.show_toast("Non sei connesso al server.", toast_type="warning")
             return
+        if not self.combat_active:
+            self.show_toast("Puoi usare Scatto solo durante il combattimento! In esplorazione il movimento è libero.", title="🧭 Modalità Esplorazione", toast_type="warning")
+            return
+        used_bonus = False
+        if not self.action_spent:
+            self.action_spent = True
+        elif self._has_cunning_action() and not self.bonus_spent:
+            self.bonus_spent = True
+            used_bonus = True
+        else:
+            self.show_toast("Hai già speso la tua Azione in questo turno!", title="⚠️ Azione Esaurita", toast_type="warning")
+            return
         from common.protocol import make_dash_request
         self.network.send(make_dash_request())
-        self.action_spent = True
         self.update_action_economy_ui()
-        self.show_toast("Azione di Scatto inviata! Velocità raddoppiata per questo turno.", title="🏃 Scatto", toast_type="info")
+        slot_note = " (Azione Scaltra: Azione Bonus spesa)" if used_bonus else ""
+        self.show_toast(f"Azione di Scatto inviata! Velocità raddoppiata per questo turno{slot_note}.", title="🏃 Scatto", toast_type="info")
 
     def perform_disengage(self):
         if not self.is_connected:
             self.show_toast("Non sei connesso al server.", toast_type="warning")
             return
+        if not self.combat_active:
+            self.show_toast("Puoi usare Disimpegno solo durante il combattimento!", title="🧭 Modalità Esplorazione", toast_type="warning")
+            return
+        used_bonus = False
+        if not self.action_spent:
+            self.action_spent = True
+        elif self._has_cunning_action() and not self.bonus_spent:
+            self.bonus_spent = True
+            used_bonus = True
+        else:
+            self.show_toast("Hai già speso la tua Azione in questo turno!", title="⚠️ Azione Esaurita", toast_type="warning")
+            return
         from common.protocol import make_disengage_request
         self.network.send(make_disengage_request())
-        self.action_spent = True
         self.update_action_economy_ui()
-        self.show_toast("Azione di Disimpegno inviata! Non provochi attacchi d'opportunità per questo turno.", title="💨 Disimpegno", toast_type="info")
+        slot_note = " (Azione Scaltra: Azione Bonus spesa)" if used_bonus else ""
+        self.show_toast(f"Azione di Disimpegno inviata! Non provochi attacchi d'opportunità per questo turno{slot_note}.", title="💨 Disimpegno", toast_type="info")
 
     def perform_dodge(self):
         if not self.is_connected:
             self.show_toast("Non sei connesso al server.", toast_type="warning")
+            return
+        if not self.combat_active:
+            self.show_toast("Puoi usare Schivata solo durante il combattimento!", title="🧭 Modalità Esplorazione", toast_type="warning")
+            return
+        if self.action_spent:
+            self.show_toast("Hai già speso la tua Azione Standard in questo turno!", title="⚠️ Azione Esaurita", toast_type="warning")
             return
         from common.protocol import make_dodge_request
         self.network.send(make_dodge_request())
@@ -732,12 +914,21 @@ class ClientGUI:
         if not self.is_connected:
             self.show_toast("Non sei connesso al server.", toast_type="warning")
             return
+        if not self.combat_active:
+            self.show_toast("Puoi usare l'Azione di Aiuto tattica solo durante il combattimento!", title="🧭 Modalità Esplorazione", toast_type="warning")
+            return
+        if self.action_spent:
+            self.show_toast("Hai già speso la tua Azione Standard in questo turno!", title="⚠️ Azione Esaurita", toast_type="warning")
+            return
         self.help_targeting_mode = True
         self.show_toast("Clicca sulla mappa il token del bersaglio da distrarre per Aiutare un alleato.", title="🤝 Aiuto", toast_type="info")
 
     def use_second_wind(self):
         if not self.active_character:
             self.show_toast("Nessun personaggio attivo selezionato.", toast_type="warning")
+            return
+        if self.combat_active and self.bonus_spent:
+            self.show_toast("Hai già speso la tua Azione Bonus in questo turno!", title="⚠️ Azione Bonus Esaurita", toast_type="warning")
             return
         res = getattr(self.active_character, "class_resources", {})
         if not res.get("second_wind", True):
@@ -749,7 +940,8 @@ class ClientGUI:
         self.active_character.hp_current = min(self.active_character.hp_max, self.active_character.hp_current + healed)
         res["second_wind"] = False
         self.active_character.class_resources = res
-        self.bonus_spent = True
+        if self.combat_active:
+            self.bonus_spent = True
         self.character_manager.save_characters()
         self.update_hero_summary_card()
         self.update_action_economy_ui()
@@ -757,11 +949,14 @@ class ClientGUI:
             from common.protocol import make_update_stats_request
             self.network.send(make_update_stats_request(self.active_character.hp_current, self.active_character.hp_max, self.active_character.initiative, getattr(self.active_character, "conditions", []), getattr(self.active_character, "temp_hp", 0)))
             self.send_chat_message(f"💨 {self.name} usa Secondo Fiato e recupera {healed} HP! (HP: {self.active_character.hp_current}/{self.active_character.hp_max})")
-        self.show_toast(f"Secondo Fiato: recuperati {healed} HP! (Azione Bonus spesa)", title="💨 Secondo Fiato", toast_type="success")
+        self.show_toast(f"Secondo Fiato: recuperati {healed} HP!", title="💨 Secondo Fiato", toast_type="success")
 
     def use_action_surge(self):
         if not self.active_character:
             self.show_toast("Nessun personaggio attivo selezionato.", toast_type="warning")
+            return
+        if not self.combat_active:
+            self.show_toast("Azione Furente si usa durante il proprio turno di combattimento!", title="⚡ Azione Furente", toast_type="warning")
             return
         res = getattr(self.active_character, "class_resources", {})
         if not res.get("action_surge", True):
@@ -779,6 +974,12 @@ class ClientGUI:
     def use_rage(self):
         if not self.active_character:
             self.show_toast("Nessun personaggio attivo selezionato.", toast_type="warning")
+            return
+        if not self.combat_active:
+            self.show_toast("Puoi entrare in Ira Barbarica solo durante il combattimento!", title="🩸 Ira Barbarica", toast_type="warning")
+            return
+        if self.bonus_spent:
+            self.show_toast("Hai già speso la tua Azione Bonus in questo turno!", title="⚠️ Azione Bonus Esaurita", toast_type="warning")
             return
         res = getattr(self.active_character, "class_resources", {})
         cur_rage = res.get("rage_current", 2)
@@ -855,6 +1056,38 @@ class ClientGUI:
         ttk.Button(win, text="Tira Dadi & Riposa", command=do_rest, style='Primary.TButton').pack(pady=12)
 
 
+    def _get_hotbar_tooltip(self, idx):
+        key_num = (idx + 1) % 10
+        cmd = ""
+        if self.active_character and hasattr(self.active_character, "hotbar") and idx < len(self.active_character.hotbar):
+            cmd = self.active_character.hotbar[idx]
+        if cmd:
+            return f"Slot #{idx+1} (Alt+{key_num}): {cmd}\n• Click sinistro: Esegui\n• Click destro: Modifica macro"
+        return f"Slot #{idx+1} vuoto (Alt+{key_num})\n• Click destro per assegnare una formula dadi (es. 1d20+5) o comando chat"
+
+    def quick_roll_die(self, die_faces, event=None):
+        formula = f"1{die_faces}"
+        reason = "Tiro Rapido"
+        if die_faces == "d20" and event is not None:
+            state = getattr(event, "state", 0)
+            if state & 0x0001:  # Shift
+                formula = "1d20 adv"
+                reason = "Tiro Rapido (Vantaggio)"
+            elif state & 0x0004:  # Control
+                formula = "1d20 dis"
+                reason = "Tiro Rapido (Svantaggio)"
+        if self.is_connected:
+            self.do_roll(formula, reason)
+        else:
+            from common.dice import roll_dice
+            res = roll_dice(formula)
+            self.handle_dice_roll({
+                "player_name": self.name or "Giocatore (Offline)",
+                "formula": formula,
+                "reason": reason,
+                "result": res,
+            })
+
     def on_hotbar_right_click(self, idx):
         if not self.active_character: return
         cmd = simpledialog.askstring("Hotbar", f"Imposta comando per lo slot {idx+1} (es: 1d20+5, oppure Ciao!)", initialvalue=self.active_character.hotbar[idx])
@@ -866,7 +1099,9 @@ class ClientGUI:
     def on_hotbar_click(self, idx):
         if not self.active_character: return
         cmd = self.active_character.hotbar[idx]
-        if not cmd: return
+        if not cmd:
+            self.show_toast(f"Lo slot Hotbar #{idx+1} è vuoto. Usa il click destro per configurare una macro!", title="Hotbar", toast_type="info")
+            return
         if "d" in cmd and cmd[0].isdigit(): # basic check for roll
             self.do_roll(cmd, f"Hotbar {idx+1}")
         else:
@@ -895,8 +1130,9 @@ class ClientGUI:
 
 
     def on_token_drop(self, token_name, q, r):
+        if not self.is_connected: return
         if token_name == self.name:
-            self.send_message({"type": "MOVE_REQUEST", "data": {"to": [q, r]}})
+            self.network.send({"type": "MOVE_REQUEST", "data": {"to": [q, r]}})
 
     def on_hex_right_clicked(self, event, clicked_hex, token_name):
         import tkinter as tk
@@ -961,6 +1197,11 @@ class ClientGUI:
             from common.protocol import make_create_aoe_request
             self.network.send(make_create_aoe_request(aoe_data))
             self.aoe_mode = False
+            if hasattr(self, "aoe_button"):
+                self.aoe_button.configure(style="Tool.TButton")
+            if getattr(self, "map_canvas", None):
+                try: self.map_canvas.config(cursor="")
+                except Exception: pass
             self.action_spent = True
             self.update_action_economy_ui()
             self.show_toast("L'area d'effetto è stata piazzata sulla mappa.", title="💥 AoE Piazzata", toast_type="success")
@@ -1013,7 +1254,7 @@ class ClientGUI:
             else:
                 self.show_toast("Non c'è nessuno in questo esagono.", title="Nessun Bersaglio", toast_type="warning")
         else:
-            loots = getattr(self, "map_data", {}).get("loots", []) if getattr(self, "map_data", None) else []
+            loots = getattr(self, "local_map_data", {}).get("loots", []) if getattr(self, "local_map_data", None) else []
             loot_found = None
             for l in loots:
                 if l["q"] == clicked_hex.q and l["r"] == clicked_hex.r:
@@ -1318,7 +1559,7 @@ class ClientGUI:
 
     def toggle_ruler_mode(self):
         active = self.map_canvas.toggle_ruler_mode()
-        style = "Gold.TButton" if active else "Tool.TButton"
+        style = "ToolActive.TButton" if active else "Tool.TButton"
         if hasattr(self, 'measure_btn'):
             self.measure_btn.configure(style=style)
         msg = "Righello attivato: clicca due punti sulla mappa per misurare la distanza." if active else "Righello disattivato."
@@ -1410,6 +1651,11 @@ class ClientGUI:
             except:
                 sz = 3
             self.aoe_mode = True
+            if hasattr(self, "aoe_button"):
+                self.aoe_button.configure(style="ToolActive.TButton")
+            if getattr(self, "map_canvas", None):
+                try: self.map_canvas.config(cursor="tcross")
+                except Exception: pass
             dc = 10
             if req_save_var.get():
                 try: dc = int(dc_entry.get())
@@ -1551,6 +1797,7 @@ class ClientGUI:
         self.redraw_map_and_players()
         
     def handle_combat_state_update(self, data):
+        was_combat = getattr(self, "combat_active", False)
         self.combat_active = data.get("combat_active", False)
         self.turn_index = data.get("turn_index", 0)
         self.round_number = data.get("round_number", 1)
@@ -1568,6 +1815,10 @@ class ClientGUI:
                     is_my_turn = (all_players[self.turn_index].get('name') == self.name)
         
         self._is_my_turn = is_my_turn
+        if not self.combat_active and was_combat:
+            self.help_targeting_mode = False
+            self.reset_turn_resources()
+
         if is_my_turn:
             if hasattr(self, 'end_turn_btn'):
                 self.end_turn_btn.pack(fill=tk.X, pady=2, before=self.combat_btn)
@@ -1582,19 +1833,24 @@ class ClientGUI:
             if hasattr(self, 'end_turn_btn'):
                 self.end_turn_btn.pack_forget()
 
+        self.update_action_economy_ui()
         self.update_player_listbox()
         self.redraw_map_and_players()
 
     def handle_game_state(self, data):
+        was_combat = getattr(self, "combat_active", False)
         self.game_state = data
         self.players_data = {p['name']: p for p in data.get('players', [])}
         self.local_map_data = data.get("map")
         
         if self.active_character and self.name in self.players_data:
-            pos = self.players_data[self.name].get("position")
+            p_dict = self.players_data[self.name]
+            pos = p_dict.get("position")
             if pos:
                 self.active_character.last_position = pos
-                self.character_manager.save_characters()
+            if "conditions" in p_dict:
+                self.active_character.conditions = list(p_dict.get("conditions", []))
+            self.character_manager.save_characters()
         
         owned_chars = [p['name'] for p in data.get('players', []) if p['name'] == self.name or p.get('owner') == self.name]
         if not owned_chars: owned_chars = [self.name]
@@ -1630,6 +1886,9 @@ class ClientGUI:
                     is_my_turn = True
         
         self._is_my_turn = is_my_turn
+        if not self.combat_active and was_combat:
+            self.help_targeting_mode = False
+            self.reset_turn_resources()
         
         if is_my_turn:
             self.end_turn_btn.pack(fill=tk.X, pady=2, before=self.combat_btn)
@@ -1639,6 +1898,8 @@ class ClientGUI:
         else:
             self.end_turn_btn.pack_forget()
 
+        self.update_hero_summary_card()
+        self.update_action_economy_ui()
         self.update_player_listbox()
         self.redraw_map_and_players()
 
@@ -1717,6 +1978,7 @@ class ClientGUI:
             if widget:
                 try: widget.config(state=state)
                 except: pass
+        self.update_action_economy_ui()
 
 
     def request_combat(self):
@@ -2157,58 +2419,14 @@ class ClientGUI:
         if hasattr(self, "map_canvas"):
             self.map_canvas.draw_remote_line(points, color)
 
-    def handle_handout_broadcast(self, data):
-        title = data.get("title", "Handout dal DM")
-        img_b64 = data.get("image_b64")
-        content = data.get("content")
-        
-        try:
-            import tkinter as tk
-            from tkinter import ttk
-            
-            top = tk.Toplevel(self.master)
-            try: top.grab_set()
-            except Exception: pass
-            top.title(title)
-            
-            if img_b64:
-                import base64
-                from io import BytesIO
-                from PIL import Image, ImageTk
-                
-                img_bytes = base64.b64decode(img_b64)
-                img = Image.open(BytesIO(img_bytes))
-                
-                top.update_idletasks()
-                width, height = img.width, img.height
-                x = (top.winfo_screenwidth() // 2) - (width // 2)
-                y = (top.winfo_screenheight() // 2) - (height // 2)
-                top.geometry(f"{width}x{height}+{x}+{y}")
-                
-                tk_img = ImageTk.PhotoImage(img)
-                lbl = tk.Label(top, image=tk_img)
-                lbl.image = tk_img # keep reference
-                lbl.pack(fill=tk.BOTH, expand=True)
-            elif content:
-                top.minsize(400, 300)
-                txt = tk.Text(top, font=("Georgia", 14), wrap="word", bg="#f4ecd8", fg="#3e2723", padx=20, pady=20)
-                txt.insert("1.0", content)
-                txt.config(state=tk.DISABLED)
-                txt.pack(fill=tk.BOTH, expand=True)
-            
-            top.focus_force()
-            
-        except Exception as e:
-            print("Errore handout:", e)
-
     def handle_ping_broadcast(self, data):
         if self.map_canvas:
             self.map_canvas.draw_ping(data.get("q"), data.get("r"), data.get("color", "red"))
 
     def handle_fow_update_broadcast(self, data):
-        if hasattr(self, 'map_data') and self.map_data:
-            self.map_data["fow_revealed"] = data.get("fow_revealed", [])
-            self.map_data["fow_draft"] = data.get("fow_draft", [])
+        if hasattr(self, 'local_map_data') and self.local_map_data:
+            self.local_map_data["fow_revealed"] = data.get("fow_revealed", [])
+            self.local_map_data["fow_draft"] = data.get("fow_draft", [])
             self.redraw_map_and_players()
 
     def handle_request_initiative(self, data):
@@ -2321,9 +2539,45 @@ class ClientGUI:
             self.log_to_chat(f"🔒 [Sussurro] {text}", "Globale", sender=sender, color="#EB459E")
 
     def handle_dice_roll(self, data):
-        res, reason_text=data.get('result', {}), f" ({data.get('reason')})" if data.get('reason') else ""
-        log_text=(f"tira {data.get('formula')}{reason_text}: " f"{res.get('rolls')} + {res.get('modifier')} = {res.get('total')}")
-        self.log_to_chat(log_text, "Globale", sender=data.get('player_name'), color="#FEE75C")
+        res = data.get('result', {})
+        reason = data.get('reason')
+        reason_text = f" ({reason})" if reason else ""
+        player_name = data.get('player_name', 'Qualcuno')
+        formula = data.get('formula', '')
+        rolls = res.get('rolls', [])
+        other_rolls = res.get('other_rolls', [])
+        mod = res.get('modifier', 0)
+        total = res.get('total', 0)
+
+        is_crit = res.get('is_crit', False)
+        is_fumble = res.get('is_fumble', False) or res.get('is_crit_fail', False)
+
+        rolls_display = f"{rolls}"
+        if other_rolls:
+            rolls_display = f"{rolls} (scartato: {other_rolls})"
+
+        mod_str = f" + {mod}" if mod >= 0 else f" - {abs(mod)}"
+        crit_badge = ""
+        chat_color = "#FEE75C"
+        if is_crit:
+            crit_badge = " 🌟 SUCCESSO CRITICO! (20 Naturale)"
+            chat_color = "#2ECC71"
+            self.show_toast(
+                f"{player_name} ha ottenuto un 20 NATURALE su {reason or formula} (Totale: {total})!",
+                title="🌟 Successo Critico!",
+                toast_type="gold",
+            )
+        elif is_fumble:
+            crit_badge = " 💀 FALLIMENTO CRITICO! (1 Naturale)"
+            chat_color = "#ED4245"
+            self.show_toast(
+                f"{player_name} ha ottenuto un 1 NATURALE su {reason or formula} (Totale: {total})!",
+                title="💀 Fallimento Critico!",
+                toast_type="danger",
+            )
+
+        log_text = f"tira {formula}{reason_text}: {rolls_display}{mod_str} = {total}{crit_badge}"
+        self.log_to_chat(log_text, "Globale", sender=player_name, color=chat_color)
     
     def open_private_chat_from_list(self, event):
         selected_indices=self.player_listbox.curselection()
@@ -2388,7 +2642,7 @@ class ClientGUI:
             else:
                 self.player_listbox.itemconfig(idx, {'bg': '#1E1E1E', 'fg': '#E0E0E0'})
 
-    def log_to_chat(self, message, tab_name, sender="Sistema", color="white"):
+    def log_to_chat(self, message, tab_name="Globale", sender="Sistema", color="white"):
         text_widget=self.chat_tabs.get(tab_name)
         if not text_widget: return
         text_widget.config(state='normal')
@@ -2433,7 +2687,7 @@ class ClientGUI:
                         reply = f"📖 [{m.get('page_ref', '5e')}] {m.get('title')}:\n{m.get('summary')}"
                     else:
                         reply = f"📖 [MANUALI] Nessuna regola trovata per '{query}'."
-                self.add_chat_message("Manuali 5e", reply)
+                self.log_to_chat(reply, "Globale", sender="Manuali 5e", color="#00B0F4")
                 if not isinstance(message_or_event, str):
                     self.entry.delete(0, tk.END)
                 return
@@ -2521,8 +2775,21 @@ class ClientGUI:
             mod_str = f"+{mod}" if mod >= 0 else str(mod)
             res = roll_dice(f"1d20{mod_str}")
             
-            is_crit = res["rolls"][0] == 20
-            is_fail = res["rolls"][0] == 1
+            is_crit = res.get("is_crit", res["rolls"][0] == 20)
+            is_fail = res.get("is_fumble", res["rolls"][0] == 1)
+            
+            if is_crit:
+                self.show_toast(
+                    f"20 NATURALE sul Tiro Salvezza su {stat} (Totale: {res['total']})! Successo Automatico!",
+                    title="🌟 TS Critico!",
+                    toast_type="gold",
+                )
+            elif is_fail:
+                self.show_toast(
+                    f"1 NATURALE sul Tiro Salvezza su {stat} (Totale: {res['total']})! Fallimento Critico!",
+                    title="💀 TS Fallimento Critico!",
+                    toast_type="danger",
+                )
             
             from common.protocol import make_save_result
             self.network.send(make_save_result(stat, res["total"], is_crit, is_fail, dc, damage_formula, half_on_success, source_name))

@@ -318,7 +318,8 @@ def run_simulation():
             gs.move_player("Gildor", [1, 0])
             pump_events(roots, dm_gui, client_guis, steps=8, delay=0.03)
 
-            # Gildor esegue Disimpegno
+            # Gildor inizia un nuovo turno ed esegue Disimpegno
+            p1_gui.reset_turn_resources()
             p1_gui.perform_disengage()
             pump_events(roots, dm_gui, client_guis, steps=10, delay=0.03)
 

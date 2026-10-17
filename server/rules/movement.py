@@ -50,27 +50,31 @@ def handle_move_request(data, player, game_state):
             q2, r2 = to_pos[0], to_pos[1]
             dist = max(abs(q1 - q2), abs(q1 + r1 - q2 - r2), abs(r1 - r2))
             speed = getattr(player, "speed", 30)
+            speed_unit = getattr(player, "speed_unit", None)
+            sheet = getattr(player, "full_sheet", None)
+            if sheet and not speed_unit:
+                speed_unit = sheet.get("speed_unit")
+            from common.i18n import speed_to_hexes, format_distance_hexes
+            base_hexes = speed_to_hexes(speed, speed_unit)
 
             # Regola D&D 5e Ingombro (Encumbrance)
-            sheet = getattr(player, "full_sheet", None)
             if sheet and isinstance(sheet.get("attributes"), dict):
                 try:
                     str_val = int(sheet["attributes"].get("FOR", 10))
                     inv_grid = sheet.get("inventory_grid", [])
                     tot_w = sum(float(it.get("weight", 0.0) or 0.0) * int(it.get("qty", 1) or 1) for it in inv_grid if it and isinstance(it, dict))
                     if tot_w > (str_val * 15):
-                        speed = max(5, speed - 20)
+                        base_hexes = max(1, base_hexes - 4)
                     elif tot_w > (str_val * 10):
-                        speed = max(10, speed - 10)
+                        base_hexes = max(2, base_hexes - 2)
                 except (ValueError, TypeError):
                     pass
 
             exh = getattr(player, "exhaustion_level", 0)
             if exh >= 2:
-                speed = speed // 2
+                base_hexes = max(1, base_hexes // 2)
             is_dashed = is_condition_active(conds, "Scatto")
-            eff_speed = speed * 2 if is_dashed else speed
-            max_hexes = eff_speed // 5
+            max_hexes = base_hexes * 2 if is_dashed else base_hexes
             cost = 2 if is_condition_active(conds, "Prono") else 1
             
             spent = getattr(player, "movement_spent_this_turn", 0)
@@ -80,11 +84,13 @@ def handle_move_request(data, player, game_state):
                 from common.protocol import make_error_reply
                 if getattr(player, "conn", None):
                     rem = max(0, max_hexes - spent)
+                    rem_str = format_distance_hexes(rem, speed_unit)
+                    tot_str = format_distance_hexes(max_hexes, speed_unit)
                     if cost == 2:
-                        send_message(player.conn, make_error_reply(f"Movimento non consentito: sei Prono. Ti restano {rem // 2} esagoni ({rem * 5}ft)."))
+                        send_message(player.conn, make_error_reply(f"Movimento non consentito: sei Prono. Ti restano {rem // 2} esagoni ({rem_str})."))
                     else:
                         hint = " (Puoi usare l'Azione di Scatto /dash per raddoppiare la velocità!)" if not is_dashed else ""
-                        send_message(player.conn, make_error_reply(f"Movimento non consentito: la distanza supera la velocità rimasta per questo turno ({rem * 5}ft rimasti su {eff_speed}ft).{hint}"))
+                        send_message(player.conn, make_error_reply(f"Movimento non consentito: la distanza supera la velocità rimasta per questo turno ({rem_str} rimasti su {tot_str}).{hint}"))
                 return
             player.movement_spent_this_turn = spent + req_hexes
 
@@ -167,8 +173,8 @@ def handle_move_request(data, player, game_state):
                         
                         game_state.load_map(new_map_data)
                         
-                        from common.protocol import make_chat_broadcast, make_game_state, make_map_data_update
-                        broadcast(game_state, make_map_data_update(new_map_data))
+                        from common.protocol import make_chat_broadcast, make_game_state, make_map_data_update_broadcast
+                        broadcast(game_state, make_map_data_update_broadcast(new_map_data))
                         broadcast(game_state, make_game_state(game_state.get_state_dict()))
                         broadcast(game_state, make_chat_broadcast("Sistema", f"Il gruppo è stato teletrasportato."))
                         game_state._trigger_gui_update()

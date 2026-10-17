@@ -1,5 +1,7 @@
 # Regole Speciali e Homebrew della Campagna
 
+> 🌐 **Lingua / Language**: 🇮🇹 **[Italiano (Regole_Personalizzate_Campagna.md)](Regole_Personalizzate_Campagna.md)** | 🇬🇧 **[English (Custom_Campaign_Rules.md)](Custom_Campaign_Rules.md)**
+
 ## Pozioni come Azione Bonus
 Bere una pozione di cura da parte del proprio personaggio richiede solo un'**Azione Bonus** invece di un'Azione Standard.
 Somministrare una pozione a un compagno a terra o privo di sensi richiede comunque un'**Azione Standard**.

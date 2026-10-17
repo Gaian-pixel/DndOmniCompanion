@@ -220,6 +220,10 @@ STRINGS = {
         "menu_disconnect": "Disconnetti",
         "menu_library": "Libreria",
         "menu_language": "🌐 Lingua / Language",
+        "menu_units": "📏 Unità di Misura",
+        "unit_feet": "Piedi / Miglia (ft / mi)",
+        "unit_meters": "Metri / Chilometri (m / km)",
+        "unit_changed_toast": "Unità di misura impostata su: {unit}",
 
         # --- Toolbar Mappa e Tooltips ---
         "tool_center_map": "Centra Mappa",
@@ -420,6 +424,9 @@ STRINGS = {
 
         # --- Economia Turno & Azioni Rapide ---
         "turn_economy": "⚡ Economia Turno",
+        "turn_economy_exploration": "⚡ Economia Turno • 🧭 Esplorazione",
+        "turn_economy_my_turn": "⚡ Economia Turno • 🟢 TUO TURNO",
+        "turn_economy_other_turn": "⚡ Economia Turno • ⏳ Turno Altrui",
         "turn_economy_reset": "↺ Reset",
         "tooltip_reset_economy": "Ripristina le risorse del turno",
         "btn_act": "⚔️ Azione",
@@ -429,6 +436,7 @@ STRINGS = {
         "btn_react": "🛡️ Reaz",
         "tooltip_react": "Reazione: clicca per contrassegnare come spesa/disponibile",
         "lbl_movement": "👟 Movimento: {used} / {total} ft (Rim: {rem} ft)",
+        "lbl_movement_exploration": "🧭 Esplorazione: Movimento libero (Base: {base})",
         "btn_dash": "🏃 Scatto",
         "tooltip_dash": "Spende l'Azione per raddoppiare il movimento in questo turno",
         "btn_disengage": "💨 Disimpegno",
@@ -746,6 +754,20 @@ STRINGS = {
         "tooltip_skill_prof": "Livello di Competenza:\n0 = Nessuna\n1 = Competente (+Bonus Comp)\n2 = Maestria (+Doppio Bonus)",
         "tooltip_skill_bonus": "Modificatore totale calcolato (Caratteristica + Competenza) sommato al d20",
         "tooltip_skill_combo": "0 = Nessuna Competenza\n1 = Competente (+PB)\n2 = Maestria (+2×PB)",
+        "btn_close": "Chiudi",
+        "cantrip": "Trucchetto",
+        "col_description": "Descrizione",
+        "msg_content_cannot_empty": "Il contenuto non può essere vuoto.",
+        "msg_entity_exists": "Un'entità con questo nome esiste già.",
+        "msg_name_required": "Il nome è obbligatorio.",
+        "msg_stat_integer": "I valori statistici devono essere numeri validi.",
+        "msg_title_required": "Il titolo è obbligatorio.",
+        "no_features_registered": "Nessun tratto speciale registrato.",
+        "no_notes_present": "Nessuna nota presente.",
+        "prompt_item_desc": "Descrizione o effetto dell'oggetto:",
+        "prompt_item_type": "Tipo (Arma, Armatura, Consumabile, Documento, Valuta, Equipaggiamento):",
+        "text_inventory": "Inventario Testuale",
+        "text_spells": "Incantesimi Testuali",
     },
     "en": {
         # --- Common ---
@@ -813,6 +835,10 @@ STRINGS = {
         "menu_disconnect": "Disconnect",
         "menu_library": "Library",
         "menu_language": "🌐 Language / Lingua",
+        "menu_units": "📏 Distance Units",
+        "unit_feet": "Feet / Miles (ft / mi)",
+        "unit_meters": "Meters / Kilometers (m / km)",
+        "unit_changed_toast": "Distance unit set to: {unit}",
 
         # --- Map Toolbar and Tooltips ---
         "tool_center_map": "Center Map",
@@ -1013,6 +1039,9 @@ STRINGS = {
 
         # --- Turn Economy & Quick Actions ---
         "turn_economy": "⚡ Turn Economy",
+        "turn_economy_exploration": "⚡ Turn Economy • 🧭 Exploration",
+        "turn_economy_my_turn": "⚡ Turn Economy • 🟢 YOUR TURN",
+        "turn_economy_other_turn": "⚡ Turn Economy • ⏳ Other's Turn",
         "turn_economy_reset": "↺ Reset",
         "tooltip_reset_economy": "Reset turn resources",
         "btn_act": "⚔️ Action",
@@ -1022,6 +1051,7 @@ STRINGS = {
         "btn_react": "🛡️ React",
         "tooltip_react": "Reaction: click to toggle spent/available",
         "lbl_movement": "👟 Movement: {used} / {total} ft (Left: {rem} ft)",
+        "lbl_movement_exploration": "🧭 Exploration: Free movement (Base: {base})",
         "btn_dash": "🏃 Dash",
         "tooltip_dash": "Spends Action to double movement this turn",
         "btn_disengage": "💨 Disengage",
@@ -1339,13 +1369,35 @@ STRINGS = {
         "tooltip_skill_prof": "Proficiency Level:\n0 = None\n1 = Proficient (+PB)\n2 = Expertise (+2×PB)",
         "tooltip_skill_bonus": "Total calculated modifier (Ability + Proficiency) added to d20",
         "tooltip_skill_combo": "0 = None\n1 = Proficient (+PB)\n2 = Expertise (+2×PB)",
+        "btn_close": "Close",
+        "cantrip": "Cantrip",
+        "col_description": "Description",
+        "msg_content_cannot_empty": "Content cannot be empty.",
+        "msg_entity_exists": "An entity with this name already exists.",
+        "msg_name_required": "Name is required.",
+        "msg_stat_integer": "Stat values must be valid numbers.",
+        "msg_title_required": "Title is required.",
+        "no_features_registered": "No special features registered.",
+        "no_notes_present": "No notes present.",
+        "prompt_item_desc": "Item description or effect:",
+        "prompt_item_type": "Type (Weapon, Armor, Consumable, Document, Currency, Equipment):",
+        "text_inventory": "Text Inventory",
+        "text_spells": "Text Spells",
     }
 }
 
 
+SUPPORTED_DISTANCE_UNITS = {
+    "ft": "Piedi / Feet (ft)",
+    "m": "Metri / Meters (m)"
+}
+_current_distance_unit = "ft"
+_unit_listeners = []
+
+
 def _load_settings():
     """Carica le impostazioni da client_data/settings.json se presente."""
-    global _current_language
+    global _current_language, _current_distance_unit
     try:
         if os.path.exists(SETTINGS_PATH):
             with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
@@ -1353,12 +1405,15 @@ def _load_settings():
                 lang = data.get("language")
                 if lang in SUPPORTED_LANGUAGES:
                     _current_language = lang
+                unit = data.get("distance_unit")
+                if unit in SUPPORTED_DISTANCE_UNITS:
+                    _current_distance_unit = unit
     except Exception as e:
         print(f"[i18n] Errore lettura settings: {e}")
 
 
 def _save_settings():
-    """Salva la lingua corrente in client_data/settings.json."""
+    """Salva la lingua corrente e l'unità di misura in client_data/settings.json."""
     try:
         os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)
         data = {}
@@ -1369,6 +1424,7 @@ def _save_settings():
             except Exception:
                 data = {}
         data["language"] = _current_language
+        data["distance_unit"] = _current_distance_unit
         
         # Scrittura atomica
         tmp_path = SETTINGS_PATH + ".tmp"
@@ -1381,6 +1437,210 @@ def _save_settings():
 
 # Inizializza impostazioni all'importazione
 _load_settings()
+
+
+def get_distance_unit() -> str:
+    """Restituisce l'unità di misura corrente ('ft' o 'm')."""
+    with _lock:
+        return _current_distance_unit
+
+
+def set_distance_unit(unit_code: str):
+    """Imposta l'unità di misura corrente ('ft' o 'm') e salva le impostazioni."""
+    global _current_distance_unit
+    if unit_code not in SUPPORTED_DISTANCE_UNITS:
+        return
+    with _lock:
+        if _current_distance_unit == unit_code:
+            return
+        _current_distance_unit = unit_code
+        _save_settings()
+        listeners_copy = list(_unit_listeners)
+    for cb in listeners_copy:
+        try:
+            cb(_current_distance_unit)
+        except Exception as e:
+            print(f"[i18n] Errore callback unità: {e}")
+
+
+def toggle_distance_unit() -> str:
+    """Inverte l'unità di misura tra 'ft' e 'm' e restituisce la nuova unità."""
+    new_u = "m" if get_distance_unit() == "ft" else "ft"
+    set_distance_unit(new_u)
+    return new_u
+
+
+def register_unit_listener(callback_fn):
+    with _lock:
+        if callback_fn not in _unit_listeners:
+            _unit_listeners.append(callback_fn)
+
+
+def convert_speed_value(val, from_unit: str, to_unit: str):
+    """Converte un valore di velocità tra piedi ('ft') e metri ('m'). 5 ft = 1.5 m."""
+    try:
+        v = float(val)
+    except (ValueError, TypeError):
+        return 9 if to_unit == "m" else 30
+    if from_unit == to_unit:
+        return int(v) if v == int(v) else round(v, 1)
+    if from_unit == "ft" and to_unit == "m":
+        res = round((v / 5.0) * 1.5, 1)
+        return int(res) if res == int(res) else res
+    if from_unit == "m" and to_unit == "ft":
+        return int(round((v / 1.5) * 5.0))
+    return int(v) if v == int(v) else round(v, 1)
+
+
+def speed_to_hexes(speed_val, unit: str = None) -> int:
+    """
+    Converte il valore di velocità in numero di esagoni (1 esagono = 5 ft = 1.5 m).
+    Se unit non è specificato o c'è ambiguità legacy (es. speed=9 salvato senza unità),
+    gestisce in modo intelligente valori <= 18 come metri e >= 20 come piedi.
+    """
+    try:
+        v = float(speed_val)
+    except (ValueError, TypeError):
+        return 6
+    if v <= 0:
+        return 0
+    if unit == "m" or (unit is None and v <= 18):
+        return max(1, int(round(v / 1.5)))
+    return max(1, int(v // 5))
+
+
+def get_map_scale_info(map_data: dict = None, unit: str = None) -> dict:
+    """
+    Determina la scala della mappa attiva (Combattimento, Esplorazione/Provincia, Mondo/Regione o Personalizzata)
+    e la distanza rappresentata da 1 singolo esagono nell'unità scelta ('ft'/'mi' oppure 'm'/'km').
+    Regole D&D 5e (DMG p. 14):
+      - Combattimento (hex_size=60 o default 30): 1 hex = 5 ft (Imperiale) / 1.5 m (Metrico)
+      - Esplorazione / Provincia (hex_size=35): 1 hex = 1 mi (Imperiale) / 1.5 km (Metrico)
+      - Mondo / Regione (hex_size=15): 1 hex = 6 mi (Imperiale) / 9 km (Metrico)
+    """
+    u = unit if unit in ("ft", "m") else get_distance_unit()
+    is_metric = (u == "m")
+    lang = get_language()
+
+    if not isinstance(map_data, dict):
+        per_hex = 1.5 if is_metric else 5.0
+        u_lbl = "m" if is_metric else "ft"
+        return {
+            "scale_type": "combat",
+            "scale_name": ("Combattimento" if lang == "it" else "Combat"),
+            "per_hex": per_hex,
+            "unit_label": u_lbl,
+            "hex_size": 30,
+            "hours_per_hex": 0.0,
+        }
+
+    hex_size = map_data.get("hex_size", 30) or 30
+    explicit_type = str(map_data.get("map_scale_type", "")).strip().lower()
+
+    # Inferenza automatica da hex_size se map_scale_type non è specificato
+    if explicit_type in ("combat", "exploration", "world", "custom"):
+        scale_type = explicit_type
+    else:
+        if hex_size <= 20:
+            scale_type = "world"
+        elif 20 < hex_size <= 45 and hex_size != 30:
+            scale_type = "exploration"
+        else:
+            scale_type = "combat"
+
+    # Controllo scala personalizzata esplicita (es. hex_scale_ft / hex_scale_value)
+    custom_val = map_data.get("hex_scale_value")
+    custom_unit = map_data.get("hex_scale_unit")
+    if scale_type == "custom" and custom_val is not None:
+        try:
+            val_f = float(custom_val)
+        except (ValueError, TypeError):
+            val_f = 1.5 if is_metric else 5.0
+        if custom_unit in ("ft", "m", "mi", "km"):
+            # Converti automaticamente se l'utente ha cambiato sistema Imperiale <-> Metrico
+            if custom_unit == "ft" and is_metric:
+                per_hex, u_lbl = round((val_f / 5.0) * 1.5, 2), "m"
+            elif custom_unit == "m" and not is_metric:
+                per_hex, u_lbl = round((val_f / 1.5) * 5.0, 2), "ft"
+            elif custom_unit == "mi" and is_metric:
+                per_hex, u_lbl = round(val_f * 1.5, 2), "km"
+            elif custom_unit == "km" and not is_metric:
+                per_hex, u_lbl = round(val_f / 1.5, 2), "mi"
+            else:
+                per_hex, u_lbl = val_f, custom_unit
+        else:
+            per_hex = val_f
+            u_lbl = "m" if is_metric else "ft"
+        return {
+            "scale_type": "custom",
+            "scale_name": ("Personalizzata" if lang == "it" else "Custom"),
+            "per_hex": per_hex,
+            "unit_label": u_lbl,
+            "hex_size": hex_size,
+            "hours_per_hex": (per_hex / 4.5 if u_lbl == "km" else (per_hex / 3.0 if u_lbl == "mi" else 0.0)),
+        }
+
+    if scale_type == "world":
+        per_hex = 9.0 if is_metric else 6.0
+        u_lbl = "km" if is_metric else "mi"
+        s_name = "Mondo / Regione" if lang == "it" else "World / Region"
+        hours_per_hex = 2.0  # 6 mi / 3 mph = 2h di marcia per esagono (4 hex = 1 giorno / 24 mi)
+    elif scale_type == "exploration":
+        per_hex = 1.5 if is_metric else 1.0
+        u_lbl = "km" if is_metric else "mi"
+        s_name = "Esplorazione (POI)" if lang == "it" else "Exploration (POI)"
+        hours_per_hex = 1.0 / 3.0  # 1 mi / 3 mph = 20 min di marcia per esagono
+    else:
+        per_hex = 1.5 if is_metric else 5.0
+        u_lbl = "m" if is_metric else "ft"
+        s_name = "Combattimento" if lang == "it" else "Combat"
+        hours_per_hex = 0.0
+
+    return {
+        "scale_type": scale_type,
+        "scale_name": s_name,
+        "per_hex": per_hex,
+        "unit_label": u_lbl,
+        "hex_size": hex_size,
+        "hours_per_hex": hours_per_hex,
+    }
+
+
+def format_distance_hexes(hexes: int, unit: str = None, map_data: dict = None, include_travel_time: bool = False) -> str:
+    """
+    Formatta un numero di esagoni nell'unità di misura scelta tenendo conto della scala della mappa:
+      - Combattimento: '30 ft' o '9 m' (1 hex = 5 ft / 1.5 m)
+      - Esplorazione: '4 mi' o '6 km' (1 hex = 1 mi / 1.5 km)
+      - Mondo/Regione: '24 mi' o '36 km' (1 hex = 6 mi / 9 km)
+    Se include_travel_time=True e la mappa è d'esplorazione o regionale, aggiunge la stima del tempo di viaggio (andatura normale).
+    """
+    scale_info = get_map_scale_info(map_data=map_data, unit=unit)
+    per_hex = scale_info["per_hex"]
+    u_lbl = scale_info["unit_label"]
+
+    val = round(hexes * per_hex, 1)
+    val_str = str(int(val)) if val == int(val) else f"{val:.1f}"
+    base_str = f"{val_str} {u_lbl}"
+
+    if include_travel_time and hexes > 0 and scale_info.get("hours_per_hex", 0) > 0:
+        total_hours = hexes * scale_info["hours_per_hex"]
+        lang = get_language()
+        if total_hours < 1.0:
+            mins = max(1, int(round(total_hours * 60)))
+            time_str = f"~{mins} min"
+        elif total_hours <= 8.0:
+            h_val = round(total_hours, 1)
+            h_str = str(int(h_val)) if h_val == int(h_val) else f"{h_val:.1f}"
+            time_str = f"~{h_str}h"
+        else:
+            # In D&D 5e 1 giornata di viaggio standard = 8 ore di marcia (24 mi / 36 km)
+            days = round(total_hours / 8.0, 1)
+            d_str = str(int(days)) if days == int(days) else f"{days:.1f}"
+            day_lbl = "gg" if lang == "it" else "d"
+            time_str = f"~{d_str} {day_lbl}"
+        return f"{base_str} [{time_str}]"
+
+    return base_str
 
 
 def get_language() -> str:
@@ -1511,3 +1771,4 @@ def get_ability_name(ability_code: str, lang: str = None) -> str:
     else:
         it_code = ABILITIES_EN_TO_IT.get(code, code)
         return ABILITY_NAMES["it"].get(it_code, it_code)
+

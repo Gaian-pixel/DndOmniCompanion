@@ -71,6 +71,7 @@ class HexMapCanvas(tk.Canvas):
         self.bind("<Control-B1-Motion>", self._on_draw_move)
         self.bind("<Control-ButtonRelease-1>", self._on_draw_end)
         self.bind("<Motion>", self._on_mouse_motion)
+        self.bind("<Leave>", lambda e: self._update_hover_tooltip(e, None))
         self.bind("<Configure>", self._on_configure)
         self.hover_tooltip = None
         self._hovered_token = None
@@ -228,10 +229,24 @@ class HexMapCanvas(tk.Canvas):
         self.ruler_mode = not getattr(self, "ruler_mode", False)
         if not self.ruler_mode:
             self.clear_ruler()
+            try:
+                self.config(cursor="")
+            except Exception:
+                pass
+        else:
+            try:
+                self.config(cursor="tcross")
+            except Exception:
+                pass
+        self.redraw()
         return self.ruler_mode
 
     def clear_ruler(self):
         self._ruler_start_hex = None
+        self._ruler_current_hex = None
+        self._ruler_pinned_start = None
+        self._ruler_pinned_end = None
+        self.delete("ruler_overlay")
         if getattr(self, '_ruler_line_id', None):
             self.delete(self._ruler_line_id)
             self._ruler_line_id = None
@@ -271,10 +286,17 @@ class HexMapCanvas(tk.Canvas):
 
         if getattr(self, "ruler_mode", False):
             if self._ruler_start_hex is None:
+                self._ruler_pinned_start = None
+                self._ruler_pinned_end = None
                 self._ruler_start_hex = clicked_hex
+                self._ruler_current_hex = clicked_hex
+                self._draw_ruler_between(clicked_hex, clicked_hex)
             else:
+                self._ruler_pinned_start = self._ruler_start_hex
+                self._ruler_pinned_end = clicked_hex
                 self._on_ruler_drag(event)
                 self._ruler_start_hex = None
+                self._ruler_current_hex = None
             return
 
         if not self.on_hex_click_callback: return
@@ -313,19 +335,26 @@ class HexMapCanvas(tk.Canvas):
             target_sy = target_wy * self.zoom_level + self.pan_offset_y
             
             dist_hex = self._drag_start_hex.distance(curr_hex)
-            dist_ft = dist_hex * 5
+            from common.i18n import speed_to_hexes, format_distance_hexes, get_map_scale_info
+            active_map_data = getattr(self, "map_data", None)
+            scale_info = get_map_scale_info(active_map_data)
+            dist_str = format_distance_hexes(dist_hex, map_data=active_map_data, include_travel_time=True)
             
             pdata = self.players_data.get(self.dragging_token_name, {})
             base_speed = 30
+            speed_unit = None
             conds = []
             if isinstance(pdata, dict):
                 base_speed = pdata.get('speed', 30) or 30
+                speed_unit = pdata.get('speed_unit')
                 conds = pdata.get('conditions', [])
             is_dashed = ("Scatto" in conds or "Dash" in conds)
-            max_speed = base_speed * 2 if is_dashed else base_speed
+            base_hexes = speed_to_hexes(base_speed, speed_unit)
+            max_hexes = base_hexes * 2 if is_dashed else base_hexes
             
-            is_over = (dist_ft > max_speed)
-            path_color = "#EF4444" if is_over else "#10B981"
+            is_tactical_scale = (scale_info.get("scale_type") == "combat")
+            is_over = (dist_hex > max_hexes) if is_tactical_scale else False
+            path_color = "#EF4444" if is_over else ("#3B82F6" if not is_tactical_scale else "#10B981")
             
             # 1. Traccia scia di movimento tratteggiata (Ghost Path)
             self.create_line(start_sx, start_sy, target_sx, target_sy, fill=path_color, width=3, dash=(6, 4), tags='ghost_path')
@@ -337,9 +366,9 @@ class HexMapCanvas(tk.Canvas):
             self.create_text(target_sx, target_sy, text=self.dragging_token_name[:2].upper(),
                              fill=path_color, font=("Segoe UI", max(7, int(9 * self.zoom_level)), "bold"), tags='ghost_path')
             
-            # 3. Floating Pill Badge con distanza in piedi live
+            # 3. Floating Pill Badge con distanza live nella scala della mappa e unità scelta
             dash_alert = f" • [⚠️ {_t('action_dash')}]" if is_over else ""
-            badge_text = f"👣 {dist_ft} ft ({dist_hex} hex){dash_alert}"
+            badge_text = f"👣 {dist_str} ({dist_hex} hex){dash_alert}"
             badge_y = target_sy - scaled_r - 16
             bw = len(badge_text) * 3.6 + 12
             bx1, bx2 = target_sx - bw, target_sx + bw
@@ -427,71 +456,128 @@ class HexMapCanvas(tk.Canvas):
 
     def _update_hover_tooltip(self, event, token_name):
         if getattr(self, 'hover_tooltip', None):
-            self.hover_tooltip.destroy()
+            try:
+                self.hover_tooltip.destroy()
+            except Exception:
+                pass
             self.hover_tooltip = None
             
-        if token_name:
-            import tkinter as tk
+        if token_name and getattr(self, 'players_data', None) and token_name in self.players_data:
             self.hover_tooltip = tk.Toplevel(self)
             self.hover_tooltip.wm_overrideredirect(True)
             self.hover_tooltip.attributes('-topmost', True)
-            x = self.winfo_rootx() + event.x + 15
-            y = self.winfo_rooty() + event.y + 15
+            x = self.winfo_rootx() + (event.x if event else 0) + 16
+            y = self.winfo_rooty() + (event.y if event else 0) + 16
             self.hover_tooltip.wm_geometry(f"+{x}+{y}")
             
             pdata = self.players_data[token_name]
-            hp = pdata.get('hp', '?') if isinstance(pdata, dict) else '?'
-            hp_max = pdata.get('hp_max', '?') if isinstance(pdata, dict) else '?'
-            
-            text = f"{token_name}"
-            if isinstance(pdata, dict) and 'hp' in pdata:
-                text += f"\nHP: {hp}/{hp_max}"
-                
-            label = tk.Label(self.hover_tooltip, text=text, background="#36393F", foreground="white", relief="solid", borderwidth=1, font=("Helvetica", 9, "bold"))
-            label.pack(padx=3, pady=3)
+            card = tk.Frame(self.hover_tooltip, bg="#181B22", highlightbackground="#D4AF37", highlightthickness=1, padx=8, pady=5)
+            card.pack(fill=tk.BOTH, expand=True)
+
+            tk.Label(card, text=f"⚔️ {token_name}", bg="#181B22", fg="#F59E0B", font=("Segoe UI", 9, "bold"), anchor="w").pack(anchor="w")
+
+            if isinstance(pdata, dict):
+                hp = pdata.get('hp', '?')
+                hp_max = pdata.get('hp_max', '?')
+                temp_hp = pdata.get('temp_hp', 0) or 0
+                ac = pdata.get('ac') or (pdata.get('full_sheet', {}) or {}).get('ac')
+                conds = pdata.get('conditions', [])
+
+                details = []
+                if 'hp' in pdata:
+                    t_str = f" (+{temp_hp})" if temp_hp > 0 else ""
+                    details.append(f"❤️ HP: {hp}/{hp_max}{t_str}")
+                if ac:
+                    details.append(f"🛡️ CA: {ac}")
+                if details:
+                    tk.Label(card, text="  •  ".join(details), bg="#181B22", fg="#ECEFF1", font=("Segoe UI", 8, "bold"), anchor="w").pack(anchor="w", pady=(1, 0))
+                if conds:
+                    tk.Label(card, text=f"✨ {', '.join(conds)}", bg="#181B22", fg="#60A5FA", font=("Segoe UI", 8), anchor="w").pack(anchor="w", pady=(1, 0))
 
     def _on_ruler_drag(self, event):
         if not self.hex_layout or not self._ruler_start_hex: return
         world_x = (event.x - self.pan_offset_x) / self.zoom_level
         world_y = (event.y - self.pan_offset_y) / self.zoom_level
         current_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
-        
-        # Calculate distance
-        from common.hex_utils import hex_distance
-        dist_hexes = hex_distance(self._ruler_start_hex, current_hex)
-        dist_ft = dist_hexes * 5
+        self._ruler_current_hex = current_hex
+        self._draw_ruler_between(self._ruler_start_hex, current_hex)
 
-        # Draw line and text
-        if self._ruler_line_id:
+    def _draw_ruler_between(self, start_hex, end_hex):
+        if not self.hex_layout or not start_hex or not end_hex:
+            return
+        from common.hex_utils import hex_distance, hex_linedraw
+        from common.i18n import format_distance_hexes, get_map_scale_info
+
+        active_map_data = getattr(self, "map_data", None)
+        scale_info = get_map_scale_info(active_map_data)
+        dist_hexes = hex_distance(start_hex, end_hex)
+        dist_str = format_distance_hexes(dist_hexes, map_data=active_map_data, include_travel_time=True)
+
+        per_hex = scale_info["per_hex"]
+        per_hex_str = str(int(per_hex)) if per_hex == int(per_hex) else f"{per_hex:g}"
+        scale_badge = f"1 hex = {per_hex_str} {scale_info['unit_label']}"
+
+        self.delete("ruler_overlay")
+        if getattr(self, '_ruler_line_id', None):
             self.delete(self._ruler_line_id)
-        if self._ruler_text_id:
+        if getattr(self, '_ruler_text_id', None):
             self.delete(self._ruler_text_id)
+        if getattr(self, '_ruler_text_bg_id', None):
+            self.delete(self._ruler_text_bg_id)
 
-        start_x, start_y = self.hex_layout.hex_to_pixel(self._ruler_start_hex)
-        end_x, end_y = self.hex_layout.hex_to_pixel(current_hex)
+        # Evidenzia gli esagoni attraversati dal righello in base alla scala della mappa
+        try:
+            path_hexes = hex_linedraw(start_hex, end_hex)
+            if len(path_hexes) <= 60:
+                for ph in path_hexes:
+                    corners = self.hex_layout.hex_corners(ph)
+                    sc_corners = [
+                        (cx * self.zoom_level + self.pan_offset_x, cy * self.zoom_level + self.pan_offset_y)
+                        for cx, cy in corners
+                    ]
+                    is_endpoint = (ph == start_hex or ph == end_hex)
+                    self.create_polygon(
+                        sc_corners,
+                        fill="",
+                        outline="#F59E0B" if is_endpoint else "#FBBF24",
+                        width=2.0 if is_endpoint else 1.2,
+                        dash=() if is_endpoint else (3, 3),
+                        tags="ruler_overlay"
+                    )
+        except Exception:
+            pass
+
+        start_x, start_y = self.hex_layout.hex_to_pixel(start_hex)
+        end_x, end_y = self.hex_layout.hex_to_pixel(end_hex)
         
         screen_start_x = start_x * self.zoom_level + self.pan_offset_x
         screen_start_y = start_y * self.zoom_level + self.pan_offset_y
         screen_end_x = end_x * self.zoom_level + self.pan_offset_x
         screen_end_y = end_y * self.zoom_level + self.pan_offset_y
 
-        self._ruler_line_id = self.create_line(screen_start_x, screen_start_y, screen_end_x, screen_end_y, 
-                                               fill="white", dash=(4, 4), width=2, arrow=tk.LAST)
+        self._ruler_line_id = self.create_line(
+            screen_start_x, screen_start_y, screen_end_x, screen_end_y,
+            fill="#F59E0B", dash=(6, 4), width=2.5, arrow=tk.LAST, tags="ruler_overlay"
+        )
         
         mid_x = (screen_start_x + screen_end_x) / 2
-        mid_y = (screen_start_y + screen_end_y) / 2
-        self._ruler_text_id = self.create_text(mid_x, mid_y, text=f"{dist_ft} ft.", 
-                                               fill="white", font=("Arial", 12, "bold"))
+        mid_y = (screen_start_y + screen_end_y) / 2 - 16
+        self._ruler_text_id = self.create_text(
+            mid_x, mid_y, text=f"📏 {dist_str} ({dist_hexes} hex • {scale_badge})",
+            fill="#FDE68A", font=("Segoe UI", 10, "bold"), tags="ruler_overlay"
+        )
         
-        # Add a dark background to text for visibility
         bbox = self.bbox(self._ruler_text_id)
         if bbox:
-            if hasattr(self, '_ruler_text_bg_id') and self._ruler_text_bg_id:
-                self.delete(self._ruler_text_bg_id)
-            self._ruler_text_bg_id = self.create_rectangle(bbox, fill="black", outline="black")
+            pad_x, pad_y = 7, 4
+            self._ruler_text_bg_id = self.create_rectangle(
+                bbox[0] - pad_x, bbox[1] - pad_y, bbox[2] + pad_x, bbox[3] + pad_y,
+                fill="#0F172A", outline="#F59E0B", width=1.5, tags="ruler_overlay"
+            )
             self.tag_lower(self._ruler_text_bg_id, self._ruler_text_id)
 
     def _on_ruler_end(self, event):
+        self.delete("ruler_overlay")
         if self._ruler_line_id:
             self.delete(self._ruler_line_id)
             self._ruler_line_id = None
@@ -502,6 +588,7 @@ class HexMapCanvas(tk.Canvas):
             self.delete(self._ruler_text_bg_id)
             self._ruler_text_bg_id = None
         self._ruler_start_hex = None
+        self._ruler_current_hex = None
 
     def _on_wall_toggle(self, event):
         if not self.hex_layout or not getattr(self, 'on_wall_toggle_callback', None): return
@@ -800,7 +887,7 @@ class HexMapCanvas(tk.Canvas):
                 elif aoe_type == "cono":
                     aoe_hexes = get_cone_hexes(origin, Hex(*aoe.get("target", aoe["origin"])), aoe["size"])
                 elif aoe_type == "linea":
-                    aoe_hexes = get_line_hexes(origin, Hex(*aoe.get("target", aoe["origin"])))
+                    aoe_hexes = get_line_hexes(origin, Hex(*aoe.get("target", aoe["origin"])), aoe.get("size", 3))
                 else:
                     aoe_hexes = []
 
@@ -1216,20 +1303,32 @@ class HexMapCanvas(tk.Canvas):
                 self._hud_control_bboxes.append((bx1, by1, bx2, by2, action_key))
                 cur_bx += hud_btn_w + hud_spacing
 
-        # 5. Live Coordinates & Zoom Badge (Bottom-Right HUD)
+        # 5. Live Coordinates, Map Scale & Zoom Badge (Bottom-Right HUD)
         self._update_coord_hud()
+
+        # 6. Ripristina eventuale righello attivo o fissato dopo zoom/pan/cambio unità
+        r_start = getattr(self, "_ruler_start_hex", None) or getattr(self, "_ruler_pinned_start", None)
+        r_end = getattr(self, "_ruler_current_hex", None) or getattr(self, "_ruler_pinned_end", None)
+        if r_start and r_end:
+            self._draw_ruler_between(r_start, r_end)
 
     def _update_coord_hud(self, hovered_hex=None):
         self.delete("hud_coords")
         cw = self.winfo_width()
         ch = self.winfo_height()
         if cw > 350 and ch > 150:
+            from common.i18n import get_map_scale_info
+            scale_info = get_map_scale_info(getattr(self, "map_data", None))
+            per_hex = scale_info["per_hex"]
+            per_hex_str = str(int(per_hex)) if per_hex == int(per_hex) else f"{per_hex:g}"
+            scale_str = f"1 hex={per_hex_str}{scale_info['unit_label']}"
+
             zoom_pct = int(self.zoom_level * 100)
             h_hex = hovered_hex or getattr(self, '_last_hover_hex', None)
-            coord_str = f"⬡ Zoom: {zoom_pct}%"
+            coord_str = f"⬡ {scale_str} • {zoom_pct}%"
             if h_hex:
-                coord_str = f"⬡ q: {h_hex.q}, r: {h_hex.r} • {zoom_pct}%"
-            badge_w = len(coord_str) * 6.5 + 14
+                coord_str = f"⬡ q:{h_hex.q}, r:{h_hex.r} • {scale_str} • {zoom_pct}%"
+            badge_w = len(coord_str) * 6.3 + 16
             bx2 = cw - 16
             bx1 = bx2 - badge_w
             by2 = ch - 16
@@ -1238,13 +1337,15 @@ class HexMapCanvas(tk.Canvas):
             self.create_text((bx1 + bx2)/2, (by1 + by2)/2, text=coord_str, fill="#9CA3AF", font=("Segoe UI", 8, "bold"), tags="hud_coords")
 
 class ToolTip:
-    """Finestrella di tooltip mostrata al passaggio del mouse con supporto a callable per i18n dinamico."""
+    """Finestrella di tooltip Dark Fantasy mostrata al passaggio del mouse con supporto a callable per i18n dinamico."""
     def __init__(self, widget, text):
         self.widget = widget
         self.text = text
         self.tip_window = None
-        self.widget.bind("<Enter>", self.show_tip)
-        self.widget.bind("<Leave>", self.hide_tip)
+        self.widget.bind("<Enter>", self.show_tip, add="+")
+        self.widget.bind("<Leave>", self.hide_tip, add="+")
+        self.widget.bind("<ButtonPress>", self.hide_tip, add="+")
+        self.widget.bind("<Destroy>", self.hide_tip, add="+")
 
     def set_text(self, text):
         self.text = text
@@ -1252,25 +1353,46 @@ class ToolTip:
     def show_tip(self, event=None):
         if self.tip_window:
             return
-        tip_text = self.text() if callable(self.text) else self.text
-        if not tip_text:
-            return
-        x, y, cx, cy = self.widget.bbox("insert") or (0, 0, 0, 0)
-        x = x + self.widget.winfo_rootx() + 25
-        y = y + cy + self.widget.winfo_rooty() + 25
-        self.tip_window = tw = tk.Toplevel(self.widget)
-        tw.wm_overrideredirect(True)
-        tw.wm_geometry(f"+{x}+{y}")
-        label = tk.Label(tw, text=tip_text, justify=tk.LEFT,
-                         background="#ffffe0", relief=tk.SOLID, borderwidth=1,
-                         font=("tahoma", "8", "normal"))
-        label.pack(ipadx=1)
+        try:
+            if not self.widget.winfo_exists():
+                return
+            tip_text = self.text() if callable(self.text) else self.text
+            if not tip_text:
+                return
+            x = self.widget.winfo_rootx() + 20
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 6
+            self.tip_window = tw = tk.Toplevel(self.widget)
+            tw.wm_overrideredirect(True)
+            tw.attributes("-topmost", True)
+            frame = tk.Frame(tw, bg="#181B22", highlightbackground="#D4AF37", highlightthickness=1, padx=8, pady=4)
+            frame.pack(fill=tk.BOTH, expand=True)
+            label = tk.Label(
+                frame, text=tip_text, justify=tk.LEFT,
+                bg="#181B22", fg="#ECEFF1", font=("Segoe UI", 9),
+                wraplength=320
+            )
+            label.pack()
+            tw.update_idletasks()
+            tw_w = tw.winfo_reqwidth()
+            tw_h = tw.winfo_reqheight()
+            sw = tw.winfo_screenwidth()
+            sh = tw.winfo_screenheight()
+            if x + tw_w + 12 > sw:
+                x = max(8, sw - tw_w - 12)
+            if y + tw_h + 12 > sh:
+                y = max(8, self.widget.winfo_rooty() - tw_h - 6)
+            tw.wm_geometry(f"+{x}+{y}")
+        except Exception:
+            self.hide_tip()
 
     def hide_tip(self, event=None):
         tw = self.tip_window
         self.tip_window = None
         if tw:
-            tw.destroy()
+            try:
+                tw.destroy()
+            except Exception:
+                pass
 
 
 class ToastNotification:
