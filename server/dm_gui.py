@@ -387,6 +387,12 @@ class DM_GUI:
         btn_teleport.pack(pady=3)
         ToolTip(btn_teleport, lambda: _t("tool_teleport"))
 
+        self.terrain_paint_mode = False
+        self.active_terrain_brush = "fango"
+        self.btn_terrain = ttk.Button(left_toolbar, text="🪨", width=3, style="Tool.TButton", command=self.toggle_terrain_paint_tool)
+        self.btn_terrain.pack(pady=3)
+        ToolTip(self.btn_terrain, "Pennello Terreno Difficile (Click per dipingere Fango/Ghiaccio/Rovi/Macerie/Palude)")
+
         btn_manuals = ttk.Button(left_toolbar, text="📖", width=3, style="Tool.TButton", command=self.open_manuals_dialog)
         btn_manuals.pack(pady=3)
         ToolTip(btn_manuals, lambda: _t("tool_manuals"))
@@ -1392,6 +1398,23 @@ class DM_GUI:
             else:
                 map_menu.add_command(label="⚠️ Piazza Trappola 5e...", command=lambda: self.open_place_trap_dialog(clicked_hex))
 
+            # Menu Terreno Difficile al volo D&D 5e
+            diff_menu = tk.Menu(map_menu, tearoff=0)
+            diff_terrain = cur_map.setdefault("difficult_terrain", {}) if cur_map else {}
+            pos_key = f"{clicked_hex.q},{clicked_hex.r}"
+            current_t = diff_terrain.get(pos_key)
+
+            diff_menu.add_command(label="💩 Fango / Melma (x2 Movimento)", command=lambda: self.set_difficult_terrain_at(clicked_hex, "fango"))
+            diff_menu.add_command(label="🧊 Ghiaccio / Scivoloso (TS Des o Prono, Svantaggio)", command=lambda: self.set_difficult_terrain_at(clicked_hex, "ghiaccio"))
+            diff_menu.add_command(label="🌿 Rovi / Spine (1d4 Danno, Svantaggio)", command=lambda: self.set_difficult_terrain_at(clicked_hex, "rovi"))
+            diff_menu.add_command(label="🪨 Macerie / Rocce (x2 Movimento)", command=lambda: self.set_difficult_terrain_at(clicked_hex, "macerie"))
+            diff_menu.add_command(label="🌊 Palude / Acqua Profonda (x2 Movimento, Svantaggio)", command=lambda: self.set_difficult_terrain_at(clicked_hex, "palude"))
+            if current_t:
+                diff_menu.add_separator()
+                diff_menu.add_command(label=f"🗑️ Rimuovi Terreno Difficile ({str(current_t).capitalize()})", command=lambda: self.remove_difficult_terrain_at(clicked_hex))
+
+            map_menu.add_cascade(label=f"🌾 Terreno Difficile{' (' + str(current_t).capitalize() + ')' if current_t else ''}...", menu=diff_menu)
+
             try:
                 map_menu.tk_popup(event.x_root, event.y_root)
             finally:
@@ -1404,9 +1427,81 @@ class DM_GUI:
         from common.protocol import make_map_data_update_broadcast
         from server.network import broadcast
         broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
+
+    def set_difficult_terrain_at(self, clicked_hex, terrain_type="fango"):
+        """Imposta un tipo di terreno difficile al volo su un esagono e sincronizza tutti i client."""
+        if not getattr(self.server.game_state, "current_map", None): return
+        cur_map = self.server.game_state.current_map
+        diff_terrain = cur_map.setdefault("difficult_terrain", {})
+        pos_key = f"{clicked_hex.q},{clicked_hex.r}"
+        diff_terrain[pos_key] = terrain_type
+
+        from common.protocol import make_map_data_update_broadcast
+        from server.network import broadcast
+        broadcast(self.server.game_state, make_map_data_update_broadcast(cur_map))
+        self.server.game_state._trigger_gui_update()
+        self.log_to_chat(f"[TERRENO] Applicato terreno difficile ({terrain_type.capitalize()}) a [{clicked_hex.q}, {clicked_hex.r}].")
+        self.redraw_map_and_players()
+
+    def remove_difficult_terrain_at(self, clicked_hex):
+        """Rimuove il terreno difficile da un esagono al volo e sincronizza i client."""
+        if not getattr(self.server.game_state, "current_map", None): return
+        cur_map = self.server.game_state.current_map
+        diff_terrain = cur_map.get("difficult_terrain", {})
+        pos_key = f"{clicked_hex.q},{clicked_hex.r}"
+        if pos_key in diff_terrain:
+            del diff_terrain[pos_key]
+        pos_tup = [clicked_hex.q, clicked_hex.r]
+        if isinstance(diff_terrain, list) and pos_tup in diff_terrain:
+            diff_terrain.remove(pos_tup)
+
+        from common.protocol import make_map_data_update_broadcast
+        from server.network import broadcast
+        broadcast(self.server.game_state, make_map_data_update_broadcast(cur_map))
+        self.server.game_state._trigger_gui_update()
+        self.log_to_chat(f"[TERRENO] Rimosso terreno difficile a [{clicked_hex.q}, {clicked_hex.r}].")
+        self.redraw_map_and_players()
+
+    def toggle_terrain_paint_tool(self):
+        """Attiva o disattiva la modalità pennello per dipingere terreni difficili al volo sulla mappa."""
+        if getattr(self, "terrain_paint_mode", False):
+            self.terrain_paint_mode = False
+            self.btn_terrain.config(style="Tool.TButton")
+            self.log_to_chat("[SISTEMA] Modalità pennello terreno difficile disattivata.")
+            return
+
+        menu = tk.Menu(self.master, tearoff=0)
+        types = [
+            ("fango", "💩 Fango (x2 Movimento)"),
+            ("ghiaccio", "🧊 Ghiaccio (TS Des CD10 o Prono)"),
+            ("rovi", "🌿 Rovi (1d4 Danno da Spine)"),
+            ("macerie", "🪨 Macerie (x2 Movimento)"),
+            ("palude", "🌊 Palude (x2 Movimento, Svantaggio)"),
+            ("clear", "🗑️ Cancella Terreno (Gomma)")
+        ]
+        def pick_brush(t):
+            self.active_terrain_brush = t
+            self.terrain_paint_mode = True
+            self.btn_terrain.config(style="Primary.TButton")
+            self.log_to_chat(f"[SISTEMA] Pennello terreno difficile attivo: {t.capitalize()}. Clicca sulle caselle della mappa per applicare.")
+
+        for code, label in types:
+            menu.add_command(label=label, command=lambda c=code: pick_brush(c))
+
+        bx = self.btn_terrain.winfo_rootx() + self.btn_terrain.winfo_width()
+        by = self.btn_terrain.winfo_rooty()
+        menu.tk_popup(bx, by)
             
     def on_hex_clicked(self, clicked_hex):
         if not self.server.game_state.current_map: return
+
+        if getattr(self, "terrain_paint_mode", False):
+            brush = getattr(self, "active_terrain_brush", "fango")
+            if brush == "clear":
+                self.remove_difficult_terrain_at(clicked_hex)
+            else:
+                self.set_difficult_terrain_at(clicked_hex, brush)
+            return
         
         if getattr(self, "teleport_mode_var", None) and self.teleport_mode_var.get():
             pos_key = f"{clicked_hex.q},{clicked_hex.r}"

@@ -390,6 +390,61 @@ def handle_attack_request(data, player, game_state):
                                 adv_reasons.append("Fiancheggiamento")
                                 break
 
+            # Effetti Atmosferici D&D 5e (DMG p. 109-110)
+            weather_val = str(getattr(game_state, "weather", "Sereno")).strip().lower()
+            if weather_val in ("tempesta", "storm"):
+                if dist > 1:
+                    dis_reasons.append("Tempesta (Vento forte e pioggia battente)")
+            elif weather_val in ("nebbia", "fog"):
+                if dist > 1:
+                    dis_reasons.append("Nebbia fitta (Visibilità pesantemente oscurata)")
+            elif weather_val in ("pioggia", "rain"):
+                if dist >= 4:
+                    dis_reasons.append("Pioggia intensa (Scarsa visibilità)")
+            elif weather_val in ("neve", "snow"):
+                if dist >= 3:
+                    dis_reasons.append("Neve e bufera (Scarsa visibilità)")
+
+            # Terreni Difficili & Pericolosi D&D 5e sulla mappa
+            cur_map = getattr(game_state, "current_map", None)
+            diff_terrain = cur_map.get("difficult_terrain", {}) if cur_map else {}
+            diff_dict = {}
+            if isinstance(diff_terrain, dict):
+                for k, v in diff_terrain.items():
+                    if isinstance(k, str) and "," in k:
+                        parts = k.split(",")
+                        diff_dict[(int(parts[0]), int(parts[1]))] = str(v).lower()
+                    elif isinstance(k, (tuple, list)) and len(k) >= 2:
+                        diff_dict[(int(k[0]), int(k[1]))] = str(v).lower()
+            elif isinstance(diff_terrain, list):
+                for item in diff_terrain:
+                    if isinstance(item, (list, tuple)) and len(item) >= 2:
+                        diff_dict[(int(item[0]), int(item[1]))] = "fango"
+
+            # Attaccante su terreno difficile instabile / intralciante
+            p_pos_tup = (q1, r1)
+            if p_pos_tup in diff_dict:
+                t_type = diff_dict[p_pos_tup]
+                if t_type in ("ghiaccio", "ice"):
+                    dis_reasons.append("Terreno Scivoloso (Ghiaccio)")
+                elif t_type in ("rovi", "briars", "spine"):
+                    dis_reasons.append("Intralcio nei Rovi")
+                elif t_type in ("palude", "swamp"):
+                    dis_reasons.append("Immerso nella Palude")
+                elif t_type in ("macerie", "rubble", "rocce"):
+                    dis_reasons.append("Equilibrio Instabile (Macerie)")
+                elif t_type in ("fango", "mud"):
+                    dis_reasons.append("Fango Profondo")
+
+            # Bersaglio intralciato su terreno difficile
+            t_pos_tup = (q2, r2)
+            if t_pos_tup in diff_dict:
+                t_target_type = diff_dict[t_pos_tup]
+                if t_target_type in ("rovi", "briars", "spine"):
+                    adv_reasons.append("Bersaglio Intralciato nei Rovi")
+                elif t_target_type in ("fango", "mud"):
+                    adv_reasons.append("Bersaglio Bloccato nel Fango")
+
         has_adv = len(adv_reasons) > 0
         has_dis = len(dis_reasons) > 0
         if has_adv and has_dis:

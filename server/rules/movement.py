@@ -114,10 +114,40 @@ def handle_move_request(data, player, game_state):
                 base_hexes = max(1, base_hexes // 2)
             is_dashed = is_condition_active(conds, "Scatto")
             max_hexes = base_hexes * 2 if is_dashed else base_hexes
-            cost = 2 if is_condition_active(conds, "Prono") else 1
+            # Calcolo percorso con hex_linedraw e applicazione Terreno Difficile (D&D 5e: costo doppio per ogni casella)
+            cur_map = getattr(game_state, "current_map", None)
+            diff_terrain = cur_map.get("difficult_terrain", {}) if cur_map else {}
+            diff_map = {}
+            if isinstance(diff_terrain, dict):
+                for k, v in diff_terrain.items():
+                    if isinstance(k, str) and "," in k:
+                        parts = k.split(",")
+                        diff_map[(int(parts[0]), int(parts[1]))] = str(v).lower()
+                    elif isinstance(k, (tuple, list)) and len(k) >= 2:
+                        diff_map[(int(k[0]), int(k[1]))] = str(v).lower()
+            elif isinstance(diff_terrain, list):
+                for item in diff_terrain:
+                    if isinstance(item, (list, tuple)) and len(item) >= 2:
+                        diff_map[(int(item[0]), int(item[1]))] = "fango"
+
+            p_start = Hex(q1, r1)
+            p_end = Hex(q2, r2)
+            move_path = hex_linedraw(p_start, p_end)
             
+            cost_prone = 2 if is_condition_active(conds, "Prono") else 1
+            req_hexes = 0
+            has_diff_terrain_in_path = False
+            for step in move_path[1:]:
+                step_tup = (step.q, step.r)
+                is_step_diff = (step_tup in diff_map)
+                if is_step_diff:
+                    has_diff_terrain_in_path = True
+                step_cost = 2 if is_step_diff else 1
+                if is_condition_active(conds, "Prono"):
+                    step_cost += 1
+                req_hexes += step_cost
+
             spent = getattr(player, "movement_spent_this_turn", 0)
-            req_hexes = dist * cost
             if (spent + req_hexes) > max_hexes:
                 from common.network_utils import send_message
                 from common.protocol import make_error_reply
@@ -125,11 +155,12 @@ def handle_move_request(data, player, game_state):
                     rem = max(0, max_hexes - spent)
                     rem_str = format_distance_hexes(rem, speed_unit)
                     tot_str = format_distance_hexes(max_hexes, speed_unit)
-                    if cost == 2:
+                    diff_hint = " (Attraversare terreno difficile raddoppia il costo!)" if has_diff_terrain_in_path else ""
+                    if cost_prone == 2 and not has_diff_terrain_in_path:
                         send_message(player.conn, make_error_reply(f"Movimento non consentito: sei Prono. Ti restano {rem // 2} esagoni ({rem_str})."))
                     else:
                         hint = " (Puoi usare l'Azione di Scatto /dash per raddoppiare la velocità!)" if not is_dashed else ""
-                        send_message(player.conn, make_error_reply(f"Movimento non consentito: la distanza supera la velocità rimasta per questo turno ({rem_str} rimasti su {tot_str}).{hint}"))
+                        send_message(player.conn, make_error_reply(f"Movimento non consentito: la distanza supera la velocità rimasta per questo turno ({rem_str} rimasti su {tot_str}).{diff_hint}{hint}"))
                 return
             player.movement_spent_this_turn = spent + req_hexes
 
@@ -157,6 +188,56 @@ def handle_move_request(data, player, game_state):
                                         send_message(other.conn, make_opportunity_alert(player.name, f"{player.name} si sta allontanando da te!"))
 
         game_state.move_player(player.name, to_pos)
+
+        # Effetti Pericolosi Terreno Difficile (Ghiaccio, Rovi, Palude)
+        cur_map = getattr(game_state, "current_map", None)
+        diff_terrain = cur_map.get("difficult_terrain", {}) if cur_map else {}
+        diff_map = {}
+        if isinstance(diff_terrain, dict):
+            for k, v in diff_terrain.items():
+                if isinstance(k, str) and "," in k:
+                    parts = k.split(",")
+                    diff_map[(int(parts[0]), int(parts[1]))] = str(v).lower()
+                elif isinstance(k, (tuple, list)) and len(k) >= 2:
+                    diff_map[(int(k[0]), int(k[1]))] = str(v).lower()
+        elif isinstance(diff_terrain, list):
+            for item in diff_terrain:
+                if isinstance(item, (list, tuple)) and len(item) >= 2:
+                    diff_map[(int(item[0]), int(item[1]))] = "fango"
+
+        to_tup = (to_pos[0], to_pos[1])
+        if to_tup in diff_map:
+            t_type = diff_map[to_tup]
+            if t_type in ("ghiaccio", "ice"):
+                # D&D 5e: Ghiaccio Scivoloso -> TS Destrezza CD 10 o cade prono
+                dex_mod = 0
+                if getattr(player, "full_sheet", None) and isinstance(player.full_sheet.get("attributes"), dict):
+                    try:
+                        dex_val = int(player.full_sheet["attributes"].get("DES", 10))
+                        dex_mod = (dex_val - 10) // 2
+                    except Exception:
+                        pass
+                dex_roll = random.randint(1, 20) + dex_mod
+                if dex_roll < 10:
+                    if "Prono" not in player.conditions:
+                        player.conditions.append("Prono")
+                    alert = f"🧊 {player.name} scivola sul Ghiaccio (TS Des {dex_roll} vs CD 10) e cade Prono!"
+                    game_state.log_dm_message(f"[TERRENO] {alert}")
+                    from common.protocol import make_chat_broadcast, make_player_stats_update
+                    broadcast(game_state, make_chat_broadcast("Sistema", alert))
+                    broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.conditions))
+                else:
+                    from common.protocol import make_chat_broadcast
+                    broadcast(game_state, make_chat_broadcast("Sistema", f"🧊 {player.name} attraversa il ghiaccio mantenendo l'equilibrio (TS Des {dex_roll} vs CD 10)."))
+            elif t_type in ("rovi", "briars", "spine"):
+                # D&D 5e: Rovi acuminati -> 1d4 danni da spine
+                thorn_dmg = random.randint(1, 4)
+                player.hp = max(0, player.hp - thorn_dmg)
+                alert = f"🌿 {player.name} attraversa i Rovi acuminati e subisce {thorn_dmg} danni perforanti!"
+                game_state.log_dm_message(f"[TERRENO] {alert}")
+                from common.protocol import make_chat_broadcast, make_player_stats_update
+                broadcast(game_state, make_chat_broadcast("Sistema", alert))
+                broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.conditions))
         
         # Gestione Trappole D&D 5e sulla mappa
         if getattr(game_state, "current_map", None):

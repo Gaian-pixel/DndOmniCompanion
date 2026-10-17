@@ -854,6 +854,38 @@ class HexMapCanvas(tk.Canvas):
         half_cover_set = {tuple(c) for c in self.map_data.get("half_cover", [])}
         three_quarters_cover_set = {tuple(c) for c in self.map_data.get("three_quarters_cover", [])}
 
+        # Terreni Difficili (D&D 5e)
+        DIFFICULT_TERRAIN_STYLES = {
+            "fango": {"color": "#78350F", "stipple": "gray25", "icon": "🟫", "name": "Fango"},
+            "mud": {"color": "#78350F", "stipple": "gray25", "icon": "🟫", "name": "Fango"},
+            "ghiaccio": {"color": "#0284C7", "stipple": "gray25", "icon": "🧊", "name": "Ghiaccio"},
+            "ice": {"color": "#0284C7", "stipple": "gray25", "icon": "🧊", "name": "Ghiaccio"},
+            "rovi": {"color": "#166534", "stipple": "gray50", "icon": "🌿", "name": "Rovi"},
+            "briars": {"color": "#166534", "stipple": "gray50", "icon": "🌿", "name": "Rovi"},
+            "spine": {"color": "#166534", "stipple": "gray50", "icon": "🌿", "name": "Rovi"},
+            "macerie": {"color": "#475569", "stipple": "gray50", "icon": "🪨", "name": "Macerie"},
+            "rubble": {"color": "#475569", "stipple": "gray50", "icon": "🪨", "name": "Macerie"},
+            "rocce": {"color": "#475569", "stipple": "gray50", "icon": "🪨", "name": "Macerie"},
+            "palude": {"color": "#0F766E", "stipple": "gray25", "icon": "🌊", "name": "Palude"},
+            "swamp": {"color": "#0F766E", "stipple": "gray25", "icon": "🌊", "name": "Palude"},
+            "standard": {"color": "#B45309", "stipple": "gray25", "icon": "🌾", "name": "Terreno Difficile"},
+        }
+        raw_diff_terrain = self.map_data.get("difficult_terrain", {})
+        diff_terrain_dict = {}
+        if isinstance(raw_diff_terrain, dict):
+            for k, val in raw_diff_terrain.items():
+                if isinstance(k, str) and "," in k:
+                    parts = k.split(",")
+                    diff_terrain_dict[(int(parts[0]), int(parts[1]))] = str(val).lower() if isinstance(val, str) else str(val.get("type", "standard")).lower()
+                elif isinstance(k, (tuple, list)) and len(k) >= 2:
+                    diff_terrain_dict[(int(k[0]), int(k[1]))] = str(val).lower() if isinstance(val, str) else str(val.get("type", "standard")).lower()
+        elif isinstance(raw_diff_terrain, list):
+            for item in raw_diff_terrain:
+                if isinstance(item, (list, tuple)) and len(item) >= 2:
+                    diff_terrain_dict[(int(item[0]), int(item[1]))] = "standard"
+                elif isinstance(item, dict) and "q" in item and "r" in item:
+                    diff_terrain_dict[(int(item["q"]), int(item["r"]))] = str(item.get("type", "standard")).lower()
+
         # Cache e calcolo celle visibili nel viewport
         raw_hexes = self.map_data.get("hexes", [])
         if self._map_hexes_set is None or len(self._map_hexes_set) != len(raw_hexes):
@@ -945,6 +977,11 @@ class HexMapCanvas(tk.Canvas):
                 fill_color = "#8B4513"
             elif hex_tup in three_quarters_cover_set:
                 fill_color = "#A0522D"
+            elif hex_tup in diff_terrain_dict:
+                t_key = diff_terrain_dict[hex_tup]
+                t_style = DIFFICULT_TERRAIN_STYLES.get(t_key, DIFFICULT_TERRAIN_STYLES["standard"])
+                fill_color = t_style["color"]
+                stipple_pattern = t_style["stipple"]
             elif fow_enabled:
                 if is_dm:
                     if hex_tup not in fow_revealed:
@@ -959,12 +996,23 @@ class HexMapCanvas(tk.Canvas):
                     else:
                         fill_color = "black"
 
+            if fow_enabled and not is_dm and hex_tup not in fow_revealed and hex_tup not in visible_now:
+                fill_color = "black"
+                stipple_pattern = ""
+
             if scaled_size < 8.0 and not fill_color:
                 continue
 
             cell_outline = "" if grid_type in ("none", "gridless") else border_color
             if cell_outline or fill_color:
                 self.create_polygon(scaled_corners, fill=fill_color, outline=cell_outline, width=line_w, stipple=stipple_pattern)
+
+            # Icona del terreno difficile se la cella è visibile o svelata
+            if hex_tup in diff_terrain_dict and (is_dm or hex_tup in visible_now or hex_tup in fow_revealed):
+                t_key = diff_terrain_dict[hex_tup]
+                t_style = DIFFICULT_TERRAIN_STYLES.get(t_key, DIFFICULT_TERRAIN_STYLES["standard"])
+                icon_font_sz = max(7, int(10 * self.zoom_level))
+                self.create_text(sx, sy, text=t_style["icon"], font=("Segoe UI Emoji", icon_font_sz), tags="terrain_icon")
 
         # Disegna le aree d'effetto (AoE)
         if getattr(self, "aoes_data", None):
@@ -1438,7 +1486,15 @@ class HexMapCanvas(tk.Canvas):
             h_hex = hovered_hex or getattr(self, '_last_hover_hex', None)
             coord_str = f"⬡ {scale_str} • {zoom_pct}%"
             if h_hex:
-                coord_str = f"⬡ q:{h_hex.q}, r:{h_hex.r} • {scale_str} • {zoom_pct}%"
+                diff_t = getattr(self, "map_data", {}).get("difficult_terrain", {}) if getattr(self, "map_data", None) else {}
+                t_val = None
+                if isinstance(diff_t, dict):
+                    t_val = diff_t.get(f"{h_hex.q},{h_hex.r}") or diff_t.get((h_hex.q, h_hex.r))
+                if t_val:
+                    t_str = t_val if isinstance(t_val, str) else t_val.get("type", "Terreno")
+                    coord_str = f"⬡ q:{h_hex.q}, r:{h_hex.r} [{t_str.capitalize()} x2 Mov] • {scale_str} • {zoom_pct}%"
+                else:
+                    coord_str = f"⬡ q:{h_hex.q}, r:{h_hex.r} • {scale_str} • {zoom_pct}%"
             badge_w = len(coord_str) * 6.3 + 16
             bx2 = cw - 16
             bx1 = bx2 - badge_w

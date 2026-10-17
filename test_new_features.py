@@ -1569,6 +1569,184 @@ class TestDndNewFeatures(unittest.TestCase):
         finally:
             root.destroy()
 
+    def test_weather_attack_disadvantages(self):
+        """Testa che gli effetti meteo estremi applichino svantaggio agli attacchi a distanza (D&D 5e)."""
+        from unittest.mock import patch
+        from server.rules.combat import handle_attack_request
+
+        attacker = Player(name="Arciere")
+        attacker.position = [0, 0]
+        attacker.hp = 20
+        attacker.max_hp = 20
+        attacker.ac = 12
+
+        defender = Player(name="Bersaglio")
+        defender.position = [3, 0]  # Distanza = 3 esagoni
+        defender.hp = 20
+        defender.max_hp = 20
+        defender.ac = 15
+
+        self.game_state.players = [attacker, defender]
+
+        # 1. Tempesta con attacco a distanza: deve dare Svantaggio (prende min(roll1, roll2))
+        self.game_state.weather = "Tempesta"
+        # roll1=18 (colpirebbe CA 15 con bonus 0), roll2=2 (manca). Con svantaggio il tiro finale è 2 -> manca!
+        with patch("common.dice.random.randint", side_effect=[18, 2, 4]):
+            handle_attack_request(
+                {"target_name": "Bersaglio", "hit_bonus": 0, "damage_formula": "1d6"},
+                attacker,
+                self.game_state,
+            )
+        self.assertEqual(defender.hp, 20, "In Tempesta l'attacco a distanza ha Svantaggio e deve prendere il dado più basso (mancando)")
+
+        # 2. In Tempesta ma in mischia (distanza = 1): attacco normale (non a distanza)
+        defender.position = [1, 0]
+        # Con tiro singolo / normale, roll1=16 colpisce CA 15
+        with patch("common.dice.random.randint", side_effect=[16, 16, 5]):
+            handle_attack_request(
+                {"target_name": "Bersaglio", "hit_bonus": 0, "damage_formula": "1d6"},
+                attacker,
+                self.game_state,
+            )
+        self.assertEqual(defender.hp, 15, "In mischia la Tempesta non applica svantaggio")
+
+        # 3. Nebbia fitta a distanza (>1): deve dare Svantaggio
+        defender.hp = 20
+        defender.position = [2, 0]
+        self.game_state.weather = "Nebbia"
+        with patch("common.dice.random.randint", side_effect=[19, 3, 4]):
+            handle_attack_request(
+                {"target_name": "Bersaglio", "hit_bonus": 0, "damage_formula": "1d6"},
+                attacker,
+                self.game_state,
+            )
+        self.assertEqual(defender.hp, 20, "Nella Nebbia fitta l'attacco a distanza ha Svantaggio")
+
+    def test_difficult_terrain_movement_cost_and_hazards(self):
+        """Testa il costo doppio di movimento su terreno difficile e i pericoli (Ghiaccio -> Prono, Rovi -> Danni)."""
+        from unittest.mock import patch
+        from server.rules.movement import handle_move_request
+
+        p = Player(name="Esploratore")
+        p.position = [0, 0]
+        p.hp = 20
+        p.max_hp = 20
+        p.speed = 30
+        p.conditions = []
+        p.in_combat = True
+        p.conn = DummySocket()
+        self.game_state.players = [p]
+
+        # Mappa con terreno difficile: fango a [1,0], ghiaccio a [2,0], rovi a [3,0]
+        self.game_state.current_map = {
+            "hex_size": 60,
+            "grid_type": "hex",
+            "hexes": [[0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 0]],
+            "difficult_terrain": {
+                "1,0": "fango",
+                "2,0": "ghiaccio",
+                "3,0": "rovi"
+            }
+        }
+
+        # 1. Movimento su fango [1, 0]: distanza 1 hex, ma costa 2 esagoni di budget
+        handle_move_request({"to": [1, 0]}, p, self.game_state)
+        self.assertEqual(p.position, [1, 0])
+        self.assertEqual(p.movement_spent_this_turn, 2, "Attraversare fango costa 2 esagoni di movimento")
+
+        # 2. Entrata su Ghiaccio [2, 0]: TS Des CD 10 fallito (tiro 4) -> ottiene condizione Prono!
+        with patch("random.randint", return_value=4):
+            handle_move_request({"to": [2, 0]}, p, self.game_state)
+        self.assertEqual(p.position, [2, 0])
+        self.assertIn("Prono", p.conditions, "Fallire il TS Des sul ghiaccio deve rendere il personaggio Prono")
+        self.assertEqual(p.movement_spent_this_turn, 4, "2 + 2 = 4 esagoni spesi")
+
+        # 3. Nuovo turno: Entrata su Rovi [3, 0] da Prono -> costa 3 (2 difficile + 1 prono), subisce 1d4 danni da spine
+        p.movement_spent_this_turn = 0
+        with patch("random.randint", return_value=3):
+            handle_move_request({"to": [3, 0]}, p, self.game_state)
+        self.assertEqual(p.position, [3, 0])
+        self.assertEqual(p.movement_spent_this_turn, 3, "Da Prono attraverso terreno difficile spende 3 esagoni")
+        self.assertEqual(p.hp, 17, "Entrare nei rovi deve infliggere 1d4 danni (20 - 3 = 17)")
+
+        # 4. Superamento budget: p ha velocità 6 esagoni (30 ft), ha già speso 3 hexes.
+        # Proviamo a muovere verso [5, 0] (2 hex di distanza normali = 4 cost se prono): 3 + 4 = 7 > 6 -> bloccato
+        handle_move_request({"to": [5, 0]}, p, self.game_state)
+        self.assertEqual(p.position, [3, 0], "Il movimento che supera il budget deve essere respinto")
+        self.assertTrue(len(p.conn.sent_messages) > 0, "Deve inviare un messaggio di errore al client")
+
+    def test_difficult_terrain_combat_modifiers(self):
+        """Testa svantaggi di attacco su terreno difficile instabile e vantaggi contro bersagli intralciati."""
+        from unittest.mock import patch
+        from server.rules.combat import handle_attack_request
+
+        attacker = Player(name="Combattente")
+        attacker.position = [0, 0]
+        attacker.hp = 20
+        attacker.max_hp = 20
+        defender = Player(name="Orco")
+        defender.position = [1, 0]
+        defender.hp = 20
+        defender.max_hp = 20
+        defender.ac = 12
+
+        self.game_state.players = [attacker, defender]
+        self.game_state.weather = "Sereno"
+
+        # 1. Attaccante su Macerie -> Svantaggio (Equilibrio Instabile)
+        self.game_state.current_map = {
+            "hexes": [[0, 0], [1, 0]],
+            "difficult_terrain": {
+                "0,0": "macerie"
+            }
+        }
+        # roll1=17, roll2=4 -> con svantaggio prende 4 (manca contro CA 12)
+        with patch("common.dice.random.randint", side_effect=[17, 4, 3]):
+            handle_attack_request(
+                {"target_name": "Orco", "hit_bonus": 0, "damage_formula": "1d8"},
+                attacker,
+                self.game_state,
+            )
+        self.assertEqual(defender.hp, 20, "L'attaccante su macerie deve avere Svantaggio")
+
+        # 2. Bersaglio intralciato nei Rovi -> Attaccante ha Vantaggio
+        self.game_state.current_map = {
+            "hexes": [[0, 0], [1, 0]],
+            "difficult_terrain": {
+                "1,0": "rovi"
+            }
+        }
+        # roll1=3, roll2=18 -> con vantaggio prende 18 (colpisce contro CA 12), danno=6
+        with patch("common.dice.random.randint", side_effect=[3, 18, 6]):
+            handle_attack_request(
+                {"target_name": "Orco", "hit_bonus": 0, "damage_formula": "1d8"},
+                attacker,
+                self.game_state,
+            )
+        self.assertEqual(defender.hp, 14, "Attaccare un bersaglio nei rovi conferisce Vantaggio")
+
+    def test_dm_and_map_editor_difficult_terrain_sync(self):
+        """Testa le operazioni DM di aggiunta/rimozione terreno difficile e il salvataggio/caricamento."""
+        from common.hex_utils import Hex
+        from server.dm_gui import DM_GUI
+        from unittest.mock import MagicMock
+
+        # Simulazione metodi DM
+        dm = MagicMock()
+        dm.server.game_state = self.game_state
+        self.game_state.current_map = {
+            "hexes": [[0, 0], [1, 0], [2, 0]],
+            "difficult_terrain": {}
+        }
+
+        # Invoca set_difficult_terrain_at e remove_difficult_terrain_at su DM_GUI direttamente
+        h1 = Hex(1, 0)
+        DM_GUI.set_difficult_terrain_at(dm, h1, "palude")
+        self.assertEqual(self.game_state.current_map["difficult_terrain"]["1,0"], "palude")
+
+        DM_GUI.remove_difficult_terrain_at(dm, h1)
+        self.assertNotIn("1,0", self.game_state.current_map["difficult_terrain"])
+
 
 if __name__ == "__main__":
     unittest.main()

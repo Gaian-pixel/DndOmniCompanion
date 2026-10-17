@@ -40,6 +40,8 @@ class MapEditorWindow(tk.Toplevel):
 
         ### MODIFICATO: self.pois è ora un dizionario per mappare Hex -> Dati POI ###
         self.pois = {}
+        self.difficult_terrain = {}
+        self.add_terrain_mode = False
         
         self.grid_hexes=set(); self.hex_to_canvas_id={}
         self.hex_layout=None; self.base_image_path=""
@@ -58,6 +60,7 @@ class MapEditorWindow(tk.Toplevel):
         main_frame=ttk.Frame(self, padding=(10, 10)); main_frame.pack(fill=tk.BOTH, expand=True)
         toolbar=ttk.Frame(main_frame); toolbar.pack(fill=tk.X, pady=5)
         ttk.Button(toolbar, text="Carica Immagine", command=self.load_base_image, style="Info.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar, text="Carica Mappa", command=self.load_map_file, style="Info.TButton").pack(side=tk.LEFT, padx=5)
         map_scale_frame=ttk.Frame(toolbar); map_scale_frame.pack(side=tk.LEFT, padx=10)
         ttk.Label(map_scale_frame, text="Tipo di Mappa:").pack(side=tk.LEFT)
         self.map_scale_var=tk.StringVar()
@@ -73,6 +76,15 @@ class MapEditorWindow(tk.Toplevel):
 
         self.add_poi_button=ttk.Button(toolbar, text="Aggiungi POI", command=self.toggle_add_poi_mode, style="Success.TButton")
         self.add_poi_button.pack(side=tk.LEFT, padx=5)
+        
+        terrain_frame = ttk.Frame(toolbar)
+        terrain_frame.pack(side=tk.LEFT, padx=5)
+        self.add_terrain_button = ttk.Button(terrain_frame, text="🌾 Terreno Difficile", command=self.toggle_add_terrain_mode, style="Secondary.TButton")
+        self.add_terrain_button.pack(side=tk.LEFT, padx=2)
+        self.terrain_type_var = tk.StringVar(value="Fango")
+        self.terrain_type_combo = ttk.Combobox(terrain_frame, textvariable=self.terrain_type_var, values=["Fango", "Ghiaccio", "Rovi", "Macerie", "Palude"], state="readonly", width=8)
+        self.terrain_type_combo.pack(side=tk.LEFT, padx=2)
+
         ttk.Button(toolbar, text="Salva Mappa", command=self.save_map, style="Primary.TButton").pack(side=tk.LEFT, padx=5)
         self.canvas=tk.Canvas(main_frame, bg="#2b2b2b", highlightthickness=0); self.canvas.pack(fill=tk.BOTH, expand=True)
         self.canvas.bind("<Motion>", self.on_canvas_motion); self.canvas.bind("<Button-1>", self.on_canvas_left_click); self.canvas.bind("<Button-3>", self.on_canvas_right_click); self.canvas.bind("<Leave>", self.on_canvas_leave)
@@ -194,6 +206,7 @@ class MapEditorWindow(tk.Toplevel):
         # Converte le chiavi Hex in stringhe per il salvataggio in JSON
         pois_to_save = {f"{h.q},{h.r}": data for h, data in self.pois.items()}
         scale_type = self.MAP_SCALE_TYPES.get(self.map_scale_var.get(), "combat")
+        diff_terrain_to_save = {f"{h.q},{h.r}": t_type for h, t_type in self.difficult_terrain.items()}
         
         map_data = {
             "base_image_path": self.base_image_path,
@@ -202,13 +215,48 @@ class MapEditorWindow(tk.Toplevel):
             "map_scale_type": scale_type,
             "hex_border_color": self.hex_border_color,
             "hexes": [[h.q, h.r] for h in self.grid_hexes],
-            "pois": pois_to_save
+            "pois": pois_to_save,
+            "difficult_terrain": diff_terrain_to_save
         }
         try:
             with open(file_path, 'w') as f: json.dump(map_data, f, indent=2)
             messagebox.showinfo("Salvataggio Completato", "Mappa salvata con successo.")
         except Exception as e:
             messagebox.showerror("Errore di Salvataggio", f"Impossibile salvare la mappa: {e}")
+
+    def load_map_file(self):
+        """Carica una mappa esistente in formato JSON nell'editor."""
+        import os
+        maps_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "maps")
+        file_path = filedialog.askopenfilename(initialdir=maps_dir, filetypes=[("Mappe D&D", "*.json")])
+        if not file_path: return
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            self._clear_grid()
+            hex_size = data.get("hex_size", 60)
+            self.hex_layout = HexLayout(size=hex_size, origin=(hex_size, hex_size))
+            if "hex_border_color" in data:
+                self.hex_border_color = data["hex_border_color"]
+            if "grid_type" in data and hasattr(self, "grid_type_var"):
+                self.grid_type_var.set(data["grid_type"])
+            pois_data = data.get("pois", {})
+            for k, p_data in pois_data.items():
+                parts = k.split(",")
+                self.pois[Hex(int(parts[0]), int(parts[1]))] = p_data
+            diff_data = data.get("difficult_terrain", {})
+            if isinstance(diff_data, dict):
+                for k, t_val in diff_data.items():
+                    parts = k.split(",")
+                    t_str = t_val if isinstance(t_val, str) else t_val.get("type", "fango")
+                    self.difficult_terrain[Hex(int(parts[0]), int(parts[1]))] = t_str
+            for pos in data.get("hexes", []):
+                h = Hex(pos[0], pos[1])
+                self.grid_hexes.add(h)
+                self._draw_single_hex(h)
+            messagebox.showinfo("Mappa Caricata", f"Caricata mappa con {len(self.grid_hexes)} celle.")
+        except Exception as e:
+            messagebox.showerror("Errore di Caricamento", f"Impossibile caricare la mappa: {e}")
             
     def _add_hex_at(self, x, y):
         """Aggiunge un esagono nella posizione del mouse."""
@@ -234,6 +282,8 @@ class MapEditorWindow(tk.Toplevel):
             # Se l'esagono è un POI, rimuovilo prima dai dati
             if target_hex in self.pois:
                 del self.pois[target_hex]
+            if target_hex in self.difficult_terrain:
+                del self.difficult_terrain[target_hex]
             
             canvas_id = self.hex_to_canvas_id.pop(target_hex, None)
             if canvas_id:
@@ -251,28 +301,84 @@ class MapEditorWindow(tk.Toplevel):
     def on_canvas_left_click(self, event):
         canvas_x = self.canvas.canvasx(event.x); canvas_y = self.canvas.canvasy(event.y)
         if self.add_poi_mode: self._add_poi_at(canvas_x, canvas_y)
+        elif getattr(self, "add_terrain_mode", False): self._toggle_terrain_at(canvas_x, canvas_y)
         else: self._delete_hex_at(canvas_x, canvas_y)
     def on_canvas_right_click(self, event):
         canvas_x = self.canvas.canvasx(event.x); canvas_y = self.canvas.canvasy(event.y)
         self._add_hex_at(canvas_x, canvas_y)
     def on_canvas_motion(self, event):
         self.handle_poi_hover(event) # L'hover dei tooltip usa ancora le coordinate dell'evento
-        if self.hex_layout and not self.add_poi_mode:
+        if self.hex_layout and not self.add_poi_mode and not getattr(self, "add_terrain_mode", False):
             canvas_x=self.canvas.canvasx(event.x); canvas_y=self.canvas.canvasy(event.y)
             if self.preview_hex_id: self.canvas.delete(self.preview_hex_id)
             target_hex = self.hex_layout.pixel_to_hex((canvas_x / self.zoom_level, canvas_y / self.zoom_level))
             if target_hex not in self.grid_hexes: self.preview_hex_id = self._draw_single_hex(target_hex, is_preview=True)
+
+    def get_terrain_style(self, h):
+        if h in self.difficult_terrain:
+            t_type = self.difficult_terrain[h].lower()
+            TERRAIN_COLORS = {
+                "fango": ("#78350F", "gray25"),
+                "ghiaccio": ("#0284C7", "gray25"),
+                "rovi": ("#166534", "gray50"),
+                "macerie": ("#475569", "gray50"),
+                "palude": ("#0F766E", "gray25"),
+            }
+            fill_c, stipple_p = TERRAIN_COLORS.get(t_type, ("#B45309", "gray25"))
+            return {"fill": fill_c, "stipple": stipple_p}
+        return None
+
     def _draw_single_hex(self, h: Hex, is_preview=False):
         corners = [(cx * self.zoom_level, cy * self.zoom_level) for cx, cy in self.hex_layout.hex_corners(h)]
-        style = {"fill": "", "outline": "red", "width": 2} if is_preview else {"fill": "gray50", "stipple": "gray25", "outline": self.hex_border_color, "width": 1}
+        t_style = self.get_terrain_style(h)
+        if is_preview:
+            style = {"fill": "", "outline": "red", "width": 2}
+        elif t_style:
+            style = {"fill": t_style["fill"], "stipple": t_style["stipple"], "outline": self.hex_border_color, "width": 1}
+        elif h in self.pois:
+            style = {"fill": self.POI_COLOR, "stipple": "", "outline": self.hex_border_color, "width": 1}
+        else:
+            style = {"fill": "gray50", "stipple": "gray25", "outline": self.hex_border_color, "width": 1}
         canvas_id = self.canvas.create_polygon(corners, **style, tags="hex")
         if not is_preview: self.hex_to_canvas_id[h] = canvas_id
         return canvas_id
+
     def toggle_add_poi_mode(self):
-        self.add_poi_mode=not self.add_poi_mode; 
+        self.add_poi_mode=not self.add_poi_mode
+        if self.add_poi_mode and getattr(self, "add_terrain_mode", False):
+            self.toggle_add_terrain_mode()
         style_name = "Primary.TButton" if self.add_poi_mode else "Success.TButton"
         cursor="crosshair" if self.add_poi_mode else ""
         self.add_poi_button.config(style=style_name); self.config(cursor=cursor)
+
+    def toggle_add_terrain_mode(self):
+        self.add_terrain_mode = not getattr(self, "add_terrain_mode", False)
+        if self.add_terrain_mode and getattr(self, "add_poi_mode", False):
+            self.toggle_add_poi_mode()
+        style_name = "Primary.TButton" if self.add_terrain_mode else "Secondary.TButton"
+        cursor = "crosshair" if self.add_terrain_mode else ""
+        self.add_terrain_button.config(style=style_name)
+        self.config(cursor=cursor)
+
+    def _toggle_terrain_at(self, x, y):
+        if not self.hex_layout: return
+        target_hex = self.hex_layout.pixel_to_hex((x / self.zoom_level, y / self.zoom_level))
+        if target_hex not in self.grid_hexes:
+            messagebox.showwarning("Azione non valida", "Puoi impostare terreno difficile solo su esagoni esistenti.")
+            return
+
+        t_type = self.terrain_type_var.get().lower()
+        if target_hex in self.difficult_terrain and self.difficult_terrain[target_hex] == t_type:
+            del self.difficult_terrain[target_hex]
+            hex_id = self.hex_to_canvas_id.get(target_hex)
+            if hex_id:
+                self.canvas.itemconfig(hex_id, fill="gray50", stipple="gray25")
+        else:
+            self.difficult_terrain[target_hex] = t_type
+            t_style = self.get_terrain_style(target_hex)
+            hex_id = self.hex_to_canvas_id.get(target_hex)
+            if hex_id and t_style:
+                self.canvas.itemconfig(hex_id, fill=t_style["fill"], stipple=t_style["stipple"])
     def on_map_scale_selected(self, event=None):
         selected_scale_name=self.map_scale_var.get()
         new_size=self.MAP_SCALES[selected_scale_name]
