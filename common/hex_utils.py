@@ -117,15 +117,20 @@ def grid_distance(a: Hex, b: Hex, grid_type: str = "hex") -> float:
 def hex_distance(a: Hex, b: Hex) -> int:
     return int(grid_distance(a, b, "hex"))
 
-def get_sphere_hexes(origin: Hex, radius: int) -> list[Hex]:
+def get_sphere_hexes(origin: Hex, radius: int, grid_type: str = "hex") -> list[Hex]:
     results = []
-    for dq in range(-radius, radius + 1):
-        for dr in range(max(-radius, -dq - radius), min(radius, -dq + radius) + 1):
-            results.append(Hex(origin.q + dq, origin.r + dr))
+    if grid_type in ("square", "none", "gridless"):
+        for dq in range(-radius, radius + 1):
+            for dr in range(-radius, radius + 1):
+                results.append(Hex(origin.q + dq, origin.r + dr))
+    else:
+        for dq in range(-radius, radius + 1):
+            for dr in range(max(-radius, -dq - radius), min(radius, -dq + radius) + 1):
+                results.append(Hex(origin.q + dq, origin.r + dr))
     return results
 
-def hex_linedraw(a: Hex, b: Hex) -> list[Hex]:
-    dist = hex_distance(a, b)
+def hex_linedraw(a: Hex, b: Hex, grid_type: str = "hex") -> list[Hex]:
+    dist = int(grid_distance(a, b, grid_type))
     if dist == 0:
         return [a]
     results = []
@@ -136,7 +141,10 @@ def hex_linedraw(a: Hex, b: Hex) -> list[Hex]:
         t = i / dist
         q_frac = a_q + (b_q - a_q) * t
         r_frac = a_r + (b_r - a_r) * t
-        results.append(hex_round(q_frac, r_frac))
+        if grid_type in ("square", "none", "gridless"):
+            results.append(Hex(int(round(q_frac)), int(round(r_frac))))
+        else:
+            results.append(hex_round(q_frac, r_frac))
     return results
 
 def get_line_hexes(start_hex: Hex, target_hex: Hex, length_in_hexes: int = None) -> list[Hex]:
@@ -208,8 +216,8 @@ def has_line_of_sight(origin: Hex, target: Hex, walls) -> bool:
             return False
     return True
 
-def get_visible_hexes(origin: Hex, radius: int, walls) -> list[Hex]:
-    """Restituisce tutti gli esagoni entro il raggio privi di ostruzioni visive da muri."""
+def get_visible_hexes(origin: Hex, radius: int, walls, grid_type: str = "hex") -> list[Hex]:
+    """Restituisce tutti gli esagoni o celle entro il raggio privi di ostruzioni visive da muri."""
     visible = set()
     visible.add(origin)
     wall_set = set()
@@ -219,11 +227,11 @@ def get_visible_hexes(origin: Hex, radius: int, walls) -> list[Hex]:
         elif isinstance(w, (list, tuple)) and len(w) >= 2:
             wall_set.add((w[0], w[1]))
             
-    sphere = get_sphere_hexes(origin, radius)
+    sphere = get_sphere_hexes(origin, radius, grid_type=grid_type)
     for h in sphere:
         if h == origin:
             continue
-        line = hex_linedraw(origin, h)
+        line = hex_linedraw(origin, h, grid_type=grid_type)
         is_visible = True
         for p in line:
             if (p.q, p.r) in wall_set and p != origin and p != h:

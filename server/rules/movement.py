@@ -17,15 +17,16 @@ def auto_explore_fow(player, game_state):
     vision_rad = getattr(player, 'vision_radius', 6)
     light_rad = getattr(player, 'light_radius', 0)
     effective_rad = max(vision_rad, light_rad)
+    grid_type = game_state.current_map.get("grid_type", "hex")
     walls = game_state.current_map.get("walls", [])
-    visible_hexes = get_visible_hexes(h, effective_rad, walls)
+    visible_hexes = get_visible_hexes(h, effective_rad, walls, grid_type=grid_type)
     
     for other_p in getattr(game_state, "players", []):
         if other_p.name != player.name and getattr(other_p, 'is_party_member', False) and getattr(other_p, 'light_radius', 0) > 0:
             o_pos = getattr(other_p, 'position', None)
             if o_pos:
                 o_hex = Hex(o_pos[0], o_pos[1])
-                o_light_hexes = get_visible_hexes(o_hex, other_p.light_radius, walls)
+                o_light_hexes = get_visible_hexes(o_hex, other_p.light_radius, walls, grid_type=grid_type)
                 visible_hexes.extend(o_light_hexes)
 
     changed = False
