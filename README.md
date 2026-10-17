@@ -97,7 +97,10 @@ python main.py
 ```
 From the startup launcher choose:
 1. **Dungeon Master**: Starts the TCP server (`53911`) and UDP Voice server (`53912`) and opens the DM Dashboard (with campaign, campaign editor, or quick session).
-2. **Player**: Launches the Player VTT client to manage characters and connect to the Dungeon Master's IP address.
+2. **Player**:
+   * **👤 Character Manager (Offline)**: Create, view, duplicate, delete and export character sheets (Official PDF / JSON backup) completely offline without needing a server connection.
+   * **✨ Create Character (Wizard)**: Launch the Baldur's Gate 3 inspired step-by-step Level 1 character creation wizard directly.
+   * **🛡️ Join Game**: Launches the Player VTT client to connect to the Dungeon Master's IP address.
 
 ---
 
@@ -134,10 +137,12 @@ From the startup launcher choose:
 DndOmniCompanion/
 ├── client/                         # Player VTT Client, Character Sheet UI & Voice Client
 │   ├── client.py                   # Main Player GUI, HUDs, and Turn Economy
+│   ├── character_manager_ui.py     # Standalone Offline Character Manager
 │   ├── character_sheet_ui.py       # Interactive 5e Character Sheet
 │   ├── character_manager.py        # Character persistence and serialization
 │   ├── character_creation_wizard.py# Level 1 Character Creation Wizard
 │   ├── progression_ui.py           # Level-Up Wizard & SRD integration
+│   ├── pdf_sheet_generator.py      # Official 3-page 5e PDF character sheet generator
 │   ├── login_ui.py                 # Character selection & server connection dialog
 │   ├── manuals_ui.py               # Client-side rulebook & compendium browser
 │   ├── network.py                  # Client TCP socket networking

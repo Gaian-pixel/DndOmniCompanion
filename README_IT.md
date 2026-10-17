@@ -97,7 +97,10 @@ python main.py
 ```
 Dal selettore iniziale potrai scegliere:
 1. **Dungeon Master**: Avvia il server TCP (`53911`) e UDP Voice (`53912`) aprendo la plancia del DM (con campagna, editor campagna o sessione rapida).
-2. **Giocatore (Player)**: Avvia il client VTT per gestire i tuoi personaggi e connetterti all'IP del Dungeon Master.
+2. **Giocatore (Player)**:
+   * **👤 Gestione Personaggi (Offline)**: Crea, consulta, duplica, elimina ed esporta le schede dei tuoi eroi (PDF/JSON) in piena autonomia, senza richiedere l'avvio o la connessione a un server.
+   * **✨ Crea Personaggio (Guidato)**: Avvia subito il wizard guidato passo-passo stile Baldur's Gate 3 per generare un nuovo eroe di 1° livello con razze, classi, caratteristiche e statistiche calcolate.
+   * **🛡️ Unisciti a Partita**: Avvia il client VTT Giocatore per collegarti alla sessione online del Dungeon Master.
 
 ---
 
@@ -134,10 +137,12 @@ Dal selettore iniziale potrai scegliere:
 DndOmniCompanion/
 ├── client/                         # Client VTT Giocatore, Scheda PG e Voice Client
 │   ├── client.py                   # GUI principale del Giocatore, HUD ed economia turno
+│   ├── character_manager_ui.py     # Gestione autonoma dei personaggi (Offline)
 │   ├── character_sheet_ui.py       # Scheda personaggio interattiva 5e
 │   ├── character_manager.py        # Persistenza e serializzazione personaggi
 │   ├── character_creation_wizard.py# Wizard di creazione personaggio (Livello 1)
 │   ├── progression_ui.py           # Wizard di Level-Up e integrazione SRD
+│   ├── pdf_sheet_generator.py      # Generatore PDF ufficiale a 3 pagine
 │   ├── login_ui.py                 # Finestra di selezione PG e connessione
 │   ├── manuals_ui.py               # Consultazione manuali e compendio lato client
 │   ├── network.py                  # Gestione socket TCP lato client

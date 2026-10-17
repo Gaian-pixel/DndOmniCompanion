@@ -37,7 +37,7 @@ from common.theme import (
 from .network import ClientNetwork
 
 class ClientGUI:
-    def __init__(self, master):
+    def __init__(self, master, initial_character=None):
         self.master = master
         setup_theme(master)
         self.master.title("D&D Client")
@@ -50,13 +50,17 @@ class ClientGUI:
         self._audio_muted = False
         self._saved_music_vol = 0.8
         self._saved_sfx_vol = 1.0
-        self.name=None; self.is_connected=False
-        self.players_data={}; self.local_map_data=None
-        self.notebook=None; self.chat_tabs={}; self.player_listbox=None
+        self.character_manager = CharacterManager()
+        self.active_character = initial_character
+        self.name = initial_character.name if initial_character else None
+        self.is_connected = False
+        self.players_data = {}
+        self.local_map_data = None
+        self.notebook = None
+        self.chat_tabs = {}
+        self.player_listbox = None
         self.map_canvas = None
         self.default_font = ("Georgia", 10)
-        self.character_manager = CharacterManager()
-        self.active_character = None
         self.combat_active = False
         self.turn_index = 0
         self.round_number = 1
@@ -70,6 +74,9 @@ class ClientGUI:
         register_language_listener(self.on_language_changed)
         register_unit_listener(self.on_unit_changed)
         self.setup_gui()
+        self.refresh_offline_characters()
+        if initial_character:
+            self.set_active_character_from_manager(initial_character)
         self.master.after(100, self.process_queue)
 
     def show_toast(self, message, title=None, duration=3500, toast_type="info", icon=None):
@@ -115,6 +122,14 @@ class ClientGUI:
         server_menu.add_command(label=_t("menu_connect"), command=self.connect_to_server)
         server_menu.add_command(label=_t("menu_reconnect"), command=self.reconnect_to_server)
         menubar.add_cascade(label=_t("menu_server"), menu=server_menu)
+
+        char_menu = tk.Menu(menubar, tearoff=0)
+        char_menu.add_command(label=_t("menu_manage_characters"), command=self.open_character_manager_dialog)
+        char_menu.add_command(label=_t("menu_create_character"), command=self.open_create_character_dialog)
+        char_menu.add_command(label=_t("menu_create_manual_character"), command=self.create_manual_character)
+        char_menu.add_separator()
+        char_menu.add_command(label=_t("menu_active_sheet"), command=self.open_stats_dialog)
+        menubar.add_cascade(label=_t("menu_character"), menu=char_menu)
         
         library_menu = tk.Menu(menubar, tearoff=0)
         library_menu.add_command(label=_t("tool_command_palette"), command=self.open_command_palette)
@@ -458,10 +473,22 @@ class ClientGUI:
         # Scelta Personaggio Attivo
         self.lbl_change_char = tk.Label(controls_tab, text=_t("change_active_char"), font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED)
         self.lbl_change_char.pack(anchor="w", pady=(2, 2))
+        
+        char_select_frame = tk.Frame(controls_tab, bg=SURFACE_COLOR)
+        char_select_frame.pack(fill=tk.X, pady=(0, 6))
+
         self.active_character_var = tk.StringVar(value=self.name)
-        self.active_character_combo = ttk.Combobox(controls_tab, textvariable=self.active_character_var, state="readonly")
-        self.active_character_combo.pack(fill=tk.X, pady=(0, 6))
+        self.active_character_combo = ttk.Combobox(char_select_frame, textvariable=self.active_character_var, state="readonly")
+        self.active_character_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
         self.active_character_combo.bind("<<ComboboxSelected>>", self.on_active_character_changed)
+
+        btn_new_char = ttk.Button(char_select_frame, text="✨", width=3, style="Tool.TButton", command=self.open_create_character_dialog)
+        btn_new_char.pack(side=tk.LEFT, padx=(0, 2))
+        ToolTip(btn_new_char, lambda: _t("char_manager_btn_wizard"))
+
+        btn_mgr_char = ttk.Button(char_select_frame, text="👤", width=3, style="Tool.TButton", command=self.open_character_manager_dialog)
+        btn_mgr_char.pack(side=tk.LEFT)
+        ToolTip(btn_mgr_char, lambda: _t("char_manager_header"))
         
         # Griglia Compatta 2x3 Azioni Eroe (Previene overflow verticale su schermi compatti)
         actions_grid = ttk.Frame(controls_tab)
@@ -1987,11 +2014,14 @@ class ClientGUI:
         self.update_player_listbox()
 
     def set_controls_state(self, state):
-        for btn in ['entry', 'roll_button', 'player_listbox', 'stats_button', 'action_button', 'aoe_button', 'travel_button', 'calendar_button', 'combat_btn', 'end_turn_btn', 'btn_act_tracker', 'btn_bonus_tracker', 'btn_react_tracker', 'btn_dash', 'btn_disengage', 'btn_dodge', 'btn_help', 'btn_short_rest', 'btn_second_wind', 'btn_action_surge', 'btn_rage']:
+        for btn in ['entry', 'roll_button', 'player_listbox', 'action_button', 'aoe_button', 'travel_button', 'calendar_button', 'combat_btn', 'end_turn_btn', 'btn_act_tracker', 'btn_bonus_tracker', 'btn_react_tracker', 'btn_dash', 'btn_disengage', 'btn_dodge', 'btn_help', 'btn_short_rest', 'btn_second_wind', 'btn_action_surge', 'btn_rage']:
             widget = getattr(self, btn, None)
             if widget:
                 try: widget.config(state=state)
                 except: pass
+        if hasattr(self, 'stats_button') and self.stats_button:
+            try: self.stats_button.config(state=tk.NORMAL)
+            except: pass
         self.update_action_economy_ui()
 
 
@@ -2816,9 +2846,28 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
     def do_roll(self, formula, reason=""):
         if self.is_connected:
             self.network.send(make_roll_request(formula, reason))
+        else:
+            from common.dice import roll_dice
+            if formula and formula != "0d0":
+                try:
+                    res = roll_dice(formula)
+                    rolls_str = "+".join(map(str, res.get("rolls", [])))
+                    total = res.get("total", 0)
+                    msg = f"🎲 [Offline] {reason}: [{rolls_str}] -> Totale: {total} ({formula})"
+                except Exception:
+                    msg = f"🎲 [Offline] {reason}: {formula}"
+            else:
+                msg = f"🎲 [Offline] {reason}"
+            self.log_to_chat(msg, "Globale", sender="Offline", color="#5C7CFA")
 
     def open_stats_dialog(self):
-        if not self.active_character: return
+        if not self.active_character:
+            self.refresh_offline_characters()
+            if not self.active_character:
+                if messagebox.askyesno("Nessun Personaggio", "Non hai ancora nessun personaggio salvato. Vuoi crearne uno adesso con la procedura guidata?"):
+                    self.open_create_character_dialog()
+                return
+
         self.stats_window = CharacterSheetUI(self.master, self.active_character, self.character_manager, 
                          on_save_callback=self.on_character_saved, 
                          roll_callback=self.do_roll, 
@@ -2897,6 +2946,75 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
 
     def on_character_saved(self, char):
         self.active_character = char
+        self.name = char.name
+        if hasattr(self, 'active_character_var'):
+            self.active_character_var.set(char.name)
+        self.update_hero_summary_card()
+        if self.is_connected:
+            self.network.send(make_update_stats_request(char.hp_current, char.hp_max, char.initiative, getattr(char, "conditions", [])))
+            self.network.send(make_update_full_sheet_request(char.to_dict()))
+
+    def refresh_offline_characters(self):
+        """Carica e aggiorna la lista dei personaggi locali nell'interfaccia client (anche offline)."""
+        if not hasattr(self, 'character_manager') or not self.character_manager:
+            self.character_manager = CharacterManager()
+        self.character_manager.load_characters()
+        char_names = [c.name for c in self.character_manager.characters]
+        
+        if hasattr(self, 'active_character_combo'):
+            self.active_character_combo['values'] = char_names
+            current_val = self.active_character_var.get()
+            if char_names:
+                if not current_val or current_val not in char_names:
+                    target_char = self.active_character or self.character_manager.characters[0]
+                    self.active_character = target_char
+                    self.name = target_char.name
+                    self.active_character_var.set(target_char.name)
+            else:
+                self.active_character_var.set("")
+                self.active_character = None
+                self.name = None
+        self.update_hero_summary_card()
+
+    def open_character_manager_dialog(self):
+        """Apre il pannello completo di Gestione Personaggi (Offline)."""
+        from client.character_manager_ui import CharacterManagerDialog
+        def on_selected(char):
+            self.set_active_character_from_manager(char)
+        dlg = CharacterManagerDialog(self.master, manager=self.character_manager, on_select_callback=on_selected)
+        self.master.wait_window(dlg)
+        self.refresh_offline_characters()
+
+    def open_create_character_dialog(self):
+        """Apre il wizard guidato di creazione del personaggio (Offline)."""
+        from client.character_creation_wizard import CharacterCreationWizard
+        def on_complete(new_char):
+            self.refresh_offline_characters()
+            if new_char:
+                self.set_active_character_from_manager(new_char)
+        dlg = CharacterCreationWizard(self.master, self.character_manager, on_complete_callback=on_complete)
+        self.master.wait_window(dlg)
+
+    def create_manual_character(self):
+        """Crea un personaggio vuoto ed apre direttamente la scheda PG offline."""
+        from client.character_manager import Character
+        new_char = Character(name="Nuovo Eroe")
+        self.character_manager.add_character(new_char)
+        self.refresh_offline_characters()
+        self.set_active_character_from_manager(new_char)
+        self.open_stats_dialog()
+
+    def set_active_character_from_manager(self, char):
+        """Imposta il personaggio attivo selezionato dal manager e aggiorna la UI."""
+        if not char: return
+        self.active_character = char
+        self.name = char.name
+        if hasattr(self, 'active_character_var'):
+            self.active_character_var.set(char.name)
+        if getattr(self, "map_canvas", None):
+            self.map_canvas.player_name = char.name
+            self.map_canvas.redraw()
+        self.update_hero_summary_card()
         if self.is_connected:
             self.network.send(make_update_stats_request(char.hp_current, char.hp_max, char.initiative, getattr(char, "conditions", [])))
             self.network.send(make_update_full_sheet_request(char.to_dict()))
