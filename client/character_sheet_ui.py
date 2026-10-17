@@ -1271,9 +1271,22 @@ class CharacterSheetUI(tk.Toplevel):
                     
                     self.after(0, lambda: self._add_fetched_spell(name, level, time, rng, desc))
                 else:
-                    self.after(0, lambda: messagebox.showinfo("Nessun risultato", f"Incantesimo '{query}' non trovato nei manuali o online."))
-            except Exception as e:
-                self.after(0, lambda: messagebox.showerror("Errore di rete", str(e)))
+                    from common.srd_offline import search_spells_offline
+                    local_hits = search_spells_offline(query_clean)
+                    if local_hits:
+                        sp = local_hits[0]
+                        self.after(0, lambda: self._add_fetched_spell(sp["name"], sp["level"], sp["time"], sp["range"], sp["desc"]))
+                    else:
+                        self.after(0, lambda: messagebox.showinfo("Nessun risultato", f"Incantesimo '{query}' non trovato nei manuali, nell'SRD locale o online."))
+            except Exception:
+                # Fallback trasparente offline su srd_data/open5e_spells.json
+                from common.srd_offline import search_spells_offline
+                local_hits = search_spells_offline(query_clean)
+                if local_hits:
+                    sp = local_hits[0]
+                    self.after(0, lambda: self._add_fetched_spell(sp["name"], sp["level"], sp["time"], sp["range"], sp["desc"]))
+                else:
+                    self.after(0, lambda: messagebox.showinfo("Nessun risultato", f"Incantesimo '{query}' non trovato nei manuali o nell'SRD locale (offline)."))
                 
         threading.Thread(target=fetch_spell, daemon=True).start()
 
