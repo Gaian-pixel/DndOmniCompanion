@@ -1210,6 +1210,84 @@ class TestDndNewFeatures(unittest.TestCase):
         mgr.delete_character(copied)
         self.assertEqual(len(mgr.characters), initial_count)
 
+    def test_srd_offline_system(self):
+        """Verifica il modulo di fallback e ricerca SRD offline (incantesimi, mostri, progressione)."""
+        from common.srd_offline import (
+            search_spells_offline,
+            search_monsters_offline,
+            get_class_level_features_offline
+        )
+
+        # 1. Ricerca incantesimi con traduzione IT -> EN
+        spells_fireball = search_spells_offline("palla di fuoco")
+        self.assertTrue(len(spells_fireball) > 0)
+        self.assertIn("Fireball", spells_fireball[0]["name"])
+        self.assertEqual(spells_fireball[0]["level"], 3)
+        self.assertIn("range", spells_fireball[0])
+        self.assertIn("desc", spells_fireball[0])
+
+        spells_cure = search_spells_offline("cure wounds")
+        self.assertTrue(len(spells_cure) > 0)
+        self.assertEqual(spells_cure[0]["name"], "Cure Wounds")
+        self.assertEqual(spells_cure[0]["level"], 1)
+
+        # 2. Ricerca mostri con traduzione IT -> EN e calcolo statistiche
+        monsters_orc = search_monsters_offline("orco")
+        self.assertTrue(len(monsters_orc) > 0)
+        self.assertIn("monster_data", monsters_orc[0])
+        self.assertGreater(monsters_orc[0]["monster_data"]["hp"], 0)
+        self.assertGreater(monsters_orc[0]["monster_data"]["ac"], 0)
+
+        monsters_goblin = search_monsters_offline("goblin")
+        self.assertTrue(len(monsters_goblin) > 0)
+        goblin_data = monsters_goblin[0]["monster_data"]
+        self.assertEqual(goblin_data["name"], "Goblin")
+        self.assertEqual(goblin_data["ac"], 15)
+        self.assertEqual(goblin_data["hp"], 7)
+
+        # 3. Progressione classi e privilegi di livello offline
+        wiz_lv3 = get_class_level_features_offline("Mago", 3)
+        self.assertEqual(wiz_lv3["class"], "wizard")
+        self.assertEqual(wiz_lv3["hit_die"], 6)
+        self.assertEqual(wiz_lv3["level"], 3)
+        self.assertEqual(wiz_lv3["proficiency_bonus"], 2)
+        self.assertIn("spell_slots", wiz_lv3)
+        self.assertEqual(wiz_lv3["spell_slots"].get("1"), 4)
+        self.assertEqual(wiz_lv3["spell_slots"].get("2"), 2)
+
+        fighter_lv2 = get_class_level_features_offline("Guerriero", 2)
+        self.assertEqual(fighter_lv2["hit_die"], 10)
+        self.assertTrue(any("Azione Impetuosa" in f for f in fighter_lv2["features"]))
+
+        barb_lv1 = get_class_level_features_offline("Barbarian", 1)
+        self.assertEqual(barb_lv1["hit_die"], 12)
+        self.assertTrue(any("Ira" in f for f in barb_lv1["features"]))
+
+    def test_network_payload_safety(self):
+        """Verifica la protezione di sicurezza sul limite massimo di payload (64 MB)."""
+        import struct
+        from io import BytesIO
+        from common.network_utils import receive_message
+
+        # Simula un socket fittizio che invia una lunghezza esorbitante (> 64 MB)
+        fake_length = 68 * 1024 * 1024  # 68 MB
+        raw_prefix = struct.pack("!I", fake_length)
+
+        class MockSocket:
+            def __init__(self, data):
+                self.buffer = BytesIO(data)
+                self.recv_called_with = []
+            def recv(self, bufsize):
+                self.recv_called_with.append(bufsize)
+                return self.buffer.read(bufsize)
+
+        mock_sock = MockSocket(raw_prefix)
+        # Deve rifiutare in sicurezza il payload senza allocare 68 MB di RAM
+        result = receive_message(mock_sock)
+        self.assertIsNone(result)
+        # Solo l'header da 4 byte deve essere stato letto, non i 68 MB
+        self.assertEqual(sum(mock_sock.recv_called_with), 4)
+
 
 if __name__ == "__main__":
     unittest.main()

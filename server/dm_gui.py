@@ -42,6 +42,8 @@ from server.dm_dialogs import (
     CampaignStarterKitDialog
 )
 from common.audio_player import AudioManager
+from server.dm_bestiary_panel import DMBestiaryPanel
+from server.dm_soundboard_panel import DMSoundboardPanel
 
 class DM_GUI:
     def __init__(self, master, initial_campaign=None):
@@ -516,39 +518,22 @@ class DM_GUI:
         self.notebook.pack(fill=tk.BOTH, expand=True, pady=0)
         self.create_chat_tab("Sistema")
         
-        # Tab Bestiario
+        # Tab Bestiario (Componente Modulare DMBestiaryPanel)
         self.tab_bestiario = ttk.Frame(self.notebook)
         self.notebook.add(self.tab_bestiario, text=_t("tab_bestiary"))
         
-        self.lbl_bestiary_header = ttk.Label(self.tab_bestiario, text=_t("lbl_bestiary_header"), font=FONT_BOLD)
-        self.lbl_bestiary_header.pack(pady=(6, 2), anchor="w", padx=6)
-        self.bestiario_search_var = tk.StringVar()
-        b_search_row = ttk.Frame(self.tab_bestiario)
-        b_search_row.pack(fill=tk.X, padx=6, pady=3)
-        b_entry = ttk.Entry(b_search_row, textvariable=self.bestiario_search_var)
-        b_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
-        b_entry.bind("<KeyRelease>", lambda e: self.search_bestiario())
-        self.btn_bestiary_search = ttk.Button(b_search_row, text=_t("search"), command=self.search_bestiario, style="Primary.TButton")
-        self.btn_bestiary_search.pack(side=tk.LEFT)
-        
-        b_list_frame = tk.Frame(self.tab_bestiario, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
-        b_list_frame.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
-        self.bestiario_listbox = tk.Listbox(b_list_frame, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=FONT_MAIN, borderwidth=0, relief="flat")
-        self.bestiario_listbox.pack(fill=tk.BOTH, expand=True)
-        self.bestiario_listbox.bind("<<ListboxSelect>>", self._on_bestiario_selected)
-        self.bestiario_results = []
-        
-        # Anteprima Statistiche Rapide Mostro
-        self.bestiario_preview = tk.Label(self.tab_bestiario, text=_t("lbl_bestiary_preview_default"),
-                                          font=FONT_SMALL, bg="#212529", fg=TEXT_COLOR, justify="left", wraplength=310, padx=6, pady=4)
-        self.bestiario_preview.pack(fill=tk.X, padx=6, pady=(0, 4))
-        
-        b_btn_frame = ttk.Frame(self.tab_bestiario)
-        b_btn_frame.pack(fill=tk.X, padx=6, pady=(2, 6))
-        self.btn_bestiary_spawn = ttk.Button(b_btn_frame, text=_t("btn_spawn_on_map"), command=self.spawn_bestiario, style="Gold.TButton")
-        self.btn_bestiary_spawn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
-        self.btn_bestiary_full = ttk.Button(b_btn_frame, text=_t("btn_full_sheet"), command=self.open_bestiario_manual_entry, style="Info.TButton")
-        self.btn_bestiary_full.pack(side=tk.LEFT, padx=(2, 0))
+        self.bestiary_panel = DMBestiaryPanel(self.tab_bestiario, self)
+        self.bestiary_panel.pack(fill=tk.BOTH, expand=True)
+
+        # Alias per compatibilità retroattiva con metodi esistenti e test
+        self.lbl_bestiary_header = self.bestiary_panel.lbl_bestiary_header
+        self.bestiario_search_var = self.bestiary_panel.bestiario_search_var
+        self.btn_bestiary_search = self.bestiary_panel.btn_bestiary_search
+        self.bestiario_listbox = self.bestiary_panel.bestiario_listbox
+        self.bestiario_preview = self.bestiary_panel.bestiario_preview
+        self.btn_bestiary_spawn = self.bestiary_panel.btn_bestiary_spawn
+        self.btn_bestiary_full = self.bestiary_panel.btn_bestiary_full
+        self.bestiario_results = self.bestiary_panel.bestiario_results
 
         # 1-Click Quick Dice Strip (DM)
         dm_quick_dice_strip = tk.Frame(tab_chat, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=3)
@@ -770,169 +755,63 @@ class DM_GUI:
     # AUDIO: libreria di tracce caricate dal DM
     # ------------------------------------------------------------------
     def build_audio_tab(self, parent):
-        self.lbl_audio_lib = ttk.Label(parent, text=_t("audio_library_header"), font=("Arial", 12, "bold"))
-        self.lbl_audio_lib.pack(anchor="w", pady=(0, 2))
-        self.lbl_audio_desc = ttk.Label(parent, text=_t("audio_library_desc"),
-                  style="Muted.TLabel", wraplength=320)
-        self.lbl_audio_desc.pack(anchor="w", pady=(0, 5))
+        self.soundboard_panel = DMSoundboardPanel(parent, self)
+        self.soundboard_panel.pack(fill=tk.BOTH, expand=True)
 
-        top_btns = ttk.Frame(parent)
-        top_btns.pack(fill=tk.X, pady=(0, 4))
-        self.btn_import_audio = ttk.Button(top_btns, text=_t("audio_upload_btn"), command=self.import_audio_tracks, style="Success.TButton")
-        self.btn_import_audio.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
-        ttk.Button(top_btns, text="✏", width=3, command=self.rename_audio_track).pack(side=tk.LEFT, padx=1)
-        ttk.Button(top_btns, text="🔁", width=3, command=self.toggle_audio_category).pack(side=tk.LEFT, padx=1)
-        ttk.Button(top_btns, text="🗑", width=3, command=self.remove_audio_track).pack(side=tk.LEFT, padx=(1, 0))
-
-        tree_frame = ttk.Frame(parent)
-        tree_frame.pack(fill=tk.BOTH, expand=True)
-        self.audio_tree = ttk.Treeview(tree_frame, columns=("Nome", "Tipo", "Durata"), show="headings", height=9, selectmode="browse")
-        self.audio_tree.heading("Nome", text=_t("audio_col_name"))
-        self.audio_tree.heading("Tipo", text=_t("audio_col_type"))
-        self.audio_tree.heading("Durata", text=_t("audio_col_duration"))
-        self.audio_tree.column("Nome", width=170)
-        self.audio_tree.column("Tipo", width=65, anchor="center")
-        self.audio_tree.column("Durata", width=55, anchor="center")
-        self.audio_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        sb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.audio_tree.yview)
-        self.audio_tree.configure(yscroll=sb.set)
-        sb.pack(side=tk.RIGHT, fill=tk.Y)
-        self.audio_tree.bind("<Double-1>", lambda e: self.play_selected_audio())
-        ToolTip(top_btns.winfo_children()[1], "Rinomina traccia")
-        ToolTip(top_btns.winfo_children()[2], "Cambia tipo (Musica / Effetto)")
-        ToolTip(top_btns.winfo_children()[3], "Elimina traccia dalla libreria")
-
-        opts = ttk.Frame(parent)
-        opts.pack(fill=tk.X, pady=4)
-        self.audio_loop_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(opts, text="Ripeti musica (loop)", variable=self.audio_loop_var).pack(anchor="w")
-        self.audio_dm_listen_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(opts, text="Ascolta anche io (DM)", variable=self.audio_dm_listen_var).pack(anchor="w")
-
-        vol_row = ttk.Frame(parent)
-        vol_row.pack(fill=tk.X)
-        ttk.Label(vol_row, text="Volume per i giocatori:").pack(side=tk.LEFT)
-        self.audio_volume_var = tk.IntVar(value=80)
-        ttk.Scale(vol_row, from_=0, to=100, variable=self.audio_volume_var, orient=tk.HORIZONTAL).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
-
-        play_row = ttk.Frame(parent)
-        play_row.pack(fill=tk.X, pady=(6, 2))
-        ttk.Button(play_row, text="▶ Riproduci per tutti", command=self.play_selected_audio, style="Primary.TButton").pack(fill=tk.X, pady=1)
-        stop_row = ttk.Frame(parent)
-        stop_row.pack(fill=tk.X)
-        ttk.Button(stop_row, text="⏹ Ferma musica", command=lambda: self.stop_audio("music")).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
-        ttk.Button(stop_row, text="⏹ Ferma tutto", command=lambda: self.stop_audio("all"), style="Danger.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
-
-        self.audio_now_playing = ttk.Label(parent, text="In riproduzione: -", style="Muted.TLabel", wraplength=320)
-        self.audio_now_playing.pack(anchor="w", pady=(6, 4))
-
-        ttk.Separator(parent).pack(fill=tk.X, pady=4)
-        ttk.Button(parent, text="🔗 Apri link (YouTube) ai giocatori...", command=self.share_audio_link).pack(fill=tk.X)
-
-        self.refresh_audio_list()
+        # Alias per compatibilità retroattiva con attributi di test e controller
+        self.lbl_audio_lib = self.soundboard_panel.lbl_audio_lib
+        self.lbl_audio_desc = self.soundboard_panel.lbl_audio_desc
+        self.btn_import_audio = self.soundboard_panel.btn_import_audio
+        self.audio_tree = self.soundboard_panel.audio_tree
+        self.audio_loop_var = self.soundboard_panel.audio_loop_var
+        self.audio_dm_listen_var = self.soundboard_panel.audio_dm_listen_var
+        self.audio_volume_var = self.soundboard_panel.audio_volume_var
+        self.audio_now_playing = self.soundboard_panel.audio_now_playing
 
     @staticmethod
     def _format_duration(seconds):
-        seconds = int(seconds or 0)
-        return f"{seconds // 60}:{seconds % 60:02d}"
+        return DMSoundboardPanel._format_duration(seconds)
 
     def refresh_audio_list(self):
-        library = self.server.game_state.audio_library
-        for item in self.audio_tree.get_children():
-            self.audio_tree.delete(item)
-        for t in library.tracks:
-            icon = "🎵" if t["category"] == "Musica" else "💥"
-            self.audio_tree.insert("", tk.END, iid=t["id"], values=(t["name"], f"{icon} {t['category']}", self._format_duration(t.get("duration"))))
+        if hasattr(self, 'soundboard_panel'):
+            self.soundboard_panel.refresh_audio_list()
 
     def _selected_track(self):
-        sel = self.audio_tree.selection()
-        if not sel:
-            messagebox.showinfo("Audio", "Seleziona prima una traccia dalla libreria.")
-            return None
-        return self.server.game_state.audio_library.get(sel[0])
+        if hasattr(self, 'soundboard_panel'):
+            return self.soundboard_panel._selected_track()
+        return None
 
     def import_audio_tracks(self):
-        paths = filedialog.askopenfilenames(
-            title="Seleziona tracce audio",
-            filetypes=[("File audio", "*.mp3 *.ogg *.wav *.flac"), ("Tutti i file", "*.*")])
-        if not paths:
-            return
-        library = self.server.game_state.audio_library
-        errors = []
-        imported = 0
-        for p in paths:
-            try:
-                library.import_file(p)
-                imported += 1
-            except Exception as e:
-                errors.append(f"{os.path.basename(p)}: {e}")
-        self.refresh_audio_list()
-        if imported:
-            self.log_to_chat(f"[AUDIO] {imported} traccia/e aggiunte alla libreria.")
-        if errors:
-            messagebox.showwarning("Alcuni file non sono stati importati", "\n".join(errors))
+        if hasattr(self, 'soundboard_panel'):
+            self.soundboard_panel.import_audio_tracks()
 
     def rename_audio_track(self):
-        t = self._selected_track()
-        if not t: return
-        new_name = simpledialog.askstring("Rinomina traccia", "Nuovo nome:", initialvalue=t["name"], parent=self.master)
-        if new_name and new_name.strip():
-            self.server.game_state.audio_library.rename(t["id"], new_name.strip())
-            self.refresh_audio_list()
+        if hasattr(self, 'soundboard_panel'):
+            self.soundboard_panel.rename_audio_track()
 
     def toggle_audio_category(self):
-        t = self._selected_track()
-        if not t: return
-        self.server.game_state.audio_library.toggle_category(t["id"])
-        self.refresh_audio_list()
-        self.audio_tree.selection_set(t["id"])
+        if hasattr(self, 'soundboard_panel'):
+            self.soundboard_panel.toggle_audio_category()
 
     def remove_audio_track(self):
-        t = self._selected_track()
-        if not t: return
-        if messagebox.askyesno("Elimina traccia", f"Eliminare '{t['name']}' dalla libreria?"):
-            self.server.game_state.audio_library.remove(t["id"])
-            self.refresh_audio_list()
+        if hasattr(self, 'soundboard_panel'):
+            self.soundboard_panel.remove_audio_track()
 
     def play_selected_audio(self):
-        t = self._selected_track()
-        if not t: return
-        from common.protocol import make_audio_track_play
-        is_music = t["category"] == "Musica"
-        channel = "music" if is_music else "sfx"
-        loop = bool(self.audio_loop_var.get()) if is_music else False
-        volume = self.audio_volume_var.get() / 100.0
-        msg = make_audio_track_play(t["id"], t["name"], t["ext"], t["size"], channel=channel, loop=loop, volume=volume)
-
-        game_state = self.server.game_state
-        if is_music:
-            game_state.current_music = msg if loop else None
-        broadcast(game_state, msg)
-
-        if self.audio_dm_listen_var.get():
-            self.audio_manager.play(game_state.audio_library.get_path(t["id"]), channel=channel, loop=loop, volume=volume, name=t["name"])
-        if is_music:
-            self.audio_now_playing.config(text=f"In riproduzione: 🎵 {t['name']}{' (loop)' if loop else ''}")
-        self.log_to_chat(f"[AUDIO] {'Musica' if is_music else 'Effetto'} avviato per tutti: {t['name']}")
+        if hasattr(self, 'soundboard_panel'):
+            self.soundboard_panel.play_selected_audio()
 
     def stop_audio(self, channel="all"):
-        from common.protocol import make_audio_stop
-        if channel in ("music", "all"):
-            self.server.game_state.current_music = None
-            self.audio_now_playing.config(text="In riproduzione: -")
-        broadcast(self.server.game_state, make_audio_stop(channel))
-        self.audio_manager.stop(channel)
-        self.log_to_chat(f"[AUDIO] {'Musica fermata' if channel == 'music' else 'Tutto l audio fermato'}.")
+        if hasattr(self, 'soundboard_panel'):
+            self.soundboard_panel.stop_audio(channel)
 
     def share_audio_link(self):
-        url = simpledialog.askstring("Link audio", "Incolla il link (es. YouTube) da aprire nel browser dei giocatori:", parent=self.master)
-        if url and url.strip():
-            self.play_audio(url.strip())
+        if hasattr(self, 'soundboard_panel'):
+            self.soundboard_panel.share_audio_link()
 
     def play_audio(self, url):
-        from common.protocol import make_audio_play_broadcast
-        broadcast(self.server.game_state, make_audio_play_broadcast(url))
-        self.log_to_chat(f"Audio avviato: {url}")
+        if hasattr(self, 'soundboard_panel'):
+            self.soundboard_panel.play_audio(url)
 
     def on_ping_callback(self, clicked_hex):
         broadcast(self.server.game_state, make_ping_broadcast(clicked_hex.q, clicked_hex.r, "red"))
@@ -3577,210 +3456,34 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
             self.btn_deafen.config(fg="white", text=" 🎧 ")
 
     def search_bestiario(self):
-        query = self.bestiario_search_var.get().strip().lower()
-        
-        # 1. Ricerca offline istantanea nei mostri indicizzati del Monster Manual PDF
-        offline_results = []
-        try:
-            from common.pdf_manuals_indexer import PDFManualsIndexer
-            indexer = PDFManualsIndexer()
-            for m in indexer.get_monsters():
-                mname = m.get("title", "")
-                kws = [k.lower() for k in m.get("keywords", [])]
-                if not query or query in mname.lower() or any(query in k for k in kws):
-                    offline_results.append({
-                        "name": mname,
-                        "source": "PDF (MM)",
-                        "page_ref": m.get("page_ref", "MM"),
-                        "monster_data": m.get("monster_data", {}),
-                        "summary": m.get("summary", ""),
-                        "full_rule": m
-                    })
-        except Exception as e:
-            print("[BESTIARIO] Errore ricerca PDF offline:", e)
-
-        # Se abbiamo risultati locali o query vuota, aggiorna subito la lista
-        self._update_bestiario_list(offline_results[:100])
-
-        # Se c'è una query testuale, cerca anche su SRD online in background
-        if query:
-            threading.Thread(target=self._search_bestiario_thread, args=(query, offline_results), daemon=True).start()
+        if hasattr(self, 'bestiary_panel'):
+            self.bestiary_panel.search_bestiario()
+            self.bestiario_results = self.bestiary_panel.bestiario_results
 
     def _search_bestiario_thread(self, query, initial_results):
-        import urllib.request
-        import json
-        try:
-            url = f"https://www.dnd5eapi.co/api/monsters/?name={query}".replace(" ", "+")
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=3.0) as response:
-                data = json.loads(response.read().decode())
-                srd_results = data.get("results", [])
-                
-                # Unisci risultati evitando duplicati
-                seen_names = {r["name"].lower() for r in initial_results}
-                combined = list(initial_results)
-                for s in srd_results:
-                    s_name = s.get("name", "")
-                    if s_name.lower() not in seen_names:
-                        combined.append({
-                            "name": s_name,
-                            "source": "SRD Online",
-                            "index": s.get("index"),
-                            "summary": f"Mostro SRD 5.1 ({s_name})"
-                        })
-                self.master.after(0, self._update_bestiario_list, combined[:150])
-        except Exception:
-            pass  # Offline o timeout SRD, i risultati locali del PDF bastano
+        if hasattr(self, 'bestiary_panel'):
+            self.bestiary_panel._search_bestiario_thread(query, initial_results)
 
     def _update_bestiario_list(self, results):
-        self.bestiario_listbox.delete(0, tk.END)
-        self.bestiario_results = results
-        for res in results:
-            src = res.get("source", "MM")
-            name = res.get("name", "Unknown")
-            mdata = res.get("monster_data", {})
-            if mdata:
-                tag = f"[{mdata.get('cr', '1')}] {name} (CA {mdata.get('ac', 10)}, HP {mdata.get('hp', 20)})"
-            else:
-                tag = f"🌐 {name} ({src})"
-            self.bestiario_listbox.insert(tk.END, tag)
-            
-        if results and hasattr(self, 'bestiario_preview'):
-            self.bestiario_listbox.selection_set(0)
-            self._on_bestiario_selected()
+        if hasattr(self, 'bestiary_panel'):
+            self.bestiary_panel._update_bestiario_list(results)
+            self.bestiario_results = self.bestiary_panel.bestiario_results
 
     def _on_bestiario_selected(self, event=None):
-        sel = self.bestiario_listbox.curselection()
-        if not sel or sel[0] >= len(self.bestiario_results):
-            return
-        res = self.bestiario_results[sel[0]]
-        mdata = res.get("monster_data", {})
-        summary = res.get("summary", "")
-        name = res.get("name", "")
-        src = res.get("source", "Monster Manual")
-        page = res.get("page_ref", "")
-        
-        if mdata:
-            info = f"🐉 {name} [{src} - {page}]\nCA: {mdata.get('ac', 10)} | HP: {mdata.get('hp', 20)} | CR: {mdata.get('cr', '1')}\n{summary}"
-        else:
-            info = f"🌐 {name} [{src}]\n{summary}"
-        self.bestiario_preview.config(text=info)
+        if hasattr(self, 'bestiary_panel'):
+            self.bestiary_panel._on_bestiario_selected(event)
 
     def open_bestiario_manual_entry(self):
-        sel = self.bestiario_listbox.curselection()
-        if not sel or sel[0] >= len(self.bestiario_results):
-            return
-        res = self.bestiario_results[sel[0]]
-        self.open_manuals_dialog(initial_query=res.get("name", ""))
+        if hasattr(self, 'bestiary_panel'):
+            self.bestiary_panel.open_bestiario_manual_entry()
 
     def spawn_bestiario(self):
-        sel = self.bestiario_listbox.curselection()
-        if not sel or sel[0] >= len(self.bestiario_results):
-            return
-        selected = self.bestiario_results[sel[0]]
-        
-        # 1. Se mostro indicizzato dal Monster Manual PDF, spawna all'istante offline!
-        if "monster_data" in selected and selected["monster_data"]:
-            mdata = selected["monster_data"]
-            from common.game_state import Player
-            from common.protocol import make_player_joined, make_player_stats_update
-            from common.network_utils import broadcast
-            
-            name = mdata.get("name", selected.get("name", "Mostro"))
-            hp = int(mdata.get("hp", 20))
-            ac = int(mdata.get("ac", 10))
-            
-            pos = [0, 0]
-            if hasattr(self, 'map_canvas') and self.map_canvas and hasattr(self.map_canvas, '_last_clicked_hex') and self.map_canvas._last_clicked_hex:
-                pos = [self.map_canvas._last_clicked_hex.q, self.map_canvas._last_clicked_hex.r]
-                
-            base_name = name
-            idx = 1
-            new_name = base_name
-            while self.server.game_state.find_player(new_name):
-                idx += 1
-                new_name = f"{base_name} {idx}"
-                
-            npc = Player(new_name, None, None)
-            npc.hp = hp
-            npc.max_hp = hp
-            npc.initiative = 0
-            npc.position = pos
-            npc.full_sheet = {
-                "name": npc.name,
-                "hp_current": npc.hp,
-                "hp_max": npc.max_hp,
-                "ac": ac
-            }
-            self.server.game_state.add_player(npc)
-            self.server.game_state._trigger_gui_update()
-            broadcast(self.server.game_state, make_player_joined(npc.to_dict()))
-            broadcast(self.server.game_state, make_player_stats_update(npc.name, npc.hp, npc.max_hp, npc.initiative, []))
-            return
-
-        # 2. Se elemento online SRD, scarica e spawna da API
-        index_selezionato = selected.get("index")
-        if index_selezionato:
-            threading.Thread(target=self._spawn_bestiario_thread, args=(index_selezionato,), daemon=True).start()
+        if hasattr(self, 'bestiary_panel'):
+            self.bestiary_panel.spawn_bestiario()
 
     def _spawn_bestiario_thread(self, index_selezionato):
-        import urllib.request
-        import json
-        from common.game_state import Player
-        from common.protocol import make_player_joined, make_player_stats_update
-        from common.network_utils import broadcast
-        try:
-            url = f"https://www.dnd5eapi.co/api/monsters/{index_selezionato}"
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req) as response:
-                data = json.loads(response.read().decode())
-                
-                name = data.get("name", "Mostro")
-                hit_points = data.get("hit_points", 10)
-                
-                ac_list = data.get("armor_class", [])
-                ac_value = 10
-                if ac_list:
-                    ac_item = ac_list[0]
-                    if isinstance(ac_item, dict):
-                        ac_value = ac_item.get("value", 10)
-                    else:
-                        ac_value = ac_item
-                        
-                dex = data.get("dexterity", 10)
-                initiative = (dex - 10) // 2
-                
-                pos = [0, 0]
-                if hasattr(self, 'map_canvas') and self.map_canvas and hasattr(self.map_canvas, '_last_clicked_hex') and self.map_canvas._last_clicked_hex:
-                    pos = [self.map_canvas._last_clicked_hex.q, self.map_canvas._last_clicked_hex.r]
-                
-                base_name = name
-                idx = 1
-                new_name = base_name
-                while self.server.game_state.find_player(new_name):
-                    idx += 1
-                    new_name = f"{base_name} {idx}"
-                
-                npc = Player(new_name, None, None)
-                npc.hp = hit_points
-                npc.max_hp = hit_points
-                npc.initiative = initiative
-                npc.position = pos
-                npc.full_sheet = {
-                    "name": npc.name,
-                    "hp_current": npc.hp,
-                    "hp_max": npc.max_hp,
-                    "ac": ac_value
-                }
-                
-                self.server.game_state.add_player(npc)
-                
-                self.server.game_state._trigger_gui_update()
-                broadcast(self.server.game_state, make_player_joined(npc.to_dict()))
-                broadcast(self.server.game_state, make_player_stats_update(npc.name, npc.hp, npc.max_hp, npc.initiative, []))
-                
-        except Exception as e:
-            print("Error spawning bestiario:", e)
+        if hasattr(self, 'bestiary_panel'):
+            self.bestiary_panel._spawn_bestiario_thread(index_selezionato)
 
 
     def open_set_owner_dialog(self):

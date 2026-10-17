@@ -131,35 +131,68 @@ class LevelUpDialog(tk.Toplevel):
     def open_compendium(self):
         CompendiumDialog(self.master, is_dm=False)
 
+    def _fallback_offline(self, new_level):
+        try:
+            from common.srd_offline import get_class_level_features_offline
+            off = get_class_level_features_offline(self.character.char_class, new_level)
+            features_list = [{"name": f} if isinstance(f, str) else f for f in off.get("features", [])]
+            spellcasting = {}
+            for lvl_str, count in off.get("spell_slots", {}).items():
+                spellcasting[f"spell_slots_level_{lvl_str}"] = count
+
+            asi = 0
+            for f in off.get("features", []):
+                if "Aumento Punteggi" in str(f) or "ASI" in str(f):
+                    asi = 1
+                    break
+
+            data = {
+                "level": new_level,
+                "ability_score_bonuses": asi,
+                "features": features_list,
+                "spellcasting": spellcasting if spellcasting else None,
+                "offline": True
+            }
+            if features_list or spellcasting or asi:
+                self.master.after(0, lambda: self.on_api_success(data, is_offline=True))
+                return True
+        except Exception as e:
+            print("[PROGRESSION] Errore fallback offline:", e)
+        return False
+
     def fetch_level_data(self):
         char_class_en = CLASS_MAP.get(self.character.char_class.lower(), None)
-        if not char_class_en:
-            self.lbl_loading.config(text=f"Classe '{self.character.char_class}' non supportata dall'API.")
-            self.btn_apply.state(["!disabled"])
-            return
-            
         new_level = self.character.level + 1
+
+        if not char_class_en:
+            if not self._fallback_offline(new_level):
+                self.lbl_loading.config(text=f"Classe '{self.character.char_class}' non supportata.")
+                self.btn_apply.state(["!disabled"])
+            return
+
         url = f"https://www.dnd5eapi.co/api/classes/{char_class_en}/levels/{new_level}"
         
         def _fetch():
             try:
+                data = None
                 if requests:
-                    resp = requests.get(url, timeout=5)
+                    resp = requests.get(url, timeout=3)
                     if resp.status_code == 200:
                         data = resp.json()
-                        self.master.after(0, lambda: self.on_api_success(data))
-                    else:
-                        self.master.after(0, lambda: self.on_api_error(f"Errore {resp.status_code}"))
                 else:
                     req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                    with urllib.request.urlopen(req, timeout=5) as response:
+                    with urllib.request.urlopen(req, timeout=3) as response:
                         if response.status == 200:
                             data = json.loads(response.read().decode('utf-8'))
-                            self.master.after(0, lambda: self.on_api_success(data))
-                        else:
-                            self.master.after(0, lambda: self.on_api_error(f"Errore {response.status}"))
+                
+                if data:
+                    self.master.after(0, lambda: self.on_api_success(data))
+                else:
+                    if not self._fallback_offline(new_level):
+                        self.master.after(0, lambda: self.on_api_error("Dati non disponibili"))
             except Exception as e:
-                self.master.after(0, lambda: self.on_api_error(str(e)))
+                if not self._fallback_offline(new_level):
+                    self.master.after(0, lambda: self.on_api_error(str(e)))
                 
         threading.Thread(target=_fetch, daemon=True).start()
         
@@ -167,9 +200,12 @@ class LevelUpDialog(tk.Toplevel):
         self.lbl_loading.config(text=f"Errore API: {error_msg}")
         self.btn_apply.state(["!disabled"])
         
-    def on_api_success(self, data):
+    def on_api_success(self, data, is_offline=False):
         self.api_data = data
-        self.lbl_loading.config(text="Dati caricati con successo!")
+        if is_offline or data.get("offline"):
+            self.lbl_loading.config(text="Dati caricati da SRD locale (offline)")
+        else:
+            self.lbl_loading.config(text="Dati caricati con successo!")
         self.btn_apply.state(["!disabled"])
         
         # Features
