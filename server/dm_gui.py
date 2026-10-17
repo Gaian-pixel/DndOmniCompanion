@@ -33,7 +33,7 @@ from client.voice_client import VoiceClient
 from common.i18n import (
     _t, get_language, set_language, register_language_listener, unregister_language_listener,
     translate_weather, translate_period,
-    get_distance_unit, set_distance_unit, register_unit_listener
+    get_distance_unit, set_distance_unit, register_unit_listener, unregister_unit_listener
 )
 from server.dm_dialogs import (
     TextHandoutDialog,
@@ -2749,9 +2749,13 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             self.log_to_chat(f"[SISTEMA] Respinto incantesimo custom '{s_name}' per {p_name}.")
 
     def on_closing(self):
-        if messagebox.askokcancel(_t("menu_exit"), "Vuoi chiudere il server?"):
+        if messagebox.askokcancel(_t("menu_exit"), _t("confirm_exit_server")):
             try:
                 unregister_language_listener(self.on_language_changed)
+            except Exception:
+                pass
+            try:
+                unregister_unit_listener(self.on_unit_changed)
             except Exception:
                 pass
             if hasattr(self, 'audio_manager'):

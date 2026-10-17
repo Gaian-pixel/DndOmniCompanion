@@ -24,7 +24,7 @@ from client.voice_client import VoiceClient
 from common.audio_player import AudioManager
 from common.i18n import (
     _t, get_language, set_language, register_language_listener, unregister_language_listener,
-    get_distance_unit, set_distance_unit, register_unit_listener, speed_to_hexes, format_distance_hexes
+    get_distance_unit, set_distance_unit, register_unit_listener, unregister_unit_listener, speed_to_hexes, format_distance_hexes
 )
 
 from common.theme import (
@@ -2131,12 +2131,18 @@ class ClientGUI:
         self.is_connected = False
 
     def on_closing(self):
-        try:
-            unregister_language_listener(self.on_language_changed)
-        except Exception:
-            pass
-        self.disconnect()
-        self.master.destroy()
+        msg = _t("confirm_exit_connected") if self.is_connected else _t("confirm_exit_client")
+        if messagebox.askokcancel(_t("menu_exit"), msg):
+            try:
+                unregister_language_listener(self.on_language_changed)
+            except Exception:
+                pass
+            try:
+                unregister_unit_listener(self.on_unit_changed)
+            except Exception:
+                pass
+            self.disconnect()
+            self.master.destroy()
 
     def handle_disconnection(self):
         self.is_connected = False
