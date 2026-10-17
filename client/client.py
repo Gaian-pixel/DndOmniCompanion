@@ -234,25 +234,14 @@ class ClientGUI:
         left_panel = tk.Frame(main_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=6)
         left_panel.grid(row=0, column=0, sticky="ns", padx=(0, 6))
         
-        self.center_map_btn = ttk.Button(left_panel, text='👆', width=3, style="Tool.TButton", command=lambda: self.map_canvas.center_view() if self.map_canvas else None)
-        self.center_map_btn.pack(pady=3)
-        ToolTip(self.center_map_btn, lambda: _t("tool_center_map"))
+        self.center_map_btn = None
+        self.zoom_in_btn = None
+        self.zoom_out_btn = None
+        self.measure_btn = None
 
-        self.zoom_in_btn = ttk.Button(left_panel, text='➕', width=3, style="Tool.TButton", command=lambda: self.map_canvas.zoom_in() if self.map_canvas else None)
-        self.zoom_in_btn.pack(pady=3)
-        ToolTip(self.zoom_in_btn, lambda: _t("tool_zoom_in"))
-
-        self.zoom_out_btn = ttk.Button(left_panel, text='➖', width=3, style="Tool.TButton", command=lambda: self.map_canvas.zoom_out() if self.map_canvas else None)
-        self.zoom_out_btn.pack(pady=3)
-        ToolTip(self.zoom_out_btn, lambda: _t("tool_zoom_out"))
-        
         self.aoe_button = ttk.Button(left_panel, text="💥", width=3, style="Tool.TButton", command=self.open_aoe_dialog)
         self.aoe_button.pack(pady=3)
         ToolTip(self.aoe_button, lambda: _t("tool_aoe"))
-        
-        self.measure_btn = ttk.Button(left_panel, text="📏", width=3, style="Tool.TButton", command=self.toggle_ruler_mode)
-        self.measure_btn.pack(pady=3)
-        ToolTip(self.measure_btn, lambda: _t("tool_measure"))
 
         self.pen_btn = ttk.Button(left_panel, text="✏️", width=3, style="Tool.TButton", command=self.toggle_whiteboard_pen)
         self.pen_btn.pack(pady=3)
@@ -1602,7 +1591,7 @@ class ClientGUI:
     def toggle_ruler_mode(self):
         active = self.map_canvas.toggle_ruler_mode()
         style = "ToolActive.TButton" if active else "Tool.TButton"
-        if hasattr(self, 'measure_btn'):
+        if hasattr(self, 'measure_btn') and self.measure_btn:
             self.measure_btn.configure(style=style)
         msg = "Righello attivato: clicca due punti sulla mappa per misurare la distanza." if active else "Righello disattivato."
         self.show_toast(msg, title="📏 Righello", toast_type="info" if active else "secondary")
