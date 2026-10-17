@@ -15,6 +15,9 @@ class Hex:
     def __hash__(self):
         return hash((self.q, self.r))
 
+    def distance(self, other: "Hex") -> int:
+        return hex_distance(self, other)
+
 class HexLayout:
     def __init__(self, size, origin):
         self.size = size
@@ -81,10 +84,12 @@ def hex_linedraw(a: Hex, b: Hex) -> list[Hex]:
         results.append(hex_round(q_frac, r_frac))
     return results
 
-def get_line_hexes(start_hex: Hex, target_hex: Hex, length_in_hexes: int) -> list[Hex]:
+def get_line_hexes(start_hex: Hex, target_hex: Hex, length_in_hexes: int = None) -> list[Hex]:
     dist = hex_distance(start_hex, target_hex)
     if dist == 0:
         return [start_hex]
+    if length_in_hexes is None:
+        length_in_hexes = dist + 1
     results = []
     a_q, a_r = start_hex.q + 1e-6, start_hex.r + 1e-6
     b_q, b_r = target_hex.q + 1e-6, target_hex.r + 1e-6

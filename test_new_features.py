@@ -649,6 +649,286 @@ class TestDndNewFeatures(unittest.TestCase):
         self.assertEqual(len(self.game_state.active_aoes), 1)
         self.assertEqual(self.game_state.active_aoes[0]["name"], "Muro di Fuoco", "La precedente concentrazione deve essere caduta")
 
+    def test_distance_units_and_code_review_fixes(self):
+        """Testa l'unità di misura piedi/metri (ft/m) e tutte le correzioni della Code Review v3."""
+        from common.i18n import (
+            get_distance_unit, set_distance_unit, convert_speed_value,
+            speed_to_hexes, format_distance_hexes
+        )
+        from common.hex_utils import Hex, get_line_hexes
+        from common.dice import roll_dice
+        from server.rules.movement import handle_move_request
+        from server.rules.character import handle_update_full_sheet_request
+        from server.rules.chat import handle_roll_request, handle_chat
+
+        # 1. Conversione unità Piedi (ft) <-> Metri (m)
+        self.assertEqual(convert_speed_value(30, "ft", "m"), 9)
+        self.assertEqual(convert_speed_value(9, "m", "ft"), 30)
+        self.assertEqual(convert_speed_value(25, "ft", "m"), 7.5)
+        self.assertEqual(convert_speed_value(7.5, "m", "ft"), 25)
+        self.assertEqual(speed_to_hexes(30, "ft"), 6)
+        self.assertEqual(speed_to_hexes(9, "m"), 6)
+        self.assertEqual(speed_to_hexes(7.5, "m"), 5)
+        self.assertEqual(format_distance_hexes(6, "ft"), "30 ft")
+        self.assertEqual(format_distance_hexes(6, "m"), "9 m")
+        self.assertEqual(format_distance_hexes(5, "m"), "7.5 m")
+
+        # Persistenza e cambio unità
+        prev_unit = get_distance_unit()
+        set_distance_unit("m")
+        self.assertEqual(get_distance_unit(), "m")
+        set_distance_unit("ft")
+        self.assertEqual(get_distance_unit(), "ft")
+        set_distance_unit(prev_unit)
+
+        # 2. Movimento sul server con velocità espressa in Metri (9 m = 6 esagoni)
+        p_metric = Player(name="EsploratoreMetrico")
+        p_metric.hp = 25
+        p_metric.speed = 9
+        p_metric.speed_unit = "m"
+        p_metric.position = [0, 0]
+        p_metric.in_combat = True
+        self.game_state.players.append(p_metric)
+        self.game_state.combat_active = True
+
+        # Muove di 6 esagoni (9 m) -> consentito!
+        handle_move_request({"to": [6, 0]}, p_metric, self.game_state)
+        self.assertEqual(p_metric.position, [6, 0], "Un PG con 9m di velocità deve potersi muovere di 6 esagoni")
+
+        # Nuovo turno: tenta di muovere di 7 esagoni (10.5 m > 9 m) -> bloccato!
+        p_metric.movement_spent_this_turn = 0
+        handle_move_request({"to": [13, 0]}, p_metric, self.game_state)
+        self.assertEqual(p_metric.position, [6, 0], "Un movimento di 7 esagoni deve essere bloccato con 9m di velocità")
+
+        # 3. Riordino inventario (spostamento oggetto da slot 0 a slot 12) non deve cancellare l'oggetto
+        spada = {"name": "Spada Lunga", "type": "Arma", "qty": 1, "weight": 3.0}
+        inv_initial = [None] * 25
+        inv_initial[0] = spada
+        p_metric.full_sheet = {
+            "name": "EsploratoreMetrico",
+            "level": 1,
+            "speed": 9,
+            "speed_unit": "m",
+            "inventory_grid": list(inv_initial),
+            "starting_kit_applied": True,
+            "campaign_starter_received": True
+        }
+        rearranged_sheet = dict(p_metric.full_sheet)
+        inv_moved = [None] * 25
+        inv_moved[12] = spada
+        rearranged_sheet["inventory_grid"] = inv_moved
+        handle_update_full_sheet_request({"character": rearranged_sheet}, p_metric, self.game_state)
+        self.assertIsNone(p_metric.full_sheet["inventory_grid"][0])
+        self.assertIsNotNone(p_metric.full_sheet["inventory_grid"][12], "Lo spostamento di slot nello zaino deve essere consentito")
+        self.assertEqual(p_metric.full_sheet["inventory_grid"][12]["name"], "Spada Lunga")
+
+        # 4. Hex.distance e get_line_hexes con 2 o 3 argomenti
+        h_a = Hex(0, 0)
+        h_b = Hex(3, 0)
+        self.assertEqual(h_a.distance(h_b), 3)
+        line_2args = get_line_hexes(h_a, h_b)
+        self.assertEqual(len(line_2args), 4)
+        line_3args = get_line_hexes(h_a, h_b, 5)
+        self.assertEqual(len(line_3args), 5)
+
+        # 5. roll_dice con testo tipo danno e tiro 0d0 flavor
+        res_dmg = roll_dice("1d8+3 Tagliente")
+        self.assertTrue(4 <= res_dmg["total"] <= 11)
+        handle_roll_request({"formula": "0d0", "reason": "Usa Tratti Elfici"}, p_metric, self.game_state)
+
+        # 6. Sicurezza comandi chat DM (/setsize bloccato ai giocatori normali connessi)
+        p_metric.conn = DummySocket()
+        p_metric.size = 1
+        handle_chat({"text": "/setsize EsploratoreMetrico 3"}, p_metric, self.game_state)
+        self.assertEqual(p_metric.size, 1, "Un giocatore normale non deve poter cambiare la propria taglia via /setsize")
+
+        # 7. GameState.remove_player accetta sia stringa che istanza Player
+        temp_p = Player(name="TempPNG")
+        self.game_state.players.append(temp_p)
+        self.game_state.remove_player("TempPNG")
+        self.assertIsNone(self.game_state.find_player("TempPNG"))
+
+    def test_critical_success_and_failure_mechanics(self):
+        """Testa Successi Critici (20 Naturale) e Fallimenti Critici (1 Naturale) su dadi, attacchi, TS e chat."""
+        from unittest.mock import patch
+        from common.dice import roll_dice
+        from server.rules.combat import handle_attack_request, _process_save_result
+        from server.rules.chat import handle_chat
+
+        # 1. Verifica flag critico/fumble in roll_dice su 1d20
+        with patch("common.dice.random.randint", return_value=20):
+            res20 = roll_dice("1d20+5")
+            self.assertTrue(res20["is_crit"])
+            self.assertFalse(res20["is_fumble"])
+            self.assertEqual(res20["natural_roll"], 20)
+            self.assertEqual(res20["crit_status"], "crit_success")
+            self.assertEqual(res20["total"], 25)
+
+        with patch("common.dice.random.randint", return_value=1):
+            res1 = roll_dice("1d20+9")
+            self.assertFalse(res1["is_crit"])
+            self.assertTrue(res1["is_fumble"])
+            self.assertTrue(res1["is_crit_fail"])
+            self.assertEqual(res1["natural_roll"], 1)
+            self.assertEqual(res1["crit_status"], "crit_fail")
+            self.assertEqual(res1["total"], 10)
+
+        # 2. Verifica raddoppio soli dadi (e non modificatore statico) nei danni critici (is_crit=True)
+        with patch("common.dice.random.randint", return_value=6):
+            crit_dmg = roll_dice("1d8+4 Tagliente", is_crit=True)
+            self.assertEqual(len(crit_dmg["rolls"]), 2, "Il colpo critico deve tirare il doppio dei dadi")
+            self.assertEqual(crit_dmg["modifier"], 4, "Il modificatore statico non deve raddoppiare sul critico")
+            self.assertEqual(crit_dmg["total"], 16, "2d8 (6+6) + 4 = 16")
+
+        # 3. Combattimento: 20 Naturale colpisce sempre (anche contro CA 99) e raddoppia solo i dadi danno
+        attacker = Player(name="GuerrieroCrit")
+        attacker.position = [0, 0]
+        attacker.hp = 30
+        attacker.max_hp = 30
+        defender = Player(name="GolemCorazzato")
+        defender.position = [1, 0]
+        defender.hp = 50
+        defender.max_hp = 50
+        defender.ac = 99
+        defender.full_sheet = {"ac": 99}
+        self.game_state.players.extend([attacker, defender])
+
+        # D20 tira 20 (roll1=20, roll2=20), poi i 2d8 del critico tirano 5 e 5 -> danno atteso: (5+5) + 3 = 13 (non 16!)
+        with patch("common.dice.random.randint", side_effect=[20, 20, 5, 5]):
+            handle_attack_request(
+                {"target_name": "GolemCorazzato", "hit_bonus": 2, "damage_formula": "1d8+3"},
+                attacker,
+                self.game_state,
+            )
+        self.assertEqual(defender.hp, 37, "Il 20 Naturale deve colpire automaticamente CA 99 e infliggere 2d8+3 = 13 danni")
+
+        # 4. Combattimento: 1 Naturale manca sempre (anche con +50 TxC contro CA 5)
+        defender.ac = 5
+        defender.full_sheet = {"ac": 5}
+        defender.hp = 50
+        with patch("common.dice.random.randint", return_value=1):
+            handle_attack_request(
+                {"target_name": "GolemCorazzato", "hit_bonus": 50, "damage_formula": "1d8+3"},
+                attacker,
+                self.game_state,
+            )
+        self.assertEqual(defender.hp, 50, "L'1 Naturale deve mancare automaticamente anche se il totale supera la CA")
+
+        # 5. Tiri Salvezza: 20 Naturale supera sempre, 1 Naturale fallisce sempre
+        defender.hp = 40
+        # 20 Naturale con totale 18 contro CD 30 (senza dimezzamento) -> successo automatico (0 danni)
+        _process_save_result(
+            defender, "DES", 18, True, False, 30, "4d6", False, "Disintegrazione", self.game_state
+        )
+        self.assertEqual(defender.hp, 40, "Un 20 Naturale sul TS deve avere successo automatico anche sotto la CD")
+
+        # 1 Naturale con totale 25 contro CD 10 -> fallimento automatico (danni pieni)
+        with patch("common.dice.random.randint", return_value=4):
+            _process_save_result(
+                defender, "SAG", 25, False, True, 10, "2d6", False, "Paura Arcana", self.game_state
+            )
+        self.assertEqual(defender.hp, 32, "Un 1 Naturale sul TS deve fallire automaticamente anche sopra la CD")
+
+        # 6. Comando /roll in chat
+        with patch("common.dice.random.randint", return_value=20):
+            handle_chat({"text": "/roll 1d20+4 Percepire"}, attacker, self.game_state)
+
+    def test_ruler_map_scale_and_units(self):
+        """Verifica che il righello e format_distance_hexes tengano conto della scala della mappa (Combattimento, Esplorazione, Mondo, Personalizzata) in ft/mi e m/km."""
+        from common.i18n import get_map_scale_info, format_distance_hexes
+
+        # 1. Scala Combattimento (hex_size=60 o 30) -> 1 hex = 5 ft / 1.5 m
+        combat_map = {"hex_size": 60, "hexes": [[0, 0], [6, 0]]}
+        self.assertEqual(get_map_scale_info(combat_map, "ft")["scale_type"], "combat")
+        self.assertEqual(format_distance_hexes(6, unit="ft", map_data=combat_map), "30 ft")
+        self.assertEqual(format_distance_hexes(6, unit="m", map_data=combat_map), "9 m")
+
+        # 2. Scala Esplorazione / POI (hex_size=35) -> 1 hex = 1 mi / 1.5 km
+        exploration_map = {"hex_size": 35, "hexes": [[0, 0], [3, 0]]}
+        self.assertEqual(get_map_scale_info(exploration_map, "ft")["scale_type"], "exploration")
+        self.assertEqual(format_distance_hexes(3, unit="ft", map_data=exploration_map), "3 mi")
+        self.assertEqual(format_distance_hexes(3, unit="m", map_data=exploration_map), "4.5 km")
+        self.assertIn("[~1h]", format_distance_hexes(3, unit="ft", map_data=exploration_map, include_travel_time=True))
+
+        # 3. Scala Mondo / Regione (hex_size=15, es. faerun.json) -> 1 hex = 6 mi / 9 km
+        world_map = {"hex_size": 15, "hexes": [[0, 0], [4, 0]]}
+        self.assertEqual(get_map_scale_info(world_map, "ft")["scale_type"], "world")
+        self.assertEqual(format_distance_hexes(4, unit="ft", map_data=world_map), "24 mi")
+        self.assertEqual(format_distance_hexes(4, unit="m", map_data=world_map), "36 km")
+        self.assertIn("[~8h]", format_distance_hexes(4, unit="ft", map_data=world_map, include_travel_time=True))
+        # 8 esagoni sul mondo = 48 mi = 2 giorni di marcia (16h / 8h)
+        self.assertIn("2", format_distance_hexes(8, unit="ft", map_data=world_map, include_travel_time=True))
+
+        # 4. Scala Personalizzata esplicita (es. 1 hex = 10 ft -> 3 m)
+        custom_map = {"hex_size": 60, "map_scale_type": "custom", "hex_scale_value": 10, "hex_scale_unit": "ft"}
+        self.assertEqual(format_distance_hexes(4, unit="ft", map_data=custom_map), "40 ft")
+        self.assertEqual(format_distance_hexes(4, unit="m", map_data=custom_map), "12 m")
+
+    def test_turn_economy_combat_and_exploration_rules(self):
+        """Verifica le regole di Economia del Turno in Esplorazione vs Combattimento e la pulizia automatica delle condizioni di turno."""
+        from server.rules.combat import (
+            handle_dash_request, handle_disengage_request,
+            handle_dodge_request, handle_help_request
+        )
+
+        p1 = Player(name="Guerriero")
+        p1.hp = 30
+        p1.max_hp = 30
+        p1.initiative = 18
+        p1.conn = DummySocket()
+
+        p2 = Player(name="Goblin")
+        p2.hp = 15
+        p2.max_hp = 15
+        p2.initiative = 10
+
+        self.game_state.players = [p1, p2]
+
+        # 1. Modalità Esplorazione (combat_active = False): Scatto, Disimpegno, Schivata e Aiuto devono essere bloccati
+        self.game_state.combat_active = False
+        handle_dash_request({}, p1, self.game_state)
+        handle_disengage_request({}, p1, self.game_state)
+        handle_dodge_request({}, p1, self.game_state)
+        handle_help_request({"target_name": "Goblin"}, p1, self.game_state)
+        self.assertEqual(p1.conditions, [], "Fuori dal combattimento non devono essere applicate condizioni tattiche di turno")
+        self.assertEqual(p2.conditions, [], "Fuori dal combattimento Aiuto non deve applicare 'Aiutato'")
+
+        # 2. Avvio Combattimento: Turno 0 è di Guerriero (Iniziativa 18 > 10)
+        self.game_state.start_combat()
+        self.assertTrue(self.game_state.combat_active)
+        self.assertEqual(self.game_state.get_current_turn_player().name, "Guerriero")
+
+        handle_dash_request({}, p1, self.game_state)
+        handle_dodge_request({}, p1, self.game_state)
+        handle_help_request({"target_name": "Goblin"}, p1, self.game_state)
+        self.assertIn("Scatto", p1.conditions)
+        self.assertIn("Schivata", p1.conditions)
+        self.assertIn("Aiutato", p2.conditions)
+
+        # 3. Fine del turno di Guerriero -> passa al turno di Goblin:
+        # 'Scatto' termina a fine turno di Guerriero, mentre 'Schivata' resta attiva durante il turno del Goblin!
+        self.game_state.next_turn()
+        self.assertEqual(self.game_state.get_current_turn_player().name, "Goblin")
+        self.assertNotIn("Scatto", p1.conditions, "Scatto deve scadere alla fine del turno del PG")
+        self.assertIn("Schivata", p1.conditions, "Schivata deve restare attiva durante i turni nemici fino all'inizio del prossimo turno del PG")
+
+        # 4. Fine del turno del Goblin -> torna l'inizio del turno di Guerriero:
+        # 'Schivata' scade automaticamente all'inizio del nuovo turno di Guerriero!
+        self.game_state.next_turn()
+        self.assertEqual(self.game_state.get_current_turn_player().name, "Guerriero")
+        self.assertNotIn("Schivata", p1.conditions, "Schivata deve scadere all'inizio del turno successivo del PG")
+
+        # 5. Fine del Combattimento (end_combat): rimuove tutte le condizioni tattiche temporanee ma preserva quelle persistenti
+        p1.conditions = ["Disimpegno", "Schivata", "Avvelenato"]
+        p1.full_sheet = {"conditions": ["Disimpegno", "Schivata", "Avvelenato"]}
+        self.game_state.end_combat()
+        self.assertFalse(self.game_state.combat_active)
+        self.assertEqual(p1.conditions, ["Avvelenato"], "end_combat deve ripulire Disimpegno e Schivata mantenendo Avvelenato")
+        self.assertEqual(p1.full_sheet["conditions"], ["Avvelenato"])
+        self.assertEqual(p2.conditions, [], "end_combat deve ripulire Aiutato dal bersaglio")
+
 
 if __name__ == "__main__":
     unittest.main()
+
+

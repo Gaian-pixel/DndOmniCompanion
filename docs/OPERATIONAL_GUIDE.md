@@ -1,5 +1,8 @@
 # D&D OmniCompanion — Operational Guide & System Manual
 
+> 🌐 **Language / Lingua**: 🇬🇧 **[English (OPERATIONAL_GUIDE.md)](OPERATIONAL_GUIDE.md)** | 🇮🇹 **[Italiano (GUIDA_OPERATIVA.md)](GUIDA_OPERATIVA.md)**
+> 📖 **Step-by-Step User Guide**: See also the **[Complete User Guide (USER_GUIDE.md)](USER_GUIDE.md)**.
+
 Welcome to the comprehensive operational manual for **D&D OmniCompanion**, a complete Virtual Tabletop (VTT) and campaign companion engine built in Python for Dungeons & Dragons 5th Edition.
 
 ---
@@ -40,8 +43,10 @@ Welcome to the comprehensive operational manual for **D&D OmniCompanion**, a com
    - [Private Whispers](#private-whispers)
    - [Integrated UDP Voice Chat](#integrated-udp-voice-chat)
 8. [Chat Commands & Hotkeys Reference](#8-chat-commands--hotkeys-reference)
-9. [Bilingual Internationalization (IT / EN)](#9-bilingual-internationalization-it--en)
+9. [Bilingual Internationalization (IT / EN) & Distance Units (ft / m)](#9-bilingual-internationalization-it--en--distance-units-ft--m)
 10. [Testing Suite & Quality Assurance](#10-testing-suite--quality-assurance)
+
+> 🇮🇹 **Guida in Italiano**: Consulta anche la **[Guida Completa all'Utilizzo (Italiano)](GUIDA_ALL_UTILIZZO.md)**.
 
 ---
 
@@ -57,7 +62,7 @@ flowchart TD
         S_Rules["Rules Engine (server/rules/*.py)"]
         S_Voice["Voice Server (voice_server.py: UDP 53912)"]
         S_State["GameState (common/game_state.py)"]
-        S_PDF["PDF Manual Indexer (common/manual_indexer.py)"]
+        S_PDF["PDF Manual Indexer (common/pdf_manuals_indexer.py)"]
     end
 
     subgraph Client1["Player Client 1"]
@@ -84,8 +89,8 @@ flowchart TD
 ### Core Subsystems
 * **`common/network_utils.py` & `common/protocol.py`**: Custom binary-length-prefixed framing over TCP socket streams, ensuring zero JSON chunk fragmentation regardless of network latency or payload size.
 * **`common/hex_utils.py`**: Cubic coordinate system ($q, r, s$ where $q + r + s = 0$) for high-precision distance calculations, line of sight (LoS) raycasting, cone projection ($60^\circ / 90^\circ$), spheres, and straight-line AoEs.
-* **`server/rules/`**: Decoupled 5e rule modules isolating combat, movement, character damage/death, chat commands, conditions, and hazards.
-* **`common/i18n.py`**: Real-time bilingual translation dictionary supporting instantaneous language swapping between Italian and English across all GUI components and chat messages.
+* **`server/rules/`**: Decoupled 5e rule modules isolating combat (`combat.py`), movement (`movement.py`), character damage/death (`character.py`), chat commands (`chat.py`), inventory/trading (`inventory.py`), map interactions (`map_interaction.py`), and audio (`audio.py`).
+* **`common/i18n.py`**: Real-time bilingual translation dictionary (`IT`/`EN`), Imperial/Metric unit conversion (`ft`/`mi` $\leftrightarrow$ `m`/`km`), and multi-scale map distance/travel-time calculation.
 
 ---
 
@@ -105,8 +110,8 @@ Execute the unified launcher from the project root:
 python main.py
 ```
 A role selector modal appears:
-1. **Ospita Partita (Dungeon Master)**: Launches the DM Host server on default port `53911` (TCP) and `53912` (UDP) and opens the DM workspace.
-2. **Unisciti alla Partita (Giocatore)**: Launches the Player VTT client, allowing character selection/creation and server connection via IP/hostname.
+1. **Dungeon Master**: Launches the DM Host server on default port `53911` (TCP) and `53912` (UDP) and opens the DM workspace (with Campaign, Campaign Editor, or Quick Session).
+2. **Player**: Launches the Player VTT client, allowing character selection/creation and server connection via IP/hostname.
 
 ---
 
@@ -116,22 +121,30 @@ Both the DM and Player interfaces are built with **ttkbootstrap** in modern dark
 
 | Column | Component | Purpose |
 |---|---|---|
-| **Left Toolbar** | Compact Icon Strip | Context-sensitive map tools (`👆` Select/Center, `📏` Ruler, `💥` Area of Effect, `🚪` Teleport, `☁️` Fog of War, etc.) with tooltips. |
-| **Center Viewport** | `HexMapCanvas` | Infinite zoom & pan interactive hex canvas rendering background maps, dynamic Fog of War, lighting halos, auras, tokens, condition badges, walls, and ruler vectors. |
-| **Right Sidebar** | Tabbed Notebook | Tabs for Chat / Dice Log, Voice Controls, Party & NPC Tracker, Bestiary, Inventory, Spellbook, Audio, and Travel. |
+| **Left Toolbar** | Compact Icon Strip | Context-sensitive map tools (`👆` Select/Center, `📏` Scale-Aware Ruler, `💥` Area of Effect, `📍` Ping, `📖` Rulebooks, `🚪` Teleport, `☁️` Fog of War) with tooltips. |
+| **Center Viewport** | `HexMapCanvas` | Infinite zoom & pan interactive hex canvas with top-center **Initiative Ribbon HUD** during combat, bottom-left **Glassmorphism Zoom/Center HUD**, dynamic Fog of War, lighting halos, auras, tokens, condition badges, walls, and ruler vectors. |
+| **Right Sidebar** | Tabbed Notebook | Tabs for Chat / Dice Log, Voice Controls, Hero Summary Card & Action Economy, Party & NPC Tracker, World & Calendar, Bestiary, and Audio/SFX. |
+
+* **Quick Command Palette (`Ctrl+K`)**: Press `Ctrl+K` at any time to search 5e rules, monsters, spells, map tokens, or execute instant `/roll` commands.
 
 ---
 
 ## 4. Dungeon Master (DM) Operations
 
-### Map Management & Hex Grid
-* **Loading Maps**: Navigate to `File -> Apri Mappa` (or `Open Map`). Supported formats: `.png`, `.jpg`, `.jpeg`.
+### Map Management, Multi-Scale Grid & Scale-Aware Ruler
+* **Loading Maps**: Navigate to `File -> Carica Mappa` (or `Load Map`). Supported formats: `.png`, `.jpg`, `.jpeg`, `.json`.
+* **Multi-Scale Map Engine (DMG p. 14)**:
+  * **Combat Scale** (`hex_size=30` or `60`): $1\text{ hex} = 5\text{ ft}$ ($1.5\text{ m}$).
+  * **Exploration / Province Scale** (`hex_size=35`): $1\text{ hex} = 1\text{ mi}$ ($1.5\text{ km}$, $\sim 20\text{ min}$ marching/hex).
+  * **World / Kingdom Scale** (`hex_size=15`): $1\text{ hex} = 6\text{ mi}$ ($9\text{ km}$, $2\text{ hours}$ marching/hex; $4\text{ hexes} = 1\text{ day}$).
+  * **Custom Scale**: Any custom distance value and unit (`ft`, `m`, `mi`, `km`) per hex.
+  * **Quick Scale Switcher (`📏 Scala`)**: Click the scale pill in the DM top bar to switch the active map's scale on the fly and broadcast it live to all connected players.
 * **Map Editor**: Choose `Strumenti -> Editor Mappe` to configure:
-  * Hex grid radius and offset.
+  * Hex grid radius, offset, and map scale (`map_scale_type`, `hex_scale_value`, `hex_scale_unit`).
   * Static collision walls (blocks movement and Line of Sight).
   * Traps and secret triggers.
   * Teleportation points between different map files.
-  * Pre-placed Points of Interest (POIs).
+  * Pre-placed Points of Interest (POIs) and Light sources.
 
 ### Fog of War, Dynamic Lighting & Line of Sight
 * **Dynamic Fog of War (FoW)**: The canvas automatically conceals unexplored hexes for players.
@@ -201,18 +214,22 @@ Organized in clean tabs:
 * **Spellbook Tab**: Level 1 to 9 spell slots with current/max counters, spell search, and 1-click casting with automatic slot deduction.
 * **Features & Traits**: Racial traits, class privileges, feats, and custom notes.
 
-### Combat Actions & 5e Turn Flow
-When combat starts and your turn arrives:
-1. **Turn Notification**: Visual banner and toast appear ("È IL TUO TURNO!").
-2. **Move**: Click on the destination hex (movement path is validated against remaining speed; Prone condition doubles movement cost).
-3. **Action Menu**: Click `Azione` to choose standard 5e actions:
-   * **Attacco (Attack)**: Select weapon, pick target on map with 1 click.
-   * **Lancia Incantesimo (Cast Spell / AoE)**: Open AoE tool, select template (Sphere, Cone, Line), choose radius/length, and place on hex grid.
-   * **Scatto (Dash)**: Doubles current speed for the turn.
-   * **Disimpegno (Disengage)**: Prevents triggering opportunity attacks during movement.
-   * **Schivata (Dodge)**: Gives attackers disadvantage until the start of your next turn.
-   * **Aiuto (Help)**: Gives an ally advantage on their next attack roll against a nearby enemy.
-4. **End Turn**: Click `Termina Turno` to pass initiative to the next combatant.
+### Combat Actions & Context-Aware 5e Turn Economy
+The Player Action Economy panel automatically adapts to whether combat is active:
+* **Out of Combat (`🧭 Exploration Mode - Free Movement`)**:
+  * Action badges (`⚡ Action`, `✨ Bonus`, `🛡️ Reaction`) remain in `Free (Exploration)` mode and are never locked when moving, attacking, or casting spells outside combat.
+  * The movement bar displays the character's per-move speed (`👟 Speed: 30 ft / 9 m (Free)`).
+* **During Combat (`Turn Economy`)**:
+  1. **Turn Notification**: Visual banner, **Initiative Ribbon HUD** arrow `▼`, and toast appear ("È IL TUO TURNO!"). All turn economy resources reset automatically via `TURN_ECONOMY_UPDATE`.
+  2. **Move**: Click on the destination hex (movement path is validated against remaining speed; Prone condition doubles movement cost).
+  3. **Action Menu**: Click `Azione` to choose standard 5e actions:
+     * **Attacco (Attack)**: Select weapon, pick target on map with 1 click (consumes `⚡ Action`).
+     * **Lancia Incantesimo (Cast Spell / AoE)**: Open AoE tool, select template (Sphere, Cone, Line), choose radius/length, and place on hex grid.
+     * **Scatto (Dash)**: Doubles current speed for the turn (consumes `⚡ Action`).
+     * **Disimpegno (Disengage)**: Prevents triggering opportunity attacks during movement.
+     * **Schivata (Dodge)**: Gives attackers disadvantage until the start of your next turn.
+     * **Aiuto (Help)**: Gives an ally advantage on their next attack roll against a nearby enemy.
+  4. **End Turn**: Click `Termina Turno` to pass initiative to the next combatant.
 
 ### Death Saving Throws Automation
 * If you start your turn at **0 HP**:
@@ -227,6 +244,7 @@ When combat starts and your turn arrives:
 * Real-time weight tracking:
   $$\text{Carrying Capacity} = \text{Strength} \times 15\text{ lbs}$$
 * If total inventory weight exceeds carrying capacity, the weight counter turns red with an **Ingombrato (Encumbered)** warning.
+* **Online DM Approval**: During live connected sessions, adding custom items or requesting gold (`🤝 Request Currency from DM`) sends an approval prompt to the DM (`CURRENCY_REQUEST` / `ITEM_APPROVAL_REQUEST`).
 
 ### Spellbook & Spell Slot Management
 * Add spells using the built-in SRD browser.
@@ -234,8 +252,8 @@ When combat starts and your turn arrives:
 * **Long Rest** restores all spell slots to maximum.
 
 ### Peer-to-Peer Player Trading
-* Open player trade via the context menu.
-* Select items and gold to offer. Both players review the offer and click **Conferma Scambio** to atomically execute the trade without DM intervention.
+* Open player trade via the context menu or inventory tab.
+* Select items and gold to offer to an ally.
 
 ### Hotbar Quick Macros
 * 10 customizable quick slots at the bottom of the player panel.
@@ -251,6 +269,14 @@ When combat starts and your turn arrives:
 ---
 
 ## 6. 5e Mechanics & Automation Engine
+
+### Critical Successes (Natural 20) & Critical Failures (Natural 1)
+The dice engine (`roll_dice_detailed`) inspects all `d20` rolls (including Advantage `2d20kh1` and Disadvantage `2d20kl1`):
+* **Attack Rolls**:
+  * **Natural 20 (`🌟 CRITICO NATURALE 20!`)**: Automatic hit regardless of target AC, automatically doubling all damage dice while adding flat modifiers once.
+  * **Natural 1 (`💀 FALLIMENTO CRITICO!`)**: Automatic miss regardless of attack bonus.
+* **Saving Throws, Skill Checks & Generic `1d20` Rolls**:
+  * Highlights `🌟 20 NATURALE!` (gold) and `💀 1 NATURALE!` (crimson) in the chat log and dispatches a `CRITICAL_ROLL_BROADCAST` toast notification to all connected clients.
 
 ### Advantage & Disadvantage Computation
 The combat engine calculates advantage and disadvantage dynamically based on token states:
@@ -290,7 +316,7 @@ The combat engine calculates advantage and disadvantage dynamically based on tok
 ## 7. Communication & Voice Chat
 
 ### Discord-Styled Rich Chat
-* Formatted message view with timestamps, distinct color tags for DM announcements, combat logs, damage rolls, and player messages.
+* Formatted message view with timestamps, distinct color tags for DM announcements, combat logs, damage rolls, critical rolls, and player messages.
 * Native rich markdown rendering with collapsible dice results.
 
 ### Private Whispers
@@ -323,21 +349,22 @@ The combat engine calculates advantage and disadvantage dynamically based on tok
 
 | Action | Control | Description |
 |---|---|---|
+| **Command Palette** | `Ctrl + K` | Opens universal search for rules, monsters, spells, tokens, and rolls. |
 | **Pan Map** | Right-Click + Drag or Middle-Click + Drag | Smooth canvas viewport navigation. |
 | **Zoom Map** | Mouse Wheel Up / Down | Zooms in/out centered on cursor. |
 | **Move Token** | Left-Click + Drag on Token | Moves active token along valid hex paths. |
-| **Ping Map** | Middle-Click on Hex | Sends animated ping marker to all players. |
-| **Measure Distance** | Click `[ 📏 ]` then Drag | Measures distance in hexes and feet ($5\text{ ft/hex}$). |
-| **Target Select** | Click `[ 👆 ]` then Click Target | Targets token for 1-click attack or spell. |
+| **Ping Map** | Middle-Click on Hex (or `[ 📍 ]`) | Sends animated ping marker to all players. |
+| **Measure Distance** | Click `[ 📏 ]` then Drag | Scale-aware distance in hexes, `ft`/`m` or `mi`/`km` + travel time. |
+| **Target Select** | Click `[ 👆 ]` then Click Target | Centers view / targets token. |
 | **Place AoE** | Click `[ 💥 ]` then Click Origin Hex | Previews and drops spell template. |
 
 ---
 
-## 9. Bilingual Internationalization (IT / EN)
+## 9. Bilingual Internationalization (IT / EN) & Distance Units (ft / m)
 
-D&D OmniCompanion features full live bilingual localization:
-* Switch languages at runtime from the top menu bar (`Lingua / Language -> Italiano / English`) without restarting the server or client.
-* Translates UI controls, menu items, condition badges, skills, abilities, combat toasts, and system messages.
+D&D OmniCompanion features full live bilingual localization and dual measurement systems:
+* **Language (`🌐 Lingua / Language`)**: Switch at runtime between **Italiano 🇮🇹** and **English 🇬🇧** without restarting the server or client.
+* **Distance Units (`📏 Unità di Misura` / `📏 Distance Units`)**: Switch at runtime between **Imperial (`Feet / Miles - ft / mi`)** and **Metric (`Meters / Kilometers - m / km`)**. Automatically converts character speeds, movement bars, map scales, and ruler readouts ($5\text{ ft} = 1.5\text{ m}$).
 
 ---
 
@@ -346,14 +373,17 @@ D&D OmniCompanion features full live bilingual localization:
 The codebase includes automated test suites covering headless unit tests, GUI smoke tests, and full multiplayer simulation:
 
 ```powershell
-# Run the complete 53-phase multiplayer game simulation
+# 1. Run unit tests for recent features (multi-scale ruler, criticals, turn economy, units, whispers, death saves)
+$env:DND_MOCK_AUDIO="1"; python test_new_features.py
+
+# 2. Run UI smoke tests across all 19 server and client windows
+$env:DND_MOCK_AUDIO="1"; python test_ui_smoke.py --no-screens
+
+# 3. Run the complete 53-phase multiplayer game simulation
 $env:DND_MOCK_AUDIO="1"; python simulate_game_session.py
 
-# Run unit tests for recent features (ruler, whispers, death saves, handouts)
-$env:DND_MOCK_AUDIO="1"; python -m unittest test_new_features.py
-
-# Run campaign and UI smoke tests
-$env:DND_MOCK_AUDIO="1"; python -m unittest test_campaign_system.py test_ui_smoke.py
+# 4. Run campaign system tests
+$env:DND_MOCK_AUDIO="1"; python -m unittest test_campaign_system.py
 ```
 
-All 53 phases pass with **0 failures**, validating end-to-end reliability across network sockets, combat mechanics, and graphical rendering.
+All test suites pass with **0 failures**, validating end-to-end reliability across network sockets, combat mechanics, and graphical rendering.

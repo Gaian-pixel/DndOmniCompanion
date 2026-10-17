@@ -109,6 +109,14 @@ def setup_theme(root):
     style.configure('Tool.TButton', font=("Segoe UI", 11), background=SURFACE_COLOR, foreground=TEXT_COLOR, padding=(4, 4))
     style.map('Tool.TButton', background=[('active', SURFACE_COLOR_ALT), ('selected', ACCENT_GOLD)])
 
+    # Bottone Toolbar Attivo (evidenziato in oro quando uno strumento mappa è attivo)
+    style.configure('ToolActive.TButton', font=("Segoe UI", 11, "bold"), background=ACCENT_GOLD, foreground=TEXT_DARK, padding=(4, 4))
+    style.map('ToolActive.TButton', background=[('active', ACCENT_GOLD_LIGHT), ('pressed', ACCENT_GOLD_HOVER)])
+
+    # Bottone Dado Rapido (Quick Roll Pill in chat)
+    style.configure('QuickDie.TButton', font=("Segoe UI", 8, "bold"), background=SURFACE_COLOR_ALT, foreground=ACCENT_GOLD, padding=(4, 2), borderwidth=1)
+    style.map('QuickDie.TButton', background=[('active', ACCENT_GOLD), ('pressed', ACCENT_GOLD_HOVER)], foreground=[('active', TEXT_DARK)])
+
     # Slot Inventario
     style.configure('Slot.TButton', background=SURFACE_COLOR, foreground=TEXT_MUTED, padding=(4, 8), bordercolor=BORDER_COLOR)
     style.map('Slot.TButton', background=[('active', SURFACE_COLOR_ALT)])
@@ -165,6 +173,52 @@ def setup_theme(root):
     root.configure(bg=BG_COLOR)
 
 
-def apply_modern_window_style(win):
-    """Applica lo sfondo e lo stile scuro consistente alle finestre Toplevel."""
-    win.configure(bg=BG_COLOR)
+def apply_modern_window_style(win, bind_escape=True, center_on_parent=True):
+    """
+    Applica lo sfondo scuro consistente e i best pattern UX alle finestre Toplevel:
+    - Chiusura rapida con tasto Esc (per i dialoghi modali Toplevel)
+    - Centratura automatica rispetto alla finestra genitore o allo schermo
+    """
+    try:
+        win.configure(bg=BG_COLOR)
+    except Exception:
+        pass
+
+    if isinstance(win, tk.Toplevel):
+        if bind_escape:
+            try:
+                win.bind("<Escape>", lambda e: win.destroy())
+            except Exception:
+                pass
+        if center_on_parent:
+            def _center():
+                try:
+                    if not win.winfo_exists():
+                        return
+                    win.update_idletasks()
+                    w = win.winfo_width()
+                    h = win.winfo_height()
+                    if w <= 1 or h <= 1:
+                        w = win.winfo_reqwidth()
+                        h = win.winfo_reqheight()
+                    parent = win.master
+                    if parent and parent.winfo_exists() and parent.winfo_width() > 100:
+                        px = parent.winfo_rootx()
+                        py = parent.winfo_rooty()
+                        pw = parent.winfo_width()
+                        ph = parent.winfo_height()
+                        x = max(10, px + (pw - w) // 2)
+                        y = max(10, py + (ph - h) // 2)
+                    else:
+                        sw = win.winfo_screenwidth()
+                        sh = win.winfo_screenheight()
+                        x = max(10, (sw - w) // 2)
+                        y = max(10, (sh - h) // 2)
+                    win.geometry(f"+{x}+{y}")
+                except Exception:
+                    pass
+            try:
+                win.after_idle(_center)
+            except Exception:
+                pass
+

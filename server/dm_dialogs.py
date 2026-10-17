@@ -6,11 +6,14 @@ Decomposti per migliorare la manutenibilità e leggibilità del codice server.
 import tkinter as tk
 from tkinter import ttk, scrolledtext, simpledialog
 from common.messagebox import messagebox
-from common.theme import apply_modern_window_style, TEXT_COLOR
+from common.theme import (
+    apply_modern_window_style, TEXT_COLOR, SURFACE_COLOR, ACCENT_GOLD,
+    FONT_TITLE, FONT_HEADER, FONT_BOLD, FONT_MAIN, FONT_SMALL
+)
 from common.game_state import Player
 from common.protocol import make_handout_broadcast, make_player_joined
 from common.network_utils import broadcast
-from common.i18n import _t, get_language
+from common.i18n import _t, get_language, get_distance_unit
 
 
 class TextHandoutDialog(tk.Toplevel):
@@ -26,19 +29,23 @@ class TextHandoutDialog(tk.Toplevel):
         main_frame = ttk.Frame(self, padding="20")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(main_frame, text=_t("handout_doc_title", default="Titolo del Documento:"), font=("Helvetica", 12, "bold")).pack(anchor=tk.W, pady=(0, 5))
-        self.title_entry = ttk.Entry(main_frame, font=("Helvetica", 12))
+        ttk.Label(main_frame, text=_t("handout_doc_title", default="Titolo del Documento:"), font=FONT_HEADER).pack(anchor=tk.W, pady=(0, 5))
+        self.title_entry = ttk.Entry(main_frame, font=FONT_MAIN)
         self.title_entry.pack(fill=tk.X, pady=(0, 15))
 
-        ttk.Label(main_frame, text=_t("handout_doc_text", default="Testo da mostrare ai giocatori:"), font=("Helvetica", 12, "bold")).pack(anchor=tk.W, pady=(0, 5))
-        self.content_text = scrolledtext.ScrolledText(main_frame, font=("Helvetica", 11), wrap=tk.WORD, height=10)
+        ttk.Label(main_frame, text=_t("handout_doc_text", default="Testo da mostrare ai giocatori:"), font=FONT_HEADER).pack(anchor=tk.W, pady=(0, 5))
+        self.content_text = scrolledtext.ScrolledText(
+            main_frame, font=FONT_MAIN, wrap=tk.WORD, height=10,
+            bg=SURFACE_COLOR, fg=TEXT_COLOR, insertbackground=ACCENT_GOLD
+        )
         self.content_text.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
 
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(fill=tk.X)
-        ttk.Button(btn_frame, text=_t("btn_send_to_players", default="Invia ai Giocatori"), style="Success.TButton", command=self.on_share).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(btn_frame, text=_t("btn_send_to_players", default="Invia ai Giocatori (Ctrl+Invio)"), style="Success.TButton", command=self.on_share).pack(side=tk.RIGHT, padx=5)
         ttk.Button(btn_frame, text=_t("cancel", default="Annulla"), command=self.destroy).pack(side=tk.RIGHT)
 
+        self.bind("<Control-Return>", lambda e: self.on_share())
         self.title_entry.focus_set()
 
     def on_share(self):
@@ -69,8 +76,8 @@ class CustomNPCDialog(tk.Toplevel):
         main_frame = ttk.Frame(self, padding="20")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(main_frame, text=_t("custom_npc_name", default="Nome del PNG/Mostro:"), font=("Helvetica", 12, "bold")).pack(anchor=tk.W, pady=(0, 5))
-        self.name_entry = ttk.Entry(main_frame, font=("Helvetica", 12))
+        ttk.Label(main_frame, text=_t("custom_npc_name", default="Nome del PNG/Mostro:"), font=FONT_HEADER).pack(anchor=tk.W, pady=(0, 5))
+        self.name_entry = ttk.Entry(main_frame, font=FONT_MAIN)
         self.name_entry.pack(fill=tk.X, pady=(0, 15))
 
         grid_frame = ttk.Frame(main_frame)
@@ -78,35 +85,41 @@ class CustomNPCDialog(tk.Toplevel):
         grid_frame.columnconfigure(1, weight=1)
         grid_frame.columnconfigure(3, weight=1)
 
-        ttk.Label(grid_frame, text=_t("custom_npc_hp", default="HP Massimi:"), font=("Helvetica", 11)).grid(row=0, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.hp_entry = ttk.Entry(grid_frame, font=("Helvetica", 11), width=10)
+        ttk.Label(grid_frame, text=_t("custom_npc_hp", default="HP Massimi:"), font=FONT_BOLD).grid(row=0, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        self.hp_entry = ttk.Entry(grid_frame, font=FONT_MAIN, width=10)
         self.hp_entry.insert(0, "10")
         self.hp_entry.grid(row=0, column=1, pady=5, sticky=tk.W)
 
-        ttk.Label(grid_frame, text=_t("custom_npc_init", default="Iniziativa:"), font=("Helvetica", 11)).grid(row=0, column=2, padx=(20, 10), pady=5, sticky=tk.W)
-        self.init_entry = ttk.Entry(grid_frame, font=("Helvetica", 11), width=10)
+        ttk.Label(grid_frame, text=_t("custom_npc_init", default="Iniziativa:"), font=FONT_BOLD).grid(row=0, column=2, padx=(20, 10), pady=5, sticky=tk.W)
+        self.init_entry = ttk.Entry(grid_frame, font=FONT_MAIN, width=10)
         self.init_entry.insert(0, "0")
         self.init_entry.grid(row=0, column=3, pady=5, sticky=tk.W)
 
-        ttk.Label(grid_frame, text=_t("custom_npc_ac", default="Classe Armatura (CA):"), font=("Helvetica", 11)).grid(row=1, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.ac_entry = ttk.Entry(grid_frame, font=("Helvetica", 11), width=10)
+        ttk.Label(grid_frame, text=_t("custom_npc_ac", default="Classe Armatura (CA):"), font=FONT_BOLD).grid(row=1, column=0, padx=(0, 10), pady=5, sticky=tk.W)
+        self.ac_entry = ttk.Entry(grid_frame, font=FONT_MAIN, width=10)
         self.ac_entry.insert(0, "10")
         self.ac_entry.grid(row=1, column=1, pady=5, sticky=tk.W)
 
-        ttk.Label(grid_frame, text=_t("custom_npc_speed", default="Velocità (ft):"), font=("Helvetica", 11)).grid(row=1, column=2, padx=(20, 10), pady=5, sticky=tk.W)
-        self.speed_entry = ttk.Entry(grid_frame, font=("Helvetica", 11), width=10)
-        self.speed_entry.insert(0, "30")
+        dist_unit = get_distance_unit()
+        default_speed = "9" if dist_unit == "m" else "30"
+        ttk.Label(grid_frame, text=f"Velocità ({dist_unit}):", font=FONT_BOLD).grid(row=1, column=2, padx=(20, 10), pady=5, sticky=tk.W)
+        self.speed_entry = ttk.Entry(grid_frame, font=FONT_MAIN, width=10)
+        self.speed_entry.insert(0, default_speed)
         self.speed_entry.grid(row=1, column=3, pady=5, sticky=tk.W)
 
-        ttk.Label(main_frame, text=_t("custom_npc_notes", default="Note/Descrizione (opzionale):"), font=("Helvetica", 11, "bold")).pack(anchor=tk.W, pady=(0, 5))
-        self.notes_text = scrolledtext.ScrolledText(main_frame, font=("Helvetica", 11), height=5, wrap=tk.WORD)
+        ttk.Label(main_frame, text=_t("custom_npc_notes", default="Note/Descrizione (opzionale):"), font=FONT_BOLD).pack(anchor=tk.W, pady=(0, 5))
+        self.notes_text = scrolledtext.ScrolledText(
+            main_frame, font=FONT_MAIN, height=5, wrap=tk.WORD,
+            bg=SURFACE_COLOR, fg=TEXT_COLOR, insertbackground=ACCENT_GOLD
+        )
         self.notes_text.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
 
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(fill=tk.X)
-        ttk.Button(btn_frame, text=_t("save", default="Salva"), style="Success.TButton", command=self.on_save).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(btn_frame, text=_t("save", default="Salva (Ctrl+Invio)"), style="Success.TButton", command=self.on_save).pack(side=tk.RIGHT, padx=5)
         ttk.Button(btn_frame, text=_t("cancel", default="Annulla"), command=self.destroy).pack(side=tk.RIGHT)
 
+        self.bind("<Control-Return>", lambda e: self.on_save())
         self.name_entry.focus_set()
 
     def on_save(self):
@@ -122,9 +135,10 @@ class CustomNPCDialog(tk.Toplevel):
             hp = int(self.hp_entry.get() or 10)
             init = int(self.init_entry.get() or 0)
             ac = int(self.ac_entry.get() or 10)
-            speed = int(self.speed_entry.get() or 30)
+            raw_spd = float((self.speed_entry.get() or "30").replace(",", "."))
+            speed = int(raw_spd) if raw_spd == int(raw_spd) else round(raw_spd, 1)
         except ValueError:
-            messagebox.showerror(_t("error", default="Errore"), _t("msg_stat_integer", default="I valori statistici devono essere numeri interi."), parent=self)
+            messagebox.showerror(_t("error", default="Errore"), _t("msg_stat_integer", default="I valori statistici devono essere numeri validi."), parent=self)
             return
 
         npc = Player(name, None, None)
@@ -135,6 +149,7 @@ class CustomNPCDialog(tk.Toplevel):
         
         npc.full_sheet = {
             "ac": ac,
+            "speed_unit": get_distance_unit(),
             "notes": self.notes_text.get("1.0", tk.END).strip()
         }
 
@@ -160,16 +175,16 @@ class DMPlayerSheetViewer(tk.Toplevel):
         header_card = ttk.LabelFrame(main_frame, text=_t("general_info", default="Informazioni Generali"), padding="10")
         header_card.pack(fill=tk.X, pady=(0, 10))
 
-        ttk.Label(header_card, text=sheet.get("name", player_name), font=("Helvetica", 14, "bold")).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 5))
+        ttk.Label(header_card, text=sheet.get("name", player_name), font=FONT_TITLE).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 5))
         
-        ttk.Label(header_card, text=_t("lbl_class", default="Classe:"), font=("Helvetica", 10, "bold")).grid(row=1, column=0, sticky="w", padx=(0, 5))
+        ttk.Label(header_card, text=_t("lbl_class", default="Classe:"), font=FONT_BOLD).grid(row=1, column=0, sticky="w", padx=(0, 5))
         ttk.Label(header_card, text=f"{sheet.get('char_class', '-')} (Lvl {sheet.get('level', 1)})").grid(row=1, column=1, sticky="w", padx=(0, 20))
-        ttk.Label(header_card, text=_t("lbl_race", default="Razza:"), font=("Helvetica", 10, "bold")).grid(row=1, column=2, sticky="w", padx=(0, 5))
+        ttk.Label(header_card, text=_t("lbl_race", default="Razza:"), font=FONT_BOLD).grid(row=1, column=2, sticky="w", padx=(0, 5))
         ttk.Label(header_card, text=f"{sheet.get('race', '-')}").grid(row=1, column=3, sticky="w")
 
-        ttk.Label(header_card, text=_t("lbl_alignment", default="Allineamento:"), font=("Helvetica", 10, "bold")).grid(row=2, column=0, sticky="w", padx=(0, 5), pady=(4, 0))
+        ttk.Label(header_card, text=_t("lbl_alignment", default="Allineamento:"), font=FONT_BOLD).grid(row=2, column=0, sticky="w", padx=(0, 5), pady=(4, 0))
         ttk.Label(header_card, text=f"{sheet.get('alignment', '-')}").grid(row=2, column=1, sticky="w", padx=(0, 20), pady=(4, 0))
-        ttk.Label(header_card, text=_t("lbl_background", default="Background:"), font=("Helvetica", 10, "bold")).grid(row=2, column=2, sticky="w", padx=(0, 5), pady=(4, 0))
+        ttk.Label(header_card, text=_t("lbl_background", default="Background:"), font=FONT_BOLD).grid(row=2, column=2, sticky="w", padx=(0, 5), pady=(4, 0))
         ttk.Label(header_card, text=f"{sheet.get('background', '-')}").grid(row=2, column=3, sticky="w", pady=(4, 0))
 
         # 2. Notebook a Schede Tabellari
@@ -188,17 +203,21 @@ class DMPlayerSheetViewer(tk.Toplevel):
         ac = sheet.get("ac", 10)
         init = sheet.get("initiative", 0)
         speed = sheet.get("speed", 30)
+        try:
+            speed_unit = sheet.get("speed_unit") or ("m" if float(speed) <= 18 else "ft")
+        except (ValueError, TypeError):
+            speed_unit = "ft"
 
         for col, (label, val) in enumerate([
             (_t("hit_points", default="Punti Ferita (HP)"), f"{hp_cur} / {hp_max}"),
             (_t("armor_class", default="Classe Armatura (CA)"), str(ac)),
             (_t("initiative", default="Iniziativa"), f"{'+' if init >= 0 else ''}{init}"),
-            (_t("speed", default="Velocità"), f"{speed} ft.")
+            (_t("speed", default="Velocità"), f"{speed} {speed_unit}")
         ]):
             box = ttk.Frame(vital_frame, relief="ridge", padding="8")
             box.pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=5)
-            ttk.Label(box, text=label, font=("Helvetica", 9), anchor="center").pack()
-            ttk.Label(box, text=val, font=("Helvetica", 13, "bold"), anchor="center").pack(pady=2)
+            ttk.Label(box, text=label, font=FONT_SMALL, anchor="center").pack()
+            ttk.Label(box, text=val, font=FONT_HEADER, anchor="center").pack(pady=2)
 
         attr_frame = ttk.LabelFrame(tab_stats, text=_t("ability_scores", default="Punteggi di Caratteristica"), padding="10")
         attr_frame.pack(fill=tk.BOTH, expand=True)
@@ -284,8 +303,8 @@ class DMPlayerSheetViewer(tk.Toplevel):
         for c_key, c_name in currency_labels:
             c_box = ttk.Frame(curr_frame, padding="5")
             c_box.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
-            ttk.Label(c_box, text=c_name, font=("Helvetica", 9)).pack()
-            ttk.Label(c_box, text=str(currency.get(c_key, 0)), font=("Helvetica", 11, "bold"), foreground="#FFD700" if c_key=="MO" else TEXT_COLOR).pack()
+            ttk.Label(c_box, text=c_name, font=FONT_SMALL).pack()
+            ttk.Label(c_box, text=str(currency.get(c_key, 0)), font=FONT_BOLD, foreground=ACCENT_GOLD if c_key=="MO" else TEXT_COLOR).pack()
 
         # Tab 3: Grimorio & Incantesimi (Tabella)
         tab_spells = ttk.Frame(nb, padding="10")
@@ -307,8 +326,8 @@ class DMPlayerSheetViewer(tk.Toplevel):
                     m, c = 0, 0
                 s_box = ttk.Frame(slots_frame, padding="4")
                 s_box.pack(side=tk.LEFT, expand=True)
-                ttk.Label(s_box, text=f"Lvl {i}", font=("Helvetica", 8)).pack()
-                ttk.Label(s_box, text=f"{c}/{m}", font=("Helvetica", 10, "bold")).pack()
+                ttk.Label(s_box, text=f"Lvl {i}", font=FONT_SMALL).pack()
+                ttk.Label(s_box, text=f"{c}/{m}", font=FONT_BOLD).pack()
 
         spells_tree_frame = ttk.Frame(tab_spells)
         spells_tree_frame.pack(fill=tk.BOTH, expand=True)
@@ -345,20 +364,26 @@ class DMPlayerSheetViewer(tk.Toplevel):
                     ))
         raw_spells = sheet.get("spells")
         if raw_spells and isinstance(raw_spells, str) and not spellbook:
-            spells_tree.insert("", tk.END, values(("-", _t("text_spells", default="Incantesimi Testuali"), "-", "-", raw_spells)))
+            spells_tree.insert("", tk.END, values=("-", _t("text_spells", default="Incantesimi Testuali"), "-", "-", raw_spells))
 
         # Tab 4: Privilegi & Note
         tab_notes = ttk.Frame(nb, padding="10")
         nb.add(tab_notes, text=_t("tab_features_notes", default="📜 Privilegi & Note"))
 
-        ttk.Label(tab_notes, text=_t("features_traits", default="Tratti e Privilegi:"), font=("Helvetica", 11, "bold")).pack(anchor=tk.W, pady=(0, 2))
-        features_txt = scrolledtext.ScrolledText(tab_notes, height=8, wrap=tk.WORD, font=("Helvetica", 10))
+        ttk.Label(tab_notes, text=_t("features_traits", default="Tratti e Privilegi:"), font=FONT_BOLD).pack(anchor=tk.W, pady=(0, 2))
+        features_txt = scrolledtext.ScrolledText(
+            tab_notes, height=8, wrap=tk.WORD, font=FONT_MAIN,
+            bg=SURFACE_COLOR, fg=TEXT_COLOR
+        )
         features_txt.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
         features_txt.insert("1.0", sheet.get("features", _t("no_features_registered", default="Nessun tratto speciale registrato.")))
         features_txt.config(state="disabled")
 
-        ttk.Label(tab_notes, text=_t("notes_background", default="Note e Background:"), font=("Helvetica", 11, "bold")).pack(anchor=tk.W, pady=(0, 2))
-        notes_txt = scrolledtext.ScrolledText(tab_notes, height=6, wrap=tk.WORD, font=("Helvetica", 10))
+        ttk.Label(tab_notes, text=_t("notes_background", default="Note e Background:"), font=FONT_BOLD).pack(anchor=tk.W, pady=(0, 2))
+        notes_txt = scrolledtext.ScrolledText(
+            tab_notes, height=6, wrap=tk.WORD, font=FONT_MAIN,
+            bg=SURFACE_COLOR, fg=TEXT_COLOR
+        )
         notes_txt.pack(fill=tk.BOTH, expand=True)
         notes_txt.insert("1.0", sheet.get("notes", _t("no_notes_present", default="Nessuna nota presente.")))
         notes_txt.config(state="disabled")
@@ -386,7 +411,7 @@ class CampaignStarterKitDialog(tk.Toplevel):
         main_frame = ttk.Frame(self, padding="15")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(main_frame, text=_t("starter_kit_header", default="Equipaggiamento Iniziale della Campagna"), font=("Helvetica", 13, "bold")).pack(anchor=tk.W, pady=(0, 5))
+        ttk.Label(main_frame, text=_t("starter_kit_header", default="Equipaggiamento Iniziale della Campagna"), font=FONT_HEADER).pack(anchor=tk.W, pady=(0, 5))
         ttk.Label(main_frame, text=_t("starter_kit_desc", default="I nuovi PG riceveranno automaticamente questi oggetti al loro primo login in questa campagna:"), 
                   wraplength=600).pack(anchor=tk.W, pady=(0, 10))
 

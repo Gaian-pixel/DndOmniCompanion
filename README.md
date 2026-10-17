@@ -1,173 +1,203 @@
 # D&D OmniCompanion 🐉🎲
 
+> 🌐 **Language / Lingua**: 🇬🇧 **[English (README.md)](README.md)** | 🇮🇹 **[Italiano (README_IT.md)](README_IT.md)**
+
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![Ruleset: D&D 5e](https://img.shields.io/badge/ruleset-D%26D%205e-red.svg)](https://dnd.wizards.com/)
 [![UI: ttkbootstrap](https://img.shields.io/badge/ui-ttkbootstrap-orange.svg)](https://ttkbootstrap.readthedocs.io/)
 [![Multiplayer: TCP/UDP](https://img.shields.io/badge/networking-TCP%20%2B%20UDP-green.svg)]()
-[![Tests: 53/53 Passed](https://img.shields.io/badge/tests-53%2F53%20passed-brightgreen.svg)]()
+[![Tests: Passing](https://img.shields.io/badge/tests-100%25%20passing-brightgreen.svg)]()
 [![Localization: EN / IT](https://img.shields.io/badge/i18n-English%20%7C%20Italiano-blueviolet.svg)]()
+[![Units: Imperial / Metric](https://img.shields.io/badge/units-ft%2Fmi%20%7C%20m%2Fkm-informational.svg)]()
 
-**D&D OmniCompanion** is an all-in-one Client-Server Virtual Tabletop (VTT) and Campaign Management Engine developed in Python. Designed for both in-person table sessions and remote online play, it bridges the gap between digital convenience and authentic tabletop roleplaying by providing automated D&D 5th Edition rules mechanics, a high-performance hex map canvas, real-time voice streaming, and an extensive DM suite.
+**D&D OmniCompanion** is an all-in-one Client-Server Virtual Tabletop (VTT) and Campaign Management Engine for **Dungeons & Dragons 5th Edition**, developed in Python. Designed for both in-person table sessions and remote online play, it combines automated D&D 5e rules mechanics, a high-performance multi-scale hex map canvas, real-time UDP voice streaming, and a comprehensive Dungeon Master suite.
 
-📖 **For in-depth operational walkthroughs and system architecture, check the [Operational Guide & System Manual](docs/OPERATIONAL_GUIDE.md).**
+---
+
+## 📚 Documentation & Guides
+
+| Document | 🇬🇧 English Version | 🇮🇹 Versione Italiana |
+|---|---|---|
+| **Main README** | [README.md](README.md) | [README_IT.md](README_IT.md) |
+| **User Guide (How-To Manual)** | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | [docs/GUIDA_ALL_UTILIZZO.md](docs/GUIDA_ALL_UTILIZZO.md) |
+| **Operational Guide & System Architecture** | [docs/OPERATIONAL_GUIDE.md](docs/OPERATIONAL_GUIDE.md) | [docs/GUIDA_OPERATIVA.md](docs/GUIDA_OPERATIVA.md) |
+| **Custom Campaign / Homebrew Rules** | [manuals/Custom_Campaign_Rules.md](manuals/Custom_Campaign_Rules.md) | [manuals/Regole_Personalizzate_Campagna.md](manuals/Regole_Personalizzate_Campagna.md) |
 
 ---
 
 ## 🌟 Key Highlights
 
-### 🗺️ Interactive Hex Virtual Tabletop (VTT)
-* **Smooth Navigation**: Infinite canvas with responsive mouse-wheel zoom and middle/right-click panning.
-* **Dynamic Fog of War (FoW) & Vision**: Token-based exploration with shared party vision and customizable darkvision radii (`/vision`).
-* **True Line of Sight (LoS)**: Hex-based raycasting prevents X-ray vision through collision walls.
-* **Dynamic Lighting**: Torches, lanterns, and magical halos cast live light rings that update in real-time as tokens move.
-* **Dynamic Ruler Tool (`[ 📏 ]`)**: Measure ranges in hexes and feet ($5\text{ ft/hex}$) interactively on the canvas.
-* **AoE Spells & Templates (`[ 💥 ]`)**: Place 5e spell templates (Spheres, Cones, Lines) with preview outlines and one-click casting.
-* **Live Ping Marker**: Middle-click anywhere on the map to drop an animated broadcast ping for the entire party.
-* **Token Condition Badges**: Visual status indicators rendered directly on tokens (`💀` Dead, `💤` Unconscious, `🔻` Prone, `⚡` Paralyzed, `🛡️` Dodge, `🤝` Help, `🤢` Poisoned, `👁️` Blinded, `🕯️` Concentration).
+### 🗺️ Multi-Scale Hex Virtual Tabletop (VTT)
+* **Smooth Navigation & Modern HUDs**: Infinite canvas with cursor-centered mouse-wheel zoom, right/middle-click panning, a bottom-left **Glassmorphism HUD** for quick zoom/recentering, and a top-center **Initiative Ribbon HUD** during combat.
+* **Multi-Scale Map System (DMG p. 14) & Scale-Aware Ruler (`[ 📏 ]`)**:
+  * Supports 4 map scales switchable in real time by the DM (`📏 Scale`):
+    * **Combat**: $1\text{ hex} = 5\text{ ft}$ ($1.5\text{ m}$).
+    * **Exploration / Province (POI)**: $1\text{ hex} = 1\text{ mi}$ ($1.5\text{ km}$) with marching travel-time estimation ($\sim 20\text{ min/hex}$).
+    * **World / Kingdom**: $1\text{ hex} = 6\text{ mi}$ ($9\text{ km}$) with overland travel-time estimation ($2\text{ h/hex}$, $4\text{ hexes} = 1\text{ day}$).
+    * **Custom Scale**: Configurable value and unit (`ft`, `m`, `mi`, `km`) per map.
+  * The **Ruler (`[ 📏 ]`)** automatically computes distances according to the active map scale and the user's selected measurement system, displaying estimated travel times on exploration and world maps.
+* **Dual Distance Unit System (`📏 Distance Units`)**: Instant runtime switching between **Imperial (`Feet / Miles - ft / mi`)** and **Metric (`Meters / Kilometers - m / km`)**, automatically converting character speed badges, movement bars, ruler readouts, and ranges.
+* **Dynamic Fog of War (FoW) & Line of Sight (LoS)**: Token-based exploration with shared party vision, customizable darkvision radii (`/vision`), and hex raycasting that blocks sight through collision walls.
+* **Dynamic Lighting & Auras**: Torches, lanterns, light spells, and magical auras project live rings on the canvas as tokens move.
+* **AoE Spells & Templates (`[ 💥 ]`)**: Spheres, Cones ($60^\circ / 90^\circ$), and Lines with geometric hex previews and 1-click casting.
+* **Animated Map Ping**: Middle-click (or `[ 📍 ]` tool) to drop an animated broadcast marker for all connected players.
+* **Token Condition Badges**: Visual status indicators rendered directly on tokens (`💀` Dead, `💤` Unconscious, `🔻` Prone, `⚡` Paralyzed/Concentration, `🛡️` Dodge, `🤝` Help, `🤢` Poisoned, `👁️` Blinded, etc.).
 
-### ⚔️ 5e Combat & Rules Automation Engine
-* **Initiative Tracker**: Sorts turns seamlessly, highlights active combatants with a gold aura, and posts non-blocking turn notifications.
-* **Mass Monster Initiative**: The DM can roll initiative for all combat monsters with 1 click.
-* **5e Action Economy**: Dedicated buttons for standard actions: **Attack**, **Cast Spell**, **Dash** (doubles speed), **Disengage** (prevents opportunity attacks), **Dodge** (grants attackers disadvantage), and **Help** (grants ally advantage).
-* **Automated Opportunity Attacks**: Senses when a combatant exits hostile melee reach and prompts opportunity strikes.
-* **Dynamic Advantage / Disadvantage**: Calculated automatically based on visibility, prone state (melee vs. ranged), paralysis, blindness, and dodge.
-* **Cover Calculation**: Intervening obstacles or creatures grant $+2\text{ AC}$ (Half Cover) along the attack trajectory.
-* **Concentration Checks**: Taking damage prompts an automated Constitution saving throw ($\text{DC} = \max(10, \lfloor\text{dmg}/2\rfloor)$).
-* **Death Saves Automation**: Prompts death saving throws at 0 HP. Handles Natural 20 (revives at 1 HP), Natural 1 (2 failures), 3 successes (Stabilized), and 3 failures (Dead).
-* **Boss Mechanics**: Legendary Resistances (3/day) and Legendary Actions with automatic round resets.
+### ⚔️ D&D 5e Combat Engine & Context-Aware Turn Economy
+* **Context-Aware Turn Economy (Exploration vs. Combat)**:
+  * **Out of Combat (`🧭 Exploration Mode - Free Movement`)**: Players move, attack, and cast spells freely without consuming or locking turn badges; the movement bar displays per-move speed.
+  * **In Combat (`Turn Economy`)**: Strict server-synchronized tracking of **⚡ Action**, **✨ Bonus Action**, **🛡️ Reaction**, and **👟 Movement**, resetting automatically at the start of the combatant's turn and when combat starts or ends.
+* **Critical Successes (`🌟 Natural 20`) & Critical Failures (`💀 Natural 1`)**:
+  * **Attack Rolls**: `Natural 20` is an automatic hit that automatically doubles all damage dice; `Natural 1` is an automatic miss.
+  * **Saving Throws, Ability/Skill Checks & `1d20` Rolls**: Gold/crimson chat banners and broadcast Toast notifications (`CRITICAL_ROLL_BROADCAST`) across all connected clients.
+* **Dynamic Advantage, Disadvantage & Cover**: Automatically computed from conditions (Invisible, Prone in melee vs. ranged, Blinded, Paralyzed, Dodge, Help) and intervening obstacles (+2 AC for Half Cover).
+* **Automated Opportunity Attacks**: Detects when a combatant leaves hostile melee reach without having taken the *Disengage* action.
+* **Automated Concentration Checks**: Taking damage while concentrating automatically prompts a Constitution saving throw ($\text{DC} = \max(10, \lfloor\text{Damage}/2\rfloor)$).
+* **Death Saves & Instant Death**: Complete 0 HP handling (`Natural 20` = revive at 1 HP, `Natural 1` = 2 failures, 3 successes = Stabilized, 3 failures or excess damage $\ge \text{Max HP}$ = Instant Death).
+* **Boss Mechanics**: Legendary Actions and Legendary Resistances with automatic round resets.
 
-### 🧙‍♂️ Character Creation & Progression
-* **Baldur's Gate Styled Wizard**: Guided Level 1 character creation and Level-Up progression.
-* **SRD & API Integration**: Pulls class features, spell lists, and Hit Dice automatically from the 5e SRD.
-* **Interactive Character Sheet**: Full management of ability scores, skills, saving throws, inventory with weight encumbrance ($\text{STR} \times 15\text{ lbs}$), spellbook slots (levels 1–9), and Hit Dice recovery.
-* **Hotbar Quick Macros**: 10 customizable quick slots for 1-click rolls, attacks, and chat commands.
-* **Peer-to-Peer Trading**: Real-time item and gold exchange between players.
+### 🧙‍♂️ Character Creation, Sheet & Progression
+* **Baldur's Gate Styled Wizard**: Guided Level 1 creation and Level-Up wizard with automatic SRD 5e class features, Hit Dice, and spell slot progression.
+* **Hero Summary Card & Interactive Character Sheet**:
+  * Always-visible sidebar summary card with responsive HP bar, AC, converted Speed (`ft` or `m`), and Initiative.
+  * Full tabbed sheet: **Combat**, **Stats & Skills** (with Proficiency & Expertise $2\times\text{PB}$), **Weapons & Attacks**, **Inventory & Encumbrance** ($\text{STR} \times 15\text{ lbs}$), **Spellbook & Spell Slots (1–9)**, **Features & Journal**.
+* **Online Anti-Cheat & DM Approval**: During live connected sessions, requesting currency (`🤝 Request Currency from DM`) or adding custom items sends an approval request to the DM.
+* **Peer-to-Peer Trading & Macro Hotbar**: Direct item/gold transfers between allies and a 10-slot customizable quick macro bar.
 
 ### 📜 Dungeon Master Operations Suite
-* **Live DMG p. 82 Encounter Balancer**: Real-time evaluation of encounter difficulty (**Trivial**, **Easy**, **Medium**, **Hard**, **Deadly**) with monster multiplier XP adjustments.
-* **Document & Clue Handouts**: Broadcast letters, clues, and map fragments with an immersive parchment modal (`Strumenti -> Condividi Documento`).
-* **Campaign & Scene Manager**: Pre-build scenes with linked maps and monsters for instantaneous deployment during sessions.
-* **Offline PDF Rulebook & Monster Indexer**: Fast keyword and monster lookup directly from official 5e PDF rulebooks with page citations.
-* **Overland Travel & Survival Engine**: Marching orders (Front, Middle, Rear), travel roles (Scout, Navigator, Forager), water/ration tracking, and forced march Constitution saving throws.
-* **Party Loot Splitter**: Divides discovered gold pieces evenly across party members with 1 click.
-* **Soundboard & Atmosphere**: Broadcast battle music, tavern ambiance, and sound effects to all players.
-
-### 💬 Discord-Styled Chat & Real-Time Voice
-* **Rich Markdown Chat**: Colored speaker names, timestamps, formatted dice results, and system broadcasts.
-* **Private Whispers**: Encrypted in-character whispers (`/w <name> <message>`, `/whisper`, `/sussurra`).
-* **Low-Latency Voice Chat**: UDP-based real-time voice streaming with mute and deafen toggles built right into the interface.
-
-### 🌐 Live Bilingual Localization
-* Instant runtime switching between **Italian** and **English** (`Lingua / Language`) without restarting the client or server.
+* **Live DMG p. 82 Encounter Balancer**: Real-time evaluation of encounter difficulty (**Trivial**, **Easy**, **Medium**, **Hard**, **Deadly**) with monster count XP multipliers.
+* **Campaigns, Scenes & Starter Pack Manager**: Prepare acts, scenes linked to maps/monsters for 1-click deployment, and configure starting equipment automatically granted to new PCs.
+* **Procedural Generators & Handouts**: 5e Loot Generator, Quick NPC Generator, and parchment document/image handouts.
+* **Offline PDF Rulebooks & Command Palette (`Ctrl+K`)**: Instant search across indexed official 5e PDF rulebooks, rules, monsters, spells, and map tokens.
+* **Overland Travel, Calendar, Weather, Shops & Quests**: Marching order, travel roles, rations/water, forced march saves, interactive fantasy calendar, merchant shops, and quest logs.
+* **Soundboard & Integrated UDP Voice Chat**: Low-latency voice streaming with Mute/Deafen controls (`[ 🎤 ]` / `[ 🎧 ]`) and synchronized audio soundboard.
 
 ---
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-* **Python 3.9 or higher** (Python 3.9 – 3.14 supported)
-* Install dependencies via `pip`:
+* **Python 3.9 or higher** (compatible up to Python 3.14)
+* Install dependencies:
   ```bash
   pip install pillow ttkbootstrap requests sounddevice numpy
   ```
 
 ### Launching the Application
-Run the unified main launcher:
+Run the unified launcher from the project root:
 ```bash
 python main.py
 ```
-A startup launcher will appear:
-1. **Ospita Partita (Dungeon Master)**: Starts the TCP/UDP server on port `53911`/`53912` and opens the DM Dashboard.
-2. **Unisciti alla Partita (Giocatore)**: Launches the Player VTT client to connect to the host's IP address.
+From the startup launcher choose:
+1. **Dungeon Master**: Starts the TCP server (`53911`) and UDP Voice server (`53912`) and opens the DM Dashboard (with campaign, campaign editor, or quick session).
+2. **Player**: Launches the Player VTT client to manage characters and connect to the Dungeon Master's IP address.
 
 ---
 
-## 🎮 Controls & Shortcuts
+## 🎮 Quick Controls & Shortcuts
 
-### Canvas Controls
-| Input | Action |
+### Map Canvas Controls
+| Input / Tool | Action |
 |---|---|
-| **Right-Click / Middle-Click + Drag** | Pan the map canvas |
+| **Right-Click / Middle-Click + Drag** | Pan the map viewport |
 | **Mouse Wheel Up / Down** | Zoom in / out centered on cursor |
-| **Left-Click + Drag on Token** | Move active token along valid hex paths |
-| **Middle-Click on Hex** | Drop visual Ping indicator for all players |
-| **`[ 📏 ]` Button + Drag** | Measure distances in hexes and feet |
-| **`[ 👆 ]` Button + Click** | Select and center on token / set target |
-| **`[ 💥 ]` Button + Click** | Deploy AoE spell template |
+| **Left-Click on Hex / Drag Token** | Move active token along valid hex paths |
+| **Middle-Click on Hex** (or `[ 📍 ]`) | Send animated **Ping** visible to all players |
+| **`[ 📏 ]` Tool + Drag** | Measure distance in hexes, `ft`/`m` or `mi`/`km` + travel time |
+| **`[ 💥 ]` Tool + Click** | Place Area of Effect template (Sphere, Cone, Line) |
+| **`[ 👆 ]` Tool** | Select / Center camera on active token |
+| **`Ctrl + K`** | Open **Quick Command Palette** (universal search & dice roller) |
 
 ### Chat Commands
-| Command | Action | Example |
+| Command | Description | Example |
 |---|---|---|
-| `/roll <dice>` or `/r <dice>` | Roll dice with arithmetic expressions | `/roll 1d20+5`, `/r 8d6` |
-| `/w <name> <msg>` | Send private whisper to DM or player | `/w Gildor Controlla la porta` |
-| `/whisper <name> <msg>` | Alias for private whisper | `/whisper DM Cerco trappole` |
-| `/sussurra <name> <msg>` | Italian alias for private whisper | `/sussurra Elidor Ho preparato Cura Ferite` |
-| `/manuale <term>` | Search indexed 5e rulebooks | `/manuale fireball`, `/manuale stealth` |
-| `/rule <term>` | Alias for rulebook search | `/rule grapple` |
-| `/tsmorte`, `/deathsave`, `/ds` | Roll 5e Death Saving Throw | `/ds` |
-| `/vision <name> <radius>` | *(DM only)* Set token vision radius | `/vision Gildor 12` |
+| `/roll <formula>` or `/r <formula>` | Roll dice with mathematical expressions | `/roll 1d20+5`, `/r 8d6+3` |
+| `/w <name> <msg>` | Send private whisper to a player or DM | `/w Gildor Watch out for the trap` |
+| `/whisper <name> <msg>` | Alias for private whisper | `/whisper DM I check the chest` |
+| `/sussurra <name> <msg>` | Italian alias for private whisper | `/sussurra Elidor I've got you covered` |
+| `/manuale <term>` or `/rule <term>` | Search indexed 5e PDF rulebooks | `/manuale fireball`, `/rule stealth` |
+| `/tsmorte`, `/deathsave`, `/ds` | Roll a 5e Death Saving Throw | `/ds` |
+| `/vision <name> <radius_hex>` | *(DM only)* Set token vision radius | `/vision Gildor 12` |
 
 ---
 
 ## 📁 Repository Structure
 
-```
+```text
 DndOmniCompanion/
-├── client/                     # Player VTT client, character sheet UI, voice client
-│   ├── client.py               # Main player GUI & network loop
-│   ├── character_sheet_ui.py   # Interactive 5e character sheet
-│   ├── character_manager.py    # Character serialization and state
-│   ├── progression_ui.py       # Baldur's Gate style Level-Up & Creation Wizard
-│   ├── voice_client.py         # UDP real-time voice streamer
-│   ├── trade_dialog.py         # Peer-to-peer item & gold trading
-│   └── quest_dialog.py         # Quest log & shopkeeper interface
-├── server/                     # DM Server, combat rules, GUI & voice host
-│   ├── server.py               # TCP multi-client server
-│   ├── dm_gui.py               # Dungeon Master dashboard
-│   ├── voice_server.py         # UDP voice broadcast host
-│   └── rules/                  # Modular 5e rules engines
-│       ├── combat.py           # Combat flow, attacks, cover, advantage
-│       ├── movement.py         # Hex movement, Fog of War, teleports
-│       ├── character.py        # Damage, temp HP, death saves, rage
-│       ├── chat.py             # Chat routing, dice rolls, whispers
-│       ├── conditions.py       # 5e conditions and effects
-│       └── hazards.py          # Traps and environmental dangers
-├── common/                     # Shared protocols, math & utilities
-│   ├── game_state.py           # Central GameState and entity data models
-│   ├── protocol.py             # Network packet definitions
-│   ├── network_utils.py        # Length-prefixed framing socket utilities
-│   ├── hex_utils.py            # Cubic hex coordinates, LoS, AoE geometry
-│   ├── encounter_calc.py       # DMG p. 82 encounter difficulty calculator
-│   ├── manual_indexer.py       # PDF & rulebook indexer with fast cache
-│   └── i18n.py                 # Live bilingual translation dictionary
-├── components/                 # Custom Tkinter/ttkbootstrap UI widgets
-│   └── ui_components.py        # HexMapCanvas, ToolTips, ToastNotifications
-├── docs/                       # Detailed operational and developer guides
-│   └── OPERATIONAL_GUIDE.md    # Comprehensive system manual
-├── manuals/                    # PDF manuals & custom rule extensions
-├── maps/                       # Map images and metadata (walls, lights, portals)
-├── main.py                     # Unified launcher (DM Host vs Player Client)
-└── simulate_game_session.py    # Full 53-phase automated multiplayer simulation
+├── client/                         # Player VTT Client, Character Sheet UI & Voice Client
+│   ├── client.py                   # Main Player GUI, HUDs, and Turn Economy
+│   ├── character_sheet_ui.py       # Interactive 5e Character Sheet
+│   ├── character_manager.py        # Character persistence and serialization
+│   ├── character_creation_wizard.py# Level 1 Character Creation Wizard
+│   ├── progression_ui.py           # Level-Up Wizard & SRD integration
+│   ├── login_ui.py                 # Character selection & server connection dialog
+│   ├── manuals_ui.py               # Client-side rulebook & compendium browser
+│   ├── network.py                  # Client TCP socket networking
+│   └── voice_client.py             # UDP real-time voice streamer
+├── server/                         # DM Server, 5e Rules Engine, DM GUI & Voice Host
+│   ├── server.py                   # Multi-client TCP game server
+│   ├── dm_gui.py                   # Main Dungeon Master dashboard
+│   ├── commands.py                 # Central network packet dispatcher
+│   ├── dm_dialogs.py               # DM dialogs (Handouts, Custom NPC, Sheet Viewer, Starter Kit)
+│   ├── dm_generators.py            # Procedural 5e Loot & NPC generators
+│   ├── campaign_editor_ui.py       # Campaign, Act, Scene & Encounter editor
+│   ├── encounter_builder_ui.py     # Encounter builder & balancer UI
+│   ├── map_editor.py               # Map Editor (walls, lights, traps, portals, scale)
+│   ├── map_downloader.py           # Preset map downloader
+│   ├── compendium_ui.py            # Compendium & SRD interface
+│   ├── voice_server.py             # UDP voice broadcast server
+│   └── rules/                      # Modular D&D 5e rules engine
+│       ├── combat.py               # Initiative, attacks, criticals, cover, advantage, turn economy
+│       ├── movement.py             # Hex movement, FoW, traps, teleports
+│       ├── character.py            # Damage, temp HP, death saves, concentration, rests
+│       ├── chat.py                 # Chat routing, dice rolls, 1d20 criticals, whispers, manual lookup
+│       ├── inventory.py            # P2P trading, shops, currency, DM approval
+│       ├── map_interaction.py      # Pings, ruler, AoE, doors, map interactions
+│       └── audio.py                # Audio broadcast & soundboard management
+├── common/                         # Shared protocols, hex math & i18n
+│   ├── game_state.py               # Central GameState and Player models
+│   ├── protocol.py                 # Network JSON packet builders
+│   ├── network_utils.py            # Length-prefixed TCP socket framing
+│   ├── hex_utils.py                # Cubic hex geometry, LoS, cones, lines, spheres
+│   ├── dice.py                     # Dice roller & Nat 20 / Nat 1 detection
+│   ├── i18n.py                     # Live IT/EN translations, Imperial/Metric units & map scales
+│   ├── encounter_calc.py           # DMG p. 82 encounter difficulty calculator
+│   ├── pdf_manuals_indexer.py      # Offline PDF rulebook indexer & search engine
+│   ├── campaign.py                 # Campaign, scene & encounter data models
+│   ├── starter_equipment.py        # Configurable campaign starter kit
+│   └── theme.py                    # Dark Fantasy color palette and UI styles
+├── components/                     # Shared Tkinter/ttkbootstrap custom widgets
+│   ├── ui_components.py            # HexMapCanvas, HUDs, Ruler, ToolTip, Toast, Command Palette
+│   ├── calendar_ui.py              # Fantasy calendar and dynamic weather
+│   ├── quest_ui.py                 # Quest Log interface
+│   └── shop_ui.py                  # Merchant & Shop interface
+├── docs/                           # User and technical documentation (EN + IT)
+│   ├── USER_GUIDE.md               # Complete User Guide (English)
+│   ├── GUIDA_ALL_UTILIZZO.md       # Manuale completo all'utilizzo (Italiano)
+│   ├── OPERATIONAL_GUIDE.md        # System & Operational Manual (English)
+│   └── GUIDA_OPERATIVA.md          # Manuale operativo e architettura (Italiano)
+├── main.py                         # Unified launcher (DM Host / Player Client)
+└── simulate_game_session.py        # Full 53-phase automated end-to-end simulation
 ```
 
 ---
 
-## 🧪 Testing & Verification
-
-The project includes rigorous automated verification suites to ensure stability across networking, rules logic, and UI rendering:
+## 🧪 Automated Testing & Verification
 
 ```powershell
-# 1. Full 53-Phase End-to-End Multiplayer Simulation
+# 1. Feature Unit Tests (Multi-scale ruler, Nat20/Nat1 criticals, Turn Economy, ft/m units, Whispers, Death Saves)
+$env:DND_MOCK_AUDIO="1"; python test_new_features.py
+
+# 2. Full UI Smoke Tests across all 19 DM Server & Player Client screens
+$env:DND_MOCK_AUDIO="1"; python test_ui_smoke.py --no-screens
+
+# 3. Full 53-Phase End-to-End Multiplayer Simulation
 $env:DND_MOCK_AUDIO="1"; python simulate_game_session.py
 
-# 2. Targeted Unit Tests (Ruler, Whispers, Death Saves, Handouts, AoE Math)
-$env:DND_MOCK_AUDIO="1"; python -m unittest test_new_features.py
-
-# 3. Campaign & Scene System + UI Smoke Tests
-$env:DND_MOCK_AUDIO="1"; python -m unittest test_campaign_system.py test_ui_smoke.py
+# 4. Campaign & Scene System Tests
+$env:DND_MOCK_AUDIO="1"; python -m unittest test_campaign_system.py
 ```
-
-All 53 phases pass with **100% success rate (0 failures)**.
 
 ---
 

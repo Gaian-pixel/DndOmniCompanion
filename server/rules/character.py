@@ -71,10 +71,31 @@ def handle_update_full_sheet_request(data, player, game_state):
 
             server_inv = player.full_sheet.get("inventory_grid", [])
             client_inv = char_data.get("inventory_grid", [])
-            if isinstance(server_inv, list) and isinstance(client_inv, list) and len(server_inv) == len(client_inv):
-                for s_i in range(len(server_inv)):
-                    if server_inv[s_i] is None and client_inv[s_i] is not None:
-                        client_inv[s_i] = None
+            if isinstance(server_inv, list) and isinstance(client_inv, list):
+                allowed_counts = {}
+                for s_it in server_inv:
+                    if isinstance(s_it, dict) and s_it.get("name"):
+                        k = str(s_it.get("name", "")).strip().lower()
+                        try:
+                            q = max(1, int(s_it.get("qty", 1) or 1))
+                        except (ValueError, TypeError):
+                            q = 1
+                        allowed_counts[k] = allowed_counts.get(k, 0) + q
+                for s_i in range(len(client_inv)):
+                    c_it = client_inv[s_i]
+                    if isinstance(c_it, dict) and c_it.get("name"):
+                        k = str(c_it.get("name", "")).strip().lower()
+                        rem_allowed = allowed_counts.get(k, 0)
+                        if rem_allowed <= 0:
+                            client_inv[s_i] = None
+                        else:
+                            try:
+                                c_q = max(1, int(c_it.get("qty", 1) or 1))
+                            except (ValueError, TypeError):
+                                c_q = 1
+                            actual_q = min(c_q, rem_allowed)
+                            c_it["qty"] = actual_q
+                            allowed_counts[k] = rem_allowed - actual_q
                 char_data["inventory_grid"] = client_inv
 
         player.full_sheet = char_data
@@ -83,6 +104,8 @@ def handle_update_full_sheet_request(data, player, game_state):
         player.temp_hp = char_data.get("temp_hp", getattr(player, "temp_hp", 0))
         player.initiative = char_data.get("initiative", player.initiative)
         player.exhaustion_level = char_data.get("exhaustion_level", getattr(player, "exhaustion_level", 0))
+        player.speed = char_data.get("speed", getattr(player, "speed", 30))
+        player.speed_unit = char_data.get("speed_unit", getattr(player, "speed_unit", None))
         game_state._trigger_gui_update()
         broadcast(game_state, make_game_state(game_state.get_state_dict()))
 
@@ -165,7 +188,7 @@ def handle_long_rest_request(data, player, game_state):
     if active_conns == 0: return
         
     needed = max(1, math.ceil(active_conns / 2))
-    game_state.ongoing_rest_vote = {"initiator": player.name, "votes_needed": needed, "total_conns": active_conns, "votes_received": 0, "votes_rejected": 0}
+    game_state.ongoing_rest_vote = {"initiator": player.name, "votes_needed": needed, "total_conns": active_conns, "votes_received": 0, "votes_rejected": 0, "voters": set()}
     game_state.log_dm_message(f"[Sistema] {player.name} ha proposto un Riposo Lungo. Voti favorevoli necessari: {needed}/{active_conns}.")
     from common.network_utils import send_message
     for p in players:
@@ -176,6 +199,10 @@ def handle_long_rest_vote(data, player, game_state):
     vote = data.get("vote", False)
     vote_data = getattr(game_state, "ongoing_rest_vote", None)
     if not vote_data: return
+    voters = vote_data.setdefault("voters", set())
+    if player.name in voters:
+        return
+    voters.add(player.name)
     
     if not vote:
         vote_data["votes_rejected"] = vote_data.get("votes_rejected", 0) + 1
