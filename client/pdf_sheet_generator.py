@@ -218,43 +218,44 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
 
     # 1. Header
     can.setFont("Helvetica-Bold", 13)
-    can.drawString(55, 715, name[:28])
+    can.drawString(55, 703, name[:28])
 
     can.setFont("Helvetica", 9)
     class_lvl_str = f"{char_class} {level}".strip() if char_class else str(level)
-    can.drawString(265, 732, class_lvl_str[:22])
-    can.drawString(377, 732, background[:18])
-    can.drawString(474, 732, player_name[:18])
+    can.drawString(265, 728, class_lvl_str[:22])
+    can.drawString(377, 728, background[:18])
+    can.drawString(474, 728, player_name[:18])
 
-    can.drawString(265, 705, race[:22])
-    can.drawString(377, 705, alignment[:18])
-    can.drawString(474, 705, exp[:18])
+    can.drawString(265, 701, race[:22])
+    can.drawString(377, 701, alignment[:18])
+    can.drawString(474, 701, exp[:18])
 
     # 2. Caratteristiche (6 box a sinistra)
-    # Box positions: FOR, DES, COS, INT, SAG, CAR
+    # Nel template ufficiale 5e, il riquadro centrale grande ospita il Modificatore (+X)
+    # e l'ovale inferiore ospita il Punteggio base (10..20). Altezza casella: ~71.5 pt.
     stat_boxes = [
-        ("FOR", 662, 642),
-        ("DES", 590, 570),
-        ("COS", 518, 498),
-        ("INT", 446, 426),
-        ("SAG", 374, 354),
-        ("CAR", 302, 282),
+        ("FOR", 620, 576),
+        ("DES", 548.5, 504.5),
+        ("COS", 477, 433),
+        ("INT", 405.5, 361.5),
+        ("SAG", 334, 290),
+        ("CAR", 262.5, 218.5),
     ]
     for code, y_mod, y_score in stat_boxes:
         m = mods[code]
         m_str = f"+{m}" if m >= 0 else str(m)
-        can.setFont("Helvetica-Bold", 14)
+        can.setFont("Helvetica-Bold", 15)
         can.drawCentredString(48, y_mod, m_str)
-        can.setFont("Helvetica", 9)
+        can.setFont("Helvetica-Bold", 9)
         can.drawCentredString(48, y_score, str(scores[code]))
 
     # 3. Ispirazione e Competenza
     if data.get("has_inspiration", False):
         can.setFont("Helvetica-Bold", 12)
-        can.drawCentredString(105, 645, "✔")
+        can.drawCentredString(105, 646, "✔")
 
     can.setFont("Helvetica-Bold", 11)
-    can.drawCentredString(105, 607, f"+{prof_bonus}")
+    can.drawCentredString(101.5, 610, f"+{prof_bonus}")
 
     # 4. Tiri Salvezza (Saving Throws)
     save_rows = [
@@ -268,25 +269,25 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
     for code, y_pos in save_rows:
         is_prof = code in save_profs
         if is_prof:
-            can.circle(103.5, y_pos + 2.5, 2.2, fill=1, stroke=0)
+            can.circle(88.5, y_pos + 2.5, 2.0, fill=1, stroke=0)
             st_bonus = mods[code] + prof_bonus
         else:
             st_bonus = mods[code]
         b_str = f"+{st_bonus}" if st_bonus >= 0 else str(st_bonus)
         can.setFont("Helvetica-Bold", 8)
-        can.drawString(116, y_pos, b_str)
+        can.drawCentredString(107.5, y_pos, b_str)
 
     # 5. Abilità (Skills - 18)
     skill_rows = [
-        ("Acrobazia", 460.8),
-        ("Addestrare Animali", 447.0),
+        ("Acrobazia", 460.9),
+        ("Addestrare Animali", 447.4),
         ("Arcano", 433.9),
         ("Atletica", 420.4),
         ("Furtività", 406.9),
         ("Indagare", 393.4),
         ("Inganno", 379.9),
         ("Intimidire", 366.4),
-        ("Intrattenere", 353.0),
+        ("Intrattenere", 352.9),
         ("Intuizione", 339.4),
         ("Medicina", 325.9),
         ("Natura", 312.4),
@@ -295,10 +296,9 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
         ("Rapidità di Mano", 271.9),
         ("Religione", 258.4),
         ("Sopravvivenza", 244.9),
-        ("Storia", 231.4),
+        ("Storia", 231.3),
     ]
     for skill_name, y_pos in skill_rows:
-        # Recupera valore di competenza (0=nessuna, 1=competenza, 2=maestria)
         prof_lvl = skills_data.get(skill_name, 0)
         if prof_lvl == 0 and skill_name == "Rapidità di Mano":
             prof_lvl = skills_data.get("Prestidigitazione", 0)
@@ -307,20 +307,20 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
         total_bonus = mods.get(stat_code, 0) + (int(prof_lvl) * prof_bonus)
 
         if prof_lvl == 1:
-            can.circle(103.5, y_pos + 2.5, 2.2, fill=1, stroke=0)
+            can.circle(88.5, y_pos + 2.5, 2.0, fill=1, stroke=0)
         elif prof_lvl >= 2:
-            can.circle(103.5, y_pos + 2.5, 2.2, fill=1, stroke=0)
-            can.circle(103.5, y_pos + 2.5, 3.6, fill=0, stroke=1)
+            can.circle(88.5, y_pos + 2.5, 2.0, fill=1, stroke=0)
+            can.circle(88.5, y_pos + 2.5, 3.5, fill=0, stroke=1)
 
         b_str = f"+{total_bonus}" if total_bonus >= 0 else str(total_bonus)
         can.setFont("Helvetica-Bold", 8)
-        can.drawString(116, y_pos, b_str)
+        can.drawCentredString(107.5, y_pos, b_str)
 
     # 6. Percezione Passiva (Saggezza Passiva)
     perc_prof = skills_data.get("Percezione", 0)
     passive_perc = 10 + mods.get("SAG", 0) + (int(perc_prof) * prof_bonus)
     can.setFont("Helvetica-Bold", 11)
-    can.drawCentredString(42, 184, str(passive_perc))
+    can.drawCentredString(48, 184, str(passive_perc))
 
     # 7. Altre Competenze e Linguaggi (box in basso a sinistra)
     prof_langs_text = []
@@ -335,7 +335,7 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
     if not prof_langs_text:
         prof_langs_text.append("Competenze standard armi e armature di classe.")
 
-    _draw_wrapped_lines(can, "\n".join(prof_langs_text), 40, 140, 150, 9.5, max_lines=11, font_size=7.5)
+    _draw_wrapped_lines(can, "\n".join(prof_langs_text), 40, 142, 150, 9.5, max_lines=11, font_size=7.5)
 
     # 8. Valori di Combattimento (CA, Iniziativa, Velocità)
     ac = data.get("ac", 10 + mods.get("DES", 0))
@@ -357,36 +357,36 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
     hp_cur = data.get("hp_current", hp_max)
     temp_hp = data.get("temp_hp", 0)
 
-    can.setFont("Helvetica", 9)
-    can.drawString(280, 584, str(hp_max))
+    can.setFont("Helvetica-Bold", 9)
+    can.drawCentredString(315, 582, str(hp_max))
 
     can.setFont("Helvetica-Bold", 15)
-    can.drawCentredString(280, 550, str(hp_cur))
+    can.drawCentredString(295, 554, str(hp_cur))
 
     if temp_hp:
         can.setFont("Helvetica-Bold", 12)
-        can.drawCentredString(280, 498, str(temp_hp))
+        can.drawCentredString(295, 500, str(temp_hp))
 
     # 10. Dadi Vita e Tiri Salvezza contro Morte
     hd_tot = data.get("hit_dice_total", level)
     hd_cur = data.get("hit_dice_current", hd_tot)
     hd_type = str(data.get("hit_dice_type", "d8")).lower()
 
-    can.setFont("Helvetica", 8)
-    can.drawString(225, 463, f"Totale: {hd_tot}")
+    can.setFont("Helvetica-Bold", 8)
+    can.drawString(245, 462, str(hd_tot))
     can.setFont("Helvetica-Bold", 11)
-    can.drawString(235, 448, f"{hd_cur} {hd_type}")
+    can.drawCentredString(250, 446, f"{hd_cur} {hd_type}")
 
     death_saves = data.get("death_saves", {})
     if isinstance(death_saves, dict):
         succ = int(death_saves.get("successes", 0))
         fail = int(death_saves.get("failures", 0))
-        succ_xs = [345, 354, 363]
-        fail_xs = [345, 354, 363]
+        succ_xs = [345, 355, 365]
+        fail_xs = [345, 355, 365]
         for idx in range(min(succ, 3)):
-            can.circle(succ_xs[idx], 463.5, 2.3, fill=1, stroke=0)
+            can.circle(succ_xs[idx], 463.0, 2.3, fill=1, stroke=0)
         for idx in range(min(fail, 3)):
-            can.circle(fail_xs[idx], 448.5, 2.3, fill=1, stroke=0)
+            can.circle(fail_xs[idx], 448.0, 2.3, fill=1, stroke=0)
 
     # 11. Attacchi & Incantesimi
     weapons = data.get("weapons", [])
@@ -394,7 +394,7 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
         attack_rows_y = [385, 370, 355]
         for idx, w in enumerate(weapons[:3]):
             y_r = attack_rows_y[idx]
-            w_name = str(w.get("name", "Arma"))[:13]
+            w_name = str(w.get("name", "Arma"))[:14]
             w_bonus = w.get("bonus", mods.get("FOR", 0) + prof_bonus)
             b_str = f"+{w_bonus}" if w_bonus >= 0 else str(w_bonus)
             w_dice = str(w.get("damage_dice", "1d6"))
@@ -404,8 +404,8 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
             can.setFont("Helvetica-Bold", 8)
             can.drawString(216, y_r, w_name)
             can.setFont("Helvetica", 8)
-            can.drawString(270, y_r, b_str)
-            can.drawString(312, y_r, dmg_str)
+            can.drawCentredString(298, y_r, b_str)
+            can.drawString(322, y_r, dmg_str)
 
     # Note attacco aggiuntive (armi oltre le prime 3, resistenze, immunità)
     extra_atk_lines = []
@@ -420,21 +420,20 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
         extra_atk_lines.append(f"Immunità: {imm}")
 
     if extra_atk_lines:
-        _draw_wrapped_lines(can, "\n".join(extra_atk_lines), 216, 335, 170, 9.0, max_lines=9, font_size=7)
+        _draw_wrapped_lines(can, "\n".join(extra_atk_lines), 216, 335, 160, 9.0, max_lines=9, font_size=7)
 
     # 12. Monete (MR, MA, ME, MO, MP)
     curr = data.get("currency", {})
     if isinstance(curr, dict):
         can.setFont("Helvetica-Bold", 8)
-        can.drawCentredString(224, 180, str(curr.get("MR", 0)))
-        can.drawCentredString(224, 154, str(curr.get("MA", 0)))
-        can.drawCentredString(224, 128, str(curr.get("ME", 0)))
-        can.drawCentredString(224, 102, str(curr.get("MO", 0)))
-        can.drawCentredString(224, 76, str(curr.get("MP", 0)))
+        can.drawCentredString(228, 179, str(curr.get("MR", 0)))
+        can.drawCentredString(228, 153, str(curr.get("MA", 0)))
+        can.drawCentredString(228, 127, str(curr.get("ME", 0)))
+        can.drawCentredString(228, 101, str(curr.get("MO", 0)))
+        can.drawCentredString(228, 75, str(curr.get("MP", 0)))
 
     # 13. Equipaggiamento / Inventario
     inv_items = []
-    # Raccogli da inventory_grid o inventory
     grid = data.get("inventory_grid", [])
     if isinstance(grid, list):
         for item in grid:
@@ -455,7 +454,7 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
             inv_items.extend(raw_inv.split("\n"))
 
     if inv_items:
-        _draw_wrapped_lines(can, "\n".join(inv_items), 250, 195, 135, 8.5, max_lines=18, font_size=7)
+        _draw_wrapped_lines(can, "\n".join(inv_items), 256, 195, 118, 8.5, max_lines=18, font_size=7)
 
     # 14. Colonna destra (Tratti, Ideali, Legami, Difetti)
     traits = data.get("personality_traits", "") or data.get("traits", "")
@@ -463,14 +462,13 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
     bonds = data.get("bonds", "")
     flaws = data.get("flaws", "")
 
-    _draw_wrapped_lines(can, str(traits), 410, 625, 160, 9.0, max_lines=5, font_size=7.5)
-    _draw_wrapped_lines(can, str(ideals), 410, 570, 160, 9.0, max_lines=4, font_size=7.5)
-    _draw_wrapped_lines(can, str(bonds), 410, 515, 160, 9.0, max_lines=4, font_size=7.5)
-    _draw_wrapped_lines(can, str(flaws), 410, 460, 160, 9.0, max_lines=4, font_size=7.5)
+    _draw_wrapped_lines(can, str(traits), 410, 630, 150, 9.0, max_lines=5, font_size=7.5)
+    _draw_wrapped_lines(can, str(ideals), 410, 575, 150, 9.0, max_lines=4, font_size=7.5)
+    _draw_wrapped_lines(can, str(bonds), 410, 520, 150, 9.0, max_lines=4, font_size=7.5)
+    _draw_wrapped_lines(can, str(flaws), 410, 465, 150, 9.0, max_lines=4, font_size=7.5)
 
     # 15. Privilegi e Tratti (Features & Traits - Colonna destra inferiore)
     features_lines = []
-    # Risorse di classe (Ira, Secondo Fiato, ecc.)
     class_res = data.get("class_resources", {})
     if isinstance(class_res, dict):
         if class_res.get("rage_max", 0) > 0:
@@ -492,7 +490,7 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
             features_lines.append(f"• {f}")
 
     if features_lines:
-        _draw_wrapped_lines(can, "\n".join(features_lines), 410, 395, 160, 9.0, max_lines=36, font_size=7)
+        _draw_wrapped_lines(can, "\n".join(features_lines), 410, 405, 150, 9.0, max_lines=38, font_size=7)
 
     can.showPage()
 
@@ -501,16 +499,16 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
     # =========================================================================
     can.setFillColor(black)
     can.setFont("Helvetica-Bold", 13)
-    can.drawString(55, 715, name[:28])
+    can.drawString(55, 703, name[:28])
 
     can.setFont("Helvetica", 9)
-    can.drawString(265, 732, str(data.get("age", ""))[:12])
-    can.drawString(330, 732, str(data.get("height", ""))[:12])
-    can.drawString(390, 732, str(data.get("weight", ""))[:12])
+    can.drawString(265, 728, str(data.get("age", ""))[:12])
+    can.drawString(330, 728, str(data.get("height", ""))[:12])
+    can.drawString(390, 728, str(data.get("weight", ""))[:12])
 
-    can.drawString(265, 705, str(data.get("eyes", ""))[:12])
-    can.drawString(330, 705, str(data.get("skin", ""))[:12])
-    can.drawString(390, 705, str(data.get("hair", ""))[:12])
+    can.drawString(265, 701, str(data.get("eyes", ""))[:12])
+    can.drawString(330, 701, str(data.get("skin", ""))[:12])
+    can.drawString(390, 701, str(data.get("hair", ""))[:12])
 
     # Aspetto Personaggio
     appearance = data.get("appearance", "")
@@ -545,38 +543,34 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
     # 1. Header Incantatore
     spell_class = data.get("spellcasting_class", char_class)
     can.setFont("Helvetica-Bold", 10)
-    can.drawString(55, 705, str(spell_class)[:24])
+    can.drawString(55, 704, str(spell_class)[:24])
 
     spell_ability = data.get("spellcasting_ability")
     if not spell_ability:
         spell_ability = CLASS_SPELLCASTING_ABILITY.get(str(char_class).lower(), "INT")
 
-    can.drawString(285, 705, str(spell_ability))
+    can.drawCentredString(285, 718, str(spell_ability))
 
     spell_mod = mods.get(spell_ability, 0)
     spell_dc = 8 + prof_bonus + spell_mod
     spell_atk = prof_bonus + spell_mod
     atk_str = f"+{spell_atk}" if spell_atk >= 0 else str(spell_atk)
 
-    can.drawString(385, 705, str(spell_dc))
-    can.drawString(485, 705, atk_str)
+    can.drawCentredString(385, 718, str(spell_dc))
+    can.drawCentredString(485, 718, atk_str)
 
     # 2. Configurazione Colonne e Livelli Incantesimo
-    # Layout PDF:
-    # Colonna 1 (x ~ 45): Livello 0 (Cantrips), Livello 1, Livello 2
-    # Colonna 2 (x ~ 233): Livello 3, Livello 4, Livello 5
-    # Colonna 3 (x ~ 420): Livello 6, Livello 7, Livello 8, Livello 9
     level_sections = {
-        0: {"x": 45, "y_start": 615, "max_items": 8, "has_slots": False},
-        1: {"x": 45, "y_start": 425, "max_items": 12, "has_slots": True, "slot_tot_x": 65, "slot_tot_y": 464, "slot_spd_x": 115, "slot_spd_y": 464},
-        2: {"x": 45, "y_start": 195, "max_items": 13, "has_slots": True, "slot_tot_x": 65, "slot_tot_y": 235, "slot_spd_x": 115, "slot_spd_y": 235},
-        3: {"x": 233, "y_start": 590, "max_items": 13, "has_slots": True, "slot_tot_x": 253, "slot_tot_y": 631, "slot_spd_x": 303, "slot_spd_y": 631},
-        4: {"x": 233, "y_start": 365, "max_items": 13, "has_slots": True, "slot_tot_x": 253, "slot_tot_y": 405, "slot_spd_x": 303, "slot_spd_y": 405},
-        5: {"x": 233, "y_start": 140, "max_items": 9, "has_slots": True, "slot_tot_x": 253, "slot_tot_y": 179, "slot_spd_x": 303, "slot_spd_y": 179},
-        6: {"x": 420, "y_start": 590, "max_items": 9, "has_slots": True, "slot_tot_x": 440, "slot_tot_y": 631, "slot_spd_x": 490, "slot_spd_y": 631},
-        7: {"x": 420, "y_start": 420, "max_items": 9, "has_slots": True, "slot_tot_x": 440, "slot_tot_y": 461, "slot_spd_x": 490, "slot_spd_y": 461},
-        8: {"x": 420, "y_start": 250, "max_items": 7, "has_slots": True, "slot_tot_x": 440, "slot_tot_y": 291, "slot_spd_x": 490, "slot_spd_y": 291},
-        9: {"x": 420, "y_start": 110, "max_items": 7, "has_slots": True, "slot_tot_x": 440, "slot_tot_y": 151, "slot_spd_x": 490, "slot_spd_y": 151},
+        0: {"x": 42, "prep_x": None, "y_start": 615, "max_items": 8, "has_slots": False},
+        1: {"x": 56, "prep_x": 45, "y_start": 425, "max_items": 12, "has_slots": True, "slot_tot_x": 68, "slot_tot_y": 463, "slot_spd_x": 115, "slot_spd_y": 463},
+        2: {"x": 56, "prep_x": 45, "y_start": 195, "max_items": 13, "has_slots": True, "slot_tot_x": 68, "slot_tot_y": 234, "slot_spd_x": 115, "slot_spd_y": 234},
+        3: {"x": 244, "prep_x": 233, "y_start": 590, "max_items": 13, "has_slots": True, "slot_tot_x": 256, "slot_tot_y": 630, "slot_spd_x": 303, "slot_spd_y": 630},
+        4: {"x": 244, "prep_x": 233, "y_start": 365, "max_items": 13, "has_slots": True, "slot_tot_x": 256, "slot_tot_y": 404, "slot_spd_x": 303, "slot_spd_y": 404},
+        5: {"x": 244, "prep_x": 233, "y_start": 140, "max_items": 9, "has_slots": True, "slot_tot_x": 256, "slot_tot_y": 178, "slot_spd_x": 303, "slot_spd_y": 178},
+        6: {"x": 432, "prep_x": 421, "y_start": 590, "max_items": 9, "has_slots": True, "slot_tot_x": 443, "slot_tot_y": 630, "slot_spd_x": 490, "slot_spd_y": 630},
+        7: {"x": 432, "prep_x": 421, "y_start": 420, "max_items": 9, "has_slots": True, "slot_tot_x": 443, "slot_tot_y": 460, "slot_spd_x": 490, "slot_spd_y": 460},
+        8: {"x": 432, "prep_x": 421, "y_start": 250, "max_items": 7, "has_slots": True, "slot_tot_x": 443, "slot_tot_y": 290, "slot_spd_x": 490, "slot_spd_y": 290},
+        9: {"x": 432, "prep_x": 421, "y_start": 110, "max_items": 7, "has_slots": True, "slot_tot_x": 443, "slot_tot_y": 150, "slot_spd_x": 490, "slot_spd_y": 150},
     }
 
     # Raggruppa incantesimi per livello da spellbook
@@ -614,19 +608,19 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
 
             if s_tot > 0:
                 can.setFont("Helvetica-Bold", 8)
-                can.drawString(sec["slot_tot_x"], sec["slot_tot_y"], str(s_tot))
+                can.drawCentredString(sec["slot_tot_x"], sec["slot_tot_y"], str(s_tot))
                 if s_spent > 0:
-                    can.drawString(sec["slot_spd_x"], sec["slot_spd_y"], str(s_spent))
+                    can.drawCentredString(sec["slot_spd_x"], sec["slot_spd_y"], str(s_spent))
 
         # Lista incantesimi del livello
         cur_y = sec["y_start"]
         sp_list = spells_by_lvl.get(lvl, [])
         for sp in sp_list[:sec["max_items"]]:
-            sp_name = str(sp.get("name", "Incantesimo"))[:22]
+            sp_name = str(sp.get("name", "Incantesimo"))[:24]
             can.setFont("Helvetica", 7.5)
             # Cerchietto di preparazione se preparato
-            if sp.get("prepared", False):
-                can.circle(sec["x"] - 6, cur_y + 2, 1.8, fill=1, stroke=0)
+            if sec.get("prep_x") and sp.get("prepared", False):
+                can.circle(sec["prep_x"], cur_y + 2.5, 2.0, fill=1, stroke=0)
             can.drawString(sec["x"], cur_y, sp_name)
             cur_y -= 11.5
 
