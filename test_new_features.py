@@ -1374,6 +1374,91 @@ class TestDndNewFeatures(unittest.TestCase):
         finally:
             root.destroy()
 
+    def test_hp_protection_and_buttons_removal(self):
+        """Verifica che in partita gli HP siano bloccati in sola lettura e i tasti -5 -1 +1 +5 rimossi."""
+        import tkinter as tk
+        from tkinter import ttk
+        from client.character_manager import Character, CharacterManager
+        from client.character_sheet_ui import CharacterSheetUI
+        from server.rules.character import handle_update_full_sheet_request
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            char = Character(name="HeroHpTest")
+            char.char_class = "Guerriero"
+            char.hp_current = 24
+            char.hp_max = 24
+            mgr = CharacterManager.__new__(CharacterManager)
+            mgr.characters = [char]
+            mgr.update_character = lambda c: None
+            mgr.save_characters = lambda: None
+
+            # 1. Verifica Scheda Online (in partita: is_connected=True)
+            sheet_online = CharacterSheetUI(root, char, mgr, is_connected=True)
+            root.update()
+
+            # HP attuale e massimo devono essere readonly
+            self.assertEqual(str(sheet_online.hp_cur_entry.cget("state")), "readonly")
+            self.assertEqual(str(sheet_online.hp_max_entry.cget("state")), "readonly")
+
+            # I pulsanti rapidi -5 -1 +1 +5 non devono esistere nella UI
+            all_buttons = [w for w in sheet_online.winfo_children()]
+            btn_texts = []
+            def collect_texts(widget):
+                for child in widget.winfo_children():
+                    if isinstance(child, (tk.Button, ttk.Button)):
+                        try: btn_texts.append(child.cget("text"))
+                        except Exception: pass
+                    collect_texts(child)
+            collect_texts(sheet_online)
+            self.assertNotIn("-5", btn_texts)
+            self.assertNotIn("-1", btn_texts)
+            self.assertNotIn("+1", btn_texts)
+            self.assertNotIn("+5", btn_texts)
+
+            # _adjust_hp_quick non deve modificare gli HP quando connesso
+            sheet_online._adjust_hp_quick(5)
+            self.assertEqual(sheet_online.hp_cur_var.get(), 24)
+            sheet_online._adjust_hp_quick(-5)
+            self.assertEqual(sheet_online.hp_cur_var.get(), 24)
+
+            # save_character non deve sovrascrivere HP del personaggio se in partita
+            sheet_online.hp_cur_var.set(99)
+            sheet_online.hp_max_var.set(99)
+            sheet_online.save_character()
+            self.assertEqual(char.hp_current, 24)
+            self.assertEqual(char.hp_max, 24)
+
+            sheet_online.destroy()
+
+            # 2. Verifica Scheda Offline (is_connected=False)
+            sheet_offline = CharacterSheetUI(root, char, mgr, is_connected=False)
+            root.update()
+            self.assertEqual(str(sheet_offline.hp_cur_entry.cget("state")), "normal")
+            self.assertEqual(str(sheet_offline.hp_max_entry.cget("state")), "normal")
+
+            btn_texts_offline = []
+            collect_texts(sheet_offline)
+            self.assertNotIn("-5", btn_texts_offline)
+            self.assertNotIn("+5", btn_texts_offline)
+            sheet_offline.destroy()
+
+            # 3. Verifica Protezione Server (handle_update_full_sheet_request)
+            p = Player("HeroHpTest", None, None)
+            p.hp = 18
+            p.max_hp = 24
+            p.full_sheet = {"hp_current": 18, "hp_max": 24, "currency": {"MO": 50}}
+            
+            fake_incoming_sheet = {"hp_current": 99, "hp_max": 100, "currency": {"MO": 50}}
+            handle_update_full_sheet_request({"character": fake_incoming_sheet}, p, self.game_state)
+            self.assertEqual(p.hp, 18, "Il server deve preservare i propri HP autorevoli")
+            self.assertEqual(p.max_hp, 24, "Il server deve preservare i propri Max HP autorevoli")
+            self.assertEqual(fake_incoming_sheet["hp_current"], 18)
+
+        finally:
+            root.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()

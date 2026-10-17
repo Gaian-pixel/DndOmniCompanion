@@ -51,6 +51,8 @@ def handle_update_full_sheet_request(data, player, game_state):
         # Protezione e vincoli di gioco: se il PG ha già un full_sheet registrato sul server,
         # impedisci aumenti unilaterali di valuta, attributi o spawn abusivo di oggetti senza approvazione del DM
         if getattr(player, "full_sheet", None):
+            char_data["hp_current"] = getattr(player, "hp", char_data.get("hp_current", 10))
+            char_data["hp_max"] = getattr(player, "max_hp", char_data.get("hp_max", 10))
             server_currency = player.full_sheet.get("currency", {})
             client_currency = char_data.get("currency", {})
             if isinstance(server_currency, dict) and isinstance(client_currency, dict):
