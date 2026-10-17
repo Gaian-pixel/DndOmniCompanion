@@ -516,14 +516,20 @@ class CharacterSheetUI(tk.Toplevel):
         self.refresh_custom_resources_ui()
 
     def export_character_dialog(self):
+        CharacterSheetUI.open_export_character_dialog(self, self.character)
+
+    @staticmethod
+    def open_export_character_dialog(parent, character):
         from tkinter import filedialog
         from client.pdf_sheet_generator import generate_character_pdf
+        import re
+        import json
 
-        dialog = tk.Toplevel(self)
+        dialog = tk.Toplevel(parent)
         dialog.title("Esporta Scheda Personaggio")
         dialog.minsize(460, 280)
         dialog.resizable(False, False)
-        dialog.transient(self)
+        dialog.transient(parent)
         apply_modern_window_style(dialog)
 
         container = tk.Frame(dialog, bg=SURFACE_COLOR, padx=20, pady=18)
@@ -545,8 +551,9 @@ class CharacterSheetUI(tk.Toplevel):
             fg=TEXT_MUTED
         ).pack(anchor="w", pady=(0, 15))
 
-        char_data = self.character.to_dict()
-        safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', self.character.name or "personaggio")
+        char_data = character.to_dict() if hasattr(character, "to_dict") else character
+        char_name = character.name if hasattr(character, "name") else char_data.get("name", "personaggio")
+        safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', char_name or "personaggio")
 
         def export_pdf():
             template_path = filedialog.askopenfilename(
@@ -573,13 +580,13 @@ class CharacterSheetUI(tk.Toplevel):
                     "Esportazione Completata",
                     f"Scheda PDF ufficiale generata con successo in:\n{file_path}\n\n"
                     "Il documento a 3 pagine è pronto per la visualizzazione e la stampa!",
-                    parent=self
+                    parent=parent
                 )
             except Exception as e:
                 messagebox.showerror(
                     "Errore Esportazione PDF",
                     f"Si è verificato un errore durante la generazione della scheda PDF:\n{e}",
-                    parent=self
+                    parent=parent
                 )
 
         def export_json():
@@ -599,13 +606,13 @@ class CharacterSheetUI(tk.Toplevel):
                 messagebox.showinfo(
                     "Esportazione Completata",
                     f"Dati personaggio salvati con successo in:\n{file_path}",
-                    parent=self
+                    parent=parent
                 )
             except Exception as e:
                 messagebox.showerror(
                     "Errore Salvataggio JSON",
                     f"Si è verificato un errore durante il salvataggio dei dati JSON:\n{e}",
-                    parent=self
+                    parent=parent
                 )
 
         # Card Opzione PDF
@@ -2468,3 +2475,6 @@ class WeaponDialog(tk.Toplevel):
         if self.on_save_callback:
             self.on_save_callback(data)
         self.destroy()
+
+open_export_character_dialog = CharacterSheetUI.open_export_character_dialog
+

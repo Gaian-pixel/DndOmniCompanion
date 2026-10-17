@@ -57,8 +57,9 @@ This manual walks you step by step through starting a session, configuring the i
      * **📜 Prepare / Edit Campaign**: open the Campaign Editor to author your adventure before the session.
      * **⚡ Quick Session (Empty)**: immediately start the server on TCP port `53911` (and UDP Voice port `53912`) for an ad-hoc game.
    * **Player**:
-     * Click **🛡️ Join Game** to open the Player VTT client.
-     * From `Server -> Connect to Server...` (or `Reconnect to Last Server`), select or create your character, enter the DM's IP address (`127.0.0.1` for local play on the same PC, or the DM's LAN/VPN IP), and click **Connect**.
+     * **👤 Character Manager (Offline)**: opens a dedicated window to view, create, edit, duplicate, delete, and export character sheets (Official PDF or JSON backup) completely offline without needing a server connection.
+     * **✨ Create Character (Wizard)**: immediately starts the step-by-step Baldur's Gate 3 inspired character creation wizard for a Level 1 hero.
+     * **🛡️ Join Game**: opens the Player VTT client. From `Server -> Connect to Server...` (or `Reconnect to Last Server`), choose your character, enter the DM's IP address (`127.0.0.1` or LAN/VPN IP), and click **Connect**.
 
 ---
 
@@ -136,8 +137,18 @@ OmniCompanion supports three distinct grid geometries to match any map type:
 
 ## 4. Player Guide
 
+### Offline Character Creation & Management (No Server Needed)
+You do not need to start a session or connect to a DM server to create, view, edit, or export characters:
+* **From the Main Launcher (`main.py`)**:
+  * **👤 Character Manager (Offline)**: opens a comprehensive offline management panel with the full list of saved heroes, search/filtering by name/class/race, instant preview of core stats (HP, AC, Speed, Ability Scores with modifiers), and buttons to **open the complete character sheet**, **duplicate**, **delete**, or **export to Official 5e PDF or JSON**. If you want to jump straight into a game, click "Select as Active" to select the character and launch the client immediately.
+  * **✨ Create Character (Wizard)**: launches the Baldur's Gate 3 inspired step-by-step character creator to create and save a new Level 1 hero locally.
+* **From the Player VTT Client (`client/client.py`)**:
+  * In the top menu bar: navigate to **`Character -> Character Manager (Offline)...`** or **`Create New Character (Wizard)...`** / **`Create Manual Character...`**.
+  * On the right sidebar (`Player Controls` tab): use the quick tool buttons `[ ✨ ]` (New Hero) and `[ 👤 ]` (Manager) placed right beside the active character dropdown.
+  * The **`📜 Character Sheet`** button is **always active even when disconnected**: click it at any time to inspect your character, test offline dice rolls, edit equipment, level up, manage spells, and export the official PDF.
+
 ### Character Creation Wizard & Level-Up
-* **New Character (Level 1)**: From the character selection window or character sheet, launch the **Creation Wizard**. It guides you through Race, Class, Background, Ability Scores (Standard Array, Point Buy, or Dice Roll), and starting equipment.
+* **New Character (Level 1)**: From the Character Manager, the client menu, or the sheet, launch the **Creation Wizard**. It guides you through Race, Class, Background, Ability Scores (Standard Array, Point Buy, or Dice Roll), and starting equipment.
 * **Leveling Up (`Level Up (+)`)**: Inside the Character Sheet, click `Level Up (+)`:
   * Choose between the **fixed average** Hit Die value or **rolling**.
   * The wizard automatically fetches **new class features** and updates **spell slots** for your new level from the 5e SRD.

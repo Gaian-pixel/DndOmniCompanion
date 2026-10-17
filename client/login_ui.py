@@ -69,8 +69,9 @@ class LoginDialog(tk.Toplevel):
             messagebox.showwarning("Attenzione", "Seleziona un personaggio da modificare.")
             return
         char = self.manager.characters[sel[0]]
-        ui = CharacterSheetUI(self, char, self.manager, is_dm=False, on_close_callback=self.refresh_listbox)
+        ui = CharacterSheetUI(self, char, self.manager, on_save_callback=self.refresh_listbox, is_connected=False)
         self.wait_window(ui)
+        self.refresh_listbox()
         
     def delete_character(self):
         sel = self.char_listbox.curselection()

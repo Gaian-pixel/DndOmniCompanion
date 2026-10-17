@@ -58,8 +58,9 @@ Questa guida illustra passo dopo passo come avviare una sessione, configurare l'
      * **📜 Prepara / Modifica Campagna**: apre direttamente l'Editor di Campagna per creare la tua avventura prima della sessione.
      * **⚡ Sessione Rapida (Vuota)**: avvia subito il server sulla porta TCP `53911` (e Voice UDP `53912`) per una partita estemporanea.
    * **Giocatore (Player)**:
-     * Clicca su **🛡️ Unisciti alla Partita** per aprire il client Giocatore.
-     * Dal menu `Server -> Connetti al Server...` (oppure `Riconnetti Ultimo Server`), scegli o crea il tuo personaggio, inserisci l'indirizzo IP del DM (`127.0.0.1` se giochi sullo stesso PC, oppure l'IP LAN/VPN del Master) e clicca su **Connetti**.
+     * **👤 Gestione Personaggi (Offline)**: apre direttamente la schermata di gestione eroi per creare, consultare, modificare la scheda, duplicare, eliminare ed esportare personaggi in PDF o JSON senza dover connettersi ad alcun server.
+     * **✨ Crea Personaggio (Guidato)**: avvia subito la procedura guidata passo-passo (Razza, Classe, Statistiche, Background, Equipaggiamento) per creare un eroe di 1° livello.
+     * **🛡️ Unisciti alla Partita**: avvia il client Giocatore. Dal menu `Server -> Connetti al Server...` (oppure `Riconnetti Ultimo Server`), scegli il tuo personaggio, inserisci l'indirizzo IP del DM (`127.0.0.1` o IP LAN/VPN) e clicca su **Connetti**.
 
 ---
 
@@ -137,8 +138,18 @@ OmniCompanion supporta tre diverse modalità di griglia per adattarsi a qualsias
 
 ## 4. Guida per il Giocatore (Player)
 
+### Gestione e Creazione Personaggi Offline (Senza Connessione al Server)
+Non è necessario avviare una sessione o collegarsi a un server per creare, consultare, modificare o esportare i tuoi personaggi:
+* **Dal Launcher Principale (`main.py`)**:
+  * **👤 Gestione Personaggi (Offline)**: apre un pannello completo dedicato con la lista degli eroi salvati, ricerca per nome/classe/razza, anteprima rapida delle statistiche base (PV, CA, Velocità, Caratteristiche con modificatori), pulsanti per **aprire la scheda completa**, **duplicare**, **eliminare** ed **esportare in PDF o JSON**. Se desideri avviare subito la partita, un pulsante dedicato ti permette di selezionare il personaggio e giocare direttamente.
+  * **✨ Crea Personaggio (Guidato)**: apre immediatamente il wizard in stile Baldur's Gate 3 per creare un eroe di 1° livello e salvarlo localmente.
+* **Dall'Interfaccia di Gioco (Client)**:
+  * Dal menu in alto: **`Personaggio -> Gestione Personaggi (Offline)...`** oppure **`Crea Nuovo Personaggio (Guidato)...`** / **`Crea Personaggio Manuale...`**.
+  * Nella barra laterale destra (Tab `Controlli PG`): trovi i pulsanti rapidi `[ ✨ ]` (Nuovo PG) e `[ 👤 ]` (Gestione) posti accanto al menu a tendina del personaggio attivo.
+  * Il pulsante **`📜 Scheda PG`** rimane **sempre attivo anche da disconnesso**: cliccandolo puoi visualizzare e modificare la scheda dell'eroe selezionato, testare i tiri di dado offline, gestire armi, inventario, grimorio ed esportare la scheda.
+
 ### Creazione Personaggio (Wizard) e Level-Up
-* **Nuovo Personaggio (Livello 1)**: Dalla finestra di selezione personaggio o dalla scheda, avvia il **Wizard di Creazione**. Ti guiderà nella scelta di Razza, Classe, Background, distribuzione delle Caratteristiche (Standard Array, Point Buy o Tiro Dadi) ed equipaggiamento iniziale.
+* **Nuovo Personaggio (Livello 1)**: Dalla finestra di selezione personaggio, dalla Gestione Personaggi o dal menu, avvia il **Wizard di Creazione**. Ti guiderà nella scelta di Razza, Classe, Background, distribuzione delle Caratteristiche (Standard Array, Point Buy o Tiro Dadi) ed equipaggiamento iniziale.
 * **Salita di Livello (`Level Up (+)`)**: Nella Scheda PG, clicca su `Level Up (+)`:
   * Scegli se prendere il **valore medio** del Dado Vita o effettuare il **tiro**.
   * Il sistema scarica automaticamente dal Compendio SRD 5e i **nuovi privilegi di classe** e aggiorna gli **slot incantesimo** del nuovo livello.

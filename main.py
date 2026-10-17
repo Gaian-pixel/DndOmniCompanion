@@ -48,13 +48,28 @@ def start_app():
         from server.campaign_editor_ui import CampaignEditorDialog
         dlg = CampaignEditorDialog(root)
 
-    def launch_player():
+    def open_character_manager():
+        from client.character_manager import CharacterManager
+        from client.character_manager_ui import CharacterManagerDialog
+        def on_selected_to_play(char):
+            launch_player(initial_character=char)
+        dlg = CharacterManagerDialog(root, manager=CharacterManager(), on_select_callback=on_selected_to_play)
+
+    def open_character_wizard():
+        from client.character_manager import CharacterManager
+        from client.character_creation_wizard import CharacterCreationWizard
+        mgr = CharacterManager()
+        def on_created(new_char):
+            open_character_manager()
+        dlg = CharacterCreationWizard(root, manager=mgr, on_complete_callback=on_created)
+
+    def launch_player(initial_character=None):
         for widget in root.winfo_children():
             widget.destroy()
         root.resizable(True, True)
         root.minsize(950, 650)
         from client.client import ClientGUI
-        app = ClientGUI(root)
+        app = ClientGUI(root, initial_character=initial_character)
 
     def on_toggle_lang():
         toggle_language()
@@ -152,6 +167,8 @@ def start_app():
 
         btn_pl_box = tk.Frame(player_card, bg=SURFACE_COLOR)
         btn_pl_box.pack(fill=tk.X, side=tk.BOTTOM)
+        ttk.Button(btn_pl_box, text=_t("launcher_player_btn_manage_chars"), command=open_character_manager, style="Gold.TButton").pack(fill=tk.X, pady=(0, 4))
+        ttk.Button(btn_pl_box, text=_t("launcher_player_btn_create_char"), command=open_character_wizard).pack(fill=tk.X, pady=(0, 4))
         ttk.Button(btn_pl_box, text=_t("launcher_player_btn_join"), command=launch_player, style="Primary.TButton").pack(fill=tk.X)
 
         # --- FOOTER ---
