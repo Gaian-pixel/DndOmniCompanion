@@ -1289,8 +1289,95 @@ class TestDndNewFeatures(unittest.TestCase):
         self.assertEqual(sum(mock_sock.recv_called_with), 4)
 
 
+    def test_fow_protocol_and_client_sync(self):
+        """Verifica la serializzazione di fow_enabled nel protocollo e la sincronizzazione lato client."""
+        import tkinter as tk
+        from common.protocol import make_fow_update_broadcast
+        from client.client import ClientGUI
+        from server.rules.movement import auto_explore_fow
+
+        # 1. Verifica serializzazione nel protocollo
+        pkg_without = make_fow_update_broadcast([[0, 0]], [[0, 0]])
+        self.assertNotIn("fow_enabled", pkg_without["data"])
+        
+        pkg_with = make_fow_update_broadcast([[0, 0]], [[0, 0]], fow_enabled=True)
+        self.assertTrue(pkg_with["data"]["fow_enabled"])
+
+        # 2. Verifica aggiornamento local_map_data lato Client
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            client = ClientGUI(root)
+            client.local_map_data = {"hexes": [[0, 0], [1, 0]], "fow_enabled": False, "fow_revealed": []}
+            
+            # Invio pacchetto FoW con abilitazione
+            client.handle_fow_update_broadcast({"fow_revealed": [[0, 0]], "fow_draft": [[0, 0]], "fow_enabled": True})
+            self.assertTrue(client.local_map_data.get("fow_enabled"))
+            self.assertEqual(client.local_map_data.get("fow_revealed"), [[0, 0]])
+
+            # Invio pacchetto FoW con disabilitazione
+            client.handle_fow_update_broadcast({"fow_revealed": [[0, 0]], "fow_draft": [[0, 0]], "fow_enabled": False})
+            self.assertFalse(client.local_map_data.get("fow_enabled"))
+        finally:
+            root.destroy()
+
+        # 3. Verifica auto_explore_fow
+        p = Player("Esploratore", None, None)
+        p.position = [0, 0]
+        p.vision_radius = 4
+        self.game_state.current_map = {
+            "hex_size": 40,
+            "hexes": [[q, r] for q in range(-10, 11) for r in range(-10, 11)],
+            "walls": [],
+            "fow_enabled": True,
+            "fow_revealed": [],
+            "fow_draft": []
+        }
+        changed = auto_explore_fow(p, self.game_state)
+        self.assertTrue(changed)
+        self.assertIn([0, 0], self.game_state.current_map["fow_revealed"])
+        self.assertIn([1, 0], self.game_state.current_map["fow_revealed"])
+
+    def test_fow_canvas_rendering_and_culling(self):
+        """Verifica che il canvas renderizzi la nebbia lato client e nasconda i token nemici fuori vista."""
+        import tkinter as tk
+        from components.ui_components import HexMapCanvas
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            canvas = HexMapCanvas(root, width=800, height=600)
+            map_data = {
+                "hex_size": 40,
+                "hexes": [[0, 0], [1, 0], [2, 0], [3, 0], [4, 0], [5, 0]],
+                "walls": [],
+                "fow_enabled": True,
+                "fow_revealed": [[0, 0], [1, 0]]
+            }
+            players_data = {
+                "Gandalf": {"position": [0, 0], "hp": 20, "hp_max": 20, "vision_radius": 1},
+                "Goblin_Vicino": {"position": [1, 0], "hp": 7, "hp_max": 7},
+                "Goblin_Lontano": {"position": [5, 0], "hp": 7, "hp_max": 7}
+            }
+
+            # Disegna vista giocatore Gandalf
+            canvas.update_data(map_data, players_data, player_name="Gandalf")
+            root.update()
+
+            self.assertTrue(canvas.fow_enabled)
+            self.assertIn((0, 0), canvas.visible_hexes)
+            self.assertIn((1, 0), canvas.visible_hexes)
+            self.assertNotIn((5, 0), canvas.visible_hexes)
+
+            # Il canvas deve aver generato poligoni di nebbia per gli esagoni non visibili
+            items = canvas.find_all()
+            self.assertGreater(len(items), 0)
+        finally:
+            root.destroy()
+
+
 if __name__ == "__main__":
     unittest.main()
+
 
 
 

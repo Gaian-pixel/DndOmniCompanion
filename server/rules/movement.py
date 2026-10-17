@@ -5,6 +5,44 @@ from common.network_utils import send_message, broadcast
 from common.i18n import is_condition_active
 import math
 
+def auto_explore_fow(player, game_state):
+    """Calcola la visibilità (LoS + Luce dinamica) del giocatore e aggiorna la FoW della mappa."""
+    if not getattr(game_state, "current_map", None) or not game_state.current_map.get("fow_enabled", False):
+        return False
+    pos = getattr(player, "position", None)
+    if not pos:
+        return False
+    
+    h = Hex(pos[0], pos[1])
+    vision_rad = getattr(player, 'vision_radius', 6)
+    light_rad = getattr(player, 'light_radius', 0)
+    effective_rad = max(vision_rad, light_rad)
+    walls = game_state.current_map.get("walls", [])
+    visible_hexes = get_visible_hexes(h, effective_rad, walls)
+    
+    for other_p in getattr(game_state, "players", []):
+        if other_p.name != player.name and getattr(other_p, 'is_party_member', False) and getattr(other_p, 'light_radius', 0) > 0:
+            o_pos = getattr(other_p, 'position', None)
+            if o_pos:
+                o_hex = Hex(o_pos[0], o_pos[1])
+                o_light_hexes = get_visible_hexes(o_hex, other_p.light_radius, walls)
+                visible_hexes.extend(o_light_hexes)
+
+    changed = False
+    fow_rev = game_state.current_map.setdefault("fow_revealed", [])
+    fow_draft = game_state.current_map.setdefault("fow_draft", [])
+    
+    for rh in visible_hexes:
+        pos_entry = [rh.q, rh.r]
+        if pos_entry not in fow_rev:
+            fow_rev.append(pos_entry)
+            changed = True
+        if pos_entry not in fow_draft:
+            fow_draft.append(pos_entry)
+            changed = True
+            
+    return changed
+
 def handle_move_request(data, player, game_state):
     from common.network_utils import send_message, broadcast
     conds = getattr(player, "conditions", [])
@@ -184,42 +222,12 @@ def handle_move_request(data, player, game_state):
 
         # Auto-explore FoW around the player's new position with true Line of Sight (LoS) and Dynamic Light
         if getattr(game_state, "current_map", None) and game_state.current_map.get("fow_enabled", False):
-            h = Hex(to_pos[0], to_pos[1])
-            vision_rad = getattr(player, 'vision_radius', 6)
-            light_rad = getattr(player, 'light_radius', 0)
-            effective_rad = max(vision_rad, light_rad)
-            walls = game_state.current_map.get("walls", [])
-            visible_hexes = get_visible_hexes(h, effective_rad, walls)
-            
-            # Luce condivisa dai membri del party con sorgenti luminose attive (Torcia, Lanterna)
-            for other_p in game_state.players:
-                if other_p.name != player.name and getattr(other_p, 'is_party_member', False) and getattr(other_p, 'light_radius', 0) > 0:
-                    o_pos = getattr(other_p, 'position', None)
-                    if o_pos:
-                        o_hex = Hex(o_pos[0], o_pos[1])
-                        o_light_hexes = get_visible_hexes(o_hex, other_p.light_radius, walls)
-                        visible_hexes.extend(o_light_hexes)
-
-            changed = False
-            fow_rev = game_state.current_map.get("fow_revealed", [])
-            fow_draft = game_state.current_map.get("fow_draft", [])
-            
-            for rh in visible_hexes:
-                pos = [rh.q, rh.r]
-                if pos not in fow_rev:
-                    fow_rev.append(pos)
-                    changed = True
-                if pos not in fow_draft:
-                    fow_draft.append(pos)
-                    changed = True
-            
+            changed = auto_explore_fow(player, game_state)
             if changed:
-                game_state.current_map["fow_revealed"] = fow_rev
-                game_state.current_map["fow_draft"] = fow_draft
                 game_state._trigger_gui_update()
                 from common.protocol import make_fow_update_broadcast, make_player_move
                 broadcast(game_state, make_player_move(player.name, to_pos))
-                broadcast(game_state, make_fow_update_broadcast(fow_rev, fow_draft))
+                broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"], fow_enabled=True))
                 return
                 
         from common.protocol import make_player_move
