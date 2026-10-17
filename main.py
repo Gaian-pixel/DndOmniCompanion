@@ -131,7 +131,7 @@ def start_app():
         dm_card = tk.Frame(cards_frame, bg=SURFACE_COLOR, highlightbackground="#373A40", highlightthickness=1, padx=15, pady=12)
         dm_card.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
 
-        tk.Label(dm_card, text="👑", font=("Segoe UI", 26), bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(pady=(2, 4))
+        tk.Label(dm_card, text="👑", font=("Segoe UI", 26), bg=SURFACE_COLOR, fg=ACCENT_GOLD, anchor="center").pack(pady=(2, 4))
         tk.Label(dm_card, text=_t("launcher_dm_title"), font=FONT_HEADER, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack()
         tk.Label(
             dm_card, 
@@ -153,7 +153,7 @@ def start_app():
         player_card = tk.Frame(cards_frame, bg=SURFACE_COLOR, highlightbackground="#373A40", highlightthickness=1, padx=15, pady=12)
         player_card.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
 
-        tk.Label(player_card, text="🛡️", font=("Segoe UI", 26), bg=SURFACE_COLOR, fg="#5C7CFA").pack(pady=(2, 4))
+        tk.Label(player_card, text="🛡", font=("Segoe UI", 26), bg=SURFACE_COLOR, fg="#5C7CFA", anchor="center").pack(pady=(2, 4))
         tk.Label(player_card, text=_t("launcher_player_title"), font=FONT_HEADER, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack()
         tk.Label(
             player_card, 
