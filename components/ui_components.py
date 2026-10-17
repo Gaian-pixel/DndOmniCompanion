@@ -47,6 +47,8 @@ class HexMapCanvas(tk.Canvas):
         self.pen_mode = False
         self.pen_color = "red"
         self.brush_radius = 0
+        self.fow_enabled = False
+        self.visible_hexes = set()
 
         self.bind("<MouseWheel>", self._zoom)
         self.bind("<Button-4>", self._zoom)
@@ -463,9 +465,10 @@ class HexMapCanvas(tk.Canvas):
                 from common.hex_utils import Hex
                 if Hex(*pos) == hovered_hex:
                     # Controlliamo la nebbia di guerra per il client
-                    if getattr(self, 'fow_enabled', False) and getattr(self, 'player_name', None):
+                    fow_active = getattr(self, 'fow_enabled', False) or (isinstance(getattr(self, 'map_data', None), dict) and self.map_data.get('fow_enabled', False))
+                    if fow_active and getattr(self, 'player_name', None):
                         visible = getattr(self, 'visible_hexes', set())
-                        if hovered_hex not in visible:
+                        if (hovered_hex.q, hovered_hex.r) not in visible and hovered_hex not in visible:
                             continue # Non mostrare tooltip se non e' visibile
                     token_name = name
                     break
@@ -815,7 +818,8 @@ class HexMapCanvas(tk.Canvas):
         pois_data = {(int(k.split(',')[0]), int(k.split(',')[1])): v for k, v in self.map_data.get("pois", {}).items()}
         border_color = self.map_data.get("hex_border_color", "white")
         
-        fow_enabled = self.map_data.get("fow_enabled", False)
+        fow_enabled = bool(self.map_data.get("fow_enabled", False))
+        self.fow_enabled = fow_enabled
         is_dm = not bool(self.player_name)
         draft_key = "fow_draft" if ("fow_draft" in self.map_data and is_dm) else "fow_revealed"
         fow_revealed = {tuple(h) for h in self.map_data.get(draft_key, [])}
@@ -828,8 +832,18 @@ class HexMapCanvas(tk.Canvas):
             pdata = self.players_data[self.player_name]
             pos = pdata.get('position') if isinstance(pdata, dict) else pdata
             if pos is None: pos = [0, 0]
-            vision_rad = pdata.get('vision_radius', 6) if isinstance(pdata, dict) else 6
+            vision_rad = max(pdata.get('vision_radius', 6) if isinstance(pdata, dict) else 6, pdata.get('light_radius', 0) if isinstance(pdata, dict) else 0)
             visible_now = {(h.q, h.r) for h in get_visible_hexes(Hex(pos[0], pos[1]), vision_rad, walls_hex_set)}
+
+            # Condividi visione/luce con altri membri del party che hanno sorgenti di luce attive
+            for other_name, other_pdata in self.players_data.items():
+                if other_name != self.player_name and isinstance(other_pdata, dict) and other_pdata.get('is_party_member', False):
+                    o_light = other_pdata.get('light_radius', 0)
+                    if o_light > 0:
+                        o_pos = other_pdata.get('position', [0, 0])
+                        visible_now.update({(h.q, h.r) for h in get_visible_hexes(Hex(o_pos[0], o_pos[1]), o_light, walls_hex_set)})
+
+        self.visible_hexes = visible_now
 
         half_cover_set = {tuple(c) for c in self.map_data.get("half_cover", [])}
         three_quarters_cover_set = {tuple(c) for c in self.map_data.get("three_quarters_cover", [])}
@@ -894,15 +908,19 @@ class HexMapCanvas(tk.Canvas):
                 fill_color = "#8B4513"
             elif hex_tup in three_quarters_cover_set:
                 fill_color = "#A0522D"
-            elif fow_enabled and hex_tup not in fow_revealed:
+            elif fow_enabled:
                 if is_dm:
-                    fill_color = "gray25"
-                    stipple_pattern = "gray50"
+                    if hex_tup not in fow_revealed:
+                        fill_color = "gray25"
+                        stipple_pattern = "gray50"
                 else:
-                    fill_color = "black"
-            elif fow_enabled and not is_dm and hex_tup not in visible_now:
-                fill_color = "gray10"
-                stipple_pattern = "gray75"
+                    if hex_tup in visible_now:
+                        fill_color = ""
+                    elif hex_tup in fow_revealed:
+                        fill_color = "gray10"
+                        stipple_pattern = "gray75"
+                    else:
+                        fill_color = "black"
 
             if scaled_size < 8.0 and not fill_color:
                 continue
@@ -956,7 +974,7 @@ class HexMapCanvas(tk.Canvas):
         loots_data = self.map_data.get("loots", [])
         for l in loots_data:
             l_tup = (l["q"], l["r"])
-            if fow_enabled and not is_dm and l_tup not in fow_revealed:
+            if fow_enabled and not is_dm and l_tup not in fow_revealed and l_tup not in visible_now:
                 continue
             cx = step_x * l["q"]
             cy = hex_size * (sqrt3 * 0.5 * l["q"] + sqrt3 * l["r"])
@@ -970,7 +988,7 @@ class HexMapCanvas(tk.Canvas):
         lights_data = self.map_data.get("lights", [])
         for l in lights_data:
             l_tup = (l["q"], l["r"])
-            if fow_enabled and not is_dm and l_tup not in fow_revealed:
+            if fow_enabled and not is_dm and l_tup not in fow_revealed and l_tup not in visible_now:
                 continue
             cx = step_x * l["q"]
             cy = hex_size * (sqrt3 * 0.5 * l["q"] + sqrt3 * l["r"])
@@ -984,7 +1002,7 @@ class HexMapCanvas(tk.Canvas):
         for k in teleports_data:
             q_str, r_str = k.split(",")
             t_q, t_r = int(q_str), int(r_str)
-            if fow_enabled and not is_dm and (t_q, t_r) not in fow_revealed:
+            if fow_enabled and not is_dm and (t_q, t_r) not in fow_revealed and (t_q, t_r) not in visible_now:
                 continue
             cx = step_x * t_q
             cy = hex_size * (sqrt3 * 0.5 * t_q + sqrt3 * t_r)
@@ -1004,7 +1022,7 @@ class HexMapCanvas(tk.Canvas):
             is_hid = tr.get("hidden", True)
             if not is_dm and is_hid and not is_trig:
                 continue
-            if fow_enabled and not is_dm and (tr_q, tr_r) not in fow_revealed:
+            if fow_enabled and not is_dm and (tr_q, tr_r) not in fow_revealed and (tr_q, tr_r) not in visible_now:
                 continue
             cx = step_x * tr_q
             cy = hex_size * (sqrt3 * 0.5 * tr_q + sqrt3 * tr_r)
@@ -1066,8 +1084,9 @@ class HexMapCanvas(tk.Canvas):
             else:
                 size_mult = 1.0
 
+            is_me = (name == self.player_name)
             q, r = pos[0], pos[1]
-            if fow_enabled and not is_dm and (q, r) not in visible_now:
+            if fow_enabled and not is_dm and (q, r) not in visible_now and not is_me:
                 continue
 
             cx, cy = self.hex_layout.hex_to_pixel(Hex(q, r))

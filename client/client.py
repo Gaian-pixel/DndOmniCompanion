@@ -56,6 +56,7 @@ class ClientGUI:
         self.is_connected = False
         self.players_data = {}
         self.local_map_data = None
+        self.game_state = None
         self.notebook = None
         self.chat_tabs = {}
         self.player_listbox = None
@@ -2558,10 +2559,13 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             self.map_canvas.draw_ping(data.get("q"), data.get("r"), data.get("color", "red"))
 
     def handle_fow_update_broadcast(self, data):
-        if hasattr(self, 'local_map_data') and self.local_map_data:
-            self.local_map_data["fow_revealed"] = data.get("fow_revealed", [])
-            self.local_map_data["fow_draft"] = data.get("fow_draft", [])
-            self.redraw_map_and_players()
+        if not hasattr(self, 'local_map_data') or self.local_map_data is None:
+            self.local_map_data = {}
+        self.local_map_data["fow_revealed"] = data.get("fow_revealed", [])
+        self.local_map_data["fow_draft"] = data.get("fow_draft", [])
+        if "fow_enabled" in data:
+            self.local_map_data["fow_enabled"] = bool(data.get("fow_enabled"))
+        self.redraw_map_and_players()
 
     def handle_request_initiative(self, data):
         win = tk.Toplevel(self.master)

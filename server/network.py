@@ -124,8 +124,14 @@ class Server:
                     player.position = self.game_state.current_map["spawn_point"]
                     
                 self.game_state.add_player(player)
+                if self.game_state.current_map and self.game_state.current_map.get("fow_enabled", False) and getattr(player, "position", None):
+                    from server.rules.movement import auto_explore_fow
+                    if auto_explore_fow(player, self.game_state):
+                        self.game_state._trigger_gui_update()
                 send_message(conn, make_game_state(self.game_state.get_state_dict()))
                 broadcast(self.game_state, make_player_joined(player.to_dict()), exclude_player=player)
+                if self.game_state.current_map and self.game_state.current_map.get("fow_enabled", False):
+                    broadcast(self.game_state, make_fow_update_broadcast(self.game_state.current_map.get("fow_revealed", []), self.game_state.current_map.get("fow_draft", []), fow_enabled=True))
 
             current_music = getattr(self.game_state, "current_music", None)
             if player and current_music:

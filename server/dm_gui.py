@@ -1279,16 +1279,20 @@ class DM_GUI:
         self.server.game_state.current_map["fow_enabled"] = self.fow_enabled_var.get()
         self.redraw_map_and_players()
         self._broadcast_fow_update()
+        from common.protocol import make_map_data_update_broadcast
+        broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
         
     def reveal_all_fow(self):
         if not self.server.game_state.current_map: return
         self.server.game_state.current_map["fow_draft"] = self.server.game_state.current_map.get("hexes", [])[:]
         self.redraw_map_and_players()
+        self.show_toast("Tutta la mappa rivelata nella bozza. Clicca 'Invia ai Giocatori' per applicare.", title="☁️ Nebbia di Guerra", toast_type="info")
 
     def hide_all_fow(self):
         if not self.server.game_state.current_map: return
         self.server.game_state.current_map["fow_draft"] = []
         self.redraw_map_and_players()
+        self.show_toast("Tutta la mappa coperta nella bozza. Clicca 'Invia ai Giocatori' per applicare.", title="☁️ Nebbia di Guerra", toast_type="info")
 
     def advance_time(self, hours, is_rest=False):
         gs = self.server.game_state
@@ -1333,13 +1337,17 @@ class DM_GUI:
         broadcast(gs, make_game_state(gs.get_state_dict()))
 
     def _broadcast_fow_update(self):
-        if self.server.game_state.current_map and "fow_draft" in self.server.game_state.current_map:
-            self.server.game_state.current_map["fow_revealed"] = self.server.game_state.current_map["fow_draft"].copy()
+        if self.server.game_state.current_map:
+            cur_map = self.server.game_state.current_map
+            if "fow_draft" not in cur_map:
+                cur_map["fow_draft"] = cur_map.get("fow_revealed", []).copy()
+            cur_map["fow_revealed"] = cur_map["fow_draft"].copy()
             from common.protocol import make_fow_update_broadcast
-            fow_rev = self.server.game_state.current_map["fow_revealed"]
-            fow_draft = self.server.game_state.current_map["fow_draft"]
-            broadcast(self.server.game_state, make_fow_update_broadcast(fow_rev, fow_draft))
-        self.log_to_chat("[SISTEMA] Nebbia di Guerra sincronizzata con i giocatori.")
+            fow_rev = cur_map["fow_revealed"]
+            fow_draft = cur_map["fow_draft"]
+            fow_enabled = cur_map.get("fow_enabled", False)
+            broadcast(self.server.game_state, make_fow_update_broadcast(fow_rev, fow_draft, fow_enabled=fow_enabled))
+            self.log_to_chat("[SISTEMA] Nebbia di Guerra sincronizzata con i giocatori.")
 
     def on_token_drop(self, token_name, q, r):
         player = self.server.game_state.find_player(token_name)
@@ -1478,7 +1486,15 @@ class DM_GUI:
             }
         turn_player = self.server.game_state.get_current_turn_player()
         turn_name = turn_player.name if turn_player else ""
-        view_name = "DM_TEST" if getattr(self, "dm_player_view_var", None) and self.dm_player_view_var.get() else ""
+        view_name = ""
+        if getattr(self, "dm_player_view_var", None) and self.dm_player_view_var.get():
+            view_name = "DM_TEST"
+            if hasattr(self, 'player_listbox') and self.player_listbox.curselection():
+                display_text = self.player_listbox.get(self.player_listbox.curselection()[0])
+                if not display_text.startswith('---'):
+                    sel_pname = display_text.split(" (HP")[0].replace("▶", "").strip()
+                    if sel_pname in players_data:
+                        view_name = sel_pname
         
         time_hour = getattr(self.server.game_state, "time_hour", 12)
         weather = getattr(self.server.game_state, "weather", "Sereno")
