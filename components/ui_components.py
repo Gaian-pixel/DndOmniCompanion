@@ -833,7 +833,7 @@ class HexMapCanvas(tk.Canvas):
             pos = pdata.get('position') if isinstance(pdata, dict) else pdata
             if pos is None: pos = [0, 0]
             vision_rad = max(pdata.get('vision_radius', 6) if isinstance(pdata, dict) else 6, pdata.get('light_radius', 0) if isinstance(pdata, dict) else 0)
-            visible_now = {(h.q, h.r) for h in get_visible_hexes(Hex(pos[0], pos[1]), vision_rad, walls_hex_set)}
+            visible_now = {(h.q, h.r) for h in get_visible_hexes(Hex(pos[0], pos[1]), vision_rad, walls_hex_set, grid_type=grid_type)}
 
             # Condividi visione/luce con altri membri del party che hanno sorgenti di luce attive
             for other_name, other_pdata in self.players_data.items():
@@ -841,60 +841,91 @@ class HexMapCanvas(tk.Canvas):
                     o_light = other_pdata.get('light_radius', 0)
                     if o_light > 0:
                         o_pos = other_pdata.get('position', [0, 0])
-                        visible_now.update({(h.q, h.r) for h in get_visible_hexes(Hex(o_pos[0], o_pos[1]), o_light, walls_hex_set)})
+                        visible_now.update({(h.q, h.r) for h in get_visible_hexes(Hex(o_pos[0], o_pos[1]), o_light, walls_hex_set, grid_type=grid_type)})
 
         self.visible_hexes = visible_now
 
         half_cover_set = {tuple(c) for c in self.map_data.get("half_cover", [])}
         three_quarters_cover_set = {tuple(c) for c in self.map_data.get("three_quarters_cover", [])}
 
-        # Cache e calcolo esagoni visibili
+        # Cache e calcolo celle visibili nel viewport
         raw_hexes = self.map_data.get("hexes", [])
         if self._map_hexes_set is None or len(self._map_hexes_set) != len(raw_hexes):
             self._map_hexes_set = {tuple(h) for h in raw_hexes}
 
-        sqrt3 = 1.7320508075688772
-        sqrt3_size = sqrt3 * hex_size
-        step_x = 1.5 * hex_size
-
-        min_q = int(math.floor((world_x1 - hex_size) / step_x))
-        max_q = int(math.ceil((world_x2 + hex_size) / step_x))
-
-        _BASE_OFFSETS = (
-            (1.0, 0.0),
-            (0.5, 0.8660254037844386),
-            (-0.5, 0.8660254037844386),
-            (-1.0, 0.0),
-            (-0.5, -0.8660254037844386),
-            (0.5, -0.8660254037844386)
-        )
-        scaled_size = hex_size * self.zoom_level
-        corner_offsets = tuple((dx * scaled_size, dy * scaled_size) for dx, dy in _BASE_OFFSETS)
+        is_square = grid_type in ("square", "none", "gridless")
         line_w = max(1, int(1/self.zoom_level)) if self.zoom_level < 1 else 1
 
-        # Trova esagoni intersecanti con il viewport
-        candidate_count = (max_q - min_q + 1) * int((world_y2 - world_y1) / sqrt3_size + 2)
-        if candidate_count < len(self._map_hexes_set):
-            visible_hex_list = []
-            for q in range(min_q, max_q + 1):
-                min_r = int(math.floor((world_y1 - hex_size) / sqrt3_size - q * 0.5))
-                max_r = int(math.ceil((world_y2 + hex_size) / sqrt3_size - q * 0.5))
-                for r in range(min_r, max_r + 1):
-                    if (q, r) in self._map_hexes_set:
-                        visible_hex_list.append((q, r))
+        if is_square:
+            cell_size = hex_size * 1.5
+            scaled_size = cell_size * self.zoom_level
+            half_s = 0.5 * scaled_size
+
+            min_q = int(math.floor(world_x1 / cell_size)) - 1
+            max_q = int(math.ceil(world_x2 / cell_size)) + 1
+            min_r = int(math.floor(world_y1 / cell_size)) - 1
+            max_r = int(math.ceil(world_y2 / cell_size)) + 1
+
+            candidate_count = (max_q - min_q + 1) * (max_r - min_r + 1)
+            if candidate_count < len(self._map_hexes_set):
+                visible_hex_list = []
+                for q in range(min_q, max_q + 1):
+                    for r in range(min_r, max_r + 1):
+                        if (q, r) in self._map_hexes_set:
+                            visible_hex_list.append((q, r))
+            else:
+                visible_hex_list = [
+                    (q, r) for q, r in self._map_hexes_set
+                    if (min_q <= q <= max_q) and (min_r <= r <= max_r)
+                ]
+            corner_offsets = ()
         else:
-            visible_hex_list = [
-                (q, r) for q, r in self._map_hexes_set
-                if (min_q <= q <= max_q) and (world_y1 - hex_size <= hex_size * (sqrt3 * 0.5 * q + sqrt3 * r) <= world_y2 + hex_size)
-            ]
+            sqrt3 = 1.7320508075688772
+            sqrt3_size = sqrt3 * hex_size
+            step_x = 1.5 * hex_size
+
+            min_q = int(math.floor((world_x1 - hex_size) / step_x))
+            max_q = int(math.ceil((world_x2 + hex_size) / step_x))
+
+            _BASE_OFFSETS = (
+                (1.0, 0.0),
+                (0.5, 0.8660254037844386),
+                (-0.5, 0.8660254037844386),
+                (-1.0, 0.0),
+                (-0.5, -0.8660254037844386),
+                (0.5, -0.8660254037844386)
+            )
+            scaled_size = hex_size * self.zoom_level
+            corner_offsets = tuple((dx * scaled_size, dy * scaled_size) for dx, dy in _BASE_OFFSETS)
+
+            # Trova esagoni intersecanti con il viewport
+            candidate_count = (max_q - min_q + 1) * int((world_y2 - world_y1) / sqrt3_size + 2)
+            if candidate_count < len(self._map_hexes_set):
+                visible_hex_list = []
+                for q in range(min_q, max_q + 1):
+                    min_r = int(math.floor((world_y1 - hex_size) / sqrt3_size - q * 0.5))
+                    max_r = int(math.ceil((world_y2 + hex_size) / sqrt3_size - q * 0.5))
+                    for r in range(min_r, max_r + 1):
+                        if (q, r) in self._map_hexes_set:
+                            visible_hex_list.append((q, r))
+            else:
+                visible_hex_list = [
+                    (q, r) for q, r in self._map_hexes_set
+                    if (min_q <= q <= max_q) and (world_y1 - hex_size <= hex_size * (sqrt3 * 0.5 * q + sqrt3 * r) <= world_y2 + hex_size)
+                ]
 
         for q, r in visible_hex_list:
             cx, cy = self.hex_layout.hex_to_pixel(Hex(q, r))
             sx = cx * self.zoom_level + self.pan_offset_x
             sy = cy * self.zoom_level + self.pan_offset_y
 
-            if grid_type == "square":
-                scaled_corners = [(wx * self.zoom_level + self.pan_offset_x, wy * self.zoom_level + self.pan_offset_y) for wx, wy in self.hex_layout.hex_corners(Hex(q, r))]
+            if is_square:
+                scaled_corners = [
+                    (sx - half_s, sy - half_s),
+                    (sx + half_s, sy - half_s),
+                    (sx + half_s, sy + half_s),
+                    (sx - half_s, sy + half_s)
+                ]
             else:
                 scaled_corners = [(sx + dx, sy + dy) for dx, dy in corner_offsets]
             hex_tup = (q, r)
@@ -948,12 +979,18 @@ class HexMapCanvas(tk.Canvas):
                     if fow_enabled and not is_dm and (h.q, h.r) not in fow_revealed:
                         continue
                     cx, cy = self.hex_layout.hex_to_pixel(h)
-                    if not (world_x1 - hex_size <= cx <= world_x2 + hex_size and world_y1 - hex_size <= cy <= world_y2 + hex_size):
+                    margin_size = hex_size * 1.5 if is_square else hex_size
+                    if not (world_x1 - margin_size <= cx <= world_x2 + margin_size and world_y1 - margin_size <= cy <= world_y2 + margin_size):
                         continue
                     sx = cx * self.zoom_level + self.pan_offset_x
                     sy = cy * self.zoom_level + self.pan_offset_y
-                    if grid_type == "square":
-                        scaled_corners = [(wx * self.zoom_level + self.pan_offset_x, wy * self.zoom_level + self.pan_offset_y) for wx, wy in self.hex_layout.hex_corners(h)]
+                    if is_square:
+                        scaled_corners = [
+                            (sx - half_s, sy - half_s),
+                            (sx + half_s, sy - half_s),
+                            (sx + half_s, sy + half_s),
+                            (sx - half_s, sy + half_s)
+                        ]
                     else:
                         scaled_corners = [(sx + dx, sy + dy) for dx, dy in corner_offsets]
                     self.create_polygon(scaled_corners, fill=color, outline=color, width=2, stipple="gray50")
@@ -976,8 +1013,7 @@ class HexMapCanvas(tk.Canvas):
             l_tup = (l["q"], l["r"])
             if fow_enabled and not is_dm and l_tup not in fow_revealed and l_tup not in visible_now:
                 continue
-            cx = step_x * l["q"]
-            cy = hex_size * (sqrt3 * 0.5 * l["q"] + sqrt3 * l["r"])
+            cx, cy = self.hex_layout.hex_to_pixel(Hex(l["q"], l["r"]))
             sx = cx * self.zoom_level + self.pan_offset_x
             sy = cy * self.zoom_level + self.pan_offset_y
             if scr_x1 <= sx <= scr_x2 and scr_y1 <= sy <= scr_y2:
@@ -990,8 +1026,7 @@ class HexMapCanvas(tk.Canvas):
             l_tup = (l["q"], l["r"])
             if fow_enabled and not is_dm and l_tup not in fow_revealed and l_tup not in visible_now:
                 continue
-            cx = step_x * l["q"]
-            cy = hex_size * (sqrt3 * 0.5 * l["q"] + sqrt3 * l["r"])
+            cx, cy = self.hex_layout.hex_to_pixel(Hex(l["q"], l["r"]))
             sx = cx * self.zoom_level + self.pan_offset_x
             sy = cy * self.zoom_level + self.pan_offset_y
             if scr_x1 <= sx <= scr_x2 and scr_y1 <= sy <= scr_y2:
@@ -1004,8 +1039,7 @@ class HexMapCanvas(tk.Canvas):
             t_q, t_r = int(q_str), int(r_str)
             if fow_enabled and not is_dm and (t_q, t_r) not in fow_revealed and (t_q, t_r) not in visible_now:
                 continue
-            cx = step_x * t_q
-            cy = hex_size * (sqrt3 * 0.5 * t_q + sqrt3 * t_r)
+            cx, cy = self.hex_layout.hex_to_pixel(Hex(t_q, t_r))
             sx = cx * self.zoom_level + self.pan_offset_x
             sy = cy * self.zoom_level + self.pan_offset_y
             if scr_x1 <= sx <= scr_x2 and scr_y1 <= sy <= scr_y2:
@@ -1024,8 +1058,7 @@ class HexMapCanvas(tk.Canvas):
                 continue
             if fow_enabled and not is_dm and (tr_q, tr_r) not in fow_revealed and (tr_q, tr_r) not in visible_now:
                 continue
-            cx = step_x * tr_q
-            cy = hex_size * (sqrt3 * 0.5 * tr_q + sqrt3 * tr_r)
+            cx, cy = self.hex_layout.hex_to_pixel(Hex(tr_q, tr_r))
             sx = cx * self.zoom_level + self.pan_offset_x
             sy = cy * self.zoom_level + self.pan_offset_y
             if scr_x1 <= sx <= scr_x2 and scr_y1 <= sy <= scr_y2:
@@ -1036,8 +1069,7 @@ class HexMapCanvas(tk.Canvas):
         spawn_point = self.map_data.get("spawn_point")
         if spawn_point and is_dm:
             sp_q, sp_r = spawn_point[0], spawn_point[1]
-            cx = step_x * sp_q
-            cy = hex_size * (sqrt3 * 0.5 * sp_q + sqrt3 * sp_r)
+            cx, cy = self.hex_layout.hex_to_pixel(Hex(sp_q, sp_r))
             sx = cx * self.zoom_level + self.pan_offset_x
             sy = cy * self.zoom_level + self.pan_offset_y
             if scr_x1 <= sx <= scr_x2 and scr_y1 <= sy <= scr_y2:
@@ -1094,7 +1126,8 @@ class HexMapCanvas(tk.Canvas):
             sy = cy * self.zoom_level + self.pan_offset_y
 
             radius = 12 * size_mult
-            screen_aura_r = (aura_radius * hex_size * sqrt3 * self.zoom_level) if aura_radius > 0 else 0
+            step_dist = (hex_size * 1.5 if is_square else hex_size * 1.7320508075688772)
+            screen_aura_r = (aura_radius * step_dist * self.zoom_level) if aura_radius > 0 else 0
             max_r = max(radius + 20, screen_aura_r + 10)
             if not (scr_x1 - max_r <= sx <= scr_x2 + max_r and scr_y1 - max_r <= sy <= scr_y2 + max_r):
                 continue
@@ -1140,7 +1173,7 @@ class HexMapCanvas(tk.Canvas):
             light_radius = pdata.get('light_radius', 0) if isinstance(pdata, dict) else 0
             light_color = pdata.get('light_color', '#FFD700') if isinstance(pdata, dict) else '#FFD700'
             if light_radius > 0:
-                screen_light_r = (light_radius * hex_size * sqrt3 * self.zoom_level)
+                screen_light_r = (light_radius * step_dist * self.zoom_level)
                 self.create_oval(sx - screen_light_r, sy - screen_light_r,
                                  sx + screen_light_r, sy + screen_light_r,
                                  fill="", outline=light_color, dash=(5, 5), width=2)

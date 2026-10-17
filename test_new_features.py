@@ -1455,7 +1455,50 @@ class TestDndNewFeatures(unittest.TestCase):
             self.assertEqual(p.hp, 18, "Il server deve preservare i propri HP autorevoli")
             self.assertEqual(p.max_hp, 24, "Il server deve preservare i propri Max HP autorevoli")
             self.assertEqual(fake_incoming_sheet["hp_current"], 18)
+        finally:
+            root.destroy()
 
+    def test_square_grid_full_rendering_and_culling(self):
+        """Verifica che la griglia quadra venga renderizzata per l'intera mappa senza tagli diagonali."""
+        import tkinter as tk
+        from components.ui_components import HexMapCanvas
+        from common.hex_utils import Hex, get_sphere_hexes, get_visible_hexes
+
+        # 1. Verifica get_sphere_hexes per griglia quadra
+        sq_sphere = get_sphere_hexes(Hex(5, 5), 2, grid_type="square")
+        # Un raggio 2 su griglia quadra deve coprire (2*2+1)^2 = 25 celle
+        self.assertEqual(len(sq_sphere), 25)
+        self.assertIn(Hex(3, 3), sq_sphere)
+        self.assertIn(Hex(7, 7), sq_sphere)
+
+        # 2. Verifica rendering su Canvas con mappa quadrata 20x20
+        root = tk.Tk()
+        root.geometry("1024x768")
+        root.withdraw()
+        try:
+            canvas = HexMapCanvas(root, width=1024, height=768)
+            canvas.pack(fill=tk.BOTH, expand=True)
+
+            cells = [[q, r] for q in range(0, 20) for r in range(0, 20)]
+            map_data = {
+                "hex_size": 20,
+                "grid_type": "square",
+                "hexes": cells,
+                "walls": [],
+                "fow_enabled": False,
+                "loots": [{"q": 18, "r": 18}],
+                "teleports": {"19,19": "target_map"}
+            }
+            # Imposta zoom e pan per inquadrare tutte le celle
+            canvas.zoom_level = 1.0
+            canvas.pan_offset_x = 0
+            canvas.pan_offset_y = 0
+            canvas.update_data(map_data, {}, player_name=None)
+            root.update()
+
+            # Tutte le 400 celle (compreso l'angolo inferiore destro (19, 19)) devono essere renderizzate
+            rendered_items = canvas.find_all()
+            self.assertGreaterEqual(len(rendered_items), 400, "Tutte le celle quadrate devono essere renderizzate")
         finally:
             root.destroy()
 
