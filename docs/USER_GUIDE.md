@@ -11,29 +11,34 @@ This manual walks you step by step through starting a session, configuring the i
 
 1. [Quick Start & Connection](#1-quick-start--connection)
 2. [Interface Overview & Global Settings](#2-interface-overview--global-settings)
-   - [Top Menu Bar: Language & Distance Units](#top-menu-bar-language--distance-units)
-   - [3-Column Layout & Map Canvas HUDs](#3-column-layout--map-canvas-huds)
+   - [Top Menu Bar: Language, Distance Units & Session Log Export](#top-menu-bar-language-distance-units--session-log-export)
+   - [3-Column Layout, Canvas HUDs & Whiteboard Tools (`[ ✏️ ]`)](#3-column-layout-canvas-huds--whiteboard-tools---)
    - [Quick Command Palette (`Ctrl+K`)](#quick-command-palette-ctrlk)
-3. [Distance Units, Map Scales & Dynamic Ruler](#3-distance-units-map-scales--dynamic-ruler)
+3. [Distance Units, Map Scales, Multi-Grid & Dynamic Ruler](#3-distance-units-map-scales-multi-grid--dynamic-ruler)
    - [Choosing Between Feet/Miles (`ft/mi`) and Meters/Kilometers (`m/km`)](#choosing-between-feetmiles-ftmi-and-meterskilometers-mkm)
    - [The 4 Map Scales (DMG p. 14)](#the-4-map-scales-dmg-p-14)
+   - [Multi-Grid Support: Hexagonal, Square & Gridless](#multi-grid-support-hexagonal-square--gridless)
    - [Using the Dynamic Ruler (`[ 📏 ]`)](#using-the-dynamic-ruler---)
 4. [Player Guide](#4-player-guide)
    - [Character Creation Wizard & Level-Up](#character-creation-wizard--level-up)
    - [Hero Summary Card & Interactive Character Sheet](#hero-summary-card--interactive-character-sheet)
+   - [Special Class Resources (Ki, Rage, Bardic Inspiration, etc.)](#special-class-resources-ki-rage-bardic-inspiration-etc)
    - [Turn Economy: Exploration vs. Combat](#turn-economy-exploration-vs-combat)
-   - [Combat Actions & Area of Effect (AoE) Spells](#combat-actions--area-of-effect-aoe-spells)
+   - [Combat Actions, AoE Spells & Upcasting](#combat-actions-aoe-spells--upcasting)
    - [Hit Points, Rests & Death Saving Throws](#hit-points-rests--death-saving-throws)
    - [Inventory, Encumbrance, Trading & DM Approval](#inventory-encumbrance-trading--dm-approval)
+   - [Character Sheet Export (JSON & Printable HTML)](#character-sheet-export-json--printable-html)
    - [Macro Hotbar (Quick Slots 1–10)](#macro-hotbar-quick-slots-110)
 5. [Dungeon Master (DM) Guide](#5-dungeon-master-dm-guide)
    - [Campaigns, Acts, Scenes & Starter Pack](#campaigns-acts-scenes--starter-pack)
    - [Map Management, Map Editor, Walls, Traps & Portals](#map-management-map-editor-walls-traps--portals)
-   - [Fog of War (FoW), Line of Sight & Dynamic Lighting](#fog-of-war-fow-line-of-sight--dynamic-lighting)
+   - [Fog of War (FoW), Manual Brush, Line of Sight & Lighting](#fog-of-war-fow-manual-brush-line-of-sight--lighting)
+   - [Creature Token Sizes & DM Hidden Layer (GM Layer)](#creature-token-sizes--dm-hidden-layer-gm-layer)
    - [Combat Management & Live Encounter Balancer (DMG p. 82)](#combat-management--live-encounter-balancer-dmg-p-82)
    - [SRD Bestiary, Offline PDF Rulebooks & Procedural Generators](#srd-bestiary-offline-pdf-rulebooks--procedural-generators)
    - [World, Calendar, Weather, Travel, Shops & Quests](#world-calendar-weather-travel-shops--quests)
    - [Handouts (Documents/Images) & Audio Soundboard](#handouts-documentsimages--audio-soundboard)
+   - [Shared Tactical Whiteboard & Session Log Export](#shared-tactical-whiteboard--session-log-export)
 6. [Critical Successes (`Natural 20`) & Critical Failures (`Natural 1`)](#6-critical-successes-natural-20--critical-failures-natural-1)
 7. [Discord-Styled Chat, Whispers & UDP Voice Chat](#7-discord-styled-chat-whispers--udp-voice-chat)
 8. [Quick Reference: Chat Commands & Shortcuts](#8-quick-reference-chat-commands--shortcuts)
@@ -59,17 +64,26 @@ This manual walks you step by step through starting a session, configuring the i
 
 ## 2. Interface Overview & Global Settings
 
-### Top Menu Bar: Language & Distance Units
-At the top menu bar (on both DM and Player clients) you will find two instant configuration menus automatically saved in `client_data/settings.json`:
+### Top Menu Bar: Language, Distance Units & Session Log Export
+At the top menu bar (on both DM and Player clients) you will find instant configuration menus and session management utilities:
 * **`🌐 Language / Lingua`**: switches the entire UI, conditions, skills, abilities, and system messages in real time between **Italiano 🇮🇹** and **English 🇬🇧** without restarting.
 * **`📏 Distance Units` (`📏 Unità di Misura`)**: lets you choose at any time between:
   * **Feet / Miles (`ft / mi`)** — Standard US Imperial system (1 tactical hex = `5 ft`).
   * **Meters / Kilometers (`m / km`)** — European/Italian Metric system (1 tactical hex = `1.5 m`).
+* **`File -> 📜 Export Session Log...`**: allows both the DM and Players to export the entire session history (chat messages, dice rolls, tactical actions, damage dealt, and spawns) into a clean, formatted **Markdown (`.md`)** file or an **interactive HTML** file.
 
-### 3-Column Layout & Map Canvas HUDs
+### 3-Column Layout, Canvas HUDs & Whiteboard Tools (`[ ✏️ ]`)
 The workspace is divided into three ergonomic columns:
-1. **Left Toolbar (Map Tools)**: compact icon bar for interacting with the hex grid (`👆` Select/Center, `💥` Area of Effect, `📏` Measure Distance, `📍` Ping, `📖` Rulebooks, plus `☁️` Fog of War and `🚪` Door/Teleport for the DM).
-2. **Center Viewport (`HexMapCanvas`)**: the interactive hex map, enhanced by two floating HUD overlays:
+1. **Left Toolbar (Map & Whiteboard Tools)**: compact icon bar for interacting with the map:
+   * `👆` Select / Center token and map.
+   * `💥` Area of Effect (AoE) spell templates.
+   * `📏` Dynamic measurement ruler with travel time estimations.
+   * `📍` Shared animated broadcast ping.
+   * `📖` Offline PDF rulebooks browser.
+   * `[ ✏️ ]` **Tactical Whiteboard / Pen**: lets both DM and Players sketch freehand tactical lines, arrows, and routes directly on the shared canvas in real time.
+   * `[ 🧹 ]` / `[ 🗑️ ]` **Clear Whiteboard**: immediately clears all drawings from the map locally and across all connected clients.
+   * `☁️` Fog of War (with multi-radius brush) and `🚪` Portals/Teleports (DM only).
+2. **Center Viewport (`HexMapCanvas`)**: the interactive map (hexagonal, square, or gridless), enhanced by two floating HUD overlays:
    * **Initiative Ribbon HUD (top-center)**: automatically appears during combat, displaying cards for all combatants in turn order (`#1`, `#2`...), an active turn arrow `▼`, and a mini HP bar for each combatant. Clicking any card centers the camera on that token.
    * **Glassmorphism Map Controls (bottom-left)**: floating `[ - ]`, `[ 100% ]`, `[ + ]`, and `[ ⌖ ]` buttons to zoom or recenter the viewport with 1 click.
 3. **Right Sidebar (Tabbed Notebook)**: houses Chat & Voice Controls, Player Controls / Initiative Tracker, World & Calendar, Bestiary, and Audio/SFX Soundboard.
@@ -82,7 +96,7 @@ Press **`Ctrl+K`** at any time (or select `Tools/Library -> Quick Command Palett
 
 ---
 
-## 3. Distance Units, Map Scales & Dynamic Ruler
+## 3. Distance Units, Map Scales, Multi-Grid & Dynamic Ruler
 
 ### Choosing Between Feet/Miles (`ft/mi`) and Meters/Kilometers (`m/km`)
 Whenever you switch units from the **`📏 Distance Units`** menu, the entire application automatically converts:
@@ -103,6 +117,13 @@ Every map has a geographic scale. The DM can view and change it with 1 click via
 > [!TIP]
 > When the DM changes the scale from the `📏 Scale` top-bar selector, the change is saved and broadcast live to all connected players!
 
+### Multi-Grid Support: Hexagonal, Square & Gridless
+OmniCompanion supports three distinct grid geometries to match any map type:
+* **Hexagonal Grid (`hex`)**: the signature tactical grid ideal for overland exploration and AoE geometric projections (cones and spheres).
+* **Square Grid (`square`)**: standard 5e dungeon battlemap grid. Utilizes official **Chebyshev distance** for movement (each diagonal step counts as $5\text{ ft} / 1.5\text{ m}$, matching standard 5e rules).
+* **Gridless Mode (`none` / `gridless`)**: suppresses all grid lines for pictorial artwork; the ruler and token movement calculate exact Euclidean pixel distance.
+* **Instant Grid Switching**: the DM can switch the active map's grid type live at any time by clicking the **`📐 Grid: ...`** pill in the top status bar.
+
 ### Using the Dynamic Ruler (`[ 📏 ]`)
 1. Click the **`[ 📏 ]`** button on the left toolbar to activate Ruler mode (the button highlights in gold).
 2. **Left-click and drag** from a starting hex to a destination hex on the map.
@@ -122,7 +143,7 @@ Every map has a geographic scale. The DM can view and change it with 1 click via
   * The wizard automatically fetches **new class features** and updates **spell slots** for your new level from the 5e SRD.
   * At ASI levels (e.g., 4, 8, 12, 16, 19), assign your **Ability Score Improvement (+2 / +1+1)** or Feat.
 
-### Hero Summary Card & Interactive Character Sheet
+#### Hero Summary Card & Interactive Character Sheet
 In the **`Player Controls`** tab on the right sidebar, the **Hero Summary Card** is always visible at the top:
 * Displays Name, Class/Race/Level, Current/Max HP (plus Temporary HP, Exhaustion level, and active Conditions).
 * **Dynamic Health Bar**: smoothly fills from `0%` to `100%` of the card width, shifting color from green (`> 50%`) to amber (`25%–50%`) and red (`< 25%`).
@@ -133,7 +154,14 @@ Click **`📋 Character Sheet`** to open the full multi-tabbed sheet:
 2. **⚔️ Weapons & Attacks**: weapon list with automatic attack bonus and damage roll buttons.
 3. **🎒 Inventory**: item management with weight, magic item attunement (max 3 `🔮`), Coin Pouch (`cp`, `sp`, `ep`, `gp`, `pp`), and automatic **Encumbrance** tracking ($\text{Strength} \times 15\text{ lbs}$).
 4. **📖 Spellbook**: Spell Slot counters for levels 1–9, SRD spell search, and **Cast** button that automatically deducts a slot and announces the spell in chat.
-5. **🌟 Features & Traits / 📜 Journal**: racial traits, class features, and session notes.
+5. **🌟 Features & Traits / 📜 Journal**: racial traits, class features, special class resource tracker, and session notes.
+
+### Special Class Resources (Ki, Rage, Bardic Inspiration, etc.)
+Under the **`🌟 Features`** tab of the Character Sheet you will find the **`⚡ Special Class Resources`** interactive card:
+* **Automatic Population**: during character creation or level-up, official class resources are automatically added (e.g., *Ki Points* for Monks, *Rage Uses* for Barbarians, *Bardic Inspiration* for Bards, *Wild Shape* for Druids, *Channel Divinity* for Clerics/Paladins, *Action Surge* and *Second Wind* for Fighters, *Sorcery Points* for Sorcerers, *Lay on Hands* for Paladins).
+* **Quick Adjusters `[-]` / `[+]`**: spend or restore charges with 1 click during gameplay.
+* **Custom Resources**: create custom tracking pools with **`+ Add Resource`** by specifying Name, Maximum Value, and Recovery Rule (*Short Rest* or *Long Rest*), or delete with `🗑️`.
+* **Smart Rest Recovery**: taking a *Short Rest* or *Long Rest* automatically replenishes only the resources appropriate for that rest type.
 
 ### Turn Economy: Exploration vs. Combat
 The **Turn Economy** section in the `Player Controls` tab automatically adapts to the current game phase:
@@ -148,13 +176,17 @@ The **Turn Economy** section in the `Player Controls` tab automatically adapts t
   * You can also click individual badges manually to toggle them (e.g., spending your `🛡️ Reaction` for *Shield* or an *Opportunity Attack*), or click **`↺ Reset`**.
   * All turn resources **reset automatically** at the start of your turn and whenever combat begins or ends.
 
-### Combat Actions & Area of Effect (AoE) Spells
+### Combat Actions, AoE Spells & Upcasting
 * **`⚔️ Action` Button**: opens the 5e Standard Actions dialog:
   * **Weapon / Spell Attack**: choose target, weapon, optional Advantage/Disadvantage, and execute the attack.
   * **5e Tactical Actions**: **Dash** (doubles turn movement), **Disengage** (prevents opportunity attacks), **Dodge** (grants attackers disadvantage), **Help** (grants an ally advantage).
 * **`[ 💥 ]` Button (Area of Effect)**:
   * Choose the geometric template (**Sphere**, **Cone**, **Line**), size in hexes, color, and optional Saving Throw (e.g., `DEX DC 15` with `8d6` fire damage).
   * Click on the map to place the template: the server automatically identifies affected targets, prompts Saving Throws, and applies full or half damage.
+* **Spellcasting & Upcasting (Higher-Level Spell Slots)**:
+  * When clicking **`Cast`** on a 1st+ level spell in your Spellbook, a modal dialog presents all available spell slots from the spell's base level up to level 9.
+  * Select a higher-level slot to **Upcast** the spell (e.g., casting 1st-level *Magic Missile* using a 3rd-level slot).
+  * The designated slot is deducted automatically, and chat broadcasts an announcement noting both the spell's base level and the effective upcast level.
 * **`⏭️ End Turn` Button**: active during your combat turn; immediately advances initiative to the next combatant.
 
 ### Hit Points, Rests & Death Saving Throws
@@ -166,12 +198,17 @@ The **Turn Economy** section in the `Player Controls` tab automatically adapts t
     * **`2–9`**: +1 Failure.
     * **`Natural 1`**: **+2 Failures** (at 3 failures the character dies).
 * **Short Rest & Long Rest**:
-  * **Short Rest**: spend available Hit Dice to heal ($\text{Hit Die} + \text{CON mod}$) and recharge short-rest features.
-  * **Long Rest**: restores full HP, all Spell Slots, half of total Hit Dice, and reduces Exhaustion by 1 level.
+  * **Short Rest**: spend available Hit Dice to heal ($\text{Hit Die} + \text{CON mod}$) and recharge short-rest features and resources.
+  * **Long Rest**: restores full HP, all Spell Slots, half of total Hit Dice, clears exhaustion, and recharges all class resources.
 
 ### Inventory, Encumbrance, Trading & DM Approval
 * **Online Security (DM Approval)**: while connected to a live session, ability scores and Max HP are locked. To add currency or custom items, click **`🤝 Request Currency from DM`** or add an item: the DM receives an instant approval prompt.
 * **Trading with Allies (`Give` / `🤝 Give Gold to Ally`)**: transfer items or gold pieces directly to another connected party member.
+
+### Character Sheet Export (JSON & Printable HTML)
+At the top of the Character Sheet window, click **`💾 Export Sheet`**:
+* **Export JSON (`.json`)**: exports complete raw character data for backup, sharing, or importing into other campaigns.
+* **Export Printable HTML (`.html`)**: compiles a standalone, beautifully styled 5e sheet ready for desktop printing or PDF export (`Ctrl+P` in any browser). Cleanly formats stats, saving throws, skills, weapons, inventory, spellbook, and special class resources.
 
 ### Macro Hotbar (Quick Slots 1–10)
 At the bottom of the Player window is a bar with **10 numbered macro buttons (`1`–`10`)**:
@@ -197,12 +234,24 @@ From the DM **`File`** and **`Tools`** menus:
   * Place ambient **Lights** and pickable **Loot** items.
 * **Doors & Teleports (`[ 🚪 ]`)**: click the `[ 🚪 ]` tool on the left toolbar and click a hex to link it to another map file (e.g., `crypt_level2.json`). Stepping on that hex automatically transitions the party to the destination map.
 
-### Fog of War (FoW), Line of Sight & Dynamic Lighting
-* Click **`[ ☁️ ]`** on the DM's left toolbar to open the **Fog of War** quick menu:
+### Fog of War (FoW), Manual Brush, Line of Sight & Lighting
+* Click **`[ ☁️ ]`** on the DM's left toolbar to open the **Fog of War** toolbar:
   * **Toggle Fog of War On / Off**.
   * **Reveal Full Map** / **Hide Full Map** / **Reset Fog of War**.
-* When FoW is enabled, players only see hexes within their vision radius that are not obstructed by walls (Line of Sight).
-* Use the chat command `/vision <CharacterName> <RadiusInHexes>` (e.g., `/vision Gildor 12` for $60\text{ ft} / 18\text{ m}$ Darkvision) to customize a token's vision radius.
+  * **Manual FoW Brush (`Radius: 0, 1, 2, 3`)**: select a brush radius from the dropdown. Left-click (reveal) or right-click (hide) anywhere on the map to paint or erase fog across entire circular areas, allowing the DM to uncover or re-shroud rooms in seconds.
+* When FoW is enabled, players only see hexes within their vision radius that are not obstructed by walls (dynamic Line of Sight).
+* Use the chat command `/vision <CharacterName> <Radius>` (e.g., `/vision Gildor 12` for $60\text{ ft} / 18\text{ m}$ Darkvision) to customize a token's vision radius.
+
+### Creature Token Sizes & DM Hidden Layer (GM Layer)
+* **Official 5e Creature Token Sizes**:
+  * OmniCompanion supports all 6 official 5e size categories: **Tiny** ($0.5\times$), **Small** ($0.8\times$), **Medium** ($1.0\times$), **Large** ($1.8\times$), **Huge** ($2.6\times$), and **Gargantuan** ($3.5\times$).
+  * Tokens proportionally scale on the canvas, occupying their exact tactical footprint.
+  * To change token size: **Right-Click** the token or its entry in the player list $\rightarrow$ **`Creature Size`** $\rightarrow$ select the desired category.
+* **DM Hidden Layer (GM Layer)**:
+  * Allows the DM to prepare monsters, traps, and secrets completely invisible to the players.
+  * **DM Canvas View**: tokens on the GM layer render semi-transparently with a dashed purple ring (`#A855F7`) and a prominent `[GM]` badge.
+  * **Player Privacy & Zero Data Leaks**: GM layer tokens are never rendered on player screens and are systematically filtered out at the network protocol layer (`GAME_STATE`, `PLAYER_JOINED`, `PLAYER_MOVE`), completely eliminating any possibility of client-side metagaming.
+  * To toggle the GM layer on any token: **Right-Click** $\rightarrow$ **`👁️ GM Layer`**.
 
 ### Combat Management & Live Encounter Balancer (DMG p. 82)
 In the DM **`Initiative & Characters`** tab:
@@ -229,6 +278,10 @@ In the DM **`Initiative & Characters`** tab:
 ### Handouts (Documents/Images) & Audio Soundboard
 * **Share Image / Text Handout (`Tools -> Share Image / Share Text Handout`)**: instantly pop up an illustration (NPC portrait, ancient map) or a readable parchment modal on every player's screen.
 * **`Audio / SFX` Tab**: broadcast ambient music (Tavern, Battle, Dungeon) and sound effects synchronously to all connected clients.
+
+### Shared Tactical Whiteboard & Session Log Export
+* **Tactical Whiteboard (`[ ✏️ ]` / `[ 🗑️ ]`)**: sketch lines and battle tactics directly on the map; click `[ 🗑️ ]` to clear the whiteboard for all participants with 1 click.
+* **Session Log Export (`File -> 📜 Export Session Log...`)**: export and archive the full session chronicle in formatted **Markdown (`.md`)** or **interactive HTML**, perfect for campaign campaign journals and post-session recaps.
 
 ---
 

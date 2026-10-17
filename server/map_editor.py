@@ -64,6 +64,13 @@ class MapEditorWindow(tk.Toplevel):
         map_scale_combo=ttk.Combobox(map_scale_frame, textvariable=self.map_scale_var, values=list(self.MAP_SCALES.keys()), state="readonly")
         map_scale_combo.pack(side=tk.LEFT, padx=5); map_scale_combo.bind("<<ComboboxSelected>>", self.on_map_scale_selected)
         ttk.Button(map_scale_frame, text="Colore Griglia", command=self.choose_hex_color).pack(side=tk.LEFT)
+        
+        grid_type_frame=ttk.Frame(toolbar); grid_type_frame.pack(side=tk.LEFT, padx=10)
+        ttk.Label(grid_type_frame, text="Griglia:").pack(side=tk.LEFT)
+        self.grid_type_var=tk.StringVar(value="hex")
+        grid_type_combo=ttk.Combobox(grid_type_frame, textvariable=self.grid_type_var, values=["hex", "square", "none"], state="readonly", width=8)
+        grid_type_combo.pack(side=tk.LEFT, padx=5)
+
         self.add_poi_button=ttk.Button(toolbar, text="Aggiungi POI", command=self.toggle_add_poi_mode, style="Success.TButton")
         self.add_poi_button.pack(side=tk.LEFT, padx=5)
         ttk.Button(toolbar, text="Salva Mappa", command=self.save_map, style="Primary.TButton").pack(side=tk.LEFT, padx=5)
@@ -191,6 +198,7 @@ class MapEditorWindow(tk.Toplevel):
         map_data = {
             "base_image_path": self.base_image_path,
             "hex_size": self.hex_layout.size,
+            "grid_type": self.grid_type_var.get() if hasattr(self, "grid_type_var") else "hex",
             "map_scale_type": scale_type,
             "hex_border_color": self.hex_border_color,
             "hexes": [[h.q, h.r] for h in self.grid_hexes],

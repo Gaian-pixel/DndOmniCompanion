@@ -105,6 +105,12 @@ class ClientGUI:
         self.master.config(menu=menubar)
         self.main_menubar = menubar
         
+        file_menu = tk.Menu(menubar, tearoff=0)
+        file_menu.add_command(label=_t("menu_export_session_log"), command=self.export_session_log)
+        file_menu.add_separator()
+        file_menu.add_command(label=_t("menu_exit"), command=self.on_closing)
+        menubar.add_cascade(label=_t("menu_file"), menu=file_menu)
+
         server_menu = tk.Menu(menubar, tearoff=0)
         server_menu.add_command(label=_t("menu_connect"), command=self.connect_to_server)
         server_menu.add_command(label=_t("menu_reconnect"), command=self.reconnect_to_server)
@@ -231,6 +237,14 @@ class ClientGUI:
         self.measure_btn = ttk.Button(left_panel, text="📏", width=3, style="Tool.TButton", command=self.toggle_ruler_mode)
         self.measure_btn.pack(pady=3)
         ToolTip(self.measure_btn, lambda: _t("tool_measure"))
+
+        self.pen_btn = ttk.Button(left_panel, text="✏️", width=3, style="Tool.TButton", command=self.toggle_whiteboard_pen)
+        self.pen_btn.pack(pady=3)
+        ToolTip(self.pen_btn, lambda: _t("tool_pen"))
+
+        self.clear_drawings_btn = ttk.Button(left_panel, text="🧹", width=3, style="Tool.TButton", command=self.clear_whiteboard_drawings)
+        self.clear_drawings_btn.pack(pady=3)
+        ToolTip(self.clear_drawings_btn, lambda: _t("tool_clear_drawings"))
 
         self.manuals_btn = ttk.Button(left_panel, text="📖", width=3, style="Tool.TButton", command=self.open_manuals_dialog)
         self.manuals_btn.pack(pady=3)
@@ -2127,6 +2141,7 @@ class ClientGUI:
             "REQUEST_INITIATIVE": self.handle_request_initiative,
             "PING_BROADCAST": self.handle_ping_broadcast,
             "DRAW_BROADCAST": self.handle_draw_broadcast,
+            "CLEAR_DRAWINGS_BROADCAST": self.handle_clear_drawings_broadcast,
             "PROMPT_LONG_REST_VOTE": self.handle_prompt_long_rest_vote,
             "DO_LONG_REST": self.handle_do_long_rest,
             "FOW_UPDATE_BROADCAST": self.handle_fow_update_broadcast,
@@ -2418,6 +2433,89 @@ class ClientGUI:
         color = data.get("color", "red")
         if hasattr(self, "map_canvas"):
             self.map_canvas.draw_remote_line(points, color)
+
+    def handle_clear_drawings_broadcast(self, data):
+        if hasattr(self, "map_canvas") and self.map_canvas:
+            self.map_canvas.clear_drawings()
+
+    def toggle_whiteboard_pen(self):
+        if not hasattr(self, "map_canvas") or not self.map_canvas: return
+        is_active = self.map_canvas.toggle_pen_mode()
+        if hasattr(self, "pen_btn"):
+            self.pen_btn.config(style="Accent.TButton" if is_active else "Tool.TButton")
+        self.show_toast("Modalità Penna Disegno: " + ("Attiva" if is_active else "Disattivata"), title="Lavagna", toast_type="info")
+
+    def clear_whiteboard_drawings(self):
+        from common.messagebox import messagebox
+        if not messagebox.askyesno(_t("tool_clear_drawings"), "Cancellare tutti i disegni a mano libera dalla mappa?"):
+            return
+        if self.map_canvas:
+            self.map_canvas.clear_drawings()
+        if hasattr(self, "network") and self.network:
+            from common.protocol import make_clear_drawings_request
+            self.network.send(make_clear_drawings_request())
+        self.show_toast("Disegni mappa cancellati", title="Lavagna", toast_type="info")
+
+    def export_session_log(self):
+        if not hasattr(self, "chat_display"):
+            return
+        log_text = self.chat_display.get("1.0", tk.END).strip()
+        from common.messagebox import messagebox
+        if not log_text:
+            messagebox.showinfo(_t("export_log_title"), _t("export_log_empty"))
+            return
+
+        from tkinter import filedialog
+        from datetime import datetime
+        default_filename = f"Player_Session_Log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.md"
+        filepath = filedialog.asksaveasfilename(
+            title=_t("menu_export_session_log"),
+            initialfile=default_filename,
+            filetypes=[("Markdown (*.md)", "*.md"), ("HTML (*.html)", "*.html"), ("Text (*.txt)", "*.txt")]
+        )
+        if not filepath:
+            return
+
+        now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        char_name = self.character_manager.active_character.name if self.character_manager and self.character_manager.active_character else self.username
+
+        if filepath.endswith(".html"):
+            html_content = f"""<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<title>{_t('export_log_title')} - {char_name}</title>
+<style>
+body {{ background-color: #121316; color: #E5E7EB; font-family: 'Segoe UI', Tahoma, sans-serif; padding: 24px; line-height: 1.6; }}
+h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
+.meta {{ color: #9CA3AF; font-size: 0.9em; margin-bottom: 20px; }}
+.log-box {{ background-color: #1A1B1E; border: 1px solid #374151; border-radius: 8px; padding: 18px; white-space: pre-wrap; font-family: 'Consolas', monospace; }}
+</style>
+</head>
+<body>
+<h1>📜 {_t('export_log_title')} - {char_name}</h1>
+<div class="meta">Esportato il: {now_str} • D&D OmniCompanion</div>
+<div class="log-box">{log_text}</div>
+</body>
+</html>"""
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(html_content)
+        else:
+            md_content = f"""# 📜 {_t('export_log_title')} - {char_name}
+**Data Esportazione:** {now_str}
+**Giocatore / Personaggio:** {char_name}
+**Piattaforma:** D&D OmniCompanion
+
+---
+
+```
+{log_text}
+```
+"""
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(md_content)
+
+        messagebox.showinfo(_t("export_log_title"), _t("export_log_saved").format(path=filepath))
 
     def handle_ping_broadcast(self, data):
         if self.map_canvas:

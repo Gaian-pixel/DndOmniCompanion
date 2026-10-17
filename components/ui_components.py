@@ -5,7 +5,7 @@ import math
 from io import BytesIO
 from PIL import Image, ImageTk, ImageDraw
 from common.hex_utils import (
-    Hex, HexLayout, hex_distance,
+    Hex, HexLayout, SquareLayout, hex_distance, grid_distance,
     get_sphere_hexes, get_cone_hexes, get_line_hexes, get_visible_hexes
 )
 from common.i18n import _t, get_language
@@ -44,6 +44,9 @@ class HexMapCanvas(tk.Canvas):
         self._ruler_text_id = None
         self._ruler_text_bg_id = None
         self.ruler_mode = False
+        self.pen_mode = False
+        self.pen_color = "red"
+        self.brush_radius = 0
 
         self.bind("<MouseWheel>", self._zoom)
         self.bind("<Button-4>", self._zoom)
@@ -117,9 +120,21 @@ class HexMapCanvas(tk.Canvas):
             if len(self._current_drawing) > 1:
                 world_points = [((px - self.pan_offset_x) / self.zoom_level, (py - self.pan_offset_y) / self.zoom_level) for px, py in self._current_drawing]
                 if getattr(self, 'on_draw_callback', None):
-                    self.on_draw_callback(world_points, "red")
+                    self.on_draw_callback(world_points, getattr(self, "pen_color", "red"))
             self.delete("temp_draw")
             del self._current_drawing
+
+    def toggle_pen_mode(self, enabled=None):
+        if enabled is None:
+            self.pen_mode = not getattr(self, "pen_mode", False)
+        else:
+            self.pen_mode = bool(enabled)
+        return self.pen_mode
+
+    def clear_drawings(self):
+        self.drawn_lines = []
+        self.delete("temp_draw")
+        self.redraw()
 
     def _on_configure(self, event):
         if event.width > 1 and event.height > 1 and (event.width != self._last_win_w or event.height != self._last_win_h):
@@ -258,6 +273,10 @@ class HexMapCanvas(tk.Canvas):
             self._ruler_text_bg_id = None
 
     def _on_canvas_click(self, event):
+        if getattr(self, "pen_mode", False):
+            self._on_draw_start(event)
+            return
+
         # 1. Controlla click su Carousel di Iniziativa
         if getattr(self, '_initiative_ribbon_bboxes', None):
             for bx1, by1, bx2, by2, bname in self._initiative_ribbon_bboxes:
@@ -315,6 +334,9 @@ class HexMapCanvas(tk.Canvas):
         self.on_hex_click_callback(clicked_hex)
 
     def _on_canvas_drag(self, event):
+        if getattr(self, "pen_mode", False):
+            self._on_draw_move(event)
+            return
         if getattr(self, "ruler_mode", False) and self._ruler_start_hex:
             self._on_ruler_drag(event)
             return
@@ -379,6 +401,9 @@ class HexMapCanvas(tk.Canvas):
             return
 
     def _on_canvas_release(self, event):
+        if getattr(self, "pen_mode", False):
+            self._on_draw_end(event)
+            return
         self.delete('ghost_token')
         self.delete('ghost_path')
         if getattr(self, 'dragging_token_name', None):
@@ -717,7 +742,13 @@ class HexMapCanvas(tk.Canvas):
         self._rendered_pan_y = self.pan_offset_y
 
         hex_size = self.map_data.get("hex_size", 30)
-        self.hex_layout = HexLayout(size=hex_size, origin=(0, 0))
+        grid_type = self.map_data.get("grid_type", "hex")
+        if grid_type == "square":
+            self.hex_layout = SquareLayout(size=hex_size * 1.5, origin=(0, 0))
+        elif grid_type in ("none", "gridless"):
+            self.hex_layout = SquareLayout(size=hex_size * 1.5, origin=(0, 0))
+        else:
+            self.hex_layout = HexLayout(size=hex_size, origin=(0, 0))
 
         # Viewport bounds in world coords with overdraw margin for smooth panning
         margin = 0.2
@@ -844,12 +875,14 @@ class HexMapCanvas(tk.Canvas):
             ]
 
         for q, r in visible_hex_list:
-            cx = step_x * q
-            cy = hex_size * (sqrt3 * 0.5 * q + sqrt3 * r)
+            cx, cy = self.hex_layout.hex_to_pixel(Hex(q, r))
             sx = cx * self.zoom_level + self.pan_offset_x
             sy = cy * self.zoom_level + self.pan_offset_y
 
-            scaled_corners = [(sx + dx, sy + dy) for dx, dy in corner_offsets]
+            if grid_type == "square":
+                scaled_corners = [(wx * self.zoom_level + self.pan_offset_x, wy * self.zoom_level + self.pan_offset_y) for wx, wy in self.hex_layout.hex_corners(Hex(q, r))]
+            else:
+                scaled_corners = [(sx + dx, sy + dy) for dx, dy in corner_offsets]
             hex_tup = (q, r)
 
             fill_color = "#FFD700" if hex_tup in pois_data else ""
@@ -874,7 +907,9 @@ class HexMapCanvas(tk.Canvas):
             if scaled_size < 8.0 and not fill_color:
                 continue
 
-            self.create_polygon(scaled_corners, fill=fill_color, outline=border_color, width=line_w, stipple=stipple_pattern)
+            cell_outline = "" if grid_type in ("none", "gridless") else border_color
+            if cell_outline or fill_color:
+                self.create_polygon(scaled_corners, fill=fill_color, outline=cell_outline, width=line_w, stipple=stipple_pattern)
 
         # Disegna le aree d'effetto (AoE)
         if getattr(self, "aoes_data", None):
@@ -894,13 +929,15 @@ class HexMapCanvas(tk.Canvas):
                 for h in aoe_hexes:
                     if fow_enabled and not is_dm and (h.q, h.r) not in fow_revealed:
                         continue
-                    cx = step_x * h.q
-                    cy = hex_size * (sqrt3 * 0.5 * h.q + sqrt3 * h.r)
+                    cx, cy = self.hex_layout.hex_to_pixel(h)
                     if not (world_x1 - hex_size <= cx <= world_x2 + hex_size and world_y1 - hex_size <= cy <= world_y2 + hex_size):
                         continue
                     sx = cx * self.zoom_level + self.pan_offset_x
                     sy = cy * self.zoom_level + self.pan_offset_y
-                    scaled_corners = [(sx + dx, sy + dy) for dx, dy in corner_offsets]
+                    if grid_type == "square":
+                        scaled_corners = [(wx * self.zoom_level + self.pan_offset_x, wy * self.zoom_level + self.pan_offset_y) for wx, wy in self.hex_layout.hex_corners(h)]
+                    else:
+                        scaled_corners = [(sx + dx, sy + dy) for dx, dy in corner_offsets]
                     self.create_polygon(scaled_corners, fill=color, outline=color, width=2, stipple="gray50")
 
         # Disegna linee a mano libera
@@ -989,11 +1026,20 @@ class HexMapCanvas(tk.Canvas):
                 self.create_text(sx, sy, text="[S]\nSpawn", font=("Arial", max(8, int(10*self.zoom_level)), "bold"), fill="#00FF00", justify="center")
 
         # Tokens (Players e PNG)
+        TOKEN_SIZE_MAP = {
+            "tiny": 0.5, "minuscola": 0.5,
+            "small": 0.8, "piccola": 0.8,
+            "medium": 1.0, "media": 1.0,
+            "large": 1.8, "grande": 1.8,
+            "huge": 2.6, "enorme": 2.6,
+            "gargantuan": 3.5, "mastodontica": 3.5
+        }
         for name, pdata in self.players_data.items():
             if isinstance(pdata, dict):
                 pos = pdata.get('position') or [0, 0]
                 conditions = pdata.get('conditions', [])
-                size_mult = pdata.get('size', 1)
+                raw_size = pdata.get('size', 1)
+                layer = pdata.get('layer', 'token')
                 aura_radius = pdata.get('aura_radius', 0)
                 aura_color = pdata.get('aura_color', 'yellow')
                 hp = pdata.get('hp', 0)
@@ -1001,18 +1047,30 @@ class HexMapCanvas(tk.Canvas):
             else:
                 pos = pdata or [0, 0]
                 conditions = []
-                size_mult = 1
+                raw_size = 1
+                layer = 'token'
                 aura_radius = 0
                 aura_color = 'yellow'
                 hp = 0
                 hp_max = 0
 
+            # GM Layer: hidden completely from players
+            is_gm_layer = (layer == 'gm')
+            if is_gm_layer and not is_dm:
+                continue
+
+            if isinstance(raw_size, str):
+                size_mult = TOKEN_SIZE_MAP.get(raw_size.lower(), 1.0)
+            elif isinstance(raw_size, (int, float)):
+                size_mult = float(raw_size)
+            else:
+                size_mult = 1.0
+
             q, r = pos[0], pos[1]
             if fow_enabled and not is_dm and (q, r) not in visible_now:
                 continue
 
-            cx = step_x * q
-            cy = hex_size * (sqrt3 * 0.5 * q + sqrt3 * r)
+            cx, cy = self.hex_layout.hex_to_pixel(Hex(q, r))
             sx = cx * self.zoom_level + self.pan_offset_x
             sy = cy * self.zoom_level + self.pan_offset_y
 
@@ -1028,7 +1086,11 @@ class HexMapCanvas(tk.Canvas):
             leg_act = pdata.get('legendary_actions_max', 0) if isinstance(pdata, dict) else 0
             is_boss = (leg_res > 0 or leg_act > 0)
 
-            if is_me:
+            if is_gm_layer:
+                token_base_color = "#3B185F"
+                token_border_color = "#A855F7"
+                ring_width = 2.4
+            elif is_me:
                 token_base_color = "#059669"
                 token_border_color = "#F59E0B"
                 ring_width = 2.5
@@ -1102,19 +1164,22 @@ class HexMapCanvas(tk.Canvas):
                 tk_img = self._avatar_cache.get(cache_key)
                 if tk_img:
                     self.create_image(sx, sy, image=tk_img, anchor="center")
-                    ring_outline = "gray" if is_invisible else token_border_color
-                    ring_dash = (2, 2) if is_invisible else ""
+                    ring_outline = "#A855F7" if is_gm_layer else ("gray" if is_invisible else token_border_color)
+                    ring_dash = (4, 2) if is_gm_layer else ((2, 2) if is_invisible else "")
                     self.create_oval(sx-radius, sy-radius, sx+radius, sy+radius, fill="", outline=ring_outline, width=ring_width, dash=ring_dash)
                 else:
-                    outline_style = "gray" if is_invisible else token_border_color
-                    dash_style = (2, 2) if is_invisible else ""
+                    outline_style = "#A855F7" if is_gm_layer else ("gray" if is_invisible else token_border_color)
+                    dash_style = (4, 2) if is_gm_layer else ((2, 2) if is_invisible else "")
                     self.create_oval(sx-radius, sy-radius, sx+radius, sy+radius, fill=token_base_color, outline=outline_style, width=ring_width, dash=dash_style)
                     self.create_text(sx, sy, text=name[:2].upper(), fill="white", font=("Segoe UI", 8, "bold"))
             else:
-                outline_style = "gray" if is_invisible else token_border_color
-                dash_style = (2, 2) if is_invisible else ""
+                outline_style = "#A855F7" if is_gm_layer else ("gray" if is_invisible else token_border_color)
+                dash_style = (4, 2) if is_gm_layer else ((2, 2) if is_invisible else "")
                 self.create_oval(sx-radius, sy-radius, sx+radius, sy+radius, fill=token_base_color, outline=outline_style, width=ring_width, dash=dash_style)
                 self.create_text(sx, sy, text=name[:2].upper(), fill="white", font=("Segoe UI", 8, "bold"))
+
+            if is_gm_layer:
+                self.create_text(sx, sy - radius - 7, text="[GM]", fill="#C084FC", font=("Segoe UI", max(7, int(8 * self.zoom_level)), "bold"))
 
             # Distintivo Boss Leggendario (👑)
             if is_boss:

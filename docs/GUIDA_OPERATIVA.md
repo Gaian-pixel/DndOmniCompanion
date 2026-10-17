@@ -86,10 +86,13 @@ flowchart TD
 ```
 
 ### Sottosistemi Principali
-* **`common/network_utils.py` & `common/protocol.py`**: Framing binario con prefisso di lunghezza a 4 byte su stream socket TCP, per garantire zero frammentazione dei pacchetti JSON indipendentemente dalla latenza o dalla dimensione del payload.
-* **`common/hex_utils.py`**: Sistema di coordinate cubiche ($q, r, s$ con $q + r + s = 0$) per calcolo distanze ad alta precisione, raycasting Line of Sight (LoS), proiezione di coni ($60^\circ / 90^\circ$), sfere e linee rette AoE.
-* **`server/rules/`**: Moduli di regole 5e disaccoppiati che isolano combattimento (`combat.py`), movimento (`movement.py`), danni/morte del personaggio (`character.py`), comandi chat (`chat.py`), inventario/scambi (`inventory.py`), interazioni mappa (`map_interaction.py`) e audio (`audio.py`).
-* **`common/i18n.py`**: Dizionario di traduzione bilingue in tempo reale (`IT`/`EN`), conversione unità Imperiale/Metrica (`ft`/`mi` $\leftrightarrow$ `m`/`km`) e motore di calcolo per scale mappa e tempi di viaggio.
+* **`common/network_utils.py` & `common/protocol.py`**: Framing binario con prefisso di lunghezza a 4 byte su stream socket TCP, per garantire zero frammentazione dei pacchetti JSON indipendentemente dalla latenza o dalla dimensione del payload. Include l'**Isolamento di Rete del GM Layer** (i broadcast di `GAME_STATE`, `PLAYER_JOINED` e `PLAYER_MOVE` escludono automaticamente i token con `layer == "gm"` per i socket dei giocatori) e i messaggi del protocollo di lavagna tattica (`CLEAR_DRAWINGS_REQUEST`, `CLEAR_DRAWINGS_BROADCAST`).
+* **`common/hex_utils.py`**: Motore matematico per griglie geometriche:
+  * Sistema di coordinate cubiche ($q, r, s$ con $q + r + s = 0$) con `HexLayout` per griglie esagonali, raycasting Line of Sight (LoS), proiezioni di coni ($60^\circ / 90^\circ$), sfere e linee rette AoE.
+  * `SquareLayout` per griglie a scacchiera/quadrate e conversione pixel $\leftrightarrow$ griglia.
+  * Funzione polimorfica `grid_distance(a, b, grid_type)` con supporto per metrica di Chebyshev (regola ufficiale D&D 5e per caselle diagonali su griglie quadrate), distanza cubica per esagoni e distanza euclidea per griglie libere (`none`/`gridless`).
+* **`server/rules/`**: Moduli di regole 5e disaccoppiati che isolano combattimento (`combat.py`), movimento (`movement.py`), danni/morte del personaggio (`character.py`), comandi chat (`chat.py`), inventario/scambi (`inventory.py`), interazioni mappa e lavagna (`map_interaction.py`) e audio (`audio.py`).
+* **`common/i18n.py`**: Dizionario di traduzione bilingue in tempo reale (`IT`/`EN`), conversione unità Imperiale/Metrica (`ft`/`mi` $\leftrightarrow$ `m`/`km`), localizzazione taglie creature, GM layer, strumenti lavagna e motore di calcolo per scale mappa e tempi di viaggio.
 
 ---
 
@@ -132,24 +135,33 @@ Sia l'interfaccia DM che quella Giocatore sono realizzate con **ttkbootstrap** i
 
 ### Gestione Mappe, Griglia Multi-Scala e Righello
 * **Caricamento Mappe**: Vai su `File -> Carica Mappa`. Formati supportati: `.png`, `.jpg`, `.jpeg`, `.json`.
+* **Motore Multi-Griglia (Esagonale, Quadrata, Senza Griglia)**:
+  * **Griglia Esagonale (`hex`)**: coordinate cubiche e orientamento flat-topped/pointy-topped.
+  * **Griglia a Scacchiera / Quadrata (`square`)**: mappatura matriciale e calcolo distanze con metrica di Chebyshev standard D&D 5e (le diagonali contano come 1 passo standard da 5 ft).
+  * **Senza Griglia (`none` / `gridless`)**: sopprime la griglia grafica per mappe illustrative; il movimento calcola la distanza euclidea reale.
+  * **Selettore Rapido Griglia (`📐 Griglia`)**: pulsante dinamico sulla barra superiore del DM per cambiare in tempo reale la tipologia di griglia della mappa attiva.
 * **Motore Mappa Multi-Scala (DMG p. 14)**:
   * **Scala Combattimento** (`hex_size=30` o `60`): $1\text{ hex} = 5\text{ ft}$ ($1.5\text{ m}$).
   * **Scala Esplorazione / Provincia** (`hex_size=35`): $1\text{ hex} = 1\text{ mi}$ ($1.5\text{ km}$, $\sim 20\text{ min}$ di marcia/hex).
   * **Scala Mondo / Regione** (`hex_size=15`): $1\text{ hex} = 6\text{ mi}$ ($9\text{ km}$, $2\text{ ore}$ di marcia/hex; $4\text{ hex} = 1\text{ giorno}$).
   * **Scala Personalizzata**: Qualsiasi valore di distanza e unità (`ft`, `m`, `mi`, `km`) per esagono.
   * **Selettore Rapido Scala (`📏 Scala`)**: Clicca sul badge della scala nella barra superiore del DM per cambiare al volo la scala della mappa attiva e trasmetterla in tempo reale a tutti i giocatori connessi.
-* **Editor Mappe**: Scegli `Strumenti -> Editor Mappe` per configurare:
-  * Raggio griglia esagonale, offset e scala della mappa (`map_scale_type`, `hex_scale_value`, `hex_scale_unit`).
-  * Muri di collisione statici (bloccano movimento e Line of Sight).
-  * Trappole e attivatori segreti.
-  * Punti di teletrasporto tra diversi file mappa.
-  * Punti di Interesse (POI) e sorgenti luminose.
+* **Editor Mappe**: Scegli `Strumenti -> Editor Mappe` per configurare raggio celle, tipo di griglia (`grid_type`), offset, scala, muri statici, trappole, portali e luci.
 
-### Nebbia di Guerra, Illuminazione Dinamica e Line of Sight
-* **Nebbia di Guerra Dinamica (FoW)**: Il canvas nasconde automaticamente gli esagoni inesplorati ai giocatori.
-* **Visione Condivisa del Party**: Man mano che un token del party si muove, gli esagoni entro il suo raggio visivo vengono rivelati.
-* **Illuminazione Dinamica**: I token che portano fonti di luce (es. Torce: 20 ft intensa / 20 ft fioca; Lanterne: 30 ft intensa / 30 ft fioca) illuminano dinamicamente gli esagoni in tempo reale.
-* **Line of Sight Reale (LoS)**: Il raycasting esagonale valuta la linea di tiro/vista contro i muri (`wall_hexes`).
+### Nebbia di Guerra, Pennello Manuale, Luci e Line of Sight
+* **Nebbia di Guerra Dinamica (FoW)**: Il canvas nasconde automaticamente le celle inesplorate ai giocatori.
+* **Pennello Manuale FoW (`Raggio: 0, 1, 2, 3`)**: Nel pannello FoW (`[ ☁️ ]`), il DM può selezionare un raggio circolare e cliccare sulla mappa con tasto sinistro (scopri) o tasto destro (nascondi) per dipingere o ripristinare la nebbia su gruppi di celle contigue.
+* **Visione Condivisa del Party**: Man mano che un token del party si muove, le celle entro il suo raggio visivo vengono rivelate.
+* **Illuminazione Dinamica**: I token che portano fonti di luce (es. Torce: 20 ft intensa / 20 ft fioca; Lanterne: 30 ft intensa / 30 ft fioca) illuminano dinamicamente in tempo reale.
+* **Line of Sight Reale (LoS)**: Il raycasting geometrico valuta la linea di tiro/vista bloccandola contro i muri (`wall_hexes`).
+
+### Taglie Creature e Livello Nascosto DM (GM Layer)
+* **Taglie Ufficiali 5e**: Supporto nativo per le 6 taglie (**Minuscola**, **Piccola**, **Media**, **Grande**, **Enorme**, **Mastodontica**), con scalatura visiva automatica del raggio token sul canvas da $0.5\times$ a $3.5\times$. Configurazione rapida con click destro sul token $\rightarrow$ `Taglia Creatura (Size)`.
+* **Livello Nascosto DM (GM Layer)**:
+  * Consente di nascondere token mostri o trappole ai client giocatori.
+  * Rendering DM: token semitrasparente con anello viola tratteggiato e badge `[GM]`.
+  * Filtro Sicurezza Rete: a livello di protocollo TCP (`network_utils.py` e `game_state.py`), i pacchetti `GAME_STATE`, `PLAYER_JOINED` e `PLAYER_MOVE` escludono integralmente le entità con `layer == "gm"` per i socket dei giocatori, garantendo zero fughe di metagame.
+  * Attivazione/disattivazione rapida con click destro sul token $\rightarrow$ `👁️ Livello DM (GM Layer)`.
 
 ### Trappole, Pericoli e Portali (Teletrasporti)
 * **Trappole**: Quando un token entra in un esagono trappola, il server:
@@ -191,6 +203,10 @@ Sia l'interfaccia DM che quella Giocatore sono realizzate con **ttkbootstrap** i
 ### Soundboard Audio
 * Il tab `Audio / SFX` fornisce pulsanti di broadcast immediato per musiche d'ambiente ed effetti sonori riprodotti in sincronia sui client.
 
+### Lavagna Tattica Condivisa (Whiteboard) ed Esportazione Session Log
+* **Lavagna Tattica Condivisa (`[ ✏️ ]` / `[ 🗑️ ]`)**: disegno a mano libera condiviso broadcastato in real-time a tutti i client. Pulsante di pulizia immediata con notifica TCP di reset.
+* **Esportazione Registro di Sessione (`File -> 📜 Esporta Registro di Sessione...`)**: esporta l'intero transcript della sessione (tiri, attacchi, chat, sussurri) in formato Markdown (`.md`) o HTML.
+
 ---
 
 ## 5. Operazioni del Giocatore (Player)
@@ -204,8 +220,14 @@ Organizzata in schede chiare:
 * **Tab Combattimento & Statistiche**: PV attuali/massimi con barra proporzionale, PV Temporanei, CA, Velocità, Iniziativa, Condizioni attive, Tiri contro la Morte, Dadi Vita, le 6 caratteristiche base, Tiri Salvezza e tutte le 18 Abilità con Competenza/Maestria.
 * **Tab Armi & Attacchi**: Gestione armi equipaggiate e tiri rapidi per colpire/danni.
 * **Tab Inventario**: Inventario con pesi, quantità, oggetti sintonizzati (`🔮` max 3), Borsa delle Monete e peso totale rispetto alla capacità di carico ($\text{FOR} \times 15\text{ lbs}$).
-* **Tab Grimorio**: Slot incantesimo di livello 1–9 con contatori attuali/massimi, ricerca incantesimi e lancio con 1 click.
-* **Tab Privilegi & Diario**: Tratti razziali, privilegi di classe, talenti e note personali.
+* **Tab Grimorio**: Slot incantesimo di livello 1–9 con contatori attuali/massimi, ricerca incantesimi, dialog modale di **Upcasting** e lancio con 1 click.
+* **Tab Privilegi & Diario**: Tratti razziali, privilegi di classe, tracciatore **Risorse di Classe Speciali** e note personali.
+
+### Sistema Risorse di Classe Speciali
+* **Automazione di Classe**: All'atto della creazione o level-up, il sistema popola automaticamente le risorse caratteristiche della classe scelta (es. *Punti Ki*, *Ira*, *Ispirazione Bardica*, *Forma Selvatica*, *Canale di Divinità*, *Azione Impetuosa*, *Secondo Fiato*, *Punti Stregoneria*, *Imposizione delle Mani*).
+* **Contatori Interattivi**: Controlli `[-]` / `[+]` per spendere o ripristinare cariche istantaneamente.
+* **Risorse Custom**: Possibilità di aggiungere risorse arbitrarie con Nome, Massimo e Regola di Recupero (*Riposo Breve* vs *Riposo Lungo*).
+* **Recupero Automatico**: Durante un Riposo Breve o Lungo, il motore aggiorna le sole risorse congruenti con la tipologia di riposo effettuato.
 
 ### Azioni di Combattimento ed Economia del Turno Contestuale
 Il pannello **Economia Turno** del Giocatore si adatta automaticamente allo stato del combattimento:
@@ -232,10 +254,15 @@ Il pannello **Economia Turno** del Giocatore si adatta automaticamente allo stat
   $$\text{Capacità di Carico} = \text{Forza} \times 15\text{ lbs}$$
 * **Approvazione DM Online**: Durante le sessioni connesse, l'aggiunta di oggetti custom o la richiesta di valuta (`🤝 Richiedi Valuta al DM`) invia una richiesta di approvazione al DM (`CURRENCY_REQUEST` / `ITEM_APPROVAL_REQUEST`).
 
-### Grimorio e Gestione Slot Incantesimo
+### Grimorio, Gestione Slot e Spell Upcasting
 * Aggiungi incantesimi tramite il browser SRD integrato.
-* Cliccando su **Lancia** viene verificata la disponibilità dello slot, scalato lo slot, annunciato l'incantesimo in chat e inviata eventuale richiesta di Tiro Salvezza ai bersagli.
+* **Upcasting Automatico**: Cliccando su **Lancia** su un incantesimo di 1° livello o superiore, si apre un dialog modale con gli slot disponibili dal livello base al 9°. Selezionando uno slot superiore, il server deduce lo slot appropriato e annuncia in chat sia il livello base sia il livello dell'upcast.
 * Il **Riposo Lungo** ripristina tutti gli slot incantesimo al massimo.
+
+### Esportazione Scheda Personaggio (JSON & HTML)
+* **Pulsante `💾 Esporta Scheda`**:
+  * **JSON**: File strutturato per backup o migrazione.
+  * **HTML Stampabile**: Pagina HTML 5e stilizzata professionalmente per la stampa o l'archiviazione PDF via browser (`Ctrl+P`).
 
 ### Scambi Peer-to-Peer tra Giocatori
 * Trasferisci oggetti e monete d'oro direttamente a un compagno di gruppo dalla scheda inventario.

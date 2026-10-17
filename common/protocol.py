@@ -214,3 +214,9 @@ def make_item_approval_request(item: dict, slot_idx: int = None):
 
 def make_item_approval_response(player_name: str, item: dict, slot_idx: int, approved: bool, reason: str = ""):
     return {"type": "ITEM_APPROVAL_RESPONSE", "data": {"player_name": player_name, "item": item, "slot_idx": slot_idx, "approved": approved, "reason": reason}}
+
+def make_clear_drawings_request():
+    return {"type": "CLEAR_DRAWINGS_REQUEST", "data": {}}
+
+def make_clear_drawings_broadcast():
+    return {"type": "CLEAR_DRAWINGS_BROADCAST", "data": {}}

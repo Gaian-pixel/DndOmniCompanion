@@ -162,7 +162,17 @@ def handle_toggle_cover_request(data, player, game_state):
 def handle_draw_request(data, player, game_state):
     points = data.get("points", [])
     color = data.get("color", "red")
+    if not hasattr(game_state, "drawn_lines") or not isinstance(game_state.drawn_lines, list):
+        game_state.drawn_lines = []
+    game_state.drawn_lines.append({"points": points, "color": color})
     from common.network_utils import broadcast
     broadcast(game_state, {"type": "DRAW_BROADCAST", "data": {"points": points, "color": color}})
+
+def handle_clear_drawings_request(data, player, game_state):
+    game_state.drawn_lines = []
+    from common.network_utils import broadcast
+    from common.protocol import make_clear_drawings_broadcast
+    broadcast(game_state, make_clear_drawings_broadcast())
+    game_state._trigger_gui_update()
 
 
