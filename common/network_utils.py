@@ -51,11 +51,13 @@ def receive_message(sock):
         header_bytes = _recv_exact(sock, 4)
         if not header_bytes: return None
         msg_len = struct.unpack('!I', header_bytes)[0]
+        if msg_len > 64 * 1024 * 1024: # Limite di sicurezza: 64 MB max payload
+            raise ValueError(f"Messaggio troppo grande: {msg_len} byte")
         full_message_bytes = _recv_exact(sock, msg_len)
         if full_message_bytes is None:
             raise ConnectionError("Connessione interrotta.")
         return json.loads(full_message_bytes.decode('utf-8'))
-    except (ConnectionError, struct.error, json.JSONDecodeError, BrokenPipeError, ConnectionResetError, OSError):
+    except (ConnectionError, struct.error, json.JSONDecodeError, BrokenPipeError, ConnectionResetError, OSError, ValueError):
         return None
 
 def broadcast(game_state, message_data, exclude_player=None):
