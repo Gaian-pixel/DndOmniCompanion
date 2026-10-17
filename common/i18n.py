@@ -204,6 +204,9 @@ STRINGS = {
         "menu_save_session": "Salva Sessione...",
         "menu_load_session": "Carica Sessione...",
         "menu_exit": "Esci",
+        "confirm_exit_server": "Vuoi chiudere il server?",
+        "confirm_exit_client": "Vuoi chiudere il client e uscire?",
+        "confirm_exit_connected": "Sei attualmente connesso al server.\nVuoi davvero disconnetterti e chiudere il client?",
         "menu_tools": "Strumenti",
         "menu_loot_gen": "💰 Generatore di Bottino (Loot 5e)",
         "menu_npc_gen": "🎭 Generatore Rapido PNG",
@@ -862,6 +865,9 @@ STRINGS = {
         "menu_save_session": "Save Session...",
         "menu_load_session": "Load Session...",
         "menu_exit": "Exit",
+        "confirm_exit_server": "Do you want to close the server?",
+        "confirm_exit_client": "Do you want to close the client and exit?",
+        "confirm_exit_connected": "You are currently connected to the server.\nDo you really want to disconnect and close the client?",
         "menu_tools": "Tools",
         "menu_loot_gen": "💰 Loot Generator (5e)",
         "menu_npc_gen": "🎭 Quick NPC Generator",
@@ -1560,6 +1566,13 @@ def register_unit_listener(callback_fn):
     with _lock:
         if callback_fn not in _unit_listeners:
             _unit_listeners.append(callback_fn)
+
+
+def unregister_unit_listener(callback_fn):
+    """Rimuove un listener di unità registrato."""
+    with _lock:
+        if callback_fn in _unit_listeners:
+            _unit_listeners.remove(callback_fn)
 
 
 def convert_speed_value(val, from_unit: str, to_unit: str):
