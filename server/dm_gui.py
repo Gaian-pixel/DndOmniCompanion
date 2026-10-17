@@ -1315,12 +1315,26 @@ class DM_GUI:
         gs._trigger_gui_update()
         broadcast(gs, make_game_state(gs.get_state_dict()))
 
-    def on_weather_changed(self, event):
+    def on_weather_changed(self, event=None):
         gs = self.server.game_state
-        gs.weather = self.weather_var.get()
-        self.log_to_chat(f"Il clima cambia in: {gs.weather}")
+        raw_val = self.weather_var.get()
+        from common.i18n import WEATHER_EN_TO_IT, translate_weather
+        canonical = WEATHER_EN_TO_IT.get(raw_val.strip(), raw_val.strip())
+        gs.weather = canonical
+        weather_icons = {
+            "Sereno": "☀️", "Pioggia": "🌧️", "Tempesta": "⛈️", "Neve": "❄️", "Nebbia": "🌫️",
+            "Clear": "☀️", "Rain": "🌧️", "Storm": "⛈️", "Snow": "❄️", "Fog": "🌫️"
+        }
+        w_icon = weather_icons.get(canonical, "🌤️")
+        disp_weather = translate_weather(canonical)
+        msg = f"{w_icon} Il clima cambia in: {disp_weather}"
+        self.log_to_chat(msg)
+        from common.protocol import make_chat_broadcast, make_game_state
+        from server.network import broadcast
+        broadcast(gs, make_chat_broadcast("Sistema", msg))
         gs._trigger_gui_update()
         broadcast(gs, make_game_state(gs.get_state_dict()))
+        self.update_state()
 
     def _broadcast_fow_update(self):
         if self.server.game_state.current_map:
@@ -1797,7 +1811,8 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         tk.Label(env_f, text="📍 STATO DELL'AMBIENTE & MARCIA", font=("Segoe UI", 10, "bold"),
                  bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(anchor="w", padx=12, pady=(8, 4))
         
-        lbl_current_time = tk.Label(env_f, text=f"📅 Data & Ora: {gs.time_day} {month_name} {getattr(gs, 'time_year', 1492)} - {gs.time_hour:02d}:00  |  ⛅ Clima: {getattr(gs, 'weather', 'Sereno')}",
+        weather_label = translate_weather(getattr(gs, 'weather', 'Sereno'))
+        lbl_current_time = tk.Label(env_f, text=f"📅 Data & Ora: {gs.time_day} {month_name} {getattr(gs, 'time_year', 1492)} - {gs.time_hour:02d}:00  |  ⛅ Clima: {weather_label}",
                                     font=("Segoe UI", 9), bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR)
         lbl_current_time.pack(anchor="w", padx=12, pady=2)
         

@@ -1502,6 +1502,73 @@ class TestDndNewFeatures(unittest.TestCase):
         finally:
             root.destroy()
 
+    def test_weather_filters_and_overlays(self):
+        """Verifica che tutti i filtri del clima (Sereno, Pioggia, Tempesta, Neve, Nebbia) funzionino sia in IT che in EN."""
+        import tkinter as tk
+        from components.ui_components import HexMapCanvas
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            canvas = HexMapCanvas(root, bg="#121316", width=800, height=600)
+            canvas.pack()
+            map_data = {
+                "hex_size": 20,
+                "grid_type": "hex",
+                "hexes": [[0, 0], [1, 0]],
+                "walls": [],
+                "fow_enabled": False
+            }
+
+            # 1. Test Pioggia (Rain)
+            canvas.update_data(map_data, {}, weather="Pioggia")
+            root.update()
+            rain_items = canvas.find_withtag("weather_overlay")
+            self.assertGreater(len(rain_items), 10, "Pioggia deve creare elementi visivi con tag weather_overlay")
+
+            # 2. Test Tempesta (Storm) - sia chiave italiana che inglese
+            canvas.update_data(map_data, {}, weather="Tempesta")
+            root.update()
+            storm_items = canvas.find_withtag("weather_overlay")
+            self.assertGreater(len(storm_items), 20, "Tempesta deve creare elementi visivi (fulmine, pioggia, oscurità)")
+
+            canvas.update_data(map_data, {}, weather="Storm")
+            root.update()
+            storm_en_items = canvas.find_withtag("weather_overlay")
+            self.assertGreater(len(storm_en_items), 20, "Storm (EN) deve essere supportato e creare elementi di tempesta")
+
+            # 3. Test Nebbia (Fog) - sia chiave italiana che inglese
+            canvas.update_data(map_data, {}, weather="Nebbia")
+            root.update()
+            fog_items = canvas.find_withtag("weather_overlay")
+            self.assertGreater(len(fog_items), 10, "Nebbia deve creare elementi visivi (banchi di nebbia, foschia)")
+
+            canvas.update_data(map_data, {}, weather="Fog")
+            root.update()
+            fog_en_items = canvas.find_withtag("weather_overlay")
+            self.assertGreater(len(fog_en_items), 10, "Fog (EN) deve essere supportato e creare elementi di nebbia")
+
+            # 4. Test Neve (Snow)
+            canvas.update_data(map_data, {}, weather="Neve")
+            root.update()
+            snow_items = canvas.find_withtag("weather_overlay")
+            self.assertGreater(len(snow_items), 15, "Neve deve creare fiocchi e brina con tag weather_overlay")
+
+            # 5. Test Sereno (Clear)
+            canvas.update_data(map_data, {}, weather="Sereno")
+            root.update()
+            clear_items = canvas.find_withtag("weather_overlay")
+            # In Sereno solo la pillola HUD è presente se visibile, nessuna oscurità o particella invasiva
+            self.assertLessEqual(len(clear_items), 3, "Sereno non deve avere particelle di oscurità/pioggia/nebbia")
+
+            # 6. Test Ciclo Notte
+            canvas.update_data(map_data, {}, time_hour=23, weather="Sereno")
+            root.update()
+            night_items = canvas.find_withtag("night_overlay")
+            self.assertGreaterEqual(len(night_items), 1, "Notte deve creare il filtro notturno")
+        finally:
+            root.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()

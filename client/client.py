@@ -1382,9 +1382,9 @@ class ClientGUI:
                  bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(anchor="w", padx=12, pady=(8, 4))
         
         env_grid = tk.Frame(env_frame, bg=SURFACE_COLOR_ALT)
-        env_grid.pack(fill=tk.X, padx=12, pady=(0, 8))
-        
-        tk.Label(env_grid, text=f"⛅ Clima: {weather}", font=("Segoe UI", 9), bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).grid(row=0, column=0, sticky="w", padx=(0, 15), pady=2)
+        from common.i18n import translate_weather
+        weather_disp = translate_weather(weather)
+        tk.Label(env_grid, text=f"⛅ Clima: {weather_disp}", font=("Segoe UI", 9), bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).grid(row=0, column=0, sticky="w", padx=(0, 15), pady=2)
         tk.Label(env_grid, text=f"🌲 Terreno: {terrain}", font=("Segoe UI", 9), bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).grid(row=0, column=1, sticky="w", padx=15, pady=2)
         tk.Label(env_grid, text=f"🚶 Andatura: {pace}", font=("Segoe UI", 9, "bold"), bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).grid(row=1, column=0, sticky="w", padx=(0, 15), pady=2)
         

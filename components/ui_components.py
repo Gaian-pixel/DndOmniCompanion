@@ -300,6 +300,12 @@ class HexMapCanvas(tk.Canvas):
                         self.toggle_ruler_mode()
                     return
 
+        # 3. Controlla click su Pillola Clima & Notte (In alto a destra)
+        if getattr(self, '_weather_badge_bbox', None):
+            wbx1, wby1, wbx2, wby2 = self._weather_badge_bbox
+            if wbx1 <= event.x <= wbx2 and wby1 <= event.y <= wby2:
+                return
+
         if not self.hex_layout: return
         world_x = (event.x - self.pan_offset_x) / self.zoom_level
         world_y = (event.y - self.pan_offset_y) / self.zoom_level
@@ -1282,23 +1288,11 @@ class HexMapCanvas(tk.Canvas):
                     self.create_text(b_x, b_y, text=symbol, font=("Segoe UI Emoji", font_size), fill="white")
 
         # --- ENVIRONMENTS & COMBAT OVERLAYS ---
-        w = self.winfo_width()
-        h = self.winfo_height()
+        w = cw
+        h = ch
         
-        # 1. Day/Night Cycle
-        hour = getattr(self, "time_hour", 12)
-        if hour < 6 or hour > 19:
-            self.create_rectangle(0, 0, w, h, fill="black", stipple="gray50", outline="", tags="night_overlay")
-            self.create_text(w/2, 20, text=f"Notte ({hour}:00)", fill="white", font=("Arial", 12, "bold"))
-            
-        # 2. Weather
-        weather = getattr(self, "weather", "Sereno")
-        if weather == "Pioggia":
-            self.create_rectangle(0, 0, w, h, fill="blue", stipple="gray25", outline="", tags="weather_overlay")
-            self.create_text(w/2, 40, text="Pioggia", fill="lightblue", font=("Arial", 12, "bold"))
-        elif weather == "Neve":
-            self.create_rectangle(0, 0, w, h, fill="white", stipple="gray25", outline="", tags="weather_overlay")
-            self.create_text(w/2, 40, text="Neve", fill="white", font=("Arial", 12, "bold"))
+        # 1 & 2. Day/Night Cycle & Weather Overlays
+        self._draw_environment_and_weather_overlays(w, h)
             
         # 3. Horizontal Initiative Carousel Ribbon (Foundry VTT / D&D Beyond modern style)
         self._initiative_ribbon_bboxes = []
@@ -1452,6 +1446,199 @@ class HexMapCanvas(tk.Canvas):
             by1 = by2 - 24
             self.create_rectangle(bx1, by1, bx2, by2, fill="#0F1115", outline="#374151", width=1, tags="hud_coords")
             self.create_text((bx1 + bx2)/2, (by1 + by2)/2, text=coord_str, fill="#9CA3AF", font=("Segoe UI", 8, "bold"), tags="hud_coords")
+
+    def _draw_environment_and_weather_overlays(self, w, h):
+        """Disegna l'atmosfera temporale (Giorno/Notte/Alba/Tramonto) e il clima dinamico (Sereno, Pioggia, Tempesta, Neve, Nebbia)."""
+        import random
+
+        # 1. Ciclo Giorno / Notte / Alba / Tramonto
+        hour = getattr(self, "time_hour", 12)
+        is_night = False
+        time_period_desc = ""
+        if hour < 6 or hour > 19:
+            is_night = True
+            time_period_desc = "Notte"
+            self.create_rectangle(0, 0, w, h, fill="#050811", stipple="gray50", outline="", tags="night_overlay")
+        elif 6 <= hour < 8:
+            time_period_desc = "Alba"
+            self.create_rectangle(0, 0, w, h, fill="#fef3c7", stipple="gray12", outline="", tags="night_overlay")
+        elif 18 <= hour <= 19:
+            time_period_desc = "Tramonto"
+            self.create_rectangle(0, 0, w, h, fill="#ea580c", stipple="gray12", outline="", tags="night_overlay")
+
+        # 2. Normalizzazione del clima (supporto bilingue IT / EN)
+        raw_weather = str(getattr(self, "weather", "Sereno")).strip()
+        norm = raw_weather.lower()
+        WEATHER_MAP = {
+            "sereno": "sereno",
+            "clear": "sereno",
+            "sole": "sereno",
+            "sunny": "sereno",
+            "pioggia": "pioggia",
+            "rain": "pioggia",
+            "rainy": "pioggia",
+            "tempesta": "tempesta",
+            "storm": "tempesta",
+            "stormy": "tempesta",
+            "temporale": "tempesta",
+            "neve": "neve",
+            "snow": "neve",
+            "snowy": "neve",
+            "nebbia": "nebbia",
+            "fog": "nebbia",
+            "foggy": "nebbia",
+            "mist": "nebbia",
+            "misty": "nebbia"
+        }
+        w_key = WEATHER_MAP.get(norm, "sereno")
+
+        # RNG deterministico per mantenere costanti le particelle ad ogni pan / zoom
+        seed_val = 1337 + sum(ord(c) for c in w_key)
+        rng = random.Random(seed_val)
+
+        # 3. Atmosfera e particelle visive del clima
+        if w_key == "pioggia":
+            # Filtro pioggia blu scuro / ardesia
+            self.create_rectangle(0, 0, w, h, fill="#1e3a8a", stipple="gray25", outline="", tags="weather_overlay")
+            
+            # Scie di pioggia diagonali
+            drop_count = min(180, max(75, int((w * h) / 4500)))
+            for _ in range(drop_count):
+                x = rng.randint(-20, w)
+                y = rng.randint(0, h)
+                dy = rng.randint(14, 22)
+                dx = 4
+                col = rng.choice(["#60a5fa", "#93c5fd", "#bfdbfe"])
+                self.create_line(x, y, x + dx, y + dy, fill=col, width=1, tags="weather_overlay")
+            
+            # Schizzi e increspature d'acqua
+            for _ in range(max(10, drop_count // 6)):
+                rx = rng.randint(20, max(21, w - 20))
+                ry = rng.randint(20, max(21, h - 20))
+                self.create_oval(rx - 3, ry - 1, rx + 3, ry + 1, outline="#93c5fd", width=1, tags="weather_overlay")
+
+        elif w_key == "tempesta":
+            # Filtro tempesta: oscurità profonda + atmosfera indaco/tempestosa
+            self.create_rectangle(0, 0, w, h, fill="#020617", stipple="gray50", outline="", tags="weather_overlay")
+            self.create_rectangle(0, 0, w, h, fill="#1e1b4b", stipple="gray25", outline="", tags="weather_overlay")
+            
+            # Pioggia torrenziale e sferzante dal vento
+            storm_drops = min(260, max(110, int((w * h) / 3200)))
+            for _ in range(storm_drops):
+                x = rng.randint(-60, w)
+                y = rng.randint(0, h)
+                dy = rng.randint(18, 30)
+                dx = 9
+                col = rng.choice(["#38bdf8", "#60a5fa", "#93c5fd", "#e2e8f0"])
+                lw = 1 if rng.random() > 0.35 else 2
+                self.create_line(x, y, x + dx, y + dy, fill=col, width=lw, tags="weather_overlay")
+            
+            # Fulmine ramificato spettacolare nel cielo
+            lx = int(w * 0.65)
+            ly = 0
+            cur_x, cur_y = lx, ly
+            bolt_pts = [(cur_x, cur_y)]
+            while cur_y < h * 0.68:
+                cur_x += rng.randint(-35, 30)
+                cur_y += rng.randint(25, 55)
+                bolt_pts.append((cur_x, cur_y))
+            
+            if len(bolt_pts) >= 3:
+                # Bagliore esterno azzurro ciano
+                self.create_line(bolt_pts, fill="#38bdf8", width=4, capstyle=tk.ROUND, joinstyle=tk.ROUND, tags="weather_overlay")
+                # Nucleo bianco incandescente
+                self.create_line(bolt_pts, fill="#ffffff", width=2, capstyle=tk.ROUND, joinstyle=tk.ROUND, tags="weather_overlay")
+                
+                # Ramificazione secondaria
+                mid_idx = len(bolt_pts) // 2
+                fx, fy = bolt_pts[mid_idx]
+                fork_pts = [(fx, fy)]
+                for _ in range(3):
+                    fx += rng.randint(-40, -10)
+                    fy += rng.randint(18, 40)
+                    fork_pts.append((fx, fy))
+                self.create_line(fork_pts, fill="#38bdf8", width=3, capstyle=tk.ROUND, joinstyle=tk.ROUND, tags="weather_overlay")
+                self.create_line(fork_pts, fill="#ffffff", width=1.5, capstyle=tk.ROUND, joinstyle=tk.ROUND, tags="weather_overlay")
+
+        elif w_key == "neve":
+            # Filtro gelido invernale bianco / azzurro ghiaccio
+            self.create_rectangle(0, 0, w, h, fill="#cbd5e1", stipple="gray25", outline="", tags="weather_overlay")
+            self.create_rectangle(0, 0, w, h, fill="#e0f2fe", stipple="gray12", outline="", tags="weather_overlay")
+            
+            # Fiocchi di neve cadenti
+            flake_count = min(190, max(80, int((w * h) / 4200)))
+            for _ in range(flake_count):
+                x = rng.randint(0, w)
+                y = rng.randint(0, h)
+                r = rng.choice([1, 1.5, 2, 2.5, 3])
+                col = rng.choice(["#ffffff", "#f8fafc", "#f1f5f9", "#e2e8f0", "#bae6fd"])
+                self.create_oval(x - r, y - r, x + r, y + r, fill=col, outline="", tags="weather_overlay")
+            
+            # Cristalli di brina e stelle di ghiaccio
+            for _ in range(max(10, flake_count // 7)):
+                fx = rng.randint(15, max(16, w - 15))
+                fy = rng.randint(15, max(16, h - 15))
+                self.create_line(fx - 3, fy, fx + 3, fy, fill="#ffffff", width=1, tags="weather_overlay")
+                self.create_line(fx, fy - 3, fx, fy + 3, fill="#ffffff", width=1, tags="weather_overlay")
+                self.create_line(fx - 2, fy - 2, fx + 2, fy + 2, fill="#ffffff", width=1, tags="weather_overlay")
+                self.create_line(fx - 2, fy + 2, fx + 2, fy - 2, fill="#ffffff", width=1, tags="weather_overlay")
+
+        elif w_key == "nebbia":
+            # Filtro nebbia densa e foschia volumetrica
+            self.create_rectangle(0, 0, w, h, fill="#475569", stipple="gray50", outline="", tags="weather_overlay")
+            self.create_rectangle(0, 0, w, h, fill="#94a3b8", stipple="gray25", outline="", tags="weather_overlay")
+            
+            # Banchi di nebbia densi e ondulati
+            cloud_count = min(36, max(16, int((w * h) / 24000)))
+            for _ in range(cloud_count):
+                cx = rng.randint(-40, w + 40)
+                cy = rng.randint(-20, h + 20)
+                rx = rng.randint(90, 220)
+                ry = rng.randint(45, 120)
+                stip = rng.choice(["gray25", "gray12", "gray25"])
+                fcol = rng.choice(["#64748b", "#94a3b8", "#cbd5e1", "#e2e8f0"])
+                self.create_oval(cx - rx, cy - ry, cx + rx, cy + ry, fill=fcol, stipple=stip, outline="", tags="weather_overlay")
+
+        # 4. Elegante Pill HUD Clima & Notte in alto a destra
+        WEATHER_META = {
+            "sereno": ("☀️", "Sereno", "#EAB308", "#FEF08A"),
+            "pioggia": ("🌧️", "Pioggia", "#38BDF8", "#BAE6FD"),
+            "tempesta": ("⛈️", "Tempesta", "#F59E0B", "#FDE68A"),
+            "neve": ("❄️", "Neve", "#67E8F9", "#E0F2FE"),
+            "nebbia": ("🌫️", "Nebbia", "#94A3B8", "#F1F5F9"),
+        }
+        icon, canon_name, border_col, text_col = WEATHER_META.get(w_key, ("☀️", "Sereno", "#EAB308", "#FEF08A"))
+        
+        try:
+            from common.i18n import translate_weather
+            weather_label = translate_weather(canon_name)
+        except Exception:
+            weather_label = canon_name
+            
+        if is_night:
+            badge_text = f"🌙 {hour:02d}:00  •  {icon} {weather_label}"
+            badge_w = 175
+        elif time_period_desc:
+            p_icon = "🌅" if time_period_desc == "Alba" else "🌇"
+            badge_text = f"{p_icon} {time_period_desc}  •  {icon} {weather_label}"
+            badge_w = 175
+        else:
+            badge_text = f"{icon} {weather_label}"
+            badge_w = 115
+
+        self._weather_badge_bbox = None
+        if w > 200 and h > 120:
+            bx2 = w - 16
+            bx1 = bx2 - badge_w
+            by1 = 12
+            # Se il nastro di iniziativa è visibile al centro-alto, abbassa la pillola per non sovrapporsi
+            if getattr(self, "combat_active", False) and getattr(self, "combat_order", None):
+                by1 = 76
+            by2 = by1 + 26
+            
+            self._weather_badge_bbox = (bx1, by1, bx2, by2)
+            self.create_rectangle(bx1, by1, bx2, by2, fill="#111318", outline=border_col, width=1.5, tags="weather_overlay")
+            self.create_text((bx1 + bx2)/2, (by1 + by2)/2, text=badge_text, fill=text_col, font=("Segoe UI", 9, "bold"), tags="weather_overlay")
 
 class ToolTip:
     """Finestrella di tooltip Dark Fantasy mostrata al passaggio del mouse con supporto a callable per i18n dinamico."""
