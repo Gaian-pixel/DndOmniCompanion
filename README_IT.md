@@ -66,7 +66,7 @@
 * **Hero Summary Card & Scheda Interattiva**:
   * Card riassuntiva sempre visibile nella sidebar con barra PV reattiva, CA, Velocità (in `ft` o `m`) e Iniziativa.
   * Scheda completa divisa in tab: **Combattimento**, **Statistiche & Abilità** (con Competenza e Maestria $2\times\text{PB}$), **Armi & Attacchi**, **Inventario & Ingombro** ($\text{FOR} \times 15\text{ lbs}$), **Grimorio & Slot Incantesimo (1–9)** con dialog di **Upcasting**, **Privilegi & Diario**.
-* **Esportazione Scheda Personaggio (JSON e HTML Stampabile)**: Esportazione in 1 click in `.json` (backup/migrazione) o `.html` grafico pronto per la stampa o salvataggio PDF (`Ctrl+P`).
+* **Esportazione Scheda Personaggio (PDF Ufficiale D&D 5e e JSON Dati)**: Finestra modale per scegliere tra **PDF Ufficiale** (richiede in input il modello PDF vuoto D&D 5e e compila automaticamente la scheda a 3 pagine pronta per la stampa o la condivisione) e **JSON** (backup grezzo per import/export tra campagne).
 * **Approvazione DM Anti-Cheat in Sessione**: Durante le sessioni online, l'aggiunta manuale di valuta o oggetti custom invia una richiesta di approvazione al DM (`🤝 Richiedi Valuta al DM`).
 * **Scambi Peer-to-Peer e Macro Hotbar**: Scambio diretto di oggetti/monete con gli alleati e barra rapida a 10 slot personalizzabili.
 

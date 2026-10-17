@@ -517,37 +517,146 @@ class CharacterSheetUI(tk.Toplevel):
 
     def export_character_dialog(self):
         from tkinter import filedialog
-        choice = messagebox.askyesno("Formato Esportazione", "Vuoi esportare come Scheda HTML Stampabile (Sì) o come file dati JSON (No)?", parent=self)
-        
+        from client.pdf_sheet_generator import generate_character_pdf
+
+        dialog = tk.Toplevel(self)
+        dialog.title("Esporta Scheda Personaggio")
+        dialog.minsize(460, 280)
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        apply_modern_window_style(dialog)
+
+        container = tk.Frame(dialog, bg=SURFACE_COLOR, padx=20, pady=18)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(
+            container,
+            text="Esportazione Personaggio",
+            font=FONT_HEADER,
+            bg=SURFACE_COLOR,
+            fg=ACCENT_GOLD
+        ).pack(anchor="w", pady=(0, 4))
+
+        tk.Label(
+            container,
+            text="Scegli il formato desiderato per l'esportazione:",
+            font=FONT_MAIN,
+            bg=SURFACE_COLOR,
+            fg=TEXT_MUTED
+        ).pack(anchor="w", pady=(0, 15))
+
         char_data = self.character.to_dict()
         safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', self.character.name or "personaggio")
-        
-        if choice: # HTML
-            file_path = filedialog.asksaveasfilename(
-                parent=self,
-                title="Esporta Scheda Personaggio (HTML)",
-                initialfile=f"{safe_name}_scheda.html",
-                defaultextension=".html",
-                filetypes=[("File HTML", "*.html")]
+
+        def export_pdf():
+            template_path = filedialog.askopenfilename(
+                parent=dialog,
+                title="Seleziona il modello PDF vuoto (dnd_blankcharactersheet_it.pdf)",
+                filetypes=[("Modello PDF (*.pdf)", "*.pdf"), ("Tutti i file", "*.*")]
             )
-            if not file_path: return
-            
-            html = self._generate_character_html(char_data)
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(html)
-            messagebox.showinfo("Esportazione Completata", f"Scheda esportata con successo in:\n{file_path}\n\nPuoi aprirla e stamparla con qualsiasi browser web!")
-        else: # JSON
+            if not template_path:
+                return
+
             file_path = filedialog.asksaveasfilename(
-                parent=self,
+                parent=dialog,
+                title="Salva Scheda Ufficiale D&D 5e (PDF)",
+                initialfile=f"{safe_name}_scheda.pdf",
+                defaultextension=".pdf",
+                filetypes=[("Documento PDF", "*.pdf")]
+            )
+            if not file_path:
+                return
+            dialog.destroy()
+            try:
+                generate_character_pdf(char_data, file_path, template_path=template_path)
+                messagebox.showinfo(
+                    "Esportazione Completata",
+                    f"Scheda PDF ufficiale generata con successo in:\n{file_path}\n\n"
+                    "Il documento a 3 pagine è pronto per la visualizzazione e la stampa!",
+                    parent=self
+                )
+            except Exception as e:
+                messagebox.showerror(
+                    "Errore Esportazione PDF",
+                    f"Si è verificato un errore durante la generazione della scheda PDF:\n{e}",
+                    parent=self
+                )
+
+        def export_json():
+            file_path = filedialog.asksaveasfilename(
+                parent=dialog,
                 title="Esporta Dati Personaggio (JSON)",
                 initialfile=f"{safe_name}.json",
                 defaultextension=".json",
                 filetypes=[("File JSON", "*.json")]
             )
-            if not file_path: return
-            with open(file_path, "w", encoding="utf-8") as f:
-                json.dump(char_data, f, indent=2, ensure_ascii=False)
-            messagebox.showinfo("Esportazione Completata", f"Dati personaggio salvati con successo in:\n{file_path}")
+            if not file_path:
+                return
+            dialog.destroy()
+            try:
+                with open(file_path, "w", encoding="utf-8") as f:
+                    json.dump(char_data, f, indent=2, ensure_ascii=False)
+                messagebox.showinfo(
+                    "Esportazione Completata",
+                    f"Dati personaggio salvati con successo in:\n{file_path}",
+                    parent=self
+                )
+            except Exception as e:
+                messagebox.showerror(
+                    "Errore Salvataggio JSON",
+                    f"Si è verificato un errore durante il salvataggio dei dati JSON:\n{e}",
+                    parent=self
+                )
+
+        # Card Opzione PDF
+        pdf_card = tk.Frame(container, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=12, pady=10)
+        pdf_card.pack(fill=tk.X, pady=(0, 10))
+
+        pdf_top = tk.Frame(pdf_card, bg=SURFACE_COLOR_ALT)
+        pdf_top.pack(fill=tk.X)
+
+        tk.Label(pdf_top, text="📄 Scheda Ufficiale D&D 5e (PDF)", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).pack(side=tk.LEFT)
+        btn_pdf = ttk.Button(pdf_top, text="Esporta PDF", style="Primary.TButton", command=export_pdf)
+        btn_pdf.pack(side=tk.RIGHT)
+
+        tk.Label(
+            pdf_card,
+            text="Seleziona il modello PDF vuoto (es. dnd_blankcharactersheet_it.pdf) per compilare automaticamente la scheda a 3 pagine.",
+            font=FONT_SMALL,
+            bg=SURFACE_COLOR_ALT,
+            fg=TEXT_MUTED,
+            wraplength=400,
+            justify="left"
+        ).pack(anchor="w", pady=(3, 0))
+
+        # Card Opzione JSON
+        json_card = tk.Frame(container, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=12, pady=10)
+        json_card.pack(fill=tk.X, pady=(0, 14))
+
+        json_top = tk.Frame(json_card, bg=SURFACE_COLOR_ALT)
+        json_top.pack(fill=tk.X)
+
+        tk.Label(json_top, text="💾 File Dati Personaggio (JSON)", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).pack(side=tk.LEFT)
+        btn_json = ttk.Button(json_top, text="Esporta JSON", command=export_json)
+        btn_json.pack(side=tk.RIGHT)
+
+        tk.Label(
+            json_card,
+            text="Salva i dati grezzi del personaggio per backup, modifiche manuali o re-importazione.",
+            font=FONT_SMALL,
+            bg=SURFACE_COLOR_ALT,
+            fg=TEXT_MUTED,
+            wraplength=400,
+            justify="left"
+        ).pack(anchor="w", pady=(3, 0))
+
+        # Barra inferiore con tasto Annulla
+        bottom_frame = tk.Frame(container, bg=SURFACE_COLOR)
+        bottom_frame.pack(fill=tk.X)
+        ttk.Button(bottom_frame, text="Annulla", command=dialog.destroy).pack(side=tk.RIGHT)
+
+        dialog.grab_set()
+
 
     @staticmethod
     def _generate_character_html(data):

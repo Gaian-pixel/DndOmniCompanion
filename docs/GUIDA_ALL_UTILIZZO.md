@@ -28,7 +28,7 @@ Questa guida illustra passo dopo passo come avviare una sessione, configurare l'
    - [Azioni in Combattimento, Incantesimi AoE e Upcasting](#azioni-in-combattimento-incantesimi-aoe-e-upcasting)
    - [Punti Ferita, Riposi e Tiri Salvezza contro la Morte](#punti-ferita-riposi-e-tiri-salvezza-contro-la-morte)
    - [Inventario, Ingombro, Scambi e Richieste al DM](#inventario-ingombro-scambi-e-richieste-al-dm)
-   - [Esportazione Scheda Personaggio (JSON e HTML Stampabile)](#esportazione-scheda-personaggio-json-e-html-stampabile)
+   - [Esportazione Scheda Personaggio (PDF Ufficiale D&D 5e e JSON)](#esportazione-scheda-personaggio-pdf-ufficiale-dd-5e-e-json)
    - [Macro Hotbar (Slot Rapidi 1–10)](#macro-hotbar-slot-rapidi-110)
 5. [Guida per il Dungeon Master (DM)](#5-guida-per-il-dungeon-master-dm)
    - [Gestione Campagne, Atti, Scene e Starter Pack](#gestione-campagne-atti-scene-e-starter-pack)
@@ -206,10 +206,13 @@ La sezione **Economia Turno** nel tab `Controlli PG` si adatta automaticamente a
 * **Sicurezza Online (Approvazione DM)**: mentre sei connesso a una sessione live, i punteggi di caratteristica e i PV massimi sono protetti. Per aggiungere monete o oggetti custom puoi cliccare su **`🤝 Richiedi Valuta al DM`** o aggiungere un oggetto: il DM riceverà un pop-up di approvazione istantanea.
 * **Scambi con Alleati (`Dai` / `🤝 Dai Oro a Compagno`)**: puoi trasferire oggetti o monete direttamente a un altro giocatore connesso.
 
-### Esportazione Scheda Personaggio (JSON e HTML Stampabile)
-In cima alla finestra della Scheda PG trovi il pulsante **`💾 Esporta Scheda`**:
-* **Esporta JSON (`.json`)**: salva l'intera struttura dati del personaggio per backup, condivisione o per importarlo in altre campagne.
-* **Esporta HTML Stampabile (`.html`)**: genera una scheda personaggio web pronta per la stampa o l'esportazione PDF (`Ctrl+P`). Il layout rispetta fedelmente la grafica classica di D&D 5e con blocchi ordinati per caratteristiche, modificatori, tiri salvezza, competenze abilità, armi con bonus, inventario, grimorio completo e riepilogo delle risorse speciali di classe.
+### Esportazione Scheda Personaggio (PDF Ufficiale D&D 5e e JSON)
+In fondo alla finestra della Scheda PG trovi il pulsante **`📥 Esporta Scheda...`**: cliccandolo si apre una finestra modale dedicata che ti permette di scegliere chiaramente tra due formati:
+* **📄 Scheda Ufficiale D&D 5e (PDF)**: richiede in input di selezionare il file PDF del modello vuoto ministeriale a 3 pagine (es. `dnd_blankcharactersheet_it.pdf`, non caricato su Git per ragioni di copyright e dimensioni) e compila direttamente la scheda. Include:
+  - **Pagina 1**: Intestazione completa, Caratteristiche e Modificatori centrati nei riquadri ufficiali, Ispirazione, Bonus di Competenza, Tiri Salvezza con spunte nere di competenza, 18 Abilità (con pallino pieno per competenza o doppio cerchio per maestria), Percezione Passiva, Classe Armatura nello scudo, Iniziativa, Velocità, Punti Ferita massimi, attuali e temporanei, Dadi Vita totali e rimanenti, Tiri Salvezza contro la Morte compilati, Tabella Armi con bonus e danni/tipo, Monete nei rispettivi esagoni (MR, MA, ME, MO, MP), Equipaggiamento/Inventario, Tratti Caratteriali, Ideali, Legami, Difetti e Privilegi di Classe (con tracciamento risorse speciali come Ira, Secondo Fiato, Punti Ki).
+  - **Pagina 2**: Dettagli del personaggio, età, altezza, peso, occhi, pelle, capelli, aspetto fisico, alleati e organizzazioni, storia del personaggio (backstory) e tesoro.
+  - **Pagina 3 (Grimorio)**: Classe da incantatore, caratteristica chiave, CD Tiro Salvezza, Bonus Attacco Incantesimi, slot totali e spesi per ciascun livello da 1 a 9, ed elenco completo degli incantesimi con spunta di preparazione.
+* **💾 File Dati Personaggio (JSON)**: salva la struttura dati pura del personaggio (`.json`) formattata con indentazione, ideale per backup rapidi, modifiche testuali avanzate o per importare il personaggio in altre campagne o installazioni.
 
 ### Macro Hotbar (Slot Rapidi 1–10)
 In fondo alla finestra del Giocatore è presente una barra con **10 pulsanti numerati (`1`–`10`)**:

@@ -259,10 +259,10 @@ Il pannello **Economia Turno** del Giocatore si adatta automaticamente allo stat
 * **Upcasting Automatico**: Cliccando su **Lancia** su un incantesimo di 1° livello o superiore, si apre un dialog modale con gli slot disponibili dal livello base al 9°. Selezionando uno slot superiore, il server deduce lo slot appropriato e annuncia in chat sia il livello base sia il livello dell'upcast.
 * Il **Riposo Lungo** ripristina tutti gli slot incantesimo al massimo.
 
-### Esportazione Scheda Personaggio (JSON & HTML)
-* **Pulsante `💾 Esporta Scheda`**:
-  * **JSON**: File strutturato per backup o migrazione.
-  * **HTML Stampabile**: Pagina HTML 5e stilizzata professionalmente per la stampa o l'archiviazione PDF via browser (`Ctrl+P`).
+### Esportazione Scheda Personaggio (PDF Ufficiale & JSON)
+* **Pulsante `📥 Esporta Scheda...`**:
+  * **PDF Ufficiale**: Richiede in input di selezionare il file modello PDF vuoto (es. `dnd_blankcharactersheet_it.pdf`) e compila direttamente la scheda a 3 pagine con tutte le statistiche, abilità con cerchietti di competenza, dadi vita, armi, monete, inventario, note e grimorio. Pronto per la stampa o l'archiviazione.
+  * **JSON**: File strutturato per backup, migrazione o modifiche testuali.
 
 ### Scambi Peer-to-Peer tra Giocatori
 * Trasferisci oggetti e monete d'oro direttamente a un compagno di gruppo dalla scheda inventario.
