@@ -300,21 +300,18 @@ class CharacterSheetUI(tk.Toplevel):
         hp_inputs.pack(fill=tk.X, pady=(0, 3))
         tk.Label(hp_inputs, text="HP:", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).pack(side=tk.LEFT, padx=(0, 4))
         self.hp_cur_var = tk.IntVar()
-        ttk.Entry(hp_inputs, textvariable=self.hp_cur_var, width=4, justify="center").pack(side=tk.LEFT)
+        self.hp_cur_entry = ttk.Entry(hp_inputs, textvariable=self.hp_cur_var, width=4, justify="center")
+        if self.is_connected:
+            self.hp_cur_entry.configure(state="readonly")
+            ToolTip(self.hp_cur_entry, lambda: _t("msg_hp_cur_locked_online"))
+        self.hp_cur_entry.pack(side=tk.LEFT)
         tk.Label(hp_inputs, text="/", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED).pack(side=tk.LEFT, padx=3)
         self.hp_max_var = tk.IntVar()
         self.hp_max_entry = ttk.Entry(hp_inputs, textvariable=self.hp_max_var, width=4, justify="center")
         if self.is_connected:
             self.hp_max_entry.configure(state="readonly")
-            ToolTip(self.hp_max_entry, _t("msg_hp_max_locked_online"))
+            ToolTip(self.hp_max_entry, lambda: _t("msg_hp_max_locked_online"))
         self.hp_max_entry.pack(side=tk.LEFT)
-
-        # Pulsanti Rapidi Danno/Cura (-5, -1, +1, +5)
-        hp_quick_row = tk.Frame(hp_card, bg=SURFACE_COLOR_ALT)
-        hp_quick_row.pack(fill=tk.X, pady=(2, 2))
-        for delta, lbl, st in [(-5, "-5", "Danger.TButton"), (-1, "-1", "Danger.TButton"), (1, "+1", "Success.TButton"), (5, "+5", "Success.TButton")]:
-            q_btn = ttk.Button(hp_quick_row, text=lbl, width=3, style=st, command=lambda d=delta: self._adjust_hp_quick(d))
-            q_btn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
         
         # Health bar fill
         self.sheet_hp_bg = tk.Frame(hp_card, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, height=10)
@@ -1764,6 +1761,8 @@ class CharacterSheetUI(tk.Toplevel):
         return self.import_from_compendium_to_slot(item_data, category, None)
 
     def _adjust_hp_quick(self, delta: int):
+        if self.is_connected:
+            return
         try:
             cur = int(self.hp_cur_var.get())
             mx = max(1, int(self.hp_max_var.get()))
@@ -1791,8 +1790,9 @@ class CharacterSheetUI(tk.Toplevel):
                 except tk.TclError:
                     self.character.skills[k] = 0
                 
-            self.character.hp_current = self.hp_cur_var.get()
-            self.character.hp_max = self.hp_max_var.get()
+            if not self.is_connected:
+                self.character.hp_current = self.hp_cur_var.get()
+                self.character.hp_max = self.hp_max_var.get()
             self.character.ac = self.ac_var.get()
             self.character.initiative = self.init_var.get()
             spd_raw = float(str(self.speed_var.get()).replace(",", "."))

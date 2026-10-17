@@ -388,6 +388,7 @@ STRINGS = {
         "msg_item_approval_sent": "La richiesta per '{item}' è stata inviata al Master. Verrà aggiunto appena approvato.",
         "msg_attr_locked_online": "Caratteristica bloccata durante la sessione. Aumenta solo tramite Level Up o concessione del Master.",
         "msg_hp_max_locked_online": "I Punti Ferita Massimi sono bloccati durante la sessione.",
+        "msg_hp_cur_locked_online": "I Punti Ferita in partita sono gestiti da combattimento, riposi e dal Dungeon Master.",
 
         # --- Viaggio & Esplorazione ---
         "travel_title": "Gestione Viaggio ed Esplorazione 5e",
@@ -1049,6 +1050,7 @@ STRINGS = {
         "msg_item_approval_sent": "Request for '{item}' sent to the DM. It will be added once approved.",
         "msg_attr_locked_online": "Attribute score locked during session. Increases occur via Level Up or DM grant.",
         "msg_hp_max_locked_online": "Max Hit Points are locked during session.",
+        "msg_hp_cur_locked_online": "Hit Points during session are managed by combat events, rests, and the Dungeon Master.",
 
         # --- Travel & Exploration ---
         "travel_title": "5e Travel & Exploration Management",
