@@ -320,6 +320,29 @@ def handle_toggle_door_request(data, player, game_state):
             d20 = random.randint(1, 20)
             total = d20 + break_bonus
             detail = f"{d20} + {break_bonus} ({str_mod} FOR" + (f", +{2*pb} Maestria Atletica" if has_expertise else (f", +{pb} Atletica" if has_prof else "")) + ")"
+            
+            auto_resolve = True
+            if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+                auto_resolve = game_state.automation_settings.get("auto_resolve_doors", True)
+
+            if not auto_resolve:
+                import uuid
+                pending_id = f"door_{uuid.uuid4().hex[:8]}"
+                p_dict = {
+                    "id": pending_id, "q": q, "r": r,
+                    "door_name": door_name, "player_name": p_name,
+                    "method": "break", "roll": total, "dc": break_dc,
+                    "success_suggested": (d20 == 20 or total >= break_dc),
+                    "detail": detail
+                }
+                if not hasattr(game_state, "pending_doors"): game_state.pending_doors = {}
+                game_state.pending_doors[pending_id] = p_dict
+                broadcast(game_state, make_chat_broadcast("Sistema", f"🔨 {p_name} tenta di sfondare la {door_name}! [Tiro Forza: {total} ({detail}) vs CD {break_dc}]. In attesa del verdetto del DM..."))
+                if hasattr(game_state, "gui_queue") and game_state.gui_queue:
+                    game_state.gui_queue.put({"type": "PENDING_DOOR_PROMPT", "payload": p_dict})
+                game_state._trigger_gui_update()
+                return
+
             if d20 == 20 or total >= break_dc:
                 target_door["state"] = "open"
                 broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
@@ -369,6 +392,29 @@ def handle_toggle_door_request(data, player, game_state):
             d20 = random.randint(1, 20)
             total = d20 + lock_bonus
             detail = f"{d20} + {lock_bonus} ({dex_mod} DES" + (f", +{2*pb} Maestria Arnesi" if has_expertise else (f", +{pb} Competenza Arnesi" if has_prof else "")) + ")"
+
+            auto_resolve = True
+            if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+                auto_resolve = game_state.automation_settings.get("auto_resolve_doors", True)
+
+            if not auto_resolve:
+                import uuid
+                pending_id = f"door_{uuid.uuid4().hex[:8]}"
+                p_dict = {
+                    "id": pending_id, "q": q, "r": r,
+                    "door_name": door_name, "player_name": p_name,
+                    "method": "lockpick", "roll": total, "dc": dc,
+                    "success_suggested": (d20 == 20 or total >= dc),
+                    "detail": detail
+                }
+                if not hasattr(game_state, "pending_doors"): game_state.pending_doors = {}
+                game_state.pending_doors[pending_id] = p_dict
+                broadcast(game_state, make_chat_broadcast("Sistema", f"🗝️ {p_name} tenta lo Scasso sulla {door_name} con gli Arnesi! [Tiro: {total} ({detail}) vs CD {dc}]. In attesa del verdetto del DM..."))
+                if hasattr(game_state, "gui_queue") and game_state.gui_queue:
+                    game_state.gui_queue.put({"type": "PENDING_DOOR_PROMPT", "payload": p_dict})
+                game_state._trigger_gui_update()
+                return
+
             if d20 == 20 or total >= dc:
                 target_door["state"] = "open"
                 broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
@@ -491,6 +537,43 @@ def handle_resolve_aoe_request(data, player, game_state):
                 _process_save_result(p.name, stat, roll_tot, is_crit, is_fail, dc, damage_formula, half_on_success, caster_name, game_state, damage_type)
             except Exception as e:
                 game_state.log_dm_message(f"[AoE] Errore tiro TS automatico per {p.name}: {e}")
+
+def handle_resolve_pending_door_request(data, player, game_state):
+    """Consente al DM di stabilire manualmente l'esito di uno scasso o sfondamento di una porta."""
+    is_dm = (player is None or getattr(player, "role", "") == "DM")
+    if not is_dm:
+        return
+    pending_id = data.get("pending_id")
+    outcome = data.get("outcome", "open") # "open", "locked", "trap"
+    
+    if not hasattr(game_state, "pending_doors") or pending_id not in game_state.pending_doors:
+        return
+        
+    pending = game_state.pending_doors.pop(pending_id)
+    q = pending["q"]
+    r = pending["r"]
+    door_name = pending.get("door_name", "Porta")
+    p_name = pending.get("player_name", "Il giocatore")
+    
+    doors = game_state.current_map.get("doors", [])
+    target_door = next((d for d in doors if d.get("q") == q and d.get("r") == r), None)
+    if not target_door:
+        return
+        
+    from server.rules.movement import auto_explore_fow
+    if outcome == "open":
+        target_door["state"] = "open"
+        broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
+        broadcast(game_state, make_chat_broadcast("DM", f"🔓 Il DM stabilisce: la serratura della {door_name} cede! La porta si spalanca dinanzi a {p_name}!"))
+        for p in game_state.players:
+            if auto_explore_fow(p, game_state):
+                broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
+    elif outcome == "trap":
+        broadcast(game_state, make_chat_broadcast("DM", f"⚠️ CLANG! Il tentativo di {p_name} fa scattare un meccanismo a trabocchetto nascosto nella {door_name}! Una trappola si innesca!"))
+    else: # "locked"
+        broadcast(game_state, make_chat_broadcast("DM", f"🔒 Il DM stabilisce: la {door_name} resiste saldamente ai tentativi di {p_name}."))
+        
+    game_state._trigger_gui_update()
 
 
 

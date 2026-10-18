@@ -138,6 +138,8 @@ class DM_GUI:
         tools_menu.add_command(label=_t("menu_manuals"), command=self.open_manuals_dialog)
         tools_menu.add_command(label=_t("menu_travel_panel"), command=self.open_travel_panel)
         tools_menu.add_command(label=_t("menu_starter_pack"), command=self.open_campaign_starter_kit_dialog)
+        tools_menu.add_separator()
+        tools_menu.add_command(label="⚙️ Stile Gestione Campagna (Automazioni)...", command=self.open_automation_settings_dialog)
         menubar.add_cascade(label=_t("menu_tools"), menu=tools_menu)
 
         # Menu Lingua / Language
@@ -472,6 +474,15 @@ class DM_GUI:
         self.top_status_grid_lbl.bind("<Button-1>", self._show_grid_type_menu)
         ToolTip(self.top_status_grid_lbl, lambda: _t("grid_type_menu"))
         
+        self.top_status_automation_lbl = tk.Label(
+            pills_frame, text="⚡ Full Auto", font=FONT_SMALL,
+            bg=SURFACE_COLOR_ALT, fg=ACCENT_GREEN, padx=6, pady=2,
+            highlightbackground=BORDER_COLOR, highlightthickness=1, cursor="hand2"
+        )
+        self.top_status_automation_lbl.pack(side=tk.LEFT, padx=3)
+        self.top_status_automation_lbl.bind("<Button-1>", lambda e: self.open_automation_settings_dialog())
+        ToolTip(self.top_status_automation_lbl, "Stile Gestione Campagna (Clicca per configurare)")
+        
         # Toolbar Fog of War a destra
         fow_toolbar = tk.Frame(map_top_bar, bg=SURFACE_COLOR)
         fow_toolbar.pack(side=tk.RIGHT, padx=2)
@@ -543,8 +554,12 @@ class DM_GUI:
         self.btn_bestiary_full = self.bestiary_panel.btn_bestiary_full
         self.bestiario_results = self.bestiary_panel.bestiario_results
 
+        # Contenitore Azioni in Sospeso (Decisioni DM per Danni / Porte / ecc.)
+        self.pending_actions_container = tk.Frame(tab_chat, bg=SURFACE_COLOR_ALT, highlightbackground=ACCENT_GOLD, highlightthickness=1, padx=6, pady=6)
+        
         # 1-Click Quick Dice Strip (DM)
         dm_quick_dice_strip = tk.Frame(tab_chat, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=3)
+        self.dm_quick_dice_strip = dm_quick_dice_strip
         dm_quick_dice_strip.pack(fill=tk.X, pady=(4, 0))
         tk.Label(dm_quick_dice_strip, text="🎲", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(side=tk.LEFT, padx=(2, 4))
         for die_sides in (4, 6, 8, 10, 12, 20, 100):
@@ -2823,6 +2838,20 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             if hasattr(self, "top_status_combat_lbl"):
                 self.top_status_combat_lbl.config(text=_t("status_exploration"), fg=TEXT_MUTED)
 
+        if hasattr(self, "top_status_automation_lbl") and hasattr(self.server, "game_state"):
+            mode = getattr(self.server.game_state, "automation_mode", "full")
+            mode_data = {
+                "manual": ("🎲 Tavolo", ACCENT_GOLD),
+                "hybrid": ("⚖️ Ibrido", ACCENT_BLUE),
+                "full": ("⚡ Full Auto", ACCENT_GREEN),
+                "tactical": ("⚡ Full Auto", ACCENT_GREEN)
+            }
+            txt, color = mode_data.get(mode, ("⚖️ Ibrido", ACCENT_BLUE))
+            self.top_status_automation_lbl.config(text=txt, fg=color)
+
+        if hasattr(self, "update_pending_actions_ui"):
+            self.update_pending_actions_ui()
+
         # Calcolo Difficoltà Incontro (D&D 5e DMG p.82)
         if hasattr(self, "lbl_encounter_diff") and self.server.game_state:
             from common.encounter_calc import calculate_encounter_difficulty
@@ -2918,6 +2947,8 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                 if msg_type == "UPDATE_STATE":
                     self.update_player_list()
                     self.redraw_map_and_players()
+                elif msg_type in ("PENDING_DAMAGE_PROMPT", "PENDING_DOOR_PROMPT"):
+                    self.update_pending_actions_ui()
                 elif msg_type == "LOG_MESSAGE":
                     self.log_to_chat(msg.get("payload"))
                 elif msg_type == "SHOW_COMBAT_CONFIG":
@@ -3175,6 +3206,229 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
 
     def open_campaign_starter_kit_dialog(self):
         CampaignStarterKitDialog(self)
+
+    def open_automation_settings_dialog(self):
+        win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
+        apply_modern_window_style(win)
+        win.minsize(580, 560)
+        win.title("⚙️ Stile Gestione Campagna & Automazione DM")
+
+        gs = self.server.game_state
+        cur_mode = getattr(gs, "automation_mode", "hybrid")
+        cur_settings = dict(getattr(gs, "automation_settings", {}))
+
+        hdr = tk.Frame(win, bg=SURFACE_COLOR, padx=14, pady=12, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        hdr.pack(fill=tk.X)
+        tk.Label(hdr, text="⚙️ Stile di Gestione Campagna", font=FONT_TITLE, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(anchor="w")
+        tk.Label(
+            hdr, 
+            text="Scegli il livello di controllo manuale del Dungeon Master vs l'automazione matematica 5e.\nEvita l'effetto videogioco preservando la narrazione, l'arbitrato e l'interazione al tavolo.",
+            font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED, justify=tk.LEFT
+        ).pack(anchor="w", pady=(4, 0))
+
+        body = tk.Frame(win, bg=BG_COLOR, padx=14, pady=10)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        mode_var = tk.StringVar(value=cur_mode if cur_mode in ("manual", "hybrid", "full") else "hybrid")
+        
+        # Checkbox vars
+        auto_dmg_var = tk.BooleanVar(value=cur_settings.get("auto_apply_damage", True))
+        auto_door_var = tk.BooleanVar(value=cur_settings.get("auto_resolve_doors", True))
+        turn_lock_var = tk.BooleanVar(value=cur_settings.get("strict_turn_lock", False))
+        reactions_var = tk.BooleanVar(value=cur_settings.get("auto_prompt_reactions", True))
+
+        def on_preset_selected():
+            m = mode_var.get()
+            if m == "manual":
+                auto_dmg_var.set(False)
+                auto_door_var.set(False)
+                turn_lock_var.set(False)
+                reactions_var.set(True)
+            elif m == "hybrid":
+                auto_dmg_var.set(False)
+                auto_door_var.set(True)
+                turn_lock_var.set(False)
+                reactions_var.set(True)
+            elif m == "full":
+                auto_dmg_var.set(True)
+                auto_door_var.set(True)
+                turn_lock_var.set(True)
+                reactions_var.set(True)
+
+        tk.Label(body, text="PROFILI PREDEFINITI:", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w", pady=(2, 6))
+
+        presets = [
+            ("manual", "🎲 Tavolo Tradizionale (Pen & Paper / Controllo DM)", 
+             "Massima fedeltà al tavolo: le formule 5e vengono calcolate, ma danni e porte richiedono l'approvazione del DM. Nessun blocco rigido dei turni."),
+            ("hybrid", "⚖️ Ibrido Assistito (Consigliato)", 
+             "Equilibrio perfetto: il sistema gestisce matematicamente coperture, resistenze e vantaggi; il DM convalida o dimezza i danni con 1 click."),
+            ("full", "⚡ Full Automation (Tattico Rapido)", 
+             "Stile tattico veloce: i danni vengono sottratti istantaneamente, le porte si aprono subito su successo e i turni bloccano i movimenti non autorizzati.")
+        ]
+
+        for p_val, p_title, p_desc in presets:
+            p_card = tk.Frame(body, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
+            p_card.pack(fill=tk.X, pady=4)
+            rb = ttk.Radiobutton(p_card, text=p_title, value=p_val, variable=mode_var, command=on_preset_selected)
+            rb.pack(anchor="w")
+            tk.Label(p_card, text=p_desc, font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, justify=tk.LEFT, wraplength=520).pack(anchor="w", padx=(20, 0), pady=(2, 0))
+
+        tk.Label(body, text="OPZIONI DETTAGLIATE (PERSONALIZZABILI):", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w", pady=(12, 6))
+
+        chk_frame = tk.Frame(body, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
+        chk_frame.pack(fill=tk.X)
+
+        ttk.Checkbutton(chk_frame, text="Sottrazione automatica danni agli HP delle creature", variable=auto_dmg_var).pack(anchor="w", pady=2)
+        tk.Label(chk_frame, text="  ↳ Se disattivato, ogni colpo a segno genera una scheda di conferma con pulsanti [Pieno] [Dimezza] [Modifica] [Annulla].", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
+
+        ttk.Checkbutton(chk_frame, text="Risoluzione automatica prove scasso / sfondamento porte", variable=auto_door_var).pack(anchor="w", pady=2)
+        tk.Label(chk_frame, text="  ↳ Se disattivato, il tiro del giocatore viene mostrato al DM che sceglie se spalancare, bloccare o far scattare trappole.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
+
+        ttk.Checkbutton(chk_frame, text="Blocco turni rigoroso in combattimento", variable=turn_lock_var).pack(anchor="w", pady=2)
+        tk.Label(chk_frame, text="  ↳ Se disattivato, i giocatori possono muoversi e agire senza vincoli di lock del server (secondo indicazioni verbali del DM).", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
+
+        ttk.Checkbutton(chk_frame, text="Suggerimenti automatici di reazione (AdO, Incantesimo Scudo, ecc.)", variable=reactions_var).pack(anchor="w", pady=2)
+        tk.Label(chk_frame, text="  ↳ Segnala ai giocatori e al DM quando si verificano le condizioni 5e per usare una reazione.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
+
+        # Bottom Bar
+        bottom = tk.Frame(win, bg=SURFACE_COLOR, padx=14, pady=10)
+        bottom.pack(fill=tk.X, side=tk.BOTTOM)
+
+        def save_and_close():
+            sel_mode = mode_var.get()
+            new_settings = {
+                "auto_apply_damage": bool(auto_dmg_var.get()),
+                "auto_resolve_doors": bool(auto_door_var.get()),
+                "strict_turn_lock": bool(turn_lock_var.get()),
+                "auto_prompt_reactions": bool(reactions_var.get())
+            }
+            from server.rules.combat import handle_set_automation_mode_request
+            handle_set_automation_mode_request({"mode": sel_mode, "settings": new_settings}, None, self.server.game_state)
+            self.update_player_list()
+            self.show_toast(f"Stile automazione impostato su: {sel_mode.upper()}", title="⚙️ Automazione", toast_type="success")
+            win.destroy()
+
+        btn_save = ttk.Button(bottom, text="💾 Salva ed Applica", style="Primary.TButton", command=save_and_close)
+        btn_save.pack(side=tk.RIGHT, padx=4)
+        btn_cancel = ttk.Button(bottom, text="Annulla", style="Tool.TButton", command=win.destroy)
+        btn_cancel.pack(side=tk.RIGHT)
+
+    def update_pending_actions_ui(self):
+        if not hasattr(self, "pending_actions_container") or not hasattr(self, "server") or not hasattr(self.server, "game_state"):
+            return
+            
+        gs = self.server.game_state
+        p_damages = getattr(gs, "pending_damages", {})
+        p_doors = getattr(gs, "pending_doors", {})
+        
+        if not p_damages and not p_doors:
+            self.pending_actions_container.pack_forget()
+            return
+            
+        for widget in self.pending_actions_container.winfo_children():
+            widget.destroy()
+            
+        if hasattr(self, "dm_quick_dice_strip"):
+            self.pending_actions_container.pack(fill=tk.X, pady=(4, 2), before=self.dm_quick_dice_strip)
+        else:
+            self.pending_actions_container.pack(fill=tk.X, pady=(4, 2))
+            
+        hdr_frame = tk.Frame(self.pending_actions_container, bg=SURFACE_COLOR_ALT)
+        hdr_frame.pack(fill=tk.X, pady=(0, 4))
+        tk.Label(
+            hdr_frame, text="⚡ DECISIONI DM IN SOSPESO", 
+            font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD
+        ).pack(side=tk.LEFT)
+        total_count = len(p_damages) + len(p_doors)
+        tk.Label(
+            hdr_frame, text=f"({total_count})", 
+            font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED
+        ).pack(side=tk.LEFT, padx=4)
+        
+        # Schede Danni
+        for p_id, p_info in list(p_damages.items()):
+            card = tk.Frame(self.pending_actions_container, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=4)
+            card.pack(fill=tk.X, pady=2)
+            
+            atk = p_info.get("attacker", "Attaccante")
+            tgt = p_info.get("target", "Bersaglio")
+            raw_dmg = p_info.get("raw_damage", 0)
+            dmg_type = p_info.get("damage_type", "Danno")
+            is_crit = p_info.get("is_crit", False)
+            wpn = p_info.get("weapon_name", "Attacco")
+            
+            crit_badge = " 🌟 CRITICO" if is_crit else ""
+            txt_info = f"⚔️ {atk} -> {tgt} ({wpn}){crit_badge}: {raw_dmg} {dmg_type}"
+            tk.Label(card, text=txt_info, font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR, anchor="w").pack(fill=tk.X)
+            
+            btns = tk.Frame(card, bg=SURFACE_COLOR)
+            btns.pack(fill=tk.X, pady=(3, 0))
+            
+            btn_full = ttk.Button(btns, text="Pieno", style="Primary.TButton", command=lambda i=p_id: self.apply_pending_damage_gui(i, "apply"))
+            btn_full.pack(side=tk.LEFT, padx=(0, 2))
+            ToolTip(btn_full, f"Applica danno intero ({raw_dmg} {dmg_type}) con resistenze/immunità della scheda")
+            
+            btn_half = ttk.Button(btns, text="Dimezza", style="Gold.TButton", command=lambda i=p_id: self.apply_pending_damage_gui(i, "half"))
+            btn_half.pack(side=tk.LEFT, padx=2)
+            ToolTip(btn_half, f"Applica danno dimezzato ({max(1, raw_dmg // 2)} {dmg_type})")
+            
+            btn_custom = ttk.Button(btns, text="Modifica", style="Tool.TButton", command=lambda i=p_id, r=raw_dmg: self.apply_pending_damage_custom_gui(i, r))
+            btn_custom.pack(side=tk.LEFT, padx=2)
+            ToolTip(btn_custom, "Inserisci manualmente l'ammontare esatto di danno")
+            
+            btn_cancel = ttk.Button(btns, text="Annulla", style="Danger.TButton", command=lambda i=p_id: self.apply_pending_damage_gui(i, "cancel"))
+            btn_cancel.pack(side=tk.LEFT, padx=2)
+            ToolTip(btn_cancel, "Annulla e azzera questo danno (nessun HP sottratto)")
+
+        # Schede Porte / Scasso
+        for p_id, p_info in list(p_doors.items()):
+            card = tk.Frame(self.pending_actions_container, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=4)
+            card.pack(fill=tk.X, pady=2)
+            
+            p_name = p_info.get("player_name", "Giocatore")
+            d_name = p_info.get("door_name", "Porta")
+            method = p_info.get("method", "interazione")
+            method_str = "Scasso" if method == "lockpick" else "Sfondamento"
+            roll = p_info.get("roll", 0)
+            dc = p_info.get("dc", 15)
+            sugg = " (Suggerito: SUCCESSO)" if p_info.get("success_suggested") else " (Suggerito: FALLITO)"
+            
+            txt_info = f"🚪 {p_name} tenta {method_str} su {d_name} [Tiro {roll} vs CD {dc}]{sugg}"
+            tk.Label(card, text=txt_info, font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD, anchor="w").pack(fill=tk.X)
+            
+            btns = tk.Frame(card, bg=SURFACE_COLOR)
+            btns.pack(fill=tk.X, pady=(3, 0))
+            
+            btn_open = ttk.Button(btns, text="Spalanca", style="Primary.TButton", command=lambda i=p_id: self.resolve_pending_door_gui(i, "open"))
+            btn_open.pack(side=tk.LEFT, padx=(0, 2))
+            ToolTip(btn_open, f"La porta cede e si apre dinanzi a {p_name}")
+            
+            btn_lock = ttk.Button(btns, text="Resiste / Bloccata", style="Gold.TButton", command=lambda i=p_id: self.resolve_pending_door_gui(i, "locked"))
+            btn_lock.pack(side=tk.LEFT, padx=2)
+            ToolTip(btn_lock, "La serratura resiste e la porta rimane chiusa a chiave")
+            
+            btn_trap = ttk.Button(btns, text="Scatta Trappola", style="Danger.TButton", command=lambda i=p_id: self.resolve_pending_door_gui(i, "trap"))
+            btn_trap.pack(side=tk.LEFT, padx=2)
+            ToolTip(btn_trap, "Il tentativo goffo fa scattare una trappola o allarme")
+
+    def apply_pending_damage_gui(self, pending_id, action):
+        from server.rules.combat import handle_apply_pending_damage_request
+        handle_apply_pending_damage_request({"pending_id": pending_id, "action": action}, None, self.server.game_state)
+        self.update_pending_actions_ui()
+
+    def apply_pending_damage_custom_gui(self, pending_id, default_amount):
+        val = simpledialog.askinteger("Danno Personalizzato", "Inserisci l'ammontare di danno da infliggere:", initialvalue=default_amount, minvalue=0, parent=self.master)
+        if val is not None:
+            from server.rules.combat import handle_apply_pending_damage_request
+            handle_apply_pending_damage_request({"pending_id": pending_id, "action": "custom", "custom_amount": val}, None, self.server.game_state)
+            self.update_pending_actions_ui()
+
+    def resolve_pending_door_gui(self, pending_id, outcome):
+        from server.rules.map_interaction import handle_resolve_pending_door_request
+        handle_resolve_pending_door_request({"pending_id": pending_id, "outcome": outcome}, None, self.server.game_state)
+        self.update_pending_actions_ui()
 
     def open_assign_item_dialog(self, prefill_item=None):
         sel = self.player_listbox.curselection()

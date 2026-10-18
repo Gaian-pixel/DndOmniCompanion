@@ -262,3 +262,16 @@ def make_resolve_aoe_request(aoe_index: int, stat: str, dc: int, damage_formula:
         "damage_type": damage_type
     }}
 
+# --- Modalità Gestione Campagna (Tavolo Tradizionale vs Full Automation) ---
+def make_set_automation_mode_request(mode: str, settings: dict = None):
+    return {"type": "SET_AUTOMATION_MODE_REQUEST", "data": {"mode": mode, "settings": settings or {}}}
+
+def make_automation_settings_broadcast(mode: str, settings: dict):
+    return {"type": "AUTOMATION_SETTINGS_BROADCAST", "data": {"mode": mode, "settings": settings}}
+
+def make_apply_pending_damage_request(pending_id: str, action: str = "apply", custom_amount: int = None):
+    return {"type": "APPLY_PENDING_DAMAGE_REQUEST", "data": {"pending_id": pending_id, "action": action, "custom_amount": custom_amount}}
+
+def make_resolve_pending_door_request(pending_id: str, outcome: str = "open"):
+    return {"type": "RESOLVE_PENDING_DOOR_REQUEST", "data": {"pending_id": pending_id, "outcome": outcome}}
+

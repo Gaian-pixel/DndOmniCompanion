@@ -168,9 +168,46 @@ class GameState:
         self.shops = {}  # dict of shop_name: {"type": "blacksmith", "items": [{"name": "Sword", "price": 15, "qty": 1}], "gold": 100}
         self.travel_hours_today = 0
         self.travel_pace = "Normale"
-        self.travel_terrain = "Foresta"
         self.active_campaign = None
         self.campaign_starter_kit = []
+        self.automation_mode = "full" # "manual" | "hybrid" | "full"
+        self.automation_settings = {
+            "auto_apply_damage": True,
+            "auto_resolve_doors": True,
+            "strict_turn_lock": False,
+            "auto_prompt_reactions": True
+        }
+        self.pending_damages = {} # id -> dict
+        self.pending_doors = {}   # id -> dict
+
+    def set_automation_mode(self, mode: str, custom_settings: dict = None):
+        """Imposta il profilo di automazione della campagna (manual, hybrid, full) e aggiorna i flag."""
+        self.automation_mode = mode
+        if mode == "manual":
+            self.automation_settings = {
+                "auto_apply_damage": False,
+                "auto_resolve_doors": False,
+                "strict_turn_lock": False,
+                "auto_prompt_reactions": False
+            }
+        elif mode == "full":
+            self.automation_settings = {
+                "auto_apply_damage": True,
+                "auto_resolve_doors": True,
+                "strict_turn_lock": True,
+                "auto_prompt_reactions": True
+            }
+        else: # "hybrid" (predefinito)
+            self.automation_mode = "hybrid"
+            self.automation_settings = {
+                "auto_apply_damage": False,
+                "auto_resolve_doors": True,
+                "strict_turn_lock": False,
+                "auto_prompt_reactions": True
+            }
+        if custom_settings and isinstance(custom_settings, dict):
+            self.automation_settings.update(custom_settings)
+        self._trigger_gui_update()
         
     def add_calendar_event(self, text):
         date_key = f"{self.time_year}-{self.time_month}-{self.time_day}"
@@ -412,7 +449,11 @@ class GameState:
                 "travel_hours_today": getattr(self, 'travel_hours_today', 0),
                 "travel_pace": getattr(self, 'travel_pace', "Normale"),
                 "travel_terrain": getattr(self, 'travel_terrain', "Foresta"),
-                "active_campaign_folder": self.active_campaign.folder_path if getattr(self, 'active_campaign', None) else None
+                "active_campaign_folder": self.active_campaign.folder_path if getattr(self, 'active_campaign', None) else None,
+                "automation_mode": getattr(self, "automation_mode", "hybrid"),
+                "automation_settings": getattr(self, "automation_settings", {}),
+                "pending_damages": getattr(self, "pending_damages", {}),
+                "pending_doors": getattr(self, "pending_doors", {})
             }
 
     def move_player(self, name, new_pos):

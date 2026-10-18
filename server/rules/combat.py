@@ -335,7 +335,13 @@ def handle_attack_request(data, player, game_state):
             send_message(player.conn, make_error_reply("Non puoi attaccare mentre sei Incosciente, Paralizzato o a 0 HP!"))
         return
 
-    if getattr(game_state, "combat_active", False) and getattr(game_state, "strict_turn_lock", False):
+    strict_lock = False
+    if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+        strict_lock = game_state.automation_settings.get("strict_turn_lock", False)
+    else:
+        strict_lock = getattr(game_state, "strict_turn_lock", False)
+
+    if getattr(game_state, "combat_active", False) and strict_lock:
         curr_turn = game_state.get_current_turn_player()
         if curr_turn and curr_turn.name != player.name:
             if player and getattr(player, "conn", None):
@@ -671,16 +677,41 @@ def handle_attack_request(data, player, game_state):
                         player.sneak_attack_used_this_turn = True
                         log_msg += f" 🗡️ (+{sneak_dmg} Attacco Furtivo [{sneak_formula}])"
                     
-                final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(target_player, dmg_val, damage_type, game_state)
-                log_msg += f" Danno: {final_dmg} ({damage_type}){note}."
-                if temp_absorbed > 0:
-                    log_msg += f" [{temp_absorbed} assorbiti da Temp HP]."
-                log_msg += f" HP {target_name}: {target_player.hp}/{target_player.max_hp}"
-                if getattr(target_player, "temp_hp", 0) > 0:
-                    log_msg += f" (+{target_player.temp_hp} Temp)"
-                
-                broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
-                game_state._trigger_gui_update()
+                auto_apply = True
+                if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+                    auto_apply = game_state.automation_settings.get("auto_apply_damage", True)
+
+                if auto_apply:
+                    final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(target_player, dmg_val, damage_type, game_state)
+                    log_msg += f" Danno: {final_dmg} ({damage_type}){note}."
+                    if temp_absorbed > 0:
+                        log_msg += f" [{temp_absorbed} assorbiti da Temp HP]."
+                    log_msg += f" HP {target_name}: {target_player.hp}/{target_player.max_hp}"
+                    if getattr(target_player, "temp_hp", 0) > 0:
+                        log_msg += f" (+{target_player.temp_hp} Temp)"
+                    
+                    broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
+                    game_state._trigger_gui_update()
+                else:
+                    import uuid
+                    pending_id = f"dmg_{uuid.uuid4().hex[:8]}"
+                    pending_info = {
+                        "id": pending_id,
+                        "attacker": player.name,
+                        "target": target_name,
+                        "raw_damage": dmg_val,
+                        "damage_type": damage_type,
+                        "is_crit": is_crit,
+                        "weapon_name": weapon_name
+                    }
+                    if not hasattr(game_state, "pending_damages"):
+                        game_state.pending_damages = {}
+                    game_state.pending_damages[pending_id] = pending_info
+                    
+                    log_msg += f" 🎯 Danno Calcolato: {dmg_val} ({damage_type}). [In attesa di conferma DM]"
+                    if hasattr(game_state, "gui_queue") and game_state.gui_queue:
+                        game_state.gui_queue.put({"type": "PENDING_DAMAGE_PROMPT", "payload": pending_info})
+                    game_state._trigger_gui_update()
         else:
             if is_fail:
                 log_msg += " 💀 MANCATO! (FALLIMENTO CRITICO - 1 Naturale!)"
@@ -1017,4 +1048,83 @@ def handle_reaction_response(data, player, game_state):
         game_state.log_dm_message(f"[REAZIONE] {msg}")
         broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions, getattr(player, "temp_hp", 0)))
         game_state._trigger_gui_update()
+
+def handle_set_automation_mode_request(data, player, game_state):
+    """Gestisce la modifica della modalità di automazione (manual, hybrid, full) da parte del DM."""
+    is_dm = (player is None or getattr(player, "role", "") == "DM")
+    if not is_dm:
+        return
+    mode = data.get("mode", "hybrid")
+    settings = data.get("settings", {})
+    game_state.set_automation_mode(mode, settings)
+    
+    mode_names = {
+        "manual": "🎲 Tavolo Tradizionale (Controllo DM & Pen & Paper)",
+        "hybrid": "⚖️ Ibrido Assistito (Consigliato)",
+        "full": "⚡ Full Automation (Tattico Rapido)"
+    }
+    mode_title = mode_names.get(mode, mode.upper())
+    msg = f"🎮 Modalità di Gestione Campagna impostata su: '{mode_title}' dal DM."
+    game_state.log_dm_message(f"[SISTEMA] {msg}")
+    broadcast(game_state, make_chat_broadcast("Sistema", msg))
+    from common.protocol import make_automation_settings_broadcast
+    broadcast(game_state, make_automation_settings_broadcast(mode, game_state.automation_settings))
+    game_state._trigger_gui_update()
+
+def handle_apply_pending_damage_request(data, player, game_state):
+    """Permette al DM di confermare, dimezzare o annullare un danno calcolato prima di applicarlo agli HP."""
+    is_dm = (player is None or getattr(player, "role", "") == "DM")
+    if not is_dm:
+        return
+        
+    pending_id = data.get("pending_id")
+    action = data.get("action", "apply") # "apply", "half", "cancel", "custom"
+    custom_amount = data.get("custom_amount")
+    
+    if not hasattr(game_state, "pending_damages") or pending_id not in game_state.pending_damages:
+        return
+        
+    pending = game_state.pending_damages.pop(pending_id)
+    target_name = pending["target"]
+    target_player = game_state.find_player(target_name)
+    attacker_name = pending.get("attacker", "Attaccante")
+    damage_type = pending.get("damage_type", "Tagliente")
+    raw_damage = pending.get("raw_damage", 0)
+    
+    if action == "cancel":
+        msg = f"❌ Il DM ha ANNULLATO il danno ({raw_damage} {damage_type}) inflitto da {attacker_name} su {target_name}."
+        game_state.log_dm_message(f"[COMBAT] {msg}")
+        broadcast(game_state, make_chat_broadcast("DM", msg))
+        game_state._trigger_gui_update()
+        return
+        
+    if not target_player:
+        return
+        
+    if action == "half":
+        calc_dmg = max(1, raw_damage // 2)
+        desc_prefix = f"🛡️ Il DM applica DANNO DIMEZZATO ({raw_damage} -> {calc_dmg} {damage_type})"
+    elif action == "custom" and custom_amount is not None:
+        try:
+            calc_dmg = max(0, int(custom_amount))
+            desc_prefix = f"🎯 Il DM applica DANNO PERSONALIZZATO ({calc_dmg} {damage_type})"
+        except (ValueError, TypeError):
+            calc_dmg = raw_damage
+            desc_prefix = f"⚔️ Il DM applica DANNO PIENO ({calc_dmg} {damage_type})"
+    else: # "apply"
+        calc_dmg = raw_damage
+        desc_prefix = f"⚔️ Il DM applica DANNO PIENO ({calc_dmg} {damage_type})"
+        
+    final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(target_player, calc_dmg, damage_type, game_state)
+    log_msg = f"{desc_prefix} a {target_name}{note}."
+    if temp_absorbed > 0:
+        log_msg += f" [{temp_absorbed} assorbiti da Temp HP]."
+    log_msg += f" HP {target_name}: {target_player.hp}/{target_player.max_hp}"
+    if getattr(target_player, "temp_hp", 0) > 0:
+        log_msg += f" (+{target_player.temp_hp} Temp)"
+        
+    game_state.log_dm_message(f"[COMBAT] {log_msg}")
+    broadcast(game_state, make_chat_broadcast("DM", log_msg))
+    broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
+    game_state._trigger_gui_update()
 

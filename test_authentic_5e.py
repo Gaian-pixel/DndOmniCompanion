@@ -11,11 +11,18 @@ from common.protocol import *
 from server.rules.map_interaction import (
     handle_toggle_door_request,
     handle_room_pin_request,
-    handle_resolve_aoe_request
+    handle_resolve_aoe_request,
+    handle_resolve_pending_door_request
 )
 from server.rules.movement import handle_move_request, get_effective_map_walls
 from server.rules.chat import handle_blind_roll_request
-from server.rules.combat import handle_attack_request, handle_reaction_response, _process_save_result
+from server.rules.combat import (
+    handle_attack_request, 
+    handle_reaction_response, 
+    _process_save_result,
+    handle_set_automation_mode_request,
+    handle_apply_pending_damage_request
+)
 from client.character_manager import Character
 
 class TestAuthentic5eFeatures(unittest.TestCase):
@@ -264,6 +271,93 @@ class TestAuthentic5eFeatures(unittest.TestCase):
         self.assertEqual(char.get_effective_ac(), 15) # 14 + 1
         self.assertEqual(char.get_effective_attribute("FOR"), 19)
         self.assertEqual(char.get_effective_attribute("COS"), 19)
+
+    def test_automation_settings_manual_damage_flow(self):
+        # 1. DM sets manual mode
+        handle_set_automation_mode_request({"mode": "manual", "settings": {"auto_apply_damage": False}}, None, self.game_state)
+        self.assertEqual(self.game_state.automation_mode, "manual")
+        self.assertFalse(self.game_state.automation_settings["auto_apply_damage"])
+
+        attacker = Player("Guerriero")
+        attacker.position = [0, 0]
+        defender = Player("Mostro")
+        defender.position = [0, 1]
+        defender.hp = 30
+        defender.max_hp = 30
+        defender.full_sheet = {"ac": 10}
+        self.game_state.players = [attacker, defender]
+
+        # 2. Attacker hits defender: damage is not immediately subtracted, but queued in pending_damages
+        handle_attack_request({
+            "target_name": "Mostro",
+            "weapon_name": "Spada Lunga",
+            "hit_bonus": 20,
+            "damage_formula": "1d8+2",
+            "damage_type": "Tagliente"
+        }, attacker, self.game_state)
+
+        self.assertEqual(defender.hp, 30, "In modalità manuale gli HP non devono scendere prima della convalida del DM")
+        self.assertEqual(len(self.game_state.pending_damages), 1)
+        pending_id = list(self.game_state.pending_damages.keys())[0]
+        raw_dmg = self.game_state.pending_damages[pending_id]["raw_damage"]
+        self.assertGreaterEqual(raw_dmg, 3)
+
+        # 3. DM applies half damage
+        expected_hp = 30 - max(1, raw_dmg // 2)
+        handle_apply_pending_damage_request({"pending_id": pending_id, "action": "half"}, None, self.game_state)
+        self.assertEqual(defender.hp, expected_hp, "Il DM ha applicato danno dimezzato")
+        self.assertEqual(len(self.game_state.pending_damages), 0)
+
+        # 4. Another attack, DM cancels it
+        cur_hp = defender.hp
+        handle_attack_request({
+            "target_name": "Mostro",
+            "weapon_name": "Spada Lunga",
+            "hit_bonus": 20,
+            "damage_formula": "1d8+2",
+            "damage_type": "Tagliente"
+        }, attacker, self.game_state)
+        self.assertEqual(len(self.game_state.pending_damages), 1)
+        pending_id_2 = list(self.game_state.pending_damages.keys())[0]
+        handle_apply_pending_damage_request({"pending_id": pending_id_2, "action": "cancel"}, None, self.game_state)
+        self.assertEqual(defender.hp, cur_hp, "Il DM ha annullato il danno, HP invariati")
+        self.assertEqual(len(self.game_state.pending_damages), 0)
+
+        # 5. Attack with custom amount
+        handle_attack_request({
+            "target_name": "Mostro",
+            "weapon_name": "Spada Lunga",
+            "hit_bonus": 20,
+            "damage_formula": "1d8+2",
+            "damage_type": "Tagliente"
+        }, attacker, self.game_state)
+        pending_id_3 = list(self.game_state.pending_damages.keys())[0]
+        handle_apply_pending_damage_request({"pending_id": pending_id_3, "action": "custom", "custom_amount": 7}, None, self.game_state)
+        self.assertEqual(defender.hp, cur_hp - 7, "Il DM ha applicato danno personalizzato")
+
+    def test_automation_settings_manual_door_flow(self):
+        # 1. Door is locked with DC 25
+        self.game_state.current_map["doors"] = [{
+            "q": 1, "r": 0, "state": "locked", "dc": 25, "name": "Cancello di Ferro"
+        }]
+        handle_set_automation_mode_request({"mode": "manual", "settings": {"auto_resolve_doors": False}}, None, self.game_state)
+
+        rogue = Player("Ladro")
+        rogue.position = [0, 0]
+        rogue.full_sheet = {"attributes": {"DES": 16}, "proficiencies": ["Arnesi da Scasso"]}
+        self.game_state.players = [rogue]
+
+        # 2. Rogue attempts lockpick: door does NOT open automatically even with roll, queued in pending_doors
+        handle_toggle_door_request({"q": 1, "r": 0}, rogue, self.game_state)
+        door = self.game_state.current_map["doors"][0]
+        self.assertEqual(door["state"], "locked", "In modalità manuale la porta non cambia stato automaticamente")
+        self.assertEqual(len(self.game_state.pending_doors), 1)
+        pending_id = list(self.game_state.pending_doors.keys())[0]
+
+        # 3. DM decrees 'open'
+        handle_resolve_pending_door_request({"pending_id": pending_id, "outcome": "open"}, None, self.game_state)
+        self.assertEqual(door["state"], "open", "Il DM ha stabilito l'apertura manuale della porta")
+        self.assertEqual(len(self.game_state.pending_doors), 0)
 
 if __name__ == "__main__":
     unittest.main()

@@ -2387,10 +2387,21 @@ class ClientGUI:
             "PROMPT_SAVE": self.handle_prompt_save,
             "PROMPT_REACTION": self.handle_prompt_reaction,
             "OPPORTUNITY_ALERT": self.handle_opportunity_alert,
-            "HANDOUT_BROADCAST": self.handle_handout_broadcast
+            "HANDOUT_BROADCAST": self.handle_handout_broadcast,
+            "AUTOMATION_SETTINGS_BROADCAST": self.handle_automation_settings_broadcast
         }
         handler=handler_map.get(msg_type)
         if handler: handler(data)
+
+    def handle_automation_settings_broadcast(self, data):
+        mode = data.get("mode", "hybrid")
+        mode_names = {
+            "manual": "🎲 Tavolo Tradizionale (Controllo DM)",
+            "hybrid": "⚖️ Ibrido Assistito",
+            "full": "⚡ Full Automation (Tattico Rapido)"
+        }
+        name = mode_names.get(mode, mode)
+        self.log_to_chat(f"⚙️ Stile di gestione campagna impostato dal DM su: {name}", "Sistema", ACCENT_GOLD)
 
     def handle_prompt_reaction(self, data):
         reaction_type = data.get("reaction_type")

@@ -49,5 +49,8 @@ command_handlers = {
     "RESOLVE_AOE_REQUEST": handle_resolve_aoe_request,
     "BLIND_ROLL_REQUEST": handle_blind_roll_request,
     "REACTION_RESPONSE": handle_reaction_response,
+    "SET_AUTOMATION_MODE_REQUEST": handle_set_automation_mode_request,
+    "APPLY_PENDING_DAMAGE_REQUEST": handle_apply_pending_damage_request,
+    "RESOLVE_PENDING_DOOR_REQUEST": handle_resolve_pending_door_request,
 }
 
