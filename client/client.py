@@ -1285,6 +1285,13 @@ class ClientGUI:
             else:
                 self.show_toast("Non c'è nessuno in questo esagono.", title="Nessun Bersaglio", toast_type="warning")
         else:
+            doors = getattr(self, "local_map_data", {}).get("doors", []) if getattr(self, "local_map_data", None) else []
+            door_found = next((d for d in doors if d.get("q") == clicked_hex.q and d.get("r") == clicked_hex.r), None)
+            if door_found:
+                from common.protocol import make_toggle_door_request
+                self.network.send(make_toggle_door_request(clicked_hex.q, clicked_hex.r))
+                return
+
             loots = getattr(self, "local_map_data", {}).get("loots", []) if getattr(self, "local_map_data", None) else []
             loot_found = None
             for l in loots:
@@ -1702,7 +1709,21 @@ class ClientGUI:
             self.show_toast(_t("aoe_click_map_prompt", default="Clicca sulla mappa per confermare il bersaglio / centro dell'area d'effetto."), title="💥 AoE", toast_type="info")
             win.destroy()
             
-        ttk.Button(win, text=_t("btn_prepare_cast", default="Prepara Lancio"), command=submit).pack(pady=15)
+        def resolve_existing_aoe():
+            stat = stat_var.get()
+            try: dc = int(dc_entry.get())
+            except: dc = 13
+            dmg = dmg_entry.get().strip() or "8d6"
+            half = half_var.get()
+            from common.protocol import make_resolve_aoe_request
+            self.network.send(make_resolve_aoe_request(0, stat, dc, dmg, half))
+            self.show_toast("Risoluzione TS e danni inviata al server!", title="⚡ Risolvi AoE", toast_type="info")
+            win.destroy()
+
+        btn_box = ttk.Frame(win)
+        btn_box.pack(pady=10)
+        ttk.Button(btn_box, text=_t("btn_prepare_cast", default="Prepara Lancio"), command=submit, style="Primary.TButton").pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_box, text="⚡ Risolvi TS/Danni su Bersagli", command=resolve_existing_aoe, style="Gold.TButton").pack(side=tk.LEFT, padx=4)
 
     def request_long_rest(self):
         if not self.is_connected: return
@@ -2181,11 +2202,83 @@ class ClientGUI:
             "CAMPAIGN_STARTER_GRANTED": self.handle_campaign_starter_granted,
             "UPDATE_INSPIRATION": self.handle_update_inspiration,
             "PROMPT_SAVE": self.handle_prompt_save,
+            "PROMPT_REACTION": self.handle_prompt_reaction,
             "OPPORTUNITY_ALERT": self.handle_opportunity_alert,
             "HANDOUT_BROADCAST": self.handle_handout_broadcast
         }
         handler=handler_map.get(msg_type)
         if handler: handler(data)
+
+    def handle_prompt_reaction(self, data):
+        reaction_type = data.get("reaction_type")
+        source_name = data.get("source_name", "Un'entità")
+        target_name = data.get("target_name", "")
+        details = data.get("details", {})
+        
+        if reaction_type == "OPPORTUNITY_ATTACK":
+            win = tk.Toplevel(self.master)
+            win.transient(self.master)
+            win.grab_set()
+            apply_modern_window_style(win)
+            win.title("⚔️ Attacco d'Opportunità (Reazione)")
+            win.minsize(420, 200)
+            
+            tk.Label(win, text="⚔️ REAZIONE: ATTACCO D'OPPORTUNITÀ", font=("Georgia", 13, "bold"), fg="#F59E0B", bg="#1E2024").pack(fill=tk.X, pady=8)
+            msg = f"{source_name} sta uscendo dalla tua portata di mischia senza disimpegnarsi!\n\nVuoi spendere la tua REAZIONE per sferrare un Attacco d'Opportunità?"
+            tk.Label(win, text=msg, font=FONT_REGULAR, fg=TEXT_COLOR, bg=BG_COLOR, justify="center").pack(padx=16, pady=10)
+            
+            btn_frame = tk.Frame(win, bg=BG_COLOR)
+            btn_frame.pack(pady=12)
+            
+            def accept():
+                from common.protocol import make_reaction_response
+                self.network.send(make_reaction_response("OPPORTUNITY_ATTACK", True, self.name, source_name, details))
+                self.show_toast(f"Attacco d'Opportunità sferrato contro {source_name}!", title="⚔️ Reazione Usata", toast_type="success")
+                win.destroy()
+                
+            def decline():
+                win.destroy()
+                
+            ttk.Button(btn_frame, text="⚔️ Sferra Attacco (Spendi Reazione)", command=accept, style="Gold.TButton").pack(side=tk.LEFT, padx=6)
+            ttk.Button(btn_frame, text="Ignora", command=decline).pack(side=tk.LEFT, padx=6)
+            
+        elif reaction_type == "SHIELD_SPELL":
+            win = tk.Toplevel(self.master)
+            win.transient(self.master)
+            win.grab_set()
+            apply_modern_window_style(win)
+            win.title("🛡️ Reazione: Incantesimo Scudo")
+            win.minsize(440, 220)
+            
+            hit_roll = details.get("hit_roll", 15)
+            atk_weapon = details.get("weapon_name", "un attacco")
+            current_ac = details.get("current_ac", 12)
+            
+            tk.Label(win, text="🛡️ REAZIONE: INCANTESIMO SCUDO", font=("Georgia", 13, "bold"), fg="#60A5FA", bg="#1E2024").pack(fill=tk.X, pady=8)
+            msg = f"{source_name} ti sta colpendo con {atk_weapon}!\n(Tiro per Colpire: {hit_roll} vs la tua CA {current_ac})\n\nVuoi spendere uno slot di 1° livello per lanciare SCUDO?\nOttieni +5 CA (totale {current_ac + 5}), che farà fallire l'attacco!"
+            tk.Label(win, text=msg, font=FONT_REGULAR, fg=TEXT_COLOR, bg=BG_COLOR, justify="center").pack(padx=16, pady=8)
+            
+            btn_frame = tk.Frame(win, bg=BG_COLOR)
+            btn_frame.pack(pady=12)
+            
+            def accept():
+                if self.active_character and hasattr(self.active_character, "spell_slots"):
+                    slot_1 = self.active_character.spell_slots.get("1", {})
+                    if slot_1 and slot_1.get("current", 0) > 0:
+                        slot_1["current"] -= 1
+                        self.character_manager.save_characters()
+                        from common.protocol import make_update_full_sheet_request
+                        self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
+                from common.protocol import make_reaction_response
+                self.network.send(make_reaction_response("SHIELD_SPELL", True, self.name, source_name, details))
+                self.show_toast("Incantesimo Scudo attivato! (+5 CA)", title="🛡️ Scudo", toast_type="success")
+                win.destroy()
+                
+            def decline():
+                win.destroy()
+                
+            ttk.Button(btn_frame, text="🛡️ Lancia Scudo (+5 CA)", command=accept, style="Primary.TButton").pack(side=tk.LEFT, padx=6)
+            ttk.Button(btn_frame, text="Subisci Attacco", command=decline).pack(side=tk.LEFT, padx=6)
 
     def handle_handout_broadcast(self, data):
         title = data.get("title", "Documento Condiviso")
@@ -2837,10 +2930,70 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             self.entry.delete(0, tk.END)
 
     def roll_dice_dialog(self):
-        formula=simpledialog.askstring("Tira Dadi", "Inserisci formula (es: 2d6+1):")
-        if formula:
-            reason=simpledialog.askstring("Motivo", "Motivo del tiro (facoltativo):") or ""
-            self.network.send(make_roll_request(formula, reason))
+        win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
+        apply_modern_window_style(win)
+        win.title("🎲 Tira Dadi")
+        win.minsize(360, 270)
+
+        header = tk.Frame(win, bg=SURFACE_COLOR, padx=12, pady=8)
+        header.pack(fill=tk.X)
+        tk.Label(header, text="🎲 TIRA I DADI (D&D 5e)", font=FONT_BOLD, fg=ACCENT_GOLD, bg=SURFACE_COLOR).pack(anchor="w")
+
+        body = tk.Frame(win, bg=BG_COLOR, padx=14, pady=10)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(body, text="Formula Dado (es: 1d20+5, 2d6+3, 1d8):", font=FONT_SMALL, fg=TEXT_MUTED, bg=BG_COLOR).pack(anchor="w", pady=(0, 2))
+        formula_entry = ttk.Entry(body, font=("Georgia", 11))
+        formula_entry.insert(0, "1d20")
+        formula_entry.pack(fill=tk.X, pady=(0, 6))
+
+        # Quick dice buttons
+        dice_bar = tk.Frame(body, bg=BG_COLOR)
+        dice_bar.pack(fill=tk.X, pady=(0, 8))
+        def append_die(d):
+            cur = formula_entry.get().strip()
+            if not cur or cur == "1d20":
+                formula_entry.delete(0, tk.END)
+                formula_entry.insert(0, f"1{d}")
+            else:
+                formula_entry.insert(tk.END, f"+1{d}")
+
+        for die in ["d4", "d6", "d8", "d10", "d12", "d20", "d100"]:
+            ttk.Button(dice_bar, text=die, width=4, command=lambda d=die: append_die(d)).pack(side=tk.LEFT, padx=1)
+
+        tk.Label(body, text="Motivo o Descrizione (facoltativo):", font=FONT_SMALL, fg=TEXT_MUTED, bg=BG_COLOR).pack(anchor="w", pady=(0, 2))
+        reason_entry = ttk.Entry(body)
+        reason_entry.pack(fill=tk.X, pady=(0, 8))
+
+        blind_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(body, text="🙈 Tiro Segreto al DM (Blind Roll)", variable=blind_var).pack(anchor="w", pady=(0, 10))
+
+        btns_row = tk.Frame(win, bg=SURFACE_COLOR, padx=12, pady=10)
+        btns_row.pack(fill=tk.X)
+
+        def execute_roll():
+            form = formula_entry.get().strip()
+            if not form:
+                return
+            reas = reason_entry.get().strip()
+            if blind_var.get():
+                if self.is_connected:
+                    from common.protocol import make_blind_roll_request
+                    self.network.send(make_blind_roll_request(form, reas))
+                    self.log_to_chat(f"🙈 [Tiro Segreto inviato al DM] Formula: {form} ({reas})", "Globale", sender="Tu", color="#A855F7")
+                    self.show_toast(f"Tiro segreto ({form}) inviato al DM!", title="🙈 Tiro Segreto", toast_type="info")
+                else:
+                    self.do_roll(form, f"[Segreto Offline] {reas}")
+            else:
+                self.do_roll(form, reas)
+            win.destroy()
+
+        ttk.Button(btns_row, text="🎲 Lancia Dado", command=execute_roll, style="Gold.TButton").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(btns_row, text="Annulla", command=win.destroy).pack(side=tk.RIGHT)
+        formula_entry.focus_set()
+        win.bind("<Return>", lambda e: execute_roll())
 
     def do_roll(self, formula, reason=""):
         if self.is_connected:

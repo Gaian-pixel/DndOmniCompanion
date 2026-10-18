@@ -5,6 +5,15 @@ from common.network_utils import send_message, broadcast
 from common.i18n import is_condition_active
 import math
 
+def get_effective_map_walls(current_map):
+    """Restituisce l'insieme dei muri comprensivo di porte chiuse, serrate o segrete che bloccano LoS e passaggio."""
+    if not current_map: return []
+    walls = [list(w) for w in current_map.get("walls", [])]
+    for d in current_map.get("doors", []):
+        if d.get("state", "closed") in ("closed", "locked", "secret"):
+            walls.append([d.get("q", 0), d.get("r", 0)])
+    return walls
+
 def auto_explore_fow(player, game_state):
     """Calcola la visibilità (LoS + Luce dinamica) del giocatore e aggiorna la FoW della mappa."""
     if not getattr(game_state, "current_map", None) or not game_state.current_map.get("fow_enabled", False):
@@ -18,7 +27,7 @@ def auto_explore_fow(player, game_state):
     light_rad = getattr(player, 'light_radius', 0)
     effective_rad = max(vision_rad, light_rad)
     grid_type = game_state.current_map.get("grid_type", "hex")
-    walls = game_state.current_map.get("walls", [])
+    walls = get_effective_map_walls(game_state.current_map)
     visible_hexes = get_visible_hexes(h, effective_rad, walls, grid_type=grid_type)
     
     for other_p in getattr(game_state, "players", []):
@@ -67,12 +76,23 @@ def handle_move_request(data, player, game_state):
                     send_message(player.conn, make_error_reply("Mappa di esplorazione: movimento libero disabilitato. Usa il Viaggio o aspetta il DM."))
                 return
                 
-        walls_list_pos = game_state.current_map.get("walls", []) if getattr(game_state, "current_map", None) else []
+        walls_list_pos = get_effective_map_walls(game_state.current_map) if getattr(game_state, "current_map", None) else []
         if [to_pos[0], to_pos[1]] in walls_list_pos:
             from common.network_utils import send_message
             from common.protocol import make_error_reply
+            door_blocked = None
+            if getattr(game_state, "current_map", None):
+                for d in game_state.current_map.get("doors", []):
+                    if d.get("q") == to_pos[0] and d.get("r") == to_pos[1] and d.get("state", "closed") in ("closed", "locked", "secret"):
+                        door_blocked = d
+                        break
             if player.conn:
-                send_message(player.conn, make_error_reply("Non puoi muoverti lì, c'è un muro!"))
+                if door_blocked:
+                    d_name = door_blocked.get("name", "Porta")
+                    d_st = "serrata a chiave" if door_blocked.get("state") == "locked" else "chiusa"
+                    send_message(player.conn, make_error_reply(f"La {d_name} è {d_st}! Cliccaci sopra per aprirla o sbloccarla."))
+                else:
+                    send_message(player.conn, make_error_reply("Non puoi muoverti lì, c'è un muro!"))
             return
             
         in_combat = getattr(player, "in_combat", False) or getattr(game_state, "combat_active", False)

@@ -383,9 +383,19 @@ class DM_GUI:
         tk.Frame(left_toolbar, bg=BORDER_COLOR, height=1).pack(fill=tk.X, pady=6)
         
         self.teleport_mode_var = tk.BooleanVar(value=False)
-        btn_teleport = ttk.Checkbutton(left_toolbar, text="🚪", width=3, style="Toolbutton", variable=self.teleport_mode_var)
+        btn_teleport = ttk.Checkbutton(left_toolbar, text="🌀", width=3, style="Toolbutton", variable=self.teleport_mode_var)
         btn_teleport.pack(pady=3)
-        ToolTip(btn_teleport, lambda: _t("tool_teleport"))
+        ToolTip(btn_teleport, "Teletrasporto / Transizione Mappa (Click su esagono per impostare teleport)")
+
+        self.door_mode_var = tk.BooleanVar(value=False)
+        self.btn_door = ttk.Checkbutton(left_toolbar, text="🚪", width=3, style="Toolbutton", variable=self.door_mode_var)
+        self.btn_door.pack(pady=3)
+        ToolTip(self.btn_door, "Porte Interattive 5e (Click per aggiungere o gestire porte: aperta, chiusa, serrata, segreta)")
+
+        self.room_pin_mode_var = tk.BooleanVar(value=False)
+        self.btn_room_pin = ttk.Checkbutton(left_toolbar, text="📌", width=3, style="Toolbutton", variable=self.room_pin_mode_var)
+        self.btn_room_pin.pack(pady=3)
+        ToolTip(self.btn_room_pin, "Spille Stanza DM (Note segrete e testo da leggere al gruppo)")
 
         self.terrain_paint_mode = False
         self.active_terrain_brush = "fango"
@@ -424,9 +434,11 @@ class DM_GUI:
         self.top_status_time_lbl = tk.Label(
             pills_frame, text=f"☀️ 08:00 ({_t('period_morning')})", font=FONT_SMALL, 
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, padx=6, pady=2,
-            highlightbackground=BORDER_COLOR, highlightthickness=1
+            highlightbackground=BORDER_COLOR, highlightthickness=1, cursor="hand2"
         )
         self.top_status_time_lbl.pack(side=tk.LEFT, padx=3)
+        self.top_status_time_lbl.bind("<Button-1>", self._show_time_fast_menu)
+        ToolTip(self.top_status_time_lbl, "Orologio Campagna (Clicca per avanzare il tempo o aprire il calendario)")
         
         self.top_status_weather_lbl = tk.Label(
             pills_frame, text=f"🌤️ {_t('weather_clear')}", font=FONT_SMALL, 
@@ -1547,7 +1559,207 @@ class DM_GUI:
         broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
         broadcast(self.server.game_state, make_chat_broadcast("Sistema", f"🌑 Una sfera di Oscurità Magica (Raggio={radius}) avvolge le coordinate [{clicked_hex.q}, {clicked_hex.r}]!"))
         self.redraw_map_and_players()
-            
+
+    def _show_door_management_menu(self, door, clicked_hex):
+        menu = tk.Menu(self.master, tearoff=0)
+        cur_st = door.get("state", "closed").upper()
+        menu.add_command(label=f"🚪 Porta a [{clicked_hex.q}, {clicked_hex.r}] (Stato: {cur_st})", state="disabled")
+        menu.add_separator()
+        
+        def set_state(st):
+            door["state"] = st
+            from common.protocol import make_map_data_update_broadcast, make_chat_broadcast, make_fow_update_broadcast
+            from server.network import broadcast
+            from server.rules.movement import auto_explore_fow
+            broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
+            broadcast(self.server.game_state, make_chat_broadcast("Sistema", f"🚪 Porta a ({clicked_hex.q}, {clicked_hex.r}) impostata su '{st.upper()}' dal DM."))
+            for p in self.server.game_state.players:
+                if auto_explore_fow(p, self.server.game_state):
+                    broadcast(self.server.game_state, make_fow_update_broadcast(self.server.game_state.current_map["fow_revealed"], self.server.game_state.current_map["fow_draft"]))
+            self.server.game_state._trigger_gui_update()
+            self.redraw_map_and_players()
+
+        menu.add_command(label="🔓 Imposta: Aperta", command=lambda: set_state("open"))
+        menu.add_command(label="🚪 Imposta: Chiusa", command=lambda: set_state("closed"))
+        menu.add_command(label="🔒 Imposta: Serrata (a Chiave)", command=lambda: set_state("locked"))
+        menu.add_command(label="🚪S Imposta: Segreta (Nascosta ai PG)", command=lambda: set_state("secret"))
+        menu.add_separator()
+        
+        def set_dc():
+            cur_dc = door.get("dc", 15)
+            new_dc = simpledialog.askinteger("CD Serratura", f"Inserisci CD per scassinare la porta (1-30):", initialvalue=cur_dc, minvalue=1, maxvalue=30)
+            if new_dc is not None:
+                door["dc"] = new_dc
+                from common.protocol import make_map_data_update_broadcast
+                from server.network import broadcast
+                broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
+                self.server.game_state._trigger_gui_update()
+
+        def rename_door():
+            cur_name = door.get("name", "Porta")
+            new_name = simpledialog.askstring("Rinomina Porta", "Inserisci il nome della porta (es. Porta di Ferro, Cancello):", initialvalue=cur_name)
+            if new_name:
+                door["name"] = new_name
+                from common.protocol import make_map_data_update_broadcast
+                from server.network import broadcast
+                broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
+                self.server.game_state._trigger_gui_update()
+
+        def delete_door():
+            if messagebox.askyesno("Elimina Porta", f"Rimuovere questa porta a [{clicked_hex.q}, {clicked_hex.r}]?"):
+                doors = self.server.game_state.current_map.get("doors", [])
+                if door in doors:
+                    doors.remove(door)
+                from common.protocol import make_map_data_update_broadcast, make_chat_broadcast
+                from server.network import broadcast
+                from server.rules.movement import auto_explore_fow
+                broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
+                broadcast(self.server.game_state, make_chat_broadcast("Sistema", f"🚪 Porta a ({clicked_hex.q}, {clicked_hex.r}) rimossa dal DM."))
+                for p in self.server.game_state.players:
+                    auto_explore_fow(p, self.server.game_state)
+                self.server.game_state._trigger_gui_update()
+                self.redraw_map_and_players()
+
+        menu.add_command(label=f"🔑 Imposta CD Scassinamento (Attuale: {door.get('dc', 15)})...", command=set_dc)
+        menu.add_command(label=f"🏷️ Rinomina (Attuale: {door.get('name', 'Porta')})...", command=rename_door)
+        menu.add_separator()
+        menu.add_command(label="🗑️ Rimuovi Porta", command=delete_door)
+
+        try:
+            x = self.master.winfo_pointerx()
+            y = self.master.winfo_pointery()
+            menu.tk_popup(x, y)
+        finally:
+            menu.grab_release()
+
+    def open_room_pin_dialog(self, pin, clicked_hex):
+        win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
+        apply_modern_window_style(win)
+        win.minsize(520, 520)
+        
+        is_new = (pin is None)
+        title_str = pin.get("title", f"Stanza [{clicked_hex.q}, {clicked_hex.r}]") if pin else f"Stanza [{clicked_hex.q}, {clicked_hex.r}]"
+        read_aloud_str = pin.get("read_aloud", "") if pin else ""
+        dm_notes_str = pin.get("dm_notes", "") if pin else ""
+        
+        win.title(f"📌 Spilla Stanza - {title_str}")
+
+        hdr = tk.Frame(win, bg=SURFACE_COLOR, padx=12, pady=8)
+        hdr.pack(fill=tk.X)
+        tk.Label(hdr, text="Titolo Stanza / Area:", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(side=tk.LEFT, padx=(0, 8))
+        title_entry = ttk.Entry(hdr, width=28)
+        title_entry.insert(0, title_str)
+        title_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        body = tk.Frame(win, bg=BG_COLOR, padx=12, pady=8)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(body, text="📜 Testo da Leggere ad Alta Voce (Descrizione per i Giocatori):", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w", pady=(4, 2))
+        txt_read_aloud = scrolledtext.ScrolledText(body, height=6, bg="#1E232A", fg="#F1F5F9", insertbackground="#F1F5F9", font=("Georgia", 10))
+        txt_read_aloud.insert("1.0", read_aloud_str)
+        txt_read_aloud.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+
+        btn_broadcast_box = tk.Frame(body, bg=BG_COLOR)
+        btn_broadcast_box.pack(fill=tk.X, pady=(0, 8))
+        def broadcast_read_aloud():
+            cur_title = title_entry.get().strip() or "Descrizione Stanza"
+            text_to_read = txt_read_aloud.get("1.0", tk.END).strip()
+            if not text_to_read:
+                messagebox.showwarning("Testo Vuoto", "Non c'è alcun testo da leggere ad alta voce!", parent=win)
+                return
+            from common.protocol import make_chat_broadcast
+            from server.network import broadcast
+            msg = f"📜 [{cur_title}]\n\"{text_to_read}\""
+            broadcast(self.server.game_state, make_chat_broadcast("Narratore (DM)", msg))
+            self.server.game_state.log_dm_message(f"[NARRATORE] {cur_title}: {text_to_read}")
+            self.show_toast(f"Testo letto al gruppo: [{cur_title}]", title="📢 Narratore", toast_type="success")
+
+        ttk.Button(btn_broadcast_box, text="📢 Leggi al Gruppo (Narratore in Chat)", command=broadcast_read_aloud, style="Primary.TButton").pack(side=tk.LEFT)
+
+        tk.Label(body, text="🔒 Note Segrete del DM (Mostri, Trappole, Tesori, Tattiche):", font=FONT_BOLD, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w", pady=(4, 2))
+        txt_dm_notes = scrolledtext.ScrolledText(body, height=6, bg="#181B20", fg="#FCD34D", insertbackground="#FCD34D", font=("Segoe UI", 10))
+        txt_dm_notes.insert("1.0", dm_notes_str)
+        txt_dm_notes.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+
+        btns_row = tk.Frame(win, bg=SURFACE_COLOR, padx=12, pady=10)
+        btns_row.pack(fill=tk.X)
+
+        def save_pin():
+            cur_title = title_entry.get().strip() or f"Stanza [{clicked_hex.q}, {clicked_hex.r}]"
+            cur_read = txt_read_aloud.get("1.0", tk.END).strip()
+            cur_notes = txt_dm_notes.get("1.0", tk.END).strip()
+            pins = self.server.game_state.current_map.setdefault("room_pins", [])
+            pin_data = pin if pin else {}
+            pin_data["id"] = pin_data.get("id", f"pin_{clicked_hex.q}_{clicked_hex.r}")
+            pin_data["q"] = clicked_hex.q
+            pin_data["r"] = clicked_hex.r
+            pin_data["title"] = cur_title
+            pin_data["read_aloud"] = cur_read
+            pin_data["dm_notes"] = cur_notes
+            if is_new and pin_data not in pins:
+                pins.append(pin_data)
+            from common.protocol import make_map_data_update_broadcast
+            from server.network import broadcast
+            broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
+            self.server.game_state._trigger_gui_update()
+            self.redraw_map_and_players()
+            self.show_toast(f"Spilla salvata: {cur_title}", title="📌 Spilla Salvata", toast_type="success")
+            win.destroy()
+
+        def delete_pin():
+            if is_new:
+                win.destroy()
+                return
+            if messagebox.askyesno("Elimina Spilla", "Sei sicuro di voler eliminare questa spilla dalla mappa?", parent=win):
+                pins = self.server.game_state.current_map.get("room_pins", [])
+                if pin in pins:
+                    pins.remove(pin)
+                from common.protocol import make_map_data_update_broadcast
+                from server.network import broadcast
+                broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
+                self.server.game_state._trigger_gui_update()
+                self.redraw_map_and_players()
+                self.show_toast("Spilla rimossa dalla mappa.", title="📌 Spilla Eliminata", toast_type="info")
+                win.destroy()
+
+        ttk.Button(btns_row, text="💾 Salva Spilla", command=save_pin, style="Success.TButton").pack(side=tk.LEFT, padx=(0, 6))
+        if not is_new:
+            ttk.Button(btns_row, text="🗑️ Elimina", command=delete_pin, style="Danger.TButton").pack(side=tk.LEFT)
+        ttk.Button(btns_row, text="Chiudi", command=win.destroy).pack(side=tk.RIGHT)
+
+    def _show_time_fast_menu(self, event=None):
+        menu = tk.Menu(self.master, tearoff=0)
+        menu.add_command(label="⏱️ Avanzamento Rapido Tempo (Orologio Campagna)", state="disabled")
+        menu.add_separator()
+        
+        def adv(seconds=0, minutes=0, hours=0, label=""):
+            if hours > 0:
+                self.advance_time(hours, is_rest=(hours >= 8))
+            else:
+                self.server.game_state.advance_game_time(seconds=seconds, minutes=minutes)
+                from common.protocol import make_game_state
+                from server.network import broadcast
+                broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
+                self.server.game_state._trigger_gui_update()
+                self.log_to_chat(f"⏱️ Il tempo avanza di {label}.")
+
+        menu.add_command(label="+6 Secondi (1 Round)", command=lambda: adv(seconds=6, label="6 secondi (1 round)"))
+        menu.add_command(label="+1 Minuto (10 Round)", command=lambda: adv(minutes=1, label="1 minuto"))
+        menu.add_command(label="+10 Minuti (Esplorazione Stanza)", command=lambda: adv(minutes=10, label="10 minuti"))
+        menu.add_command(label="+1 Ora (Riposo Breve)", command=lambda: adv(hours=1, label="1 ora"))
+        menu.add_command(label="+8 Ore (Riposo Lungo)", command=lambda: adv(hours=8, label="8 ore (Riposo Lungo)"))
+        menu.add_separator()
+        menu.add_command(label="📅 Apri Calendario di Harptos...", command=self.open_calendar_dialog)
+
+        try:
+            x = self.master.winfo_pointerx()
+            y = self.master.winfo_pointery()
+            menu.tk_popup(x, y)
+        finally:
+            menu.grab_release()
+
     def on_hex_clicked(self, clicked_hex):
         if not self.server.game_state.current_map: return
 
@@ -1559,6 +1771,28 @@ class DM_GUI:
                 self.set_difficult_terrain_at(clicked_hex, brush)
             return
         
+        if getattr(self, "door_mode_var", None) and self.door_mode_var.get():
+            doors = self.server.game_state.current_map.setdefault("doors", [])
+            target_door = next((d for d in doors if d.get("q") == clicked_hex.q and d.get("r") == clicked_hex.r), None)
+            if target_door:
+                self._show_door_management_menu(target_door, clicked_hex)
+            else:
+                doors.append({"q": clicked_hex.q, "r": clicked_hex.r, "state": "closed", "name": "Porta in Legno", "dc": 15})
+                from common.protocol import make_map_data_update_broadcast, make_chat_broadcast
+                from server.network import broadcast
+                broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
+                broadcast(self.server.game_state, make_chat_broadcast("Sistema", f"🚪 Il DM ha posizionato una Porta Chiusa a ({clicked_hex.q}, {clicked_hex.r})."))
+                self.server.game_state._trigger_gui_update()
+                self.redraw_map_and_players()
+                self.show_toast(f"Porta posizionata a [{clicked_hex.q}, {clicked_hex.r}]", title="🚪 Nuova Porta", toast_type="success")
+            return
+
+        if getattr(self, "room_pin_mode_var", None) and self.room_pin_mode_var.get():
+            pins = self.server.game_state.current_map.setdefault("room_pins", [])
+            target_pin = next((p for p in pins if p.get("q") == clicked_hex.q and p.get("r") == clicked_hex.r), None)
+            self.open_room_pin_dialog(target_pin, clicked_hex)
+            return
+
         if getattr(self, "teleport_mode_var", None) and self.teleport_mode_var.get():
             pos_key = f"{clicked_hex.q},{clicked_hex.r}"
             teleports = self.server.game_state.current_map.setdefault("teleports", {})
@@ -1577,6 +1811,13 @@ class DM_GUI:
         mode = "move"
         if mode_str in ("Cancella Nebbia", "Erase Fog", _t("fow_mode_erase")): mode = "reveal"
         elif mode_str in ("Disegna Nebbia", "Draw Fog", _t("fow_mode_draw")): mode = "hide"
+
+        # Se non si sta dipingendo la nebbia, un click su una spilla esistente apre le sue note
+        pins = self.server.game_state.current_map.get("room_pins", [])
+        pin_under_click = next((p for p in pins if p.get("q") == clicked_hex.q and p.get("r") == clicked_hex.r), None)
+        if pin_under_click and mode == "move":
+            self.open_room_pin_dialog(pin_under_click, clicked_hex)
+            return
         
         map_hexes = {Hex(q, r) for q, r in self.server.game_state.current_map.get("hexes", [])}
         if clicked_hex not in map_hexes: return

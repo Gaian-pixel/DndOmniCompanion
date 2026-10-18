@@ -10,6 +10,7 @@ class Character:
         self.campaign = campaign
         self.race = ""
         self.char_class = ""
+        self.subclass = ""
         self.level = 1
         self.exp = 0
         self.alignment = ""
@@ -171,6 +172,97 @@ class Character:
         elif any(k in c_cls for k in ["sorcerer", "stregone"]):
             if lvl >= 2:
                 self.custom_resources.append({"name": "Punti Stregoneria", "current": lvl, "max": lvl, "reset_on": "long"})
+
+    def get_attunement_bonuses(self):
+        """Calcola i modificatori passivi derivanti dagli oggetti attualmente sintonizzati (🔮 max 3)."""
+        bonuses = {
+            "bonus_ac": 0,
+            "bonus_saves": 0,
+            "bonus_stats": {},
+            "set_stats": {}
+        }
+        attuned_items = []
+        for item in getattr(self, "inventory_grid", []):
+            if isinstance(item, dict) and item.get("attuned"):
+                attuned_items.append(item)
+                if len(attuned_items) >= 3:
+                    break
+
+        for item in attuned_items:
+            name = str(item.get("name", "")).lower()
+            desc = str(item.get("desc", "")).lower()
+            
+            # Proprietà esplicite
+            if "bonus_ac" in item:
+                try: bonuses["bonus_ac"] += int(item["bonus_ac"])
+                except Exception: pass
+            if "bonus_saves" in item:
+                try: bonuses["bonus_saves"] += int(item["bonus_saves"])
+                except Exception: pass
+            if "set_str" in item:
+                try: bonuses["set_stats"]["FOR"] = max(bonuses["set_stats"].get("FOR", 0), int(item["set_str"]))
+                except Exception: pass
+            if "set_int" in item:
+                try: bonuses["set_stats"]["INT"] = max(bonuses["set_stats"].get("INT", 0), int(item["set_int"]))
+                except Exception: pass
+            if "set_con" in item:
+                try: bonuses["set_stats"]["COS"] = max(bonuses["set_stats"].get("COS", 0), int(item["set_con"]))
+                except Exception: pass
+
+            # Oggetti magici celebri 5e
+            if any(k in name for k in ["anello di protezione", "mantello della protezione", "ring of protection", "cloak of protection"]):
+                bonuses["bonus_ac"] += 1
+                bonuses["bonus_saves"] += 1
+            elif any(k in name for k in ["bracciali della difesa", "bracers of defense"]):
+                bonuses["bonus_ac"] += 2
+            elif any(k in name for k in ["guanti della forza dell'orco", "gauntlets of ogre power"]):
+                bonuses["set_stats"]["FOR"] = max(bonuses["set_stats"].get("FOR", 0), 19)
+            elif any(k in name for k in ["fascia dell'intelletto", "headband of intellect"]):
+                bonuses["set_stats"]["INT"] = max(bonuses["set_stats"].get("INT", 0), 19)
+            elif any(k in name for k in ["amuleto della salute", "amulet of health"]):
+                bonuses["set_stats"]["COS"] = max(bonuses["set_stats"].get("COS", 0), 19)
+            elif "cintura della forza dei giganti" in name or ("belt" in name and "giant strength" in name):
+                if any(k in name for k in ["tempesta", "storm"]):
+                    bonuses["set_stats"]["FOR"] = max(bonuses["set_stats"].get("FOR", 0), 29)
+                elif any(k in name for k in ["nuvole", "cloud"]):
+                    bonuses["set_stats"]["FOR"] = max(bonuses["set_stats"].get("FOR", 0), 27)
+                elif any(k in name for k in ["fuoco", "fire"]):
+                    bonuses["set_stats"]["FOR"] = max(bonuses["set_stats"].get("FOR", 0), 25)
+                elif any(k in name for k in ["pietra", "gelo", "frost", "stone"]):
+                    bonuses["set_stats"]["FOR"] = max(bonuses["set_stats"].get("FOR", 0), 23)
+                else:
+                    bonuses["set_stats"]["FOR"] = max(bonuses["set_stats"].get("FOR", 0), 21)
+            else:
+                import re
+                ac_match = re.search(r'\+(\d+)\s*(?:alla\s*)?(?:ca|ac|armatura|classe armatura)', desc)
+                if ac_match and "bonus_ac" not in item:
+                    try: bonuses["bonus_ac"] += int(ac_match.group(1))
+                    except Exception: pass
+                save_match = re.search(r'\+(\d+)\s*(?:a\s*tutti\s*i\s*)?(?:tiri\s*salvezza|ts|saving\s*throws)', desc)
+                if save_match and "bonus_saves" not in item:
+                    try: bonuses["bonus_saves"] += int(save_match.group(1))
+                    except Exception: pass
+
+        return bonuses
+
+    def get_effective_attribute(self, attr_name):
+        base = int(self.attributes.get(attr_name, 10))
+        bonuses = self.get_attunement_bonuses()
+        if attr_name in bonuses["set_stats"]:
+            base = max(base, bonuses["set_stats"][attr_name])
+        if attr_name in bonuses["bonus_stats"]:
+            base += bonuses["bonus_stats"][attr_name]
+        return base
+
+    def get_effective_ac(self):
+        bonuses = self.get_attunement_bonuses()
+        return self.ac + bonuses["bonus_ac"]
+
+    def get_effective_save_bonus(self, stat_name):
+        stat_val = self.get_effective_attribute(stat_name)
+        mod = (stat_val - 10) // 2
+        bonuses = self.get_attunement_bonuses()
+        return mod + bonuses["bonus_saves"]
 
     def to_dict(self):
         return self.__dict__

@@ -248,6 +248,23 @@ def handle_chat(data, player, game_state):
         handle_roll_request({"formula": formula, "reason": reason}, player, game_state)
         return
 
+    # Tiri segreti del DM (/broll, /blindroll, /segreto)
+    if text.lower().startswith(("/broll ", "/blindroll ", "/segreto ", "/broll", "/blindroll", "/segreto")):
+        cmd_word = text.split()[0].lower()
+        rest = text[len(cmd_word):].strip()
+        if not rest:
+            formula, reason = "1d20", "Tiro Segreto"
+        else:
+            tokens = rest.split()
+            if len(tokens) >= 2 and tokens[1].lower() in ("adv", "dis", "vantaggio", "svantaggio"):
+                formula = f"{tokens[0]} {tokens[1]}"
+                reason = " ".join(tokens[2:])
+            else:
+                formula = tokens[0]
+                reason = " ".join(tokens[1:]) if len(tokens) > 1 else "Tiro Segreto"
+        handle_blind_roll_request({"formula": formula, "reason": reason}, player, game_state)
+        return
+
     game_state.log_dm_message(f"[{player.name}]: {text}")
     broadcast(game_state, make_chat_broadcast(player.name, text))
 
@@ -300,5 +317,34 @@ def handle_roll_request(data, player, game_state):
         broadcast(game_state, make_dice_roll_result(player.name, formula, reason, result))
     except ValueError as e:
         send_message(player.conn, make_error_reply(str(e)))
+
+def handle_blind_roll_request(data, player, game_state):
+    """Gestisce un tiro segreto per il DM: formula e dadi sono visibili solo al DM."""
+    formula = data.get("formula", "1d20")
+    reason = data.get("reason", "Tiro Segreto")
+    try:
+        from common.dice import roll_dice
+        result = roll_dice(formula)
+        p_name = player.name if player else "Giocatore"
+        crit_badge = ""
+        if result.get("is_crit"):
+            crit_badge = " 🌟 CRITICO 20!"
+        elif result.get("is_fumble"):
+            crit_badge = " 💀 FALLIMENTO 1!"
+        reason_part = f" [{reason}]" if reason else ""
+        
+        # 1. Messaggio per il DM (formula, dadi e risultato esatto)
+        dm_msg = f"🙈 [TIRO SEGRETO] {p_name} tira {formula}{reason_part} -> Totale: {result['total']} (dadi: {result.get('rolls')}, mod: {result.get('modifier')}){crit_badge}"
+        game_state.log_dm_message(dm_msg)
+        game_state.gui_queue.put({"type": "PRIVATE_MESSAGE_RECEIVED", "payload": {"from": "Tiro Segreto", "text": dm_msg}})
+        
+        # 2. Conferma per il giocatore che ha tirato (senza rivelare il totale numerico!)
+        if getattr(player, "conn", None):
+            from common.protocol import make_chat_broadcast
+            send_message(player.conn, make_chat_broadcast("Sistema", f"🎲 Hai effettuato un Tiro Segreto per il DM{reason_part} ({formula}). Solo il Master può vederne l'esito!", is_whisper=True))
+    except ValueError as e:
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply(str(e)))
+
 
 

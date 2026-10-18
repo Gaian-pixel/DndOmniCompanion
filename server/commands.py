@@ -44,4 +44,10 @@ command_handlers = {
     "CURRENCY_REQUEST": handle_currency_request,
     "ITEM_APPROVAL_REQUEST": handle_item_approval_request,
     "CLEAR_DRAWINGS_REQUEST": handle_clear_drawings_request,
+    "TOGGLE_DOOR_REQUEST": handle_toggle_door_request,
+    "ROOM_PIN_REQUEST": handle_room_pin_request,
+    "RESOLVE_AOE_REQUEST": handle_resolve_aoe_request,
+    "BLIND_ROLL_REQUEST": handle_blind_roll_request,
+    "REACTION_RESPONSE": handle_reaction_response,
 }
+

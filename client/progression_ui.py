@@ -86,6 +86,23 @@ class LevelUpDialog(tk.Toplevel):
         self.hp_entry.pack(anchor="w", padx=5, pady=2)
         self.hp_entry.configure(state="readonly")
         self.avg_hp = avg_hp
+
+        # Sottoclasse / Archetipo (se non ancora scelta)
+        if not getattr(self.character, "subclass", ""):
+            subclass_frame = ttk.LabelFrame(self.tab_health, text="🌟 Sottoclasse / Archetipo 5e")
+            subclass_frame.pack(fill=tk.X, padx=10, pady=(6, 10))
+            
+            ttk.Label(subclass_frame, text="Scegli o inserisci il tuo Archetipo per questa classe:").pack(anchor="w", padx=5, pady=(2, 2))
+            self.subclass_choice_var = tk.StringVar(value="")
+            from client.character_sheet_ui import SRD_SUBCLASSES
+            c_cls = (self.character.char_class or "").lower().strip()
+            options = []
+            for k, v in SRD_SUBCLASSES.items():
+                if k in c_cls or c_cls in k:
+                    options = v
+                    break
+            self.subclass_choice_combo = ttk.Combobox(subclass_frame, textvariable=self.subclass_choice_var, values=options, width=32)
+            self.subclass_choice_combo.pack(anchor="w", padx=5, pady=(2, 6))
         
         # TAB 2: Privilegi (Popolati da API)
         self.tab_features = ttk.Frame(self.notebook)
@@ -255,6 +272,11 @@ class LevelUpDialog(tk.Toplevel):
             else:
                 self.character.features = f"--- Livello {self.character.level} ---\n{feats_str}"
                 
+        # Sottoclasse
+        chosen_sub = getattr(self, "subclass_choice_var", None)
+        if chosen_sub and chosen_sub.get().strip():
+            self.character.subclass = chosen_sub.get().strip()
+
         # Spellcasting
         if self.api_data and "spellcasting" in self.api_data:
             sc = self.api_data["spellcasting"]
@@ -263,9 +285,13 @@ class LevelUpDialog(tk.Toplevel):
                 if key in sc:
                     max_slots = sc[key]
                     if str(i) in self.character.spell_slots:
-                        self.character.spell_slots[str(i)][1] = max_slots
+                        if isinstance(self.character.spell_slots[str(i)], dict):
+                            self.character.spell_slots[str(i)]["max"] = max_slots
+                            self.character.spell_slots[str(i)]["current"] = max_slots
+                        else:
+                            self.character.spell_slots[str(i)][1] = max_slots
                     else:
-                        self.character.spell_slots[str(i)] = [0, max_slots]
+                        self.character.spell_slots[str(i)] = {"max": max_slots, "current": max_slots}
                         
         self.update_callback()
         self.destroy()

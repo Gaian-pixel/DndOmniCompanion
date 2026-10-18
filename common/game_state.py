@@ -238,17 +238,68 @@ class GameState:
                 if getattr(prev_active, "full_sheet", None) and isinstance(prev_active.full_sheet.get("conditions"), list):
                     prev_active.full_sheet["conditions"] = [c for c in prev_active.full_sheet["conditions"] if c not in end_of_turn_conds]
             self.turn_index += 1
+            round_advanced = False
             if self.turn_index >= len(combatants):
                 self.turn_index = 0
                 self.round_number += 1
+                round_advanced = True
+                self.advance_game_time(seconds=6)
+
             if 0 <= self.turn_index < len(combatants):
                 active = combatants[self.turn_index]
                 active.movement_spent_this_turn = 0
                 active.has_acted_this_turn = False
+                active.has_reacted_this_turn = False
+                active.sneak_attack_used_this_turn = False
                 if hasattr(active, "conditions") and active.conditions:
-                    active.conditions = [c for c in active.conditions if c not in start_of_turn_conds]
+                    active.conditions = [c for c in active.conditions if c not in start_of_turn_conds and c != "Scudo"]
                 if getattr(active, "full_sheet", None) and isinstance(active.full_sheet.get("conditions"), list):
-                    active.full_sheet["conditions"] = [c for c in active.full_sheet["conditions"] if c not in start_of_turn_conds]
+                    active.full_sheet["conditions"] = [c for c in active.full_sheet["conditions"] if c not in start_of_turn_conds and c != "Scudo"]
+
+            if round_advanced:
+                for p in self.players:
+                    if hasattr(p, "condition_durations") and isinstance(p.condition_durations, dict):
+                        expired = []
+                        for cond, rounds_left in list(p.condition_durations.items()):
+                            p.condition_durations[cond] = rounds_left - 1
+                            if p.condition_durations[cond] <= 0:
+                                expired.append(cond)
+                        for cond in expired:
+                            del p.condition_durations[cond]
+                            if hasattr(p, "conditions") and cond in p.conditions:
+                                p.conditions.remove(cond)
+        self._trigger_gui_update()
+
+    def advance_game_time(self, seconds=0, minutes=0, hours=0, days=0):
+        """Avanza l'orologio di gioco nel rispetto della cronologia e del calendario Harptos 5e."""
+        with self.lock:
+            if not hasattr(self, "time_minute"): self.time_minute = 0
+            if not hasattr(self, "time_second"): self.time_second = 0
+            
+            self.time_second += seconds
+            if self.time_second >= 60:
+                minutes += self.time_second // 60
+                self.time_second %= 60
+                
+            self.time_minute += minutes
+            if self.time_minute >= 60:
+                hours += self.time_minute // 60
+                self.time_minute %= 60
+                
+            self.time_hour += hours
+            if self.time_hour >= 24:
+                days += self.time_hour // 24
+                self.time_hour %= 24
+                
+            self.time_day += days
+            if self.time_day > 30:
+                months = self.time_day // 30
+                self.time_day = ((self.time_day - 1) % 30) + 1
+                self.time_month += months
+                if self.time_month > 12:
+                    self.time_year += (self.time_month - 1) // 12
+                    self.time_month = ((self.time_month - 1) % 12) + 1
+                    
         self._trigger_gui_update()
 
     def prev_turn(self):

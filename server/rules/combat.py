@@ -352,7 +352,7 @@ def handle_attack_request(data, player, game_state):
         
         # Vantaggio per l'attaccante
         if is_condition_active(p_cond, "Invisibile"): adv_reasons.append("Invisibile")
-        for c in ["Trattenuto", "Paralizzato", "Incosciente", "Accecato", "Pietrificato"]:
+        for c in ["Trattenuto", "Paralizzato", "Incosciente", "Accecato", "Pietrificato", "Stordito"]:
             if is_condition_active(t_cond, c): adv_reasons.append(f"Bersaglio {c}")
             
         # Azione di Aiuto: il bersaglio ha 'Aiutato', che conferisce vantaggio al primo attacco alleato
@@ -362,7 +362,7 @@ def handle_attack_request(data, player, game_state):
             elif "Helped" in t_cond: t_cond.remove("Helped")
             
         # Svantaggio per l'attaccante
-        for c in ["Accecato", "Avvelenato", "Trattenuto", "Prono"]:
+        for c in ["Accecato", "Avvelenato", "Trattenuto", "Prono", "Spaventato"]:
             if is_condition_active(p_cond, c): dis_reasons.append(c)
         if is_condition_active(t_cond, "Invisibile"): dis_reasons.append("Bersaglio Invisibile")
         if is_condition_active(t_cond, "Schivata"): dis_reasons.append("Bersaglio in Schivata")
@@ -632,6 +632,44 @@ def handle_attack_request(data, player, game_state):
                 if "Ira" in getattr(player, "conditions", []):
                     dmg_val += 2
                     log_msg += " (+2 Ira Barbarica)"
+
+                # Regola D&D 5e: Attacco Furtivo del Ladro (Sneak Attack)
+                # Requisiti: classe Ladro, arma accurata/distanza, vantaggio OPPURE alleato entro 1 esagono senza svantaggio, max 1 volta per turno
+                is_rogue = False
+                rogue_lvl = 1
+                if getattr(player, "full_sheet", None) or hasattr(player, "char_class"):
+                    sheet = getattr(player, "full_sheet", {}) or {}
+                    cls_name = str(sheet.get("class", sheet.get("char_class", getattr(player, "char_class", "")))).lower()
+                    feat_obj = sheet.get("features", getattr(player, "features", []))
+                    features_str = " ".join(str(f).lower() for f in feat_obj) if isinstance(feat_obj, list) else str(feat_obj).lower()
+                    if "ladro" in cls_name or "rogue" in cls_name or "furtivo" in features_str or "sneak" in features_str:
+                        is_rogue = True
+                        try:
+                            rogue_lvl = int(sheet.get("level", getattr(player, "level", 1)))
+                        except (ValueError, TypeError):
+                            rogue_lvl = 1
+
+                if is_rogue and not getattr(player, "sneak_attack_used_this_turn", False):
+                    has_adjacent_ally = False
+                    if hasattr(target_player, "position") and target_player.position:
+                        tq, tr = target_player.position[0], target_player.position[1]
+                        for other in getattr(game_state, "players", []):
+                            if other.name != player.name and other.name != target_player.name and getattr(other, "hp", 0) > 0:
+                                if hasattr(other, "position") and other.position:
+                                    oq, or_ = other.position[0], other.position[1]
+                                    d_o = max(abs(tq - oq), abs(tq + tr - oq - or_), abs(tr - or_))
+                                    if d_o <= 1 and "Incosciente" not in getattr(other, "conditions", []) and "Morto" not in getattr(other, "conditions", []):
+                                        has_adjacent_ally = True
+                                        break
+                    
+                    if has_adv or (has_adjacent_ally and not has_dis):
+                        sneak_dice_count = max(1, math.ceil(rogue_lvl / 2))
+                        sneak_formula = f"{sneak_dice_count}d6"
+                        s_res = roll_dice(sneak_formula, is_crit=is_crit)
+                        sneak_dmg = s_res["total"]
+                        dmg_val += sneak_dmg
+                        player.sneak_attack_used_this_turn = True
+                        log_msg += f" 🗡️ (+{sneak_dmg} Attacco Furtivo [{sneak_formula}])"
                     
                 final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(target_player, dmg_val, damage_type, game_state)
                 log_msg += f" Danno: {final_dmg} ({damage_type}){note}."
@@ -669,10 +707,22 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
         roll_total += benedizione_bonus
         
     extra_adv_note = ""
-    if stat == "DES" and "Schivata" in getattr(target_player, "conditions", []):
+    if stat in ("DES", "DEX") and "Schivata" in getattr(target_player, "conditions", []):
         extra_adv_note = " (Vantaggio da Schivata)"
-        
-    success = is_crit or (not is_fail and roll_total >= dc)
+
+    # Regola 5e: Creature Incoscienti, Paralizzate o Stordite falliscono automaticamente i TS su Forza e Destrezza
+    auto_fail_cond = None
+    if stat in ("FOR", "DES", "STR", "DEX"):
+        for c in ["Incosciente", "Paralizzato", "Stordito", "Pietrificato"]:
+            if is_condition_active(getattr(target_player, "conditions", []), c):
+                auto_fail_cond = c
+                break
+
+    if auto_fail_cond:
+        success = False
+        extra_adv_note += f" (Fallimento automatico per condizione: {auto_fail_cond})"
+    else:
+        success = is_crit or (not is_fail and roll_total >= dc)
     
     # D&D 5e: Resistenze Leggendarie (es. 3/giorno)
     # Se la creatura fallisce un TS, può scegliere di considerarlo automaticamente un successo.
@@ -724,14 +774,45 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
     if damage_formula:
         try:
             from common.dice import roll_dice
-            dmg_res = roll_dice(damage_formula)
-            dmg_val = dmg_res["total"]
+            clean_dmg = str(damage_formula).strip()
+            if clean_dmg.isdigit():
+                dmg_val = int(clean_dmg)
+            else:
+                dmg_res = roll_dice(clean_dmg)
+                dmg_val = dmg_res["total"]
             
+            # Elusione (Evasion) D&D 5e: Ladro/Monaco su TS Destrezza
+            has_evasion = False
+            if stat in ("DES", "DEX") and target_player:
+                tokens = [str(c) for c in getattr(target_player, "conditions", [])]
+                feat_obj = getattr(target_player, "features", [])
+                if isinstance(feat_obj, list):
+                    tokens.extend([str(f) for f in feat_obj])
+                elif isinstance(feat_obj, str) and feat_obj:
+                    tokens.append(feat_obj)
+                sheet = getattr(target_player, "full_sheet", None)
+                if isinstance(sheet, dict):
+                    sf = sheet.get("features", [])
+                    if isinstance(sf, list):
+                        tokens.extend([str(f) for f in sf])
+                    elif isinstance(sf, str) and sf:
+                        tokens.append(sf)
+                p_text = " ".join(tokens).lower()
+                if "elusione" in p_text or "evasion" in p_text:
+                    has_evasion = True
+
             if success:
-                if half_on_success:
+                if has_evasion:
+                    dmg_val = 0
+                    log_msg += " (Elusione 5e: 0 danni con TS superato!)"
+                elif half_on_success:
                     dmg_val = dmg_val // 2
                 else:
                     dmg_val = 0
+            else:
+                if has_evasion and half_on_success:
+                    dmg_val = dmg_val // 2
+                    log_msg += " (Elusione 5e: subisce solo metà danni nonostante il TS fallito!)"
                     
             if dmg_val > 0:
                 final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(target_player, dmg_val, damage_type, game_state)
@@ -891,3 +972,49 @@ def handle_short_rest_request(data, player, game_state):
     msg = f"☕ {player.name} ha completato un Riposo Breve (ha speso {hd_spent} Dado/i Vita e recuperato {hp_rec} HP)!"
     broadcast(game_state, make_chat_broadcast("Sistema", msg))
     game_state.log_dm_message(f"[RIPOSO] {msg}")
+
+def handle_reaction_response(data, player, game_state):
+    """Gestisce la risposta del client a un prompt di reazione 5e (Attacco d'Opportunità, Scudo, ecc.)."""
+    reaction_type = data.get("reaction_type")
+    accepted = data.get("accepted", False)
+    target_name = data.get("target_name")
+    details = data.get("details", {})
+    
+    if not accepted or not player:
+        return
+        
+    if getattr(player, "has_reacted_this_turn", False):
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Hai già consumato la tua Reazione per questo round!"))
+        return
+        
+    player.has_reacted_this_turn = True
+    
+    if reaction_type == "OPPORTUNITY_ATTACK":
+        msg = f"⚔️ {player.name} usa la propria REAZIONE per effettuare un Attacco d'Opportunità contro {target_name}!"
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        game_state.log_dm_message(f"[REAZIONE] {msg}")
+        
+        w_name = details.get("weapon_name", "Attacco d'Opportunità")
+        hit_bonus = details.get("hit_bonus", 0)
+        damage_formula = details.get("damage_formula", "1d8")
+        damage_type = details.get("damage_type", "Tagliente")
+        
+        handle_attack_request({
+            "target_name": target_name,
+            "weapon_name": w_name,
+            "hit_bonus": hit_bonus,
+            "damage_formula": damage_formula,
+            "damage_type": damage_type
+        }, player, game_state)
+        
+    elif reaction_type == "SHIELD_SPELL":
+        conds = getattr(player, "conditions", [])
+        if "Scudo" not in conds:
+            conds.append("Scudo")
+        msg = f"🛡️ {player.name} usa la propria REAZIONE per lanciare l'incantesimo Scudo! Ottiene +5 CA fino all'inizio del suo prossimo turno."
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        game_state.log_dm_message(f"[REAZIONE] {msg}")
+        broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions, getattr(player, "temp_hp", 0)))
+        game_state._trigger_gui_update()
+

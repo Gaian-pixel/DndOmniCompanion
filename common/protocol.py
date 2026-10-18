@@ -223,3 +223,42 @@ def make_clear_drawings_request():
 
 def make_clear_drawings_broadcast():
     return {"type": "CLEAR_DRAWINGS_BROADCAST", "data": {}}
+
+# --- Porte Interattive & Spille di Mappa ---
+def make_toggle_door_request(q: int, r: int, state: str = None):
+    return {"type": "TOGGLE_DOOR_REQUEST", "data": {"q": q, "r": r, "state": state}}
+
+def make_room_pin_request(pin_dict: dict, action: str = "add"):
+    return {"type": "ROOM_PIN_REQUEST", "data": {"pin": pin_dict, "action": action}}
+
+def make_blind_roll_request(formula: str, reason: str = ""):
+    return {"type": "BLIND_ROLL_REQUEST", "data": {"formula": formula, "reason": reason}}
+
+# --- Reazioni 5e & Risoluzione AoE ---
+def make_prompt_reaction(reaction_type: str, source_name: str, target_name: str, details: dict = None):
+    return {"type": "PROMPT_REACTION", "data": {
+        "reaction_type": reaction_type,
+        "source_name": source_name,
+        "target_name": target_name,
+        "details": details or {}
+    }}
+
+def make_reaction_response(reaction_type: str, accepted: bool, source_name: str, target_name: str, details: dict = None):
+    return {"type": "REACTION_RESPONSE", "data": {
+        "reaction_type": reaction_type,
+        "accepted": accepted,
+        "source_name": source_name,
+        "target_name": target_name,
+        "details": details or {}
+    }}
+
+def make_resolve_aoe_request(aoe_index: int, stat: str, dc: int, damage_formula: str, half_on_success: bool = True, damage_type: str = "Fuoco"):
+    return {"type": "RESOLVE_AOE_REQUEST", "data": {
+        "aoe_index": aoe_index,
+        "stat": stat,
+        "dc": dc,
+        "damage_formula": damage_formula,
+        "half_on_success": half_on_success,
+        "damage_type": damage_type
+    }}
+

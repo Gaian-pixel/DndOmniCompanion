@@ -44,6 +44,30 @@ def get_item_icon(item):
         return "🪙"
     return "📦"
 
+SRD_SUBCLASSES = {
+    "barbaro": ["Cammino del Berserker", "Cammino del Combattente Totemico", "Cammino dello Zelota"],
+    "barbarian": ["Path of the Berserker", "Path of the Totem Warrior", "Path of the Zealot"],
+    "bardo": ["Collegio della Sapienza", "Collegio del Valore", "Collegio delle Spade"],
+    "bard": ["College of Lore", "College of Valor", "College of Swords"],
+    "chierico": ["Dominio della Vita", "Dominio della Luce", "Dominio della Guerra", "Dominio dell'Inganno", "Dominio della Tempesta"],
+    "cleric": ["Life Domain", "Light Domain", "War Domain", "Trickery Domain", "Tempest Domain"],
+    "druido": ["Circolo della Terra", "Circolo della Luna", "Circolo delle Spore"],
+    "druid": ["Circle of the Land", "Circle of the Moon", "Circle of Spores"],
+    "guerriero": ["Campione", "Maestro di Battaglia", "Cavaliere Mistico", "Arciere Arcano"],
+    "fighter": ["Champion", "Battle Master", "Eldritch Knight", "Arcane Archer"],
+    "monaco": ["Via della Mano Aperta", "Via dell'Ombra", "Via dei Quattro Elementi", "Via del Kensei"],
+    "monk": ["Way of the Open Hand", "Way of Shadow", "Way of the Four Elements", "Way of the Kensei"],
+    "paladino": ["Giuramento di Devozione", "Giuramento degli Antichi", "Giuramento di Vendetta", "Giuramento di Conquista"],
+    "paladin": ["Oath of Devotion", "Oath of the Ancients", "Oath of Vengeance", "Oath of Conquest"],
+    "ranger": ["Cacciatore", "Signore delle Bestie", "Giramondo dell'Orizzonte"],
+    "ladro": ["Assassino", "Furfante", "Mistico Mistificatore", "Spadaccino"],
+    "rogue": ["Assassin", "Thief", "Arcane Trickster", "Swashbuckler"],
+    "stregone": ["Stirpe Draconica", "Magia Selvaggia", "Anima Favorevole"],
+    "sorcerer": ["Draconic Bloodline", "Wild Magic", "Divine Soul"],
+    "warlock": ["Il Signore Immondo", "Il Grande Antico", "La Fatata", "La Lama del Patto"],
+    "mago": ["Scuola di Invocazione", "Scuola di Abiurazione", "Scuola di Divinazione", "Scuola di Necromanzia", "Scuola di Trasmutazione", "Scuola di Illusione", "Scuola di Incantamento", "Scuola di Evocazione"],
+    "wizard": ["School of Evocation", "School of Abjuration", "School of Divination", "School of Necromancy", "School of Transmutation", "School of Illusion", "School of Enchantment", "School of Conjuration"]
+}
 
 class CharacterSheetUI(tk.Toplevel):
     def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, give_gold_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None, custom_spell_request_callback=None, request_currency_callback=None, request_item_callback=None, is_connected=False):
@@ -108,12 +132,18 @@ class CharacterSheetUI(tk.Toplevel):
         self.race_var = tk.StringVar()
         ttk.Entry(header_frame, textvariable=self.race_var, width=16).grid(row=2, column=1, padx=4, pady=3, sticky="ew")
 
+        tk.Label(header_frame, text="Sottoclasse:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=2, column=2, sticky="e", padx=(8, 4))
+        self.subclass_var = tk.StringVar()
+        self.subclass_combo = ttk.Combobox(header_frame, textvariable=self.subclass_var, width=14)
+        self.subclass_combo.grid(row=2, column=3, padx=4, pady=3, sticky="ew")
+        ToolTip(self.subclass_combo, "Sottoclasse / Archetipo D&D 5e (Seleziona dalla lista SRD o digita il tuo archetipo)")
+
         self.btn_inspiration = tk.Button(
             header_frame, text=_t("insp_none"), font=("Segoe UI", 9, "bold"),
             bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, activebackground=SURFACE_COLOR,
             relief=tk.FLAT, bd=0, padx=8, pady=2, command=self.on_inspiration_clicked
         )
-        self.btn_inspiration.grid(row=2, column=2, columnspan=5, padx=(8, 0), pady=3, sticky="ew")
+        self.btn_inspiration.grid(row=2, column=4, columnspan=3, padx=(8, 0), pady=3, sticky="ew")
 
         # Corpo centrale
         body_frame = ttk.Frame(main_frame)
@@ -816,6 +846,9 @@ class CharacterSheetUI(tk.Toplevel):
         self.attunement_label.pack(side=tk.RIGHT, padx=4)
         ToolTip(self.attunement_label, "Oggetti Magici Sintonizzati (Regola 5e: Massimo 3 oggetti attivi contemporaneamente)")
 
+        self.lbl_attunement_status = tk.Label(inv_bar, text="", font=FONT_SMALL, fg=ACCENT_GOLD, bg=BG_COLOR)
+        self.lbl_attunement_status.pack(side=tk.RIGHT, padx=6)
+
         # 3. Lista Griglia 25 Slot (Canvas Dark con auto-stretch e zero bordi bianchi)
         list_frame = tk.Frame(parent_frame, bg=BG_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
         list_frame.pack(fill=tk.BOTH, expand=True, padx=6, pady=2)
@@ -1045,6 +1078,23 @@ class CharacterSheetUI(tk.Toplevel):
         if attuned_count > 3 and changed_idx is not None:
             messagebox.showwarning("Sintonia", "Non puoi sintonizzarti con più di 3 oggetti contemporaneamente!")
             self.attuned_vars[changed_idx].set(False)
+            return
+
+        if hasattr(self.character, "inventory_grid"):
+            for i, var in enumerate(self.attuned_vars):
+                if i < len(self.character.inventory_grid) and isinstance(self.character.inventory_grid[i], dict):
+                    self.character.inventory_grid[i]["attuned"] = var.get()
+
+        if hasattr(self.character, "get_attunement_bonuses") and hasattr(self, "lbl_attunement_status"):
+            b = self.character.get_attunement_bonuses()
+            parts = []
+            if b.get("bonus_ac", 0) > 0: parts.append(f"+{b['bonus_ac']} CA")
+            if b.get("bonus_saves", 0) > 0: parts.append(f"+{b['bonus_saves']} TS")
+            for s, v in b.get("set_stats", {}).items(): parts.append(f"{s}={v}")
+            if parts:
+                self.lbl_attunement_status.config(text=f"🔮 Bonus: {', '.join(parts)}")
+            else:
+                self.lbl_attunement_status.config(text="")
 
     def build_spells_tab(self, parent_frame):
         slots_frame = ttk.LabelFrame(parent_frame, text=_t("sheet_spell_slots_header"))
@@ -1300,12 +1350,28 @@ class CharacterSheetUI(tk.Toplevel):
                 vars_["current"].set(vars_["max"].get())
             self.hp_cur_var.set(self.hp_max_var.get())
 
+    def update_subclass_suggestions(self):
+        if not hasattr(self, 'subclass_combo'): return
+        c_cls = (self.class_var.get() or "").lower().strip()
+        found_options = []
+        for k, v in SRD_SUBCLASSES.items():
+            if k in c_cls or c_cls in k:
+                found_options = v
+                break
+        self.subclass_combo['values'] = found_options
+
     def load_data(self):
         self.name_var.set(self.character.name)
         self.campaign_var.set(self.character.campaign)
         self.class_var.set(self.character.char_class)
         self.level_var.set(self.character.level)
         self.race_var.set(self.character.race)
+        if hasattr(self, 'subclass_var'):
+            self.subclass_var.set(getattr(self.character, "subclass", ""))
+            self.update_subclass_suggestions()
+        if hasattr(self, 'class_var') and not getattr(self, '_class_var_traced', False):
+            self.class_var.trace_add("write", lambda *args: self.update_subclass_suggestions())
+            self._class_var_traced = True
         
         for k, v in self.character.attributes.items():
             self.attr_vars[k].set(v)
@@ -1778,6 +1844,8 @@ class CharacterSheetUI(tk.Toplevel):
             self.character.char_class = self.class_var.get()
             self.character.level = self.level_var.get()
             self.character.race = self.race_var.get()
+            if hasattr(self, "subclass_var"):
+                self.character.subclass = self.subclass_var.get().strip()
             
             for k, var in self.attr_vars.items():
                 self.character.attributes[k] = var.get()

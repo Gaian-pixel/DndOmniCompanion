@@ -832,6 +832,12 @@ class HexMapCanvas(tk.Canvas):
         walls_data = self.map_data.get("walls", [])
         walls_set = {tuple(w) for w in walls_data}
         walls_hex_set = {Hex(w[0], w[1]) for w in walls_data}
+        for d in self.map_data.get("doors", []):
+            if d.get("state", "closed") in ("closed", "locked", "secret"):
+                dq, dr = d.get("q", 0), d.get("r", 0)
+                walls_set.add((dq, dr))
+                walls_hex_set.add(Hex(dq, dr))
+
 
         visible_now = set()
         if not is_dm and self.player_name in self.players_data:
@@ -1099,7 +1105,58 @@ class HexMapCanvas(tk.Canvas):
             if scr_x1 <= sx <= scr_x2 and scr_y1 <= sy <= scr_y2:
                 self.create_oval(sx-6, sy-6, sx+6, sy+6, fill="blue", outline="cyan", width=2)
                 if is_dm:
-                    self.create_text(sx, sy-15, text="🚪", font=("", max(8, int(10*self.zoom_level))))
+                    self.create_text(sx, sy-15, text="🌀", font=("", max(8, int(10*self.zoom_level))))
+
+        # Draw Interactive Doors (Porte Interattive 5e)
+        doors_data = self.map_data.get("doors", [])
+        for d in doors_data:
+            dq = d.get("q", 0)
+            dr = d.get("r", 0)
+            state = d.get("state", "closed")
+            if not is_dm and state == "secret":
+                continue
+            if fow_enabled and not is_dm and (dq, dr) not in fow_revealed and (dq, dr) not in visible_now:
+                continue
+            cx, cy = self.hex_layout.hex_to_pixel(Hex(dq, dr))
+            sx = cx * self.zoom_level + self.pan_offset_x
+            sy = cy * self.zoom_level + self.pan_offset_y
+            if scr_x1 <= sx <= scr_x2 and scr_y1 <= sy <= scr_y2:
+                door_font_sz = max(9, int(13 * self.zoom_level))
+                if state == "open":
+                    icon = "🔓"
+                    bg_col = "#064E3B"
+                    border_col = "#10B981"
+                elif state == "locked":
+                    icon = "🔒"
+                    bg_col = "#7F1D1D"
+                    border_col = "#EF4444"
+                elif state == "secret":
+                    icon = "🚪S"
+                    bg_col = "#581C87"
+                    border_col = "#A855F7"
+                else:
+                    icon = "🚪"
+                    bg_col = "#78350F"
+                    border_col = "#F59E0B"
+                self.create_rectangle(sx - 11, sy - 11, sx + 11, sy + 11, fill=bg_col, outline=border_col, width=1.5, tags="door_marker")
+                self.create_text(sx, sy, text=icon, font=("Segoe UI Emoji", door_font_sz), tags="door_marker")
+
+        # Draw Room Pins (Spille di Mappa e Note Stanza per il DM)
+        if is_dm:
+            room_pins_data = self.map_data.get("room_pins", [])
+            for pin in room_pins_data:
+                pq = pin.get("q", 0)
+                pr = pin.get("r", 0)
+                cx, cy = self.hex_layout.hex_to_pixel(Hex(pq, pr))
+                sx = cx * self.zoom_level + self.pan_offset_x
+                sy = cy * self.zoom_level + self.pan_offset_y
+                if scr_x1 <= sx <= scr_x2 and scr_y1 <= sy <= scr_y2:
+                    pin_font_sz = max(10, int(14 * self.zoom_level))
+                    self.create_oval(sx - 12, sy - 12, sx + 12, sy + 12, fill="#1E1B4B", outline="#818CF8", width=2, tags="room_pin_marker")
+                    self.create_text(sx, sy, text="📌", font=("Segoe UI Emoji", pin_font_sz), tags="room_pin_marker")
+                    title = pin.get("title", "")
+                    if title and self.zoom_level >= 0.7:
+                        self.create_text(sx, sy + 16, text=title[:14], font=("Segoe UI", 7, "bold"), fill="#E0E7FF", tags="room_pin_marker")
 
         # Draw Traps (Trappole D&D 5e)
         traps_data = self.map_data.get("traps", [])
