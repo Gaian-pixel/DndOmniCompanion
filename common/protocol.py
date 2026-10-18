@@ -1,16 +1,132 @@
 # protocol.py
+from typing import TypedDict, Any, Optional, Dict, List, Union
+
+# ==============================================================================
+# TYPED DICTIONARIES PER LA VALIDAZIONE STATICA DEL PROTOCOLLO (mypy / IDE)
+# ==============================================================================
+
+class ProtocolMessage(TypedDict):
+    type: str
+    data: Dict[str, Any]
+
+class JoinData(TypedDict, total=False):
+    name: str
+    position: Optional[List[int]]
+
+class ChatData(TypedDict, total=False):
+    text: str
+    sender: Optional[str]
+    is_whisper: Optional[bool]
+
+class WhisperData(TypedDict):
+    to: str
+    text: str
+
+class RollRequestData(TypedDict):
+    formula: str
+    reason: str
+
+class MoveRequestData(TypedDict):
+    to: List[int]
+
+class TargetedActionData(TypedDict):
+    target_name: str
+    action_type: str
+    formula: str
+    reason: str
+    damage_type: str
+
+class PingData(TypedDict):
+    q: int
+    r: int
+    color: str
+
+class AttackRequestData(TypedDict):
+    target_name: str
+    weapon_name: str
+    hit_bonus: int
+    damage_formula: str
+    damage_type: str
+
+class PromptSaveData(TypedDict):
+    stat: str
+    dc: int
+    damage_formula: str
+    half_on_success: bool
+    source_name: str
+    damage_type: str
+
+class SaveResultData(TypedDict):
+    stat: str
+    roll_total: int
+    is_crit: bool
+    is_fail: bool
+    dc: int
+    damage_formula: str
+    half_on_success: bool
+    source_name: str
+    damage_type: str
+
+class PromptReactionData(TypedDict):
+    reaction_type: str
+    source_name: str
+    target_name: str
+    details: Dict[str, Any]
+
+class ReactionResponseData(TypedDict):
+    reaction_type: str
+    accepted: bool
+    source_name: str
+    target_name: str
+    details: Dict[str, Any]
+
+class ResolveAoEData(TypedDict):
+    aoe_index: int
+    stat: str
+    dc: int
+    damage_formula: str
+    half_on_success: bool
+    damage_type: str
+
+class DoorRequestData(TypedDict, total=False):
+    q: int
+    r: int
+    state: Optional[str]
+    method: str
+    key_item: Optional[str]
+
+class RoomPinData(TypedDict):
+    pin: Dict[str, Any]
+    action: str
+
+class BlindRollData(TypedDict):
+    formula: str
+    reason: str
+
+class AutomationSettingsData(TypedDict):
+    mode: str
+    settings: Dict[str, Any]
+
+class ApplyPendingDamageData(TypedDict, total=False):
+    pending_id: str
+    action: str
+    custom_amount: Optional[int]
+
+class ResolvePendingDoorData(TypedDict):
+    pending_id: str
+    outcome: str
 
 # --- Messaggi Client -> Server ---
-def make_join(name, position=None):
-    data = {"name": name}
+def make_join(name: str, position: Optional[List[int]] = None) -> ProtocolMessage:
+    data: Dict[str, Any] = {"name": name}
     if position:
         data["position"] = position
     return {"type": "JOIN", "data": data}
 
-def make_chat(text):
+def make_chat(text: str) -> ProtocolMessage:
     return {"type": "CHAT", "data": {"text": text}}
 
-def make_whisper(to, text):
+def make_whisper(to: str, text: str) -> ProtocolMessage:
     return {"type": "WHISPER", "data": {"to": to, "text": text}}
 
 def make_roll_request(formula, reason=""):
