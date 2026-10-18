@@ -225,8 +225,8 @@ def make_clear_drawings_broadcast():
     return {"type": "CLEAR_DRAWINGS_BROADCAST", "data": {}}
 
 # --- Porte Interattive & Spille di Mappa ---
-def make_toggle_door_request(q: int, r: int, state: str = None):
-    return {"type": "TOGGLE_DOOR_REQUEST", "data": {"q": q, "r": r, "state": state}}
+def make_toggle_door_request(q: int, r: int, state: str = None, method: str = "lockpick", key_item: str = None):
+    return {"type": "TOGGLE_DOOR_REQUEST", "data": {"q": q, "r": r, "state": state, "method": method, "key_item": key_item}}
 
 def make_room_pin_request(pin_dict: dict, action: str = "add"):
     return {"type": "ROOM_PIN_REQUEST", "data": {"pin": pin_dict, "action": action}}

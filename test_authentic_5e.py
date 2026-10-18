@@ -57,6 +57,54 @@ class TestAuthentic5eFeatures(unittest.TestCase):
         handle_move_request({"to": [1, 0]}, player, self.game_state)
         self.assertEqual(player.position, [1, 0])
 
+    def test_door_lockpick_and_alternatives(self):
+        door = {"q": 1, "r": 0, "state": "locked", "name": "Porta Rinforzata", "dc": 10, "break_dc": 8, "key_name": "Chiave di Ferro"}
+        self.game_state.current_map["doors"] = [door]
+
+        # 1. Lockpick (Scasso con arnesi da scasso)
+        rogue = Player("Ladro")
+        rogue.position = [0, 0]
+        rogue.full_sheet = {
+            "level": 5, "char_class": "Ladro",
+            "attributes": {"DES": 18},
+            "features": ["Maestria (Arnesi da Scasso)"]
+        }
+        handle_toggle_door_request({"q": 1, "r": 0, "method": "lockpick"}, rogue, self.game_state)
+        self.assertEqual(door["state"], "open")
+
+        # 2. Break door (Sfondare con Forza/Atletica)
+        door["state"] = "locked"
+        barb = Player("Barbaro")
+        barb.position = [0, 0]
+        barb.full_sheet = {
+            "level": 5, "char_class": "Barbaro",
+            "attributes": {"FOR": 20},
+            "skills": {"Atletica": 2}
+        }
+        handle_toggle_door_request({"q": 1, "r": 0, "method": "break"}, barb, self.game_state)
+        self.assertEqual(door["state"], "open")
+
+        # 3. Knock spell (Incantesimo Scassinare)
+        door["state"] = "locked"
+        wizard = Player("Mago")
+        wizard.position = [0, 0]
+        wizard.full_sheet = {
+            "spell_slots": {"2": {"max": 3, "current": 2}}
+        }
+        handle_toggle_door_request({"q": 1, "r": 0, "method": "knock"}, wizard, self.game_state)
+        self.assertEqual(door["state"], "open")
+        self.assertEqual(wizard.full_sheet["spell_slots"]["2"]["current"], 1) # Slot spent!
+
+        # 4. Use key (Chiave dall'inventario)
+        door["state"] = "locked"
+        fighter = Player("Guerriero")
+        fighter.position = [0, 0]
+        fighter.full_sheet = {
+            "inventory": [{"name": "Chiave di Ferro", "qty": 1}]
+        }
+        handle_toggle_door_request({"q": 1, "r": 0, "method": "key", "key_item": "Chiave di Ferro"}, fighter, self.game_state)
+        self.assertEqual(door["state"], "open")
+
     def test_door_effective_walls(self):
         # Closed, locked, and secret doors act as walls for LoS / FoW
         self.game_state.current_map["walls"] = [[5, 5]]

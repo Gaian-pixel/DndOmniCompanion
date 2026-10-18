@@ -182,7 +182,7 @@ def handle_toggle_door_request(data, player, game_state):
     q = data.get("q")
     r = data.get("r")
     req_state = data.get("state")
-    is_dm = (player is None or getattr(player, "role", "") == "DM" or getattr(player, "conn", None) is None)
+    is_dm = (player is None or getattr(player, "role", "") == "DM")
     
     doors = game_state.current_map.setdefault("doors", [])
     target_door = None
@@ -193,7 +193,7 @@ def handle_toggle_door_request(data, player, game_state):
             
     if not target_door:
         if is_dm:
-            new_door = {"q": q, "r": r, "state": "closed", "name": "Porta in Legno", "dc": 15}
+            new_door = {"q": q, "r": r, "state": "closed", "name": "Porta in Legno", "dc": 15, "break_dc": 17, "key_name": ""}
             doors.append(new_door)
             broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
             broadcast(game_state, make_chat_broadcast("Sistema", f"🚪 Il DM ha posizionato una nuova Porta a ({q}, {r})."))
@@ -212,6 +212,8 @@ def handle_toggle_door_request(data, player, game_state):
     cur_state = target_door.get("state", "closed")
     door_name = target_door.get("name", "Porta")
     dc = target_door.get("dc", 15)
+    method = data.get("method") or "lockpick"
+    key_item = data.get("key_item")
 
     from server.rules.movement import auto_explore_fow
 
@@ -247,25 +249,137 @@ def handle_toggle_door_request(data, player, game_state):
                 broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
         game_state._trigger_gui_update()
     elif cur_state == "locked":
-        dex_mod = 0
-        if getattr(player, "full_sheet", None):
-            attrs = player.full_sheet.get("attributes", {})
-            dex_val = attrs.get("DES", attrs.get("DEX", 10))
-            try:
-                dex_mod = (int(dex_val) - 10) // 2
-            except Exception:
-                dex_mod = 0
-        roll = random.randint(1, 20) + dex_mod
-        if roll >= dc:
+        if method == "key":
+            door_key = target_door.get("key_name", "").strip()
+            key_matched = False
+            used_key_name = key_item or "Chiave"
+            if door_key:
+                if key_item and door_key.lower() in key_item.lower():
+                    key_matched = True
+                    used_key_name = key_item
+                elif getattr(player, "full_sheet", None):
+                    inv_items = player.full_sheet.get("inventory_grid", []) + player.full_sheet.get("inventory", [])
+                    for it in inv_items:
+                        if it and isinstance(it, dict) and door_key.lower() in it.get("name", "").lower():
+                            key_matched = True
+                            used_key_name = it.get("name")
+                            break
+            else:
+                key_matched = True
+
+            if key_matched:
+                target_door["state"] = "open"
+                broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
+                broadcast(game_state, make_chat_broadcast("Sistema", f"🔑 {p_name} inserisce '{used_key_name}' nella toppa e apre senza sforzo la {door_name}!"))
+                for p in game_state.players:
+                    if auto_explore_fow(p, game_state):
+                        broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
+                game_state._trigger_gui_update()
+            else:
+                if player.conn:
+                    send_message(player.conn, make_error_reply(f"La chiave che possiedi non è adatta per questa porta (richiede: '{door_key}')."))
+            return
+
+        elif method == "knock":
+            if getattr(player, "full_sheet", None):
+                slots = player.full_sheet.get("spell_slots", {})
+                if "2" in slots and isinstance(slots["2"], dict):
+                    if slots["2"].get("current", 0) > 0:
+                        slots["2"]["current"] -= 1
+                        if player.conn:
+                            send_message(player.conn, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, getattr(player, "conditions", []), getattr(player, "temp_hp", 0)))
             target_door["state"] = "open"
             broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
-            broadcast(game_state, make_chat_broadcast("Sistema", f"🔓 {p_name} riesce a scassinare la serratura della {door_name} (Tiro: {roll} vs CD {dc}) e la spalanca!"))
+            broadcast(game_state, make_chat_broadcast("Sistema", f"🪄 {p_name} lancia l'incantesimo Scassinare (Knock)! La serratura scatta rumorosamente e la {door_name} si spalanca! 🔔 Un rimbombo udibile fino a 90 metri (300 ft) echeggia nelle vicinanze!"))
             for p in game_state.players:
                 if auto_explore_fow(p, game_state):
                     broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
             game_state._trigger_gui_update()
-        else:
-            broadcast(game_state, make_chat_broadcast("Sistema", f"🔒 {p_name} tenta di scassinare la {door_name} (Tiro: {roll} vs CD {dc}), ma la serratura resiste saldamente!"))
+            return
+
+        elif method == "break":
+            str_mod = 0
+            pb = 2
+            has_prof = False
+            has_expertise = False
+            if getattr(player, "full_sheet", None):
+                attrs = player.full_sheet.get("attributes", {})
+                str_val = attrs.get("FOR", attrs.get("STR", 10))
+                try: str_mod = (int(str_val) - 10) // 2
+                except Exception: str_mod = 0
+                lvl = player.full_sheet.get("level", 1)
+                pb = 2 + max(0, (int(lvl) - 1) // 4)
+                skills = player.full_sheet.get("skills", {})
+                ath = skills.get("Atletica", skills.get("Athletics", 0))
+                if ath == 2:
+                    has_expertise = True
+                elif ath == 1:
+                    has_prof = True
+            break_bonus = str_mod + (2 * pb if has_expertise else (pb if has_prof else 0))
+            break_dc = target_door.get("break_dc") or (dc + 2)
+            d20 = random.randint(1, 20)
+            total = d20 + break_bonus
+            detail = f"{d20} + {break_bonus} ({str_mod} FOR" + (f", +{2*pb} Maestria Atletica" if has_expertise else (f", +{pb} Atletica" if has_prof else "")) + ")"
+            if d20 == 20 or total >= break_dc:
+                target_door["state"] = "open"
+                broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
+                broadcast(game_state, make_chat_broadcast("Sistema", f"💥 {p_name} sfonda la {door_name} con un colpo devastante! [Tiro Forza: {total} ({detail}) vs CD {break_dc}] 📢 Il violento boato dello schianto rimbomba nel dungeon!"))
+                for p in game_state.players:
+                    if auto_explore_fow(p, game_state):
+                        broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
+                game_state._trigger_gui_update()
+            else:
+                broadcast(game_state, make_chat_broadcast("Sistema", f"🛡️ {p_name} si scaglia contro la {door_name} [Tiro Forza: {total} ({detail}) vs CD {break_dc}], ma la porta resiste saldamente all'impatto!"))
+            return
+
+        else: # "lockpick"
+            dex_mod = 0
+            pb = 2
+            has_prof = False
+            has_expertise = False
+            if getattr(player, "full_sheet", None):
+                sheet = player.full_sheet
+                attrs = sheet.get("attributes", {})
+                dex_val = attrs.get("DES", attrs.get("DEX", 10))
+                try: dex_mod = (int(dex_val) - 10) // 2
+                except Exception: dex_mod = 0
+                lvl = sheet.get("level", 1)
+                pb = 2 + max(0, (int(lvl) - 1) // 4)
+                
+                c_cls = str(sheet.get("char_class", "")).lower()
+                if any(k in c_cls for k in ["ladro", "rogue"]):
+                    has_prof = True
+                    if int(lvl) >= 1:
+                        feats = str(sheet.get("features", "")).lower()
+                        if "maestria" in feats or "expertise" in feats or "scasso" in feats:
+                            has_expertise = True
+                
+                skills = sheet.get("skills", {})
+                if skills.get("Arnesi da Scasso") == 2 or skills.get("Thieves' Tools") == 2:
+                    has_expertise = True
+                    has_prof = True
+                elif skills.get("Arnesi da Scasso") == 1 or skills.get("Thieves' Tools") == 1:
+                    has_prof = True
+                    
+                feats = str(sheet.get("features", "")).lower()
+                if "arnesi da scasso" in feats or "thieves' tools" in feats:
+                    has_prof = True
+
+            lock_bonus = dex_mod + (2 * pb if has_expertise else (pb if has_prof else 0))
+            d20 = random.randint(1, 20)
+            total = d20 + lock_bonus
+            detail = f"{d20} + {lock_bonus} ({dex_mod} DES" + (f", +{2*pb} Maestria Arnesi" if has_expertise else (f", +{pb} Competenza Arnesi" if has_prof else "")) + ")"
+            if d20 == 20 or total >= dc:
+                target_door["state"] = "open"
+                broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
+                broadcast(game_state, make_chat_broadcast("Sistema", f"🔓 {p_name} scassina la serratura della {door_name} con gli Arnesi da Scasso! [Tiro: {total} ({detail}) vs CD {dc}] e la spalanca!"))
+                for p in game_state.players:
+                    if auto_explore_fow(p, game_state):
+                        broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
+                game_state._trigger_gui_update()
+            else:
+                fumble_msg = " ⚠️ Un arnese si è quasi incastrato nella toppa!" if d20 == 1 else ""
+                broadcast(game_state, make_chat_broadcast("Sistema", f"🔒 {p_name} tenta di scassinare la {door_name} con gli Arnesi da Scasso [Tiro: {total} ({detail}) vs CD {dc}], ma i perni non scattano!{fumble_msg}"))
     elif cur_state == "secret":
         if player.conn:
             send_message(player.conn, make_error_reply("Non noti nulla di insolito qui."))

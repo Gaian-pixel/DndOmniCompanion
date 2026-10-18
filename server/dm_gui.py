@@ -1620,7 +1620,29 @@ class DM_GUI:
                 self.server.game_state._trigger_gui_update()
                 self.redraw_map_and_players()
 
+        def set_break_dc():
+            cur_bdc = door.get("break_dc", door.get("dc", 15) + 2)
+            new_bdc = simpledialog.askinteger("CD Sfondare", f"Inserisci CD per sfondare la porta con Forza (1-30):", initialvalue=cur_bdc, minvalue=1, maxvalue=30)
+            if new_bdc is not None:
+                door["break_dc"] = new_bdc
+                from common.protocol import make_map_data_update_broadcast
+                from server.network import broadcast
+                broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
+                self.server.game_state._trigger_gui_update()
+
+        def set_key_name():
+            cur_key = door.get("key_name", "")
+            new_key = simpledialog.askstring("Chiave Richiesta", "Nome dell'oggetto chiave che apre questa porta (es. Chiave di Ferro):", initialvalue=cur_key)
+            if new_key is not None:
+                door["key_name"] = new_key.strip()
+                from common.protocol import make_map_data_update_broadcast
+                from server.network import broadcast
+                broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
+                self.server.game_state._trigger_gui_update()
+
         menu.add_command(label=f"🔑 Imposta CD Scassinamento (Attuale: {door.get('dc', 15)})...", command=set_dc)
+        menu.add_command(label=f"🔨 Imposta CD Sfondare con Forza (Attuale: {door.get('break_dc', door.get('dc', 15) + 2)})...", command=set_break_dc)
+        menu.add_command(label=f"🗝️ Assegna Nome Chiave (Attuale: '{door.get('key_name', '') or 'Nessuna'}')...", command=set_key_name)
         menu.add_command(label=f"🏷️ Rinomina (Attuale: {door.get('name', 'Porta')})...", command=rename_door)
         menu.add_separator()
         menu.add_command(label="🗑️ Rimuovi Porta", command=delete_door)
@@ -1777,7 +1799,7 @@ class DM_GUI:
             if target_door:
                 self._show_door_management_menu(target_door, clicked_hex)
             else:
-                doors.append({"q": clicked_hex.q, "r": clicked_hex.r, "state": "closed", "name": "Porta in Legno", "dc": 15})
+                doors.append({"q": clicked_hex.q, "r": clicked_hex.r, "state": "closed", "name": "Porta in Legno", "dc": 15, "break_dc": 17, "key_name": ""})
                 from common.protocol import make_map_data_update_broadcast, make_chat_broadcast
                 from server.network import broadcast
                 broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))

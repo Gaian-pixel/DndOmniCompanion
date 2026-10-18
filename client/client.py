@@ -1288,9 +1288,17 @@ class ClientGUI:
             doors = getattr(self, "local_map_data", {}).get("doors", []) if getattr(self, "local_map_data", None) else []
             door_found = next((d for d in doors if d.get("q") == clicked_hex.q and d.get("r") == clicked_hex.r), None)
             if door_found:
-                from common.protocol import make_toggle_door_request
-                self.network.send(make_toggle_door_request(clicked_hex.q, clicked_hex.r))
-                return
+                door_st = door_found.get("state", "closed")
+                if door_st == "secret":
+                    self.request_move(clicked_hex)
+                    return
+                elif door_st == "locked":
+                    self.open_locked_door_dialog(door_found, clicked_hex)
+                    return
+                else:
+                    from common.protocol import make_toggle_door_request
+                    self.network.send(make_toggle_door_request(clicked_hex.q, clicked_hex.r))
+                    return
 
             loots = getattr(self, "local_map_data", {}).get("loots", []) if getattr(self, "local_map_data", None) else []
             loot_found = None
@@ -1603,6 +1611,181 @@ class ClientGUI:
         msg = "Righello attivato: clicca due punti sulla mappa per misurare la distanza." if active else "Righello disattivato."
         self.show_toast(msg, title="📏 Righello", toast_type="info" if active else "secondary")
         return active
+
+    def open_locked_door_dialog(self, door, clicked_hex):
+        win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
+        door_name = door.get("name", "Porta")
+        win.title(f"Interazione: {door_name} (Serrata)")
+        win.minsize(460, 520)
+        from common.theme import apply_modern_window_style
+        apply_modern_window_style(win)
+
+        hdr_f = tk.Frame(win, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        hdr_f.pack(fill=tk.X, padx=12, pady=(12, 6))
+        tk.Label(hdr_f, text=f"🔒 {door_name} (Coordinate: {clicked_hex.q}, {clicked_hex.r})", font=("Segoe UI", 12, "bold"), bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(anchor="w", padx=10, pady=(8, 2))
+        tk.Label(hdr_f, text="La serratura è bloccata. Scegli come tentare di aprirla (Regole D&D 5e):", font=("Segoe UI", 9), bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", padx=10, pady=(0, 8))
+
+        char = getattr(self, "active_character", None)
+        dex_mod = 0
+        str_mod = 0
+        pb = 2
+        has_tools = False
+        tools_prof = False
+        tools_expertise = False
+        ath_prof = False
+        ath_expertise = False
+        slot2_count = 0
+        keys_in_bag = []
+
+        if char:
+            attrs = getattr(char, "attributes", {})
+            dex_val = attrs.get("DES", attrs.get("DEX", 10))
+            try: dex_mod = (int(dex_val) - 10) // 2
+            except Exception: dex_mod = 0
+
+            str_val = attrs.get("FOR", attrs.get("STR", 10))
+            try: str_mod = (int(str_val) - 10) // 2
+            except Exception: str_mod = 0
+
+            lvl = getattr(char, "level", 1) or 1
+            pb = getattr(char, "proficiency_bonus", None) or (2 + max(0, (int(lvl) - 1) // 4))
+
+            inv_items = (getattr(char, "inventory_grid", []) or []) + (getattr(char, "inventory", []) or [])
+            for it in inv_items:
+                if it and isinstance(it, dict):
+                    iname = str(it.get("name", "")).lower()
+                    if any(k in iname for k in ["arnesi da scasso", "thieves' tools", "attrezzi da scasso", "lockpick", "arnesi"]):
+                        has_tools = True
+                    if any(k in iname for k in ["chiave", "key"]):
+                        keys_in_bag.append(it.get("name"))
+
+            c_cls = str(getattr(char, "char_class", "")).lower()
+            if any(k in c_cls for k in ["ladro", "rogue"]):
+                tools_prof = True
+                has_tools = True
+                if int(lvl) >= 1:
+                    feats = str(getattr(char, "features", "")).lower()
+                    if "maestria" in feats or "expertise" in feats or "scasso" in feats:
+                        tools_expertise = True
+
+            skills = getattr(char, "skills", {}) or {}
+            sk_tools = skills.get("Arnesi da Scasso", skills.get("Thieves' Tools", 0))
+            if sk_tools == 2:
+                tools_expertise = True
+                tools_prof = True
+            elif sk_tools == 1:
+                tools_prof = True
+
+            ath = skills.get("Atletica", skills.get("Athletics", 0))
+            if ath == 2:
+                ath_expertise = True
+            elif ath == 1:
+                ath_prof = True
+
+            slots = getattr(char, "spell_slots", {}) or {}
+            if "2" in slots and isinstance(slots["2"], dict):
+                slot2_count = slots["2"].get("current", 0)
+
+        content_f = tk.Frame(win, bg=BG_COLOR)
+        content_f.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+
+        # 1. Card Scasso (Arnesi da Scasso)
+        c1 = tk.Frame(content_f, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        c1.pack(fill=tk.X, pady=4)
+        c1_top = tk.Frame(c1, bg=SURFACE_COLOR)
+        c1_top.pack(fill=tk.X, padx=10, pady=(6, 2))
+        tk.Label(c1_top, text="🗝️ Scassina Serratura (Destrezza + Arnesi)", font=("Segoe UI", 10, "bold"), bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(side=tk.LEFT)
+        
+        lock_bonus = dex_mod + (2 * pb if tools_expertise else (pb if tools_prof else 0))
+        bonus_str = f"+{lock_bonus}" if lock_bonus >= 0 else str(lock_bonus)
+        detail_prof = "Maestria (+{})".format(2*pb) if tools_expertise else ("Competente (+{})".format(pb) if tools_prof else "Non competente")
+        tk.Label(c1_top, text=f"Bonus: {bonus_str}", font=("Segoe UI", 10, "bold"), bg=SURFACE_COLOR, fg="#10B981").pack(side=tk.RIGHT)
+
+        c1_sub = tk.Frame(c1, bg=SURFACE_COLOR)
+        c1_sub.pack(fill=tk.X, padx=10, pady=(0, 6))
+        tools_status = "✔️ Arnesi presenti" if has_tools else "⚠️ Nessun arnese rilevato"
+        tk.Label(c1_sub, text=f"{tools_status} • DES ({'+' if dex_mod>=0 else ''}{dex_mod}) • {detail_prof}", font=("Segoe UI", 8), bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(side=tk.LEFT)
+
+        def do_lockpick():
+            from common.protocol import make_toggle_door_request
+            self.network.send(make_toggle_door_request(clicked_hex.q, clicked_hex.r, method="lockpick"))
+            win.destroy()
+
+        ttk.Button(c1_sub, text="Tenta lo Scasso", command=do_lockpick, style='Success.TButton').pack(side=tk.RIGHT, padx=4)
+
+        # 2. Card Sfondare (Forza / Atletica)
+        c2 = tk.Frame(content_f, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        c2.pack(fill=tk.X, pady=4)
+        c2_top = tk.Frame(c2, bg=SURFACE_COLOR)
+        c2_top.pack(fill=tk.X, padx=10, pady=(6, 2))
+        tk.Label(c2_top, text="🔨 Sfonda la Porta (Forza / Atletica)", font=("Segoe UI", 10, "bold"), bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(side=tk.LEFT)
+
+        break_bonus = str_mod + (2 * pb if ath_expertise else (pb if ath_prof else 0))
+        b_bonus_str = f"+{break_bonus}" if break_bonus >= 0 else str(break_bonus)
+        ath_detail = "Atletica Maestria" if ath_expertise else ("Atletica Competente" if ath_prof else "Solo Forza")
+        tk.Label(c2_top, text=f"Bonus: {b_bonus_str}", font=("Segoe UI", 10, "bold"), bg=SURFACE_COLOR, fg="#F59E0B").pack(side=tk.RIGHT)
+
+        c2_sub = tk.Frame(c2, bg=SURFACE_COLOR)
+        c2_sub.pack(fill=tk.X, padx=10, pady=(0, 6))
+        tk.Label(c2_sub, text=f"📢 Causa forte boato! • FOR ({'+' if str_mod>=0 else ''}{str_mod}) • {ath_detail}", font=("Segoe UI", 8), bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(side=tk.LEFT)
+
+        def do_break():
+            from common.protocol import make_toggle_door_request
+            self.network.send(make_toggle_door_request(clicked_hex.q, clicked_hex.r, method="break"))
+            win.destroy()
+
+        ttk.Button(c2_sub, text="Sfonda Porta", command=do_break, style='Warning.TButton').pack(side=tk.RIGHT, padx=4)
+
+        # 3. Card Incantesimo Scassinare (Knock)
+        c3 = tk.Frame(content_f, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        c3.pack(fill=tk.X, pady=4)
+        c3_top = tk.Frame(c3, bg=SURFACE_COLOR)
+        c3_top.pack(fill=tk.X, padx=10, pady=(6, 2))
+        tk.Label(c3_top, text="🪄 Incantesimo Scassinare (Knock - Liv 2)", font=("Segoe UI", 10, "bold"), bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(side=tk.LEFT)
+        slot_lbl_color = "#3B82F6" if slot2_count > 0 else TEXT_MUTED
+        tk.Label(c3_top, text=f"Slot 2°: {slot2_count}", font=("Segoe UI", 9, "bold"), bg=SURFACE_COLOR, fg=slot_lbl_color).pack(side=tk.RIGHT)
+
+        c3_sub = tk.Frame(c3, bg=SURFACE_COLOR)
+        c3_sub.pack(fill=tk.X, padx=10, pady=(0, 6))
+        tk.Label(c3_sub, text="🔔 Apre all'istante • Echeggia fino a 90 metri (300 ft)", font=("Segoe UI", 8), bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(side=tk.LEFT)
+
+        def do_knock():
+            from common.protocol import make_toggle_door_request
+            self.network.send(make_toggle_door_request(clicked_hex.q, clicked_hex.r, method="knock"))
+            win.destroy()
+
+        knock_btn = ttk.Button(c3_sub, text="Lancia Knock", command=do_knock, style='Primary.TButton')
+        knock_btn.pack(side=tk.RIGHT, padx=4)
+        if slot2_count <= 0 and not any("scassinare" in str(sp.get("name", "")).lower() or "knock" in str(sp.get("name", "")).lower() for sp in (getattr(char, "spellbook", []) or [])):
+            knock_btn.config(state="disabled")
+
+        # 4. Card Usa Chiave
+        c4 = tk.Frame(content_f, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        c4.pack(fill=tk.X, pady=4)
+        c4_top = tk.Frame(c4, bg=SURFACE_COLOR)
+        c4_top.pack(fill=tk.X, padx=10, pady=(6, 2))
+        tk.Label(c4_top, text="🔑 Usa una Chiave dall'Inventario", font=("Segoe UI", 10, "bold"), bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(side=tk.LEFT)
+
+        c4_sub = tk.Frame(c4, bg=SURFACE_COLOR)
+        c4_sub.pack(fill=tk.X, padx=10, pady=(0, 6))
+        if keys_in_bag:
+            key_var = tk.StringVar(value=keys_in_bag[0])
+            key_combo = ttk.Combobox(c4_sub, textvariable=key_var, values=keys_in_bag, state="readonly", width=18)
+            key_combo.pack(side=tk.LEFT, padx=(0, 6))
+
+            def do_key():
+                from common.protocol import make_toggle_door_request
+                self.network.send(make_toggle_door_request(clicked_hex.q, clicked_hex.r, method="key", key_item=key_var.get()))
+                win.destroy()
+
+            ttk.Button(c4_sub, text="Inserisci Chiave", command=do_key, style='Info.TButton').pack(side=tk.RIGHT, padx=4)
+        else:
+            tk.Label(c4_sub, text="Nessuna chiave identificata nell'inventario.", font=("Segoe UI", 8, "italic"), bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(side=tk.LEFT)
+
+        btn_close = ttk.Button(win, text="Annulla / Non Interagire", command=win.destroy, style='Secondary.TButton')
+        btn_close.pack(pady=8)
 
     def open_aoe_dialog(self):
         win = tk.Toplevel(self.master)
