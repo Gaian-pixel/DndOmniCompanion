@@ -96,7 +96,13 @@ def handle_move_request(data, player, game_state):
             return
             
         in_combat = getattr(player, "in_combat", False) or getattr(game_state, "combat_active", False)
-        if in_combat and not is_dm and getattr(game_state, "strict_turn_lock", False):
+        strict_lock = False
+        if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+            strict_lock = game_state.automation_settings.get("strict_turn_lock", False)
+        else:
+            strict_lock = getattr(game_state, "strict_turn_lock", False)
+
+        if in_combat and not is_dm and strict_lock:
             curr_turn = game_state.get_current_turn_player()
             if curr_turn and curr_turn.name != player.name:
                 from common.protocol import make_error_reply
@@ -168,20 +174,27 @@ def handle_move_request(data, player, game_state):
                 req_hexes += step_cost
 
             spent = getattr(player, "movement_spent_this_turn", 0)
+            strict_move = True
+            if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+                strict_move = game_state.automation_settings.get("strict_movement_limits", True)
+
             if (spent + req_hexes) > max_hexes:
-                from common.network_utils import send_message
-                from common.protocol import make_error_reply
-                if getattr(player, "conn", None):
-                    rem = max(0, max_hexes - spent)
-                    rem_str = format_distance_hexes(rem, speed_unit)
-                    tot_str = format_distance_hexes(max_hexes, speed_unit)
-                    diff_hint = " (Attraversare terreno difficile raddoppia il costo!)" if has_diff_terrain_in_path else ""
-                    if cost_prone == 2 and not has_diff_terrain_in_path:
-                        send_message(player.conn, make_error_reply(f"Movimento non consentito: sei Prono. Ti restano {rem // 2} esagoni ({rem_str})."))
-                    else:
-                        hint = " (Puoi usare l'Azione di Scatto /dash per raddoppiare la velocità!)" if not is_dashed else ""
-                        send_message(player.conn, make_error_reply(f"Movimento non consentito: la distanza supera la velocità rimasta per questo turno ({rem_str} rimasti su {tot_str}).{diff_hint}{hint}"))
-                return
+                if strict_move:
+                    from common.network_utils import send_message
+                    from common.protocol import make_error_reply
+                    if getattr(player, "conn", None):
+                        rem = max(0, max_hexes - spent)
+                        rem_str = format_distance_hexes(rem, speed_unit)
+                        tot_str = format_distance_hexes(max_hexes, speed_unit)
+                        diff_hint = " (Attraversare terreno difficile raddoppia il costo!)" if has_diff_terrain_in_path else ""
+                        if cost_prone == 2 and not has_diff_terrain_in_path:
+                            send_message(player.conn, make_error_reply(f"Movimento non consentito: sei Prono. Ti restano {rem // 2} esagoni ({rem_str})."))
+                        else:
+                            hint = " (Puoi usare l'Azione di Scatto /dash per raddoppiare la velocità!)" if not is_dashed else ""
+                            send_message(player.conn, make_error_reply(f"Movimento non consentito: la distanza supera la velocità rimasta per questo turno ({rem_str} rimasti su {tot_str}).{diff_hint}{hint}"))
+                    return
+                else:
+                    game_state.log_dm_message(f"[MOVIMENTO] {player.name} supera la velocità normale del turno ({spent + req_hexes}/{max_hexes} esagoni) - Consentito in modalità tavolo.")
             player.movement_spent_this_turn = spent + req_hexes
 
         # Rilevamento Attacco d'Opportunità (Opportunity Attack)
@@ -323,7 +336,11 @@ def handle_move_request(data, player, game_state):
                         print(f"Errore caricamento mappa teleport {map_file}: {e}")
 
         # Auto-explore FoW around the player's new position with true Line of Sight (LoS) and Dynamic Light
-        if getattr(game_state, "current_map", None) and game_state.current_map.get("fow_enabled", False):
+        auto_fow = True
+        if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+            auto_fow = game_state.automation_settings.get("auto_explore_fow", True)
+
+        if auto_fow and getattr(game_state, "current_map", None) and game_state.current_map.get("fow_enabled", False):
             changed = auto_explore_fow(player, game_state)
             if changed:
                 game_state._trigger_gui_update()

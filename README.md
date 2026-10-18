@@ -89,6 +89,16 @@
 * **Overland Travel, Calendar, Weather, Shops & Quests**: Marching order, travel roles, rations/water, forced march saves, interactive fantasy calendar, merchant shops, and quest logs.
 * **Soundboard & Integrated UDP Voice Chat**: Low-latency voice streaming with Mute/Deafen controls (`[ 🎤 ]` / `[ 🎧 ]`) and synchronized audio soundboard.
 
+### 🎲 Campaign Management Styles: DM Agency vs Automation (5e RAW)
+The DM can adjust the automation level in real time from **Tools ➔ ⚙️ Campaign Management Style (Automations)...** or by clicking the status pill on the map header (`🎲 Table`, `⚖️ Hybrid`, `⚡ Full Auto`):
+* **🎲 Traditional Tabletop (Pen & Paper / RAW DM Control)**: Authentic tabletop pen-and-paper experience. Critical sheet alterations never occur without DM oversight: direct and AoE damage require DM validation, door lockpicking leaves room for narrative consequences, movement does not enforce artificial walls, and concentration breakage or death/KO are adjudicated by the DM.
+* **⚖️ Assisted Hybrid (Recommended for Fluid Sessions)**: The digital assistant handles complex 5e bookkeeping (resistances, covers, visibility, conditions, DCs), while providing the DM with 1-click floating action cards (`[Full]`, `[Half]`, `[Custom]`, `[Cancel]`) to effortlessly confirm or modulate damage.
+* **⚡ Full Automation (Fast Tactical / CRPG Style)**: Direct instant HP deductions, doors unlock immediately upon passing DC, strict combat turn locking, and instantaneous reaction/save prompts.
+* **Granular Coverage Across All Mechanics**:
+  * **⚔️ Combat & Damage**: Direct attack damage, AoE spell/save damage, 2d20 advantage/disadvantage auto-calculation, reaction prompts (Opportunity Attacks, Shield spell), concentration constitution saves, and 0 HP / massive instant death handling.
+  * **🗺️ Map & Movement**: Strict combat turn enforcement, speed limit & difficult terrain blocking, automatic door DC resolution, and dynamic Fog of War auto-exploration.
+  * **⛺ Rest & Resources**: Instant rest recovery (HP, Hit Dice, Spell Slots) vs DM approval with random encounter checks.
+
 ---
 
 ## 🚀 Getting Started

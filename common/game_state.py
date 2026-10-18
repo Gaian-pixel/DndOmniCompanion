@@ -173,9 +173,16 @@ class GameState:
         self.automation_mode = "full" # "manual" | "hybrid" | "full"
         self.automation_settings = {
             "auto_apply_damage": True,
+            "auto_apply_aoe_damage": True,
             "auto_resolve_doors": True,
             "strict_turn_lock": False,
-            "auto_prompt_reactions": True
+            "strict_movement_limits": True,
+            "auto_prompt_reactions": True,
+            "auto_concentration_check": True,
+            "auto_death_saves": True,
+            "auto_calc_advantage": True,
+            "auto_explore_fow": True,
+            "auto_apply_rest_recovery": True
         }
         self.pending_damages = {} # id -> dict
         self.pending_doors = {}   # id -> dict
@@ -186,24 +193,45 @@ class GameState:
         if mode == "manual":
             self.automation_settings = {
                 "auto_apply_damage": False,
+                "auto_apply_aoe_damage": False,
                 "auto_resolve_doors": False,
                 "strict_turn_lock": False,
-                "auto_prompt_reactions": False
+                "strict_movement_limits": False,
+                "auto_prompt_reactions": False,
+                "auto_concentration_check": False,
+                "auto_death_saves": False,
+                "auto_calc_advantage": False,
+                "auto_explore_fow": False,
+                "auto_apply_rest_recovery": False
             }
         elif mode == "full":
             self.automation_settings = {
                 "auto_apply_damage": True,
+                "auto_apply_aoe_damage": True,
                 "auto_resolve_doors": True,
                 "strict_turn_lock": True,
-                "auto_prompt_reactions": True
+                "strict_movement_limits": True,
+                "auto_prompt_reactions": True,
+                "auto_concentration_check": True,
+                "auto_death_saves": True,
+                "auto_calc_advantage": True,
+                "auto_explore_fow": True,
+                "auto_apply_rest_recovery": True
             }
         else: # "hybrid" (predefinito)
             self.automation_mode = "hybrid"
             self.automation_settings = {
                 "auto_apply_damage": False,
+                "auto_apply_aoe_damage": False,
                 "auto_resolve_doors": True,
                 "strict_turn_lock": False,
-                "auto_prompt_reactions": True
+                "strict_movement_limits": True,
+                "auto_prompt_reactions": True,
+                "auto_concentration_check": True,
+                "auto_death_saves": True,
+                "auto_calc_advantage": True,
+                "auto_explore_fow": True,
+                "auto_apply_rest_recovery": True
             }
         if custom_settings and isinstance(custom_settings, dict):
             self.automation_settings.update(custom_settings)

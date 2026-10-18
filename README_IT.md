@@ -89,6 +89,16 @@
 * **Viaggio, Calendario, Meteo, Negozi e Quest**: Ordine di marcia, ruoli di viaggio, razioni/acqua, marcia forzata, calendario fantasy interattivo, negozi e registro missioni.
 * **Soundboard & Voice Chat UDP Integrata**: Streaming vocale a bassa latenza con controlli Mute/Deafen (`[ 🎤 ]` / `[ 🎧 ]`) e soundboard musicale sincronizzata.
 
+### 🎲 Stili di Gestione Campagna: Controllo DM vs Automazione (RAW 5e)
+Il DM può impostare in tempo reale il grado di automazione dell'applicativo da **Strumenti ➔ ⚙️ Stile Gestione Campagna (Automazioni)...** o cliccando la pillola di stato sull'header della mappa (`🎲 Tavolo`, `⚖️ Ibrido`, `⚡ Full Auto`):
+* **🎲 Tavolo Tradizionale (Pen & Paper / Controllo DM RAW)**: Esperienza autentica cartacea. Nessuna modifica critica alle schede avviene a scatola chiusa: i danni e gli AoE attendono l'approvazione del DM, le porte lasciano spazio alla narrazione di serrature e trappole, il movimento non impone muri software invisibili, e la rottura di concentrazione o le morti sono arbitrate dal master senza rigidità.
+* **⚖️ Ibrido Assistito (Consigliato per Sessioni Fluide)**: Il sistema gestisce matematicamente la contabilità 5e (resistenze, coperture, visibilità, condizioni, CD), ma fornisce al DM comode schede fluttuanti a 1-click (`[Pieno]`, `[Dimezza]`, `[Modifica]`, `[Annulla]`) per convalidare i danni a colpo sicuro.
+* **⚡ Full Automation (Tattico Rapido / CRPG)**: Danni sottratti istantaneamente agli HP, porte aperte immediatamente su successo della CD, turni rigorosamente bloccati per chi non è attivo e prompt reazioni/TS automatici.
+* **Estensione Granulare a Ogni Singola Meccanica**:
+  * **⚔️ Combattimento & Danni**: Danni singoli da attacchi, Danni da magie/TS AoE, Calcolo automatico Vantaggio/Svantaggio (2d20), Prompt automatici per reazioni (AdO, Scudo), Verifica e rottura Concentrazione (TS Cos), Risoluzione 0 HP / Morte Istantanea e KO.
+  * **🗺️ Mappa & Movimento**: Blocco rigido turni in combattimento, Blocco velocità massima e costo terreni difficili, Risoluzione porte/scasso CD, Svelamento dinamico Nebbia di Guerra (FoW).
+  * **⛺ Riposo & Risorse**: Recupero automatico istantaneo risorse al riposo lungo (HP, Slot, Dadi Vita) vs convalida e verifica incontri casuali DM.
+
 ---
 
 ## 🚀 Installazione e Avvio Rapido

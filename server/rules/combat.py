@@ -103,15 +103,24 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
     target_player.hp = max(0, new_hp_unbounded)
     
     is_npc = not hasattr(target_player, "conn") or target_player.conn is None
+    auto_death = True
+    if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+        auto_death = game_state.automation_settings.get("auto_death_saves", True)
     
     if target_player.hp == 0:
         if is_npc:
-            if "Morto" not in getattr(target_player, "conditions", []):
-                if not hasattr(target_player, "conditions"): target_player.conditions = []
-                target_player.conditions.append("Morto")
-                _spawn_corpse_loot(target_player, game_state)
+            if auto_death:
+                if "Morto" not in getattr(target_player, "conditions", []):
+                    if not hasattr(target_player, "conditions"): target_player.conditions = []
+                    target_player.conditions.append("Morto")
+                    _spawn_corpse_loot(target_player, game_state)
+            else:
+                msg = f"💀 {target_player.name} scende a 0 HP! (In attesa di verdetto DM: sconfitto/ucciso/arreso)"
+                if game_state:
+                    broadcast(game_state, make_chat_broadcast("Sistema", msg))
+                    game_state.log_dm_message(f"[COMBAT] {msg}")
         else:
-            if excess_damage >= target_player.max_hp:
+            if excess_damage >= target_player.max_hp and auto_death:
                 if not hasattr(target_player, "conditions"): target_player.conditions = []
                 if "Morto" not in target_player.conditions:
                     target_player.conditions.append("Morto")
@@ -195,6 +204,15 @@ def handle_start_combat_request(data, player, game_state):
 def _trigger_concentration_check(target_player, dmg_val, game_state):
     if dmg_val > 0 and is_condition_active(getattr(target_player, "conditions", []), "Concentrazione"):
         dc = max(10, dmg_val // 2)
+        auto_conc = True
+        if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+            auto_conc = game_state.automation_settings.get("auto_concentration_check", True)
+        if not auto_conc:
+            msg = f"⚠️ {target_player.name} subisce danni mentre è concentrato! Richiesto TS Costituzione CD {dc} (Gestione DM)."
+            broadcast(game_state, make_chat_broadcast("Sistema", msg))
+            game_state.log_dm_message(f"[CONCENTRAZIONE] {msg}")
+            return
+            
         if getattr(target_player, "conn", None):
             from common.protocol import make_prompt_save
             send_message(target_player.conn, make_prompt_save("COS", dc, "", False, "Sistema (Concentrazione)", "Contundente"))
@@ -539,12 +557,16 @@ def handle_attack_request(data, player, game_state):
             has_dis = False
             had_both_cancel = True
             
+        auto_calc_adv = True
+        if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+            auto_calc_adv = game_state.automation_settings.get("auto_calc_advantage", True)
+
         roll1 = random.randint(1, 20)
         roll2 = random.randint(1, 20)
-        if has_adv:
+        if auto_calc_adv and has_adv:
             base_roll = max(roll1, roll2)
             d20_detail = f"max({roll1}, {roll2})={base_roll}"
-        elif has_dis:
+        elif auto_calc_adv and has_dis:
             base_roll = min(roll1, roll2)
             d20_detail = f"min({roll1}, {roll2})={base_roll}"
         else:
@@ -846,15 +868,39 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
                     log_msg += " (Elusione 5e: subisce solo metà danni nonostante il TS fallito!)"
                     
             if dmg_val > 0:
-                final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(target_player, dmg_val, damage_type, game_state)
-                log_msg += f" Subisce {final_dmg} danni ({damage_type}){note}!"
-                if temp_absorbed > 0:
-                    log_msg += f" [{temp_absorbed} assorbiti da Temp HP]."
-                log_msg += f" HP: {target_player.hp}/{target_player.max_hp}"
-                if getattr(target_player, "temp_hp", 0) > 0:
-                    log_msg += f" (+{target_player.temp_hp} Temp)"
-                broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
-                game_state._trigger_gui_update()
+                auto_apply_aoe = True
+                if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+                    auto_apply_aoe = game_state.automation_settings.get("auto_apply_aoe_damage", game_state.automation_settings.get("auto_apply_damage", True))
+                
+                if auto_apply_aoe:
+                    final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(target_player, dmg_val, damage_type, game_state)
+                    log_msg += f" Subisce {final_dmg} danni ({damage_type}){note}!"
+                    if temp_absorbed > 0:
+                        log_msg += f" [{temp_absorbed} assorbiti da Temp HP]."
+                    log_msg += f" HP: {target_player.hp}/{target_player.max_hp}"
+                    if getattr(target_player, "temp_hp", 0) > 0:
+                        log_msg += f" (+{target_player.temp_hp} Temp)"
+                    broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
+                    game_state._trigger_gui_update()
+                else:
+                    import uuid
+                    pending_id = f"dmg_{uuid.uuid4().hex[:8]}"
+                    pending_info = {
+                        "id": pending_id,
+                        "attacker": source_name,
+                        "target": target_name,
+                        "raw_damage": dmg_val,
+                        "damage_type": damage_type,
+                        "is_crit": False,
+                        "weapon_name": f"TS {stat} ({source_name})"
+                    }
+                    if not hasattr(game_state, "pending_damages"):
+                        game_state.pending_damages = {}
+                    game_state.pending_damages[pending_id] = pending_info
+                    log_msg += f" 🎯 Danno Calcolato (TS): {dmg_val} ({damage_type}). [In attesa di conferma DM]"
+                    if hasattr(game_state, "gui_queue") and game_state.gui_queue:
+                        game_state.gui_queue.put({"type": "PENDING_DAMAGE_PROMPT", "payload": pending_info})
+                    game_state._trigger_gui_update()
             else:
                 log_msg += " Non subisce danni."
         except Exception as e:

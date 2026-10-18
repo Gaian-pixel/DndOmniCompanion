@@ -24,6 +24,7 @@ from server.rules.combat import (
     handle_apply_pending_damage_request
 )
 from client.character_manager import Character
+from server.rules.character import trigger_group_long_rest
 
 class TestAuthentic5eFeatures(unittest.TestCase):
     def setUp(self):
@@ -358,6 +359,57 @@ class TestAuthentic5eFeatures(unittest.TestCase):
         handle_resolve_pending_door_request({"pending_id": pending_id, "outcome": "open"}, None, self.game_state)
         self.assertEqual(door["state"], "open", "Il DM ha stabilito l'apertura manuale della porta")
         self.assertEqual(len(self.game_state.pending_doors), 0)
+
+    def test_automation_settings_extended_mechanics(self):
+        # 1. Imposta profilo manuale esteso
+        self.game_state.set_automation_mode("manual")
+        self.assertFalse(self.game_state.automation_settings["auto_apply_aoe_damage"])
+        self.assertFalse(self.game_state.automation_settings["auto_concentration_check"])
+        self.assertFalse(self.game_state.automation_settings["strict_movement_limits"])
+        self.assertFalse(self.game_state.automation_settings["auto_apply_rest_recovery"])
+
+        # 2. AoE Damage Queuing
+        target = Player("Bersaglio")
+        target.position = [1, 0]
+        target.hp = 40
+        target.max_hp = 40
+        target.conditions = ["Concentrazione"]
+        self.game_state.players = [target]
+
+        _process_save_result(target.name, "DES", 10, False, False, 15, "4d6", True, "Mago Nemico", self.game_state, "Fuoco")
+        self.assertEqual(target.hp, 40, "In modalità manuale i danni AoE non vengono sottratti automaticamente")
+        self.assertIn("Concentrazione", target.conditions, "In modalità manuale la concentrazione non viene rimossa d'ufficio")
+        self.assertEqual(len(self.game_state.pending_damages), 1)
+
+        pending_id = list(self.game_state.pending_damages.keys())[0]
+        p_info = self.game_state.pending_damages[pending_id]
+        self.assertEqual(p_info["attacker"], "Mago Nemico")
+        self.assertEqual(p_info["target"], "Bersaglio")
+        dmg_val = p_info["raw_damage"]
+
+        # DM applica il danno pieno tramite la scheda rapida
+        handle_apply_pending_damage_request({"pending_id": pending_id, "action": "apply"}, None, self.game_state)
+        self.assertEqual(target.hp, 40 - dmg_val)
+        self.assertEqual(len(self.game_state.pending_damages), 0)
+
+        # 3. Movimento oltre il limite in modalità manuale (tavolo libero)
+        target.in_combat = True
+        target.speed = 30 # 6 esagoni
+        target.position = [0, 0]
+        # Tentativo di movimento a 8 esagoni di distanza [8, 0]
+        self.game_state.current_map["hexes"].append([8, 0])
+        handle_move_request({"to": [8, 0]}, target, self.game_state)
+        self.assertEqual(target.position, [8, 0], "In modalità tavolo il movimento oltre la velocità massima è consentito all'arbitrio del DM")
+
+        # 4. Riposo Lungo in modalità manuale: richiede approvazione DM, non azzera le risorse d'ufficio
+        class DummyConn:
+            def __init__(self): self.sent = []
+            def sendall(self, data): self.sent.append(data)
+        d_conn = DummyConn()
+        target.conn = d_conn
+        target.hp = 10
+        trigger_group_long_rest(self.game_state)
+        self.assertFalse(any(b"DO_LONG_REST" in s for s in d_conn.sent), "In modalità tavolo il riposo non invia DO_LONG_REST automatico")
 
 if __name__ == "__main__":
     unittest.main()

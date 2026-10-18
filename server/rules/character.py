@@ -172,6 +172,19 @@ def trigger_group_long_rest(game_state, reason="Il gruppo si è accampato per un
     game_state.travel_hours_today = 0
     from common.protocol import make_chat_broadcast
     from common.network_utils import send_message, broadcast
+    
+    auto_rest = True
+    if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+        auto_rest = game_state.automation_settings.get("auto_apply_rest_recovery", True)
+        
+    if not auto_rest:
+        msg = f"⛺ {reason} Richiesta di Riposo registrata (in attesa di conferma DM / verifica incontri casuali)."
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        game_state.log_dm_message(f"[RIPOSO] {msg}")
+        game_state.ongoing_rest_vote = None
+        game_state._trigger_gui_update()
+        return
+
     broadcast(game_state, make_chat_broadcast("Sistema", f"{reason} Tutti recuperano HP e Slot."))
     for p in getattr(game_state, "players", []):
         if getattr(p, "conn", None):
