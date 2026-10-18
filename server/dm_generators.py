@@ -8,7 +8,7 @@ Generatori di improvvisazione per il Dungeon Master (5e):
 import random
 import tkinter as tk
 from tkinter import ttk, scrolledtext, simpledialog
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from common.theme import (
     apply_modern_window_style, BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT,

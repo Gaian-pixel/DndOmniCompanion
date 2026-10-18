@@ -112,6 +112,12 @@
   * Quest tracking (`Library ➔ Quest Log`) synchronized across all players with objective descriptions, quest givers, rewards, and completion status.
   * Parchment handouts and illustrations broadcast directly to all connected players with a parchment viewer dialog.
 * **Procedural Generators**: 5e Loot Generator and Quick NPC Generator.
+* **Compendium & SRD Split View and Authentic 5e Statblock**:
+  * **Master-Detail Split View Interface**: Interactive two-pane layout (`server/compendium_ui.py`) with a searchable/filterable list on the left and full 5e statblock preview on the right, equipped with contextual primary action buttons (*Spawn Monster on Map*, *Add to Spellbook*, *Equip Item*).
+  * **5e Statblock Component (`components/statblock_view.py`)**: High-fidelity Dark Fantasy rendering complete with badges for Armor Class, Hit Points, and Speed, 6 ability score table with real-time calculated modifiers, saving throws, skills, senses, languages, Challenge Rating (CR), traits, highlighted action dice expressions, reactions, and legendary actions.
+  * **Multi-Criteria Fast Filters**: Toggle buttons for Challenge Rating tiers (All, CR 0–1/2, 1–4, 5–9, 10–14, 15–19, 20+), Creature Type (All, Dragon, Undead, Humanoid, Beast, Aberration, Construct, Fey, Monstrosity, Giant, Celestial, Fiend...), Magic Item Rarity (Common, Uncommon, Rare, Very Rare, Legendary), and Spell Schools.
+  * **Deterministic AC & Speed Normalization (No raw `[{}]`)**: Robust normalization parsing complex armors (e.g., natural armor, shield) and secondary movement speeds (fly, swim, burrow, climb), guaranteeing clean statblocks across both official SRD and PDF-extracted entries.
+  * **Mini-Statblock in DM Bestiary Panel (`server/dm_bestiary_panel.py`)**: CR and creature type fast filters with a compact visual statblock card in the DM sidebar and 2-click instant spawning.
 * **Offline PDF Rulebooks & Command Palette (`Ctrl+K`)**: Instant search across indexed official 5e PDF rulebooks, rules, monsters, spells, and map tokens.
 * **Overland Travel, Calendar, Weather & Shops**: Marching order, travel roles, rations/water, forced march saves, interactive fantasy calendar, and merchant shops.
 * **Soundboard & Integrated UDP Voice Chat**: Low-latency voice streaming with Mute/Deafen controls (`[ 🎤 ]` / `[ 🎧 ]`) and synchronized audio soundboard.
@@ -232,6 +238,7 @@ DndOmniCompanion/
 │   └── theme.py                    # Dark Fantasy color palette and UI styles
 ├── components/                     # Shared Tkinter/ttkbootstrap custom widgets
 │   ├── ui_components.py            # HexMapCanvas, HUDs, Ruler, ToolTip, Toast, Command Palette
+│   ├── statblock_view.py           # Authentic 5e Statblock card for monsters, spells, and magic items
 │   ├── calendar_ui.py              # Fantasy calendar and dynamic weather
 │   ├── quest_ui.py                 # Quest Log interface
 │   └── shop_ui.py                  # Merchant & Shop interface

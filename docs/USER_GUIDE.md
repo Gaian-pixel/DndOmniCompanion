@@ -477,8 +477,28 @@ In the DM **`Initiative & Characters`** tab:
      * For bosses with an active lair (`has_lair_actions = True`), at the top of each combat round at **Initiative count 20**, an automated Lair Action alert broadcasts to chat and DM logs, allowing the DM to trigger environmental lair effects.
    * **Legendary Resistances (3/day)**: when the boss fails a saving throw, the DM can immediately turn the failure into a success.
 
-### SRD Bestiary, Offline PDF Rulebooks & Procedural Generators
-* **`Bestiary` Tab & `Tools -> Compendium & SRD`**: search monsters from the 5e SRD or indexed PDF rulebooks and click **Spawn on Map** to place them with full stats, AC, HP, and actions.
+### SRD Bestiary, Compendium Split View & Procedural Generators
+* **Compendium & SRD Split View (`Tools -> Compendium & SRD` or `Library -> Compendium & Rules`)**:
+  * **Interactive Master-Detail Interface**: The unified compendium features a responsive two-pane split layout; the left column displays searchable results with live filtering and item counters, while the right panel instantly renders the full 5e statblock card of the selected entry.
+  * **Authentic 5e Statblock Component (`StatblockCardView`)**:
+    * **Monsters & NPCs**: Faithful to the official *Monster Manual* format with high-contrast badges for **Armor Class** (including armor/shield type notes), **Hit Points** (with hit dice formula), and **Speed** (walking, flying, swimming, burrowing, climbing). Displays a 6-stat ability score grid with real-time calculated modifiers ($(\text{stat}-10)//2$), saving throws with proficiency, skills, damage/condition immunities and resistances, senses (darkvision, passive perception), languages, and Challenge Rating (CR with awarded XP). Dedicated sections for Special Traits, Actions with highlighted attack bonuses and damage formulas, Reactions, and Legendary Actions with action point costs.
+    * **Magic Items**: Scroll-themed card displaying item rarity badges (*Common*, *Uncommon*, *Rare*, *Very Rare*, *Legendary*), item category, attunement prerequisites (`Requires Attunement`), magical properties, and lore text.
+    * **Spells**: Full spell header with level and school, casting time, range, components (V, S, M), duration, concentration/ritual tags, full description, and higher-level scaling (*At Higher Levels*).
+  * **Multi-Criteria Fast Filters**:
+    * **Monsters**: Fast-toggle buttons for Challenge Rating tiers (*All*, *CR 0–1/2*, *CR 1–4*, *CR 5–9*, *CR 10–14*, *CR 15–19*, *CR 20+*) and Creature Types (*All*, *Dragon*, *Undead*, *Humanoid*, *Beast*, *Aberration*, *Construct*, *Fey*, *Monstrosity*, *Giant*, *Celestial*, *Fiend*...).
+    * **Magic Items**: Fast filters for Rarity and Equipment Type (*Weapon*, *Armor*, *Wand*, *Ring*, *Potion*, *Wondrous*...).
+    * **Spells**: Filters by Spell Level (Cantrip, 1–9) and Magic School.
+  * **Contextual Primary Action Button**: The bottom right of the statblock features the primary action for the active context:
+    * *Monsters*: **`Spawn on Map 🐉`** places the creature at the last clicked hex or map center with initiative, HP, AC, speed, and complete sheet.
+    * *Spells*: **`Add to Spellbook ✨`** copies the spell directly into the active character's spell list.
+    * *Items*: **`Add to Inventory 🎒`** assigns the item to the active character.
+* **`Bestiary` Tab in DM Right Sidebar**:
+  * Integrated search bar with instant filter pills for Challenge Rating (CR) and Creature Type.
+  * **Visual Mini-Statblock**: Compact card rendering with AC, HP, normalized speed badges, and essential ability score table.
+  * **Instant 2-Click Spawning**: Double-click any entry in the bestiary list or click **Spawn on Map** to deploy monsters in seconds.
+* **Deterministic AC & Speed Normalization (No raw `[{}]`)**:
+  * The engine automatically sanitizes all SRD and PDF-extracted monster entries, removing raw nested JSON formatting (such as `[{'value': 18, ...}]`).
+  * Reliably extracts base and complex movement speeds (e.g., *Walk 30 ft, Fly 80 ft, Swim 40 ft*) and armor notes (e.g., *18 (Plate Armor)*).
 * **Browse Rulebooks (`📖` or `Tools -> Browse Rulebooks`)**: instant offline search inside official PDF manuals stored in `manuals_pdf/` (*Player's Handbook*, *Dungeon Master's Guide*, *Monster Manual*, *Tasha's*, *Xanathar's*).
 * **5e Loot Generator (`Tools -> 💰 Loot Generator`)**: generate balanced treasure hoards by Challenge Rating (CR 0–4, 5–10, 11–16, 17+) and split gold with 1 click.
 * **Quick NPC Generator (`Tools -> 🎭 Quick NPC Generator`)**: generate complete NPCs with name, race, personality trait, secret, stats, and 1-click map spawning.

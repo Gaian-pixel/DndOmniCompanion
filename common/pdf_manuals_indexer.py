@@ -24,6 +24,8 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PDF_DIR = os.path.join(BASE_DIR, "manuals_pdf")
 CACHE_FILE = os.path.join(BASE_DIR, "manuals", "pdf_index_cache.json")
 
+from common.srd_offline import extract_and_normalize_attributes, get_monster_offline
+
 # Dizionario traduzioni / sinonimi italiano-inglese per ricerca istantanea
 ITALIAN_TRANSLATIONS = {
     # Condizioni & Stati
@@ -908,6 +910,26 @@ class PDFManualsIndexer:
                     data = json.load(f)
                 self.metadata = data.get("metadata", {})
                 self.entries = data.get("entries", [])
+
+                # Arricchimento trasparente in memoria per mostri indicizzati:
+                # garantisce che attributes e statistiche siano sempre complete e accurate
+                for e in self.entries:
+                    if e.get("category") == "Mostri & PNG" or "monster_data" in e:
+                        mdata = e.get("monster_data")
+                        if not mdata or not isinstance(mdata, dict):
+                            mdata = {}
+                            e["monster_data"] = mdata
+                        title = e.get("title", "")
+                        cur_attrs = mdata.get("attributes")
+                        if not cur_attrs or all(v == 10 for v in cur_attrs.values()):
+                            mdata["attributes"] = extract_and_normalize_attributes(e.get("content", ""), title)
+                        if mdata.get("ac", 10) == 10:
+                            srd_rec = get_monster_offline(title)
+                            if srd_rec and srd_rec.get("armor_class", 10) > 10:
+                                mdata["ac"] = srd_rec["armor_class"]
+                                if "summary" in e:
+                                    e["summary"] = re.sub(r'CA\s+10\b', f'CA {mdata["ac"]}', e["summary"])
+
                 print(f"[PDF_INDEXER] Caricate {len(self.entries)} voci da cache ({self.cache_file})")
                 return True
             except Exception as e:
@@ -1066,6 +1088,12 @@ class PDFManualsIndexer:
                         hp_val = normalize_stat_number(hp_match.group(1) if hp_match else 20)
                         cr_val = normalize_stat_number(cr_match.group(1) if cr_match else "1", is_cr=True)
 
+                        attrs = extract_and_normalize_attributes(slice_txt, clean_mname)
+                        if ac_val == 10:
+                            srd_rec = get_monster_offline(clean_mname)
+                            if srd_rec and srd_rec.get("armor_class", 10) > 10:
+                                ac_val = srd_rec["armor_class"]
+
                         meta_parts = [f"CA {ac_val}", f"HP {hp_val}", f"CR {cr_val}"]
                         meta_str = " | ".join(meta_parts)
 
@@ -1095,7 +1123,8 @@ class PDFManualsIndexer:
                                 "name": clean_mname,
                                 "ac": ac_val,
                                 "hp": hp_val,
-                                "cr": cr_val
+                                "cr": cr_val,
+                                "attributes": attrs
                             }
                         })
 
@@ -1106,6 +1135,7 @@ class PDFManualsIndexer:
                         ptxt = get_page_text(reader, p_idx) if p_idx < len(reader.pages) else ""
                         raw_extra = ptxt if ptxt else extra["desc"]
                         clean_body = format_clean_monster_stat_block(raw_extra, extra["name"], extra["desc"])
+                        extra_attrs = extract_and_normalize_attributes(raw_extra, extra["name"])
                         stat_header = f"**Classe Armatura**: {extra['ac']} | **Punti Ferita**: {extra['hp']} | **Grado Sfida (CR)**: {extra['cr']}"
                         all_entries.append({
                             "id": f"pdf_mm_{extra['name'].lower()}_{extra['page']}",
@@ -1123,7 +1153,8 @@ class PDFManualsIndexer:
                                 "name": extra["name"],
                                 "ac": extra["ac"],
                                 "hp": extra["hp"],
-                                "cr": extra["cr"]
+                                "cr": extra["cr"],
+                                "attributes": extra_attrs
                             }
                         })
 

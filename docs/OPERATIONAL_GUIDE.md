@@ -117,6 +117,8 @@ flowchart TD
   * `map_interaction.py`: pings, ruler, interactive doors, lockpicking with tools, room pins, and boxed text broadcast.
   * `inventory.py` & `client/character_manager.py`: peer-to-peer trading, merchant shops, currency (50 coins = 1 lb), DM approval, magic item attunement (`🔮`), per-item storage containers (`🎒 Backpack`, `⚔️ Equipped`, `🔮 Bag of Holding`, `✨ Handy Haversack`, `🐴 Mount`), tactical "Drop Backpack" action (PHB p. 190), and 5e Variant: Encumbrance (PHB p. 176) with dynamic effective speed penalties.
   * `audio.py`: synchronized audio broadcasts and soundboard.
+* **`components/statblock_view.py` (`StatblockCardView`)**: Modular UI component for authentic Dark Fantasy D&D 5e statblock rendering. Supports three polymorphic modes: **Monsters/NPCs** (AC/HP/Speed badges, 6-stat table with calculated modifiers, saving throws, skills, damage/condition resistances, traits, actions with highlighted dice formulas, reactions, legendary actions), **Magic Items** (rarity, item type, attunement, properties), and **Spells** (level, school, casting time, range, components, duration, and upcast scaling). Features contextual primary action buttons and responsive canvas scrolling.
+* **`common/srd_offline.py`**: Offline compendium and data normalization layer. Provides `normalize_ac_value` and `normalize_speed_value` to sanitize incoming payloads from raw JSON nested dictionaries (`[{}]`), robust regex parsing for multi-movement modes (fly, swim, burrow, climb), numeric fractional CR conversion (`"1/8"`, `"1/4"`, `"1/2"`), and automated stat enrichment for entries extracted from offline PDF rulebooks.
 * **`common/i18n.py`**: Real-time bilingual translation dictionary (`IT`/`EN`), Imperial/Metric unit conversion (`ft`/`mi` $\leftrightarrow$ `m`/`km`), localization of token sizes, GM layer, whiteboard tools, and multi-scale map distance/travel-time calculation.
 
 ---
@@ -246,10 +248,19 @@ The server features a granular architecture for balancing 5e automation with hum
    * **Legendary Resistances**: Monsters with legendary resistance (e.g., 3/day) can turn a failed saving throw into a success with 1 click.
    * **Legendary Actions**: Spend legendary action points outside the boss's turn, resetting automatically at the start of each round.
 
-### Monster Bestiary & Offline PDF Indexer
-* **Online SRD Bestiary**: Search monsters by name via Open5e/D&D 5e API.
-* **Offline PDF Indexer**: Click **Cerca in PDF** to search offline directly inside official rulebook PDFs (Monster Manual, Player's Handbook, Dungeon Master's Guide) cached in `manuals/pdf_index_cache.json`.
-* **One-Click Spawn**: Click **Spawna sulla Mappa** to instantly place the monster token at the last clicked hex with complete HP, AC, speed, actions, and initiative stats.
+### Monster Bestiary, Split View Compendium & Offline PDF Indexer
+* **Compendium & SRD Split View (`server/compendium_ui.py`)**:
+  * **Master-Detail Architecture**: Split-pane interface built with a dual-column layout. The left column houses the live search bar, fast-filtering controls (CR tiers, creature types, magic item rarity), and `ttk.Treeview`/`tk.Listbox` with an active counter. The right column mounts the `StatblockCardView` instance backed by smooth canvas scrolling.
+  * **Integrated 5e Statblock Rendering**: Faithfully renders numeric and textual attributes fetched from APIs or parsed from PDF caches with high-contrast Dark Fantasy typography and styling.
+  * **Spawning & Network Integration**: The primary action button triggers `on_monster_spawned` in `DM_GUI`, instantiating the creature as an NPC `Player` (`is_party_member=False`) placed at the targeted hex or viewport center, immediately broadcasting `PLAYER_JOINED` and `PLAYER_STATS_UPDATE` to all connected clients.
+* **DM Bestiary Sidebar Panel (`server/dm_bestiary_panel.py`)**:
+  * Integrated directly into the DM's right notebook. Features quick-filtering pills for Challenge Rating (*All, 0-1/2, 1-4, 5-9, 10-14, 15-19, 20+*) and Creature Types (*Dragon, Undead, Humanoid...*).
+  * **Responsive Mini-Statblock**: Instantly displays a structured card summary with AC/HP/Speed badges and compact ability scores, preserving full backward compatibility with `self.bestiario_preview`.
+  * **Instant Spawning**: Double-click any monster in the list to spawn it on the map without opening separate dialogs.
+* **Data Normalization Pipeline (`common/srd_offline.py`)**:
+  * `normalize_ac_value`: Sanitizes heterogeneous incoming AC data (raw integers, dicts with `'value'`/`'type'`, unparsed JSON lists) into clean, rulebook-compliant descriptive strings (e.g. `18 (plate armor)`).
+  * `normalize_speed_value`: Parses multi-movement dictionaries (`"walk"`, `"fly"`, `"swim"`, `"burrow"`, `"climb"`) into readable strings for both sheet viewing and map movement.
+* **Offline PDF Indexer (`common/pdf_manuals_indexer.py`)**: Searches offline directly inside official rulebook PDFs (Monster Manual, Player's Handbook, Dungeon Master's Guide) cached in `manuals/pdf_index_cache.json`.
 
 ### Handouts & Clue Sharing
 * Open `Strumenti -> Condividi Documento (Handout)`.

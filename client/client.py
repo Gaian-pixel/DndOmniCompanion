@@ -32,7 +32,7 @@ from common.theme import (
     BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT, BORDER_COLOR,
     TEXT_COLOR, TEXT_MUTED, TEXT_DARK,
     ACCENT_GOLD, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE,
-    FONT_MAIN, FONT_TITLE, FONT_HEADER, FONT_BOLD, FONT_SMALL
+    FONT_MAIN, FONT_TITLE, FONT_HEADER, FONT_BOLD, FONT_SMALL, FONT_REGULAR
 )
 from .network import ClientNetwork
 
@@ -137,7 +137,7 @@ class ClientGUI:
         library_menu.add_command(label=_t("menu_manuals"), command=self.open_manuals_dialog)
         library_menu.add_command(label=_t("menu_srd_compendium"), command=self.open_srd_compendium)
         library_menu.add_separator()
-        library_menu.add_command(label="📜 Registro Missioni (Quest Log)", command=self.open_quest_log_dialog)
+        library_menu.add_command(label=_t("menu_quest_log"), command=self.open_quest_log_dialog)
         menubar.add_cascade(label=_t("menu_library"), menu=library_menu)
 
 
@@ -774,12 +774,16 @@ class ClientGUI:
         if not char:
             return
         menu = tk.Menu(self.master, tearoff=0)
-        menu.add_command(label="🕯️ Torcia (Luce intensa 6m, fioca 6m)", command=lambda: self.set_light_preset("torch"))
-        menu.add_command(label="🏮 Lanterna a Cappuccio (Luce intensa 9m, fioca 9m)", command=lambda: self.set_light_preset("hooded_lantern"))
-        menu.add_command(label="🌑 Lanterna Schermata (Luce fioca 1.5m)", command=lambda: self.set_light_preset("dim_hooded"))
-        menu.add_command(label="✨ Incantesimo Luce (Luce intensa 6m, fioca 6m)", command=lambda: self.set_light_preset("light_spell"))
+        from client.character_manager import LIGHT_PRESETS
+        is_en = (get_language() == "en")
+        for key, p in LIGHT_PRESETS.items():
+            name = p.get("name_en") if is_en else p.get("name_it")
+            desc = p.get("desc_en") if is_en else p.get("desc_it")
+            icon = p.get("icon", "🕯️")
+            menu.add_command(label=f"{icon} {name} ({desc})", command=lambda k=key: self.set_light_preset(k))
         menu.add_separator()
-        menu.add_command(label="🚫 Spegni Luce", command=lambda: self.set_light_preset(None))
+        off_label = "🚫 Douse Light" if is_en else "🚫 Spegni Luce"
+        menu.add_command(label=off_label, command=lambda: self.set_light_preset(None))
         try:
             if event:
                 menu.tk_popup(event.x_root, event.y_root)
@@ -1371,12 +1375,12 @@ class ClientGUI:
                 break
                 
         if self.character_manager and self.character_manager.active_character and token_name == self.character_manager.active_character.name:
-            menu.add_command(label="Visualizza Scheda", command=self.open_stats_dialog)
+            menu.add_command(label=_t("ctx_view_sheet", default="Visualizza Scheda PG"), command=self.open_stats_dialog)
             
         def _open_priv():
             self.open_private_chat_from_list(None)
             
-        menu.add_command(label="Invia Messaggio Privato", command=_open_priv)
+        menu.add_command(label=_t("ctx_open_private_chat", default="Invia Messaggio Privato"), command=_open_priv)
         
         try:
             menu.tk_popup(event.x_root, event.y_root)
@@ -2200,11 +2204,18 @@ class ClientGUI:
             turn_name = all_players[self.turn_index]['name']
         
         time_hour = self.game_state.get("time_hour", 12) if self.game_state else 12
+        time_minute = self.game_state.get("time_minute", 0) if self.game_state else 0
         weather = self.game_state.get("weather", "Sereno") if self.game_state else "Sereno"
         combat_active = self.combat_active
         combat_order = [p["name"] for p in all_players] if combat_active else []
         
         round_number = getattr(self, "round_number", 1)
+        auto_day_night = True
+        if self.game_state and isinstance(self.game_state.get("automation_settings"), dict):
+            auto_day_night = self.game_state["automation_settings"].get("auto_day_night_cycle", True)
+        elif hasattr(self, "automation_settings") and isinstance(self.automation_settings, dict):
+            auto_day_night = self.automation_settings.get("auto_day_night_cycle", True)
+
         self.map_canvas.update_data(
             self.local_map_data, 
             players_info, 
@@ -2215,7 +2226,9 @@ class ClientGUI:
             weather=weather,
             combat_active=combat_active,
             combat_order=combat_order,
-            round_number=round_number
+            round_number=round_number,
+            time_minute=time_minute,
+            auto_day_night=auto_day_night
         )
 
     def handle_map_data_update(self, data):
@@ -2605,6 +2618,11 @@ class ClientGUI:
 
     def handle_automation_settings_broadcast(self, data):
         mode = data.get("mode", "hybrid")
+        settings = data.get("settings", {})
+        self.automation_settings = settings
+        if self.game_state:
+            self.game_state["automation_settings"] = settings
+            self.game_state["automation_mode"] = mode
         mode_names = {
             "manual": "🎲 Tavolo Tradizionale (Controllo DM)",
             "hybrid": "⚖️ Ibrido Assistito",
@@ -2612,6 +2630,7 @@ class ClientGUI:
         }
         name = mode_names.get(mode, mode)
         self.log_to_chat(f"⚙️ Stile di gestione campagna impostato dal DM su: {name}", "Sistema", ACCENT_GOLD)
+        self.redraw_map_and_players()
 
     def handle_prompt_reaction(self, data):
         reaction_type = data.get("reaction_type")
@@ -2736,70 +2755,11 @@ class ClientGUI:
 
     def open_quest_log_dialog(self):
         """Apre il registro interattivo delle missioni ed obiettivi della campagna."""
-        win = tk.Toplevel(self.master)
-        win.transient(self.master)
-        win.title("📜 Registro Missioni della Campagna")
-        win.minsize(520, 460)
-        from common.theme import apply_modern_window_style
-        apply_modern_window_style(win)
-
-        hdr = tk.Frame(win, bg="#1A1B1E", padx=14, pady=10)
-        hdr.pack(fill=tk.X)
-        tk.Label(hdr, text="📜 Diario delle Missioni & Obiettivi", font=("Georgia", 14, "bold"), bg="#1A1B1E", fg="#D4AF37").pack(anchor="w")
-        tk.Label(hdr, text="Tieni traccia delle avventure, indizi e compiti affidati dal Dungeon Master.", font=("Segoe UI", 9), bg="#1A1B1E", fg="#9CA3AF").pack(anchor="w")
-
-        content_frame = tk.Frame(win, bg="#212529", padx=12, pady=10)
-        content_frame.pack(fill=tk.BOTH, expand=True)
-
+        from components.quest_ui import QuestLogDialog
         quests = getattr(self, "quests", []) or []
         if not quests and hasattr(self, "server") and getattr(self.server, "game_state", None):
             quests = getattr(self.server.game_state, "quests", [])
-
-        if not quests:
-            empty_box = tk.Frame(content_frame, bg="#2B2D31", padx=20, pady=30, relief="flat")
-            empty_box.pack(fill=tk.BOTH, expand=True)
-            tk.Label(empty_box, text="🕊️ Nessuna Missione Attiva", font=("Georgia", 13, "bold"), bg="#2B2D31", fg="#F8F9FA").pack(pady=(0, 6))
-            tk.Label(empty_box, text="Non ci sono attualmente compiti registrati.\nIl Dungeon Master assegnerà nuove missioni durante l'esplorazione!", font=("Segoe UI", 10), bg="#2B2D31", fg="#9CA3AF", justify="center").pack()
-        else:
-            canvas = tk.Canvas(content_frame, bg="#212529", highlightthickness=0)
-            scrollbar = ttk.Scrollbar(content_frame, orient="vertical", command=canvas.yview)
-            scroll_frame = tk.Frame(canvas, bg="#212529")
-            scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-            canvas.create_window((0, 0), window=scroll_frame, anchor="nw", width=480)
-            canvas.configure(yscrollcommand=scrollbar.set)
-            canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-            for q in quests:
-                q_title = q.get("title", "Missione Senza Titolo")
-                q_desc = q.get("description", "")
-                q_chapter = q.get("chapter", "Avventura")
-                is_done = q.get("completed", False)
-                rewards = q.get("rewards", {})
-
-                q_card = tk.Frame(scroll_frame, bg="#2B2D31", padx=10, pady=8, highlightbackground="#374151", highlightthickness=1)
-                q_card.pack(fill=tk.X, pady=6)
-
-                top_row = tk.Frame(q_card, bg="#2B2D31")
-                top_row.pack(fill=tk.X)
-                status_icon = "✅ Completata" if is_done else "🟢 In Corso"
-                status_color = "#10B981" if is_done else "#F59E0B"
-                tk.Label(top_row, text=f"[{q_chapter}] {q_title}", font=("Georgia", 11, "bold"), bg="#2B2D31", fg="#D4AF37").pack(side=tk.LEFT)
-                tk.Label(top_row, text=status_icon, font=("Segoe UI", 9, "bold"), bg="#2B2D31", fg=status_color).pack(side=tk.RIGHT)
-
-                if q_desc:
-                    tk.Label(q_card, text=q_desc, font=("Segoe UI", 9), bg="#2B2D31", fg="#E5E7EB", wraplength=460, justify="left").pack(anchor="w", pady=(4, 2))
-
-                if rewards and isinstance(rewards, dict):
-                    rew_parts = []
-                    if "xp" in rewards: rew_parts.append(f"{rewards['xp']} PE")
-                    if "gp" in rewards: rew_parts.append(f"{rewards['gp']} MO")
-                    if rew_parts:
-                        tk.Label(q_card, text=f"🎁 Ricompensa: {', '.join(rew_parts)}", font=("Segoe UI", 8, "italic"), bg="#2B2D31", fg="#9CA3AF").pack(anchor="w", pady=(2, 0))
-
-        btn_bar = tk.Frame(win, bg="#1A1B1E", padx=12, pady=8)
-        btn_bar.pack(fill=tk.X)
-        ttk.Button(btn_bar, text="Chiudi", command=win.destroy).pack(side=tk.RIGHT)
+        QuestLogDialog(self.master, {"quests": quests}, is_dm=False, network_or_server=getattr(self, "network", None))
 
     def handle_opportunity_alert(self, data):
 

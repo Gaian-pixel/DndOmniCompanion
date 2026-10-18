@@ -116,6 +116,8 @@ flowchart TD
   * `map_interaction.py`: ping, righello, porte interattive, serrature/scasso con arnesi, spille di stanza (*Room Pins*) e narrazione al tavolo.
   * `inventory.py` & `client/character_manager.py`: scambi P2P, negozi, valuta (50 monete = 1 lb), approvazione DM, sintonia magica (`🔮`), contenitori per singolo oggetto (`🎒 Zaino`, `⚔️ Addosso`, `🔮 Borsa Conservante`, `✨ Zaino Pratico`, `🐴 Cavalcatura`), tattica "Sfila lo Zaino a Terra" (PHB p. 190) e Regola Variante di Ingombro 5e (PHB p. 176) con penalità dinamica alla velocità effettiva.
   * `audio.py`: gestione broadcast audio e soundboard.
+* **`components/statblock_view.py` (`StatblockCardView`)**: Componente grafico modulare per il rendering Dark Fantasy 5e fedele al formato cartaceo dei manuali. Gestisce tre modalità polimorfiche: **Mostri/PNG** (badge CA/PV/Velocità, tabella caratteristiche, tiri salvezza, abilità, resistenze, tratti, azioni, reazioni, azioni leggendarie), **Oggetti Magici** (rarità, categoria, sintonia e proprietà) e **Incantesimi** (livello, scuola, tempo di lancio, gittata, componenti, durata e scaling superiore). Include pulsanti di azione primari contestuali e scrollbar automatica.
+* **`common/srd_offline.py`**: Livello di normalizzazione dati e compendio offline. Include `normalize_ac_value` e `normalize_speed_value` per depurare i payload da artefatti e dizionari annidati (`[{}]`), parsing di stringhe complesse per movimenti multipli (volo, nuoto, scavo, scalata), conversione numerica di Gradi di Sfida frazionari (`"1/8"`, `"1/4"`, `"1/2"`), e arricchimento delle statistiche base di mostri importati da PDF o API esterne.
 * **`common/i18n.py`**: Dizionario di traduzione bilingue in tempo reale (`IT`/`EN`), conversione unità Imperiale/Metrica (`ft`/`mi` $\leftrightarrow$ `m`/`km`), localizzazione taglie creature, GM layer, strumenti lavagna e motore di calcolo per scale mappa e tempi di viaggio.
 
 ---
@@ -245,10 +247,19 @@ Il server implementa un'architettura granulare per arbitrare il livello di autom
    * **Resistenze Leggendarie**: I mostri dotati di resistenze leggendarie (es. 3/giorno) possono trasformare un Tiro Salvezza fallito in un successo con 1 click.
    * **Azioni Leggendarie**: Spendi punti azione leggendaria fuori dal turno del boss, con reset automatico all'inizio di ogni round.
 
-### Bestiario Mostri e Indicizzatore PDF Offline
-* **Bestiario SRD Online**: Cerca mostri per nome tramite API SRD 5e / Open5e.
-* **Indicizzatore PDF Offline**: Cerca istantaneamente offline all'interno dei manuali PDF ufficiali indicizzati in `manuals/pdf_index_cache.json`.
-* **Spawn con 1 Click**: Clicca su **Spawna sulla Mappa** per posizionare il token del mostro con PV, CA, velocità, azioni e iniziativa completi.
+### Bestiario Mostri, Compendio Split View e Indicizzatore PDF Offline
+* **Compendio & SRD Split View (`server/compendium_ui.py`)**:
+  * **Architettura Master-Detail**: pannello diviso tramite `ttk.PanedWindow` orizzontale o contenitore a griglia a 2 colonne. La colonna di sinistra ospita la barra di ricerca, i controlli di filtraggio rapido (CR, tipo creatura, rarità) e la `ttk.Treeview`/`tk.Listbox` con indicazione del numero di risultati. La colonna di destra ospita l'istanza di `StatblockCardView` con scrolling reattivo e canvas dedicato.
+  * **Rendering Statblock 5e Integrato**: renderizza attributi numerici e descrittivi estratti dalle API o dai manuali PDF con tipografia ad alto contrasto dark fantasy.
+  * **Spawning ed Integrazione di Rete**: il pulsante primario richiama `on_monster_spawned` su `DM_GUI`, instanziando l'entità come `Player` (`is_party_member=False`) con coordinate sull'ultimo esagono cliccato o al centro del viewport e trasmettendo il broadcast `PLAYER_JOINED` e `PLAYER_STATS_UPDATE` a tutti i client connessi.
+* **Pannello Bestiario DM (`server/dm_bestiary_panel.py`)**:
+  * Componente integrato nella sidebar destra del DM. Include pulsanti di filtraggio rapido per Grado di Sfida (*Tutti, 0-1/2, 1-4, 5-9, 10-14, 15-19, 20+*) e Tipo Creatura (*Drago, Non Morto, Umanoide...*).
+  * **Mini-Statblock e Preview Reattiva**: visualizza istantaneamente un sommario completo con badge CA/HP/Velocità e tabella caratteristiche essenziali, mantenendo retrocompatibilità completa con `self.bestiario_preview`.
+  * **Spawning Diretto**: doppio click su qualsiasi mostro per schierarlo all'istante sulla mappa senza dover aprire finestre secondarie.
+* **Pipeline di Normalizzazione Dati (`common/srd_offline.py`)**:
+  * `normalize_ac_value`: converte rappresentazioni eterogenee (interi, dizionari con chiavi `'value'`/`'type'`, liste di dizionari JSON grezze) in stringhe eleganti conformi ai manuali (es. `18 (armatura a piastre)`).
+  * `normalize_speed_value`: parsa dizionari con chiavi `"walk"`, `"fly"`, `"swim"`, `"burrow"`, `"climb"`, garantendo una visualizzazione multi-movimento chiara sia nella scheda DM che su mappa.
+* **Indicizzatore PDF Offline (`common/pdf_manuals_indexer.py`)**: Cerca istantaneamente offline all'interno dei manuali PDF ufficiali indicizzati nella cache `manuals/pdf_index_cache.json`.
 
 ### Handout e Condivisione Indizi
 * Apri `Strumenti -> Condividi Documento testuale` o `Condividi Immagine (Handout)`.

@@ -112,6 +112,12 @@
   * Gestione e tracciamento missioni (`Libreria ➔ Registro Missioni`) con sincronizzazione in tempo reale tra tutti i partecipanti, dettagli, assegnatore e ricompense.
   * Condivisione globale di documenti su pergamena e illustrazioni con visualizzatore pergamena dedicato su tutti i client.
 * **Generatori Procedurali**: Generatore di Bottino 5e e Generatore Rapido PNG.
+* **Compendio & SRD Split View e Statblock 5e Autentico**:
+  * **Interfaccia Split View Master-Detail**: layout interattivo a due pannelli (`server/compendium_ui.py`) con lista filtrabile a sinistra e anteprima statblock completa a destra, accompagnata dal pulsante di azione primario contestuale (*Spawna Mostro sulla Mappa*, *Aggiungi al Grimorio*, *Equipaggia Oggetto*).
+  * **Componente Statblock 5e (`components/statblock_view.py`)**: rendering Dark Fantasy ad alta fedeltà con badge per Classe Armatura, Punti Ferita e Velocità, tabella delle 6 caratteristiche con modificatori calcolati in tempo reale, tiri salvezza, abilità, sensi, lingue, Grado di Sfida (CR), tratti speciali, azioni con dadi evidenziati, reazioni e azioni leggendarie.
+  * **Filtri Rapidi Multi-Criterio**: pulsanti per Grado di Sfida (Tutti, CR 0–1/2, 1–4, 5–9, 10–14, 15–19, 20+), Tipo Creatura (Tutti, Drago, Non Morto, Umanoide, Bestia, Aberrazione, Costrutto, Fata, Mostruosità, Gigante, Celestiale, Immondezzaio...), Rarità Oggetti Magici (Comune, Non Comune, Raro, Molto Raro, Leggendario) e Tipo Incantesimo.
+  * **Normalizzazione CA e Velocità (Anti-Raw `[{}]`)**: conversione deterministica di armature complesse e movimenti secondari (volo, nuoto, scavo, scalata), garantendo schede mostro pulite sia per l'SRD ufficiale che per le voci estratte dai manuali PDF.
+  * **Mini-Statblock nel Bestiario DM (`server/dm_bestiary_panel.py`)**: filtri rapidi per Grado di Sfida e Tipo con card di anteprima compatta nella sidebar del DM e spawning istantaneo con doppio click.
 * **Manuali PDF Offline & Tavolozza Comandi (`Ctrl+K`)**: Ricerca istantanea su manuali PDF ufficiali indicizzati, regole, mostri, incantesimi e token.
 * **Viaggio, Calendario, Meteo e Negozi**: Ordine di marcia, ruoli di viaggio, razioni/acqua, marcia forzata, calendario fantasy interattivo e negozi mercantili.
 * **Soundboard & Voice Chat UDP Integrata**: Streaming vocale a bassa latenza con controlli Mute/Deafen (`[ 🎤 ]` / `[ 🎧 ]`) e soundboard musicale sincronizzata.
@@ -232,6 +238,7 @@ DndOmniCompanion/
 │   └── theme.py                    # Palette colori Dark Fantasy e stili UI
 ├── components/                     # Widget grafici condivisi Tkinter/ttkbootstrap
 │   ├── ui_components.py            # HexMapCanvas, HUD, Righello, ToolTip, Toast, Command Palette
+│   ├── statblock_view.py           # Statblock 5e autentico per mostri, incantesimi e oggetti magici
 │   ├── calendar_ui.py              # Calendario fantasy e meteo dinamico
 │   ├── quest_ui.py                 # Gestione Quest Log
 │   └── shop_ui.py                  # Interfaccia Negozi e Mercanti

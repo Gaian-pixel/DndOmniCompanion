@@ -560,19 +560,54 @@ class HexMapCanvas(tk.Canvas):
                 hp = pdata.get('hp', '?')
                 hp_max = pdata.get('hp_max', '?')
                 temp_hp = pdata.get('temp_hp', 0) or 0
-                ac = pdata.get('ac') or (pdata.get('full_sheet', {}) or {}).get('ac')
+                from common.srd_offline import normalize_ac_value, normalize_speed_value
+                raw_ac = pdata.get('ac') if pdata.get('ac') is not None else (pdata.get('full_sheet', {}) or {}).get('ac')
+                ac = normalize_ac_value(raw_ac, default=None) if raw_ac is not None else None
+                raw_spd = pdata.get('speed') or (pdata.get('full_sheet', {}) or {}).get('speed')
                 conds = pdata.get('conditions', [])
 
                 details = []
                 if 'hp' in pdata:
                     t_str = f" (+{temp_hp})" if temp_hp > 0 else ""
                     details.append(f"❤️ HP: {hp}/{hp_max}{t_str}")
-                if ac:
+                if ac is not None:
                     details.append(f"🛡️ CA: {ac}")
+                if raw_spd is not None:
+                    _, speed_disp, _ = normalize_speed_value(raw_spd)
+                    details.append(f"👟 {speed_disp}")
                 if details:
                     tk.Label(card, text="  •  ".join(details), bg="#181B22", fg="#ECEFF1", font=("Segoe UI", 8, "bold"), anchor="w").pack(anchor="w", pady=(1, 0))
                 if conds:
                     tk.Label(card, text=f"✨ {', '.join(conds)}", bg="#181B22", fg="#60A5FA", font=("Segoe UI", 8), anchor="w").pack(anchor="w", pady=(1, 0))
+
+                # Azioni e caratteristiche di attacco/danno della creatura
+                sheet = pdata.get('full_sheet') if isinstance(pdata, dict) else {}
+                actions = sheet.get('actions') if isinstance(sheet, dict) else []
+                if not actions and token_name:
+                    try:
+                        from common.srd_offline import get_monster_offline
+                        srd_m = get_monster_offline(token_name)
+                        if srd_m and srd_m.get('actions'):
+                            actions = srd_m.get('actions', [])
+                    except Exception:
+                        pass
+                if actions:
+                    act_summaries = []
+                    for a in actions[:3]:
+                        a_name = a.get('name', 'Attacco') if isinstance(a, dict) else str(a).split('.')[0].strip()
+                        a_desc = a.get('desc', '') if isinstance(a, dict) else str(a)
+                        t_parts = []
+                        if isinstance(a, dict) and a.get('attack_bonus'):
+                            t_parts.append(f"+{a['attack_bonus']}")
+                        m_hit = re.search(r'Hit:\s*([0-9]+\s*\([^)]+\))', a_desc)
+                        if m_hit:
+                            t_parts.append(m_hit.group(1))
+                        elif isinstance(a, dict) and a.get('damage_dice'):
+                            t_parts.append(str(a['damage_dice']))
+                        extra = f" ({', '.join(t_parts)})" if t_parts else ""
+                        act_summaries.append(f"⚔️ {a_name}{extra}")
+                    if act_summaries:
+                        tk.Label(card, text="  |  ".join(act_summaries), bg="#181B22", fg="#FBBF24", font=("Segoe UI", 8), anchor="w").pack(anchor="w", pady=(2, 0))
 
     def _on_ruler_drag(self, event):
         if not self.hex_layout or not self._ruler_start_hex: return
@@ -758,7 +793,7 @@ class HexMapCanvas(tk.Canvas):
         pos = pdata.get('position', [0, 0]) if isinstance(pdata, dict) else pdata
         self.center_on_hex(Hex(*pos))
 
-    def update_data(self, map_data, players_data, player_name="", turn_player_name="", aoes_data=None, time_hour=12, weather="Sereno", combat_active=False, combat_order=None, round_number=1):
+    def update_data(self, map_data, players_data, player_name="", turn_player_name="", aoes_data=None, time_hour=12, weather="Sereno", combat_active=False, combat_order=None, round_number=1, time_minute=0, auto_day_night=True):
         """Salva i dati necessari per il ridisegno."""
         if getattr(self, 'map_data', None) is not map_data:
             self._map_hexes_set = None
@@ -768,10 +803,12 @@ class HexMapCanvas(tk.Canvas):
         self.turn_player_name = turn_player_name
         self.aoes_data = aoes_data or []
         self.time_hour = time_hour
+        self.time_minute = time_minute
         self.weather = weather
         self.combat_active = combat_active
         self.combat_order = combat_order or []
         self.round_number = round_number
+        self.auto_day_night = auto_day_night
         self.redraw()
 
     def redraw(self):
@@ -1595,20 +1632,97 @@ class HexMapCanvas(tk.Canvas):
         """Disegna l'atmosfera temporale (Giorno/Notte/Alba/Tramonto) e il clima dinamico (Sereno, Pioggia, Tempesta, Neve, Nebbia)."""
         import random
 
-        # 1. Ciclo Giorno / Notte / Alba / Tramonto
+        # 1. Ciclo Giorno / Notte / Alba / Tramonto (Mappe all'Aperto vs Al Chiuso / Dungeon)
         hour = getattr(self, "time_hour", 12)
+        minute = getattr(self, "time_minute", 0)
         is_night = False
         time_period_desc = ""
-        if hour < 6 or hour > 19:
-            is_night = True
-            time_period_desc = "Notte"
-            self.create_rectangle(0, 0, w, h, fill="#050811", stipple="gray50", outline="", tags="night_overlay")
-        elif 6 <= hour < 8:
-            time_period_desc = "Alba"
-            self.create_rectangle(0, 0, w, h, fill="#fef3c7", stipple="gray12", outline="", tags="night_overlay")
-        elif 18 <= hour <= 19:
-            time_period_desc = "Tramonto"
-            self.create_rectangle(0, 0, w, h, fill="#ea580c", stipple="gray12", outline="", tags="night_overlay")
+        period_icon = "☀️"
+        
+        # Determina se la mappa è all'aperto (outdoor) o al chiuso/dungeon
+        is_outdoor = True
+        if isinstance(self.map_data, dict):
+            if "outdoor" in self.map_data:
+                is_outdoor = bool(self.map_data["outdoor"])
+            else:
+                m_name = str(self.map_data.get("name", "") or self.map_data.get("id", "")).lower()
+                indoor_keywords = ("dungeon", "sotterraneo", "caverna", "cave", "crypt", "cripta", "indoor", "interno", "taverna", "tavern", "catacombe")
+                is_outdoor = not any(kw in m_name for kw in indoor_keywords)
+
+        auto_day_night = getattr(self, "auto_day_night", True)
+
+        if is_outdoor and auto_day_night:
+            if hour < 6 or hour >= 20:
+                is_night = True
+                time_period_desc = "Notte"
+                period_icon = "🌙"
+                # Oscurità notturna (filtro cielo notturno blu scuro)
+                self.create_rectangle(0, 0, w, h, fill="#050811", stipple="gray50", outline="", tags="night_overlay")
+                
+                # Stelle notturne scintillanti nel cielo all'aperto (deterministico su ora)
+                star_rng = random.Random(77 + hour)
+                star_count = min(60, max(24, int((w * h) / 18000)))
+                for _ in range(star_count):
+                    sx_star = star_rng.randint(0, w)
+                    sy_star = star_rng.randint(0, h)
+                    sr = star_rng.choice([1, 1, 1.5, 2])
+                    scol = star_rng.choice(["#FFFFFF", "#F8FAFC", "#E0F2FE", "#BAE6FD", "#FEF08A"])
+                    self.create_oval(sx_star - sr, sy_star - sr, sx_star + sr, sy_star + sr, fill=scol, outline="", tags="night_overlay")
+
+                # Fasci e aure di luce dinamica che forano l'oscurità notturna attorno a torce e lanterne
+                if getattr(self, "players_data", None) and getattr(self, "hex_layout", None):
+                    hex_sz = self.map_data.get("hex_size", 30) if isinstance(self.map_data, dict) else 30
+                    g_type = self.map_data.get("grid_type", "hex") if isinstance(self.map_data, dict) else "hex"
+                    is_sq = g_type in ("square", "none", "gridless")
+                    step_d = (hex_sz * 1.5 if is_sq else hex_sz * 1.7320508075688772)
+                    for pname, pdata in self.players_data.items():
+                        if not isinstance(pdata, dict):
+                            continue
+                        l_rad = pdata.get("light_radius", 0)
+                        if l_rad > 0:
+                            l_pos = pdata.get("position", [0, 0])
+                            cx, cy = self.hex_layout.hex_to_pixel(Hex(l_pos[0], l_pos[1]))
+                            lsx = cx * self.zoom_level + self.pan_offset_x
+                            lsy = cy * self.zoom_level + self.pan_offset_y
+                            scr_lr = l_rad * step_d * self.zoom_level
+                            # Alone esterno luce fioca
+                            self.create_oval(
+                                lsx - scr_lr, lsy - scr_lr, lsx + scr_lr, lsy + scr_lr,
+                                fill="#FEF3C7", stipple="gray12", outline="#F59E0B", dash=(4, 3), width=2,
+                                tags="night_overlay"
+                            )
+                            # Nucleo luce intensa
+                            inner_lr = max(16.0, scr_lr * 0.5)
+                            self.create_oval(
+                                lsx - inner_lr, lsy - inner_lr, lsx + inner_lr, lsy + inner_lr,
+                                fill="#FEF08A", stipple="gray25", outline="#FDE047", width=1.5,
+                                tags="night_overlay"
+                            )
+                            self.create_text(
+                                lsx, lsy - 16, text="🔥",
+                                font=("Segoe UI Emoji", max(9, int(11 * self.zoom_level))),
+                                tags="night_overlay"
+                            )
+            elif 6 <= hour < 8:
+                time_period_desc = "Alba"
+                period_icon = "🌅"
+                self.create_rectangle(0, 0, w, h, fill="#fef3c7", stipple="gray12", outline="", tags="night_overlay")
+            elif 18 <= hour < 20:
+                time_period_desc = "Tramonto"
+                period_icon = "🌇"
+                self.create_rectangle(0, 0, w, h, fill="#ea580c", stipple="gray12", outline="", tags="night_overlay")
+            else:
+                # Giorno pieno (08:00 - 18:00): piena luce solare intensa, nessuna oscurità
+                time_period_desc = "Giorno"
+                period_icon = "☀️"
+        elif is_outdoor and not auto_day_night:
+            # Ciclo Giorno/Notte disattivato nel profilo della campagna: visuale limpida senza filtri celesti
+            time_period_desc = "Manuale"
+            period_icon = "☀️"
+        else:
+            # Mappa Al Chiuso / Dungeon: il ciclo solare celeste non influenza l'ambiente interno
+            time_period_desc = "Al Chiuso"
+            period_icon = "🏰"
 
         # 2. Normalizzazione del clima (supporto bilingue IT / EN)
         raw_weather = str(getattr(self, "weather", "Sereno")).strip()
@@ -1770,7 +1884,7 @@ class HexMapCanvas(tk.Canvas):
                 stip = rng.choice(["gray25", "gray50", "gray25"])
                 self.create_oval(cx - rx, cy - ry, cx + rx, cy + ry, fill="#05030a", stipple=stip, outline="", tags="weather_overlay")
 
-        # 4. Elegante Pill HUD Clima & Notte in alto a destra
+        # 4. Elegante Pill HUD Clima, Giorno/Notte & Ambiente in alto a destra
         WEATHER_META = {
             "sereno": ("☀️", "Sereno", "#EAB308", "#FEF08A"),
             "pioggia": ("🌧️", "Pioggia", "#38BDF8", "#BAE6FD"),
@@ -1782,21 +1896,35 @@ class HexMapCanvas(tk.Canvas):
         icon, canon_name, border_col, text_col = WEATHER_META.get(w_key, ("☀️", "Sereno", "#EAB308", "#FEF08A"))
         
         try:
-            from common.i18n import translate_weather
+            from common.i18n import translate_weather, translate_period
             weather_label = translate_weather(canon_name)
+            period_label = translate_period(time_period_desc)
         except Exception:
             weather_label = canon_name
+            period_label = time_period_desc
             
-        if is_night:
-            badge_text = f"🌙 {hour:02d}:00  •  {icon} {weather_label}"
-            badge_w = 175
-        elif time_period_desc:
-            p_icon = "🌅" if time_period_desc == "Alba" else "🌇"
-            badge_text = f"{p_icon} {time_period_desc}  •  {icon} {weather_label}"
-            badge_w = 175
+        if is_outdoor:
+            if auto_day_night:
+                badge_text = f"{period_icon} {hour:02d}:{minute:02d} ({period_label})  •  {icon} {weather_label}"
+                if is_night:
+                    border_col = "#6366F1"
+                    text_col = "#C7D2FE"
+                elif time_period_desc == "Alba":
+                    border_col = "#F59E0B"
+                    text_col = "#FEF3C7"
+                elif time_period_desc == "Tramonto":
+                    border_col = "#EA580C"
+                    text_col = "#FFEDD5"
+            else:
+                badge_text = f"☀️ {hour:02d}:{minute:02d} ({period_label})  •  {icon} {weather_label}"
+                border_col = "#EAB308"
+                text_col = "#FEF08A"
         else:
-            badge_text = f"{icon} {weather_label}"
-            badge_w = 115
+            badge_text = f"🏰 {hour:02d}:{minute:02d} ({period_label})  •  {icon} {weather_label}"
+            border_col = "#818CF8"
+            text_col = "#E0E7FF"
+
+        badge_w = max(130, int(len(badge_text) * 7.2) + 16)
 
         self._weather_badge_bbox = None
         if w > 200 and h > 120:

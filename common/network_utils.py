@@ -13,11 +13,14 @@ _send_locks_guard = threading.Lock()
 
 def _get_send_lock(sock):
     with _send_locks_guard:
-        lock = _send_locks.get(sock)
-        if lock is None:
-            lock = threading.Lock()
-            _send_locks[sock] = lock
-        return lock
+        try:
+            lock = _send_locks.get(sock)
+            if lock is None:
+                lock = threading.Lock()
+                _send_locks[sock] = lock
+            return lock
+        except TypeError:
+            return _send_locks_guard
 
 def _recv_exact(sock, n):
     """Riceve esattamente n byte (recv può restituirne meno di quelli richiesti)."""

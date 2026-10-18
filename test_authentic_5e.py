@@ -28,6 +28,8 @@ from server.rules.character import trigger_group_long_rest
 
 class TestAuthentic5eFeatures(unittest.TestCase):
     def setUp(self):
+        import random
+        random.seed(42)
         self.game_state = GameState(gui_queue=queue.Queue())
         self.game_state.current_map = {
             "name": "Dungeon Test",
@@ -367,6 +369,8 @@ class TestAuthentic5eFeatures(unittest.TestCase):
         self.assertFalse(self.game_state.automation_settings["auto_concentration_check"])
         self.assertFalse(self.game_state.automation_settings["strict_movement_limits"])
         self.assertFalse(self.game_state.automation_settings["auto_apply_rest_recovery"])
+        self.assertFalse(self.game_state.automation_settings["auto_advance_time"])
+        self.assertFalse(self.game_state.automation_settings["auto_day_night_cycle"])
 
         # 2. AoE Damage Queuing
         target = Player("Bersaglio")

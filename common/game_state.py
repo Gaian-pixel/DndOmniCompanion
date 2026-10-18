@@ -168,6 +168,8 @@ class GameState:
         self.time_month = 1
         self.time_year = 1492
         self.time_hour = 8
+        self.time_minute = 0
+        self.time_second = 0
         self.weather = "Sereno"
         self.calendar_events = {}
         self.quests = []
@@ -189,7 +191,9 @@ class GameState:
             "auto_death_saves": True,
             "auto_calc_advantage": True,
             "auto_explore_fow": True,
-            "auto_apply_rest_recovery": True
+            "auto_apply_rest_recovery": True,
+            "auto_advance_time": True,
+            "auto_day_night_cycle": True
         }
         self.pending_damages = {} # id -> dict
         self.pending_doors = {}   # id -> dict
@@ -209,7 +213,9 @@ class GameState:
                 "auto_death_saves": False,
                 "auto_calc_advantage": False,
                 "auto_explore_fow": False,
-                "auto_apply_rest_recovery": False
+                "auto_apply_rest_recovery": False,
+                "auto_advance_time": False,
+                "auto_day_night_cycle": False
             }
         elif mode == "full":
             self.automation_settings = {
@@ -223,7 +229,9 @@ class GameState:
                 "auto_death_saves": True,
                 "auto_calc_advantage": True,
                 "auto_explore_fow": True,
-                "auto_apply_rest_recovery": True
+                "auto_apply_rest_recovery": True,
+                "auto_advance_time": True,
+                "auto_day_night_cycle": True
             }
         else: # "hybrid" (predefinito)
             self.automation_mode = "hybrid"
@@ -238,7 +246,9 @@ class GameState:
                 "auto_death_saves": True,
                 "auto_calc_advantage": True,
                 "auto_explore_fow": True,
-                "auto_apply_rest_recovery": True
+                "auto_apply_rest_recovery": True,
+                "auto_advance_time": True,
+                "auto_day_night_cycle": True
             }
         if custom_settings and isinstance(custom_settings, dict):
             self.automation_settings.update(custom_settings)
@@ -315,7 +325,11 @@ class GameState:
                 self.turn_index = 0
                 self.round_number += 1
                 round_advanced = True
-                self.advance_game_time(seconds=6)
+                auto_time = True
+                if hasattr(self, "automation_settings") and isinstance(self.automation_settings, dict):
+                    auto_time = self.automation_settings.get("auto_advance_time", True)
+                if auto_time:
+                    self.advance_game_time(seconds=6)
 
             if 0 <= self.turn_index < len(combatants):
                 active = combatants[self.turn_index]
@@ -406,6 +420,11 @@ class GameState:
             
             # Mantiene uno stato locale "draft" della nebbia per il master
             map_data["fow_draft"] = map_data["fow_revealed"][:]
+            
+            if "outdoor" not in map_data:
+                map_name = str(map_data.get("name", "") or map_data.get("id", "")).lower()
+                indoor_keywords = ("dungeon", "sotterraneo", "caverna", "cave", "crypt", "cripta", "indoor", "interno", "taverna", "tavern", "catacombe")
+                map_data["outdoor"] = not any(kw in map_name for kw in indoor_keywords)
                 
             self.current_map = map_data
             # Resetta la posizione dei giocatori quando carichi una nuova mappa
@@ -477,6 +496,8 @@ class GameState:
                 "time_month": getattr(self, 'time_month', 1),
                 "time_year": getattr(self, 'time_year', 1492),
                 "time_hour": getattr(self, 'time_hour', 8),
+                "time_minute": getattr(self, 'time_minute', 0),
+                "time_second": getattr(self, 'time_second', 0),
                 "weather": getattr(self, 'weather', "Sereno"),
                 "calendar_events": getattr(self, 'calendar_events', {}),
                 "quests": getattr(self, 'quests', []),
@@ -534,6 +555,8 @@ class GameState:
             self.time_month = state.get("time_month", 1)
             self.time_year = state.get("time_year", 1492)
             self.time_hour = state.get("time_hour", 8)
+            self.time_minute = state.get("time_minute", 0)
+            self.time_second = state.get("time_second", 0)
             self.weather = state.get("weather", "Sereno")
             self.calendar_events = state.get("calendar_events", {})
             self.quests = state.get("quests", [])
@@ -625,6 +648,10 @@ class GameState:
         if map_name in self.maps:
             self.active_map_id = map_name
             self.current_map = self.maps[map_name]
+            if "outdoor" not in self.current_map:
+                m_name = str(self.current_map.get("name", "") or map_name).lower()
+                indoor_keywords = ("dungeon", "sotterraneo", "caverna", "cave", "crypt", "cripta", "indoor", "interno", "taverna", "tavern", "catacombe")
+                self.current_map["outdoor"] = not any(kw in m_name for kw in indoor_keywords)
             self._trigger_gui_update()
             
             from common.protocol import make_map_data_update_broadcast, make_chat_broadcast

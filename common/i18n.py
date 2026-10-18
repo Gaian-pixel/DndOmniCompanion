@@ -137,7 +137,13 @@ PERIODS_IT_TO_EN = {
     "Mattina": "Morning",
     "Pomeriggio": "Afternoon",
     "Sera": "Evening",
-    "Notte": "Night"
+    "Notte": "Night",
+    "Alba": "Dawn",
+    "Giorno": "Day",
+    "Tramonto": "Dusk",
+    "Al Chiuso": "Indoor",
+    "Dungeon": "Dungeon",
+    "Manuale": "Manual"
 }
 PERIODS_EN_TO_IT = {v: k for k, v in PERIODS_IT_TO_EN.items()}
 
@@ -201,6 +207,7 @@ STRINGS = {
         "menu_new_campaign": "Nuova Campagna...",
         "menu_load_campaign": "Carica Campagna...",
         "menu_edit_active_campaign": "Editor Campagna Attiva...",
+        "menu_close_campaign": "Chiudi Campagna Attiva",
         "menu_load_map": "Carica Mappa...",
         "menu_save_session": "Salva Sessione...",
         "menu_load_session": "Carica Sessione...",
@@ -209,6 +216,8 @@ STRINGS = {
         "confirm_exit_client": "Vuoi chiudere il client e uscire?",
         "confirm_exit_connected": "Sei attualmente connesso al server.\nVuoi davvero disconnetterti e chiudere il client?",
         "menu_tools": "Strumenti",
+        "menu_encounter_builder": "⚔️ Preparazione Combattimenti (Encounter Builder)...",
+        "btn_encounter_builder": "⚔️ Encounter Builder",
         "menu_loot_gen": "💰 Generatore di Bottino (Loot 5e)",
         "menu_npc_gen": "🎭 Generatore Rapido PNG",
         "menu_map_editor": "Editor Mappe",
@@ -216,10 +225,13 @@ STRINGS = {
         "menu_share_text": "Condividi Documento testuale",
         "menu_download_maps": "Scarica Mappe Famose",
         "menu_srd_compendium": "Compendio & SRD",
-        "menu_encounter_builder": "Preparazione Combattimenti",
+        "menu_quest_log": "📜 Registro Missioni & Handouts...",
         "menu_manuals": "📖 Consulta Manuali di Gioco (PHB, DMG, MM)",
         "menu_travel_panel": "Pannello Viaggio",
         "menu_starter_pack": "Starter Pack Campagna",
+        "menu_automation_settings": "⚙️ Stile Gestione Campagna (Automazioni)...",
+        "campaign_none_title": "Nessuna Campagna Attiva",
+        "campaign_none_prompt": "Non c'è una campagna attualmente caricata.\n\nVuoi caricare una campagna esistente?\n(Scegli 'No' per creare una Nuova Campagna)",
         "menu_server": "Server",
         "menu_connect": "Connetti al Server...",
         "menu_reconnect": "Riconnetti Ultimo Server",
@@ -831,6 +843,16 @@ STRINGS = {
         "grid_square": "Quadrata (Square)",
         "grid_none": "Senza Griglia (Gridless)",
         "grid_type_pill": "🌐 Griglia: {type}",
+        "map_env_outdoor": "🌲 All'Aperto",
+        "map_env_indoor": "🏰 Al Chiuso / Dungeon",
+        "map_env_tooltip": "Tipo Ambiente Mappa (Clicca per alternare tra All'Aperto e Al Chiuso / Dungeon)",
+        "map_env_switched": "[AMBIENTE] Tipo mappa impostato su: {env}.",
+        "period_dawn": "Alba",
+        "period_day": "Giorno",
+        "period_dusk": "Tramonto",
+        "period_night": "Notte",
+        "period_indoor": "Al Chiuso",
+        "period_manual": "Manuale",
         "fow_brush_radius": "Pennello:",
         "tool_pen": "Disegno a Mano Libera",
         "tool_clear_drawings": "Cancella Disegni Mappa",
@@ -904,6 +926,7 @@ STRINGS = {
         "menu_new_campaign": "New Campaign...",
         "menu_load_campaign": "Load Campaign...",
         "menu_edit_active_campaign": "Active Campaign Editor...",
+        "menu_close_campaign": "Close Active Campaign",
         "menu_load_map": "Load Map...",
         "menu_save_session": "Save Session...",
         "menu_load_session": "Load Session...",
@@ -912,6 +935,8 @@ STRINGS = {
         "confirm_exit_client": "Do you want to close the client and exit?",
         "confirm_exit_connected": "You are currently connected to the server.\nDo you really want to disconnect and close the client?",
         "menu_tools": "Tools",
+        "menu_encounter_builder": "⚔️ Combat Encounter Builder...",
+        "btn_encounter_builder": "⚔️ Encounter Builder",
         "menu_loot_gen": "💰 Loot Generator (5e)",
         "menu_npc_gen": "🎭 Quick NPC Generator",
         "menu_map_editor": "Map Editor",
@@ -919,10 +944,13 @@ STRINGS = {
         "menu_share_text": "Share Text Handout",
         "menu_download_maps": "Download Famous Maps",
         "menu_srd_compendium": "Compendium & SRD",
-        "menu_encounter_builder": "Encounter Builder",
+        "menu_quest_log": "📜 Quest Log & Handouts...",
         "menu_manuals": "📖 Browse Rulebooks (PHB, DMG, MM)",
         "menu_travel_panel": "Travel Panel",
         "menu_starter_pack": "Campaign Starter Pack",
+        "menu_automation_settings": "⚙️ Campaign Automation Settings...",
+        "campaign_none_title": "No Active Campaign",
+        "campaign_none_prompt": "There is currently no active campaign loaded.\n\nDo you want to load an existing campaign?\n(Choose 'No' to create a New Campaign)",
         "menu_server": "Server",
         "menu_connect": "Connect to Server...",
         "menu_reconnect": "Reconnect to Last Server",
@@ -1534,6 +1562,16 @@ STRINGS = {
         "grid_square": "Square Grid",
         "grid_none": "Gridless",
         "grid_type_pill": "🌐 Grid: {type}",
+        "map_env_outdoor": "🌲 Outdoor",
+        "map_env_indoor": "🏰 Indoor / Dungeon",
+        "map_env_tooltip": "Map Environment Type (Click to toggle between Outdoor and Indoor / Dungeon)",
+        "map_env_switched": "[ENVIRONMENT] Map type set to: {env}.",
+        "period_dawn": "Dawn",
+        "period_day": "Day",
+        "period_dusk": "Dusk",
+        "period_night": "Night",
+        "period_indoor": "Indoor",
+        "period_manual": "Manual",
         "fow_brush_radius": "Brush:",
         "tool_pen": "Freehand Pen",
         "tool_clear_drawings": "Clear Map Drawings",
@@ -1681,11 +1719,26 @@ def speed_to_hexes(speed_val, unit: str = None) -> int:
     Converte il valore di velocità in numero di esagoni (1 esagono = 5 ft = 1.5 m).
     Se unit non è specificato o c'è ambiguità legacy (es. speed=9 salvato senza unità),
     gestisce in modo intelligente valori <= 18 come metri e >= 20 come piedi.
+    Supporta anche dict, list e stringhe complesse normalizzandoli preventivamente.
     """
-    try:
-        v = float(speed_val)
-    except (ValueError, TypeError):
-        return 6
+    if isinstance(speed_val, (dict, list)) or (isinstance(speed_val, str) and not speed_val.isdigit()):
+        try:
+            from common.srd_offline import normalize_speed_value
+            s_val, _, s_u = normalize_speed_value(speed_val, default_unit=unit)
+            v = float(s_val)
+            if unit is None:
+                unit = s_u
+        except Exception:
+            try:
+                v = float(speed_val)
+            except (ValueError, TypeError):
+                return 6
+    else:
+        try:
+            v = float(speed_val)
+        except (ValueError, TypeError):
+            return 6
+
     if v <= 0:
         return 0
     if unit == "m" or (unit is None and v <= 18):

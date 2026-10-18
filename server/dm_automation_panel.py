@@ -66,6 +66,8 @@ def open_automation_settings_dialog(dm_gui):
     adv_var = tk.BooleanVar(value=cur_settings.get("auto_calc_advantage", True))
     fow_var = tk.BooleanVar(value=cur_settings.get("auto_explore_fow", True))
     rest_var = tk.BooleanVar(value=cur_settings.get("auto_apply_rest_recovery", True))
+    advance_time_var = tk.BooleanVar(value=cur_settings.get("auto_advance_time", True))
+    day_night_var = tk.BooleanVar(value=cur_settings.get("auto_day_night_cycle", True))
 
     def on_preset_selected():
         m = mode_var.get()
@@ -81,6 +83,8 @@ def open_automation_settings_dialog(dm_gui):
             adv_var.set(False)
             fow_var.set(False)
             rest_var.set(False)
+            advance_time_var.set(False)
+            day_night_var.set(False)
         elif m == "hybrid":
             auto_dmg_var.set(False)
             auto_aoe_var.set(False)
@@ -93,6 +97,8 @@ def open_automation_settings_dialog(dm_gui):
             adv_var.set(True)
             fow_var.set(True)
             rest_var.set(True)
+            advance_time_var.set(True)
+            day_night_var.set(True)
         elif m == "full":
             auto_dmg_var.set(True)
             auto_aoe_var.set(True)
@@ -105,6 +111,8 @@ def open_automation_settings_dialog(dm_gui):
             adv_var.set(True)
             fow_var.set(True)
             rest_var.set(True)
+            advance_time_var.set(True)
+            day_night_var.set(True)
 
     tk.Label(scrollable_frame, text="PROFILI DI GESTIONE PREDEFINITI:", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w", pady=(2, 6))
 
@@ -171,6 +179,16 @@ def open_automation_settings_dialog(dm_gui):
     ttk.Checkbutton(sec3, text="Ripristino automatico istantaneo Risorse al Riposo (HP, Slot, Dadi Vita)", variable=rest_var).pack(anchor="w", pady=2)
     tk.Label(sec3, text="  ↳ Se disattivato, la richiesta di riposo richiede conferma del DM (ideale per verificare incontri casuali notturni).", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
 
+    # Sezione 4: Tempo di Gioco & Ciclo Giorno/Notte
+    sec4 = tk.LabelFrame(scrollable_frame, text=" ⏳ Tempo di Gioco & Ciclo Giorno/Notte ", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD, padx=10, pady=8)
+    sec4.pack(fill=tk.X, pady=6)
+
+    ttk.Checkbutton(sec4, text="Avanzamento automatico del tempo di campagna (+6s per round)", variable=advance_time_var).pack(anchor="w", pady=2)
+    tk.Label(sec4, text="  ↳ Se disattivato, il tempo di gioco non scorre automaticamente ai cambi di turno e attende l'avanzamento manuale del DM.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
+
+    ttk.Checkbutton(sec4, text="Ciclo Giorno/Notte dinamico automatico sulle mappe all'aperto", variable=day_night_var).pack(anchor="w", pady=2)
+    tk.Label(sec4, text="  ↳ Se disattivato, non applica i filtri solari/notturni automatici e mantiene la visuale limpida per la gestione manuale del DM.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
+
     def save_and_close():
         sel_mode = mode_var.get()
         new_settings = {
@@ -184,11 +202,14 @@ def open_automation_settings_dialog(dm_gui):
             "auto_death_saves": bool(death_var.get()),
             "auto_calc_advantage": bool(adv_var.get()),
             "auto_explore_fow": bool(fow_var.get()),
-            "auto_apply_rest_recovery": bool(rest_var.get())
+            "auto_apply_rest_recovery": bool(rest_var.get()),
+            "auto_advance_time": bool(advance_time_var.get()),
+            "auto_day_night_cycle": bool(day_night_var.get())
         }
         from server.rules.combat import handle_set_automation_mode_request
         handle_set_automation_mode_request({"mode": sel_mode, "settings": new_settings}, None, dm_gui.server.game_state)
         dm_gui.update_player_list()
+        dm_gui.update_canvas()
         dm_gui.show_toast(f"Stile automazione impostato su: {sel_mode.upper()}", title="⚙️ Automazione", toast_type="success")
         win.destroy()
 

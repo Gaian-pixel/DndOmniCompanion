@@ -26,7 +26,7 @@ from common.game_state import GameState, Player
 from server.map_editor import MapEditorWindow
 from server.map_downloader import MapDownloaderDialog
 from .network import Server
-from common.hex_utils import Hex
+from common.hex_utils import Hex, get_sphere_hexes
 from common.network_utils import send_message, receive_message, broadcast
 from components.ui_components import HexMapCanvas, ToolTip, show_toast
 from client.voice_client import VoiceClient
@@ -42,6 +42,13 @@ from server.dm_dialogs import (
     CampaignStarterKitDialog
 )
 from common.audio_player import AudioManager
+from common.srd_offline import (
+    extract_and_normalize_attributes,
+    format_monster_action_tooltip,
+    get_monster_offline,
+    normalize_ac_value,
+    normalize_speed_value,
+)
 from server.dm_bestiary_panel import DMBestiaryPanel
 from server.dm_soundboard_panel import DMSoundboardPanel
 from server.dm_automation_panel import (
@@ -138,6 +145,7 @@ class DM_GUI:
         file_menu.add_command(label=_t("menu_new_campaign"), command=self.open_new_campaign_dialog)
         file_menu.add_command(label=_t("menu_load_campaign"), command=self.open_load_campaign_dialog)
         file_menu.add_command(label=_t("menu_edit_active_campaign"), command=self.open_campaign_editor_dialog)
+        file_menu.add_command(label=_t("menu_close_campaign"), command=self.close_active_campaign)
         file_menu.add_separator()
         file_menu.add_command(label=_t("menu_load_map"), command=self.load_map_from_file)
         file_menu.add_separator()
@@ -150,20 +158,24 @@ class DM_GUI:
         menubar.add_cascade(label=_t("menu_file"), menu=file_menu)
         
         tools_menu = tk.Menu(menubar, tearoff=0)
-        tools_menu.add_command(label=_t("menu_new_campaign"), command=self.open_campaign_editor_dialog)
+        tools_menu.add_command(label=_t("menu_encounter_builder"), command=self.open_encounter_builder)
         tools_menu.add_command(label=_t("menu_loot_gen"), command=self.open_loot_generator_dialog)
         tools_menu.add_command(label=_t("menu_npc_gen"), command=self.open_random_npc_dialog)
+        tools_menu.add_separator()
         tools_menu.add_command(label=_t("menu_map_editor"), command=self.open_map_editor)
+        tools_menu.add_command(label=_t("menu_download_maps"), command=self.open_map_downloader)
+        tools_menu.add_separator()
+        tools_menu.add_command(label=_t("menu_quest_log"), command=self.open_quest_dialog)
         tools_menu.add_command(label=_t("menu_share_image"), command=self.share_image_handout)
         tools_menu.add_command(label=_t("menu_share_text"), command=self.share_text_handout)
-        tools_menu.add_command(label=_t("menu_download_maps"), command=self.open_map_downloader)
+        tools_menu.add_separator()
         tools_menu.add_command(label=_t("menu_srd_compendium"), command=self.open_srd_importer)
         tools_menu.add_command(label=_t("tool_command_palette"), command=self.open_command_palette)
         tools_menu.add_command(label=_t("menu_manuals"), command=self.open_manuals_dialog)
         tools_menu.add_command(label=_t("menu_travel_panel"), command=self.open_travel_panel)
         tools_menu.add_command(label=_t("menu_starter_pack"), command=self.open_campaign_starter_kit_dialog)
         tools_menu.add_separator()
-        tools_menu.add_command(label="⚙️ Stile Gestione Campagna (Automazioni)...", command=self.open_automation_settings_dialog)
+        tools_menu.add_command(label=_t("menu_automation_settings"), command=self.open_automation_settings_dialog)
         menubar.add_cascade(label=_t("menu_tools"), menu=tools_menu)
 
         # Menu Lingua / Language
@@ -243,6 +255,8 @@ class DM_GUI:
             self.btn_spawn_png.config(text=_t("btn_spawn_png"))
         if hasattr(self, 'btn_add_npc'):
             self.btn_add_npc.config(text=_t("btn_add_manual_npc"))
+        if hasattr(self, 'btn_encounter_builder'):
+            self.btn_encounter_builder.config(text=_t("btn_encounter_builder", default="⚔️ Encounter Builder"))
         if hasattr(self, 'btn_split_loot'):
             self.btn_split_loot.config(text=_t("btn_split_loot"))
 
@@ -498,6 +512,15 @@ class DM_GUI:
         self.top_status_grid_lbl.bind("<Button-1>", self._show_grid_type_menu)
         ToolTip(self.top_status_grid_lbl, lambda: _t("grid_type_menu"))
         
+        self.top_status_env_lbl = tk.Label(
+            pills_frame, text=_t("map_env_outdoor"), font=FONT_SMALL,
+            bg=SURFACE_COLOR_ALT, fg=ACCENT_GREEN, padx=6, pady=2,
+            highlightbackground=BORDER_COLOR, highlightthickness=1, cursor="hand2"
+        )
+        self.top_status_env_lbl.pack(side=tk.LEFT, padx=3)
+        self.top_status_env_lbl.bind("<Button-1>", lambda e: self.toggle_map_outdoor())
+        ToolTip(self.top_status_env_lbl, lambda: _t("map_env_tooltip"))
+        
         self.top_status_automation_lbl = tk.Label(
             pills_frame, text="⚡ Full Auto", font=FONT_SMALL,
             bg=SURFACE_COLOR_ALT, fg=ACCENT_GREEN, padx=6, pady=2,
@@ -682,7 +705,7 @@ class DM_GUI:
         btn_frame_bottom.pack(fill=tk.X, side=tk.BOTTOM, pady=(6, 0))
         self.btn_spawn_png = ttk.Button(btn_frame_bottom, text=_t("btn_spawn_png"), command=self.spawn_png_dialog, style="Primary.TButton")
         self.btn_spawn_png.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
-        self.btn_encounter_builder = ttk.Button(btn_frame_bottom, text="Encounter Builder", command=self.open_encounter_builder, style="Primary.TButton")
+        self.btn_encounter_builder = ttk.Button(btn_frame_bottom, text=_t("btn_encounter_builder", default="⚔️ Encounter Builder"), command=self.open_encounter_builder, style="Primary.TButton")
         self.btn_encounter_builder.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
         
         self.btn_add_npc = ttk.Button(tab_combat, text=_t("btn_add_manual_npc"), command=self.add_npc)
@@ -895,14 +918,30 @@ class DM_GUI:
                 npc = Player(name, None, None)
                 npc.hp = m["hp"]
                 npc.max_hp = m["hp"]
-                npc.initiative = m["initiative"]
                 
+                attrs = extract_and_normalize_attributes(m.get("attributes"), m["name"])
+                dex_val = attrs.get("DES", 10)
+                npc.initiative = m.get("initiative") if m.get("initiative") is not None else (dex_val - 10) // 2
+                
+                ac = normalize_ac_value(m.get("ac", m.get("armor_class", 10)))
+                speed_val, speed_disp, speed_unit = normalize_speed_value(m.get("speed", 30))
+                npc.speed = speed_val
+                npc.speed_unit = speed_unit
+
                 npc.full_sheet = {
                     "name": npc.name,
                     "char_class": "Mostro/NPC",
                     "level": 1,
                     "hp_current": npc.hp,
                     "hp_max": npc.max_hp,
+                    "ac": ac,
+                    "speed": speed_val,
+                    "speed_display": speed_disp,
+                    "speed_unit": speed_unit,
+                    "attributes": attrs,
+                    "cr": str(m.get("cr", "1")),
+                    "actions": m.get("actions", []),
+                    "features": m.get("features", m.get("special_abilities", [])),
                 }
                 self.server.game_state.add_player(npc)
                 broadcast(self.server.game_state, make_player_joined(npc.to_dict()))
@@ -929,22 +968,21 @@ class DM_GUI:
 
         # SRD stats extraction
         hp = item_data.get("hit_points", item_data.get("hp", 10))
-        
-        ac_data = item_data.get("armor_class", item_data.get("ac", 10))
-        ac = 10
-        if isinstance(ac_data, list) and len(ac_data) > 0:
-            first_ac = ac_data[0]
-            if isinstance(first_ac, dict):
-                ac = first_ac.get("value", 10)
-            else:
-                ac = first_ac
-        elif isinstance(ac_data, int):
-            ac = ac_data
+        ac = normalize_ac_value(item_data.get("armor_class", item_data.get("ac", 10)))
+        speed_val, speed_disp, speed_unit = normalize_speed_value(item_data.get("speed", 30))
+
+        attrs = extract_and_normalize_attributes(item_data, base_name)
+        dex_val = attrs.get("DES", 10)
+        initiative = item_data.get("initiative")
+        if initiative is None or initiative == 0:
+            initiative = (dex_val - 10) // 2
             
         npc = Player(new_name, None, None)
         npc.hp = hp
         npc.max_hp = hp
-        npc.initiative = item_data.get("initiative", 0)
+        npc.initiative = initiative
+        npc.speed = speed_val
+        npc.speed_unit = speed_unit
         
         npc.full_sheet = {
             "name": npc.name,
@@ -953,9 +991,13 @@ class DM_GUI:
             "hp_current": npc.hp,
             "hp_max": npc.max_hp,
             "ac": ac,
-            "speed": item_data.get("speed", 30),
-            "attributes": item_data.get("attributes", {}),
-            "features": item_data.get("features", ""),
+            "speed": speed_val,
+            "speed_display": speed_disp,
+            "speed_unit": speed_unit,
+            "attributes": attrs,
+            "cr": str(item_data.get("challenge_rating", item_data.get("cr", "1"))),
+            "actions": item_data.get("actions", []),
+            "features": item_data.get("features", item_data.get("special_abilities", [])),
         }
         
         self.server.game_state.add_player(npc)
@@ -968,11 +1010,23 @@ class DM_GUI:
         self.server.game_state._trigger_gui_update()
 
     def handle_srd_import(self, entity_data, category=None):
-        npc = Player(entity_data["name"], None, None)
-        npc.hp = entity_data.get("hp", 10)
+        name = entity_data.get("name", "Mostro")
+        npc = Player(name, None, None)
+        npc.hp = entity_data.get("hp", entity_data.get("hit_points", 10))
         npc.max_hp = npc.hp
-        npc.initiative = entity_data.get("initiative", 0)
         
+        attrs = extract_and_normalize_attributes(entity_data, name)
+        dex_val = attrs.get("DES", 10)
+        initiative = entity_data.get("initiative")
+        if initiative is None or initiative == 0:
+            initiative = (dex_val - 10) // 2
+        npc.initiative = initiative
+        
+        ac = normalize_ac_value(entity_data.get("ac", entity_data.get("armor_class", 10)))
+        speed_val, speed_disp, speed_unit = normalize_speed_value(entity_data.get("speed", 30))
+        npc.speed = speed_val
+        npc.speed_unit = speed_unit
+
         # Add basic full sheet data from SRD
         npc.full_sheet = {
             "name": npc.name,
@@ -980,10 +1034,14 @@ class DM_GUI:
             "level": 1,
             "hp_current": npc.hp,
             "hp_max": npc.max_hp,
-            "ac": entity_data.get("ac", 10),
-            "speed": entity_data.get("speed", 30),
-            "attributes": entity_data.get("attributes", {}),
-            "features": entity_data.get("features", ""),
+            "ac": ac,
+            "speed": speed_val,
+            "speed_display": speed_disp,
+            "speed_unit": speed_unit,
+            "attributes": attrs,
+            "cr": str(entity_data.get("challenge_rating", entity_data.get("cr", "1"))),
+            "actions": entity_data.get("actions", []),
+            "features": entity_data.get("features", entity_data.get("special_abilities", "")),
         }
         
         self.server.game_state.add_player(npc)
@@ -1698,12 +1756,18 @@ class DM_GUI:
                         view_name = sel_pname
         
         time_hour = getattr(self.server.game_state, "time_hour", 12)
+        time_minute = getattr(self.server.game_state, "time_minute", 0)
         weather = getattr(self.server.game_state, "weather", "Sereno")
         combat_active = getattr(self.server.game_state, "combat_active", False)
         combat_order = [p.name for p in self.server.game_state.players] if combat_active else []
         round_number = getattr(self.server.game_state, "round_number", 1)
         
+        auto_day_night = True
+        if hasattr(self.server.game_state, "automation_settings") and isinstance(self.server.game_state.automation_settings, dict):
+            auto_day_night = self.server.game_state.automation_settings.get("auto_day_night_cycle", True)
+
         self._update_map_scale_pill()
+        self._update_map_env_pill()
         self.map_canvas.update_data(
             map_data, 
             players_data, 
@@ -1714,8 +1778,46 @@ class DM_GUI:
             weather=weather,
             combat_active=combat_active,
             combat_order=combat_order,
-            round_number=round_number
+            round_number=round_number,
+            time_minute=time_minute,
+            auto_day_night=auto_day_night
         )
+
+    def _update_map_env_pill(self):
+        if not hasattr(self, "top_status_env_lbl"):
+            return
+        cur_map = getattr(self.server.game_state, "current_map", None) if hasattr(self, "server") and hasattr(self.server, "game_state") else None
+        is_outdoor = cur_map.get("outdoor", True) if isinstance(cur_map, dict) else True
+        if is_outdoor:
+            self.top_status_env_lbl.config(
+                text=_t("map_env_outdoor"),
+                fg=ACCENT_GREEN
+            )
+        else:
+            self.top_status_env_lbl.config(
+                text=_t("map_env_indoor"),
+                fg="#818CF8"
+            )
+
+    def toggle_map_outdoor(self):
+        cur_map = getattr(self.server.game_state, "current_map", None) if hasattr(self, "server") and hasattr(self.server, "game_state") else None
+        if not cur_map or not isinstance(cur_map, dict):
+            return
+        cur_val = cur_map.get("outdoor", True)
+        cur_map["outdoor"] = not cur_val
+        new_val = cur_map["outdoor"]
+        
+        env_label = _t("map_env_outdoor") if new_val else _t("map_env_indoor")
+        msg = _t("map_env_switched", env=env_label)
+        self.log_to_chat(msg, sender="Sistema", color="#10B981" if new_val else "#818CF8")
+        
+        from common.protocol import make_map_data_update_broadcast, make_chat_broadcast
+        from server.network import broadcast
+        broadcast(self.server.game_state, make_map_data_update_broadcast(cur_map))
+        broadcast(self.server.game_state, make_chat_broadcast("Sistema", msg))
+        
+        self._update_map_env_pill()
+        self.update_canvas()
 
     def _update_map_scale_pill(self):
         if not hasattr(self, "top_status_scale_lbl"):
@@ -2045,7 +2147,27 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                 self.log_to_chat(f"[SISTEMA] Campagna '{camp.name}' aggiornata.")
             dlg = CampaignEditorDialog(self.master, campaign=active_camp, game_state=self.server.game_state, on_save_callback=on_saved)
         else:
-            self.open_load_campaign_dialog()
+            choice = messagebox.askyesno(
+                _t("campaign_none_title", default="Nessuna Campagna Attiva"),
+                _t("campaign_none_prompt", default="Non c'è una campagna attualmente caricata.\n\nVuoi caricare una campagna esistente?\n(Scegli 'No' per creare una Nuova Campagna)"),
+                parent=self.master
+            )
+            if choice:
+                self.open_load_campaign_dialog()
+            else:
+                self.open_new_campaign_dialog()
+
+    def close_active_campaign(self):
+        active_camp = getattr(self.server.game_state, 'active_campaign', None)
+        if not active_camp:
+            messagebox.showinfo(_t("campaign_none_title", default="Nessuna Campagna"), _t("msg_no_active_campaign", default="Nessuna campagna attiva da chiudere."), parent=self.master)
+            return
+        camp_name = active_camp.name
+        self.server.game_state.active_campaign = None
+        if hasattr(self, 'lbl_campaign_name'):
+            self.lbl_campaign_name.config(text=_t("campaign_none"))
+        self.log_to_chat(f"[SISTEMA] Campagna '{camp_name}' chiusa. Modalità sessione libera attiva.")
+        self.show_toast(f"Campagna '{camp_name}' chiusa.", title="Campagna", toast_type="info")
 
     def deploy_campaign_encounter_dialog(self):
         active_camp = getattr(self.server.game_state, 'active_campaign', None)
@@ -2803,7 +2925,6 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         if not sel: return
         display_text = self.player_listbox.get(sel[0])
         if display_text.startswith('---'): return
-        if display_text.startswith("---"): return
         
         player_name = display_text.split(" (HP")[0].replace("▶", "").replace("➡️", "").strip()
         if player_name.startswith("[N] "):
@@ -2814,20 +2935,50 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         
         actions = player.full_sheet.get("actions", [])
         if not actions:
-            ttk.Label(self.npc_actions_frame, text="Nessuna azione SRD").pack(pady=2)
+            srd_rec = get_monster_offline(player_name)
+            if srd_rec and srd_rec.get("actions"):
+                actions = srd_rec.get("actions", [])
+                player.full_sheet["actions"] = actions
+                if "features" not in player.full_sheet and srd_rec.get("special_abilities"):
+                    player.full_sheet["features"] = srd_rec.get("special_abilities")
+        
+        if not actions:
+            ttk.Label(self.npc_actions_frame, text="Nessuna azione SRD registrata", font=FONT_SMALL).pack(pady=2)
             return
             
         for act in actions:
-            btn = ttk.Button(self.npc_actions_frame, text=act.get("name", "Azione"), 
+            act_name = act.get("name", "Azione") if isinstance(act, dict) else str(act).split(".")[0].strip()
+            btn = ttk.Button(self.npc_actions_frame, text=act_name, 
                              command=lambda a=act, n=player_name: self.roll_npc_action(n, a))
             btn.pack(fill=tk.X, pady=1)
+            # Tooltip al passaggio del mouse con le caratteristiche complete dell'azione (TpC, Danni, Gittata, TS, ecc.)
+            tip_text = format_monster_action_tooltip(act, player_name)
+            ToolTip(btn, tip_text)
             
     def roll_npc_action(self, npc_name, action_dict):
         from common.dice import roll_dice
-        act_name = action_dict.get("name", "Azione")
+        import re
+        if isinstance(action_dict, str):
+            act_name = action_dict.split(".")[0].strip()
+            desc = action_dict
+            atk_bonus = None
+            dmg_dice = None
+        else:
+            act_name = action_dict.get("name", "Azione")
+            desc = action_dict.get("desc", "")
+            atk_bonus = action_dict.get("attack_bonus")
+            dmg_dice = action_dict.get("damage_dice")
+
         msg = f"{npc_name} usa {act_name}!"
         
-        atk_bonus = action_dict.get("attack_bonus")
+        if atk_bonus is None:
+            m_atk = re.search(r'([+-]\d+)\s+to\s+hit', desc, re.I)
+            if m_atk:
+                try:
+                    atk_bonus = int(m_atk.group(1))
+                except:
+                    pass
+
         if atk_bonus is not None:
             mod_str = f"+{atk_bonus}" if int(atk_bonus) >= 0 else str(atk_bonus)
             try:
@@ -2836,7 +2987,11 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
             except:
                 pass
             
-        dmg_dice = action_dict.get("damage_dice")
+        if not dmg_dice:
+            m_dmg = re.search(r'\(([0-9]+d[0-9]+(?:\s*[+-]\s*[0-9]+)?)\)', desc)
+            if m_dmg:
+                dmg_dice = m_dmg.group(1).replace(" ", "")
+
         if dmg_dice:
             try:
                 res = roll_dice(dmg_dice)

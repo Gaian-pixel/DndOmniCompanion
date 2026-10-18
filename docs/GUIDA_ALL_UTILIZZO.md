@@ -478,8 +478,28 @@ Nel tab **`Iniziativa & PG`** della sidebar destra del DM:
      * Per le creature con tana attiva (`has_lair_actions = True`), all'inizio di ogni round a **Iniziativa 20** il sistema annuncia l'Azione di Tana sia in chat che nel log DM, consentendo al Master di attivare gli effetti ambientali della tana.
    * **Resistenze Leggendarie (3/giorno)**: quando il boss fallisce un Tiro Salvezza, il DM può convertirlo all'istante in successo.
 
-### Bestiario SRD, Manuali PDF Offline e Generatori Procedurali
-* **Tab `Bestiario` e `Strumenti -> Compendio & SRD`**: cerca mostri dal database SRD 5e o dai manuali PDF indicizzati e clicca su **Spawna sulla Mappa** per schierarli subito con statistiche, CA, PV e azioni complete.
+### Bestiario SRD, Compendio Split View e Generatori Procedurali
+* **Compendio & SRD Split View (`Strumenti -> Compendio & SRD` o `Libreria -> Compendio & Regole`)**:
+  * **Interfaccia Master-Detail Interattiva**: il compendio unificato offre una vista a due pannelli; la colonna sinistra elenca i risultati filtrati con barra di ricerca in tempo reale e conteggio elementi, mentre il pannello destro renderizza istantaneamente la scheda dettagliata della voce selezionata.
+  * **Statblock 5e Autentico (`StatblockCardView`)**:
+    * **Mostri & PNG**: layout fedele al *Monster Manual* con badge tematici ad alto contrasto per **Classe Armatura** (con indicazione del tipo di armatura/scudo), **Punti Ferita** (con formula dei Dadi Vita) e **Velocità** (camminata, volo, nuoto, scavo, scalata). Tabella orizzontale delle 6 caratteristiche con punteggi e modificatori calcolati in tempo reale ($(\text{stat}-10)//2$), tiri salvezza con competenza, abilità, resistenze/immunità a danni e condizioni, sensi (scurovisione, percezione passiva), lingue e Grado di Sfida (CR con XP relativi). Sezione per Tratti Speciali, Azioni con bonus di attacco e formule di danno evidenziate, Reazioni e Azioni Leggendarie con costo in azioni.
+    * **Oggetti Magici**: pergamena descrittiva con badge di rarità (*Comune*, *Non Comune*, *Raro*, *Molto Raro*, *Leggendario*), tipo di oggetto, requisiti di sintonia (`Richiede Sintonia`), proprietà magiche ed effetti narrativi.
+    * **Incantesimi**: scheda con livello e scuola di magia, tempo di lancio, gittata, componenti (V, S, M), durata, concentrazione/rituale, descrizione completa e incremento ad alti livelli (*Ai Livelli Superiori*).
+  * **Filtri Rapidi Multi-Criterio**:
+    * **Mostri**: selezione rapida per scaglioni di Grado di Sfida (*Tutti*, *CR 0–1/2*, *CR 1–4*, *CR 5–9*, *CR 10–14*, *CR 15–19*, *CR 20+*) e per Tipo Creatura (*Tutti*, *Drago*, *Non Morto*, *Umanoide*, *Bestia*, *Aberrazione*, *Costrutto*, *Fata*, *Mostruosità*, *Gigante*, *Celestiale*, *Immondezzaio*...).
+    * **Oggetti Magici**: filtri per Rarità e Tipologia (*Arma*, *Armatura*, *Bacchetta*, *Anello*, *Pozione*, *Meraviglioso*...).
+    * **Incantesimi**: filtri per Livello (Trucchetto, 1–9) e Scuola di Magia.
+  * **Pulsante di Azione Primario Contestuale**: in basso a destra dello statblock compare l'azione principale adatta al contesto:
+    * *Mostri*: **`Spawna sulla Mappa 🐉`** piazza immediatamente la creatura sull'ultimo esagono cliccato o al centro della visuale con iniziativa, PV, CA, velocità e scheda completa.
+    * *Incantesimi*: **`Aggiungi al Grimorio ✨`** memorizza l'incantesimo nella scheda del personaggio attivo.
+    * *Oggetti*: **`Aggiungi all'Inventario 🎒`** assegna l'oggetto al personaggio selezionato.
+* **Tab `Bestiario` nella Sidebar Destra del DM**:
+  * Barra di ricerca rapida con pulsanti di filtro istantaneo per Grado di Sfida (CR) e Tipo Creatura.
+  * **Mini-Statblock Visuale**: visualizzazione card compatta con badge CA, PV, Velocità e tabella caratteristiche essenziali.
+  * **Spawning Istantaneo**: doppio click su una voce dell'elenco o click sul pulsante **Spawna sulla Mappa** per posizionare il mostro in 1 secondo.
+* **Normalizzazione Deterministica di CA e Velocità (Anti-Raw `[{}]`)**:
+  * Il sistema depura automaticamente tutte le voci SRD e quelle estratte dai manuali PDF, eliminando formattazioni grezze o annidamenti JSON (`[{'value': 18, ...}]`).
+  * Estrae correttamente valori base e secondari di movimento (es. *Camminata 30 ft, Volo 80 ft, Nuoto 40 ft*) e note di armatura (es. *18 (Armatura a Piastre)*).
 * **Consultazione Manuali PDF (`📖` o `Strumenti -> Consulta Manuali di Gioco`)**: ricerca istantanea offline all'interno dei manuali PDF presenti nella cartella `manuals_pdf/` (*Player's Handbook*, *Dungeon Master's Guide*, *Monster Manual*, *Tasha's*, *Xanathar's*).
 * **Generatore di Bottino 5e (`Strumenti -> 💰 Generatore di Bottino`)**: genera tesori casuali bilanciati per Grado di Sfida (CR 0–4, 5–10, 11–16, 17+) e distribuisci oro al party con 1 click.
 * **Generatore Rapido PNG (`Strumenti -> 🎭 Generatore Rapido PNG`)**: crea all'istante PNG con nome, razza, tratto caratteriale, segreto, statistiche e pulsante per schierarli sulla mappa.

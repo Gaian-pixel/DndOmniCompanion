@@ -2,6 +2,11 @@ import tkinter as tk
 from common.messagebox import messagebox
 from tkinter import ttk
 from common.theme import apply_modern_window_style
+from common.srd_offline import (
+    extract_and_normalize_attributes,
+    normalize_ac_value,
+    normalize_speed_value,
+)
 
 class EncounterBuilderDialog(tk.Toplevel):
     def __init__(self, master, game_state, on_start_encounter_callback=None):
@@ -129,12 +134,22 @@ class EncounterBuilderDialog(tk.Toplevel):
         name = item_data.get("name", "Mostro")
         xp = item_data.get("xp", 50)
         hp = item_data.get("hit_points", item_data.get("hp", 10))
-        initiative = item_data.get("initiative", 0)
+        
+        ac = normalize_ac_value(item_data.get("armor_class", item_data.get("ac", 10)))
+        speed_val, speed_disp, speed_unit = normalize_speed_value(item_data.get("speed", 30))
+            
+        attrs = extract_and_normalize_attributes(item_data, name)
+        dex_val = attrs.get("DES", 10)
+        initiative = item_data.get("initiative")
+        if initiative is None or initiative == 0:
+            initiative = (dex_val - 10) // 2
         
         # Check if already in list
         for m in self.monsters:
             if m["name"] == name:
                 m["count"] += 1
+                if "attributes" not in m or not m["attributes"]:
+                    m["attributes"] = attrs
                 self.refresh_list()
                 return
                 
@@ -143,7 +158,15 @@ class EncounterBuilderDialog(tk.Toplevel):
             "xp": xp,
             "count": 1,
             "hp": hp,
-            "initiative": initiative
+            "ac": ac,
+            "initiative": initiative,
+            "attributes": attrs,
+            "cr": str(item_data.get("challenge_rating", item_data.get("cr", "1"))),
+            "speed": speed_val,
+            "speed_display": speed_disp,
+            "speed_unit": speed_unit,
+            "actions": item_data.get("actions", []),
+            "features": item_data.get("features", item_data.get("special_abilities", []))
         })
         self.refresh_list()
         

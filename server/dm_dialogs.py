@@ -3,6 +3,7 @@
 Dialoghi e finestre secondarie per il Dungeon Master (DM_GUI).
 Decomposti per migliorare la manutenibilità e leggibilità del codice server.
 """
+import re
 import tkinter as tk
 from tkinter import ttk, scrolledtext, simpledialog
 from common.messagebox import messagebox
@@ -147,9 +148,17 @@ class CustomNPCDialog(tk.Toplevel):
         npc.initiative = init
         npc.speed = speed
         
+        from common.srd_offline import extract_and_normalize_attributes
+        attrs = extract_and_normalize_attributes(None, name)
+        
         npc.full_sheet = {
+            "name": name,
+            "hp_current": hp,
+            "hp_max": hp,
             "ac": ac,
+            "speed": speed,
             "speed_unit": get_distance_unit(),
+            "attributes": attrs,
             "notes": self.notes_text.get("1.0", tk.END).strip()
         }
 
@@ -198,26 +207,29 @@ class DMPlayerSheetViewer(tk.Toplevel):
         vital_frame = ttk.LabelFrame(tab_stats, text=_t("combat", default="Combattimento"), padding="10")
         vital_frame.pack(fill=tk.X, pady=(0, 10))
         
+        from common.srd_offline import normalize_ac_value, normalize_speed_value
         hp_cur = sheet.get("hp_current", 0)
         hp_max = sheet.get("hp_max", 0)
-        ac = sheet.get("ac", 10)
+        ac = normalize_ac_value(sheet.get("ac", sheet.get("armor_class", 10)))
         init = sheet.get("initiative", 0)
-        speed = sheet.get("speed", 30)
-        try:
-            speed_unit = sheet.get("speed_unit") or ("m" if float(speed) <= 18 else "ft")
-        except (ValueError, TypeError):
-            speed_unit = "ft"
+        raw_speed = sheet.get("speed", 30)
+        speed_val, speed_disp, speed_unit = normalize_speed_value(raw_speed, default_unit=sheet.get("speed_unit"))
 
-        for col, (label, val) in enumerate([
-            (_t("hit_points", default="Punti Ferita (HP)"), f"{hp_cur} / {hp_max}"),
-            (_t("armor_class", default="Classe Armatura (CA)"), str(ac)),
-            (_t("initiative", default="Iniziativa"), f"{'+' if init >= 0 else ''}{init}"),
-            (_t("speed", default="Velocità"), f"{speed} {speed_unit}")
+        for col, (label, val, subtitle, tooltip_str) in enumerate([
+            (_t("hit_points", default="Punti Ferita (HP)"), f"{hp_cur} / {hp_max}", None, None),
+            (_t("armor_class", default="Classe Armatura (CA)"), str(ac), None, f"CA Base: {ac}"),
+            (_t("initiative", default="Iniziativa"), f"{'+' if init >= 0 else ''}{init}", None, None),
+            (_t("speed", default="Velocità"), f"{speed_val} {speed_unit}", (speed_disp if " • " in speed_disp else None), speed_disp)
         ]):
             box = ttk.Frame(vital_frame, relief="ridge", padding="8")
             box.pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=5)
             ttk.Label(box, text=label, font=FONT_SMALL, anchor="center").pack()
             ttk.Label(box, text=val, font=FONT_HEADER, anchor="center").pack(pady=2)
+            if subtitle:
+                ttk.Label(box, text=subtitle, font=("Segoe UI", 8, "italic"), foreground="#9CA3AF", anchor="center").pack()
+            if tooltip_str:
+                from components.ui_components import ToolTip
+                ToolTip(box, tooltip_str)
 
         attr_frame = ttk.LabelFrame(tab_stats, text=_t("ability_scores", default="Punteggi di Caratteristica"), padding="10")
         attr_frame.pack(fill=tk.BOTH, expand=True)
@@ -232,6 +244,10 @@ class DMPlayerSheetViewer(tk.Toplevel):
         attr_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         attrs = sheet.get("attributes", {})
+        if not attrs or all(v == 10 for v in attrs.values()):
+            from common.srd_offline import extract_and_normalize_attributes
+            attrs = extract_and_normalize_attributes(sheet, sheet.get("name", player_name))
+
         if get_language() == "en":
             attr_names = {
                 "FOR": "Strength (STR)", "DES": "Dexterity (DEX)", "COS": "Constitution (CON)",
@@ -243,12 +259,78 @@ class DMPlayerSheetViewer(tk.Toplevel):
                 "INT": "Intelligenza (INT)", "SAG": "Saggezza (SAG)", "CAR": "Carisma (CAR)"
             }
         for k in ["FOR", "DES", "COS", "INT", "SAG", "CAR"]:
-            score = attrs.get(k, 10)
+            score = attrs.get(k)
+            if score is None:
+                alias = {"FOR": "STR", "DES": "DEX", "COS": "CON", "INT": "INT", "SAG": "WIS", "CAR": "CHA"}[k]
+                score = attrs.get(alias, 10)
             mod = (score - 10) // 2
             mod_str = f"+{mod}" if mod >= 0 else str(mod)
             attr_tree.insert("", tk.END, values=(attr_names.get(k, k), score, mod_str))
 
-        # Tab 2: Equipaggiamento & Inventario (Tabella)
+        # Tab Azioni & Attacchi (Mostri / PNG)
+        actions = sheet.get("actions", [])
+        if not actions and player_name:
+            try:
+                from common.srd_offline import get_monster_offline
+                srd_m = get_monster_offline(player_name)
+                if srd_m and srd_m.get("actions"):
+                    actions = srd_m.get("actions", [])
+            except Exception:
+                pass
+
+        if actions:
+            from common.srd_offline import format_monster_action_tooltip
+            from components.ui_components import ToolTip
+            tab_act = ttk.Frame(nb, padding="10")
+            nb.add(tab_act, text=_t("tab_actions_attacks", default="⚔️ Azioni & Attacchi"))
+
+            ttk.Label(tab_act, text=f"Azioni di Combattimento ({len(actions)}):", font=FONT_BOLD).pack(anchor="w", pady=(0, 5))
+            
+            act_container = ttk.Frame(tab_act)
+            act_container.pack(fill=tk.BOTH, expand=True)
+
+            act_canvas = tk.Canvas(act_container, bg=SURFACE_COLOR, highlightthickness=0)
+            act_scrollbar = ttk.Scrollbar(act_container, orient="vertical", command=act_canvas.yview)
+            act_scrollable_frame = ttk.Frame(act_canvas)
+
+            act_scrollable_frame.bind(
+                "<Configure>",
+                lambda e: act_canvas.configure(scrollregion=act_canvas.bbox("all"))
+            )
+            act_canvas.create_window((0, 0), window=act_scrollable_frame, anchor="nw")
+            act_canvas.configure(yscrollcommand=act_scrollbar.set)
+
+            act_canvas.pack(side="left", fill="both", expand=True)
+            act_scrollbar.pack(side="right", fill="y")
+
+            for act in actions:
+                a_name = act.get("name", "Azione") if isinstance(act, dict) else str(act).split(".")[0].strip()
+                a_desc = act.get("desc", "") if isinstance(act, dict) else str(act)
+                
+                card = ttk.LabelFrame(act_scrollable_frame, text=f"⚔️ {a_name}", padding="8")
+                card.pack(fill=tk.X, expand=True, padx=4, pady=4)
+                
+                tip_text = format_monster_action_tooltip(act, player_name)
+                ToolTip(card, tip_text)
+
+                info_parts = []
+                if isinstance(act, dict) and act.get("attack_bonus"):
+                    info_parts.append(f"TpC: +{act['attack_bonus']}")
+                m_hit = re.search(r'Hit:\s*([0-9]+\s*\([^)]+\)[^.]+)', a_desc)
+                if m_hit:
+                    info_parts.append(f"Danno: {m_hit.group(1).strip()}")
+                elif isinstance(act, dict) and act.get("damage_dice"):
+                    info_parts.append(f"Danno: {act['damage_dice']}")
+                
+                if info_parts:
+                    ttk.Label(card, text="  •  ".join(info_parts), font=FONT_BOLD, foreground=ACCENT_GOLD).pack(anchor="w")
+                
+                if a_desc:
+                    lbl_desc = ttk.Label(card, text=a_desc, wraplength=580, justify="left", font=FONT_SMALL)
+                    lbl_desc.pack(anchor="w", pady=(2, 0))
+                    ToolTip(lbl_desc, tip_text)
+
+        # Tab Equipaggiamento & Inventario (Tabella)
         tab_inv = ttk.Frame(nb, padding="10")
         nb.add(tab_inv, text=_t("tab_inventory", default="🎒 Inventario"))
 

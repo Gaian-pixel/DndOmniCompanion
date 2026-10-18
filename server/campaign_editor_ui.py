@@ -22,6 +22,11 @@ from common.campaign import Campaign, get_available_campaigns, DEFAULT_CAMPAIGNS
 from common.game_state import GameState, Player
 from common.protocol import make_player_joined, make_handout_broadcast, make_chat_broadcast
 from common.network_utils import broadcast
+from common.srd_offline import (
+    extract_and_normalize_attributes,
+    normalize_ac_value,
+    normalize_speed_value,
+)
 
 
 class CampaignEncounterDialog(tk.Toplevel):
@@ -616,13 +621,27 @@ class CampaignEditorDialog(tk.Toplevel):
                 npc = Player(name=name)
                 npc.hp = m.get("hp", 15)
                 npc.max_hp = m.get("hp", 15)
-                npc.initiative = m.get("initiative", 0)
+                attrs = extract_and_normalize_attributes(m.get("attributes"), m.get("name", name))
+                dex_val = attrs.get("DES", 10)
+                npc.initiative = m.get("initiative") if m.get("initiative") is not None else (dex_val - 10) // 2
+                ac = normalize_ac_value(m.get("ac", m.get("armor_class", 10)))
+                speed_val, speed_disp, speed_unit = normalize_speed_value(m.get("speed", 30))
+                npc.speed = speed_val
+                npc.speed_unit = speed_unit
                 npc.full_sheet = {
                     "name": npc.name,
                     "char_class": "Mostro/NPC",
                     "level": 1,
                     "hp_current": npc.hp,
-                    "hp_max": npc.max_hp
+                    "hp_max": npc.max_hp,
+                    "ac": ac,
+                    "speed": speed_val,
+                    "speed_display": speed_disp,
+                    "speed_unit": speed_unit,
+                    "attributes": attrs,
+                    "cr": str(m.get("cr", "1")),
+                    "actions": m.get("actions", []),
+                    "features": m.get("features", [])
                 }
                 self.game_state.add_player(npc)
                 broadcast(self.game_state, make_player_joined(npc.to_dict()))
@@ -819,12 +838,26 @@ class CampaignEditorDialog(tk.Toplevel):
         p.hp = npc_data.get("hp", 20)
         p.max_hp = npc_data.get("hp", 20)
         p.is_party_member = (npc_data.get("faction") == "Alleato")
+        attrs = extract_and_normalize_attributes(npc_data.get("attributes"), name)
+        dex_val = attrs.get("DES", 10)
+        p.initiative = npc_data.get("initiative") if npc_data.get("initiative") is not None else (dex_val - 10) // 2
+        ac = normalize_ac_value(npc_data.get("ac", npc_data.get("armor_class", 10)))
+        speed_val, speed_disp, speed_unit = normalize_speed_value(npc_data.get("speed", 30))
+        p.speed = speed_val
+        p.speed_unit = speed_unit
         p.full_sheet = {
             "name": p.name,
             "char_class": npc_data.get("role", "PNG"),
             "level": 1,
             "hp_current": p.hp,
-            "hp_max": p.max_hp
+            "hp_max": p.max_hp,
+            "ac": ac,
+            "speed": speed_val,
+            "speed_display": speed_disp,
+            "speed_unit": speed_unit,
+            "attributes": attrs,
+            "actions": npc_data.get("actions", []),
+            "features": npc_data.get("features", [])
         }
         self.game_state.add_player(p)
         broadcast(self.game_state, make_player_joined(p.to_dict()))

@@ -69,8 +69,10 @@ class QuestLogDialog(tk.Toplevel):
         self.quest_listbox.delete(0, tk.END)
         quests = self._get_quests()
         for i, q in enumerate(quests):
-            status = "✅" if q.get("status") == "completed" else "📜"
-            self.quest_listbox.insert(tk.END, f"{status} {q.get('title', 'Senza Titolo')}")
+            is_done = q.get("completed", False) or q.get("status") == "completed"
+            status = "✅" if is_done else "📜"
+            chap = f"[{q.get('chapter')}] " if q.get("chapter") else ""
+            self.quest_listbox.insert(tk.END, f"{status} {chap}{q.get('title', 'Senza Titolo')}")
 
     def on_select(self, event):
         sel = self.quest_listbox.curselection()
@@ -80,9 +82,23 @@ class QuestLogDialog(tk.Toplevel):
         quests = self._get_quests()
         if idx < len(quests):
             q = quests[idx]
+            is_done = q.get("completed", False) or q.get("status") == "completed"
+            st_text = "Completata" if is_done else "In Corso"
             self.detail_text.config(state=tk.NORMAL)
             self.detail_text.delete("1.0", tk.END)
-            self.detail_text.insert(tk.END, f"Titolo: {q.get('title')}\nStato: {q.get('status')}\n\nDescrizione:\n{q.get('description', '')}")
+            txt = f"Titolo: {q.get('title')}\n"
+            if q.get("chapter"):
+                txt += f"Capitolo/Atto: {q.get('chapter')}\n"
+            txt += f"Stato: {st_text}\n"
+            rewards = q.get("rewards")
+            if rewards and isinstance(rewards, dict):
+                r_parts = []
+                if "xp" in rewards: r_parts.append(f"{rewards['xp']} PE")
+                if "gp" in rewards: r_parts.append(f"{rewards['gp']} MO")
+                if r_parts:
+                    txt += f"Ricompensa: {', '.join(r_parts)}\n"
+            txt += f"\nDescrizione:\n{q.get('description', '')}"
+            self.detail_text.insert(tk.END, txt)
             self.detail_text.config(state=tk.DISABLED)
 
     def add_quest(self):

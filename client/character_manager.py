@@ -218,8 +218,8 @@ class Character:
         for lvl in self.spell_slots:
             if isinstance(self.spell_slots[lvl], dict) and "current" in self.spell_slots[lvl]:
                 self.spell_slots[lvl]["current"] = self.spell_slots[lvl]["max"]
-            elif isinstance(self.spell_slots[lvl], list):
-                self.spell_slots[lvl][0] = 0
+            elif isinstance(self.spell_slots[lvl], list) and len(self.spell_slots[lvl]) > 1:
+                self.spell_slots[lvl][0] = self.spell_slots[lvl][1]
         lvl = getattr(self, "level", 1) or 1
         max_rage = 2 if lvl < 3 else (3 if lvl < 6 else (4 if lvl < 12 else 5))
         self.class_resources = {

@@ -46,6 +46,7 @@ FONT_MAIN = ("Segoe UI", 10)               # Corpo del testo
 FONT_BOLD = ("Segoe UI", 10, "bold")       # Testo in evidenza
 FONT_BADGE = ("Segoe UI", 9, "bold")       # Badge e pillole di stato
 FONT_SMALL = ("Segoe UI", 8)               # Note e timestamp
+FONT_REGULAR = FONT_MAIN                    # Alias di compatibilità per FONT_MAIN
 
 
 def setup_theme(root):

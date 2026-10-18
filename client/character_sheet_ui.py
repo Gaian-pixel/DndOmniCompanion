@@ -1462,14 +1462,12 @@ class CharacterSheetUI(tk.Toplevel):
             
         self.hp_cur_var.set(self.character.hp_current)
         self.hp_max_var.set(self.character.hp_max)
-        self.ac_var.set(self.character.ac)
+        from common.srd_offline import normalize_ac_value, normalize_speed_value
+        self.ac_var.set(normalize_ac_value(getattr(self.character, "ac", 10)))
         self.init_var.set(self.character.initiative)
         spd = getattr(self.character, "speed", 30)
-        try:
-            u = getattr(self.character, "speed_unit", None) or ("m" if float(spd) <= 18 else "ft")
-        except (ValueError, TypeError):
-            u = "ft"
-        self.speed_var.set(str(spd))
+        speed_val, speed_disp, u = normalize_speed_value(spd, default_unit=getattr(self.character, "speed_unit", None))
+        self.speed_var.set(str(speed_val))
         if hasattr(self, "speed_unit_var"):
             self.speed_unit_var.set(u)
             self._last_speed_unit = u
@@ -2298,6 +2296,7 @@ class CharacterSheetUI(tk.Toplevel):
 
         btn_finish = ttk.Button(btn_row, text="✅ Concludi Riposo", command=finish_rest)
         btn_finish.pack(side=tk.RIGHT)
+        win.protocol("WM_DELETE_WINDOW", finish_rest)
 
 
     def long_rest(self):

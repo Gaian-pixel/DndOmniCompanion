@@ -203,13 +203,14 @@ class LevelUpDialog(tk.Toplevel):
                             data = json.loads(response.read().decode('utf-8'))
                 
                 if data:
-                    self.master.after(0, lambda: self.on_api_success(data))
+                    self.master.after(0, lambda d=data: self.on_api_success(d))
                 else:
                     if not self._fallback_offline(new_level):
                         self.master.after(0, lambda: self.on_api_error("Dati non disponibili"))
             except Exception as e:
+                err_msg = str(e)
                 if not self._fallback_offline(new_level):
-                    self.master.after(0, lambda: self.on_api_error(str(e)))
+                    self.master.after(0, lambda msg=err_msg: self.on_api_error(msg))
                 
         threading.Thread(target=_fetch, daemon=True).start()
         

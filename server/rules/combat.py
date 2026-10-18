@@ -28,6 +28,34 @@ def _spawn_corpse_loot(target_player, game_state):
         game_state.log_dm_message(f"[LOOT] {msg}")
         broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
 
+def drop_concentration(player, game_state, notify=True):
+    """Interrompe la concentrazione di un personaggio (5e RAW) e rimuove le sue AoE attive collegate."""
+    had_conc = False
+    if hasattr(player, "conditions") and "Concentrazione" in player.conditions:
+        player.conditions.remove("Concentrazione")
+        had_conc = True
+    if getattr(player, "full_sheet", None) and isinstance(player.full_sheet.get("conditions"), list):
+        if "Concentrazione" in player.full_sheet["conditions"]:
+            player.full_sheet["conditions"].remove("Concentrazione")
+            had_conc = True
+
+    removed_aoes = False
+    if game_state and hasattr(game_state, "active_aoes"):
+        for aoe in list(game_state.active_aoes):
+            if aoe.get("caster") == player.name and aoe.get("concentration"):
+                game_state.active_aoes.remove(aoe)
+                removed_aoes = True
+        if removed_aoes:
+            broadcast(game_state, make_combat_state_update_broadcast(
+                game_state.combat_active, game_state.turn_index, game_state.round_number, game_state.active_aoes
+            ))
+
+    if (had_conc or removed_aoes) and notify and game_state:
+        break_msg = f"La concentrazione di {player.name} si spezza! Gli effetti ad essa legati svaniscono."
+        broadcast(game_state, make_chat_broadcast("Sistema", break_msg))
+        game_state.log_dm_message(f"[CONCENTRAZIONE] {break_msg}")
+
+
 def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=None):
     """
     Applica il danno secondo le regole D&D 5e:
@@ -108,6 +136,7 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
         auto_death = game_state.automation_settings.get("auto_death_saves", True)
     
     if target_player.hp == 0:
+        drop_concentration(target_player, game_state, notify=(not is_npc))
         if is_npc:
             if auto_death:
                 if "Morto" not in getattr(target_player, "conditions", []):
@@ -130,8 +159,6 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
                         game_state.log_dm_message(msg)
             else:
                 if not hasattr(target_player, "conditions"): target_player.conditions = []
-                if "Concentrazione" in target_player.conditions:
-                    target_player.conditions.remove("Concentrazione")
                 if "Incosciente" not in target_player.conditions:
                     target_player.conditions.append("Incosciente")
                 if "Prono" not in target_player.conditions:
@@ -162,6 +189,7 @@ def _apply_hp_change(target_player, new_hp_unbounded, game_state):
     is_npc = not hasattr(target_player, "conn") or target_player.conn is None
     
     if target_player.hp == 0:
+        drop_concentration(target_player, game_state, notify=(not is_npc))
         if is_npc:
             if "Morto" not in getattr(target_player, "conditions", []):
                 if not hasattr(target_player, "conditions"): target_player.conditions = []
@@ -178,8 +206,6 @@ def _apply_hp_change(target_player, new_hp_unbounded, game_state):
                         game_state.log_dm_message(msg)
             else:
                 if not hasattr(target_player, "conditions"): target_player.conditions = []
-                if "Concentrazione" in target_player.conditions:
-                    target_player.conditions.remove("Concentrazione")
                 if "Incosciente" not in target_player.conditions:
                     target_player.conditions.append("Incosciente")
                 if "Prono" not in target_player.conditions:
@@ -848,23 +874,9 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
         else:
             log_msg += " FALLITO!"
         if source_name == "Sistema (Concentrazione)":
-            if "Concentrazione" in getattr(target_player, "conditions", []):
-                target_player.conditions.remove("Concentrazione")
-                # Rimuovi AoE a concentrazione mantenute da questo personaggio
-                if game_state and hasattr(game_state, "active_aoes"):
-                    removed_aoes = False
-                    for aoe in list(game_state.active_aoes):
-                        if aoe.get("caster") == target_player.name and aoe.get("concentration"):
-                            game_state.active_aoes.remove(aoe)
-                            removed_aoes = True
-                    if removed_aoes:
-                        broadcast(game_state, make_combat_state_update_broadcast(game_state.combat_active, game_state.turn_index, game_state.round_number, game_state.active_aoes))
-                broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
-                game_state._trigger_gui_update()
-                
-                break_msg = f"La concentrazione di {target_player.name} si spezza! L'effetto dell'incantesimo svanisce."
-                broadcast(game_state, make_chat_broadcast("Sistema", break_msg))
-                game_state.log_dm_message(f"[TS] {break_msg}")
+            drop_concentration(target_player, game_state, notify=True)
+            broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
+            game_state._trigger_gui_update()
         
     if damage_formula:
         try:
