@@ -51,7 +51,9 @@ FONT_REGULAR = FONT_MAIN                    # Alias di compatibilità per FONT_M
 
 def setup_theme(root):
     """Inizializza e configura globalmente il tema Dark Fantasy."""
-    style = tb.Style(theme="darkly")
+    available_themes = tb.Style().theme_names()
+    theme_name = "bootstrap-dark" if "bootstrap-dark" in available_themes else "darkly"
+    style = tb.Style(theme=theme_name)
     colors = style.colors
 
     # Configurazione Colori Principali

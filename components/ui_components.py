@@ -1,14 +1,16 @@
 # ui_components.py
 import tkinter as tk
+import re
 import base64
 import math
 from io import BytesIO
 from PIL import Image, ImageTk, ImageDraw
 from common.hex_utils import (
-    Hex, HexLayout, SquareLayout, hex_distance, grid_distance,
-    get_sphere_hexes, get_cone_hexes, get_line_hexes, get_visible_hexes
+    Hex, HexLayout, SquareLayout, hex_distance,
+    get_sphere_hexes, get_cone_hexes, get_line_hexes, get_visible_hexes,
+    hex_linedraw
 )
-from common.i18n import _t, get_language
+from common.i18n import _t, format_distance_hexes, get_map_scale_info
 
 class HexMapCanvas(tk.Canvas):
     """Un widget Canvas riutilizzabile per visualizzare e interagire con una mappa esagonale."""
@@ -514,7 +516,6 @@ class HexMapCanvas(tk.Canvas):
         if getattr(self, 'players_data', None):
             for name, pdata in self.players_data.items():
                 pos = pdata.get('position', [0, 0]) if isinstance(pdata, dict) else pdata
-                from common.hex_utils import Hex
                 if Hex(*pos) == hovered_hex:
                     # Controlliamo la nebbia di guerra per il client
                     fow_active = getattr(self, 'fow_enabled', False) or (isinstance(getattr(self, 'map_data', None), dict) and self.map_data.get('fow_enabled', False))
@@ -620,8 +621,6 @@ class HexMapCanvas(tk.Canvas):
     def _draw_ruler_between(self, start_hex, end_hex):
         if not self.hex_layout or not start_hex or not end_hex:
             return
-        from common.hex_utils import hex_distance, hex_linedraw
-        from common.i18n import format_distance_hexes, get_map_scale_info
 
         active_map_data = getattr(self, "map_data", None)
         scale_info = get_map_scale_info(active_map_data)

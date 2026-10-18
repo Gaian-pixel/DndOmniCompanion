@@ -108,14 +108,14 @@ def open_travel_panel(dm_gui):
         if not char_sheet: return 0
         val = char_sheet.get("attributes", {}).get(stat_name, 10)
         try: return (int(val) - 10) // 2
-        except: return 0
+        except (ValueError, TypeError): return 0
 
     def get_skill_mod(char_sheet, skill_name, stat_name):
         if not char_sheet: return 0
         mod = get_stat_mod(char_sheet, stat_name)
         sk = char_sheet.get("skills", {}).get(skill_name, 0)
         try: sk_val = int(sk)
-        except: sk_val = 0
+        except (ValueError, TypeError): sk_val = 0
         return mod + sk_val
 
     def get_passive_perception(p, pace):
@@ -352,9 +352,9 @@ def open_travel_panel(dm_gui):
         months_list = ["", "Hammer", "Alturiak", "Ches", "Tarsakh", "Mirtul", "Kythorn", "Flamerule", "Eleasis", "Eleint", "Marpenoth", "Uktar", "Nightal"]
         cur_month = months_list[gs.time_month] if hasattr(gs, 'time_month') and 1 <= gs.time_month <= 12 else "Mese"
 
-        msg = f"========================================\n"
+        msg = "========================================\n"
         msg += f"🧭 RESOCONTO MARCIA ({hours} ORE) - {gs.time_day} {cur_month} {getattr(gs, 'time_year', 1492)} - {gs.time_hour:02d}:00\n"
-        msg += f"========================================\n"
+        msg += "========================================\n"
         msg += f"• Andatura: {cur_pace} | Terreno: {cur_terrain} | Ore oggi: {gs.travel_hours_today}/8h\n"
         msg += f"• {nav_msg}\n"
         msg += f"• {enc_msg}\n"

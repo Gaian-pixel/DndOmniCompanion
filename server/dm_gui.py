@@ -8,7 +8,7 @@ import queue
 import tkinter as tk
 import json
 import base64
-import os
+from io import BytesIO
 from common.messagebox import messagebox
 from tkinter import filedialog, ttk, scrolledtext, simpledialog
 from PIL import Image, ImageTk
@@ -48,6 +48,10 @@ from common.srd_offline import (
     get_monster_offline,
     normalize_ac_value,
     normalize_speed_value,
+    normalize_size_value,
+    normalize_damage_list,
+    extract_legendary_stats,
+    extract_darkvision_flag,
 )
 from server.dm_bestiary_panel import DMBestiaryPanel
 from server.dm_soundboard_panel import DMSoundboardPanel
@@ -927,6 +931,17 @@ class DM_GUI:
                 speed_val, speed_disp, speed_unit = normalize_speed_value(m.get("speed", 30))
                 npc.speed = speed_val
                 npc.speed_unit = speed_unit
+                npc.size = normalize_size_value(m.get("size"))
+                npc.damage_resistances = normalize_damage_list(m.get("damage_resistances", m.get("resistances", [])))
+                npc.damage_immunities = normalize_damage_list(m.get("damage_immunities", m.get("immunities", [])))
+                npc.damage_vulnerabilities = normalize_damage_list(m.get("damage_vulnerabilities", m.get("vulnerabilities", [])))
+                leg_res, leg_act, has_lair = extract_legendary_stats(m)
+                npc.legendary_resistances_max = leg_res
+                npc.legendary_resistances_current = leg_res
+                npc.legendary_actions_max = leg_act
+                npc.legendary_actions_current = leg_act
+                npc.has_lair_actions = has_lair
+                npc.has_darkvision = extract_darkvision_flag(m)
 
                 npc.full_sheet = {
                     "name": npc.name,
@@ -940,8 +955,15 @@ class DM_GUI:
                     "speed_unit": speed_unit,
                     "attributes": attrs,
                     "cr": str(m.get("cr", "1")),
+                    "size": m.get("size", "Medium"),
                     "actions": m.get("actions", []),
                     "features": m.get("features", m.get("special_abilities", [])),
+                    "damage_resistances": npc.damage_resistances,
+                    "damage_immunities": npc.damage_immunities,
+                    "damage_vulnerabilities": npc.damage_vulnerabilities,
+                    "legendary_resistances_max": leg_res,
+                    "legendary_actions_max": leg_act,
+                    "has_lair_actions": has_lair
                 }
                 self.server.game_state.add_player(npc)
                 broadcast(self.server.game_state, make_player_joined(npc.to_dict()))
@@ -983,6 +1005,17 @@ class DM_GUI:
         npc.initiative = initiative
         npc.speed = speed_val
         npc.speed_unit = speed_unit
+        npc.size = normalize_size_value(item_data.get("size"))
+        npc.damage_resistances = normalize_damage_list(item_data.get("damage_resistances", item_data.get("resistances", [])))
+        npc.damage_immunities = normalize_damage_list(item_data.get("damage_immunities", item_data.get("immunities", [])))
+        npc.damage_vulnerabilities = normalize_damage_list(item_data.get("damage_vulnerabilities", item_data.get("vulnerabilities", [])))
+        leg_res, leg_act, has_lair = extract_legendary_stats(item_data)
+        npc.legendary_resistances_max = leg_res
+        npc.legendary_resistances_current = leg_res
+        npc.legendary_actions_max = leg_act
+        npc.legendary_actions_current = leg_act
+        npc.has_lair_actions = has_lair
+        npc.has_darkvision = extract_darkvision_flag(item_data)
         
         npc.full_sheet = {
             "name": npc.name,
@@ -996,8 +1029,15 @@ class DM_GUI:
             "speed_unit": speed_unit,
             "attributes": attrs,
             "cr": str(item_data.get("challenge_rating", item_data.get("cr", "1"))),
+            "size": item_data.get("size", "Medium"),
             "actions": item_data.get("actions", []),
             "features": item_data.get("features", item_data.get("special_abilities", [])),
+            "damage_resistances": npc.damage_resistances,
+            "damage_immunities": npc.damage_immunities,
+            "damage_vulnerabilities": npc.damage_vulnerabilities,
+            "legendary_resistances_max": leg_res,
+            "legendary_actions_max": leg_act,
+            "has_lair_actions": has_lair
         }
         
         self.server.game_state.add_player(npc)
@@ -1026,6 +1066,17 @@ class DM_GUI:
         speed_val, speed_disp, speed_unit = normalize_speed_value(entity_data.get("speed", 30))
         npc.speed = speed_val
         npc.speed_unit = speed_unit
+        npc.size = normalize_size_value(entity_data.get("size"))
+        npc.damage_resistances = normalize_damage_list(entity_data.get("damage_resistances", entity_data.get("resistances", [])))
+        npc.damage_immunities = normalize_damage_list(entity_data.get("damage_immunities", entity_data.get("immunities", [])))
+        npc.damage_vulnerabilities = normalize_damage_list(entity_data.get("damage_vulnerabilities", entity_data.get("vulnerabilities", [])))
+        leg_res, leg_act, has_lair = extract_legendary_stats(entity_data)
+        npc.legendary_resistances_max = leg_res
+        npc.legendary_resistances_current = leg_res
+        npc.legendary_actions_max = leg_act
+        npc.legendary_actions_current = leg_act
+        npc.has_lair_actions = has_lair
+        npc.has_darkvision = extract_darkvision_flag(entity_data)
 
         # Add basic full sheet data from SRD
         npc.full_sheet = {
@@ -1040,8 +1091,15 @@ class DM_GUI:
             "speed_unit": speed_unit,
             "attributes": attrs,
             "cr": str(entity_data.get("challenge_rating", entity_data.get("cr", "1"))),
+            "size": entity_data.get("size", "Medium"),
             "actions": entity_data.get("actions", []),
             "features": entity_data.get("features", entity_data.get("special_abilities", "")),
+            "damage_resistances": npc.damage_resistances,
+            "damage_immunities": npc.damage_immunities,
+            "damage_vulnerabilities": npc.damage_vulnerabilities,
+            "legendary_resistances_max": leg_res,
+            "legendary_actions_max": leg_act,
+            "has_lair_actions": has_lair
         }
         
         self.server.game_state.add_player(npc)
@@ -1316,7 +1374,6 @@ class DM_GUI:
     def on_token_drop(self, token_name, q, r):
         player = self.server.game_state.find_player(token_name)
         if player:
-            from server.commands import command_handlers
             command_handlers["MOVE_REQUEST"]({"to": [q, r], "is_dm_force": True}, player, self.server.game_state)
 
     def on_hex_right_clicked(self, event, clicked_hex, token_name):
@@ -1526,7 +1583,7 @@ class DM_GUI:
         
         def set_dc():
             cur_dc = door.get("dc", 15)
-            new_dc = simpledialog.askinteger("CD Serratura", f"Inserisci CD per scassinare la porta (1-30):", initialvalue=cur_dc, minvalue=1, maxvalue=30)
+            new_dc = simpledialog.askinteger("CD Serratura", "Inserisci CD per scassinare la porta (1-30):", initialvalue=cur_dc, minvalue=1, maxvalue=30)
             if new_dc is not None:
                 door["dc"] = new_dc
                 from common.protocol import make_map_data_update_broadcast
@@ -1561,7 +1618,7 @@ class DM_GUI:
 
         def set_break_dc():
             cur_bdc = door.get("break_dc", door.get("dc", 15) + 2)
-            new_bdc = simpledialog.askinteger("CD Sfondare", f"Inserisci CD per sfondare la porta con Forza (1-30):", initialvalue=cur_bdc, minvalue=1, maxvalue=30)
+            new_bdc = simpledialog.askinteger("CD Sfondare", "Inserisci CD per sfondare la porta con Forza (1-30):", initialvalue=cur_bdc, minvalue=1, maxvalue=30)
             if new_bdc is not None:
                 door["break_dc"] = new_bdc
                 from common.protocol import make_map_data_update_broadcast
@@ -1866,7 +1923,7 @@ class DM_GUI:
             u_default = "m" if get_distance_unit() == "m" else "ft"
             val_str = simpledialog.askstring(
                 "Scala Mappa Personalizzata",
-                f"Inserisci la distanza per 1 esagono (es. '10 ft', '3 m', '24 mi', '36 km'):",
+                "Inserisci la distanza per 1 esagono (es. '10 ft', '3 m', '24 mi', '36 km'):",
                 initialvalue=f"10 {u_default}",
                 parent=self.master
             )
@@ -2060,14 +2117,14 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
     def open_quest_dialog(self):
         try:
             from components.quest_ui import QuestLogDialog
-            win = QuestLogDialog(self.master, self.server.game_state, is_dm=True, network_or_server=self.server)
+            QuestLogDialog(self.master, self.server.game_state, is_dm=True, network_or_server=self.server)
         except Exception as e:
             messagebox.showerror("Errore", f"Impossibile aprire il diario: {e}")
 
     def open_shop_dialog(self):
         try:
             from components.shop_ui import ShopDialog
-            win = ShopDialog(self.master, self.server.game_state, is_dm=True, network_or_server=self.server)
+            ShopDialog(self.master, self.server.game_state, is_dm=True, network_or_server=self.server)
         except Exception as e:
             messagebox.showerror("Errore", f"Impossibile aprire i negozi: {e}")
 
@@ -2125,7 +2182,7 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                 self.fow_enabled_var.set(self.server.game_state.current_map.get("fow_enabled", False))
                 self.redraw_map_and_players()
             self.log_to_chat(f"[SISTEMA] Nuova campagna '{camp.name}' creata e applicata.")
-        dlg = CampaignEditorDialog(self.master, campaign=new_camp, game_state=self.server.game_state, on_save_callback=on_saved)
+        CampaignEditorDialog(self.master, campaign=new_camp, game_state=self.server.game_state, on_save_callback=on_saved)
 
     def open_load_campaign_dialog(self):
         from server.campaign_editor_ui import CampaignSelectorDialog
@@ -2136,7 +2193,7 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                 self.redraw_map_and_players()
             self.log_to_chat(f"[SISTEMA] Campagna '{camp.name}' caricata e attiva.")
             messagebox.showinfo("Campagna Caricata", f"Campagna '{camp.name}' caricata con successo!", parent=self.master)
-        dlg = CampaignSelectorDialog(self.master, on_select_callback=on_selected)
+        CampaignSelectorDialog(self.master, on_select_callback=on_selected)
 
     def open_campaign_editor_dialog(self):
         from server.campaign_editor_ui import CampaignEditorDialog
@@ -2145,7 +2202,7 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             def on_saved(camp):
                 camp.apply_to_game_state(self.server.game_state)
                 self.log_to_chat(f"[SISTEMA] Campagna '{camp.name}' aggiornata.")
-            dlg = CampaignEditorDialog(self.master, campaign=active_camp, game_state=self.server.game_state, on_save_callback=on_saved)
+            CampaignEditorDialog(self.master, campaign=active_camp, game_state=self.server.game_state, on_save_callback=on_saved)
         else:
             choice = messagebox.askyesno(
                 _t("campaign_none_title", default="Nessuna Campagna Attiva"),
@@ -2643,10 +2700,6 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             return
             
         try:
-            from PIL import Image
-            import base64
-            from io import BytesIO
-            
             # Downscale image to avoid huge payloads
             img = Image.open(filepath)
             img.thumbnail((800, 800))
@@ -2976,7 +3029,7 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
             if m_atk:
                 try:
                     atk_bonus = int(m_atk.group(1))
-                except:
+                except (ValueError, TypeError):
                     pass
 
         if atk_bonus is not None:
@@ -2984,7 +3037,7 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
             try:
                 res = roll_dice(f"1d20{mod_str}")
                 msg += f"\nTiro per Colpire: {res['total']} (Dado: {res['rolls'][0]})"
-            except:
+            except Exception:
                 pass
             
         if not dmg_dice:
@@ -2996,7 +3049,7 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
             try:
                 res = roll_dice(dmg_dice)
                 msg += f"\nDanni: {res['total']} (Dadi: {res['rolls']})"
-            except:
+            except Exception:
                 pass
             
         self.log_to_chat(f"[COMBAT] {msg}")
@@ -3242,12 +3295,12 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
 
         def submit():
             try: sz = int(size_entry.get())
-            except: sz = 3
+            except (ValueError, TypeError): sz = 3
             self.aoe_mode = True
             dc = 10
             if req_save_var.get():
                 try: dc = int(dc_entry.get())
-                except: dc = 10
+                except (ValueError, TypeError): dc = 10
 
             self.aoe_params = {
                 "type": type_var.get(), "size": sz, "color": color_var.get(),
@@ -3325,7 +3378,6 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
 
 
 if __name__ == "__main__":
-    import tkinter as tk
     root = tk.Tk()
     DM_GUI(root)
     root.mainloop()

@@ -441,7 +441,6 @@ class OfflineSRD:
 
                 hp = m.get("hit_points", 20)
                 ac = m.get("armor_class", 10)
-                dex = m.get("dexterity", 10)
                 cr = m.get("challenge_rating", m.get("cr", "1"))
                 src = m.get("source", "SRD")
 
@@ -926,6 +925,96 @@ def normalize_speed_value(speed_data: Any, default_unit: Optional[str] = None) -
 
     u = default_unit or "ft"
     return 30, f"30 {u}", u
+
+
+def normalize_size_value(size_data: Any) -> int:
+    """Converte la taglia D&D 5e (stringa o numero) nel numero di esagoni/caselle (size) del token."""
+    if isinstance(size_data, (int, float)):
+        return max(1, int(size_data))
+    s = str(size_data or "").strip().lower()
+    if any(k in s for k in ("gargantuan", "mastodontic", "colossal")):
+        return 4
+    if any(k in s for k in ("huge", "enorme")):
+        return 3
+    if any(k in s for k in ("large", "grande")):
+        return 2
+    # Tiny, Small, Medium, Piccola, Media -> 1 esagono
+    return 1
+
+
+def normalize_damage_list(damage_data: Any) -> List[str]:
+    """Converte resistenze, immunità o vulnerabilità (lista o stringa) in lista normalizzata di tipi di danno."""
+    if not damage_data:
+        return []
+    result = []
+    if isinstance(damage_data, list):
+        for item in damage_data:
+            if isinstance(item, str):
+                for sub in re.split(r'[,;]|(?:\band\b)|(?:\be\b)', item):
+                    clean = sub.strip().lower()
+                    if clean and clean not in result:
+                        result.append(clean)
+            elif isinstance(item, dict) and "name" in item:
+                clean = str(item["name"]).strip().lower()
+                if clean and clean not in result:
+                    result.append(clean)
+    elif isinstance(damage_data, str):
+        for sub in re.split(r'[,;]|(?:\band\b)|(?:\be\b)', damage_data):
+            clean = sub.strip().lower()
+            if clean and clean not in result:
+                result.append(clean)
+    return result
+
+
+def extract_legendary_stats(mdata: Dict[str, Any]) -> tuple:
+    """Estrae (legendary_resistances, legendary_actions, has_lair) da dizionario o statblock di una creatura."""
+    if not isinstance(mdata, dict):
+        return 0, 0, False
+    
+    # 1. Legendary Resistances (es. 3/Day)
+    leg_res = 0
+    abilities = mdata.get("special_abilities") or mdata.get("features") or []
+    if isinstance(abilities, list):
+        for ab in abilities:
+            ab_name = ab.get("name", "") if isinstance(ab, dict) else str(ab)
+            ab_desc = ab.get("desc", "") if isinstance(ab, dict) else ""
+            if "legendary resistance" in ab_name.lower() or "resistenza leggendaria" in ab_name.lower():
+                m_count = re.search(r'\((\d+)\s*/\s*(?:day|giorno)\)', ab_name, re.IGNORECASE)
+                if not m_count:
+                    m_count = re.search(r'\((\d+)\s*/\s*(?:day|giorno)\)', ab_desc, re.IGNORECASE)
+                leg_res = int(m_count.group(1)) if m_count else 3
+                break
+
+    # 2. Legendary Actions (di norma 3 azioni per round per creature leggendarie)
+    leg_actions = mdata.get("legendary_actions") or []
+    leg_act_count = 3 if (isinstance(leg_actions, list) and len(leg_actions) > 0) else 0
+
+    # 3. Lair Actions
+    has_lair = bool(mdata.get("lair_actions") or "lair_actions" in mdata)
+    if not has_lair and isinstance(abilities, list):
+        for ab in abilities:
+            t = str(ab).lower()
+            if "lair action" in t or "azione della tana" in t:
+                has_lair = True
+                break
+
+    return leg_res, leg_act_count, has_lair
+
+
+def extract_darkvision_flag(mdata: Dict[str, Any]) -> bool:
+    """Verifica se una creatura possiede Scurovisione dai sensi o tratti."""
+    if not isinstance(mdata, dict):
+        return False
+    senses = str(mdata.get("senses", "")).lower()
+    if "darkvision" in senses or "scurovisione" in senses:
+        return True
+    traits = mdata.get("special_abilities") or mdata.get("features") or []
+    if isinstance(traits, list):
+        for t in traits:
+            text = str(t).lower()
+            if "darkvision" in text or "scurovisione" in text:
+                return True
+    return False
 
 
 # -----------------------------------------------------------------------------

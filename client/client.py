@@ -6,17 +6,12 @@ import queue
 import tkinter as tk
 from common.messagebox import messagebox
 from tkinter import simpledialog, scrolledtext, ttk
-import socket
-import threading
-import json
 import base64
 from io import BytesIO
 from PIL import Image, ImageTk
 
 from common.protocol import *
-from common.hex_utils import Hex, HexLayout
-from common.network_utils import send_message, receive_message
-from components.ui_components import HexMapCanvas, ToolTip, show_toast, ToastNotification
+from components.ui_components import HexMapCanvas, ToolTip, show_toast
 from client.character_manager import CharacterManager
 from client.login_ui import LoginDialog
 from client.character_sheet_ui import CharacterSheetUI
@@ -31,8 +26,8 @@ from common.theme import (
     setup_theme, apply_modern_window_style,
     BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT, BORDER_COLOR,
     TEXT_COLOR, TEXT_MUTED, TEXT_DARK,
-    ACCENT_GOLD, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE,
-    FONT_MAIN, FONT_TITLE, FONT_HEADER, FONT_BOLD, FONT_SMALL, FONT_REGULAR
+    ACCENT_GOLD, ACCENT_RED, ACCENT_GREEN,
+    FONT_MAIN, FONT_HEADER, FONT_BOLD, FONT_SMALL, FONT_REGULAR
 )
 from .network import ClientNetwork
 
@@ -1531,17 +1526,15 @@ class ClientGUI:
     def open_quest_dialog(self):
         try:
             from components.quest_ui import QuestLogDialog
-            win = QuestLogDialog(self.master, self.game_state, is_dm=False, network_or_server=self.network)
+            QuestLogDialog(self.master, self.game_state, is_dm=False, network_or_server=self.network)
         except Exception as e:
-            from common.messagebox import messagebox
             messagebox.showerror("Errore", f"Impossibile aprire il diario: {e}")
 
     def open_shop_dialog(self):
         try:
             from components.shop_ui import ShopDialog
-            win = ShopDialog(self.master, self.game_state, is_dm=False, network_or_server=self.network)
+            ShopDialog(self.master, self.game_state, is_dm=False, network_or_server=self.network)
         except Exception as e:
-            from common.messagebox import messagebox
             messagebox.showerror("Errore", f"Impossibile aprire i negozi: {e}")
 
     def open_travel_dialog(self):
@@ -2064,7 +2057,7 @@ class ClientGUI:
         def submit():
             try:
                 sz = int(size_entry.get())
-            except:
+            except (ValueError, TypeError):
                 sz = 3
             self.aoe_mode = True
             if hasattr(self, "aoe_button"):
@@ -2075,7 +2068,7 @@ class ClientGUI:
             dc = 10
             if req_save_var.get():
                 try: dc = int(dc_entry.get())
-                except: dc = 10
+                except (ValueError, TypeError): dc = 10
                 
             sel_slot = slot_combo.get().split(" - ")[0].strip()
             self.aoe_params = {
@@ -2090,7 +2083,7 @@ class ClientGUI:
         def resolve_existing_aoe():
             stat = stat_var.get()
             try: dc = int(dc_entry.get())
-            except: dc = 13
+            except (ValueError, TypeError): dc = 13
             dmg = dmg_entry.get().strip() or "8d6"
             half = half_var.get()
             from common.protocol import make_resolve_aoe_request
@@ -2158,7 +2151,6 @@ class ClientGUI:
         if not last_ip or not self.active_character:
             self.connect_to_server()
             return
-        char = self.active_character
         try:
             self.network.connect(last_ip, 5000)
             self.is_connected = True
@@ -2198,16 +2190,19 @@ class ClientGUI:
                 continue
             players_info[name] = data
             
-        all_players = list(self.players_data.values())
         turn_name = ""
-        if getattr(self, "combat_active", False) and 0 <= getattr(self, "turn_index", 0) < len(all_players):
-            turn_name = all_players[self.turn_index]['name']
+        if getattr(self, "combat_active", False):
+            turn_name = self.game_state.get("turn_player_name", "") if self.game_state else ""
+            if not turn_name:
+                combatants = [p for p in self.players_data.values() if p.get('in_combat', True)]
+                if 0 <= getattr(self, "turn_index", 0) < len(combatants):
+                    turn_name = combatants[self.turn_index].get('name', '')
         
         time_hour = self.game_state.get("time_hour", 12) if self.game_state else 12
         time_minute = self.game_state.get("time_minute", 0) if self.game_state else 0
         weather = self.game_state.get("weather", "Sereno") if self.game_state else "Sereno"
         combat_active = self.combat_active
-        combat_order = [p["name"] for p in all_players] if combat_active else []
+        combat_order = [p["name"] for p in self.players_data.values() if p.get("in_combat", True)] if combat_active else []
         
         round_number = getattr(self, "round_number", 1)
         auto_day_night = True
@@ -2249,9 +2244,10 @@ class ClientGUI:
             if turn_player_name:
                 is_my_turn = (turn_player_name == self.name)
             else:
-                all_players = sorted(list(self.players_data.values()), key=lambda x: x.get('initiative', 0), reverse=True)
-                if 0 <= self.turn_index < len(all_players):
-                    is_my_turn = (all_players[self.turn_index].get('name') == self.name)
+                combatants = [p for p in self.players_data.values() if p.get('in_combat', True)]
+                combatants.sort(key=lambda x: x.get('initiative', 0), reverse=True)
+                if 0 <= self.turn_index < len(combatants):
+                    is_my_turn = (combatants[self.turn_index].get('name') == self.name)
         
         self._is_my_turn = is_my_turn
         if not self.combat_active and was_combat:
@@ -2289,7 +2285,16 @@ class ClientGUI:
                 self.active_character.last_position = pos
             if "conditions" in p_dict:
                 self.active_character.conditions = list(p_dict.get("conditions", []))
+            if "hp" in p_dict and p_dict["hp"] is not None:
+                self.active_character.hp_current = p_dict["hp"]
+            if "max_hp" in p_dict and p_dict["max_hp"] is not None:
+                self.active_character.hp_max = p_dict["max_hp"]
+            if "temp_hp" in p_dict and p_dict["temp_hp"] is not None:
+                self.active_character.temp_hp = p_dict["temp_hp"]
+            if "initiative" in p_dict and p_dict["initiative"] is not None:
+                self.active_character.initiative = p_dict["initiative"]
             self.character_manager.save_characters()
+            self.update_hero_summary_card()
         
         owned_chars = [p['name'] for p in data.get('players', []) if p['name'] == self.name or p.get('owner') == self.name]
         if not owned_chars: owned_chars = [self.name]
@@ -2416,10 +2421,10 @@ class ClientGUI:
             widget = getattr(self, btn, None)
             if widget:
                 try: widget.config(state=state)
-                except: pass
+                except Exception: pass
         if hasattr(self, 'stats_button') and self.stats_button:
             try: self.stats_button.config(state=tk.NORMAL)
-            except: pass
+            except Exception: pass
         self.update_action_economy_ui()
 
 
@@ -2635,7 +2640,6 @@ class ClientGUI:
     def handle_prompt_reaction(self, data):
         reaction_type = data.get("reaction_type")
         source_name = data.get("source_name", "Un'entità")
-        target_name = data.get("target_name", "")
         details = data.get("details", {})
         
         if reaction_type == "OPPORTUNITY_ATTACK":
@@ -2726,9 +2730,6 @@ class ClientGUI:
 
         if img_b64:
             try:
-                from PIL import Image, ImageTk
-                import base64
-                from io import BytesIO
                 img_data = base64.b64decode(img_b64)
                 img = Image.open(BytesIO(img_data))
                 img.thumbnail((420, 320))
@@ -2762,9 +2763,7 @@ class ClientGUI:
         QuestLogDialog(self.master, {"quests": quests}, is_dm=False, network_or_server=getattr(self, "network", None))
 
     def handle_opportunity_alert(self, data):
-
         enemy_name = data.get("enemy_name", "Un nemico")
-        msg = data.get("message", "Un nemico si allontana da te!")
         self.show_toast(f"{enemy_name} si allontana da te!\nPuoi effettuare un Attacco d'Opportunità spendendo la tua Reazione.", title="⚠️ Attacco d'Opportunità!", duration=6000, toast_type="warning", icon="⚔️")
 
     def handle_custom_spell_response(self, data):

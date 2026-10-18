@@ -5,11 +5,10 @@ utilizzando ReportLab e PyPDF.
 
 import io
 import os
-import re
 from typing import Any, Dict, List, Optional
 
 try:
-    from reportlab.lib.colors import Color, black
+    from reportlab.lib.colors import black
     from reportlab.pdfgen import canvas
     REPORTLAB_AVAILABLE = True
 except ImportError:

@@ -14,16 +14,15 @@ import re
 from typing import Dict, Any, Optional, Callable
 
 from common.theme import (
-    BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT, SURFACE_LIGHT,
+    BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT,
     BORDER_COLOR, BORDER_GOLD, ACCENT_GOLD, ACCENT_GOLD_LIGHT,
     ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, ACCENT_PURPLE,
     TEXT_COLOR, TEXT_MUTED, TEXT_GOLD,
-    FONT_TITLE, FONT_HEADER, FONT_MAIN, FONT_BOLD, FONT_BADGE, FONT_SMALL
+    FONT_TITLE, FONT_HEADER, FONT_MAIN, FONT_BOLD, FONT_SMALL
 )
 from common.srd_offline import (
     normalize_ac_value,
     normalize_speed_value,
-    format_monster_action_tooltip,
 )
 
 # Mappatura colori per la rarità degli oggetti D&D 5e
@@ -231,8 +230,6 @@ class StatblockCardView(ttk.Frame):
             for act in actions:
                 a_name = act.get("name", "Attacco") if isinstance(act, dict) else str(act).split(":")[0]
                 a_desc = act.get("desc", "") if isinstance(act, dict) else str(act)
-                # Calcola tag intelligenti (TxC, Danno)
-                tooltip_prev = format_monster_action_tooltip(act)
                 self._add_action_block(container, a_name, a_desc, act)
 
         # 7. Azioni Leggendarie

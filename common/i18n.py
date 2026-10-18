@@ -289,11 +289,7 @@ STRINGS = {
         "tab_party_initiative": "Iniziativa & PG",
         "tab_bestiary": "Bestiario",
         "tab_audio_sfx": "Audio / SFX",
-        "btn_start_combat": "Inizia Combattimento",
-        "btn_end_combat": "Termina Combattimento",
         "lbl_round": "Round: {round}",
-        "btn_next_turn": "Prossimo Turno ⏩",
-        "btn_prev_turn": "⏪ Turno Precedente",
         "btn_roll_monster_init": "🎲 Tira Iniziativa Mostri",
         "btn_spawn_npc": "➕ Aggiungi NPC",
         "btn_split_gold": "💰 Dividi Denaro",
@@ -304,11 +300,6 @@ STRINGS = {
         # --- Pannelli Client / Giocatore ---
         "tab_chat": "Chat",
         "tab_player_controls": "Controlli PG",
-        "btn_sheet": "Scheda PG",
-        "btn_roll_dice": "Tira Dadi",
-        "btn_action": "Azione",
-        "btn_travel_actions": "Azioni di Viaggio",
-        "btn_request_combat": "Richiedi Combattimento",
         "lbl_voice_status": "Voice Channel: {status}",
         "voice_status_connected": "Connesso",
         "voice_status_disconnected": "Disconnesso",
@@ -324,9 +315,6 @@ STRINGS = {
         "sheet_title": "Scheda Personaggio",
         "sheet_tab_stats": "Statistiche & Vita",
         "sheet_tab_skills_saves": "Abilità & Tiri Salvezza",
-        "sheet_tab_features": "Privilegi & Tratti",
-        "sheet_tab_inventory": "Inventario & Peso",
-        "sheet_tab_spellbook": "Grimorio & Slot",
         "sheet_tab_actions": "Azioni Combattimento",
         "sheet_char_name": "Nome:",
         "sheet_char_class": "Classe:",
@@ -531,7 +519,6 @@ STRINGS = {
 
         # --- Tab & Controlli DM ---
         "tab_world": "Mondo",
-        "tab_audio_sfx": "Audio / SFX",
         "dm_combatants_header": "⚔️ Avventurieri & Mostri",
         "lbl_round_num": "⚔️ ROUND {round}",
         "btn_prev_turn": "⬅ Turno Prec.",
@@ -587,7 +574,6 @@ STRINGS = {
         "period_morning": "Mattina",
         "period_afternoon": "Pomeriggio",
         "period_evening": "Sera",
-        "period_night": "Notte",
         "weather_clear": "Sereno",
         "weather_rain": "Pioggia",
         "weather_storm": "Tempesta",
@@ -1008,11 +994,7 @@ STRINGS = {
         "tab_party_initiative": "Initiative & Characters",
         "tab_bestiary": "Bestiary",
         "tab_audio_sfx": "Audio / SFX",
-        "btn_start_combat": "Start Combat",
-        "btn_end_combat": "End Combat",
         "lbl_round": "Round: {round}",
-        "btn_next_turn": "Next Turn ⏩",
-        "btn_prev_turn": "⏪ Previous Turn",
         "btn_roll_monster_init": "🎲 Roll Monster Initiative",
         "btn_spawn_npc": "➕ Add NPC",
         "btn_split_gold": "💰 Split Gold",
@@ -1023,11 +1005,6 @@ STRINGS = {
         # --- Client / Player Panels ---
         "tab_chat": "Chat",
         "tab_player_controls": "Character Controls",
-        "btn_sheet": "Character Sheet",
-        "btn_roll_dice": "Roll Dice",
-        "btn_action": "Action",
-        "btn_travel_actions": "Travel Actions",
-        "btn_request_combat": "Request Combat",
         "lbl_voice_status": "Voice Channel: {status}",
         "voice_status_connected": "Connected",
         "voice_status_disconnected": "Disconnected",
@@ -1043,9 +1020,6 @@ STRINGS = {
         "sheet_title": "Character Sheet",
         "sheet_tab_stats": "Stats & Hit Points",
         "sheet_tab_skills_saves": "Skills & Saving Throws",
-        "sheet_tab_features": "Features & Traits",
-        "sheet_tab_inventory": "Inventory & Weight",
-        "sheet_tab_spellbook": "Spellbook & Slots",
         "sheet_tab_actions": "Combat Actions",
         "sheet_char_name": "Name:",
         "sheet_char_class": "Class:",
@@ -1250,7 +1224,6 @@ STRINGS = {
 
         # --- DM Tabs & Controls ---
         "tab_world": "World",
-        "tab_audio_sfx": "Audio / SFX",
         "dm_combatants_header": "⚔️ Adventurers & Monsters",
         "lbl_round_num": "⚔️ ROUND {round}",
         "btn_prev_turn": "⬅ Prev Turn",
@@ -1306,7 +1279,6 @@ STRINGS = {
         "period_morning": "Morning",
         "period_afternoon": "Afternoon",
         "period_evening": "Evening",
-        "period_night": "Night",
         "weather_clear": "Clear",
         "weather_rain": "Rain",
         "weather_storm": "Storm",
@@ -1671,11 +1643,21 @@ def set_distance_unit(unit_code: str):
         _current_distance_unit = unit_code
         _save_settings()
         listeners_copy = list(_unit_listeners)
+    dead_listeners = []
     for cb in listeners_copy:
         try:
             cb(_current_distance_unit)
         except Exception as e:
-            print(f"[i18n] Errore callback unità: {e}")
+            err_msg = str(e)
+            if "destroyed" in err_msg or "cannot invoke" in err_msg:
+                dead_listeners.append(cb)
+            else:
+                print(f"[i18n] Errore callback unità: {e}")
+    if dead_listeners:
+        with _lock:
+            for d in dead_listeners:
+                if d in _unit_listeners:
+                    _unit_listeners.remove(d)
 
 
 def toggle_distance_unit() -> str:
@@ -1900,12 +1882,21 @@ def set_language(lang_code: str):
         _current_language = lang_code
         _save_settings()
         listeners_copy = list(_listeners)
-
+    dead_listeners = []
     for cb in listeners_copy:
         try:
             cb(_current_language)
         except Exception as e:
-            print(f"[i18n] Errore callback lingua: {e}")
+            err_msg = str(e)
+            if "destroyed" in err_msg or "cannot invoke" in err_msg:
+                dead_listeners.append(cb)
+            else:
+                print(f"[i18n] Errore callback lingua: {e}")
+    if dead_listeners:
+        with _lock:
+            for d in dead_listeners:
+                if d in _listeners:
+                    _listeners.remove(d)
 
 
 def toggle_language() -> str:
@@ -1927,6 +1918,13 @@ def unregister_language_listener(callback_fn):
     with _lock:
         if callback_fn in _listeners:
             _listeners.remove(callback_fn)
+
+
+def reset_listeners_for_testing():
+    """Resetta tutti i listener registrati per isolare l'ambiente di test."""
+    with _lock:
+        _listeners.clear()
+        _unit_listeners.clear()
 
 
 def _t(key: str, default: str = None, **kwargs) -> str:

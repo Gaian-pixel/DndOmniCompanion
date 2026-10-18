@@ -58,7 +58,7 @@ def open_combat_config(dm_gui, initiator_name=None):
         origin_name = origin_var.get()
         try:
             rad = int(radius_var.get())
-        except:
+        except (ValueError, TypeError):
             rad = 0
         
         origin_p = dm_gui.server.game_state.find_player(origin_name)

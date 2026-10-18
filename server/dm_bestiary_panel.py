@@ -9,6 +9,7 @@ online asincrono e spawning automatico sulla griglia tattica.
 import threading
 import json
 import urllib.request
+import re
 import tkinter as tk
 from tkinter import ttk
 from common.i18n import _t
@@ -21,6 +22,10 @@ from common.srd_offline import (
     extract_and_normalize_attributes,
     normalize_ac_value,
     normalize_speed_value,
+    normalize_size_value,
+    normalize_damage_list,
+    extract_legendary_stats,
+    extract_darkvision_flag,
     match_monster_cr,
     match_monster_type,
     get_monster_offline,
@@ -300,30 +305,7 @@ class DMBestiaryPanel(ttk.Frame):
                 idx += 1
                 new_name = f"{base_name} {idx}"
 
-            npc = Player(new_name, None, None)
-            npc.hp = hp
-            npc.max_hp = hp
-            npc.initiative = initiative
-            npc.position = pos
-            npc.speed = speed_val
-            npc.speed_unit = speed_unit
-            npc.full_sheet = {
-                "name": npc.name,
-                "char_class": "Mostro/NPC",
-                "level": 1,
-                "hp_current": npc.hp,
-                "hp_max": npc.max_hp,
-                "ac": ac,
-                "speed": speed_val,
-                "speed_display": speed_disp,
-                "speed_unit": speed_unit,
-                "attributes": attrs,
-                "cr": str(mdata.get("cr", "1")),
-                "actions": mdata.get("actions", []),
-                "features": mdata.get("special_abilities", []),
-                "languages": mdata.get("languages", ""),
-                "senses": mdata.get("senses", "")
-            }
+            npc = self._build_npc_player(new_name, mdata, hp, ac, initiative, speed_val, speed_disp, speed_unit, attrs, pos)
             self.dm_gui.server.game_state.add_player(npc)
             self.dm_gui.server.game_state._trigger_gui_update()
             broadcast(self.dm_gui.server.game_state, make_player_joined(npc.to_dict()))
@@ -334,6 +316,52 @@ class DMBestiaryPanel(ttk.Frame):
         index_selezionato = selected.get("index")
         if index_selezionato:
             threading.Thread(target=self._spawn_bestiario_thread, args=(index_selezionato,), daemon=True).start()
+
+    def _build_npc_player(self, name, mdata, hp, ac, initiative, speed_val, speed_disp, speed_unit, attrs, pos):
+        npc = Player(name, None, None)
+        npc.hp = hp
+        npc.max_hp = hp
+        npc.initiative = initiative
+        npc.position = pos
+        npc.speed = speed_val
+        npc.speed_unit = speed_unit
+        npc.size = normalize_size_value(mdata.get("size"))
+        npc.damage_resistances = normalize_damage_list(mdata.get("damage_resistances", mdata.get("resistances", [])))
+        npc.damage_immunities = normalize_damage_list(mdata.get("damage_immunities", mdata.get("immunities", [])))
+        npc.damage_vulnerabilities = normalize_damage_list(mdata.get("damage_vulnerabilities", mdata.get("vulnerabilities", [])))
+        leg_res, leg_act, has_lair = extract_legendary_stats(mdata)
+        npc.legendary_resistances_max = leg_res
+        npc.legendary_resistances_current = leg_res
+        npc.legendary_actions_max = leg_act
+        npc.legendary_actions_current = leg_act
+        npc.has_lair_actions = has_lair
+        npc.has_darkvision = extract_darkvision_flag(mdata)
+
+        npc.full_sheet = {
+            "name": npc.name,
+            "char_class": "Mostro/NPC",
+            "level": 1,
+            "hp_current": npc.hp,
+            "hp_max": npc.max_hp,
+            "ac": ac,
+            "speed": speed_val,
+            "speed_display": speed_disp,
+            "speed_unit": speed_unit,
+            "attributes": attrs,
+            "cr": str(mdata.get("challenge_rating", mdata.get("cr", "1"))),
+            "size": mdata.get("size", "Medium"),
+            "actions": mdata.get("actions", []),
+            "features": mdata.get("special_abilities", mdata.get("features", [])),
+            "languages": mdata.get("languages", ""),
+            "senses": mdata.get("senses", ""),
+            "damage_resistances": npc.damage_resistances,
+            "damage_immunities": npc.damage_immunities,
+            "damage_vulnerabilities": npc.damage_vulnerabilities,
+            "legendary_resistances_max": leg_res,
+            "legendary_actions_max": leg_act,
+            "has_lair_actions": has_lair
+        }
+        return npc
 
     def _spawn_bestiario_thread(self, index_selezionato):
         try:
@@ -363,30 +391,7 @@ class DMBestiaryPanel(ttk.Frame):
                     idx += 1
                     new_name = f"{base_name} {idx}"
 
-                npc = Player(new_name, None, None)
-                npc.hp = hit_points
-                npc.max_hp = hit_points
-                npc.initiative = initiative
-                npc.position = pos
-                npc.speed = speed_val
-                npc.speed_unit = speed_unit
-                npc.full_sheet = {
-                    "name": npc.name,
-                    "char_class": "Mostro/NPC",
-                    "level": 1,
-                    "hp_current": npc.hp,
-                    "hp_max": npc.max_hp,
-                    "ac": ac_value,
-                    "speed": speed_val,
-                    "speed_display": speed_disp,
-                    "speed_unit": speed_unit,
-                    "attributes": attrs,
-                    "cr": str(data.get("challenge_rating", "1")),
-                    "actions": data.get("actions", []),
-                    "features": data.get("special_abilities", []),
-                    "languages": data.get("languages", ""),
-                    "senses": data.get("senses", "")
-                }
+                npc = self._build_npc_player(new_name, data, hit_points, ac_value, initiative, speed_val, speed_disp, speed_unit, attrs, pos)
 
                 self.dm_gui.server.game_state.add_player(npc)
                 self.dm_gui.server.game_state._trigger_gui_update()
@@ -418,30 +423,7 @@ class DMBestiaryPanel(ttk.Frame):
                         idx += 1
                         new_name = f"{base_name} {idx}"
 
-                    npc = Player(new_name, None, None)
-                    npc.hp = hit_points
-                    npc.max_hp = hit_points
-                    npc.initiative = initiative
-                    npc.position = pos
-                    npc.speed = speed_val
-                    npc.speed_unit = speed_unit
-                    npc.full_sheet = {
-                        "name": npc.name,
-                        "char_class": "Mostro/NPC",
-                        "level": 1,
-                        "hp_current": npc.hp,
-                        "hp_max": npc.max_hp,
-                        "ac": ac_value,
-                        "speed": speed_val,
-                        "speed_display": speed_disp,
-                        "speed_unit": speed_unit,
-                        "attributes": attrs,
-                        "cr": str(mdata.get("cr", "1")),
-                        "actions": mdata.get("actions", []),
-                        "features": mdata.get("special_abilities", []),
-                        "languages": mdata.get("languages", ""),
-                        "senses": mdata.get("senses", "")
-                    }
+                    npc = self._build_npc_player(new_name, mdata, hit_points, ac_value, initiative, speed_val, speed_disp, speed_unit, attrs, pos)
 
                     self.dm_gui.server.game_state.add_player(npc)
                     self.dm_gui.server.game_state._trigger_gui_update()

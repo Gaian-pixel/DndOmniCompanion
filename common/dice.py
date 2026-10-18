@@ -15,12 +15,30 @@ def roll_dice(formula, is_crit=False):
     
     adv = False
     dis = False
-    if formula.endswith(' adv'):
+    if formula.endswith(' adv') or formula.endswith('adv'):
         adv = True
-        formula = formula[:-4].strip()
-    elif formula.endswith(' dis'):
+        formula = re.sub(r'\s*adv$', '', formula).strip()
+    elif formula.endswith(' dis') or formula.endswith('dis'):
         dis = True
-        formula = formula[:-4].strip()
+        formula = re.sub(r'\s*dis$', '', formula).strip()
+
+    # Normalizza gli spazi intorno agli operatori + e - (es. '1d20 + 5' -> '1d20+5')
+    formula = re.sub(r'\s*([+-])\s*', r'\1', formula)
+
+    # Supporto per valore numerico costante (es. '5', '+3')
+    if re.match(r'^[+-]?\d+$', formula):
+        val = int(formula)
+        return {
+            "rolls": [val],
+            "modifier": val,
+            "total": val,
+            "type": "Costante",
+            "natural_roll": val,
+            "is_crit": False,
+            "is_fumble": False,
+            "is_crit_fail": False,
+            "crit_status": "normal"
+        }
         
     pattern = r'^(\d*)d(\d+)([+-]\d+)?$'
     match = re.match(pattern, formula)

@@ -163,5 +163,8 @@ class Server:
                 self.game_state.disconnect_player(player)
                 # Avvisiamo in chat che si è disconnesso, ma manteniamo il token sulla mappa
                 broadcast(self.game_state, make_chat_broadcast("Sistema", f"{player.name} si è disconnesso."))
-            conn.close()
+            try:
+                conn.close()
+            except Exception:
+                pass
 

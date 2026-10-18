@@ -24,7 +24,7 @@ class VoiceServer:
         self.running = False
         try:
             self.sock.close()
-        except:
+        except Exception:
             pass
         print("[VoiceServer] Fermato.")
 

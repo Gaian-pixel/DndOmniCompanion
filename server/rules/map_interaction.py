@@ -1,6 +1,6 @@
 import re
 import random
-from common.hex_utils import Hex, hex_distance, get_sphere_hexes, hex_linedraw
+from common.hex_utils import Hex, hex_distance, get_sphere_hexes, hex_linedraw, get_cone_hexes, get_line_hexes
 from common.network_utils import send_message, broadcast
 from common.protocol import *
 import math
@@ -30,8 +30,6 @@ def handle_create_aoe_request(data, player, game_state):
     if not aoe_data.get("req_save"):
         return
         
-    from common.hex_utils import Hex, get_sphere_hexes, get_cone_hexes, get_line_hexes
-    
     origin = Hex(*aoe_data["origin"])
     aoe_type = aoe_data.get("type", "sfera")
     size = aoe_data.get("size", 3)
@@ -473,7 +471,6 @@ def handle_resolve_aoe_request(data, player, game_state):
         aoe_index = 0
     aoe_data = game_state.active_aoes[aoe_index]
     
-    from common.hex_utils import Hex, get_sphere_hexes, get_cone_hexes, get_line_hexes
     origin = Hex(*aoe_data["origin"])
     aoe_type = aoe_data.get("type", "sfera")
     size = aoe_data.get("size", 3)

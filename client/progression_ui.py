@@ -1,6 +1,5 @@
 import tkinter as tk
-from common.messagebox import messagebox
-from tkinter import ttk, simpledialog
+from tkinter import ttk
 import threading
 try:
     import requests
@@ -148,6 +147,16 @@ class LevelUpDialog(tk.Toplevel):
     def open_compendium(self):
         CompendiumDialog(self.master, is_dm=False)
 
+    def _safe_ui(self, callback):
+        try:
+            if hasattr(self, "winfo_exists") and not self.winfo_exists():
+                return
+            if hasattr(self, "master") and hasattr(self.master, "winfo_exists") and not self.master.winfo_exists():
+                return
+            self.master.after(0, callback)
+        except Exception:
+            pass
+
     def _fallback_offline(self, new_level):
         try:
             from common.srd_offline import get_class_level_features_offline
@@ -171,14 +180,16 @@ class LevelUpDialog(tk.Toplevel):
                 "offline": True
             }
             if features_list or spellcasting or asi:
-                self.master.after(0, lambda: self.on_api_success(data, is_offline=True))
+                self._safe_ui(lambda: self.on_api_success(data, is_offline=True))
                 return True
         except Exception as e:
             print("[PROGRESSION] Errore fallback offline:", e)
         return False
 
     def fetch_level_data(self):
-        char_class_en = CLASS_MAP.get(self.character.char_class.lower(), None)
+        raw_cls = (getattr(self.character, "char_class", "") or "").lower().strip()
+        base_cls = raw_cls.split("(")[0].split("/")[0].strip()
+        char_class_en = CLASS_MAP.get(base_cls, base_cls if base_cls in HIT_DICE_MAP else None)
         new_level = self.character.level + 1
 
         if not char_class_en:
@@ -203,14 +214,14 @@ class LevelUpDialog(tk.Toplevel):
                             data = json.loads(response.read().decode('utf-8'))
                 
                 if data:
-                    self.master.after(0, lambda d=data: self.on_api_success(d))
+                    self._safe_ui(lambda d=data: self.on_api_success(d))
                 else:
                     if not self._fallback_offline(new_level):
-                        self.master.after(0, lambda: self.on_api_error("Dati non disponibili"))
+                        self._safe_ui(lambda: self.on_api_error("Dati non disponibili"))
             except Exception as e:
                 err_msg = str(e)
                 if not self._fallback_offline(new_level):
-                    self.master.after(0, lambda msg=err_msg: self.on_api_error(msg))
+                    self._safe_ui(lambda msg=err_msg: self.on_api_error(msg))
                 
         threading.Thread(target=_fetch, daemon=True).start()
         

@@ -53,11 +53,11 @@ class VoiceClient:
         self.running = False
         try:
             self.sock.sendto(b'LEAVE', (self.server_ip, self.server_port))
-        except:
+        except Exception:
             pass
         try:
             self.sock.close()
-        except:
+        except Exception:
             pass
         print("[VoiceClient] Fermato.")
 
@@ -81,10 +81,10 @@ class VoiceClient:
             
     def _play_loop(self):
         try:
+            self.sock.settimeout(1.0)
             with sd.RawOutputStream(samplerate=self.samplerate, channels=self.channels, dtype='int16', blocksize=self.chunk) as stream:
                 while self.running:
                     try:
-                        self.sock.settimeout(1.0)
                         data, addr = self.sock.recvfrom(4096)
                         if not self.is_deafened and data not in (b'JOIN', b'LEAVE'):
                             stream.write(data)

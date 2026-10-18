@@ -484,11 +484,13 @@ class GameState:
                 if not is_dm and getattr(p, "layer", "token") == "gm":
                     continue
                 players_data.append(p.to_dict())
+            curr_turn = self.get_current_turn_player()
             return {
                 "players": players_data,
                 "map": self.current_map,
                 "combat_active": self.combat_active,
                 "turn_index": self.turn_index,
+                "turn_player_name": curr_turn.name if curr_turn else None,
                 "round_number": self.round_number,
                 "active_aoes": self.active_aoes,
                 "drawn_lines": getattr(self, "drawn_lines", []),
@@ -565,6 +567,14 @@ class GameState:
             self.travel_hours_today = state.get("travel_hours_today", 0)
             self.travel_pace = state.get("travel_pace", "Normale")
             self.travel_terrain = state.get("travel_terrain", "Foresta")
+            if "automation_mode" in state:
+                self.automation_mode = state.get("automation_mode", "hybrid")
+            if "automation_settings" in state and isinstance(state["automation_settings"], dict):
+                self.automation_settings = dict(state["automation_settings"])
+            if "pending_damages" in state:
+                self.pending_damages = state.get("pending_damages", {})
+            if "pending_doors" in state:
+                self.pending_doors = state.get("pending_doors", {})
             
             camp_folder = state.get("active_campaign_folder")
             if camp_folder and os.path.exists(camp_folder):
@@ -579,7 +589,7 @@ class GameState:
                 # Cerchiamo se il giocatore è già tra quelli connessi
                 existing = None
                 for ep in self.players:
-                    if ep.name == p_data["name"]:
+                    if ep.name == p_data.get("name"):
                         existing = ep
                         break
                 
@@ -595,6 +605,7 @@ class GameState:
                     existing.initiative = p_data.get("initiative", 0)
                     existing.full_sheet = p_data.get("full_sheet")
                     existing.conditions = p_data.get("conditions", [])
+                    existing.condition_durations = p_data.get("condition_durations", {})
                     existing.vision_radius = p_data.get("vision_radius", 6)
                     existing.aura_radius = p_data.get("aura_radius", 0)
                     existing.aura_color = p_data.get("aura_color", "yellow")
@@ -607,35 +618,15 @@ class GameState:
                     existing.legendary_resistances_current = p_data.get("legendary_resistances_current", 0)
                     existing.legendary_actions_max = p_data.get("legendary_actions_max", 0)
                     existing.legendary_actions_current = p_data.get("legendary_actions_current", 0)
+                    existing.speed = p_data.get("speed", 30)
+                    existing.speed_unit = p_data.get("speed_unit", None)
+                    existing.layer = p_data.get("layer", "token")
+                    existing.has_darkvision = p_data.get("has_darkvision", None)
+                    existing.has_lair_actions = p_data.get("has_lair_actions", False)
                     existing.owner = p_data.get("owner", None)
                     loaded_players.append(existing)
                 else:
-                    p = Player(name=p_data["name"])
-                    p.position = p_data.get("position", [0, 0])
-                    p.hp = p_data.get("hp", 10)
-                    p.max_hp = p_data.get("max_hp", 10)
-                    p.temp_hp = p_data.get("temp_hp", 0)
-                    p.damage_resistances = p_data.get("damage_resistances", [])
-                    p.damage_immunities = p_data.get("damage_immunities", [])
-                    p.damage_vulnerabilities = p_data.get("damage_vulnerabilities", [])
-                    p.exhaustion_level = p_data.get("exhaustion_level", 0)
-                    p.initiative = p_data.get("initiative", 0)
-                    p.full_sheet = p_data.get("full_sheet")
-                    p.conditions = p_data.get("conditions", [])
-                    p.vision_radius = p_data.get("vision_radius", 6)
-                    p.aura_radius = p_data.get("aura_radius", 0)
-                    p.aura_color = p_data.get("aura_color", "yellow")
-                    p.light_radius = p_data.get("light_radius", 0)
-                    p.light_color = p_data.get("light_color", "#FFA500")
-                    p.legendary_resistances_max = p_data.get("legendary_resistances_max", 0)
-                    p.legendary_resistances_current = p_data.get("legendary_resistances_current", 0)
-                    p.legendary_actions_max = p_data.get("legendary_actions_max", 0)
-                    p.legendary_actions_current = p_data.get("legendary_actions_current", 0)
-                    p.is_party_member = p_data.get("is_party_member", False)
-                    p.travel_role = p_data.get("travel_role", "Nessuna")
-                    p.marching_order = p_data.get("marching_order", "Centro")
-                    p.owner = p_data.get("owner", None)
-                    loaded_players.append(p)
+                    loaded_players.append(Player.from_dict(p_data))
             self.players = loaded_players
         
         self._trigger_gui_update()

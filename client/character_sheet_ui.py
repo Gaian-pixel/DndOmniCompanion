@@ -14,7 +14,7 @@ from common.theme import (
     apply_modern_window_style
 )
 from common.i18n import (
-    _t, get_language, translate_condition, translate_ability, translate_skill,
+    _t, get_language, translate_ability, translate_skill,
     get_distance_unit, set_distance_unit, convert_speed_value
 )
 from components.ui_components import ToolTip
@@ -1315,7 +1315,7 @@ class CharacterSheetUI(tk.Toplevel):
             hit_bonus_str = tk.simpledialog.askstring("Bonus Colpire", "Inserisci bonus per colpire (es. 5):", parent=win)
             if not hit_bonus_str: return
             try: hit_bonus = int(hit_bonus_str)
-            except: hit_bonus = 0
+            except (ValueError, TypeError): hit_bonus = 0
             
             dmg_str = tk.simpledialog.askstring("Danno", "Inserisci formula danno (es. 1d8+3):", parent=win)
             if not dmg_str: return
@@ -2174,8 +2174,6 @@ class CharacterSheetUI(tk.Toplevel):
 
     def short_rest(self):
         hd_cur = getattr(self.character, "hit_dice_current", 0)
-        hd_tot = getattr(self.character, "hit_dice_total", 0)
-        hd_type = getattr(self.character, "hit_dice_type", "d8")
         if hd_cur <= 0 and getattr(self.character, "hp_current", 0) >= getattr(self.character, "hp_max", 0):
             messagebox.showinfo("Riposo Breve", "I tuoi PF sono già al massimo e non hai Dadi Vita da spendere.")
             return

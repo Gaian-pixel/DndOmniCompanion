@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, simpledialog
+from tkinter import ttk
 from common.messagebox import messagebox
 
 class QuestLogDialog(tk.Toplevel):

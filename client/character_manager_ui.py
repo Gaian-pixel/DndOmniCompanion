@@ -6,16 +6,14 @@ in completa autonomia, senza richiedere alcuna connessione a un server DM.
 """
 
 import os
-import re
-import copy
 import tkinter as tk
 from tkinter import ttk
 from typing import Optional, Callable
 
 from common.theme import (
     apply_modern_window_style, BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT,
-    BORDER_COLOR, ACCENT_GOLD, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE,
-    TEXT_COLOR, TEXT_MUTED, TEXT_DARK,
+    BORDER_COLOR, ACCENT_GOLD, ACCENT_GREEN,
+    TEXT_COLOR, TEXT_MUTED,
     FONT_TITLE, FONT_HEADER, FONT_MAIN, FONT_BOLD, FONT_SMALL
 )
 from common.messagebox import messagebox

@@ -81,7 +81,6 @@ def handle_chat(data, player, game_state):
                 
                 # Reveal FoW for torch
                 if game_state.current_map.get("fow_enabled", False):
-                    from common.hex_utils import Hex, get_sphere_hexes, hex_linedraw
                     h = Hex(pos[0], pos[1])
                     revealed = get_sphere_hexes(h, 6)
                     fow_rev = game_state.current_map.get("fow_revealed", [])
@@ -282,7 +281,7 @@ def handle_whisper(data, player, game_state):
     if to_name.lower() == "dm" or to_name.lower() == "master":
         game_state.gui_queue.put({"type": "PRIVATE_MESSAGE_RECEIVED", "payload": {"from": player.name, "text": text}})
         if getattr(player, "conn", None):
-            send_message(player.conn, make_chat_broadcast(f"Tu -> DM", text, is_whisper=True))
+            send_message(player.conn, make_chat_broadcast("Tu -> DM", text, is_whisper=True))
         game_state.log_dm_message(f"[SUSSURRO A DM] [{player.name}]: {text}")
         return
     target_player = game_state.find_player(to_name)

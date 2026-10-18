@@ -1,9 +1,11 @@
 import re
 import random
 import math
+import threading
 from common.protocol import *
 from common.hex_utils import Hex, hex_distance, get_sphere_hexes, hex_linedraw, get_cover_between
 from common.network_utils import send_message, broadcast
+from common.dice import roll_dice
 from common.i18n import is_condition_active
 
 def _spawn_corpse_loot(target_player, game_state):
@@ -240,10 +242,8 @@ def _trigger_concentration_check(target_player, dmg_val, game_state):
             return
             
         if getattr(target_player, "conn", None):
-            from common.protocol import make_prompt_save
             send_message(target_player.conn, make_prompt_save("COS", dc, "", False, "Sistema (Concentrazione)", "Contundente"))
         else:
-            from common.dice import roll_dice
             mod = 0
             if target_player.full_sheet:
                 attr = target_player.full_sheet.get("attributes", {})
@@ -257,7 +257,6 @@ def _trigger_concentration_check(target_player, dmg_val, game_state):
             roll_tot = save_result["total"]
             is_crit = save_result["rolls"][0] == 20
             is_fail = save_result["rolls"][0] == 1
-            import threading
             threading.Timer(0.1, _process_save_result, args=(target_player.name, "COS", roll_tot, is_crit, is_fail, dc, "", False, "Sistema (Concentrazione)", game_state, "Contundente")).start()
 
 def handle_end_turn_request(data, player, game_state):
@@ -407,7 +406,6 @@ def handle_attack_request(data, player, game_state):
             return
     
     try:
-        from common.dice import roll_dice
         # 1. Roll to Hit
         adv_reasons = []
         dis_reasons = []
@@ -446,11 +444,16 @@ def handle_attack_request(data, player, game_state):
             if dist <= 1:
                 opp_q = q2 + (q2 - q1)
                 opp_r = r2 + (r2 - r1)
+                attacker_party = bool(getattr(player, "is_party_member", False) or getattr(player, "conn", None))
+                target_party = bool(getattr(target_player, "is_party_member", False) or getattr(target_player, "conn", None))
                 for p in getattr(game_state, "players", []):
                     if p.name != player.name and getattr(p, "hp", 0) > 0:
                         if hasattr(p, "position") and p.position and p.position[0] == opp_q and p.position[1] == opp_r:
                             p_c = getattr(p, "conditions", [])
-                            if "Invisibile" not in p_c and "Nascosto" not in p_c:
+                            p_party = bool(getattr(p, "is_party_member", False) or getattr(p, "conn", None))
+                            is_ally = (p_party == attacker_party) if attacker_party != target_party else True
+                            incapacitated = any(is_condition_active(p_c, c) for c in ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto"])
+                            if is_ally and not incapacitated and "Invisibile" not in p_c and "Nascosto" not in p_c:
                                 adv_reasons.append("Fiancheggiamento")
                                 break
 
@@ -880,7 +883,6 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
         
     if damage_formula:
         try:
-            from common.dice import roll_dice
             clean_dmg = str(damage_formula).strip()
             if clean_dmg.isdigit():
                 dmg_val = int(clean_dmg)
@@ -979,7 +981,6 @@ def handle_force_save_request(data, player, game_state):
             send_message(target_player.conn, make_prompt_save(stat, dc, damage_formula, half_on_success, player.name, damage_type))
         else:
             try:
-                from common.dice import roll_dice
                 mod = 0
                 if target_player.full_sheet:
                     attr = target_player.full_sheet.get("attributes", {})

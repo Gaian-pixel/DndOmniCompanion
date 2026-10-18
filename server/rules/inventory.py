@@ -69,8 +69,6 @@ def handle_take_loot_request(data, player, game_state):
             
     if found:
         loots.remove(found)
-        from common.protocol import make_receive_item, make_game_state
-        from common.network_utils import send_message
         
         loot_entry = {
             "name": found["item"],
@@ -187,12 +185,10 @@ def handle_buy_item_request(data, player, game_state):
         
     # Invia notifiche di sincronizzazione al client
     if player.conn:
-        from common.protocol import make_item_approval_response, make_currency_response
         send_message(player.conn, make_currency_response(player.name, "MO", -price, approved=True, reason=f"Acquisto {item_name}"))
         send_message(player.conn, make_item_approval_response(player.name, new_entry, placed_slot, approved=True, reason="Acquisto Shop"))
 
     game_state._trigger_gui_update()
-    from common.protocol import make_game_state, make_chat_broadcast
     broadcast(game_state, make_game_state(game_state.get_state_dict()))
     broadcast(game_state, make_chat_broadcast("Sistema", f"{player.name} ha acquistato {item_name} da {shop_name} per {price} mo."))
 

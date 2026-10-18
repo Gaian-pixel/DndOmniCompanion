@@ -1,5 +1,3 @@
-import re
-import random
 from common.protocol import *
 from common.network_utils import send_message, broadcast
 import math
@@ -238,7 +236,7 @@ def handle_long_rest_vote(data, player, game_state):
         
     vote_data["votes_received"] += 1
     if vote_data["votes_received"] >= vote_data["votes_needed"]:
-        game_state.log_dm_message(f"[Sistema] La maggioranza dei giocatori ha approvato il Riposo Lungo!")
+        game_state.log_dm_message("[Sistema] La maggioranza dei giocatori ha approvato il Riposo Lungo!")
         trigger_group_long_rest(game_state, reason="Il gruppo ha approvato il Riposo Lungo!")
 
 def handle_custom_spell_request(data, player, game_state):

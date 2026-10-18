@@ -1169,7 +1169,7 @@ class PDFManualsIndexer:
                         else:
                             t = getattr(it, 'title', '').strip()
                             try: p = reader.get_destination_page_number(it)
-                            except: p = None
+                            except Exception: p = None
                             path = f"{parent} > {t}" if parent else t
                             if t and p is not None:
                                 res.append((t, path, p))
@@ -1218,7 +1218,7 @@ class PDFManualsIndexer:
                         else:
                             t = getattr(it, 'title', '').strip()
                             try: p = reader.get_destination_page_number(it)
-                            except: p = None
+                            except Exception: p = None
                             path = f"{parent} > {t}" if parent else t
                             if t and p is not None:
                                 res.append((t, path, p))

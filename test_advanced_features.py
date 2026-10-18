@@ -1065,8 +1065,407 @@ class TestAdvanced5eFeatures(unittest.TestCase):
             root.destroy()
 
 
+    def test_i18n_no_duplicate_keys(self):
+        """Verifica tramite AST che i dizionari di traduzione IT ed EN non abbiano chiavi duplicate."""
+        import ast
+        with open("common/i18n.py", "r", encoding="utf-8") as f:
+            tree = ast.parse(f.read())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Dict):
+                keys = []
+                for k in node.keys:
+                    if isinstance(k, ast.Constant):
+                        keys.append(k.value)
+                dups = set([x for x in keys if keys.count(x) > 1])
+                self.assertEqual(len(dups), 0, f"Chiavi duplicate trovate nel dizionario i18n: {dups}")
+
+    def test_hex_map_canvas_hover_action_regex(self):
+        """Verifica che l'hover su token con azioni e formula Hit non sollevi NameError su 're'."""
+        import tkinter as tk
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            canvas = HexMapCanvas(root, width=400, height=300)
+            token_data = {
+                "Goblin Arciere": {
+                    "position": [0, 0],
+                    "hp": 7,
+                    "max_hp": 7,
+                    "speed": 30,
+                    "armor_class": 15,
+                    "actions": [
+                        {"name": "Arco Corto", "attack_bonus": 4, "desc": "Attacco con arma a distanza: Hit: 5 (1d6 + 2) danni perforanti."}
+                    ]
+                }
+            }
+            canvas.update_data({"hexes": [[0, 0]], "hex_size": 30}, token_data)
+            # Simula _update_hover_tooltip senza crash
+            class DummyEvent:
+                x = 100
+                y = 100
+            canvas._update_hover_tooltip(DummyEvent(), "Goblin Arciere")
+            self.assertIsNotNone(getattr(canvas, "hover_tooltip", None))
+            if canvas.hover_tooltip:
+                canvas.hover_tooltip.destroy()
+            canvas.destroy()
+        finally:
+            root.destroy()
+
+    def test_dm_bestiary_panel_select_monster_action_regex(self):
+        """Verifica che la selezione nel Bestiario con azioni Hit non sollevi NameError su 're'."""
+        import tkinter as tk
+        from server.dm_bestiary_panel import DMBestiaryPanel
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            class MockDMGUI:
+                def __init__(self, master):
+                    self.master = master
+                    self.map_canvas = None
+                    self.server = None
+                def log_to_chat(self, msg, tab_name="Chat"):
+                    pass
+            mock_gui = MockDMGUI(root)
+            panel = DMBestiaryPanel(root, mock_gui)
+            monster_item = {
+                "name": "Lupo Crudele",
+                "source": "SRD",
+                "page": "300",
+                "hp": 37,
+                "armor_class": 14,
+                "speed": "50 ft",
+                "actions": [
+                    {"name": "Morso", "attack_bonus": 5, "desc": "Hit: 10 (2d6 + 3) danni perforanti."}
+                ]
+            }
+            panel.bestiario_results = [monster_item]
+            panel.bestiario_listbox.insert(tk.END, "Lupo Crudele")
+            panel.bestiario_listbox.selection_set(0)
+            panel._on_bestiario_selected(None)
+            act_text = panel.lbl_prev_actions.cget("text")
+            self.assertTrue("Bite" in act_text or "Morso" in act_text)
+            self.assertIn("10 (2d6 + 3)", act_text)
+            panel.destroy()
+        finally:
+            root.destroy()
+
+
+    def test_dice_spaced_formulas_and_constants(self):
+        """Verifica che roll_dice parsi correttamente formule con spazi (es. '1d20 + 5') e costanti."""
+        from common.dice import roll_dice
+        res_plus = roll_dice("1d20 + 5")
+        self.assertEqual(res_plus["modifier"], 5)
+        self.assertGreaterEqual(res_plus["total"], 6)
+        self.assertLessEqual(res_plus["total"], 25)
+
+        res_minus = roll_dice("1d20 - 3")
+        self.assertEqual(res_minus["modifier"], -3)
+
+        res_adv = roll_dice("1d20 + 4 adv")
+        self.assertEqual(res_adv["modifier"], 4)
+        self.assertEqual(res_adv["type"], "Vantaggio")
+
+        res_const = roll_dice("8")
+        self.assertEqual(res_const["total"], 8)
+        self.assertEqual(res_const["modifier"], 8)
+
+    def test_i18n_dead_listener_cleanup(self):
+        """Verifica che i listener che sollevano eccezione per widget distrutto vengano ripuliti."""
+        from common.i18n import (
+            register_language_listener, set_language, get_language,
+            register_unit_listener, set_distance_unit, get_distance_unit
+        )
+        called = []
+        def active_cb(lang):
+            called.append(lang)
+
+        def dead_cb(lang):
+            raise RuntimeError('cannot invoke "winfo" command: application has been destroyed')
+
+        register_language_listener(active_cb)
+        register_language_listener(dead_cb)
+
+        # Cambia lingua per triggerare notifica
+        curr = get_language()
+        new_lang = "en" if curr == "it" else "it"
+        set_language(new_lang)
+
+        self.assertIn(new_lang, called)
+
+        # Ripristina lingua: dead_cb non deve generare errori e deve essere stato rimosso
+        set_language(curr)
+
+    def test_progression_ui_english_class_and_subclass(self):
+        """Verifica che la risoluzione delle classi nel Level-Up gestisca sia inglese che sottoclassi."""
+        from client.character_manager import Character
+        from client.progression_ui import LevelUpDialog
+        import tkinter as tk
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            # Caso 1: Classe in Inglese
+            c_en = Character(name="Hero EN")
+            c_en.char_class = "Fighter"
+            dlg_en = LevelUpDialog(root, c_en, lambda: None)
+            self.assertNotEqual(dlg_en.lbl_loading.cget("text"), "Classe 'Fighter' non supportata.")
+            dlg_en.destroy()
+
+            # Caso 2: Classe con sottoclasse annotata
+            c_sub = Character(name="Hero Sub")
+            c_sub.char_class = "Guerriero (Campione)"
+            dlg_sub = LevelUpDialog(root, c_sub, lambda: None)
+            self.assertNotEqual(dlg_sub.lbl_loading.cget("text"), "Classe 'Guerriero (Campione)' non supportata.")
+            dlg_sub.destroy()
+        finally:
+            root.destroy()
+
+    def test_game_state_save_and_load_session_full_parity(self):
+        """Verifica che load_session ripristini integralmente le impostazioni di automazione e tutti i campi dei token/giocatori."""
+        import queue, tempfile, os
+        from common.game_state import GameState, Player
+
+        q = queue.Queue()
+        gs = GameState(q)
+        gs.set_automation_mode("manual", {"auto_day_night_cycle": False, "auto_apply_damage": False})
+
+        # Creiamo due token con attributi 5e avanzati
+        p1 = Player(name="Eroe Connesso")
+        p1.speed = 40
+        p1.speed_unit = "m"
+        p1.layer = "token"
+        p1.has_darkvision = True
+        p1.has_lair_actions = False
+        p1.condition_durations = {"Benedizione": 9}
+        p1.conditions = ["Benedizione"]
+
+        p2 = Player(name="Boss Dungeon")
+        p2.speed = 50
+        p2.has_lair_actions = True
+        p2.legendary_actions_max = 3
+        p2.legendary_actions_current = 2
+
+        gs.players = [p1, p2]
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
+            tmp_path = tf.name
+
+        try:
+            gs.save_session(tmp_path)
+
+            gs2 = GameState(q)
+            # Simula che p1 è già connesso
+            conn_p1 = Player(name="Eroe Connesso")
+            gs2.players = [conn_p1]
+
+            gs2.load_session(tmp_path)
+
+            # Verifica automazione ripristinata
+            self.assertEqual(gs2.automation_mode, "manual")
+            self.assertFalse(gs2.automation_settings.get("auto_day_night_cycle"))
+
+            # Verifica ripristino p1 connesso
+            self.assertEqual(len(gs2.players), 2)
+            restored_p1 = gs2.find_player("Eroe Connesso")
+            self.assertEqual(restored_p1.speed, 40)
+            self.assertEqual(restored_p1.speed_unit, "m")
+            self.assertTrue(restored_p1.has_darkvision)
+            self.assertEqual(restored_p1.condition_durations.get("Benedizione"), 9)
+
+            # Verifica ripristino p2 (non connesso, ricostruito da from_dict)
+            restored_p2 = gs2.find_player("Boss Dungeon")
+            self.assertEqual(restored_p2.speed, 50)
+            self.assertTrue(restored_p2.has_lair_actions)
+            self.assertEqual(restored_p2.legendary_actions_max, 3)
+            self.assertEqual(restored_p2.legendary_actions_current, 2)
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
+    def test_no_bare_excepts_in_codebase(self):
+        """Verifica tramite scansione AST che non esistano clausole bare except: nella codebase."""
+        import ast, os
+        bare_excepts = []
+        for root, dirs, files in os.walk('.'):
+            if any(p in root for p in ['.git', '__pycache__', 'venv', '.env', 'build', 'dist', 'manuals']):
+                continue
+            for f in files:
+                if f.endswith('.py') and not f.startswith('test_') and not f.startswith('simulate_'):
+                    path = os.path.join(root, f)
+                    with open(path, 'r', encoding='utf-8') as fp:
+                        tree = ast.parse(fp.read(), filename=path)
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.ExceptHandler) and node.type is None:
+                            bare_excepts.append(f"{path}:{node.lineno}")
+
+        self.assertEqual(len(bare_excepts), 0, f"Bare except rilevati: {bare_excepts}")
+
+    def test_flanking_5e_raw_alliance_and_incapacitation(self):
+        """Verifica che il fiancheggiamento 5e (DMG p.251) richieda un alleato e che quest'ultimo non sia incapacitato."""
+        import queue
+        from common.game_state import GameState, Player
+        from server.rules.combat import handle_attack_request
+
+        q = queue.Queue()
+        gs = GameState(q)
+
+        # Attaccante (Party) a [0, 0]
+        attacker = Player(name="Guerriero")
+        attacker.position = [0, 0]
+        attacker.is_party_member = True
+        attacker.hp = 20
+
+        # Bersaglio (Mostro) a [1, 0] -> opposto a [2, 0]
+        target = Player(name="Orco")
+        target.position = [1, 0]
+        target.is_party_member = False
+        target.hp = 15
+
+        # Caso A: Alleato del Party a [2, 0] cosciente
+        ally = Player(name="Ladro")
+        ally.position = [2, 0]
+        ally.is_party_member = True
+        ally.hp = 12
+
+        gs.players = [attacker, target, ally]
+
+        # Simula attacco e cattura messaggi di chat inviati a gs
+        captured_messages = []
+        orig_put = q.put
+        def mock_put(item):
+            captured_messages.append(item)
+            orig_put(item)
+        q.put = mock_put
+
+        data = {
+            "target_name": "Orco",
+            "weapon_name": "Spada Lunga",
+            "hit_bonus": 5,
+            "damage_formula": "1d8+3"
+        }
+
+        handle_attack_request(data, attacker, gs)
+        last_log = [m for m in captured_messages if m.get("type") == "LOG_MESSAGE"]
+        self.assertTrue(any("Fiancheggiamento" in m.get("payload", "") for m in last_log))
+
+        # Caso B: Un secondo nemico a [2, 0] NON deve dare vantaggio all'attaccante
+        captured_messages.clear()
+        enemy2 = Player(name="Goblin")
+        enemy2.position = [2, 0]
+        enemy2.is_party_member = False # Nemico!
+        enemy2.hp = 7
+        gs.players = [attacker, target, enemy2]
+
+        handle_attack_request(data, attacker, gs)
+        last_log = [m for m in captured_messages if m.get("type") == "LOG_MESSAGE"]
+        self.assertFalse(any("Fiancheggiamento" in m.get("payload", "") for m in last_log))
+
+        # Caso C: Alleato a [2, 0] ma Incosciente NON deve dare fiancheggiamento
+        captured_messages.clear()
+        ally.conditions = ["Incosciente"]
+        gs.players = [attacker, target, ally]
+
+        handle_attack_request(data, attacker, gs)
+        last_log = [m for m in captured_messages if m.get("type") == "LOG_MESSAGE"]
+        self.assertFalse(any("Fiancheggiamento" in m.get("payload", "") for m in last_log))
+
+    def test_movement_cannot_phase_through_intermediate_walls(self):
+        """Verifica che un token non possa attraversare muri o porte chiuse interposte lungo il percorso."""
+        from server.rules.movement import handle_move_request
+        q = queue.Queue()
+        gs = GameState(q)
+        gs.current_map = {
+            "walls": [[1, 0]],
+            "doors": [],
+            "fow_enabled": False
+        }
+        player = Player(name="Esploratore")
+        player.position = [0, 0]
+        player.speed = 30
+        gs.players = [player]
+
+        # Tentativo 1: Movimento dal [0,0] al [2,0] (casella vuota, ma [1,0] è un muro)
+        handle_move_request({"to": [2, 0]}, player, gs)
+        self.assertEqual(player.position, [0, 0], "Il giocatore non deve oltrepassare il muro interposto a [1, 0]!")
+
+        # Tentativo 2: Con is_dm_force=True, il DM può bypassare il muro
+        handle_move_request({"to": [2, 0], "is_dm_force": True}, player, gs)
+        self.assertEqual(player.position, [2, 0], "Il DM deve poter forzare il posizionamento!")
+
+    def test_monster_spawn_inherits_5e_resistances_size_and_legendary(self):
+        """Verifica che le funzioni di normalizzazione assegnino correttamente taglia, immunità e tratti leggendari."""
+        from common.srd_offline import (
+            normalize_size_value,
+            normalize_damage_list,
+            extract_legendary_stats,
+            extract_darkvision_flag
+        )
+        from server.rules.combat import apply_damage
+
+        # Taglie
+        self.assertEqual(normalize_size_value("Medium"), 1)
+        self.assertEqual(normalize_size_value("Large"), 2)
+        self.assertEqual(normalize_size_value("Huge"), 3)
+        self.assertEqual(normalize_size_value("Gargantuan"), 4)
+
+        # Resistenze e Immunità
+        res_list = normalize_damage_list(["fire", "lightning; cold, and acid"])
+        self.assertIn("fire", res_list)
+        self.assertIn("lightning", res_list)
+        self.assertIn("cold", res_list)
+        self.assertIn("acid", res_list)
+
+        # Tratti leggendari e scurovisione
+        mock_dragon = {
+            "size": "Gargantuan",
+            "damage_immunities": ["lightning", "fulmine"],
+            "senses": "darkvision 120 ft., passive Perception 22",
+            "special_abilities": [
+                {"name": "Legendary Resistance (3/Day)", "desc": "If fails a save, can choose to succeed."}
+            ],
+            "legendary_actions": [{"name": "Tail Attack", "desc": "Melee attack"}]
+        }
+        leg_res, leg_act, has_lair = extract_legendary_stats(mock_dragon)
+        self.assertEqual(leg_res, 3)
+        self.assertEqual(leg_act, 3)
+        self.assertTrue(extract_darkvision_flag(mock_dragon))
+
+        # Combat integration: Creatura con immunità al fulmine deve subire 0 danni
+        q = queue.Queue()
+        gs = GameState(q)
+        dragon_player = Player(name="Drago Blu Antico")
+        dragon_player.hp = 300
+        dragon_player.max_hp = 300
+        dragon_player.damage_immunities = normalize_damage_list(mock_dragon["damage_immunities"])
+
+        final_dmg, note, temp_abs, dmg_hp = apply_damage(dragon_player, 60, "fulmine", gs)
+        self.assertEqual(final_dmg, 0)
+        self.assertEqual(dragon_player.hp, 300)
+        self.assertIn("Immune a fulmine", note)
+
+    def test_game_state_includes_turn_player_name(self):
+        """Verifica che get_state_dict includa turn_player_name corrispondente al giocatore attivo."""
+        q = queue.Queue()
+        gs = GameState(q)
+        p1 = Player(name="Guerriero")
+        p1.initiative = 20
+        p2 = Player(name="Mago")
+        p2.initiative = 15
+        gs.players = [p1, p2]
+
+        gs.start_combat(["Guerriero", "Mago"])
+        state = gs.get_state_dict()
+        self.assertTrue(state.get("combat_active"))
+        self.assertEqual(state.get("turn_player_name"), "Guerriero")
+
+        gs.next_turn()
+        state2 = gs.get_state_dict()
+        self.assertEqual(state2.get("turn_player_name"), "Mago")
+
+
 if __name__ == "__main__":
     unittest.main()
+
 
 
 

@@ -1,8 +1,7 @@
 import tkinter as tk
 from common.messagebox import messagebox
 from tkinter import ttk
-from common.theme import BG_COLOR, TEXT_COLOR, ACCENT_RED, SURFACE_COLOR, BORDER_COLOR, apply_modern_window_style
-from .character_manager import Character
+from common.theme import TEXT_COLOR, ACCENT_RED, SURFACE_COLOR, BORDER_COLOR, apply_modern_window_style
 from .character_sheet_ui import CharacterSheetUI
 from .character_creation_wizard import CharacterCreationWizard
 

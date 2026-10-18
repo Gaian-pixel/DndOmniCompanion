@@ -1,9 +1,10 @@
-import re
+import os
+import json
+import base64
 import random
-from common.hex_utils import Hex, hex_distance, get_sphere_hexes, hex_linedraw, get_visible_hexes
+from common.hex_utils import Hex, hex_linedraw, get_visible_hexes
 from common.network_utils import send_message, broadcast
 from common.i18n import is_condition_active
-import math
 
 def get_effective_map_walls(current_map):
     """Restituisce l'insieme dei muri comprensivo di porte chiuse, serrate o segrete che bloccano LoS e passaggio."""
@@ -54,7 +55,6 @@ def auto_explore_fow(player, game_state):
     return changed
 
 def handle_move_request(data, player, game_state):
-    from common.network_utils import send_message, broadcast
     conds = getattr(player, "conditions", [])
     blocking = ["Afferrato", "Privo di Sensi", "Incapacitato", "Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto"]
     if any(is_condition_active(conds, c) for c in blocking) or getattr(player, "exhaustion_level", 0) >= 5 or getattr(player, "hp", 1) <= 0:
@@ -77,23 +77,34 @@ def handle_move_request(data, player, game_state):
                 return
                 
         walls_list_pos = get_effective_map_walls(game_state.current_map) if getattr(game_state, "current_map", None) else []
-        if [to_pos[0], to_pos[1]] in walls_list_pos:
-            from common.network_utils import send_message
-            from common.protocol import make_error_reply
-            door_blocked = None
-            if getattr(game_state, "current_map", None):
-                for d in game_state.current_map.get("doors", []):
-                    if d.get("q") == to_pos[0] and d.get("r") == to_pos[1] and d.get("state", "closed") in ("closed", "locked", "secret"):
-                        door_blocked = d
-                        break
-            if player.conn:
-                if door_blocked:
-                    d_name = door_blocked.get("name", "Porta")
-                    d_st = "serrata a chiave" if door_blocked.get("state") == "locked" else "chiusa"
-                    send_message(player.conn, make_error_reply(f"La {d_name} è {d_st}! Cliccaci sopra per aprirla o sbloccarla."))
-                else:
-                    send_message(player.conn, make_error_reply("Non puoi muoverti lì, c'è un muro!"))
-            return
+        from_pos = getattr(player, "position", None)
+        if not is_dm and walls_list_pos:
+            if from_pos:
+                p_start = Hex(from_pos[0], from_pos[1])
+                p_end = Hex(to_pos[0], to_pos[1])
+                move_path = hex_linedraw(p_start, p_end)
+                steps_to_check = move_path[1:]
+            else:
+                steps_to_check = [Hex(to_pos[0], to_pos[1])]
+
+            for step in steps_to_check:
+                if [step.q, step.r] in walls_list_pos:
+                    from common.network_utils import send_message
+                    from common.protocol import make_error_reply
+                    door_blocked = None
+                    if getattr(game_state, "current_map", None):
+                        for d in game_state.current_map.get("doors", []):
+                            if d.get("q") == step.q and d.get("r") == step.r and d.get("state", "closed") in ("closed", "locked", "secret"):
+                                door_blocked = d
+                                break
+                    if getattr(player, "conn", None):
+                        if door_blocked:
+                            d_name = door_blocked.get("name", "Porta")
+                            d_st = "serrata a chiave" if door_blocked.get("state") == "locked" else "chiusa"
+                            send_message(player.conn, make_error_reply(f"Il percorso è bloccato: la {d_name} a [{step.q}, {step.r}] è {d_st}! Cliccaci sopra per aprirla."))
+                        else:
+                            send_message(player.conn, make_error_reply(f"Movimento non consentito: c'è un muro sul percorso a [{step.q}, {step.r}]!"))
+                    return
             
         in_combat = getattr(player, "in_combat", False) or getattr(game_state, "combat_active", False)
         strict_lock = False
@@ -113,7 +124,6 @@ def handle_move_request(data, player, game_state):
         if in_combat and hasattr(player, "position") and player.position:
             q1, r1 = player.position[0], player.position[1]
             q2, r2 = to_pos[0], to_pos[1]
-            dist = max(abs(q1 - q2), abs(q1 + r1 - q2 - r2), abs(r1 - r2))
             speed = getattr(player, "speed", 30)
             speed_unit = getattr(player, "speed_unit", None)
             sheet = getattr(player, "full_sheet", None)
@@ -300,8 +310,10 @@ def handle_move_request(data, player, game_state):
                         if getattr(player, "full_sheet", None):
                             attr = player.full_sheet.get("attributes", {})
                             if "DES" in attr:
-                                try: mod = (int(attr["DES"]) - 10) // 2
-                                except: pass
+                                try:
+                                    mod = (int(attr["DES"]) - 10) // 2
+                                except (ValueError, TypeError):
+                                    mod = 0
                         mod_str = f"+{mod}" if mod >= 0 else str(mod)
                         res = roll_dice(f"1d20{mod_str}")
                         is_crit = res["rolls"][0] == 20
@@ -313,7 +325,6 @@ def handle_move_request(data, player, game_state):
             pos_key = f"{to_pos[0]},{to_pos[1]}"
             if pos_key in teleports:
                 map_file = teleports[pos_key]
-                import os, json, base64
                 maps_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "maps")
                 map_path = os.path.join(maps_dir, map_file)
                 if os.path.exists(map_path):
@@ -329,7 +340,7 @@ def handle_move_request(data, player, game_state):
                         from common.protocol import make_chat_broadcast, make_game_state, make_map_data_update_broadcast
                         broadcast(game_state, make_map_data_update_broadcast(new_map_data))
                         broadcast(game_state, make_game_state(game_state.get_state_dict()))
-                        broadcast(game_state, make_chat_broadcast("Sistema", f"Il gruppo è stato teletrasportato."))
+                        broadcast(game_state, make_chat_broadcast("Sistema", "Il gruppo è stato teletrasportato."))
                         game_state._trigger_gui_update()
                         return
                     except Exception as e:

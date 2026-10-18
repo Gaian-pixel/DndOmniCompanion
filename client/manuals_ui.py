@@ -17,11 +17,12 @@ import threading
 
 from common.theme import (
     apply_modern_window_style, BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT,
-    BORDER_COLOR, ACCENT_GOLD, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE,
-    TEXT_COLOR, TEXT_MUTED, FONT_TITLE, FONT_HEADER, FONT_MAIN, FONT_BOLD, FONT_SMALL
+    BORDER_COLOR, ACCENT_GOLD,
+    TEXT_COLOR, TEXT_MUTED, FONT_TITLE, FONT_SMALL
 )
 from common.manuals_manager import ManualsManager, MANUALS_DIR
-from common.i18n import _t, get_language
+from common.i18n import _t
+from common.messagebox import messagebox
 
 
 class ManualsDialog(tk.Toplevel):
@@ -359,8 +360,7 @@ class ManualsDialog(tk.Toplevel):
                 os.startfile(MANUALS_DIR)
             else:
                 subprocess.Popen(["xdg-open", MANUALS_DIR])
-        except Exception as e:
-            from common.messagebox import messagebox
+        except Exception:
             messagebox.showinfo("Cartella Manuali", f"I manuali custom si trovano in:\n{MANUALS_DIR}")
 
     def open_pdf_folder(self):
@@ -372,8 +372,7 @@ class ManualsDialog(tk.Toplevel):
                 os.startfile(PDF_DIR)
             else:
                 subprocess.Popen(["xdg-open", PDF_DIR])
-        except Exception as e:
-            from common.messagebox import messagebox
+        except Exception:
             messagebox.showinfo("Cartella Manuali PDF", f"I manuali PDF si trovano in:\n{PDF_DIR}")
 
     def trigger_reindex(self):
