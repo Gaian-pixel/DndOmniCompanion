@@ -52,5 +52,9 @@ command_handlers = {
     "SET_AUTOMATION_MODE_REQUEST": handle_set_automation_mode_request,
     "APPLY_PENDING_DAMAGE_REQUEST": handle_apply_pending_damage_request,
     "RESOLVE_PENDING_DOOR_REQUEST": handle_resolve_pending_door_request,
+    "LEGENDARY_ACTION_REQUEST": handle_spend_legendary_action_request,
+    "QUEST_ACTION_REQUEST": handle_quest_action_request,
+    "HANDOUT_SHARE_REQUEST": handle_handout_share_request,
 }
+
 

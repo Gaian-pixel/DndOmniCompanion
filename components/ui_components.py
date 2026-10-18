@@ -13,6 +13,52 @@ from common.i18n import _t, get_language
 class HexMapCanvas(tk.Canvas):
     """Un widget Canvas riutilizzabile per visualizzare e interagire con una mappa esagonale."""
     
+    cond_badge_map = {
+        "Morto": ("#2B0000", "💀"),
+        "Dead": ("#2B0000", "💀"),
+        "Incosciente": ("#1864AB", "💤"),
+        "Unconscious": ("#1864AB", "💤"),
+        "Privo di Sensi": ("#1864AB", "💤"),
+        "Prono": ("#8F4F00", "🧎"),
+        "Prone": ("#8F4F00", "🧎"),
+        "Concentrazione": ("#D9480F", "🧠"),
+        "Concentrating": ("#D9480F", "🧠"),
+        "Schivata": ("#1971C2", "🛡️"),
+        "Dodge": ("#1971C2", "🛡️"),
+        "Aiuto": ("#2F9E44", "🤝"),
+        "Help": ("#2F9E44", "🤝"),
+        "Aiutato": ("#2F9E44", "🤝"),
+        "Helped": ("#2F9E44", "🤝"),
+        "Avvelenato": ("#2B8A3E", "🟢"),
+        "Poisoned": ("#2B8A3E", "🟢"),
+        "Accecato": ("#495057", "🙈"),
+        "Blinded": ("#495057", "🙈"),
+        "Paralizzato": ("#0C8599", "⚡"),
+        "Paralyzed": ("#0C8599", "⚡"),
+        "Trattenuto": ("#6741D9", "🕸️"),
+        "Restrained": ("#6741D9", "🕸️"),
+        "Afferrato": ("#E67700", "⛓️"),
+        "Grappled": ("#E67700", "⛓️"),
+        "Invisibile": ("#868E96", "👻"),
+        "Invisible": ("#868E96", "👻"),
+        "Spaventato": ("#A61E4D", "😱"),
+        "Frightened": ("#A61E4D", "😱"),
+        "Stordito": ("#C2255C", "💫"),
+        "Stunned": ("#C2255C", "💫"),
+        "Incapacitato": ("#C2255C", "💫"),
+        "Incapacitated": ("#C2255C", "💫"),
+        "Stabilizzato": ("#099268", "🩹"),
+        "Stabilized": ("#099268", "🩹"),
+        "Sordo": ("#495057", "🔇"),
+        "Deafened": ("#495057", "🔇"),
+        "Incantato": ("#D6336C", "💖"),
+        "Charmed": ("#D6336C", "💖"),
+        "Pietrificato": ("#5C5F66", "🗿"),
+        "Petrified": ("#5C5F66", "🗿"),
+        "Ira": ("#C92A2A", "🔥"),
+        "Rage": ("#C92A2A", "🔥")
+    }
+    
     def __init__(self, parent, **kwargs):
         bg_color = kwargs.pop('bg', "#1e1e1e")
         super().__init__(parent, bg=bg_color, highlightthickness=0, **kwargs)
@@ -1363,26 +1409,8 @@ class HexMapCanvas(tk.Canvas):
                     self.create_rectangle(bar_x, bar_y, bar_x + (bar_w * hp_ratio), bar_y + bar_h, fill=bar_color, outline="")
 
             if conditions:
-                cond_badge_map = {
-                    "Morto": ("#2B0000", "💀"),
-                    "Incosciente": ("#1864AB", "💤"),
-                    "Privo di Sensi": ("#1864AB", "💤"),
-                    "Prono": ("#8F4F00", "🔻"),
-                    "Concentrazione": ("#D9480F", "⚡"),
-                    "Schivata": ("#1971C2", "🛡️"),
-                    "Aiuto": ("#2F9E44", "🤝"),
-                    "Avvelenato": ("#2B8A3E", "🤢"),
-                    "Accecato": ("#495057", "👁️"),
-                    "Paralizzato": ("#0C8599", "⚡"),
-                    "Trattenuto": ("#6741D9", "🕸️"),
-                    "Invisibile": ("#868E96", "👻"),
-                    "Spaventato": ("#A61E4D", "😱"),
-                    "Stabilizzato": ("#099268", "🩹"),
-                    "Sordo": ("#495057", "🔇"),
-                    "Afferrato": ("#E67700", "✊"),
-                    "Incantato": ("#D6336C", "💖"),
-                    "Pietrificato": ("#5C5F66", "🗿")
-                }
+                cond_badge_map = self.cond_badge_map
+
                 badge_r = max(6, int(8 * min(self.zoom_level, 1.2)))
                 start_x = sx - radius
                 start_y = sy - radius - badge_r - 2

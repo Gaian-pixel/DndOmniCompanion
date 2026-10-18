@@ -128,7 +128,21 @@ class QuestLogDialog(tk.Toplevel):
         self._sync()
         self.refresh_list()
 
+    def _sync(self):
+        if self.is_dm and self.network:
+            if hasattr(self.game_state, "_trigger_gui_update"):
+                self.game_state._trigger_gui_update()
+            from common.protocol import make_quest_list_update, make_game_state
+            from server.network import broadcast
+            g_state = getattr(self.network, "game_state", self.game_state)
+            try:
+                broadcast(g_state, make_quest_list_update(self._get_quests()))
+                broadcast(g_state, make_game_state(g_state.get_state_dict()))
+            except Exception as e:
+                print("Errore sync quest:", e)
+
 class QuestEditorDialog(tk.Toplevel):
+
     def __init__(self, parent, title_str, quest_data=None, idx=None):
         super().__init__(parent)
         self.title(title_str)
@@ -173,11 +187,5 @@ class QuestEditorDialog(tk.Toplevel):
         d = self.desc_text.get("1.0", tk.END).strip()
         self.parent.save_quest(t, d, self.quest_idx)
         self.destroy()
-        
-    def _sync(self):
-        if self.is_dm and self.network:
-            self.game_state._trigger_gui_update()
-            from common.protocol import make_game_state
-            from server.network import broadcast
-            broadcast(self.network.game_state, make_game_state(self.network.game_state.get_state_dict()))
+
 

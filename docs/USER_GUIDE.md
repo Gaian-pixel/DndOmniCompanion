@@ -165,11 +165,18 @@ You do not need to start a session or connect to a DM server to create, view, ed
   * The wizard automatically fetches **new class features** and updates **spell slots** for your new level from the 5e SRD.
   * At ASI levels (e.g., 4, 8, 12, 16, 19), assign your **Ability Score Improvement (+2 / +1+1)** or Feat.
 
-#### Hero Summary Card & Interactive Character Sheet
 In the **`Player Controls`** tab on the right sidebar, the **Hero Summary Card** is always visible at the top:
 * Displays Name, Class/Race/Level, Current/Max HP (plus Temporary HP, Exhaustion level, and active Conditions).
 * **Dynamic Health Bar**: smoothly fills from `0%` to `100%` of the card width, shifting color from green (`> 50%`) to amber (`25%–50%`) and red (`< 25%`).
 * Quick badges for **🛡️ AC**, **👟 Speed** (converted to `ft` or `m`), and **⚡ Initiative**.
+* **Light Source Button `[ 🕯️ ]` (PHB p. 183)**:
+  * **Left-Click**: instantly turns the character's active light source on or off.
+  * **Right-Click**: opens a context menu to select from 4 official presets:
+    * **Torch**: $20\text{ ft}$ bright, $20\text{ ft}$ dim (8-hex radius), warm amber glow `#FFD700`.
+    * **Hooded Lantern**: $30\text{ ft}$ bright, $30\text{ ft}$ dim (12-hex radius), orange glow `#FFA500`.
+    * **Hooded Lantern (Dim / 5 ft)**: $5\text{ ft}$ dim (1-hex radius), narrow `#FF8C00` beam.
+    * **Light Spell**: $20\text{ ft}$ bright, $20\text{ ft}$ dim (8-hex radius), magical cyan glow `#66D9E8`.
+  * **Dynamic FoW Integration**: toggling lights automatically reveals Fog of War based on $\max(\text{vision\_radius}, \text{light\_radius})$.
 
 Click **`📋 Character Sheet`** to open the full multi-tabbed sheet:
 1. **Stats & Combat**: Ability Scores, Saving Throws, all 18 Skills with Proficiency selector (`0 = None`, `1 = Proficient +PB`, `2 = Expertise +2×PB`) and `🎲` 1-click roll buttons, quick HP adjusters (`-5`, `-1`, `+1`, `+5`), Short/Long Rest buttons, Hit Dice, and Death Saves.
@@ -239,17 +246,26 @@ The **Turn Economy** section in the `Player Controls` tab automatically adapts t
   * You can also click individual badges manually to toggle them (e.g., spending your `🛡️ Reaction` for *Shield* or an *Opportunity Attack*), or click **`↺ Reset`**.
   * All turn resources **reset automatically** at the start of your turn and whenever combat begins or ends.
 
-### Combat Actions, AoE Spells & Upcasting
+### Combat Actions, AoE Spells, Tactical Cover & Upcasting
 * **`⚔️ Action` Button**: opens the 5e Standard Actions dialog:
-  * **Weapon / Spell Attack**: choose target, weapon, optional Advantage/Disadvantage, and execute the attack.
-  * **5e Tactical Actions**: **Dash** (doubles turn movement), **Disengage** (prevents opportunity attacks), **Dodge** (grants attackers disadvantage), **Help** (grants an ally advantage).
+  * **Weapon / Spell Attack**: choose target, weapon, optional Advantage/Disadvantage, and **5e RAW Tactical Cover**:
+    * `Automatic Cover`: geometric raycasting (`hex_linedraw`) calculating intervening walls, half-cover obstacles, and interposing creatures.
+    * `No Cover`: target's normal AC.
+    * `Half Cover (+2 AC / +2 DEX Save)`: target behind low walls, trees, or creatures.
+    * `Three-Quarters Cover (+5 AC / +5 DEX Save)`: target behind arrow slits or substantial fortifications.
+    * `Total Cover`: target is completely obscured; attack is blocked.
+  * **5e Tactical Actions**: **Dash** (doubles turn movement), **Disengage** (prevents opportunity attacks), **Dodge** (imposes disadvantage on enemy attacks and grants advantage on DEX saves), **Help** (grants an ally advantage).
 * **`[ 💥 ]` Button (Area of Effect)**:
   * Choose the geometric template (**Sphere**, **Cone**, **Line**), size in hexes, color, and optional Saving Throw (e.g., `DEX DC 15` with `8d6` fire damage).
-  * Click on the map to place the template: the server automatically identifies affected targets, prompts Saving Throws, and applies full or half damage.
-* **Spellcasting & Upcasting (Higher-Level Spell Slots)**:
+  * Click on the map to place the template: the server automatically identifies affected targets, prompts Saving Throws (applying Half or 3/4 Cover save bonuses if applicable), and applies full or half damage.
+* **Spellcasting, Upcasting & Strict Concentration (PHB p. 201-204)**:
   * When clicking **`Cast`** on a 1st+ level spell in your Spellbook, a modal dialog presents all available spell slots from the spell's base level up to level 9.
   * Select a higher-level slot to **Upcast** the spell (e.g., casting 1st-level *Magic Missile* using a 3rd-level slot).
   * The designated slot is deducted automatically, and chat broadcasts an announcement noting both the spell's base level and the effective upcast level.
+  * **Strict Concentration**:
+    * Concentration spells are automatically tracked.
+    * Casting a new concentration spell automatically drops any existing concentration with a chat broadcast, preventing unauthorized dual-concentration.
+    * Taking damage while concentrating triggers an automatic Constitution save ($\text{DC} \ge 10$); failure instantly removes the condition and linked persistent AoE zones.
 * **`⏭️ End Turn` Button**: active during your combat turn; immediately advances initiative to the next combatant.
 
 ### RAW Reactions & Shield Spell Prompt
@@ -284,9 +300,14 @@ The **Turn Economy** section in the `Player Controls` tab automatically adapts t
     * **`10–19`**: +1 Success (at 3 successes you become `Stabilized`).
     * **`2–9`**: +1 Failure.
     * **`Natural 1`**: **+2 Failures** (at 3 failures the character dies).
-* **Short Rest & Long Rest**:
-  * **Short Rest**: spend available Hit Dice to heal ($\text{Hit Die} + \text{CON mod}$) and recharge short-rest features and resources.
-  * **Long Rest**: restores full HP, all Spell Slots, half of total Hit Dice, clears exhaustion, and recharges all class resources.
+* **Short Rest & Long Rest (RAW PHB p. 186)**:
+  * **Short Rest Hit Dice Spending (`ShortRestDialog`)**:
+    * Clicking **`Short Rest`** in the Character Sheet opens an interactive modal dialog:
+      * Displays current and maximum HP with an **interactive health progress bar** and exact **Hit Dice remaining** (e.g. `3 / 5 (d8)`).
+      * **`🎲 Spend 1 Hit Die` Button**: rolls one die of your class ($1\text{dY} + \text{CON mod}$, minimum 1 HP healed even with negative CON), adds the HP, and logs rolls step-by-step.
+      * **`⚡ Spend All Hit Dice` Button**: rolls remaining hit dice consecutively until HP is full or dice are exhausted.
+      * **`✅ Finish Rest` Button**: closes the dialog, broadcasts total recovered HP and dice spent to chat, and restores short-rest resources (e.g., *Second Wind*, *Action Surge*, and *Warlock Pact Magic slots*).
+  * **Long Rest**: fully restores HP, all Spell Slots, reduces Exhaustion by 1, recharges all class resources, and **regains up to half of the character's total Hit Dice** ($\max(1, \lfloor\text{Total}/2\rfloor)$ as per official 5e RAW).
 
 ### Inventory, Encumbrance, Trading & DM Approval
 * **Online Security (DM Approval)**: while connected to a live session, ability scores and Max HP are locked. To add currency or custom items, click **`🤝 Request Currency from DM`** or add an item: the DM receives an instant approval prompt.
@@ -446,7 +467,15 @@ In the DM **`Initiative & Characters`** tab:
    * Click **`🎲 Roll Monster Initiative`** to automatically roll initiative for all NPCs/Monsters.
    * Click **`Start Combat`** to sort combatants, activate the **Initiative Ribbon HUD** on the map, and reset turn economy.
    * Use **`Next Turn ⏩`** and **`⏪ Previous Turn`** to cycle turns and rounds.
-4. **Legendary Actions & Resistances**: for Boss monsters, dedicated controls let the DM spend Legendary Actions or Legendary Resistances with automatic round resets.
+4. **Boss Legendary Actions & Lair Actions (MM p. 11)**:
+   * **Legendary Actions**:
+     * Legendary Bosses can take up to 3 Legendary Actions per round, usable only at the end of another creature's turn.
+     * When another character finishes their turn, the engine logs a **DM reminder** noting available legendary charges.
+     * The DM can spend actions selecting the cost (1, 2, or 3) and action name (e.g. *Wing Attack*, *Tail Attack*, *Frightful Presence*).
+     * At the start of the Boss's turn, legendary action charges **automatically reset to their maximum**.
+   * **Lair Actions (Initiative 20)**:
+     * For bosses with an active lair (`has_lair_actions = True`), at the top of each combat round at **Initiative count 20**, an automated Lair Action alert broadcasts to chat and DM logs, allowing the DM to trigger environmental lair effects.
+   * **Legendary Resistances (3/day)**: when the boss fails a saving throw, the DM can immediately turn the failure into a success.
 
 ### SRD Bestiary, Offline PDF Rulebooks & Procedural Generators
 * **`Bestiary` Tab & `Tools -> Compendium & SRD`**: search monsters from the 5e SRD or indexed PDF rulebooks and click **Spawn on Map** to place them with full stats, AC, HP, and actions.
@@ -454,7 +483,7 @@ In the DM **`Initiative & Characters`** tab:
 * **5e Loot Generator (`Tools -> 💰 Loot Generator`)**: generate balanced treasure hoards by Challenge Rating (CR 0–4, 5–10, 11–16, 17+) and split gold with 1 click.
 * **Quick NPC Generator (`Tools -> 🎭 Quick NPC Generator`)**: generate complete NPCs with name, race, personality trait, secret, stats, and 1-click map spawning.
 
-### World, Calendar, Weather, Travel, Shops & Quests
+### World, Calendar, Weather, Travel, Shops & Quest Log
 * **`World` Tab & `Tools -> Travel Panel`**:
   * Manage the **Calendar of Harptos (Forgotten Realms)** or standard calendar, time of day (with day, sunrise, sunset, and night tint), and **Dynamic Weather** with 6 animated atmospheric environments:
     * **☀️ Clear**: standard unobstructed vision.
@@ -469,10 +498,15 @@ In the DM **`Initiative & Characters`** tab:
     * **Magical Darkness Sphere**: right-click any hex $\rightarrow$ **`🌑 Place Magical Darkness Sphere (R=3)`** to create a zone of magical darkness impenetrable to normal Darkvision (requires *Devil's Sight* or *Truesight*).
     * **D&D 5e Combat Rules (Unseen Attackers & Targets)**: attacking from darkness while seeing the target grants **Advantage**; attacking a target you cannot see imposes **Disadvantage**; mutual darkness cancels out to a normal roll.
   * Manage party **Marching Order** (Front, Middle, Rear), travel roles (Scout, Navigator, Forager), ration/water consumption, and **Forced March** Constitution saving throws.
-  * Open and broadcast **Merchant Shops** (`shop_ui.py`) and the **Quest Log** (`quest_ui.py`).
+  * Open and broadcast **Merchant Shops** (`shop_ui.py`).
+  * **Shared Quest Log**: accessible from `Library -> 📜 Quest Log` or the DM tools menu:
+    * Track main and secondary quest objectives with titles, descriptions, quest givers, and gold/item rewards.
+    * All operations (adding quests, completing via `[✅ Complete]`, or deleting) are broadcast in real time to all connected players with chat announcements.
 
-### Handouts (Documents/Images) & Audio Soundboard
-* **Share Image / Text Handout (`Tools -> Share Image / Share Text Handout`)**: instantly pop up an illustration (NPC portrait, ancient map) or a readable parchment modal on every player's screen.
+### Shared Document Handouts & Audio Soundboard
+* **Document & Image Handouts (`Tools -> Share Text Handout / Share Image`)**:
+  * Broadcast parchment scrolls, letters, puzzles, and illustrations directly to all connected players.
+  * Clients automatically receive the broadcast and open a themed parchment modal viewer.
 * **`Audio / SFX` Tab**: broadcast ambient music (Tavern, Battle, Dungeon) and sound effects synchronously to all connected clients.
 
 ### Shared Tactical Whiteboard & Session Log Export

@@ -41,6 +41,9 @@ class Player:
         self.has_acted_this_turn = False
         self.layer = "token"
         self.has_darkvision = None
+        self.has_lair_actions = False
+
+
 
     def check_has_darkvision(self) -> bool:
         """Determina se il personaggio possiede Scurovisione secondo le regole D&D 5e."""
@@ -100,7 +103,8 @@ class Player:
             "speed": getattr(self, "speed", 30),
             "speed_unit": getattr(self, "speed_unit", None),
             "layer": getattr(self, "layer", "token"),
-            "has_darkvision": getattr(self, "has_darkvision", None)
+            "has_darkvision": getattr(self, "has_darkvision", None),
+            "has_lair_actions": getattr(self, "has_lair_actions", False)
         }
 
     @classmethod
@@ -137,7 +141,9 @@ class Player:
         p.speed_unit = data.get("speed_unit", None)
         p.layer = data.get("layer", "token")
         p.has_darkvision = data.get("has_darkvision", None)
+        p.has_lair_actions = data.get("has_lair_actions", False)
         return p
+
 
 
 def player_has_darkvision(player) -> bool:
@@ -165,6 +171,7 @@ class GameState:
         self.weather = "Sereno"
         self.calendar_events = {}
         self.quests = []
+        self.handouts = []
         self.shops = {}  # dict of shop_name: {"type": "blacksmith", "items": [{"name": "Sword", "price": 15, "qty": 1}], "gold": 100}
         self.travel_hours_today = 0
         self.travel_pace = "Normale"
@@ -473,6 +480,7 @@ class GameState:
                 "weather": getattr(self, 'weather', "Sereno"),
                 "calendar_events": getattr(self, 'calendar_events', {}),
                 "quests": getattr(self, 'quests', []),
+                "handouts": getattr(self, 'handouts', []),
                 "shops": getattr(self, 'shops', {}),
                 "travel_hours_today": getattr(self, 'travel_hours_today', 0),
                 "travel_pace": getattr(self, 'travel_pace', "Normale"),
@@ -529,6 +537,7 @@ class GameState:
             self.weather = state.get("weather", "Sereno")
             self.calendar_events = state.get("calendar_events", {})
             self.quests = state.get("quests", [])
+            self.handouts = state.get("handouts", [])
             self.shops = state.get("shops", {})
             self.travel_hours_today = state.get("travel_hours_today", 0)
             self.travel_pace = state.get("travel_pace", "Normale")

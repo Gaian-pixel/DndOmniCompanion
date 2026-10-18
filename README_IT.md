@@ -48,10 +48,13 @@
   * Luce dinamica di torce e lanterne (`light_radius > 0`) che rischiara l'oscurità squarciando le tenebre con un bagliore dorato.
   * Toggle rapido del DM `[ 🌑 ]` per attivare o disattivare il filtro Oscurità con 1 click o tramite comandi chat (`/darkness`, `/meteo Oscurità`).
 * **Lavagna Tattica Condivisa (`[ ✏️ ]` / `[ 🧹 ]`)**: Disegno a mano libera in tempo reale sincronizzato tra DM e giocatori, con pulsante di cancellazione rapida.
-* **Illuminazione Dinamica e Aure**: Torce, lanterne, incantesimi di luce e aure magiche proiettano anelli luminosi in tempo reale mentre i token si muovono.
+* **Sorgenti di Luce Dinamiche & Illuminazione Portatile (PHB p. 183)**:
+  * **Pulsante Rapido HUD `[ 🕯️ ]`**: Presente nella Hero Summary Card per accendere o spegnere all'istante la fonte di luce.
+  * **Preset Ufficiali D&D 5e**: Menu contestuale (click destro) con **Torcia** ($20\text{ ft}$ intensa / $20\text{ ft}$ fioca, raggio 8 esagoni, bagliore ambra), **Lanterna a Cappuccio** ($30\text{ ft} / 30\text{ ft}$, raggio 12 esagoni), **Lanterna Schermata** (fascio ristretto $5\text{ ft}$, raggio 1 esagono) e **Incantesimo Luce** ($20\text{ ft} / 20\text{ ft}$, raggio 8 esagoni con aura ciano).
+  * **Sincronizzazione FoW**: L'accensione della luce estende istantaneamente il raggio di scoperta della Nebbia di Guerra calcolato su $\max(\text{vision\_radius}, \text{light\_radius})$.
 * **Template Incantesimi ad Area (`[ 💥 ]`)**: Sfere, Coni ($60^\circ / 90^\circ$), Linee e Sfere di Oscurità Magica con anteprima geometrica sulla griglia.
 * **Ping Animato sulla Mappa**: Click centrale (o strumento `[ 📍 ]`) per inviare un indicatore visivo animato a tutti i giocatori.
-* **Badge Condizioni sui Token**: Indicatori visivi renderizzati direttamente sui token (`💀` Morto, `💤` Incosciente, `🔻` Prono, `⚡` Paralizzato/Concentrazione, `🛡️` Schivata, `🤝` Aiuto, `🤢` Avvelenato, `👁️` Accecato, ecc.).
+* **Badge Visivi delle Condizioni sui Token**: Rendering visuale sul canvas esagonale di icone badge bilingui ad alto contrasto per tutti gli status 5e (`💀` Morto, `💤` Incosciente, `🧎` Prono, `🧠` Concentrazione, `🛡️` Schivata, `🤝` Aiuto, `🟢` Avvelenato, `🙈` Accecato, `⚡` Paralizzato, `🕸️` Trattenuto, `⛓️` Afferrato, `👻` Invisibile, `😱` Spaventato, `💫` Stordito, `🩹` Stabilizzato, `🔇` Sordo, `💖` Incantato, `🗿` Pietrificato, `🔥` Ira).
 
 ### ⚔️ Motore di Combattimento D&D 5e & Economia del Turno
 * **Economia del Turno Contestuale (Esplorazione vs Combattimento)**:
@@ -60,21 +63,38 @@
 * **Successi Critici (`🌟 20 Naturale`) e Fallimenti Critici (`💀 1 Naturale`)**:
   * **Tiri per Colpire**: `20 Naturale` colpisce sempre e raddoppia automaticamente tutti i dadi di danno; `1 Naturale` manca automaticamente.
   * **Tiri Salvezza, Prove di Abilità/Caratteristica e Tiri `1d20`**: Evidenziazione dorata/cremisi in chat e notifiche Toast broadcast (`CRITICAL_ROLL_BROADCAST`) a tutto il tavolo.
-* **Vantaggio, Svantaggio e Copertura Dinamica**: Calcolo automatico in base a condizioni (Invisibile, Prono in mischia vs distanza, Accecato, Paralizzato, Schivata, Aiuto) e ostacoli sulla traiettoria (+2 CA per Mezza Copertura).
+* **Copertura Tattica D&D 5e RAW (PHB p. 196)**:
+  * **Selettore Rapido nei Dialoghi di Attacco e TS**: Possibilità di selezionare la copertura del bersaglio tra:
+    * `Copertura Automatica`: Calcolo geometrico tramite algoritmo Bresenham esagonale (`hex_linedraw`) per ostacoli, muri e creature frapposte.
+    * `Nessuna Copertura`: CA normale.
+    * `Mezza Copertura`: $+2$ alla CA del bersaglio e $+2$ ai suoi Tiri Salvezza su Destrezza.
+    * `Tre Quarti di Copertura`: $+5$ alla CA del bersaglio e $+5$ ai suoi Tiri Salvezza su Destrezza.
+    * `Copertura Totale`: Il bersaglio non può essere bersagliato direttamente; attacco bloccato automaticamente.
 * **Modificatori Ambientali di Combattimento (Meteo & Terreni Difficili)**:
   * **Meteo (DMG p. 109-110)**: Tempesta violenta e Nebbia fitta impongono Svantaggio agli attacchi a distanza (> 1 esagono); pioggia battente e bufere di neve impongono Svantaggio a lunga gittata.
   * **Terreni Difficili**: Attaccare da superfici instabili (Ghiaccio, Macerie, Palude, Fango) impone Svantaggio; attaccare nemici intralciati nei Rovi o bloccati nel Fango conferisce **Vantaggio**.
   * **Regole Oscurità e Scurovisione (PHB p. 194-195)**: Attaccare dalle tenebre con Scurovisione (o contro un bersaglio che impugna una torcia) conferisce **Vantaggio** (*Attaccante Celato*); attaccare un bersaglio che non si vede impone **Svantaggio**; nell'oscurità totale reciproca vantaggio e svantaggio si annullano.
 * **Attacchi di Opportunità Automatizzati**: Rileva quando un combattente esce dalla portata di mischia ostile senza aver usato *Disimpegno*.
-* **Controlli di Concentrazione Automatici**: Subire danni con la condizione `Concentrazione` attiva richiede automaticamente un Tiro Salvezza su Costituzione ($\text{CD} = \max(10, \lfloor\text{Danni}/2\rfloor)$).
+* **Concentrazione Rigorosa & Upcasting (PHB p. 201-204)**:
+  * Lanciando un nuovo incantesimo a concentrazione dal Grimorio, la concentrazione precedente viene interrotta automaticamente e notificata in chat al gruppo.
+  * Subire danni mentre si è concentrati innesca automaticamente un Tiro Salvezza su Costituzione ($\text{CD} = \max(10, \lfloor\text{Danni}/2\rfloor)$); se fallisce, l'incantesimo cade e le AoE collegate vengono rimosse.
+  * **Upcasting**: Possibilità di lanciare magie con slot di livello superiore scalando la potenza dell'effetto.
 * **Tiri Salvezza contro la Morte e Morte Istantanea**: Gestione completa a 0 PV (`20 Naturale` = risveglio a 1 PV, `1 Naturale` = 2 fallimenti, 3 successi = Stabilizzato, 3 fallimenti o danno eccessivo $\ge \text{PV Max}$ = Morto).
-* **Meccaniche Boss**: Azioni Leggendarie e Resistenze Leggendarie con reset automatico a ogni round.
+* **Meccaniche Boss RAW (MM p. 11)**:
+  * **Azioni Leggendarie**: Fino a 3 azioni a round spendibili al termine del turno di un'altra creatura, promemoria automatici al DM, e ripristino delle cariche all'inizio del turno del boss.
+  * **Azioni di Tana (Iniziativa 20)**: Notifica e attivazione automatica all'Iniziativa 20 per i boss con tana attiva.
+  * **Resistenze Leggendarie**: Fino a 3/giorno per trasformare un fallimento al TS in successo.
 
 ### 🧙‍♂️ Creazione Personaggio, Scheda PG & Progressione
 * **Wizard Stile Baldur's Gate**: Creazione guidata al Livello 1 e Level-Up assistito con recupero automatico di privilegi di classe, dadi vita e slot incantesimo dal Compendio SRD 5e.
+* **Spesa Dadi Vita nel Riposo Breve (RAW PHB p. 186)**:
+  * Dialogo modale interattivo `ShortRestDialog` con anteprima PV attuali/massimi, barra salute progressiva e dadi vita rimasti.
+  * Pulsante per **spendere 1 singolo Dado Vita** alla volta ($1\text{dY} + \text{Mod COS}$, min 1 recuperato), aggiornando istantaneamente la scheda e la chat.
+  * Pulsante per spendere tutti i dadi vita disponibili o concludere il riposo.
+  * Al Riposo Lungo vengono ripristinati tutti i PV e recuperati fino a metà dei Dadi Vita massimi ($\max(1, \lfloor\text{Totale}/2\rfloor)$).
 * **Sistema Risorse di Classe Speciali**: Popolazione e tracciamento automatico di Punti Ki, Ira, Ispirazione Bardica, Forma Selvatica, Canale di Divinità, Azione Impetuosa, Secondo Fiato, Punti Stregoneria, ecc., con ricarica intelligente al Riposo Breve/Lungo.
 * **Hero Summary Card & Scheda Interattiva**:
-  * Card riassuntiva sempre visibile nella sidebar con barra PV reattiva, CA, Velocità effettiva (in `ft` o `m`), Iniziativa e pulsante rapido `[ 🎒 ]` per sfilare lo zaino a terra.
+  * Card riassuntiva sempre visibile nella sidebar con barra PV reattiva, CA, Velocità effettiva (in `ft` o `m`), Iniziativa, toggle luce `[ 🕯️ ]` e pulsante rapido `[ 🎒 ]` per sfilare lo zaino a terra.
   * Scheda completa divisa in tab: **Combattimento**, **Statistiche & Abilità** (con Competenza e Maestria $2\times\text{PB}$), **Armi & Attacchi**, **Inventario & Ingombro** ($\text{FOR} \times 15\text{ lbs}$), **Grimorio & Slot Incantesimo (1–9)** con dialog di **Upcasting**, **Privilegi & Diario**.
 * **Gestione Zaini, Contenitori ed Ingombro Variante 5e (RAW PHB p. 143, 176, 190)**:
   * **Collocazione per Ogni Oggetto**: Assegnazione a `🎒 Zaino`, `⚔️ Equipaggiato / Addosso`, `🔮 Borsa Conservante` (capienza 500 lbs, peso interno escluso dal PG), `✨ Zaino Pratico di Heward` (capienza 120 lbs, peso proprio 5 lbs), o `🐴 Sacca da Sella / Cavalcatura`.
@@ -88,9 +108,12 @@
 * **Calcolatore Difficoltà Incontri Live (DMG p. 82)**: Valutazione in tempo reale (**Banale**, **Facile**, **Medio**, **Difficile**, **Mortale**) con moltiplicatori XP per numero di mostri.
 * **Gestore Campagne, Scene & Starter Pack**: Prepara atti, scene collegate a mappe/mostri da schierare con 1 click e configura l'equipaggiamento iniziale automatico per i nuovi PG.
 * **Esportazione Registro di Sessione**: Salva l'intera cronologia della sessione (tiri, eventi di combattimento, chat, sussurri) in formato Markdown (`.md`) o HTML da `File -> Esporta Registro di Sessione`.
-* **Generatori Procedurali & Handout**: Generatore di Bottino 5e, Generatore Rapido PNG, condivisione di immagini e documenti su pergamena.
+* **Registro Missioni Condiviso (Quest Log) & Documenti Condivisi (Handouts)**:
+  * Gestione e tracciamento missioni (`Libreria ➔ Registro Missioni`) con sincronizzazione in tempo reale tra tutti i partecipanti, dettagli, assegnatore e ricompense.
+  * Condivisione globale di documenti su pergamena e illustrazioni con visualizzatore pergamena dedicato su tutti i client.
+* **Generatori Procedurali**: Generatore di Bottino 5e e Generatore Rapido PNG.
 * **Manuali PDF Offline & Tavolozza Comandi (`Ctrl+K`)**: Ricerca istantanea su manuali PDF ufficiali indicizzati, regole, mostri, incantesimi e token.
-* **Viaggio, Calendario, Meteo, Negozi e Quest**: Ordine di marcia, ruoli di viaggio, razioni/acqua, marcia forzata, calendario fantasy interattivo, negozi e registro missioni.
+* **Viaggio, Calendario, Meteo e Negozi**: Ordine di marcia, ruoli di viaggio, razioni/acqua, marcia forzata, calendario fantasy interattivo e negozi mercantili.
 * **Soundboard & Voice Chat UDP Integrata**: Streaming vocale a bassa latenza con controlli Mute/Deafen (`[ 🎤 ]` / `[ 🎧 ]`) e soundboard musicale sincronizzata.
 
 ### 🎲 Stili di Gestione Campagna: Controllo DM vs Automazione (RAW 5e)

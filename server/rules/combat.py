@@ -280,8 +280,22 @@ def handle_end_turn_request(data, player, game_state):
             msg = f"Round {game_state.round_number} - Turno di {next_p.name}!"
             game_state.log_dm_message(f"[COMBAT] {msg}")
             broadcast(game_state, make_chat_broadcast("Sistema", msg))
+
+            # D&D 5e Lair Actions: Se c'è una creatura con Azione di Tana a inizio round (Iniziativa 20)
+            has_lair_boss = any(getattr(p, "has_lair_actions", False) for p in game_state.players)
+            if has_lair_boss and game_state.turn_index == 0:
+                lair_msg = "🏰 [AZIONE DI TANA - Iniziativa 20] La tana del Boss risponde alla volontà del suo padrone! Il DM può attivare un'Azione di Tana."
+                broadcast(game_state, make_chat_broadcast("Sistema", lair_msg))
+                game_state.log_dm_message(f"[BOSS] {lair_msg}")
+
+            # Notifica al DM per Azioni Leggendarie disponibili a fine turno altrui
+            for p in game_state.players:
+                if getattr(p, "legendary_actions_max", 0) > 0 and getattr(p, "legendary_actions_current", 0) > 0 and p.name != (next_p.name if next_p else ""):
+                    game_state.log_dm_message(f"[BOSS] 👑 {p.name} può usare un'Azione Leggendaria ({p.legendary_actions_current}/{p.legendary_actions_max} disponibili)!")
+
         next_name = next_p.name if next_p else ""
         broadcast(game_state, make_combat_state_update_broadcast(game_state.combat_active, game_state.turn_index, game_state.round_number, game_state.active_aoes, next_name))
+
 
 def handle_spend_legendary_action_request(data, player, game_state):
     """
@@ -625,6 +639,21 @@ def handle_attack_request(data, player, game_state):
                     ]
                     cover_bonus, cover_name = get_cover_between(p_hex, t_hex, half_cover, three_quarters, other_creatures)
 
+        # Copertura Tattica D&D 5e RAW esplicita inviata dal client o dal DM
+        explicit_cover = str(data.get("cover", "auto")).lower()
+        if explicit_cover in ("total", "totale"):
+            blocked_by_wall = True
+            cover_name = "Copertura Totale"
+        elif explicit_cover in ("half", "mezza"):
+            cover_bonus = 2
+            cover_name = "Mezza Copertura (+2 CA)"
+        elif explicit_cover in ("three_quarters", "3/4", "tre_quarti"):
+            cover_bonus = 5
+            cover_name = "Tre Quarti di Copertura (+5 CA)"
+        elif explicit_cover in ("none", "nessuna"):
+            cover_bonus = 0
+            cover_name = None
+
         if cover_bonus > 0 and not blocked_by_wall:
             target_ac += cover_bonus
                 
@@ -643,12 +672,16 @@ def handle_attack_request(data, player, game_state):
         log_msg += f" vs CA {target_ac}."
         if scudo_applicato:
             log_msg += " (Scudo +5 CA applicato)"
-        if cover_name:
-            log_msg += f" (+{cover_bonus} {cover_name})"
+        if cover_name and cover_bonus > 0:
+            log_msg += f" ({cover_name})"
         
         if blocked_by_wall:
-            log_msg += " Bloccato dal Muro."
+            if cover_name == "Copertura Totale":
+                log_msg += " ATTACCO BLOCCATO: Bersaglio protetto da Copertura Totale!"
+            else:
+                log_msg += " Bloccato dal Muro."
         elif hits:
+
             log_msg += " COLPITO!"
             if is_crit:
                 log_msg += " 🌟 (CRITICO! 20 Naturale - Dadi danno raddoppiati!)"
@@ -746,7 +779,7 @@ def handle_attack_request(data, player, game_state):
     except Exception as e:
         send_message(player.conn, make_error_reply(f"Errore nell'attacco: {str(e)}"))
 
-def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, damage_formula, half_on_success, source_name, game_state, damage_type="Fuoco"):
+def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, damage_formula, half_on_success, source_name, game_state, damage_type="Fuoco", cover="none"):
     if hasattr(target_name, "name"):
         target_player = target_name
         target_name = target_player.name
@@ -760,8 +793,17 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
         roll_total += benedizione_bonus
         
     extra_adv_note = ""
-    if stat in ("DES", "DEX") and "Schivata" in getattr(target_player, "conditions", []):
-        extra_adv_note = " (Vantaggio da Schivata)"
+    if stat in ("DES", "DEX"):
+        if "Schivata" in getattr(target_player, "conditions", []):
+            extra_adv_note += " (Vantaggio da Schivata)"
+        cover_val = str(cover).lower()
+        if cover_val in ("half", "mezza"):
+            roll_total += 2
+            extra_adv_note += " (+2 TS Mezza Copertura)"
+        elif cover_val in ("three_quarters", "3/4", "tre_quarti"):
+            roll_total += 5
+            extra_adv_note += " (+5 TS Tre Quarti di Copertura)"
+
 
     # Regola 5e: Creature Incoscienti, Paralizzate o Stordite falliscono automaticamente i TS su Forza e Destrezza
     auto_fail_cond = None
@@ -961,8 +1003,10 @@ def handle_save_result_request(data, player, game_state):
     half_on_success = data.get("half_on_success")
     source_name = data.get("source_name")
     damage_type = data.get("damage_type", "Fuoco")
+    cover = data.get("cover", "none")
     
-    _process_save_result(player.name, stat, roll_total, is_crit, is_fail, dc, damage_formula, half_on_success, source_name, game_state, damage_type)
+    _process_save_result(player.name, stat, roll_total, is_crit, is_fail, dc, damage_formula, half_on_success, source_name, game_state, damage_type, cover=cover)
+
 
 def _validate_combat_tactical_action(player, game_state, action_label: str) -> bool:
     """Verifica che il combattimento sia attivo, il personaggio non sia incapacitato e (se strict_turn_lock) sia il suo turno."""

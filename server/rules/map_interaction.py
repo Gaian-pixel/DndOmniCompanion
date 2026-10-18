@@ -575,5 +575,41 @@ def handle_resolve_pending_door_request(data, player, game_state):
         
     game_state._trigger_gui_update()
 
+def handle_quest_action_request(data, player, game_state):
+    action = data.get("action", "update")
+    quest = data.get("quest", {})
+    if not hasattr(game_state, "quests"):
+        game_state.quests = []
+        
+    if action == "add":
+        game_state.quests.append(quest)
+        broadcast(game_state, make_chat_broadcast("Sistema", f"📜 [NUOVA MISSIONE] '{quest.get('title', 'Nuova Missione')}' aggiunta al registro!"))
+    elif action in ("complete", "done"):
+        q_id = quest.get("id") or quest.get("title")
+        for q in game_state.quests:
+            if q.get("id") == q_id or q.get("title") == q_id:
+                q["completed"] = True
+                broadcast(game_state, make_chat_broadcast("Sistema", f"✅ [MISSIONE COMPLETATA] '{q.get('title')}' completata dal gruppo!"))
+                break
+    elif action == "delete":
+        q_id = quest.get("id") or quest.get("title")
+        game_state.quests = [q for q in game_state.quests if (q.get("id") != q_id and q.get("title") != q_id)]
+        
+    game_state._trigger_gui_update()
+    from common.protocol import make_quest_list_update
+    broadcast(game_state, make_quest_list_update(game_state.quests))
+
+def handle_handout_share_request(data, player, game_state):
+    title = data.get("title", "Documento")
+    content = data.get("content", "")
+    image_path = data.get("image_path", "")
+    sender = data.get("sender", "Dungeon Master")
+    if not hasattr(game_state, "handouts"):
+        game_state.handouts = []
+    game_state.handouts.append({"title": title, "content": content, "image_path": image_path, "sender": sender})
+    from common.protocol import make_handout_share_broadcast
+    broadcast(game_state, make_handout_share_broadcast(title, content, image_path, sender))
+
+
 
 

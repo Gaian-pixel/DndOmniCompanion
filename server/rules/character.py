@@ -24,11 +24,19 @@ def handle_update_stats_request(data, player, game_state):
         target.temp_hp = max(0, temp_hp)
         target.initiative = initiative
         target.conditions = conditions
+        if "light_radius" in data:
+            target.light_radius = max(0, int(data["light_radius"]))
+        if "light_color" in data:
+            target.light_color = str(data["light_color"])
         _apply_hp_change(target, hp, game_state)
+        from server.rules.movement import auto_explore_fow
+        if auto_explore_fow(target, game_state):
+            broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
         game_state._trigger_gui_update()
         broadcast(game_state, make_player_stats_update(target.name, target.hp, target.max_hp, target.initiative, target.conditions, target.temp_hp))
     except Exception as e:
         print("Errore handle_update_stats_request:", e)
+
 
 def handle_update_full_sheet_request(data, player, game_state):
     char_data = data.get("character")

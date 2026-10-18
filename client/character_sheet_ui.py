@@ -1287,11 +1287,28 @@ class CharacterSheetUI(tk.Toplevel):
                         if not messagebox.askyesno("Slot Esauriti", f"Non hai piu' slot di livello {lvl_str}. Vuoi lanciarlo lo stesso?", parent=win):
                             return
             
+            desc_text = (str(spell.get('desc', '')) + " " + str(spell.get('duration', ''))).lower()
+            requires_conc = ("concentrazione" in desc_text or "concentration" in desc_text)
+            conc_info = ""
+            if requires_conc:
+                if not hasattr(self.character, "conditions") or not isinstance(self.character.conditions, list):
+                    self.character.conditions = []
+                if "Concentrazione" in self.character.conditions:
+                    conc_info = f" [⚡ La precedente Concentrazione di {self.character.name} si interrompe per mantenere {spell.get('name', '')}!]"
+                else:
+                    self.character.conditions.append("Concentrazione")
+                    conc_info = " [🧠 Concentrazione Attiva]"
+                self.manager.update_character(self.character)
+                if hasattr(self, "on_save_callback") and self.on_save_callback:
+                    try: self.on_save_callback(self.character)
+                    except Exception: pass
+
             if self.roll_callback:
                 upcast_info = f" (Potenziato al Livello {cast_level}!)" if cast_level > lvl else ""
-                chat_msg = f"{self.character.name} lancia {spell.get('name', '')}{upcast_info}!"
+                chat_msg = f"{self.character.name} lancia {spell.get('name', '')}{upcast_info}!{conc_info}"
                 self.roll_callback("0d0", chat_msg)
             win.destroy()
+
             
         def do_attack():
             if not getattr(self, 'attack_callback', None): return
@@ -2161,20 +2178,127 @@ class CharacterSheetUI(tk.Toplevel):
         hd_cur = getattr(self.character, "hit_dice_current", 0)
         hd_tot = getattr(self.character, "hit_dice_total", 0)
         hd_type = getattr(self.character, "hit_dice_type", "d8")
-        if hd_cur <= 0:
-            messagebox.showinfo("Riposo Breve", "Non hai Dadi Vita disponibili.")
+        if hd_cur <= 0 and getattr(self.character, "hp_current", 0) >= getattr(self.character, "hp_max", 0):
+            messagebox.showinfo("Riposo Breve", "I tuoi PF sono già al massimo e non hai Dadi Vita da spendere.")
             return
+
+        win = tk.Toplevel(self)
+        win.transient(self)
+        win.grab_set()
+        apply_modern_window_style(win)
+        win.title("❤️ Riposo Breve - Spesa Dadi Vita 5e")
+        win.minsize(440, 480)
+
+        container = tk.Frame(win, bg=BG_COLOR, padx=16, pady=12)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(container, text="❤️ Riposo Breve (Short Rest D&D 5e)", font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w")
+        tk.Label(container, text="Spendi Dadi Vita per recuperare PF e ripristinare i privilegi di classe.", font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 10))
+
+        # Status frame
+        st_frame = tk.Frame(container, bg=SURFACE_COLOR, padx=12, pady=10, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        st_frame.pack(fill=tk.X, pady=(0, 10))
+
+        lbl_hp = tk.Label(st_frame, text=f"Punti Ferita: {self.character.hp_current} / {self.character.hp_max}", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR)
+        lbl_hp.pack(anchor="w")
+
+        # HP Bar
+        bar_bg = tk.Frame(st_frame, bg="#111827", height=12)
+        bar_bg.pack(fill=tk.X, pady=(4, 8))
+        ratio = max(0.0, min(1.0, self.character.hp_current / max(1, self.character.hp_max)))
+        bar_fill = tk.Frame(bar_bg, bg=ACCENT_GREEN if ratio > 0.5 else ("#F59E0B" if ratio > 0.25 else ACCENT_RED), height=12)
+        bar_fill.place(x=0, y=0, relwidth=ratio, relheight=1.0)
+
+        cos_mod = (int(self.character.attributes.get("COS", 10)) - 10) // 2
+        cos_str = f"+{cos_mod}" if cos_mod >= 0 else str(cos_mod)
+        lbl_hd = tk.Label(st_frame, text=f"🎲 Dadi Vita: {self.character.hit_dice_current} / {self.character.hit_dice_total} ({self.character.hit_dice_type})  |  COS: {cos_str}", font=FONT_SMALL, bg=SURFACE_COLOR, fg=ACCENT_GOLD)
+        lbl_hd.pack(anchor="w")
+
+        # Roll Log
+        tk.Label(container, text="Registro Tiri del Riposo:", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w", pady=(4, 2))
+        log_box = tk.Text(container, height=8, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=("Consolas", 9), relief=tk.FLAT, padx=8, pady=6)
+        log_box.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        log_box.insert(tk.END, "Inizio riposo breve. Clicca su 'Tira 1 Dado Vita' per curarti.\n")
+        log_box.config(state=tk.DISABLED)
+
+        spent_dice = []
+
+        def update_dialog_ui():
+            lbl_hp.config(text=f"Punti Ferita: {self.character.hp_current} / {self.character.hp_max}")
+            r = max(0.0, min(1.0, self.character.hp_current / max(1, self.character.hp_max)))
+            c = ACCENT_GREEN if r > 0.5 else ("#F59E0B" if r > 0.25 else ACCENT_RED)
+            bar_fill.config(bg=c)
+            bar_fill.place(x=0, y=0, relwidth=r, relheight=1.0)
+            lbl_hd.config(text=f"🎲 Dadi Vita: {self.character.hit_dice_current} / {self.character.hit_dice_total} ({self.character.hit_dice_type})  |  COS: {cos_str}")
+            self.hp_cur_var.set(self.character.hp_current)
+            if self.character.hit_dice_current <= 0 or self.character.hp_current >= self.character.hp_max:
+                btn_roll_one.config(state=tk.DISABLED)
+                btn_roll_all.config(state=tk.DISABLED)
+
+        def log_msg(msg_text):
+            log_box.config(state=tk.NORMAL)
+            log_box.insert(tk.END, msg_text + "\n")
+            log_box.see(tk.END)
+            log_box.config(state=tk.DISABLED)
+
+        def roll_one():
+            if self.character.hit_dice_current <= 0:
+                messagebox.showinfo("Dadi Esauriti", "Non hai più Dadi Vita da spendere.", parent=win)
+                return
+            if self.character.hp_current >= self.character.hp_max:
+                messagebox.showinfo("PF al Massimo", "I tuoi Punti Ferita sono già al massimo!", parent=win)
+                return
+            res = self.character.spend_hit_die_single()
+            if res.get("success"):
+                spent_dice.append(res)
+                log_msg(f"• Tiro {len(spent_dice)}: {res['die']} ({res['roll']}) {cos_str} COS = +{res['healed']} PF (PF: {res['hp_current']}/{res['hp_max']})")
+                update_dialog_ui()
+
+        def roll_all():
+            while self.character.hit_dice_current > 0 and self.character.hp_current < self.character.hp_max:
+                res = self.character.spend_hit_die_single()
+                if res.get("success"):
+                    spent_dice.append(res)
+                    log_msg(f"• Tiro {len(spent_dice)}: {res['die']} ({res['roll']}) {cos_str} COS = +{res['healed']} PF (PF: {res['hp_current']}/{res['hp_max']})")
+            update_dialog_ui()
+
+        def finish_rest():
+            if not hasattr(self.character, "class_resources") or not isinstance(self.character.class_resources, dict):
+                self.character.class_resources = {}
+            self.character.class_resources["second_wind"] = True
+            self.character.class_resources["action_surge"] = True
+            for res in getattr(self.character, "custom_resources", []):
+                if isinstance(res, dict) and res.get("reset_on") == "short":
+                    res["current"] = res.get("max", 0)
+            c_class = str(getattr(self.character, "char_class", "")).strip().lower()
+            if "warlock" in c_class:
+                for lvl, slot in getattr(self.character, "spell_slots", {}).items():
+                    if isinstance(slot, dict) and "current" in slot:
+                        slot["current"] = slot.get("max", 0)
             
-        spend = simpledialog.askinteger("Riposo Breve", f"Quanti dadi spendere? ({hd_cur}/{hd_tot} {hd_type} disponibili)", minvalue=1, maxvalue=hd_cur)
-        if not spend: return
-        
-        healed = self.character.short_rest(spend)
-        self.hp_cur_var.set(self.character.hp_current)
-        self.manager.update_character(self.character)
-        if hasattr(self, "on_save_callback") and self.on_save_callback:
-            try: self.on_save_callback(self.character)
-            except Exception: pass
-        messagebox.showinfo("Riposo Breve", f"Hai speso {spend} Dadi Vita e recuperato {healed} HP! Privilegi di classe ricaricati.")
+            self.manager.update_character(self.character)
+            if hasattr(self, "on_save_callback") and self.on_save_callback:
+                try: self.on_save_callback(self.character)
+                except Exception: pass
+                
+            tot_healed = sum(d.get("healed", 0) for d in spent_dice)
+            if self.roll_callback:
+                chat_msg = f"[RIPOSO BREVE] {self.character.name} conclude il riposo breve. Dadi spesi: {len(spent_dice)}. PF recuperati: +{tot_healed} (PF attuali: {self.character.hp_current}/{self.character.hp_max}, Dadi rimasti: {self.character.hit_dice_current}/{self.character.hit_dice_total})."
+                self.roll_callback("0d0", chat_msg)
+            win.destroy()
+
+        btn_row = tk.Frame(container, bg=BG_COLOR)
+        btn_row.pack(fill=tk.X, pady=(4, 0))
+
+        btn_roll_one = ttk.Button(btn_row, text="🎲 Tira 1 Dado Vita", command=roll_one, style="Gold.TButton")
+        btn_roll_one.pack(side=tk.LEFT, padx=(0, 6))
+
+        btn_roll_all = ttk.Button(btn_row, text="⚡ Spendi Tutti", command=roll_all)
+        btn_roll_all.pack(side=tk.LEFT, padx=(0, 6))
+
+        btn_finish = ttk.Button(btn_row, text="✅ Concludi Riposo", command=finish_rest)
+        btn_finish.pack(side=tk.RIGHT)
+
 
     def long_rest(self):
         if hasattr(self, 'long_rest_callback') and self.long_rest_callback:

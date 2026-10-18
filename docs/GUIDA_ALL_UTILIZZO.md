@@ -171,6 +171,14 @@ Nel tab **`Controlli PG`** della sidebar destra trovi sempre in primo piano la *
 * Mostra Nome, Classe/Razza/Livello, Punti Ferita attuali/massimi (più eventuali PV Temporanei, livello di Indebolimento e Condizioni attive).
 * **Barra della Salute Dinamica**: si riempie proporzionalmente da `0%` a `100%` cambiando colore dal verde (`> 50%`) all'ambra (`25%–50%`) fino al rosso (`< 25%`).
 * Badge rapidi per **🛡️ CA**, **👟 Velocità** (convertita in `ft` o `m`) e **⚡ Iniziativa**.
+* **Pulsante Sorgente di Luce `[ 🕯️ ]` (PHB p. 183)**:
+  * **Click Sinistro**: accende o spegne all'istante la fonte luminosa attiva del personaggio.
+  * **Click Destro**: apre il menu contestuale per scegliere il preset desiderato:
+    * **Torcia**: $20\text{ ft}$ luce intensa, $20\text{ ft}$ luce fioca (raggio 8 esagoni), bagliore ambrato `#FFD700`.
+    * **Lanterna a Cappuccio**: $30\text{ ft}$ luce intensa, $30\text{ ft}$ luce fioca (raggio 12 esagoni), bagliore arancio `#FFA500`.
+    * **Lanterna Schermata (Fascio Ristretto)**: $5\text{ ft}$ luce fioca (raggio 1 esagono), bagliore soffuso `#FF8C00`.
+    * **Incantesimo Luce**: $20\text{ ft}$ luce intensa, $20\text{ ft}$ luce fioca (raggio 8 esagoni), bagliore ciano magico `#66D9E8`.
+  * **Sincronizzazione FoW**: accendere la luce aggiorna in tempo reale la visibilità del token sulla mappa, svelando la Nebbia di Guerra calcolata su $\max(\text{vision\_radius}, \text{light\_radius})$.
 
 Cliccando su **`📋 Scheda PG`** si apre la scheda completa divisa in schede:
 1. **Statistiche & Combattimento**: Punteggi di Caratteristica, Tiri Salvezza, Abilità con selettore di Competenza (`0 = Nessuna`, `1 = Competente +PB`, `2 = Maestria +2×PB`) e pulsante `🎲` per tirare direttamente in chat, Gestione PV rapidi (`-5`, `-1`, `+1`, `+5`), Riposo Breve/Lungo, Dadi Vita e Tiri contro la Morte.
@@ -240,17 +248,25 @@ La sezione **Economia Turno** nel tab `Controlli PG` si adatta automaticamente a
   * Puoi anche cliccare manualmente sui singoli badge per segnarli come usati/disponibili (es. se usi una `🛡️ Reazione` per *Scudo* o un *Attacco di Opportunità*), oppure cliccare su **`↺ Reset`** per ripristinarli.
   * Tutte le risorse si **resettano automaticamente** all'inizio di ogni tuo turno e quando il combattimento inizia o termina.
 
-### Azioni in Combattimento, Incantesimi AoE e Upcasting
+### Azioni in Combattimento, Incantesimi AoE, Copertura e Upcasting
 * **Pulsante `⚔️ Azione`**: apre la finestra Azioni Standard 5e:
-  * **Attacco con Arma / Incantesimo**: scegli il bersaglio, l'arma, eventuale Vantaggio/Svantaggio e invia l'attacco al server.
-  * **Azioni Tattiche 5e**: **Scatto (Dash)** (raddoppia il movimento del turno), **Disimpegno (Disengage)** (evita attacchi di opportunità), **Schivata (Dodge)** (infligge svantaggio agli attaccanti), **Aiuto (Help)** (conferisce vantaggio a un alleato).
+  * **Attacco con Arma / Incantesimo**: scegli il bersaglio, l'arma, eventuale Vantaggio/Svantaggio e il livello di **Copertura Tattica 5e RAW**:
+    * `Copertura Automatica`: raycasting geometrico sulla mappa (`hex_linedraw`) per rilevare muri, coperture e token interposti.
+    * `Nessuna Copertura`: CA normale del bersaglio.
+    * `Mezza Copertura (+2 CA / +2 TS DES)`: bersaglio protetto da un muretto, un albero o un'altra creatura.
+    * `Tre Quarti di Copertura (+5 CA / +5 TS DES)`: bersaglio dietro a una feritoia o grata pesante.
+    * `Copertura Totale`: il bersaglio è completamente celato; l'attacco viene bloccato.
+  * **Azioni Tattiche 5e**: **Scatto (Dash)** (raddoppia il movimento del turno), **Disimpegno (Disengage)** (evita attacchi di opportunità), **Schivata (Dodge)** (infligge svantaggio agli attaccanti e conferisce vantaggio ai propri TS su Destrezza), **Aiuto (Help)** (conferisce vantaggio a un alleato).
 * **Pulsante `[ 💥 ]` (Area d'Effetto)**:
   * Scegli la forma geometrica (**Sfera**, **Cono**, **Linea**), la dimensione in esagoni, il colore e (opzionalmente) il Tiro Salvezza richiesto (es. `DES CD 15` con `8d6` danni da fuoco).
-  * Clicca sulla mappa per posizionare l'area: il server calcola automaticamente tutti i bersagli coinvolti, richiede i Tiri Salvezza e applica i danni (dimezzati in caso di successo).
-* **Lancio Incantesimi & Upcasting (Slot di Livello Superiore)**:
+  * Clicca sulla mappa per posizionare l'area: il server calcola automaticamente tutti i bersagli coinvolti, richiede i Tiri Salvezza (applicando i bonus di Mezza o 3/4 Copertura se specificati) e applica i danni (dimezzati in caso di successo).
+* **Lancio Incantesimi, Upcasting e Concentrazione Rigorosa (PHB p. 201-204)**:
   * Quando clicchi su **`Lancia`** su un incantesimo dal Grimorio, se l'incantesimo è di 1° livello o superiore appare una finestra modale di scelta dello slot.
   * Puoi scegliere di lanciarlo al suo livello base oppure effettuare l'**Upcast** spendendo uno slot di livello più alto disponibile (es. lanciare *Dardo Incantato* di 1° livello con uno slot di 3° livello).
-  * Il sistema deduce automaticamente lo slot selezionato e trasmette in chat l'annuncio specificando sia il livello base sia il livello dell'upcast effettivo.
+  * **Concentrazione Rigorosa**:
+    * Il sistema riconosce automaticamente gli incantesimi a concentrazione (es. *Benedizione*, *Volare*, *Invisibilità*, *Muro di Fuoco*).
+    * Se lanci un incantesimo a concentrazione mentre ne stai già mantenendo un altro, la vecchia concentrazione cade all'istante con un annuncio pubblico in chat, evitando concentrazioni multiple non consentite dalle regole RAW.
+    * Subire danni richiede automaticamente un TS Costituzione ($\text{CD} \ge 10$): in caso di fallimento, l'incantesimo crolla immediatamente.
 * **Pulsante `⏭️ Termina Turno`**: attivo durante il tuo turno di combattimento; passa immediatamente l'iniziativa al combattente successivo.
 
 ### Reazioni RAW e Incantesimo Scudo (*Shield*)
@@ -285,9 +301,14 @@ La sezione **Economia Turno** nel tab `Controlli PG` si adatta automaticamente a
     * **`10–19`**: +1 Successo (a 3 successi diventi `Stabilizzato`).
     * **`2–9`**: +1 Fallimento.
     * **`1 Naturale`**: **+2 Fallimenti** (a 3 fallimenti il personaggio muore).
-* **Riposo Breve e Riposo Lungo**:
-  * **Riposo Breve**: permette di spendere i Dadi Vita disponibili per curarsi ($\text{Dado Vita} + \text{Mod. COS}$) e ricarica le risorse a riposo breve.
-  * **Riposo Lungo**: ripristina tutti i PV, tutti gli Slot Incantesimo, metà dei Dadi Vita totali, azzera i livelli di Indebolimento e ricarica tutte le risorse di classe.
+* **Riposo Breve e Riposo Lungo (RAW PHB p. 186)**:
+  * **Spesa Dadi Vita nel Riposo Breve (`ShortRestDialog`)**:
+    * Cliccando su **`Riposo Breve`** nella Scheda PG si apre la nuova finestra modale interattiva:
+      * Visualizza i PV attuali e massimi con **barra della salute progressiva** e il numero esatto di **Dadi Vita rimanenti** (es. `3 / 5 (d8)`).
+      * **Pulsante `🎲 Spendi 1 Dado Vita`**: tira un singolo dado della classe ($1\text{dY} + \text{Mod. Costituzione}$, con guarigione minima di 1 PV anche con COS negativa), incrementa i PV fino al massimale e aggiorna la cronologia progressiva dei tiri in tempo reale.
+      * **Pulsante `⚡ Spendi Tutti i Dadi Vita`**: spende automaticamente i dadi rimanenti fino al raggiungimento dei PV massimi o all'esaurimento dei dadi.
+      * **Pulsante `✅ Concludi Riposo`**: chiude il dialogo, annuncia pubblicamente in chat il recupero totale e i dadi spesi, e ricarica i privilegi a riposo breve (es. *Secondo Fiato*, *Azione Impetuosa*, e slot da *Patto del Warlock*).
+  * **Riposo Lungo**: ripristina tutti i PV, tutti gli Slot Incantesimo, azzera i livelli di Indebolimento (Exhaustion -1), ricarica tutte le risorse di classe e **recupera fino a metà dei Dadi Vita totali** del personaggio ($\max(1, \lfloor\text{Totale}/2\rfloor)$ come da regole RAW 5e).
 
 ### Inventario, Ingombro, Scambi e Richieste al DM
 * **Sicurezza Online (Approvazione DM)**: mentre sei connesso a una sessione live, i punteggi di caratteristica e i PV massimi sono protetti. Per aggiungere monete o oggetti custom puoi cliccare su **`🤝 Richiedi Valuta al DM`** o aggiungere un oggetto: il DM riceverà un pop-up di approvazione istantanea.
@@ -447,7 +468,15 @@ Nel tab **`Iniziativa & PG`** della sidebar destra del DM:
    * Clicca su **`🎲 Tira Iniziativa Mostri`** per tirare automaticamente l'iniziativa di tutti i PNG/Mostri.
    * Clicca su **`Inizia Combattimento`** per ordinare i partecipanti, attivare l'**Initiative Ribbon HUD** sulla mappa e resettare l'economia del turno.
    * Usa **`Prossimo Turno ⏩`** e **`⏪ Turno Precedente`** per far avanzare i turni e i round.
-4. **Azioni e Resistenze Leggendarie**: per i Boss dotati di punti leggendari, il DM dispone di controlli dedicati per spendere Azioni Leggendarie o Resistenze Leggendarie con ricarica automatica all'inizio del round.
+4. **Azioni Leggendarie & Azioni di Tana per Boss (MM p. 11)**:
+   * **Azioni Leggendarie**:
+     * I Boss leggendari possono compiere fino a 3 Azioni Leggendarie per round, spendibili solo al termine del turno di un'altra creatura.
+     * Quando un altro personaggio conclude il proprio turno, il sistema invia un **promemoria nel log del DM** segnalando quante azioni leggendarie il boss ha ancora a disposizione.
+     * Il DM può spendere le azioni selezionando il costo (1, 2 o 3) e l'abilità (es. *Colpo d'Ala*, *Attacco con Coda*, *Sguardo Terrorizzante*).
+     * All'inizio del turno del Boss, il contatore delle azioni leggendarie viene **automaticamente ripristinato al valore massimo**.
+   * **Azioni di Tana (Iniziativa 20)**:
+     * Per le creature con tana attiva (`has_lair_actions = True`), all'inizio di ogni round a **Iniziativa 20** il sistema annuncia l'Azione di Tana sia in chat che nel log DM, consentendo al Master di attivare gli effetti ambientali della tana.
+   * **Resistenze Leggendarie (3/giorno)**: quando il boss fallisce un Tiro Salvezza, il DM può convertirlo all'istante in successo.
 
 ### Bestiario SRD, Manuali PDF Offline e Generatori Procedurali
 * **Tab `Bestiario` e `Strumenti -> Compendio & SRD`**: cerca mostri dal database SRD 5e o dai manuali PDF indicizzati e clicca su **Spawna sulla Mappa** per schierarli subito con statistiche, CA, PV e azioni complete.
@@ -455,7 +484,7 @@ Nel tab **`Iniziativa & PG`** della sidebar destra del DM:
 * **Generatore di Bottino 5e (`Strumenti -> 💰 Generatore di Bottino`)**: genera tesori casuali bilanciati per Grado di Sfida (CR 0–4, 5–10, 11–16, 17+) e distribuisci oro al party con 1 click.
 * **Generatore Rapido PNG (`Strumenti -> 🎭 Generatore Rapido PNG`)**: crea all'istante PNG con nome, razza, tratto caratteriale, segreto, statistiche e pulsante per schierarli sulla mappa.
 
-### Mondo, Calendario, Meteo, Viaggio, Negozi e Quest
+### Mondo, Calendario, Meteo, Viaggio, Negozi e Registro Missioni (Quest Log)
 * **Tab `Mondo` e `Strumenti -> Pannello Viaggio`**:
   * Gestisci il **Calendario di Harptos (Forgotten Realms)** o standard, l'ora del giorno (con filtro luce diurno, alba, tramonto e notturno) e il **Meteo dinamico** con 6 condizioni ambientali animate:
     * **☀️ Sereno**: visuale limpida standard.
@@ -470,10 +499,15 @@ Nel tab **`Iniziativa & PG`** della sidebar destra del DM:
     * **Sfera di Oscurità Magica**: click destro su un esagono $\rightarrow$ **`🌑 Piazza Sfera di Oscurità Magica (R=3)`** per creare una zona di oscurità magica impenetrabile alla normale Scurovisione (richiede *Vista del Diavolo*).
     * **Regole di Combattimento 5e (Unseen Attackers)**: chi attacca dalle tenebre vedendo il bersaglio ha **Vantaggio**; chi non vede il bersaglio ha **Svantaggio**; nell'oscurità totale reciproca i due effetti si annullano.
   * Gestisci l'**Ordine di Marcia** del party (Avanguardia, Centro, Retroguardia), i ruoli di viaggio (Esploratore, Navigatore, Foraggiatore), il consumo di razioni/acqua e i Tiri Salvezza su Costituzione per la **Marcia Forzata**.
-  * Apri e trasmetti ai giocatori i **Negozi dei Mercanti** (`shop_ui.py`) e il **Registro delle Missioni (Quest Log)** (`quest_ui.py`).
+  * Apri e trasmetti ai giocatori i **Negozi dei Mercanti** (`shop_ui.py`).
+  * **Registro delle Missioni Condiviso (Quest Log)**: accessibile da `Libreria -> 📜 Registro Missioni (Quest Log)` o dal menu DM:
+    * Traccia tutte le quest principali e secondarie con titolo, descrizione narrativa, committente e ricompense in monete o oggetti.
+    * Ogni operazione di aggiunta, completamento (`[✅ Completa]`) o cancellazione viene sincronizzata istantaneamente in broadcast a tutti i client connessi con relativo annuncio in chat.
 
-### Handout (Documenti/Immagini) e Soundboard Audio
-* **Condividi Immagine / Documento (`Strumenti -> Condividi Immagine / Condividi Documento testuale`)**: mostra istantaneamente sullo schermo di tutti i giocatori un'illustrazione (ritratto di un PNG, mappa antica) o una pergamena leggibile.
+### Documenti Condivisi (Handout) e Soundboard Audio
+* **Condivisione Documenti & Handout (`Strumenti -> Condividi Documento testuale / Condividi Immagine`)**:
+  * Mostra istantaneamente sullo schermo di tutti i giocatori un'illustrazione (mappa del tesoro, ritratto, lettera sigillata) o una pergamena narrativa.
+  * I client ricevono il pacchetto di broadcast ed aprono automaticamente la finestra del visualizzatore pergamena in stile pergamena medievale.
 * **Tab `Audio / SFX`**: riproduci musica d'ambiente (Taverna, Combattimento, Dungeon) ed effetti sonori sincronizzati su tutti i client connessi.
 
 ### Lavagna Tattica Condivisa (Whiteboard) ed Esportazione Session Log

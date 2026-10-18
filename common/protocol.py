@@ -180,17 +180,21 @@ def make_dice_roll_result(player_name, formula, reason, result):
         "result": result
     }}
 
-def make_update_stats_request(hp, max_hp, initiative, conditions=None, temp_hp=0):
+def make_update_stats_request(hp, max_hp, initiative, conditions=None, temp_hp=0, light_radius=None, light_color=None, name=None):
     if conditions is None: conditions = []
-    return {"type": "UPDATE_STATS_REQUEST", "data": {
-        "hp": hp, "max_hp": max_hp, "initiative": initiative, "conditions": conditions, "temp_hp": temp_hp
-    }}
+    d = {"hp": hp, "max_hp": max_hp, "initiative": initiative, "conditions": conditions, "temp_hp": temp_hp}
+    if light_radius is not None: d["light_radius"] = light_radius
+    if light_color is not None: d["light_color"] = light_color
+    if name is not None: d["name"] = name
+    return {"type": "UPDATE_STATS_REQUEST", "data": d}
 
-def make_player_stats_update(player_name, hp, max_hp, initiative, conditions=None, temp_hp=0):
+def make_player_stats_update(player_name, hp, max_hp, initiative, conditions=None, temp_hp=0, light_radius=None, light_color=None):
     if conditions is None: conditions = []
-    return {"type": "PLAYER_STATS_UPDATE", "data": {
-        "name": player_name, "hp": hp, "max_hp": max_hp, "initiative": initiative, "conditions": conditions, "temp_hp": temp_hp
-    }}
+    d = {"name": player_name, "hp": hp, "max_hp": max_hp, "initiative": initiative, "conditions": conditions, "temp_hp": temp_hp}
+    if light_radius is not None: d["light_radius"] = light_radius
+    if light_color is not None: d["light_color"] = light_color
+    return {"type": "PLAYER_STATS_UPDATE", "data": d}
+
 
 def make_update_full_sheet_request(character_data):
     return {"type": "UPDATE_FULL_SHEET_REQUEST", "data": {"character": character_data}}
@@ -240,12 +244,13 @@ def make_request_initiative():
 def make_submit_initiative(initiative_total):
     return {"type": "SUBMIT_INITIATIVE", "data": {"initiative": initiative_total}}
 
-def make_attack_request(target_name, weapon_name, hit_bonus, damage_formula, damage_type="Tagliente"):
+def make_attack_request(target_name, weapon_name, hit_bonus, damage_formula, damage_type="Tagliente", cover="auto"):
     return {"type": "ATTACK_REQUEST", "data": {
         "target_name": target_name, "weapon_name": weapon_name,
         "hit_bonus": hit_bonus, "damage_formula": damage_formula,
-        "damage_type": damage_type
+        "damage_type": damage_type, "cover": cover
     }}
+
 
 def make_force_save_request(targets, stat, dc, damage_formula, half_on_success, damage_type="Fuoco"):
     return {"type": "FORCE_SAVE_REQUEST", "data": {
@@ -390,4 +395,27 @@ def make_apply_pending_damage_request(pending_id: str, action: str = "apply", cu
 
 def make_resolve_pending_door_request(pending_id: str, outcome: str = "open"):
     return {"type": "RESOLVE_PENDING_DOOR_REQUEST", "data": {"pending_id": pending_id, "outcome": outcome}}
+
+# --- Registro Missioni (Quest Log) & Documenti Condivisi (Handouts) ---
+def make_quest_list_update(quests: list):
+    return {"type": "QUEST_LIST_UPDATE", "data": {"quests": quests}}
+
+def make_quest_action_request(action: str, quest_data: dict):
+    return {"type": "QUEST_ACTION_REQUEST", "data": {"action": action, "quest": quest_data}}
+
+def make_handout_share_broadcast(title: str, content: str, image_path: str = "", sender: str = "Dungeon Master"):
+    return {"type": "HANDOUT_SHARE_BROADCAST", "data": {
+        "title": title,
+        "content": content,
+        "image_path": image_path,
+        "sender": sender
+    }}
+
+def make_legendary_action_request(boss_name: str, action_name: str = "Azione Leggendaria", cost: int = 1):
+    return {"type": "LEGENDARY_ACTION_REQUEST", "data": {
+        "boss_name": boss_name,
+        "action_name": action_name,
+        "cost": cost
+    }}
+
 

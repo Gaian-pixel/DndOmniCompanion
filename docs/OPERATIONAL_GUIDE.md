@@ -414,25 +414,37 @@ The combat engine calculates advantage and disadvantage dynamically based on tok
   * Automatic validation of 5e RAW conditions (finesse or ranged weapon, advantage on attack OR conscious adjacent ally within 1 hex without disadvantage, 1/turn limit).
   * Automatically rolls level-scaled bonus damage dice ($1d6$ to $10d6$) and integrates them into the damage payload.
 
-### Dynamic Cover System
-* If another creature or obstacle lies directly on the hex ray between the attacker and target, the target gains **Mezza Copertura (+2 CA)** automatically.
+### Tactical 5e RAW Cover System (PHB p. 196)
+The combat engine supports both automated raycast cover calculation and explicit manual overrides selected by players or the DM:
+* **Automatic Cover**: Traces the hex ray (`hex_linedraw`) between attacker and target to detect walls, half-cover obstacles, and interposing creatures.
+* **Half Cover (`half`)**: $+2$ bonus to target AC and $+2$ to Dexterity saving throws.
+* **Three-Quarters Cover (`three_quarters`)**: $+5$ bonus to target AC and $+5$ to Dexterity saving throws.
+* **Total Cover (`total`)**: Target cannot be targeted directly; attacks are completely blocked.
+
+### Strict Concentration & Spell Upcasting (PHB p. 201-204)
+* **Single Concentration Enforcement**: The Spellbook automatically detects if a newly cast spell requires concentration. If the character is already concentrating, the existing concentration is automatically broken and announced in chat, preventing illegal simultaneous concentrations.
+* **Damage Concentration Saves**: Taking damage while concentrating automatically triggers a Constitution saving throw ($\text{DC} = \max(10, \lfloor\text{Damage} / 2\rfloor)$). On failure, `Concentrazione` is removed and linked persistent AoE zones are cleared from the map.
+* **Spell Upcasting**: The client allows selecting higher-level spell slots to scale spell power according to 5e rules.
+
+### Boss Legendary Actions & Lair Actions (MM p. 11)
+* **Legendary Actions**: Up to 3 actions per round spendable only at the end of another creature's turn. The server logs reminders for the DM whenever another turn concludes if the boss holds available charges, and refreshes charges at the start of the boss's turn.
+* **Lair Actions (Initiative 20)**: Entities with `has_lair_actions = True` trigger an automated broadcast alert and DM log notice at Initiative count 20 (top of each combat round).
+
+### Shared Quest Log & Document Handouts
+* **Synchronized Quest Log**: Managed via `QUEST_ACTION_REQUEST` (actions: `add`, `complete`, `delete`) and broadcast `QUEST_LIST_UPDATE`. Quests, objectives, and rewards remain synchronized across all connected clients.
+* **Parchment Handouts**: The DM can broadcast story documents and illustrations via `HANDOUT_SHARE_REQUEST` with global `HANDOUT_SHARE_BROADCAST`, opening a medieval parchment viewer dialog on all clients.
 
 ### Opportunity Attacks
 * When a token moves out of an adjacent enemy's melee reach (1 hex) without having used the **Disengage** action, the server detects an opportunity attack opening and alerts the DM/attacker.
-
-### Concentration Checks
-* When a creature with the `Concentrazione` condition takes damage, the server automatically prompts a Constitution Saving Throw:
-  $$\text{DC} = \max(10, \lfloor\text{Damage} / 2\rfloor)$$
-* On failure, `Concentrazione` is automatically removed and announced in chat.
 
 ### Damage Absorption, Resistances & Rage
 * **Temporary Hit Points (Temp HP)**: Absorbs damage first before real HP is decreased.
 * **Damage Types & Resistances**: Damage reduction (half) or immunity (zero) is automatically calculated if resistance or immunity tags match the damage type.
 * **Barbarian Rage**: Resistance to bludgeoning, piercing, and slashing damage is applied when in Rage.
 
-### Resting & Hit Dice
-* **Short Rest**: Spend available Hit Dice to regain HP ($\text{Die Roll} + \text{CON mod}$ per die); resets short-rest class features (e.g., Action Surge, Ki points, Warlock slots).
-* **Long Rest**: Restores full HP, regains half of total Hit Dice, clears 1 level of exhaustion, and restores all spell slots.
+### Interactive Short Rest & Hit Dice Regain (PHB p. 186)
+* **Single Hit Die Spending (`ShortRestDialog`)**: Allows players to spend one Hit Die at a time ($1\text{dY} + \text{CON mod}$, minimum 1 healed) with a real-time health progress bar, or spend all remaining dice.
+* **Long Rest**: Fully restores HP, all spell slots, reduces exhaustion by 1, and regains up to half of the character's total Hit Dice ($\max(1, \lfloor\text{Total}/2\rfloor)$ as per official 5e RAW).
 
 ---
 

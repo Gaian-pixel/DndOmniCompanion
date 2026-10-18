@@ -410,9 +410,29 @@ Il motore di combattimento calcola dinamicamente vantaggio e svantaggio in base 
 * **Tipi di Danno e Resistenze**: Dimezzamento (resistenza) o azzeramento (immunità) calcolati automaticamente.
 * **Ira Barbarica**: Applica resistenza ai danni contundenti, perforanti e taglienti quando l'Ira è attiva.
 
-### Riposi e Dadi Vita
-* **Riposo Breve**: Spendi Dadi Vita per recuperare PV ($\text{Tiro Dado} + \text{mod COS}$ per dado) e ricarica le risorse a riposo breve.
-* **Riposo Lungo**: Ripristina tutti i PV, recupera metà dei Dadi Vita totali, riduce di 1 livello l'indebolimento e ripristina tutti gli slot incantesimo.
+### Copertura Tattica 5e RAW (PHB p. 196)
+Il motore di combattimento supporta sia la determinazione geometrica automatica sia l'override esplicito della copertura scelta da attaccante o DM:
+* **Copertura Automatica**: Traccia la linea di vista (`hex_linedraw`) tra attaccante e difensore calcolando muri, ostacoli di mezza copertura e creature interposte.
+* **Mezza Copertura (`half`)**: $+2$ alla CA del bersaglio e $+2$ ai suoi Tiri Salvezza su Destrezza.
+* **Tre Quarti di Copertura (`three_quarters`)**: $+5$ alla CA del bersaglio e $+5$ ai suoi Tiri Salvezza su Destrezza.
+* **Copertura Totale (`total`)**: Il bersaglio non può essere preso di mira direttamente da attacchi o incantesimi; l'attacco viene completamente bloccato.
+
+### Concentrazione Rigorosa e Spell Upcasting (PHB p. 201-204)
+* **Concentrazione Unica**: Il Grimorio rileva se la magia da lanciare richiede concentrazione. Se il personaggio ha già lo status `"Concentrazione"`, la concentrazione precedente viene automaticamente interrotta e notificata in chat con broadcast a tutti i client, impedendo concentrazioni multiple illegali.
+* **Tiri Salvezza su Concentrazione**: Subire danni mentre si è concentrati attiva automaticamente un Tiro Salvezza su Costituzione con $\text{CD} = \max(10, \lfloor\text{Danni}/2\rfloor)$. In caso di fallimento, la concentrazione cade e le AoE persistenti collegate vengono rimosse dalla mappa.
+* **Spell Upcasting**: Il client consente di selezionare uno slot di livello $\ge$ a quello base della magia, deducendo la risorsa scelta e notificando il livello effettivo in chat.
+
+### Azioni Leggendarie e Azioni di Tana per Boss (MM p. 11)
+* **Azioni Leggendarie**: Fino a 3 azioni spendibili per round solo al termine del turno di un'altra creatura. Il server invia un promemoria al DM ad ogni fine turno altrui se il boss ha cariche disponibili, e le ripristina all'inizio del turno del boss.
+* **Azioni di Tana (Iniziativa 20)**: Le creature con flag `has_lair_actions = True` innescano un avviso broadcast e un promemoria per il DM all'Iniziativa 20 (inizio del round).
+
+### Registro Missioni (Quest Log) e Documenti Condivisi (Handouts)
+* **Quest Log Sincronizzato**: Gestito tramite pacchetti `QUEST_ACTION_REQUEST` (azioni: `add`, `complete`, `delete`) e broadcast `QUEST_LIST_UPDATE`. Lo stato delle missioni e le ricompense sono sempre sincronizzati tra tutti i client connessi.
+* **Handout su Pergamena**: Il DM può trasmettere pergamene di testo e illustrazioni tramite `HANDOUT_SHARE_REQUEST` con broadcast globale `HANDOUT_SHARE_BROADCAST`, aprendo istantaneamente il visualizzatore pergamena su tutti i client.
+
+### Riposo Breve Interattivo e Dadi Vita (PHB p. 186)
+* **Spesa Dadi Vita Singoli (`ShortRestDialog`)**: Permette al giocatore di spendere un singolo dado alla volta ($1\text{dY} + \text{Mod COS}$, min 1 recuperato) visualizzando in tempo reale la barra della salute, oppure spendere tutti i dadi residui.
+* **Riposo Lungo**: Ripristina tutti i PV, tutti gli Slot Incantesimo, riduce di 1 livello l'indebolimento e recupera fino a metà dei Dadi Vita totali ($\max(1, \lfloor\text{Totale}/2\rfloor)$ come da regole RAW 5e).
 
 ---
 

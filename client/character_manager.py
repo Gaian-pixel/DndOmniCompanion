@@ -51,7 +51,51 @@ CONTAINERS = {
     }
 }
 
+LIGHT_PRESETS = {
+    "torch": {
+        "id": "torch",
+        "icon": "🕯️",
+        "name_it": "Torcia",
+        "name_en": "Torch",
+        "bright_radius": 4,  # 20 ft / 6 m
+        "dim_radius": 4,     # 20 ft / 6 m
+        "total_radius": 8,   # 40 ft / 12 m
+        "color": "#FFD700"
+    },
+    "hooded_lantern": {
+        "id": "hooded_lantern",
+        "icon": "🏮",
+        "name_it": "Lanterna a Cappuccio",
+        "name_en": "Hooded Lantern",
+        "bright_radius": 6,  # 30 ft / 9 m
+        "dim_radius": 6,     # 30 ft / 9 m
+        "total_radius": 12,  # 60 ft / 18 m
+        "color": "#FFA500"
+    },
+    "dim_hooded": {
+        "id": "dim_hooded",
+        "icon": "🌑",
+        "name_it": "Lanterna Schermata (Luce Fioca 1.5m)",
+        "name_en": "Hooded Lantern (Dim 5 ft)",
+        "bright_radius": 0,
+        "dim_radius": 1,     # 5 ft / 1.5 m
+        "total_radius": 1,
+        "color": "#FF8C00"
+    },
+    "light_spell": {
+        "id": "light_spell",
+        "icon": "✨",
+        "name_it": "Incantesimo Luce",
+        "name_en": "Light Spell",
+        "bright_radius": 4,  # 20 ft / 6 m
+        "dim_radius": 4,     # 20 ft / 6 m
+        "total_radius": 8,   # 40 ft / 12 m
+        "color": "#66D9E8"
+    }
+}
+
 class Character:
+
     def __init__(self, name="Nuovo Personaggio", campaign="Nessuna Campagna"):
         self.id = os.urandom(4).hex() # Unique ID
         self.name = name
@@ -97,6 +141,7 @@ class Character:
         self.hotbar = [""] * 10
         self.last_position = None
         self.backpack_dropped = False
+        self.active_light = None
         
         # Testo libero / Griglia
         self.inventory_grid = [None] * 25 # Griglia 5x5
@@ -482,6 +527,64 @@ class Character:
         self.backpack_dropped = not getattr(self, "backpack_dropped", False)
         return self.backpack_dropped
 
+    def toggle_light(self, preset_key: str = "torch") -> tuple[bool, str, dict]:
+        """
+        Attiva o spegne la sorgente di luce portatile (Torcia, Lanterna, Incantesimo Luce).
+        Restituisce (is_active, stato_testo, preset_dict).
+        """
+        if getattr(self, "active_light", None):
+            old = self.active_light
+            self.active_light = None
+            return False, "spenta", old
+        preset = LIGHT_PRESETS.get(preset_key, LIGHT_PRESETS["torch"])
+        self.active_light = preset.copy()
+        return True, "accesa", self.active_light
+
+    def get_light_specs(self) -> tuple[int, str]:
+        """Restituisce (raggio_totale_esagoni, colore_esadecimale)."""
+        if not getattr(self, "active_light", None):
+            return 0, "#FFD700"
+        return self.active_light.get("total_radius", 0), self.active_light.get("color", "#FFD700")
+
+    def spend_hit_die_single(self) -> dict:
+        """
+        Spende 1 singolo Dado Vita D&D 5e (1dY + Mod COS) secondo le regole RAW del Riposo Breve (PHB p. 186).
+        Restituisce il dettaglio del tiro, cura gli HP e aggiorna il conteggio rimanente.
+        """
+        if getattr(self, "hit_dice_current", 0) <= 0:
+            return {"success": False, "reason": "Nessun Dado Vita rimasto"}
+            
+        self.hit_dice_current -= 1
+        cos_val = self.attributes.get("COS", 10)
+        try:
+            cos_mod = (int(cos_val) - 10) // 2
+        except (ValueError, TypeError):
+            cos_mod = 0
+            
+        die_str = str(getattr(self, "hit_dice_type", "d8")).lower().replace("d", "")
+        sides = int(die_str) if die_str.isdigit() else 8
+        
+        import random
+        roll = random.randint(1, sides)
+        healed = max(1, roll + cos_mod)
+        old_hp = self.hp_current
+        self.hp_current = min(self.hp_max, self.hp_current + healed)
+        actual_gain = self.hp_current - old_hp
+        
+        return {
+            "success": True,
+            "die": f"1d{sides}",
+            "roll": roll,
+            "con_mod": cos_mod,
+            "healed": healed,
+            "actual_gain": actual_gain,
+            "hp_current": self.hp_current,
+            "hp_max": self.hp_max,
+            "hit_dice_left": self.hit_dice_current,
+            "hit_dice_total": self.hit_dice_total
+        }
+
+
     def to_dict(self):
         return self.__dict__
     
@@ -568,6 +671,9 @@ class Character:
             c.marching_order = "Centro"
         if not hasattr(c, "backpack_dropped"):
             c.backpack_dropped = bool(data.get("backpack_dropped", False))
+        if not hasattr(c, "active_light"):
+            c.active_light = data.get("active_light", None)
+
         if "speed_unit" not in data or data.get("speed_unit") not in ("ft", "m"):
             try:
                 c.speed_unit = "m" if float(getattr(c, "speed", 30)) <= 18 else "ft"

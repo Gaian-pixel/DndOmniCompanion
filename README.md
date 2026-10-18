@@ -48,10 +48,13 @@
   * Live dynamic torchlight and lantern glow (`light_radius > 0`) that cuts through the darkness with a warm golden radius.
   * 1-click DM Darkness toggle `[ 🌑 ]` and chat shortcuts (`/darkness`, `/weather Darkness`).
 * **Shared Tactical Whiteboard (`[ ✏️ ]` / `[ 🧹 ]`)**: Freehand sketching on the live map canvas broadcast to all players in real time with instant clearing.
-* **Dynamic Lighting & Auras**: Live light halos (torches, lanterns) and magical aura rings.
+* **Dynamic Light Sources & Portable Illumination (PHB p. 183)**:
+  * **Quick HUD Toggle `[ 🕯️ ]`**: Located in the Hero Summary Card to toggle light sources on/off with 1 click.
+  * **Official D&D 5e Presets**: Right-click context menu with **Torch** ($20\text{ ft}$ bright / $20\text{ ft}$ dim, 8-hex radius, warm amber glow), **Hooded Lantern** ($30\text{ ft} / 30\text{ ft}$, 12-hex radius), **Hooded Lantern (Dim)** (narrow 5 ft beam, 1-hex radius), and **Light Spell** ($20\text{ ft} / 20\text{ ft}$, 8-hex radius with cyan aura).
+  * **Dynamic FoW Sync**: Turning lights on instantly unveils Fog of War based on $\max(\text{vision\_radius}, \text{light\_radius})$.
 * **AoE Spells & Templates (`[ 💥 ]`)**: Spheres, Cones ($60^\circ / 90^\circ$), Lines, and Magical Darkness Spheres with geometric grid previews and 1-click casting.
 * **Animated Map Ping**: Middle-click (or `[ 📍 ]` tool) to drop an animated broadcast marker for all connected players.
-* **Token Condition Badges**: Visual status indicators rendered directly on tokens (`💀` Dead, `💤` Unconscious, `🔻` Prono, `⚡` Paralyzed/Concentration, `🛡️` Dodge, `🤝` Help, `🤢` Poisoned, `👁️` Blinded, etc.).
+* **Token Condition Badges**: High-contrast visual status badges rendered directly on map tokens covering all 5e conditions (`💀` Dead, `💤` Unconscious, `🧎` Prone, `🧠` Concentrating, `🛡️` Dodge, `🤝` Help, `🟢` Poisoned, `🙈` Blinded, `⚡` Paralyzed, `🕸️` Restrained, `⛓️` Grappled, `👻` Invisible, `😱` Frightened, `💫` Stunned, `🩹` Stabilized, `🔇` Deafened, `💖` Charmed, `🗿` Petrified, `🔥` Rage).
 
 ### ⚔️ D&D 5e Combat Engine & Context-Aware Turn Economy
 * **Context-Aware Turn Economy (Exploration vs. Combat)**:
@@ -60,21 +63,38 @@
 * **Critical Successes (`🌟 Natural 20`) & Critical Failures (`💀 Natural 1`)**:
   * **Attack Rolls**: `Natural 20` is an automatic hit that automatically doubles all damage dice; `Natural 1` is an automatic miss.
   * **Saving Throws, Ability/Skill Checks & `1d20` Rolls**: Gold/crimson chat banners and broadcast Toast notifications (`CRITICAL_ROLL_BROADCAST`) across all connected clients.
-* **Dynamic Advantage, Disadvantage & Cover**: Automatically computed from conditions (Invisible, Prone in melee vs. ranged, Blinded, Paralyzed, Dodge, Help) and intervening obstacles (+2 AC for Half Cover).
+* **Tactical 5e RAW Cover System (PHB p. 196)**:
+  * **Quick Selector in Attack & Save Dialogs**: Choose explicit cover for targeted entities:
+    * `Automatic Cover`: Geometric LoS raycasting (`hex_linedraw`) detecting intervening walls, half cover obstacles, and other creatures.
+    * `No Cover`: Standard AC.
+    * `Half Cover`: $+2$ to target AC and $+2$ to Dexterity saving throws.
+    * `Three-Quarters Cover`: $+5$ to target AC and $+5$ to Dexterity saving throws.
+    * `Total Cover`: Target cannot be targeted directly; attacks are completely blocked.
 * **Environmental Combat Modifiers (Weather & Difficult Terrain)**:
   * **Weather (DMG p. 109-110)**: Violent storms and dense fog impose Disadvantage on ranged attacks (> 1 hex); torrential rain and blizzards impose Disadvantage on long-range attacks.
   * **Difficult Terrain**: Attacking from unstable footing (Ice, Rubble, Swamp, Mud) imposes Disadvantage; striking targets entangled in Briars or trapped in Mud grants **Advantage**.
   * **Darkness & Darkvision Rules (PHB p. 194-195)**: Attacking from darkness with Darkvision (or attacking a torch-bearing enemy) grants **Advantage** (*Unseen Attacker*); attacking an unseen target imposes **Disadvantage**; mutual darkness cancels out both to a normal roll.
 * **Automated Opportunity Attacks**: Detects when a combatant leaves hostile melee reach without having taken the *Disengage* action.
-* **Automated Concentration Checks**: Taking damage while concentrating automatically prompts a Constitution saving throw ($\text{DC} = \max(10, \lfloor\text{Damage}/2\rfloor)$).
+* **Strict Concentration & Upcasting (PHB p. 201-204)**:
+  * Casting a new concentration spell from the Spellbook automatically drops and broadcasts the termination of any existing concentration.
+  * Taking damage while concentrating automatically triggers a Constitution saving throw ($\text{DC} = \max(10, \lfloor\text{Damage}/2\rfloor)$); failure breaks concentration and cleans up linked persistent AoE zones.
+  * **Upcasting**: Select higher-level spell slots to empower spells according to 5e scaling rules.
 * **Death Saves & Instant Death**: Complete 0 HP handling (`Natural 20` = revive at 1 HP, `Natural 1` = 2 failures, 3 successes = Stabilized, 3 failures or excess damage $\ge \text{Max HP}$ = Instant Death).
-* **Boss Mechanics**: Legendary Actions and Legendary Resistances with automatic round resets.
+* **Boss Mechanics RAW (MM p. 11)**:
+  * **Legendary Actions**: Up to 3 actions per round spendable at the end of another creature's turn, automatic DM reminders, and full pool reset at the start of the boss's turn.
+  * **Lair Actions (Initiative 20)**: Automatic round notification and DM prompt at Initiative count 20 for bosses with an active lair.
+  * **Legendary Resistances**: Up to 3/day to turn a failed save into a success.
 
 ### 🧙‍♂️ Character Creation, Sheet & Progression
 * **Baldur's Gate Styled Wizard**: Guided Level 1 creation and Level-Up wizard with automatic SRD 5e class features, Hit Dice, and spell slot progression.
+* **Short Rest Hit Dice Spending (RAW PHB p. 186)**:
+  * Interactive modal `ShortRestDialog` featuring current/max HP, progress health bar, and remaining Hit Dice count.
+  * Single-click button to **spend 1 Hit Die at a time** ($1\text{dY} + \text{CON Mod}$, min 1 healed), instantly updating sheet and chat log.
+  * "Spend All" button to spend all available dice or finish rest.
+  * Long Rest automatically restores full HP and regains half of the character's total Hit Dice ($\max(1, \lfloor\text{Total}/2\rfloor)$).
 * **Special Class Resources System**: Automatic population and tracking of Ki Points, Rage, Bardic Inspiration, Wild Shape, Channel Divinity, Action Surge, Second Wind, Sorcery Points, etc., with automated Short/Long Rest recovery.
 * **Hero Summary Card & Interactive Character Sheet**:
-  * Always-visible sidebar summary card with responsive HP bar, AC, effective Speed (`ft` or `m`), Initiative, and quick `[ 🎒 ]` button to drop backpack.
+  * Always-visible sidebar summary card with responsive HP bar, AC, effective Speed (`ft` or `m`), Initiative, light toggle `[ 🕯️ ]`, and quick `[ 🎒 ]` button to drop backpack.
   * Full tabbed sheet: **Combat**, **Stats & Skills** (with Proficiency & Expertise $2\times\text{PB}$), **Weapons & Attacks**, **Inventory & Encumbrance** ($\text{STR} \times 15\text{ lbs}$), **Spellbook & Spell Slots (1–9)** with **Spell Upcasting** modal, **Features & Journal**.
 * **5e Backpacks, Containers & Variant Encumbrance (RAW PHB p. 143, 176, 190)**:
   * **Per-Item Location / Compartment**: Assign items to `🎒 Backpack`, `⚔️ Equipped / On Person`, `🔮 Bag of Holding` (500 lbs capacity, internal weight does not burden character), `✨ Heward's Handy Haversack` (120 lbs capacity, 5 lbs bag weight), or `🐴 Saddlebag / Mount`.
@@ -88,9 +108,12 @@
 * **Live DMG p. 82 Encounter Balancer**: Real-time evaluation of encounter difficulty (**Trivial**, **Easy**, **Medium**, **Hard**, **Deadly**) with monster count XP multipliers.
 * **Campaigns, Scenes & Starter Pack Manager**: Prepare acts, scenes linked to maps/monsters for 1-click deployment, and configure starting equipment automatically granted to new PCs.
 * **Session Log / Chronicle Export**: Export complete session logs (rolls, tactical actions, chat, whispers) to Markdown (`.md`) or HTML from `File -> Export Session Log`.
-* **Procedural Generators & Handouts**: 5e Loot Generator, Quick NPC Generator, and parchment document/image handouts.
+* **Shared Quest Log & Document Handouts**:
+  * Quest tracking (`Library ➔ Quest Log`) synchronized across all players with objective descriptions, quest givers, rewards, and completion status.
+  * Parchment handouts and illustrations broadcast directly to all connected players with a parchment viewer dialog.
+* **Procedural Generators**: 5e Loot Generator and Quick NPC Generator.
 * **Offline PDF Rulebooks & Command Palette (`Ctrl+K`)**: Instant search across indexed official 5e PDF rulebooks, rules, monsters, spells, and map tokens.
-* **Overland Travel, Calendar, Weather, Shops & Quests**: Marching order, travel roles, rations/water, forced march saves, interactive fantasy calendar, merchant shops, and quest logs.
+* **Overland Travel, Calendar, Weather & Shops**: Marching order, travel roles, rations/water, forced march saves, interactive fantasy calendar, and merchant shops.
 * **Soundboard & Integrated UDP Voice Chat**: Low-latency voice streaming with Mute/Deafen controls (`[ 🎤 ]` / `[ 🎧 ]`) and synchronized audio soundboard.
 
 ### 🎲 Campaign Management Styles: DM Agency vs Automation (5e RAW)

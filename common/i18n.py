@@ -838,8 +838,27 @@ STRINGS = {
         "export_log_title": "Diario di Sessione D&D",
         "export_log_saved": "Diario di sessione esportato con successo in:\n{path}",
         "export_log_empty": "La cronologia della chat è vuota, nessun messaggio da esportare.",
+        # --- Nuove Feature 5e RAW (Luce, Copertura, Dadi Vita e Missioni) ---
+        "light_torch": "Torcia",
+        "light_hooded_lantern": "Lanterna a Cappuccio",
+        "light_dim_hooded": "Lanterna Schermata (Luce Fioca)",
+        "light_spell": "Incantesimo Luce",
+        "btn_toggle_light": "Accendi/Spegni Luce",
+        "cover_none": "Nessuna Copertura (0 CA)",
+        "cover_half": "Mezza Copertura (+2 CA, +2 TS DES)",
+        "cover_three_quarters": "Tre Quarti di Copertura (+5 CA, +5 TS DES)",
+        "cover_total": "Copertura Totale (Bloccato)",
+        "short_rest_title": "Riposo Breve (D&D 5e)",
+        "short_rest_roll_die": "Tira 1 Dado Vita",
+        "short_rest_spend_all": "Spendi Tutti i Dadi",
+        "short_rest_finish": "Concludi Riposo",
+        "quest_log_title": "Registro Missioni & Obiettivi",
+        "quest_status_in_progress": "In Corso",
+        "quest_status_completed": "Completata",
+        "quest_status_failed": "Fallita",
     },
     "en": {
+
         # --- Common ---
         "app_title": "D&D OmniCompanion",
         "ok": "OK",
@@ -1522,8 +1541,27 @@ STRINGS = {
         "export_log_title": "D&D Session Journal",
         "export_log_saved": "Session journal successfully exported to:\n{path}",
         "export_log_empty": "Chat history is empty, no messages to export.",
+        # --- New 5e RAW Features (Light, Cover, Hit Dice, and Quests) ---
+        "light_torch": "Torch",
+        "light_hooded_lantern": "Hooded Lantern",
+        "light_dim_hooded": "Hooded Lantern (Dim)",
+        "light_spell": "Light Spell",
+        "btn_toggle_light": "Toggle Light Source",
+        "cover_none": "No Cover (0 AC)",
+        "cover_half": "Half Cover (+2 AC, +2 DEX saves)",
+        "cover_three_quarters": "Three-Quarters Cover (+5 AC, +5 DEX saves)",
+        "cover_total": "Total Cover (Blocked)",
+        "short_rest_title": "Short Rest (D&D 5e)",
+        "short_rest_roll_die": "Roll 1 Hit Die",
+        "short_rest_spend_all": "Spend All Hit Dice",
+        "short_rest_finish": "Finish Rest",
+        "quest_log_title": "Quest & Objectives Log",
+        "quest_status_in_progress": "In Progress",
+        "quest_status_completed": "Completed",
+        "quest_status_failed": "Failed",
     }
 }
+
 
 
 SUPPORTED_DISTANCE_UNITS = {

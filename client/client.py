@@ -136,7 +136,10 @@ class ClientGUI:
         library_menu.add_command(label=_t("tool_command_palette"), command=self.open_command_palette)
         library_menu.add_command(label=_t("menu_manuals"), command=self.open_manuals_dialog)
         library_menu.add_command(label=_t("menu_srd_compendium"), command=self.open_srd_compendium)
+        library_menu.add_separator()
+        library_menu.add_command(label="📜 Registro Missioni (Quest Log)", command=self.open_quest_log_dialog)
         menubar.add_cascade(label=_t("menu_library"), menu=library_menu)
+
 
         # Menu Lingua / Language
         lang_menu = tk.Menu(menubar, tearoff=0)
@@ -385,6 +388,15 @@ class ClientGUI:
         )
         self.hero_backpack_btn.pack(side=tk.RIGHT)
         ToolTip(self.hero_backpack_btn, lambda: _t("btn_drop_backpack") if not getattr(getattr(self, "active_character", None), "backpack_dropped", False) else _t("btn_pickup_backpack"))
+
+        self.hero_light_btn = tk.Button(
+            pill_row, text="🕯️", font=FONT_SMALL, relief=tk.FLAT, bd=0, padx=6, pady=2,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, activebackground=BORDER_COLOR, command=self.quick_toggle_light
+        )
+        self.hero_light_btn.pack(side=tk.RIGHT, padx=(0, 4))
+        self.hero_light_btn.bind("<Button-3>", self.open_light_presets_menu)
+        ToolTip(self.hero_light_btn, lambda: "Accendi/Spegni Torcia o Luce (Click destro per opzioni)")
+
         
         # --- ACTION ECONOMY TRACKER (D&D 5e) ---
         self.economy_frame = tk.Frame(controls_tab, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=6)
@@ -679,6 +691,15 @@ class ClientGUI:
             else:
                 self.hero_backpack_btn.config(text="🎒", bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR)
 
+        if hasattr(self, 'hero_light_btn'):
+            light = getattr(char, "active_light", None)
+            if light and isinstance(light, dict):
+                icon = light.get("icon", "🕯️")
+                rad = light.get("total_radius", 8)
+                self.hero_light_btn.config(text=f"{icon} {rad}h", bg="#F59E0B", fg="black")
+            else:
+                self.hero_light_btn.config(text="🕯️", bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED)
+
         self.update_action_economy_ui()
 
     def quick_toggle_backpack(self):
@@ -710,6 +731,99 @@ class ClientGUI:
                 pass
         else:
             self.log_to_chat(chat_msg, "Globale", sender="Sistema", color="#F59E0B")
+
+    def quick_toggle_light(self):
+        char = getattr(self, "active_character", None)
+        if not char:
+            return
+        is_active, status_text, preset = char.toggle_light()
+        if self.character_manager:
+            self.character_manager.update_character(char)
+            self.character_manager.save_characters()
+            
+        self.update_hero_summary_card()
+        char_name = getattr(char, "name", self.name)
+        tot_r, color = char.get_light_specs()
+        
+        if is_active:
+            name_p = preset.get("name_it", "Torcia")
+            chat_msg = f"🕯️ [LUCE] {char_name} accende: {name_p} (Raggio: {tot_r} hex)!"
+            self.show_toast(f"Sorgente accesa: {name_p}", title="Luce Accesa", toast_type="success")
+        else:
+            chat_msg = f"🕯️ [LUCE] {char_name} spegne la sorgente di luce."
+            self.show_toast("Sorgente di luce spenta.", title="Luce Spenta", toast_type="info")
+            
+        if getattr(self, "is_connected", False):
+            self.send_chat_message(chat_msg)
+            from common.protocol import make_update_stats_request
+            try:
+                self.network.send(make_update_stats_request(
+                    char.hp_current, char.hp_max, char.initiative, getattr(char, "conditions", []),
+                    light_radius=tot_r, light_color=color, name=char_name
+                ))
+            except Exception:
+                pass
+        else:
+            self.log_to_chat(chat_msg, "Globale", sender="Sistema", color="#FFD700")
+            if hasattr(self, "map_canvas"):
+                self.map_canvas.redraw()
+
+    def open_light_presets_menu(self, event=None):
+        """Menu contestuale per selezionare quale sorgente di luce usare."""
+        char = getattr(self, "active_character", None)
+        if not char:
+            return
+        menu = tk.Menu(self.master, tearoff=0)
+        menu.add_command(label="🕯️ Torcia (Luce intensa 6m, fioca 6m)", command=lambda: self.set_light_preset("torch"))
+        menu.add_command(label="🏮 Lanterna a Cappuccio (Luce intensa 9m, fioca 9m)", command=lambda: self.set_light_preset("hooded_lantern"))
+        menu.add_command(label="🌑 Lanterna Schermata (Luce fioca 1.5m)", command=lambda: self.set_light_preset("dim_hooded"))
+        menu.add_command(label="✨ Incantesimo Luce (Luce intensa 6m, fioca 6m)", command=lambda: self.set_light_preset("light_spell"))
+        menu.add_separator()
+        menu.add_command(label="🚫 Spegni Luce", command=lambda: self.set_light_preset(None))
+        try:
+            if event:
+                menu.tk_popup(event.x_root, event.y_root)
+            else:
+                menu.tk_popup(self.master.winfo_pointerx(), self.master.winfo_pointery())
+        finally:
+            menu.grab_release()
+
+    def set_light_preset(self, preset_key):
+        char = getattr(self, "active_character", None)
+        if not char:
+            return
+        from client.character_manager import LIGHT_PRESETS
+        if preset_key is None:
+            char.active_light = None
+        else:
+            preset = LIGHT_PRESETS.get(preset_key, LIGHT_PRESETS["torch"])
+            char.active_light = preset.copy()
+        if self.character_manager:
+            self.character_manager.update_character(char)
+            self.character_manager.save_characters()
+        self.update_hero_summary_card()
+        char_name = getattr(char, "name", self.name)
+        tot_r, color = char.get_light_specs()
+        if char.active_light:
+            chat_msg = f"🕯️ [LUCE] {char_name} attiva {char.active_light.get('name_it', 'Luce')} (Raggio: {tot_r} hex)!"
+        else:
+            chat_msg = f"🕯️ [LUCE] {char_name} spegne la sorgente di luce."
+            
+        if getattr(self, "is_connected", False):
+            self.send_chat_message(chat_msg)
+            from common.protocol import make_update_stats_request
+            try:
+                self.network.send(make_update_stats_request(
+                    char.hp_current, char.hp_max, char.initiative, getattr(char, "conditions", []),
+                    light_radius=tot_r, light_color=color, name=char_name
+                ))
+            except Exception:
+                pass
+        else:
+            self.log_to_chat(chat_msg, "Globale", sender="Sistema", color="#FFD700")
+            if hasattr(self, "map_canvas"):
+                self.map_canvas.redraw()
+
 
     def toggle_action(self):
         self.action_spent = not self.action_spent
@@ -2338,6 +2452,13 @@ class ClientGUI:
         dt_combo.set("Tagliente")
         dt_combo.pack(fill=tk.X, pady=2)
 
+        cover_frame = ttk.Frame(win)
+        cover_frame.pack(fill=tk.X, padx=20, pady=(4, 2))
+        ttk.Label(cover_frame, text="🛡️ Copertura Bersaglio (D&D 5e RAW):").pack(anchor="w")
+        cover_combo = ttk.Combobox(cover_frame, values=["Nessuna (0 CA)", "Mezza (+2 CA, +2 TS DES)", "Tre Quarti (+5 CA, +5 TS DES)", "Totale (Bloccato)"], state="readonly")
+        cover_combo.set("Nessuna (0 CA)")
+        cover_combo.pack(fill=tk.X, pady=2)
+
         ttk.Label(win, text="Formula / Valore (es. 1d8+3 oppure 5):").pack(pady=(6, 0))
         formula_entry = ttk.Entry(win, font=self.default_font)
         formula_entry.pack(pady=4, padx=20, fill=tk.X)
@@ -2356,11 +2477,20 @@ class ClientGUI:
                 self.show_toast("Devi inserire una formula o un valore numerico.", title="Errore", toast_type="danger")
                 return
                 
+            cov_sel = cover_combo.get()
+            if "Mezza" in cov_sel:
+                reason = f"{reason} [Mezza Copertura]".strip()
+            elif "Tre Quarti" in cov_sel:
+                reason = f"{reason} [Tre Quarti Copertura]".strip()
+            elif "Totale" in cov_sel:
+                reason = f"{reason} [Copertura Totale]".strip()
+
             self.network.send(make_targeted_action_request(target_name, action_type, formula, reason, damage_type=damage_type))
             self.action_spent = True
             self.update_action_economy_ui()
             win.destroy()
             self.show_toast(f"Azione '{action_type}' eseguita su {target_name}!", title="⚔️ Azione Eseguita", toast_type="success")
+
 
         ttk.Button(win, text="Esegui Azione", command=submit, style='Primary.TButton').pack(pady=16)
 
@@ -2465,8 +2595,11 @@ class ClientGUI:
             "PROMPT_REACTION": self.handle_prompt_reaction,
             "OPPORTUNITY_ALERT": self.handle_opportunity_alert,
             "HANDOUT_BROADCAST": self.handle_handout_broadcast,
+            "HANDOUT_SHARE_BROADCAST": self.handle_handout_broadcast,
+            "QUEST_LIST_UPDATE": self.handle_quest_list_update,
             "AUTOMATION_SETTINGS_BROADCAST": self.handle_automation_settings_broadcast
         }
+
         handler=handler_map.get(msg_type)
         if handler: handler(data)
 
@@ -2597,7 +2730,79 @@ class ClientGUI:
         btn_box.pack(fill=tk.X)
         ttk.Button(btn_box, text="Chiudi", command=win.destroy).pack(side=tk.RIGHT)
 
+    def handle_quest_list_update(self, data):
+        self.quests = data.get("quests", [])
+        self.show_toast("Registro Missioni aggiornato dal Dungeon Master!", title="📜 Missioni Aggiornate", toast_type="gold")
+
+    def open_quest_log_dialog(self):
+        """Apre il registro interattivo delle missioni ed obiettivi della campagna."""
+        win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.title("📜 Registro Missioni della Campagna")
+        win.minsize(520, 460)
+        from common.theme import apply_modern_window_style
+        apply_modern_window_style(win)
+
+        hdr = tk.Frame(win, bg="#1A1B1E", padx=14, pady=10)
+        hdr.pack(fill=tk.X)
+        tk.Label(hdr, text="📜 Diario delle Missioni & Obiettivi", font=("Georgia", 14, "bold"), bg="#1A1B1E", fg="#D4AF37").pack(anchor="w")
+        tk.Label(hdr, text="Tieni traccia delle avventure, indizi e compiti affidati dal Dungeon Master.", font=("Segoe UI", 9), bg="#1A1B1E", fg="#9CA3AF").pack(anchor="w")
+
+        content_frame = tk.Frame(win, bg="#212529", padx=12, pady=10)
+        content_frame.pack(fill=tk.BOTH, expand=True)
+
+        quests = getattr(self, "quests", []) or []
+        if not quests and hasattr(self, "server") and getattr(self.server, "game_state", None):
+            quests = getattr(self.server.game_state, "quests", [])
+
+        if not quests:
+            empty_box = tk.Frame(content_frame, bg="#2B2D31", padx=20, pady=30, relief="flat")
+            empty_box.pack(fill=tk.BOTH, expand=True)
+            tk.Label(empty_box, text="🕊️ Nessuna Missione Attiva", font=("Georgia", 13, "bold"), bg="#2B2D31", fg="#F8F9FA").pack(pady=(0, 6))
+            tk.Label(empty_box, text="Non ci sono attualmente compiti registrati.\nIl Dungeon Master assegnerà nuove missioni durante l'esplorazione!", font=("Segoe UI", 10), bg="#2B2D31", fg="#9CA3AF", justify="center").pack()
+        else:
+            canvas = tk.Canvas(content_frame, bg="#212529", highlightthickness=0)
+            scrollbar = ttk.Scrollbar(content_frame, orient="vertical", command=canvas.yview)
+            scroll_frame = tk.Frame(canvas, bg="#212529")
+            scroll_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+            canvas.create_window((0, 0), window=scroll_frame, anchor="nw", width=480)
+            canvas.configure(yscrollcommand=scrollbar.set)
+            canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+            for q in quests:
+                q_title = q.get("title", "Missione Senza Titolo")
+                q_desc = q.get("description", "")
+                q_chapter = q.get("chapter", "Avventura")
+                is_done = q.get("completed", False)
+                rewards = q.get("rewards", {})
+
+                q_card = tk.Frame(scroll_frame, bg="#2B2D31", padx=10, pady=8, highlightbackground="#374151", highlightthickness=1)
+                q_card.pack(fill=tk.X, pady=6)
+
+                top_row = tk.Frame(q_card, bg="#2B2D31")
+                top_row.pack(fill=tk.X)
+                status_icon = "✅ Completata" if is_done else "🟢 In Corso"
+                status_color = "#10B981" if is_done else "#F59E0B"
+                tk.Label(top_row, text=f"[{q_chapter}] {q_title}", font=("Georgia", 11, "bold"), bg="#2B2D31", fg="#D4AF37").pack(side=tk.LEFT)
+                tk.Label(top_row, text=status_icon, font=("Segoe UI", 9, "bold"), bg="#2B2D31", fg=status_color).pack(side=tk.RIGHT)
+
+                if q_desc:
+                    tk.Label(q_card, text=q_desc, font=("Segoe UI", 9), bg="#2B2D31", fg="#E5E7EB", wraplength=460, justify="left").pack(anchor="w", pady=(4, 2))
+
+                if rewards and isinstance(rewards, dict):
+                    rew_parts = []
+                    if "xp" in rewards: rew_parts.append(f"{rewards['xp']} PE")
+                    if "gp" in rewards: rew_parts.append(f"{rewards['gp']} MO")
+                    if rew_parts:
+                        tk.Label(q_card, text=f"🎁 Ricompensa: {', '.join(rew_parts)}", font=("Segoe UI", 8, "italic"), bg="#2B2D31", fg="#9CA3AF").pack(anchor="w", pady=(2, 0))
+
+        btn_bar = tk.Frame(win, bg="#1A1B1E", padx=12, pady=8)
+        btn_bar.pack(fill=tk.X)
+        ttk.Button(btn_bar, text="Chiudi", command=win.destroy).pack(side=tk.RIGHT)
+
     def handle_opportunity_alert(self, data):
+
         enemy_name = data.get("enemy_name", "Un nemico")
         msg = data.get("message", "Un nemico si allontana da te!")
         self.show_toast(f"{enemy_name} si allontana da te!\nPuoi effettuare un Attacco d'Opportunità spendendo la tua Reazione.", title="⚠️ Attacco d'Opportunità!", duration=6000, toast_type="warning", icon="⚔️")
