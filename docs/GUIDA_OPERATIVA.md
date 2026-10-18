@@ -114,7 +114,7 @@ flowchart TD
   * `character.py`: assorbimento danni, PV temporanei, prove di concentrazione (TS COS), 0 HP, morte istantanea, TS morte e riposi.
   * `chat.py`: chat Discord-style, formule dadi, critici Nat20/Nat1, sussurri privati e blind rolls (`/broll`, `/gmroll`).
   * `map_interaction.py`: ping, righello, porte interattive, serrature/scasso con arnesi, spille di stanza (*Room Pins*) e narrazione al tavolo.
-  * `inventory.py`: scambi P2P, negozi, valuta, approvazione DM e sintonia magica (`🔮`).
+  * `inventory.py` & `client/character_manager.py`: scambi P2P, negozi, valuta (50 monete = 1 lb), approvazione DM, sintonia magica (`🔮`), contenitori per singolo oggetto (`🎒 Zaino`, `⚔️ Addosso`, `🔮 Borsa Conservante`, `✨ Zaino Pratico`, `🐴 Cavalcatura`), tattica "Sfila lo Zaino a Terra" (PHB p. 190) e Regola Variante di Ingombro 5e (PHB p. 176) con penalità dinamica alla velocità effettiva.
   * `audio.py`: gestione broadcast audio e soundboard.
 * **`common/i18n.py`**: Dizionario di traduzione bilingue in tempo reale (`IT`/`EN`), conversione unità Imperiale/Metrica (`ft`/`mi` $\leftrightarrow$ `m`/`km`), localizzazione taglie creature, GM layer, strumenti lavagna e motore di calcolo per scale mappa e tempi di viaggio.
 

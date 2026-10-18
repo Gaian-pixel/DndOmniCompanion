@@ -74,8 +74,12 @@
 * **Baldur's Gate Styled Wizard**: Guided Level 1 creation and Level-Up wizard with automatic SRD 5e class features, Hit Dice, and spell slot progression.
 * **Special Class Resources System**: Automatic population and tracking of Ki Points, Rage, Bardic Inspiration, Wild Shape, Channel Divinity, Action Surge, Second Wind, Sorcery Points, etc., with automated Short/Long Rest recovery.
 * **Hero Summary Card & Interactive Character Sheet**:
-  * Always-visible sidebar summary card with responsive HP bar, AC, converted Speed (`ft` or `m`), and Initiative.
+  * Always-visible sidebar summary card with responsive HP bar, AC, effective Speed (`ft` or `m`), Initiative, and quick `[ 🎒 ]` button to drop backpack.
   * Full tabbed sheet: **Combat**, **Stats & Skills** (with Proficiency & Expertise $2\times\text{PB}$), **Weapons & Attacks**, **Inventory & Encumbrance** ($\text{STR} \times 15\text{ lbs}$), **Spellbook & Spell Slots (1–9)** with **Spell Upcasting** modal, **Features & Journal**.
+* **5e Backpacks, Containers & Variant Encumbrance (RAW PHB p. 143, 176, 190)**:
+  * **Per-Item Location / Compartment**: Assign items to `🎒 Backpack`, `⚔️ Equipped / On Person`, `🔮 Bag of Holding` (500 lbs capacity, internal weight does not burden character), `✨ Heward's Handy Haversack` (120 lbs capacity, 5 lbs bag weight), or `🐴 Saddlebag / Mount`.
+  * **Tactical "Drop Backpack" Action**: 1-click quick toggle (`[ 🎒 Drop Backpack ]` $\leftrightarrow$ `[ 🎒 Pick Up Backpack ]`) as a free Object Interaction; instantly excludes backpack gear weight from carried load, announcing the action to table chat and restoring full combat speed.
+  * **5e Variant: Encumbrance Rule**: Full Strength-based thresholds ($\text{STR} \times 5$, $\text{STR} \times 10$, $\text{STR} \times 15$), RAW coin weight (50 coins = 1 lb), and dynamic penalties: *Normal*, *Encumbered* (-10 ft / -3 m speed), *Heavily Encumbered* (-20 ft / -6 m speed, Disadvantage on STR/DEX/CON attack rolls, checks, and saves), and *Overloaded* (speed drops to 0).
 * **Character Sheet Export (Official D&D 5e PDF & JSON Data)**: Dedicated modal dialog to choose between **Official PDF** (prompts for the blank 3-page D&D 5e PDF template in input, generating a fully filled sheet ready for print or sharing) and **JSON** (full raw backup for campaign import/export).
 * **Online Anti-Cheat & DM Approval**: Requesting currency (`🤝 Request Currency from DM`) or adding custom items requires DM authorization.
 * **Peer-to-Peer Trading & Macro Hotbar**: Direct item/gold transfers between allies and a 10-slot customizable quick macro bar.

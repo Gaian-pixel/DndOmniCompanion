@@ -379,6 +379,13 @@ class ClientGUI:
         self.hero_init_badge = tk.Label(pill_row, text=f"⚡ {_t('sheet_init_badge')}: +0", bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_SMALL, padx=5, pady=2, highlightbackground=BORDER_COLOR, highlightthickness=1)
         self.hero_init_badge.pack(side=tk.LEFT, padx=2)
         
+        self.hero_backpack_btn = tk.Button(
+            pill_row, text="🎒", font=FONT_SMALL, relief=tk.FLAT, bd=0, padx=6, pady=2,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.quick_toggle_backpack
+        )
+        self.hero_backpack_btn.pack(side=tk.RIGHT)
+        ToolTip(self.hero_backpack_btn, lambda: _t("btn_drop_backpack") if not getattr(getattr(self, "active_character", None), "backpack_dropped", False) else _t("btn_pickup_backpack"))
+        
         # --- ACTION ECONOMY TRACKER (D&D 5e) ---
         self.economy_frame = tk.Frame(controls_tab, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=6)
         self.economy_frame.pack(fill=tk.X, pady=(0, 8))
@@ -646,15 +653,63 @@ class ClientGUI:
         
         ac = getattr(char, 'ac', 10) or 10
         self.hero_ac_badge.config(text=f"🛡️ {_t('sheet_ac_badge')}: {ac}")
-        speed = getattr(char, 'speed', 30) or 30
+        speed = getattr(char, 'get_effective_speed', lambda: getattr(char, 'speed', 30))() or 30
         char_unit = getattr(char, 'speed_unit', None)
         hexes = speed_to_hexes(speed, char_unit)
         spd_display = format_distance_hexes(hexes, pref_unit).replace(" ", "")
-        self.hero_speed_badge.config(text=f"👟 {_t('sheet_speed_badge')}: {spd_display}")
+        
+        enc_status = getattr(char, 'get_encumbrance_status', lambda: {"tier": "normal", "color": "#10B981"})()
+        tier = enc_status.get("tier", "normal")
+        enc_tag = ""
+        if tier == "encumbered":
+            enc_tag = " [🟡]"
+        elif tier == "heavily_encumbered":
+            enc_tag = " [🔴]"
+        elif tier == "overloaded":
+            enc_tag = " [⛔]"
+
+        self.hero_speed_badge.config(text=f"👟 {_t('sheet_speed_badge')}: {spd_display}{enc_tag}")
         init = getattr(char, 'initiative', 0) or 0
         init_str = f"+{init}" if init >= 0 else str(init)
         self.hero_init_badge.config(text=f"⚡ {_t('sheet_init_badge')}: {init_str}")
+
+        if hasattr(self, 'hero_backpack_btn'):
+            if getattr(char, "backpack_dropped", False):
+                self.hero_backpack_btn.config(text="🎒 [A Terra]", bg="#F59E0B", fg="black")
+            else:
+                self.hero_backpack_btn.config(text="🎒", bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR)
+
         self.update_action_economy_ui()
+
+    def quick_toggle_backpack(self):
+        char = getattr(self, "active_character", None)
+        if not char:
+            return
+        new_state = char.toggle_drop_backpack()
+        if self.character_manager:
+            self.character_manager.update_character(char)
+            self.character_manager.save_characters()
+            
+        self.update_hero_summary_card()
+        self.update_action_economy_ui()
+        
+        char_name = getattr(char, "name", self.name)
+        if new_state:
+            chat_msg = _t("msg_backpack_dropped", name=char_name)
+            self.show_toast("🎒 Zaino sfilato a terra!\nIl carico dello zaino è escluso.", title="Zaino a Terra", toast_type="warning")
+        else:
+            chat_msg = _t("msg_backpack_picked_up", name=char_name)
+            self.show_toast("🎒 Zaino raccolto da terra e rimesso in spalla.", title="Zaino Indossato", toast_type="success")
+            
+        if getattr(self, "is_connected", False):
+            self.send_chat_message(chat_msg)
+            from common.protocol import make_update_full_sheet_request
+            try:
+                self.network.send(make_update_full_sheet_request(char.to_dict()))
+            except Exception:
+                pass
+        else:
+            self.log_to_chat(chat_msg, "Globale", sender="Sistema", color="#F59E0B")
 
     def toggle_action(self):
         self.action_spent = not self.action_spent
@@ -741,11 +796,11 @@ class ClientGUI:
             else:
                 self.btn_react_tracker.config(text=f"{_t('btn_react')} (✔)", bg="#F59E0B", fg="white", state=react_state)
 
-        # 3. Velocità Base e Tracker Movimento
+        # 3. Velocità Base e Tracker Movimento (con calcolo effettivo Ingombro 5e)
         base_speed = 30
         char_unit = None
-        if self.active_character and hasattr(self.active_character, 'speed'):
-            base_speed = self.active_character.speed or 30
+        if self.active_character:
+            base_speed = getattr(self.active_character, 'get_effective_speed', lambda: getattr(self.active_character, 'speed', 30))() or 0
             char_unit = getattr(self.active_character, 'speed_unit', None)
         
         base_hexes = speed_to_hexes(base_speed, char_unit)
@@ -753,11 +808,22 @@ class ClientGUI:
 
         if not in_combat:
             base_spd_str = format_distance_hexes(base_hexes, pref_unit)
+            enc = getattr(self.active_character, 'get_encumbrance_status', lambda: {})() if self.active_character else {}
+            enc_tag = ""
+            if enc.get("tier") == "encumbered":
+                enc_tag = " [🟡 Ingombrato]"
+            elif enc.get("tier") == "heavily_encumbered":
+                enc_tag = " [🔴 Grav. Ingombrato]"
+            elif enc.get("tier") == "overloaded":
+                enc_tag = " [⛔ Sovraccarico: 0]"
+            if enc.get("backpack_dropped"):
+                enc_tag += " (🎒 A Terra)"
+                
             mov_text = _t(
                 "lbl_movement_exploration",
                 base=base_spd_str,
                 default=f"🧭 Esplorazione: Movimento libero (Base: {base_spd_str})"
-            )
+            ) + enc_tag
             if hasattr(self, 'lbl_movement_tracker'):
                 self.lbl_movement_tracker.config(text=mov_text, fg=TEXT_MUTED)
         else:
@@ -783,6 +849,17 @@ class ClientGUI:
                 mov_text = _t("lbl_movement", used=used_val, total=total_val, rem=rem_val)
 
             status_tag = f" [🏃 {_t('action_dash')}]" if is_dashed else ""
+            if self.active_character:
+                enc = getattr(self.active_character, 'get_encumbrance_status', lambda: {})()
+                if enc.get("tier") == "encumbered":
+                    status_tag += " [🟡 -10ft]"
+                elif enc.get("tier") == "heavily_encumbered":
+                    status_tag += " [🔴 -20ft]"
+                elif enc.get("tier") == "overloaded":
+                    status_tag += " [⛔ Sovraccarico: 0]"
+                if enc.get("backpack_dropped"):
+                    status_tag += " (🎒 A Terra)"
+                    
             if hasattr(self, 'lbl_movement_tracker'):
                 self.lbl_movement_tracker.config(text=mov_text + status_tag, fg=TEXT_COLOR if my_turn else TEXT_MUTED)
 

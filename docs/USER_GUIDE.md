@@ -196,6 +196,36 @@ Under the **`🌟 Features`** tab of the Character Sheet you will find the **`�
   * Can be granted by the DM with 1 click to reward exceptional roleplaying, clever ideas, or heroic sacrifices.
   * The player can spend Inspiration at any time before making an attack roll, saving throw, or ability check to gain immediate **Advantage** (2d20kh1).
 
+### 5e Backpacks, Containers & Variant Encumbrance (RAW PHB p. 143, 176, 190)
+OmniCompanion authentically simulates item storage locations, extradimensional capacity, and bodily weight burdens:
+
+1. **Inventory Containers & Compartments**:
+   * Each item has a designated location (`container`):
+     * `🎒 Backpack` (`backpack`): default storage for adventuring gear, rations, and tools.
+     * `⚔️ Equipped / On Person` (`equipped`): weapons held in hand, armor worn, shields strapped, and accessories carried on your belt.
+     * `🔮 Bag of Holding` (`bag_of_holding`): extradimensional space (max capacity 500 lbs / 64 cubic feet). Contained items do not burden the character.
+     * `✨ Heward's Handy Haversack` (`haversack`): extradimensional pockets (max capacity 120 lbs, empty haversack weight 5 lbs).
+     * `🐴 Saddlebag / Mount` (`mount`): gear stowed on horses, mules, or pack beasts (does not burden the character).
+   * Container locations can be selected and updated with 1 click in both the custom item creation dialog and item details.
+
+2. **Tactical "Drop Backpack" Action (*Drop Backpack*, PHB p. 190)**:
+   * Under 5e rules, slipping off a backpack and letting it drop to the floor is a free **Object Interaction** performed as part of a move or action.
+   * Both in the Character Sheet (Inventory tab) and on the sidebar **Hero Summary Card**, players have the 1-click toggle button `[ 🎒 Drop Backpack ]` $\leftrightarrow$ `[ 🎒 Pick Up Backpack ]`.
+   * When the backpack is dropped:
+     * Status updates to `⚠️ Backpack: On Ground`.
+     * All items stored in the backpack are visually flagged with `[On Ground]`.
+     * The weight of all items inside the backpack is **instantly excluded from the carried weight**, allowing the adventurer to shed encumbrance penalties and move at full combat speed.
+     * The action is announced to table chat citing PHB p. 190.
+
+3. **5e Variant: Encumbrance Rule (PHB p. 176)**:
+   * **Real Coin Weight**: 50 coins of any metal type weigh exactly 1 pound (e.g., 500 gp = 10 lbs carried on belt).
+   * **Strength-Based Thresholds**:
+     * **🟢 Normal** ($\le \text{STR} \times 5\text{ lbs}$): no penalty.
+     * **🟡 Encumbered** ($> \text{STR} \times 5\text{ lbs}$ up to $\text{STR} \times 10\text{ lbs}$): movement speed reduced by **10 ft (3 m)**.
+     * **🔴 Heavily Encumbered** ($> \text{STR} \times 10\text{ lbs}$ up to $\text{STR} \times 15\text{ lbs}$): movement speed reduced by **20 ft (6 m)** and **Disadvantage** on ability checks, attack rolls, and saving throws that use Strength, Dexterity, or Constitution.
+     * **⛔ Overloaded** ($> \text{STR} \times 15\text{ lbs}$): weight exceeds maximum carrying capacity; speed drops to **0**.
+   * Speed penalties are automatically applied to the Hero Summary Card speed badge and turn movement tracker.
+
 ### Turn Economy: Exploration vs. Combat
 The **Turn Economy** section in the `Player Controls` tab automatically adapts to the current game phase:
 

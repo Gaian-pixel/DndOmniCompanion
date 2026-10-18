@@ -3,6 +3,54 @@ from common.file_utils import atomic_save_json, load_json
 
 CHARACTER_FILE = "client_data/characters.json"
 
+CONTAINERS = {
+    "backpack": {
+        "id": "backpack",
+        "icon": "🎒",
+        "name_it": "Zaino",
+        "name_en": "Backpack",
+        "max_capacity": None,
+        "extradimensional": False,
+        "affects_char_weight": True,
+    },
+    "equipped": {
+        "id": "equipped",
+        "icon": "⚔️",
+        "name_it": "Equipaggiato / Addosso",
+        "name_en": "Equipped / On Person",
+        "max_capacity": None,
+        "extradimensional": False,
+        "affects_char_weight": True,
+    },
+    "bag_of_holding": {
+        "id": "bag_of_holding",
+        "icon": "🔮",
+        "name_it": "Borsa Conservante",
+        "name_en": "Bag of Holding",
+        "max_capacity": 500.0,
+        "extradimensional": True,
+        "affects_char_weight": False,
+    },
+    "haversack": {
+        "id": "haversack",
+        "icon": "✨",
+        "name_it": "Zaino Pratico di Heward",
+        "name_en": "Heward's Handy Haversack",
+        "max_capacity": 120.0,
+        "extradimensional": True,
+        "affects_char_weight": False,
+    },
+    "mount": {
+        "id": "mount",
+        "icon": "🐴",
+        "name_it": "Sacca da Sella / Cavalcatura",
+        "name_en": "Saddlebag / Mount",
+        "max_capacity": None,
+        "extradimensional": False,
+        "affects_char_weight": False,
+    }
+}
+
 class Character:
     def __init__(self, name="Nuovo Personaggio", campaign="Nessuna Campagna"):
         self.id = os.urandom(4).hex() # Unique ID
@@ -48,6 +96,7 @@ class Character:
         self.currency = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
         self.hotbar = [""] * 10
         self.last_position = None
+        self.backpack_dropped = False
         
         # Testo libero / Griglia
         self.inventory_grid = [None] * 25 # Griglia 5x5
@@ -264,6 +313,175 @@ class Character:
         bonuses = self.get_attunement_bonuses()
         return mod + bonuses["bonus_saves"]
 
+    def get_carried_weight(self) -> float:
+        """
+        Calcola il peso totale trasportato sul corpo dal personaggio (in lbs).
+        Regole 5e RAW:
+        - 50 monete = 1 lb (trasportate nella borsa alla cintura, PHB p. 143).
+        - Oggetti con container "equipped" (addosso) gravano sempre sul PG.
+        - Oggetti con container "backpack" (nello zaino) gravano solo se lo zaino è indossato (backpack_dropped == False).
+        - Oggetti in spazi extradimensionali (bag_of_holding, haversack) o su cavalcatura (mount) non gravano sul PG.
+        """
+        total = 0.0
+        if hasattr(self, "currency") and isinstance(self.currency, dict):
+            coin_count = 0
+            for v in self.currency.values():
+                try:
+                    coin_count += max(0, int(v))
+                except (ValueError, TypeError):
+                    pass
+            total += round(coin_count / 50.0, 2)
+            
+        backpack_dropped = getattr(self, "backpack_dropped", False)
+        for item in getattr(self, "inventory_grid", []):
+            if not item or not isinstance(item, dict):
+                continue
+            try:
+                w = float(item.get("weight", 0.0) or 0.0)
+                qty = int(item.get("qty", 1) or 1)
+                item_weight = w * qty
+            except (ValueError, TypeError):
+                continue
+            
+            c = item.get("container")
+            if not c:
+                itype = str(item.get("type", "")).strip().lower()
+                c = "equipped" if itype in ("arma", "armatura", "scudo", "weapon", "armor", "shield") else "backpack"
+            
+            if c == "equipped":
+                total += item_weight
+            elif c == "backpack":
+                if not backpack_dropped:
+                    total += item_weight
+            elif c in ("bag_of_holding", "haversack", "mount"):
+                pass
+            else:
+                if not backpack_dropped:
+                    total += item_weight
+                    
+        return round(total, 2)
+
+    def get_container_contents_weight(self, container_key: str) -> float:
+        """Restituisce la somma dei pesi degli oggetti collocati in uno specifico contenitore."""
+        tot = 0.0
+        for item in getattr(self, "inventory_grid", []):
+            if not item or not isinstance(item, dict):
+                continue
+            c = item.get("container")
+            if not c:
+                itype = str(item.get("type", "")).strip().lower()
+                c = "equipped" if itype in ("arma", "armatura", "scudo", "weapon", "armor", "shield") else "backpack"
+            if c == container_key:
+                try:
+                    w = float(item.get("weight", 0.0) or 0.0)
+                    qty = int(item.get("qty", 1) or 1)
+                    tot += w * qty
+                except (ValueError, TypeError):
+                    pass
+        return round(tot, 2)
+
+    def get_encumbrance_status(self) -> dict:
+        """
+        Calcola lo scaglione di ingombro secondo la Regola Variante 5e (PHB p. 176):
+        - Normale: fino a FOR * 5 lbs
+        - Ingombrato: fino a FOR * 10 lbs (-10 ft / -3 m velocità)
+        - Gravemente Ingombrato: fino a FOR * 15 lbs (-20 ft / -6 m velocità, Svantaggio prove/attacchi FOR/DES/COS)
+        - Sovraccarico: oltre FOR * 15 lbs (Velocità ridotta a 0)
+        """
+        size_mults = {
+            "tiny": 0.5,
+            "small": 1.0,
+            "medium": 1.0,
+            "large": 2.0,
+            "huge": 4.0,
+            "gargantuan": 8.0
+        }
+        sz = str(getattr(self, "size", "medium") or "medium").lower()
+        size_mult = size_mults.get(sz, 1.0)
+        
+        strength = max(1, self.get_effective_attribute("FOR"))
+        limit_normal = strength * 5.0 * size_mult
+        limit_encumbered = strength * 10.0 * size_mult
+        limit_max = strength * 15.0 * size_mult
+        
+        carried = self.get_carried_weight()
+        backpack_dropped = getattr(self, "backpack_dropped", False)
+        
+        if carried <= limit_normal:
+            tier = "normal"
+            penalty_ft = 0
+            penalty_m = 0.0
+            disadvantage = False
+            color = "#10B981"
+        elif carried <= limit_encumbered:
+            tier = "encumbered"
+            penalty_ft = 10
+            penalty_m = 3.0
+            disadvantage = False
+            color = "#F59E0B"
+        elif carried <= limit_max:
+            tier = "heavily_encumbered"
+            penalty_ft = 20
+            penalty_m = 6.0
+            disadvantage = True
+            color = "#EF4444"
+        else:
+            tier = "overloaded"
+            penalty_ft = 999
+            penalty_m = 999.0
+            disadvantage = True
+            color = "#DC2626"
+            
+        boh_weight = self.get_container_contents_weight("bag_of_holding")
+        haversack_weight = self.get_container_contents_weight("haversack")
+        mount_weight = self.get_container_contents_weight("mount")
+        backpack_weight = self.get_container_contents_weight("backpack")
+        
+        return {
+            "tier": tier,
+            "carried_weight": carried,
+            "limit_normal": limit_normal,
+            "limit_encumbered": limit_encumbered,
+            "limit_max": limit_max,
+            "speed_penalty_ft": penalty_ft,
+            "speed_penalty_m": penalty_m,
+            "disadvantage": disadvantage,
+            "color": color,
+            "backpack_dropped": backpack_dropped,
+            "backpack_weight": backpack_weight,
+            "boh_weight": boh_weight,
+            "haversack_weight": haversack_weight,
+            "mount_weight": mount_weight
+        }
+
+    def get_effective_speed(self) -> int | float:
+        """
+        Calcola la velocità di movimento effettiva del personaggio (in ft o m)
+        applicando le penalità dell'Ingombro (PHB p. 176) e dell'Affaticamento (Exhaustion).
+        """
+        base_speed = float(getattr(self, "speed", 30) or 30)
+        unit = getattr(self, "speed_unit", "ft")
+        enc = self.get_encumbrance_status()
+        
+        if enc["tier"] == "overloaded":
+            return 0 if unit == "ft" else 0.0
+            
+        penalty = enc["speed_penalty_m"] if unit == "m" else enc["speed_penalty_ft"]
+        eff = max(0.0, base_speed - penalty)
+        
+        exh = int(getattr(self, "exhaustion_level", 0) or 0)
+        if exh >= 5:
+            return 0 if unit == "ft" else 0.0
+        elif exh >= 2:
+            eff = eff / 2.0
+            
+        return int(round(eff)) if unit == "ft" else round(eff, 1)
+
+    def toggle_drop_backpack(self) -> bool:
+        """Inverte lo stato dello zaino (a terra vs indossato)."""
+        self.backpack_dropped = not getattr(self, "backpack_dropped", False)
+        return self.backpack_dropped
+
     def to_dict(self):
         return self.__dict__
     
@@ -348,6 +566,8 @@ class Character:
             c.travel_role = "Nessuna"
         if not hasattr(c, "marching_order"):
             c.marching_order = "Centro"
+        if not hasattr(c, "backpack_dropped"):
+            c.backpack_dropped = bool(data.get("backpack_dropped", False))
         if "speed_unit" not in data or data.get("speed_unit") not in ("ft", "m"):
             try:
                 c.speed_unit = "m" if float(getattr(c, "speed", 30)) <= 18 else "ft"

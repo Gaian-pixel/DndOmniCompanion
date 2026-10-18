@@ -836,11 +836,18 @@ class CharacterSheetUI(tk.Toplevel):
             btn_req_currency = ttk.Button(currency_box, text=_t("btn_request_currency"), command=self.open_request_currency_dialog, style="Gold.TButton")
             btn_req_currency.pack(fill=tk.X, pady=(4, 2))
 
-        # 2. Toolbar & Status Bar (Sintonia)
+        # 2. Toolbar & Status Bar (Zaino & Sintonia)
         inv_bar = tk.Frame(parent_frame, bg=BG_COLOR)
         inv_bar.pack(fill=tk.X, padx=6, pady=(4, 2))
         
         tk.Label(inv_bar, text=f"🎒 {_t('sheet_tab_inventory')} (25 Slot)", font=FONT_BOLD, fg=ACCENT_GOLD, bg=BG_COLOR).pack(side=tk.LEFT)
+        
+        self.btn_drop_backpack = ttk.Button(inv_bar, text=_t("btn_drop_backpack"), command=self.toggle_drop_backpack, style="Slot.TButton")
+        self.btn_drop_backpack.pack(side=tk.LEFT, padx=(8, 4))
+        ToolTip(self.btn_drop_backpack, "Sfila lo zaino e lascialo a terra come Interazione con Oggetto Gratuita (PHB p. 190). Esclude il peso dello zaino dal carico trasportato.")
+        
+        self.lbl_backpack_status = tk.Label(inv_bar, text=_t("status_backpack_worn"), font=FONT_SMALL, fg=ACCENT_GREEN, bg=BG_COLOR)
+        self.lbl_backpack_status.pack(side=tk.LEFT, padx=4)
         
         self.attunement_label = tk.Label(inv_bar, text=_t("sheet_attunement_count", count=0), font=FONT_BOLD, fg=ACCENT_BLUE, bg=BG_COLOR)
         self.attunement_label.pack(side=tk.RIGHT, padx=4)
@@ -939,9 +946,12 @@ class CharacterSheetUI(tk.Toplevel):
         
         self.weight_bar = ttk.Progressbar(weight_row, length=180, mode='determinate')
         self.weight_bar.pack(side=tk.RIGHT, padx=4)
+
+        self.weight_details_lbl = tk.Label(bottom_frame, text="", font=FONT_SMALL, fg=TEXT_MUTED, bg=SURFACE_COLOR_ALT)
+        self.weight_details_lbl.pack(fill=tk.X, pady=(1, 2))
         
         btn_bar = tk.Frame(bottom_frame, bg=SURFACE_COLOR_ALT)
-        btn_bar.pack(fill=tk.X, pady=(4, 0))
+        btn_bar.pack(fill=tk.X, pady=(2, 0))
         
         compendium_btn = ttk.Button(btn_bar, text=_t("sheet_search_compendium"), command=self.open_inventory_compendium)
         compendium_btn.pack(side=tk.LEFT, padx=2)
@@ -1032,39 +1042,83 @@ class CharacterSheetUI(tk.Toplevel):
     def calculate_total_weight(self):
         if not hasattr(self, 'weight_vars') or not hasattr(self, 'weight_label'):
             return
-        total = 0.0
+            
+        # Sincronizza i pesi inseriti nella UI sugli oggetti
         for i in range(25):
             if i < len(self.character.inventory_grid):
                 item = self.character.inventory_grid[i]
-                if item:
+                if item and i < len(self.weight_vars):
                     try:
-                        w = float(self.weight_vars[i].get())
-                        qty = item.get("qty", 1)
-                        total += w * qty
+                        item["weight"] = float(self.weight_vars[i].get())
                     except (tk.TclError, ValueError):
                         pass
-                        
-        try:
-            strength = int(self.attr_vars["FOR"].get())
-        except (tk.TclError, ValueError, KeyError):
-            strength = 10
-            
-        max_weight = strength * 15
-        
+
+        # Sincronizza le monete per il calcolo del peso
+        if hasattr(self, "currency_vars"):
+            for coin, var in self.currency_vars.items():
+                try:
+                    self.character.currency[coin] = int(var.get())
+                except (tk.TclError, ValueError):
+                    pass
+
+        # Sincronizza FOR se modificata nei campi di testo
+        if hasattr(self, "attr_vars") and "FOR" in self.attr_vars:
+            try:
+                self.character.attributes["FOR"] = int(self.attr_vars["FOR"].get())
+            except (tk.TclError, ValueError):
+                pass
+
+        enc = self.character.get_encumbrance_status()
+        total = enc["carried_weight"]
+        max_weight = enc["limit_max"]
+        tier = enc["tier"]
+
         if hasattr(self, 'weight_bar'):
             self.weight_bar['maximum'] = max(1.0, max_weight)
             self.weight_bar['value'] = min(max_weight, total)
-        
-        if total > max_weight:
-            self.weight_label.config(
-                text=f"{_t('sheet_total_weight', current=f'{total:.1f}', max=max_weight)} {_t('sheet_encumbered')}",
-                fg=ACCENT_RED
+
+        enc_text = {
+            "normal": _t("enc_normal"),
+            "encumbered": _t("enc_encumbered"),
+            "heavily_encumbered": _t("enc_heavily_encumbered"),
+            "overloaded": _t("enc_overloaded")
+        }.get(tier, _t("enc_normal"))
+
+        self.weight_label.config(
+            text=f"{_t('sheet_total_weight', current=f'{total:.1f}', max=f'{max_weight:.1f}')}  [{enc_text}]",
+            fg=enc["color"]
+        )
+
+        if hasattr(self, 'weight_details_lbl'):
+            details = []
+            coin_count = sum(self.character.currency.values()) if hasattr(self.character, "currency") else 0
+            coin_lbs = round(coin_count / 50.0, 1)
+            if coin_lbs > 0:
+                details.append(_t("lbl_coins_weight", weight=f"{coin_lbs:.1f}"))
+            
+            if enc.get("backpack_dropped"):
+                details.append(_t("lbl_backpack_ground_weight", weight=f"{enc['backpack_weight']:.1f}"))
+                
+            if enc.get("boh_weight", 0) > 0:
+                details.append(_t("lbl_boh_capacity", cur=f"{enc['boh_weight']:.1f}"))
+                
+            if enc.get("haversack_weight", 0) > 0:
+                details.append(_t("lbl_haversack_capacity", cur=f"{enc['haversack_weight']:.1f}"))
+                
+            if enc.get("mount_weight", 0) > 0:
+                details.append(_t("lbl_mount_capacity", cur=f"{enc['mount_weight']:.1f}"))
+
+            self.weight_details_lbl.config(
+                text=" • ".join(details) if details else ""
             )
-        else:
-            self.weight_label.config(
-                text=_t("sheet_total_weight", current=f"{total:.1f}", max=max_weight),
-                fg=TEXT_COLOR
-            )
+
+        if hasattr(self, 'btn_drop_backpack') and hasattr(self, 'lbl_backpack_status'):
+            if enc.get("backpack_dropped"):
+                self.btn_drop_backpack.config(text=_t("btn_pickup_backpack"), style="Gold.TButton")
+                self.lbl_backpack_status.config(text=_t("status_backpack_ground"), fg="#F59E0B")
+            else:
+                self.btn_drop_backpack.config(text=_t("btn_drop_backpack"), style="Slot.TButton")
+                self.lbl_backpack_status.config(text=_t("status_backpack_worn"), fg=ACCENT_GREEN)
 
     def check_attunement(self, changed_idx=None):
         if not hasattr(self, 'attuned_vars'): return
@@ -1502,6 +1556,7 @@ class CharacterSheetUI(tk.Toplevel):
             self.levelup_btn.grid_forget()
 
     def refresh_inventory_grid(self):
+        backpack_dropped = getattr(self.character, "backpack_dropped", False)
         for i, item in enumerate(self.character.inventory_grid):
             btn = self.inventory_buttons[i]
             if item:
@@ -1510,15 +1565,32 @@ class CharacterSheetUI(tk.Toplevel):
                 icon = get_item_icon(item)
                 item_type = item.get("type", "")
                 type_str = f" [{item_type}]" if item_type else ""
-                short_name = name[:20] + ".." if len(name) > 20 else name
-                btn.config(text=f"{icon} {short_name} (x{qty}){type_str}", style="SlotFilled.TButton")
+                
+                c_key = item.get("container")
+                if not c_key:
+                    itype = str(item_type).strip().lower()
+                    c_key = "equipped" if itype in ("arma", "armatura", "scudo", "weapon", "armor", "shield") else "backpack"
+                    
+                from client.character_manager import CONTAINERS
+                c_info = CONTAINERS.get(c_key, CONTAINERS["backpack"])
+                c_icon = c_info.get("icon", "🎒")
+                c_name = c_info.get("name_it" if get_language() == "it" else "name_en", "Zaino")
+                
+                is_on_ground = (c_key == "backpack" and backpack_dropped)
+                ground_tag = " [A Terra]" if is_on_ground else ""
+                
+                short_name = name[:18] + ".." if len(name) > 18 else name
+                btn_style = "Slot.TButton" if is_on_ground else "SlotFilled.TButton"
+                btn.config(text=f"{c_icon} {icon} {short_name} (x{qty}){type_str}{ground_tag}", style=btn_style)
+                
                 if hasattr(self, 'weight_vars') and i < len(self.weight_vars):
                     self.weight_vars[i].set(item.get("weight", 0.0))
                 if hasattr(self, 'attuned_vars') and i < len(self.attuned_vars):
                     self.attuned_vars[i].set(item.get("attuned", False))
                 desc = item.get("desc", "")
                 weight = item.get("weight", 0.0)
-                tip_text = f"{name} (x{qty})\nTipo: {item_type}\nPeso: {weight} lbs\n\n{desc}" if desc else f"{name} (x{qty})\nTipo: {item_type}\nPeso: {weight} lbs"
+                ground_status = "\n⚠️ QUESTO OGGETTO È A TERRA CON LO ZAINO!" if is_on_ground else ""
+                tip_text = f"{name} (x{qty})\nCollocazione: {c_icon} {c_name}\nTipo: {item_type}\nPeso: {weight} lbs{ground_status}\n\n{desc}" if desc else f"{name} (x{qty})\nCollocazione: {c_icon} {c_name}\nTipo: {item_type}\nPeso: {weight} lbs{ground_status}"
                 ToolTip(btn, tip_text)
             else:
                 btn.config(text=f"➕ {_t('sheet_empty_slot_desc')}", style="Slot.TButton")
@@ -1600,7 +1672,28 @@ class CharacterSheetUI(tk.Toplevel):
         tk.Label(body, text="Tipo / Categoria:", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(anchor="w", pady=(2, 1))
         type_combo = ttk.Combobox(body, values=["Arma", "Armatura", "Scudo", "Pozione", "Pergamena", "Attrezzi", "Equipaggiamento", "Altro"], state="normal")
         type_combo.set("Equipaggiamento")
-        type_combo.pack(fill=tk.X, pady=(0, 6))
+        type_combo.pack(fill=tk.X, pady=(0, 4))
+
+        tk.Label(body, text=_t("lbl_container"), font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(anchor="w", pady=(2, 1))
+        container_opts = [
+            ("backpack", _t("container_backpack")),
+            ("equipped", _t("container_equipped")),
+            ("bag_of_holding", _t("container_bag_of_holding")),
+            ("haversack", _t("container_haversack")),
+            ("mount", _t("container_mount")),
+        ]
+        container_combo = ttk.Combobox(body, values=[label for code, label in container_opts], state="readonly")
+        container_combo.current(0)
+        container_combo.pack(fill=tk.X, pady=(0, 6))
+
+        def _update_container_by_type(event=None):
+            st = str(type_combo.get() or "").strip().lower()
+            if st in ("arma", "armatura", "scudo", "weapon", "armor", "shield"):
+                container_combo.current(1)
+            else:
+                container_combo.current(0)
+        type_combo.bind("<<ComboboxSelected>>", _update_container_by_type)
+        _update_container_by_type()
         
         qp_frame = tk.Frame(body, bg=SURFACE_COLOR)
         qp_frame.pack(fill=tk.X, pady=4)
@@ -1626,13 +1719,20 @@ class CharacterSheetUI(tk.Toplevel):
             if not nm:
                 messagebox.showwarning("Nome Mancante", "Inserisci il nome dell'oggetto.", parent=win)
                 return
+            sel_c = container_combo.get()
+            c_code = "backpack"
+            for code, label in container_opts:
+                if label == sel_c:
+                    c_code = code
+                    break
             entry = {
                 "name": nm,
                 "type": type_combo.get().strip() or "Equipaggiamento",
                 "qty": max(1, qty_var.get()),
                 "weight": max(0.0, weight_var.get()),
                 "attuned": attune_var.get(),
-                "desc": desc_text.get("1.0", tk.END).strip()
+                "desc": desc_text.get("1.0", tk.END).strip(),
+                "container": c_code
             }
             if self.is_connected and self.request_item_callback:
                 self.request_item_callback(entry, target_idx)
@@ -1659,7 +1759,7 @@ class CharacterSheetUI(tk.Toplevel):
         win.grab_set()
         apply_modern_window_style(win)
         win.title(f"Dettagli Oggetto - Slot #{idx+1}")
-        win.minsize(420, 460)
+        win.minsize(420, 480)
         
         body = tk.Frame(win, bg=SURFACE_COLOR, padx=14, pady=12)
         body.pack(fill=tk.BOTH, expand=True)
@@ -1681,6 +1781,28 @@ class CharacterSheetUI(tk.Toplevel):
         type_combo.set(item.get("type", "Equipaggiamento"))
         type_combo.pack(fill=tk.X, pady=(0, 4))
         
+        tk.Label(body, text=_t("lbl_container"), font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(anchor="w", pady=(2, 1))
+        current_container = item.get("container")
+        if not current_container:
+            itype = str(item.get("type", "")).strip().lower()
+            current_container = "equipped" if itype in ("arma", "armatura", "scudo", "weapon", "armor", "shield") else "backpack"
+            
+        container_opts = [
+            ("backpack", _t("container_backpack")),
+            ("equipped", _t("container_equipped")),
+            ("bag_of_holding", _t("container_bag_of_holding")),
+            ("haversack", _t("container_haversack")),
+            ("mount", _t("container_mount")),
+        ]
+        container_combo = ttk.Combobox(body, values=[label for code, label in container_opts], state="readonly")
+        selected_idx = 0
+        for opt_idx, (code, label) in enumerate(container_opts):
+            if code == current_container:
+                selected_idx = opt_idx
+                break
+        container_combo.current(selected_idx)
+        container_combo.pack(fill=tk.X, pady=(0, 4))
+
         qp_frame = tk.Frame(body, bg=SURFACE_COLOR)
         qp_frame.pack(fill=tk.X, pady=4)
         
@@ -1713,6 +1835,13 @@ class CharacterSheetUI(tk.Toplevel):
             item["weight"] = max(0.0, w_var.get())
             item["attuned"] = attune_var.get()
             item["desc"] = desc_text.get("1.0", tk.END).strip()
+            sel_c = container_combo.get()
+            c_code = "backpack"
+            for code, label in container_opts:
+                if label == sel_c:
+                    c_code = code
+                    break
+            item["container"] = c_code
             self.refresh_inventory_grid()
             self.manager.update_character(self.character)
             if hasattr(self.manager, 'save_characters'):
@@ -1799,13 +1928,16 @@ class CharacterSheetUI(tk.Toplevel):
         except (ValueError, TypeError):
             weight = 0.0
             
+        cat_lower = str(category).lower()
+        default_c = "equipped" if any(k in cat_lower for k in ["arma", "armatura", "scudo", "weapon", "armor", "shield"]) else "backpack"
         entry = {
             "name": item_data.get("name"),
             "type": category,
             "qty": 1,
             "weight": weight,
             "attuned": False,
-            "desc": desc
+            "desc": desc,
+            "container": default_c
         }
         if self.is_connected and self.request_item_callback:
             self.request_item_callback(entry, target_idx)
@@ -1818,6 +1950,33 @@ class CharacterSheetUI(tk.Toplevel):
             self.manager.save_characters()
         self.refresh_inventory_grid()
         messagebox.showinfo("Importato", f"'{item_data.get('name')}' importato nello slot #{target_idx+1}!")
+
+    def toggle_drop_backpack(self):
+        new_state = self.character.toggle_drop_backpack()
+        self.manager.update_character(self.character)
+        if hasattr(self.manager, 'save_characters'):
+            self.manager.save_characters()
+            
+        self.refresh_inventory_grid()
+        self.calculate_total_weight()
+        
+        char_name = getattr(self.character, "name", "Eroe")
+        if new_state:
+            chat_msg = _t("msg_backpack_dropped", name=char_name)
+        else:
+            chat_msg = _t("msg_backpack_picked_up", name=char_name)
+            
+        if hasattr(self, 'roll_callback') and self.roll_callback:
+            try:
+                self.roll_callback("0d0", chat_msg)
+            except Exception:
+                pass
+                
+        if hasattr(self, 'on_save_callback') and self.on_save_callback:
+            try:
+                self.on_save_callback(self.character)
+            except Exception:
+                pass
 
     def open_inventory_compendium(self):
         from server.compendium_ui import CompendiumDialog

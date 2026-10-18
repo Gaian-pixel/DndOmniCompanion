@@ -197,6 +197,36 @@ Nel tab **`🌟 Privilegi`** della Scheda PG è presente il riquadro interattivo
   * Può essere conferita dal DM con un click per premiare ottime interpretazioni di ruolo, decisioni audaci o fedeltà ai difetti/legami del personaggio.
   * Il giocatore può spendere l'Ispirazione in qualsiasi momento prima di effettuare un tiro per ottenere immediatamente **Vantaggio** (2d20kh1) a un tiro per colpire, tiro salvezza o prova di caratteristica.
 
+### Gestione Zaini, Contenitori ed Ingombro 5e (RAW PHB p. 143, 176, 190)
+OmniCompanion gestisce in modo autentico e conforme alle regole ufficiali D&D 5e la collocazione degli oggetti, lo spazio extradimensionale e il carico corporeo:
+
+1. **Scomparti e Contenitori nell'Inventario**:
+   * Ciascun oggetto possiede un badge di collocazione (`container`):
+     * `🎒 Zaino` (`backpack`): scomparto predefinito per provviste, attrezzi e attrezzatura da viaggio.
+     * `⚔️ Equipaggiato / Addosso` (`equipped`): armi impugnate, armature indossate, scudi e oggetti portati alla cintura o indosso.
+     * `🔮 Borsa Conservante` (`bag_of_holding`): spazio extradimensionale (capienza massima 500 lbs / volume 64 piedi cubi). Il peso degli oggetti contenuti non grava sul personaggio.
+     * `✨ Zaino Pratico di Heward` (`haversack`): spazio extradimensionale (capienza fino a 120 lbs distribuita nelle tasche, peso proprio dello zaino 5 lbs).
+     * `🐴 Sacca da Sella / Cavalcatura` (`mount`): oggetti caricati su cavalli, muli o carri (non gravano sul PG).
+   * È possibile impostare o modificare la collocazione di un oggetto direttamente dal dialogo di creazione o modifica con 1 click.
+
+2. **Tattica "Sfila lo Zaino a Terra" (*Drop Backpack*, PHB p. 190)**:
+   * Nelle regole 5e sfilarsi lo zaino dalle spalle e lasciarlo cadere a terra è un'**Interazione con Oggetto Gratuita** eseguibile durante il proprio turno di movimento o azione.
+   * Nella Scheda PG (tab Inventario) e sulla **Hero Summary Card** della barra laterale è presente il pulsante rapido `[ 🎒 Sfila Zaino a Terra ]` $\leftrightarrow$ `[ 🎒 Raccogli Zaino ]`.
+   * Quando lo zaino viene sfilato a terra:
+     * Lo stato passa a `⚠️ Zaino a Terra`.
+     * Gli oggetti nello zaino vengono contrassegnati visivamente con il tag `[A Terra]`.
+     * Il peso di tutti gli oggetti contenuti nello zaino viene **istantaneamente escluso dal carico corporeo trasportato**, consentendo al personaggio di alleggerirsi e ripristinare la velocità piena per combattere o fuggire.
+     * L'azione viene annunciata in chat con la citazione della regola RAW.
+
+3. **Regola Variante di Ingombro 5e (Variant: Encumbrance, PHB p. 176)**:
+   * **Peso Reale delle Monete**: 50 monete di qualsiasi metallo pesano esattamente 1 libbra (es. 500 MO = 10 lbs di carico alla cintura).
+   * **Scaglioni Basati sulla Forza del Personaggio**:
+     * **🟢 Normale** ($\le \text{FOR} \times 5\text{ lbs}$): nessuna penalità.
+     * **🟡 Ingombrato** ($> \text{FOR} \times 5\text{ lbs}$ fino a $\text{FOR} \times 10\text{ lbs}$): velocità ridotta di **10 ft (3 m)**.
+     * **🔴 Gravemente Ingombrato** ($> \text{FOR} \times 10\text{ lbs}$ fino a $\text{FOR} \times 15\text{ lbs}$): velocità ridotta di **20 ft (6 m)** e **Svantaggio** a tutti i tiri per colpire, prove di caratteristica e tiri salvezza basati su Forza, Destrezza o Costituzione.
+     * **⛔ Sovraccarico** ($> \text{FOR} \times 15\text{ lbs}$): peso superiore alla capacità massima di carico corporeo; la velocità di movimento scende a **0**.
+   * Le penalità di velocità vengono riflesse dinamicamente sul badge velocità della Hero Summary Card e sulla barra del movimento nell'Economia del Turno.
+
 ### Economia del Turno: Esplorazione vs Combattimento
 La sezione **Economia Turno** nel tab `Controlli PG` si adatta automaticamente alla fase di gioco:
 
