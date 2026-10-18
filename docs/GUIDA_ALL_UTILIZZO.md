@@ -21,18 +21,26 @@ Questa guida illustra passo dopo passo come avviare una sessione, configurare l'
    - [Supporto Multi-Griglia: Esagonale, Quadrata e Senza Griglia](#supporto-multi-griglia-esagonale-quadrata-e-senza-griglia)
    - [Utilizzo del Righello Dinamico (`[ 📏 ]`)](#utilizzo-del-righello-dinamico---)
 4. [Guida per il Giocatore (Player)](#4-guida-per-il-giocatore-player)
+   - [Gestione e Creazione Personaggi Offline (Senza Connessione al Server)](#gestione-e-creazione-personaggi-offline-senza-connessione-al-server)
    - [Creazione Personaggio (Wizard) e Level-Up](#creazione-personaggio-wizard-e-level-up)
    - [Hero Summary Card e Scheda Personaggio Interattiva](#hero-summary-card-e-scheda-personaggio-interattiva)
    - [Risorse di Classe Speciali (Ki, Ira, Ispirazione Bardica, ecc.)](#risorse-di-classe-speciali-ki-ira-ispirazione-bardica-ecc)
+   - [Sintonia con Oggetti Magici (Attunement `🔮`) e Ispirazione DM](#sintonia-con-oggetti-magici-attunement--e-ispirazione-dm)
    - [Economia del Turno: Esplorazione vs Combattimento](#economia-del-turno-esplorazione-vs-combattimento)
    - [Azioni in Combattimento, Incantesimi AoE e Upcasting](#azioni-in-combattimento-incantesimi-aoe-e-upcasting)
+   - [Reazioni RAW e Incantesimo Scudo (*Shield*)](#reazioni-raw-e-incantesimo-scudo-shield)
+   - [Tratti Speciali: Evasione (Ladro/Monaco) e Attacco Furtivo](#tratti-speciali-evasione-ladromonaco-e-attacco-furtivo)
    - [Punti Ferita, Riposi e Tiri Salvezza contro la Morte](#punti-ferita-riposi-e-tiri-salvezza-contro-la-morte)
    - [Inventario, Ingombro, Scambi e Richieste al DM](#inventario-ingombro-scambi-e-richieste-al-dm)
    - [Esportazione Scheda Personaggio (PDF Ufficiale D&D 5e e JSON)](#esportazione-scheda-personaggio-pdf-ufficiale-dd-5e-e-json)
    - [Macro Hotbar (Slot Rapidi 1–10)](#macro-hotbar-slot-rapidi-110)
 5. [Guida per il Dungeon Master (DM)](#5-guida-per-il-dungeon-master-dm)
+   - [Stili di Gestione della Campagna (DM Agency vs Full Automation) e Barra Decisioni](#stili-di-gestione-della-campagna-dm-agency-vs-full-automation-e-barra-decisioni)
    - [Gestione Campagne, Atti, Scene e Starter Pack](#gestione-campagne-atti-scene-e-starter-pack)
    - [Gestione Mappe, Editor Mappe, Muri, Trappole e Portali](#gestione-mappe-editor-mappe-muri-trappole-e-portali)
+   - [Gestione Porte, Serrature e Meccanica di Scasso RAW 5e](#gestione-porte-serrature-e-meccanica-di-scasso-raw-5e)
+   - [Spille di Stanza del Dungeon (Room Pins) e Narrazione al Tavolo](#spille-di-stanza-del-dungeon-room-pins-e-narrazione-al-tavolo)
+   - [Tiri Segreti del DM (Blind Rolls: `/broll`, `/gmroll`)](#tiri-segreti-del-dm-blind-rolls-broll-gmroll)
    - [Nebbia di Guerra (FoW), Pennello Manuale, Line of Sight e Luci](#nebbia-di-guerra-fow-pennello-manuale-line-of-sight-e-luci)
    - [Taglie Creature (Dimensioni Token) e Livello Nascosto DM (GM Layer)](#taglie-creature-dimensioni-token-e-livello-nascosto-dm-gm-layer)
    - [Gestione del Combattimento e Bilanciatore Incontri (DMG p. 82)](#gestione-del-combattimento-e-bilanciatore-incontri-dmg-p-82)
@@ -178,6 +186,17 @@ Nel tab **`🌟 Privilegi`** della Scheda PG è presente il riquadro interattivo
 * **Risorse Personalizzate**: puoi aggiungere nuove risorse personalizzate tramite il pulsante **`+ Aggiungi Risorsa`** specificando Nome, Valore Massimo e Tipo di Recupero (*Riposo Breve* o *Riposo Lungo*), oppure eliminarle con `🗑️`.
 * **Ricarica Intelligente nei Riposi**: quando effettui un *Riposo Breve* o un *Riposo Lungo*, il sistema ripristina automaticamente solo le risorse che recuperano con quel tipo di riposo.
 
+### Sintonia con Oggetti Magici (Attunement `🔮`) e Ispirazione DM
+* **Sintonia con Oggetti Magici (Attunement `🔮`)**:
+  * Come da regole ufficiali RAW 5e (DMG p. 136), un personaggio può essere in sintonia con un massimo di **3 oggetti magici contemporaneamente**.
+  * Nel tab **🎒 Inventario** della Scheda PG, ogni oggetto possiede un indicatore/selettore `🔮 Sintonizzato`.
+  * Il sistema conteggia dinamicamente gli slot occupati (`🔮 Sintonie Attive: X / 3`) e impedisce di superare il limite delle 3 sintonie senza prima averne sciolta una (durante un riposo breve).
+  * Gli effetti passivi degli oggetti sintonizzati (bonus a CA, tiri per colpire, caratteristiche o tiri salvezza) si applicano istantaneamente alle statistiche calcolate del personaggio.
+* **Ispirazione del Dungeon Master (`✨ Ispirazione`)**:
+  * Nella parte superiore della Scheda PG e nella Hero Summary Card è presente il badge **`✨ Ispirazione DM`**.
+  * Può essere conferita dal DM con un click per premiare ottime interpretazioni di ruolo, decisioni audaci o fedeltà ai difetti/legami del personaggio.
+  * Il giocatore può spendere l'Ispirazione in qualsiasi momento prima di effettuare un tiro per ottenere immediatamente **Vantaggio** (2d20kh1) a un tiro per colpire, tiro salvezza o prova di caratteristica.
+
 ### Economia del Turno: Esplorazione vs Combattimento
 La sezione **Economia Turno** nel tab `Controlli PG` si adatta automaticamente alla fase di gioco:
 
@@ -203,6 +222,30 @@ La sezione **Economia Turno** nel tab `Controlli PG` si adatta automaticamente a
   * Puoi scegliere di lanciarlo al suo livello base oppure effettuare l'**Upcast** spendendo uno slot di livello più alto disponibile (es. lanciare *Dardo Incantato* di 1° livello con uno slot di 3° livello).
   * Il sistema deduce automaticamente lo slot selezionato e trasmette in chat l'annuncio specificando sia il livello base sia il livello dell'upcast effettivo.
 * **Pulsante `⏭️ Termina Turno`**: attivo durante il tuo turno di combattimento; passa immediatamente l'iniziativa al combattente successivo.
+
+### Reazioni RAW e Incantesimo Scudo (*Shield*)
+* **Economia delle Reazioni RAW (PHB p. 190)**:
+  * Ogni creatura dispone di una sola `🛡️ Reazione` per round, che si ripristina all'inizio del proprio turno.
+  * Il sistema monitora in tempo reale gli eventi scatenanti (*triggers*) che avvengono durante i turni degli altri combattenti.
+* **Prompt di Reazione per l'Incantesimo Scudo (*Shield*)**:
+  * Quando un attacco nemico supera la CA di un personaggio (o quando viene bersagliato da *Dardo Incantato*), se l'eroe conosce o ha preparato l'incantesimo *Scudo* e dispone della propria reazione e di almeno uno slot di 1° livello o superiore, il client visualizza un prompt interattivo con conto alla rovescia:
+    * Se il giocatore accetta: consuma la `🛡️ Reazione` del round, scala uno slot di 1° livello e aggiunge un bonus invisibile di **+5 alla Classe Armatura (CA)** fino all'inizio del suo prossimo turno.
+    * **Risoluzione Retroattiva**: Se il nuovo punteggio di CA ($CA + 5$) è superiore o uguale al tiro per colpire dell'avversario, l'attacco viene retroattivamente convertito da "Colpito" a "Mancato", salvando il personaggio dai danni!
+* **Attacchi di Opportunità Dinamici**:
+  * Quando un nemico adiacente (a distanza di 1 esagono / $5\text{ ft}$) si allontana uscendo dalla portata di mischia senza aver intrapreso l'azione di *Disimpegno (Disengage)*, il server rileva l'apertura e invia una notifica al difensore permettendogli di spendere la sua `🛡️ Reazione` per sferrare un attacco immediato in mischia.
+
+### Tratti Speciali: Evasione (Ladro/Monaco) e Attacco Furtivo
+* **Evasione (*Evasion*, PHB p. 79/96)**:
+  * Per Ladri e Monaci di 7° livello o superiore, l'agilità istintiva trasforma la gestione degli effetti ad area che richiedono un Tiro Salvezza su Destrezza (es. *Palla di Fuoco*, soffio di drago):
+    * **TS Superato**: subiscono **0 danni** (invece della metà normale).
+    * **TS Fallito**: subiscono solo la **metà del danno** (invece del danno pieno).
+  * Il motore di gioco riconosce automaticamente la classe e il livello dell'entità coinvolta applicando la riduzione senza necessità di calcoli manuali.
+* **Attacco Furtivo (*Sneak Attack*, PHB p. 96)**:
+  * Quando un Ladro mette a segno un attacco, il sistema valuta automaticamente i requisiti RAW:
+    * L'arma deve essere **Accurata (*Finesse*)** o un'arma a **Distanza**.
+    * L'attaccante ha **Vantaggio** al tiro per colpire, OPPURE un alleato del ladro è entro 1 esagono ($5\text{ ft}$) dal bersaglio, non è inabile e il ladro **non ha Svantaggio**.
+    * La meccanica è limitata a **una sola volta per turno**.
+  * Al verificarsi delle condizioni, il server calcola e somma automaticamente i dadi di danno extra previsti per il livello del ladro (da $+1d6$ a livello 1 fino a $+10d6$ a livello 19), annunciando l'attacco furtivo nel registro di combattimento.
 
 ### Punti Ferita, Riposi e Tiri Salvezza contro la Morte
 * **Scendere a 0 PV**: il personaggio perde automaticamente la `Concentrazione` e riceve le condizioni `Incosciente` e `Prono`. Se il danno residuo in eccesso è $\ge \text{PV Massimi}$, si verifica la **Morte Istantanea**.
@@ -237,6 +280,43 @@ In fondo alla finestra del Giocatore è presente una barra con **10 pulsanti num
 
 ## 5. Guida per il Dungeon Master (DM)
 
+### Stili di Gestione della Campagna (DM Agency vs Full Automation) e Barra Decisioni
+D&D OmniCompanion offre al Dungeon Master il pieno controllo sull'equilibrio tra **automazione informatica** e **arbitraggio umano (DM Agency)**, garantendo che il software non sostituisca mai la voce, il ritmo e le scelte narrative del Master:
+
+* **I 3 Profili Preimpostati**:
+  * **🎲 Tavolo Tradizionale (Pen & Paper / Controllo DM RAW)**:
+    * Esperienza pura cartacea. Nessuna modifica irreversibile alle schede avviene a scatola chiusa.
+    * Quando viene sferrato un attacco o lanciata una magia AoE, i danni non vengono sottratti in automatico: il sistema calcola la proposta numerica e la invia alla **Barra Fluttuante delle Decisioni del DM** per approvazione o modifica.
+    * Le porte chiuse lasciano spazio all'interazione narrativa e alla descrizione del DM (es. serrature arrugginite, trappole con aghi avvelenati), senza che un click apra direttamente la stanza.
+    * La concentrazione dei personaggi non viene infranta silenziosamente e i Tiri Salvezza contro la Morte o 0 HP vengono gestiti con il giusto pathos al tavolo.
+  * **⚖️ Ibrido Assistito (Consigliato per Sessioni Fluide)**:
+    * Il perfetto equilibrio per le sessioni moderne. Il motore gestisce la contabilità complessa (resistenze ai danni, coperture, visibilità al buio, penalità dei terreni difficili e condizioni), mentre il DM riceve schede decisionali a 1-click (`[Pieno]`, `[Dimezza]`, `[Modifica]`, `[Annulla]`) per confermare o modulare gli esiti all'istante.
+  * **⚡ Full Automation (CRPG / Tattico Rapido)**:
+    * Modalità stile videogioco tattico. I danni vengono applicati istantaneamente ai PV, le porte si sbloccano su successo della CD, i turni sono bloccati rigidamente per i giocatori non attivi e le reazioni/TS partono in automatico.
+* **Come Cambiare Profilo al Volo**:
+  * Clicca sul badge colorato **`🎲 Tavolo`**, **`⚖️ Ibrido`** o **`⚡ Full Auto`** posizionato nella barra superiore della mappa.
+  * Oppure apri il pannello completo da **`Strumenti -> ⚙️ Stile Gestione Campagna (Automazioni)...`**.
+* **11 Switch Granulari Indipendenti**:
+  * Dalla finestra di configurazione il DM può personalizzare singolarmente ciascun aspetto:
+    1. `auto_attack_damage`: applicazione automatica danni da attacchi con armi.
+    2. `auto_aoe_damage`: applicazione automatica danni da magie AoE.
+    3. `auto_concentration`: prove automatiche di Concentrazione (TS COS).
+    4. `auto_advantage_disadvantage`: calcolo automatico Vantaggio/Svantaggio 5e.
+    5. `auto_critical_damage`: raddoppio automatico dadi sui critici Nat 20.
+    6. `auto_traps`: innesco e danno automatico delle trappole.
+    7. `auto_turn_economy`: blocco rigido del turno fuori dal proprio ordine.
+    8. `auto_spell_slots`: deduzione automatica degli slot incantesimo al lancio.
+    9. `auto_encumbrance`: blocco del movimento in caso di sovraccarico di peso.
+    10. `auto_death_saves`: gestione automatica TS morte a 0 PV.
+    11. `auto_weather_effects`: applicazione automatica svantaggi da tempesta, nebbia e pioggia.
+* **Barra Fluttuante delle Decisioni DM in Sospeso (*Pending Actions Dock*)**:
+  * Quando è attivo il profilo Tradizionale o Ibrido e un evento richiede l'intervento del Master (es. danno in arrivo, richiesta di riposo, scasso o trappola), in basso al centro appare un dock ergonomico non invasivo:
+  * Mostra il dettaglio dell'evento (es. `Attacco su Gildor: 14 Danni Taglienti`) e offre comodi pulsanti:
+    * `[ ✅ Applica ]` — convalida ed esegue l'azione con un click.
+    * `[ ✂️ Dimezza (Resistenza) ]` — dimezza il valore prima di applicarlo.
+    * `[ ✏️ Modifica ]` — permette di digitare un importo numerico differente.
+    * `[ ❌ Nega / Annulla ]` — respinge l'azione senza alcuna modifica allo stato di gioco.
+
 ### Gestione Campagne, Atti, Scene e Starter Pack
 Dal menu **`File`** e **`Strumenti`** della plancia DM:
 * **Nuova Campagna / Editor Campagna Attiva**: organizza la tua avventura in **Atti**, **Scene** (ciascuna collegata a un file mappa e a tracce audio), **PNG** e **Incontri preparati**.
@@ -259,7 +339,56 @@ Dal menu **`File`** e **`Strumenti`** della plancia DM:
     * **Pericoli al Passaggio**: entrare sul Ghiaccio richiede un **TS Destrezza CD 10** o si cade Proni; entrare nei Rovi infligge **1d4 danni perforanti**.
     * **Combattimento**: attaccare stando su terreno instabile (Ghiaccio, Macerie, Palude, Fango) impone **Svantaggio**; attaccare bersagli intralciati nei Rovi o bloccati nel Fango conferisce **Vantaggio**.
     * **HUD Coordinate**: passando il cursore sopra una cella, la targhetta in basso a destra visualizza il tipo di terreno e il moltiplicatore (es. `⬡ q:2, r:1 [Ghiaccio x2 Mov]`).
-* **Porte e Teletrasporti (`[ 🚪 ]`)**: clicca sullo strumento `[ 🚪 ]` nella toolbar sinistra e poi su un esagono per collegarlo a un altro file mappa (es. `cripta_livello2.json`). Quando un giocatore cammina su quell'esagono, il server carica automaticamente la nuova mappa per tutto il gruppo.
+* **Portali e Teletrasporti (`[ 🚪 ]`)**: clicca sullo strumento `[ 🚪 ]` nella toolbar sinistra e poi su un esagono per collegarlo a un altro file mappa (es. `cripta_livello2.json`). Quando un giocatore cammina su quell'esagono, il server carica automaticamente la nuova mappa per tutto il gruppo.
+
+### Gestione Porte, Serrature e Meccanica di Scasso RAW 5e
+OmniCompanion gestisce le porte e le vie di passaggio con un sistema interattivo aderente al regolamento ufficiale D&D 5e:
+
+* **Stati della Porta**:
+  * **Aperta (`open`)**: passaggio libero, la Line of Sight attraversa l'apertura.
+  * **Chiusa (`closed`)**: blocca la visione e il passaggio, ma può essere aperta con una semplice interazione con oggetto.
+  * **Chiusa a Chiave / Bloccata (`locked`)**: serratura ingaggiata con una specifica Classe Difficoltà (es. CD 15 o CD 20).
+  * **Segreta (`secret`)**: invisibile sulla mappa dei giocatori finché non viene scoperta tramite Percezione Passiva o una prova attiva di Investigazione; il DM la vede evidenziata con icona tratteggiata.
+  * **Sbarrata (`barred`)**: bloccata dall'interno con travi o catene pesanti, richiede di essere sfondata o sbloccata dall'altro lato.
+* **Azioni del Giocatore sulle Porte**:
+  * Cliccando su una porta o selezionandola con click destro, il giocatore accede alle opzioni RAW:
+  * **🗝️ Apri con Chiave**: se il personaggio possiede la chiave corrispondente nell'inventario, la serratura si apre senza tiri.
+  * **🛠️ Scassinare con Arnesi da Scasso (*Thieves' Tools*)**:
+    * Richiede il possesso di *Arnesi da Scasso* nell'inventario del PG (PHB p. 154).
+    * Esegue una prova di **Destrezza (Arnesi da Scasso)** applicando il bonus di competenza (o maestria se ladro esperto).
+    * Se il risultato eguaglia o supera la CD della porta, la serratura scatta e la porta diventa sbloccata.
+    * Con il profilo *Tavolo Tradizionale* o *Ibrido Assistito*, il tiro viene notificato al DM che può descrivere l'esito narrativo o applicare complicanze (es. rottura dei grimaldelli con un 1 Naturale o allarme che suona).
+  * **💥 Forzare / Sfondare la Porta**:
+    * Prova di **Forza (Atletica)** contro la CD di sfondamento della porta.
+    * Un successo abbatte o scardina la porta, ma allerta tutte le creature nelle stanze limitrofe.
+  * **✨ Incantesimo Scassinare (*Knock*)**:
+    * Sblocca istantaneamente fino a due serrature o sbarramenti, ma emette un fortissimo rimbombo sonoro udibile fino a 300 piedi (90 metri).
+* **Configurazione DM**:
+  * Fai **Click Destro** su una porta $\rightarrow$ **`Modifica Porta...`** per configurare stato iniziale, CD di scasso, CD di sfondamento, se è segreta e il file mappa di destinazione se funge da portale.
+
+### Spille di Stanza del Dungeon (Room Pins) e Narrazione al Tavolo
+Le **Spille di Stanza (`[ 📌 ]`)** trasformano OmniCompanion in un modulo d'avventura interattivo:
+
+* **Piazzamento Spille**:
+  * Il DM seleziona lo strumento **`[ 📌 ]`** nella toolbar sinistra o fa click destro su un esagono della mappa $\rightarrow$ **`Piazza Spilla di Stanza`**.
+  * Sulla mappa compare una spilla numerata/titolata (es. `[ 📌 1: Ingresso della Cripta ]`), visibile solo al Dungeon Master o rivelabile se desiderato.
+* **Finestra Narrativa della Stanza**:
+  * Cliccando su una spilla si apre un pannello a due sezioni:
+    1. **📜 Testo Narratore in Riquadro (*Boxed Text*)**: la descrizione d'atmosfera scritta per i giocatori (in tipico stile manuale ufficiale Wizards of the Coast).
+       * Cliccando su **`📢 Leggi al Tavolo (Broadcast)`**, l'intero testo viene formattato come pergamena dorata nella chat di tutti i giocatori con 1 click!
+    2. **🔒 Note Segrete del DM**: visibili **esclusivamente al Master**. Contengono trappole celate, posizioni dei mostri, tesori nascosti, tattiche di combattimento e CD delle prove di Investigazione.
+
+### Tiri Segreti del DM (Blind Rolls: `/broll`, `/gmroll`)
+Per preservare la suspense e prevenire il metagaming, OmniCompanion implementa i tiri alla cieca (*Blind Rolls*):
+
+* **Comando Chat**: digita `/broll <formula> [motivo]` oppure `/gmroll <formula> [motivo]`:
+  * Esempi: `/broll 1d20+5 Furtività`, `/broll 1d20+3 Percezione Passiva`, `/gmroll 1d20+7 Disattivare Trappole`.
+* **Comportamento Anti-Metagame**:
+  * Il server calcola il tiro con il motore matematico completo (inclusi modificatori, critici ed espressioni).
+  * Il **risultato numerico, il dado e il totale vengono inviati ESCLUSIVAMENTE al Dungeon Master**.
+  * Il giocatore vede solo una notifica rassicurante e discreta in chat:
+    > `🎲 Hai inviato un tiro segreto al DM (1d20+5: Furtività). Il Master ne conosce l'esito!`
+  * In questo modo, se un giocatore tira un 2 naturale su una prova di individuare trappole o muoversi silenziosamente, non potrà sapere se non ha trovato nulla perché la stanza è sicura o perché ha fallito clamorosamente il tiro!
 
 ### Nebbia di Guerra (FoW), Pennello Manuale, Line of Sight e Luci
 * Cliccando su **`[ ☁️ ]`** nella toolbar sinistra del DM si apre la barra avanzata della **Nebbia di Guerra**:
@@ -361,6 +490,8 @@ Il motore di gioco rileva automaticamente ogni `20 Naturale` e `1 Naturale` tira
 | `/sussurra <nome> <testo>` | Tutti | Alias italiano per sussurro privato | `/sussurra Elidor Cura!` |
 | `/manuale <termine>` | Tutti | Cerca una regola, incantesimo o mostro nei PDF | `/manuale lotta` |
 | `/rule <termine>` | Tutti | Alias per la ricerca nei manuali PDF | `/rule concentration` |
+| `/broll <dadi> [motivo]` | Tutti | Esegue un tiro segreto il cui risultato è visibile **solo al DM** | `/broll 1d20+5 Furtività` |
+| `/gmroll <dadi> [motivo]` | Tutti | Alias per tiro segreto al DM | `/gmroll 1d20+3 Percezione` |
 | `/tsmorte` / `/deathsave` / `/ds` | Giocatori (a 0 PV) | Esegue un Tiro Salvezza contro la Morte | `/ds` |
 | `/vision <nome> <raggio_hex>` | Solo DM | Imposta il raggio visivo (in esagoni) di un token | `/vision Gildor 12` |
 | `/darkness` / `/oscurita` | Solo DM | Attiva/Disattiva all'istante il filtro Oscurità sulla mappa | `/darkness` |

@@ -12,7 +12,11 @@ Welcome to the comprehensive operational manual for **D&D OmniCompanion**, a com
 2. [Prerequisites & Quick Start](#2-prerequisites--quick-start)
 3. [User Interface & Layout Overview](#3-user-interface--layout-overview)
 4. [Dungeon Master (DM) Operations](#4-dungeon-master-dm-operations)
+   - [Campaign Management Styles (DM Agency vs Full Automation) & Pending Actions Dock](#campaign-management-styles-dm-agency-vs-full-automation--pending-actions-dock)
    - [Map Management & Hex Grid](#map-management--hex-grid)
+   - [Doors, Locks & RAW 5e Lockpicking](#doors-locks--raw-5e-lockpicking)
+   - [Dungeon Room Pins & Boxed Text](#dungeon-room-pins--boxed-text)
+   - [Blind Rolls to the DM (/broll, /gmroll)](#blind-rolls-to-the-dm-broll-gmroll)
    - [Fog of War, Dynamic Lighting & Line of Sight](#fog-of-war-dynamic-lighting--line-of-sight)
    - [Traps, Hazards & Portals (Teleports)](#traps-hazards--portals-teleports)
    - [Combat Management & Live Encounter Balancer](#combat-management--live-encounter-balancer)
@@ -24,6 +28,7 @@ Welcome to the comprehensive operational manual for **D&D OmniCompanion**, a com
 5. [Player Operations](#5-player-operations)
    - [Character Creation & Progression Wizard](#character-creation--progression-wizard)
    - [Interactive Character Sheet](#interactive-character-sheet)
+   - [Magic Item Attunement (Attunement `🔮`) & DM Inspiration](#magic-item-attunement-attunement--dm-inspiration)
    - [Combat Actions & 5e Turn Flow](#combat-actions--5e-turn-flow)
    - [Death Saving Throws Automation](#death-saving-throws-automation)
    - [Inventory & Encumbrance Grid](#inventory--encumbrance-grid)
@@ -33,6 +38,8 @@ Welcome to the comprehensive operational manual for **D&D OmniCompanion**, a com
    - [Travel System & Marching Order](#travel-system--marching-order)
 6. [5e Mechanics & Automation Engine](#6-5e-mechanics--automation-engine)
    - [Advantage & Disadvantage Computation](#advantage--disadvantage-computation)
+   - [RAW Reactions & Shield Spell Prompt](#raw-reactions--shield-spell-prompt)
+   - [Special Traits: Evasion & Sneak Attack](#special-traits-evasion--sneak-attack)
    - [Dynamic Cover System](#dynamic-cover-system)
    - [Opportunity Attacks](#opportunity-attacks)
    - [Concentration Checks](#concentration-checks)
@@ -58,6 +65,9 @@ D&D OmniCompanion is structured around an asynchronous Client-Server architectur
 flowchart TD
     subgraph Server["Server (DM Host)"]
         DM_GUI["DM GUI (dm_gui.py)"]
+        DM_Auto["Automation Panel & Dock (dm_automation_panel.py)"]
+        DM_Travel["Travel & Marching Order (dm_travel_dialog.py)"]
+        DM_Entity["Entity & Token Dialogs (dm_entity_dialogs.py)"]
         S_Core["Game Server (server.py)"]
         S_Rules["Rules Engine (server/rules/*.py)"]
         S_Voice["Voice Server (voice_server.py: UDP 53912)"]
@@ -81,18 +91,32 @@ flowchart TD
     S_Core <-->|TCP: Length-Prefixed JSON Packets| C2_GUI
     S_Voice <-->|UDP: Raw PCM Audio Packets| C1_Voice
     S_Voice <-->|UDP: Raw PCM Audio Packets| C2_Voice
+    DM_GUI --> DM_Auto
+    DM_GUI --> DM_Travel
+    DM_GUI --> DM_Entity
     DM_GUI --> S_Core
     S_Core --> S_Rules
     S_Rules --> S_State
 ```
 
 ### Core Subsystems
-* **`common/network_utils.py` & `common/protocol.py`**: Custom binary-length-prefixed framing over TCP socket streams, ensuring zero JSON chunk fragmentation regardless of network latency or payload size. Includes **GM Layer Protocol Filtering** (the server automatically excludes tokens with `layer == "gm"` when broadcasting `GAME_STATE`, `PLAYER_JOINED`, and `PLAYER_MOVE` to regular player sockets) and whiteboard protocol messages (`CLEAR_DRAWINGS_REQUEST`, `CLEAR_DRAWINGS_BROADCAST`).
+* **`common/network_utils.py` & `common/protocol.py`**: Custom binary-length-prefixed framing over TCP socket streams, ensuring zero JSON chunk fragmentation regardless of network latency or payload size. The `protocol.py` module includes **strict static typing (`TypedDict`)** establishing unambiguous payload contracts across all client/server exchanges, **GM Layer Protocol Filtering** (the server automatically excludes tokens with `layer == "gm"` when broadcasting `GAME_STATE`, `PLAYER_JOINED`, and `PLAYER_MOVE` to regular player sockets), and dedicated message types for tactical whiteboard, blind rolls (`/broll`), door operations, and room narration.
+* **`server/dm_automation_panel.py`, `dm_travel_dialog.py`, `dm_entity_dialogs.py`**: Specialized controllers extracted from `dm_gui.py`:
+  * `dm_automation_panel.py`: manages the 3 campaign conduction profiles (`🎲 Traditional Tabletop`, `⚖️ Assisted Hybrid`, `⚡ Full Automation`), the 11 granular toggles, and the **Floating DM Pending Actions Dock**.
+  * `dm_travel_dialog.py`: travel pace, overland marching order, ration/water tracking, and forced march constitution saving throws.
+  * `dm_entity_dialogs.py`: token sizing (Tiny to Gargantuan), magical auras, and contextual token attributes.
 * **`common/hex_utils.py`**: Mathematical engine for geometric grids:
   * Cubic coordinate system ($q, r, s$ where $q + r + s = 0$) with `HexLayout` for hexagonal maps, line of sight (LoS) raycasting, cone projections ($60^\circ / 90^\circ$), spheres, and straight-line AoEs.
   * `SquareLayout` for chess/square dungeon battlemaps and pixel $\leftrightarrow$ cell conversion.
   * Polymorphic `grid_distance(a, b, grid_type)` function supporting Chebyshev distance (standard 5e rule where diagonals cost 5 ft / 1 cell), cubic hex distance, and Euclidean distance for gridless maps (`none`/`gridless`).
-* **`server/rules/`**: Decoupled 5e rule modules isolating combat (`combat.py`), movement (`movement.py`), character damage/death (`character.py`), chat commands (`chat.py`), inventory/trading (`inventory.py`), map & whiteboard interactions (`map_interaction.py`), and audio (`audio.py`).
+* **`server/rules/`**: Decoupled 5e rule modules:
+  * `combat.py`: initiative, attacks, criticals, cover, advantage/disadvantage, turn economy, reaction prompts (*Shield* spell, opportunity attacks), Evasion, and Sneak Attack.
+  * `movement.py`: hex movement, FoW, traps, difficult terrain, and map teleports.
+  * `character.py`: damage absorption, temporary HP, concentration constitution saves, 0 HP, instant death, death saving throws, and rests.
+  * `chat.py`: rich chat, dice expressions, Nat20/Nat1 detection, private whispers, and blind rolls (`/broll`, `/gmroll`).
+  * `map_interaction.py`: pings, ruler, interactive doors, lockpicking with tools, room pins, and boxed text broadcast.
+  * `inventory.py`: peer-to-peer trading, merchant shops, currency, DM approval, and magic item attunement (`🔮`).
+  * `audio.py`: synchronized audio broadcasts and soundboard.
 * **`common/i18n.py`**: Real-time bilingual translation dictionary (`IT`/`EN`), Imperial/Metric unit conversion (`ft`/`mi` $\leftrightarrow$ `m`/`km`), localization of token sizes, GM layer, whiteboard tools, and multi-scale map distance/travel-time calculation.
 
 ---
@@ -134,6 +158,19 @@ Both the DM and Player interfaces are built with **ttkbootstrap** in modern dark
 
 ## 4. Dungeon Master (DM) Operations
 
+### Campaign Management Styles (DM Agency vs Full Automation) & Pending Actions Dock
+The server features a granular architecture for balancing 5e automation with human DM agency, encapsulated in `server/dm_automation_panel.py` and persisted in `GameState`:
+* **Data Model**:
+  * `GameState.automation_profile`: stores the active campaign profile (`"traditional"`, `"hybrid"`, `"full"`).
+  * `GameState.automation_toggles`: dictionary of 11 independent boolean flags (`auto_attack_damage`, `auto_aoe_damage`, `auto_concentration`, `auto_advantage_disadvantage`, `auto_critical_damage`, `auto_traps`, `auto_turn_economy`, `auto_spell_slots`, `auto_encumbrance`, `auto_death_saves`, `auto_weather_effects`).
+* **Operational Profiles**:
+  * **`🎲 Traditional Tabletop`**: Keeps full control in the DM's hands. Attacks and spells compute math but do not modify HP without DM confirmation; doors and saving throws preserve room for narrative; no invisible walls block movement.
+  * **`⚖️ Assisted Hybrid`**: Recommended for most gaming groups. Automatically resolves complex bookkeeping (cover, resistances, conditions, formulas) and forwards critical events to the floating pending actions dock.
+  * **`⚡ Full Automation`**: Tactical CRPG mode. Damage is applied immediately, turns are strictly locked, reactions and traps trigger automatically.
+* **Floating DM Pending Actions Dock**:
+  * A non-intrusive floating dock located at the bottom-center of the DM's screen.
+  * When an action requires DM adjudication, an interactive card pops up offering 1-click resolution buttons: `[ ✅ Apply ]`, `[ ✂️ Half ]`, `[ ✏️ Edit ]`, `[ ❌ Reject ]`.
+
 ### Map Management, Multi-Grid & Scale-Aware Ruler
 * **Loading Maps**: Navigate to `File -> Load Map`. Supported formats: `.png`, `.jpg`, `.jpeg`, `.json`.
 * **Multi-Grid Geometry Engine (Hex, Square, Gridless)**:
@@ -148,6 +185,23 @@ Both the DM and Player interfaces are built with **ttkbootstrap** in modern dark
   * **Custom Scale**: Any custom distance value and unit (`ft`, `m`, `mi`, `km`) per hex.
   * **Quick Scale Switcher (`📏 Scale`)**: Click the scale pill in the DM top bar to switch the active map's scale on the fly and broadcast it live to all connected players.
 * **Map Editor**: Choose `Tools -> Map Editor` to configure grid radius, grid geometry type (`grid_type`), offset, scale, static walls, traps, portals, and lights.
+
+### Doors, Locks & RAW 5e Lockpicking
+* **Door States**: `open` (clear passage and sight), `closed` (blocks vision and movement), `locked` (requires key or lockpicking check with DC), `secret` (concealed from players), `barred` (braced from within).
+* **RAW Lockpicking (PHB p. 154)**:
+  * Requires *Thieves' Tools* in the PC inventory.
+  * Dexterity check adding proficiency bonus against the lock's DC.
+  * Supports brute-force attempts via Strength (Athletics) checks and magical bypassing via the *Knock* spell.
+* **Automation Profile Integration**: In *Traditional Tabletop* mode, lockpicking attempts generate a pending decision card, allowing the DM to narrate complications or assess environmental consequences.
+
+### Dungeon Room Pins & Boxed Text
+* **Interactive Pins (`[ 📌 ]`)**: The DM can drop labeled pins directly on map locations linked to adventure sections.
+* **Boxed Narration Text**: Formatted descriptive text that the DM can read aloud or broadcast instantly (**`📢 Read to Table`**) to all connected players as a chat handout.
+* **Secret DM Notes**: Dedicated notes field for concealed traps, enemy tactics, hidden loot, and DC thresholds, visible exclusively to the DM.
+
+### Blind Rolls to the DM (`/broll`, `/gmroll`)
+* **Chat Commands**: `/broll <formula> [reason]` or `/gmroll <formula> [reason]`.
+* **Anti-Metagame Security**: The server evaluates rolls via `common/dice.py`. The die roll, modifiers, and total are transmitted strictly to the DM's socket (`BLIND_ROLL_DM_NOTIFY`). The rolling player receives an acknowledgment toast without seeing the rolled number, preserving genuine mystery.
 
 ### Fog of War, Manual Brush, Dynamic Lighting & Line of Sight
 * **Dynamic Fog of War (FoW)**: The canvas automatically conceals unexplored cells for players.
@@ -245,6 +299,16 @@ Organized in clean tabs:
 * **Custom Resources**: Add custom resource pools with Name, Max Value, and Recovery Rule (*Short Rest* vs *Long Rest*).
 * **Automated Rest Recovery**: Triggering a Short Rest or Long Rest automatically resets only the resources configured for that rest duration.
 
+### Magic Item Attunement (Attunement `🔮`) & DM Inspiration
+* **Attunement Tracking (DMG p. 136)**:
+  * Strict enforcement of the official maximum of **3 simultaneously attuned magic items** per character.
+  * Attuned items apply passive stat modifiers (AC, saving throws, attack bonuses) automatically to sheet values.
+  * Attempting to attune a 4th item prompts the player to first end an active attunement during a short rest.
+* **DM Inspiration**:
+  * Persistent visual badge in the sheet header and hero summary card (`✨`).
+  * The DM can grant or revoke inspiration with 1 click.
+  * The player can spend inspiration before rolling to apply Advantage (`2d20kh1`) automatically.
+
 ### Combat Actions & Context-Aware 5e Turn Economy
 The Player Action Economy panel automatically adapts to whether combat is active:
 * **Out of Combat (`🧭 Exploration Mode - Free Movement`)**:
@@ -336,6 +400,20 @@ The combat engine calculates advantage and disadvantage dynamically based on tok
 * **Magical Darkness**: Standard Darkvision cannot penetrate magical darkness; anyone inside or attacking into magical darkness is blinded (PHB p. 194-195).
 * **Mutual Cancellation**: Having both advantage and disadvantage (including mutual blindness in pitch-black darkness between creatures without darkvision) cancels out to a normal roll as per 5e rules, with full transparent reasoning recorded in the combat log.
 
+### RAW Reactions & Shield Spell Prompt
+* **Reaction Resource Management (PHB p. 190)**: Centralized tracking of each combatant's reaction pool, refreshing at the beginning of their respective turns.
+* **Shield Spell Trigger**:
+  * Trigger: An incoming attack roll equals or beats the target's AC, or the target is struck by *Magic Missile*.
+  * The target's client receives an interactive reaction dialog with a prompt.
+  * Upon acceptance: consumes the creature's reaction, expends a 1st+ level spell slot, and retroactively applies $+5$ to AC. If the revised AC exceeds the attack roll, the attack is re-evaluated as a miss before damage calculation.
+
+### Special Traits: Evasion & Sneak Attack
+* **Evasion (Rogue lv 7+ / Monk lv 7+)**:
+  * On Dexterity-save based area of effect spells (e.g., *Fireball*), `server/rules/combat.py` applies automated damage scaling: successful save = 0 damage; failed save = half damage.
+* **Sneak Attack (Rogue)**:
+  * Automatic validation of 5e RAW conditions (finesse or ranged weapon, advantage on attack OR conscious adjacent ally within 1 hex without disadvantage, 1/turn limit).
+  * Automatically rolls level-scaled bonus damage dice ($1d6$ to $10d6$) and integrates them into the damage payload.
+
 ### Dynamic Cover System
 * If another creature or obstacle lies directly on the hex ray between the attacker and target, the target gains **Mezza Copertura (+2 CA)** automatically.
 
@@ -387,6 +465,8 @@ The combat engine calculates advantage and disadvantage dynamically based on tok
 | `/sussurra <name> <msg>` | Italian alias for whisper | `/sussurra Elidor Ho 3 slot rimasti` |
 | `/manuale <termine>` | Quick lookup in indexed 5e rulebooks | `/manuale fireball`, `/manuale stealth` |
 | `/rule <termine>` | Alias for manual lookup | `/rule grappling` |
+| `/broll <expr> [reason]` | Rolls a blind check visible **only to the DM** | `/broll 1d20+5 stealth` |
+| `/gmroll <expr> [reason]` | Alias for secret DM roll | `/gmroll 1d20+3 perception` |
 | `/tsmorte`, `/deathsave`, `/ds` | Roll 5e Death Saving Throw | `/ds` |
 | `/vision <name> <radius>` | DM only: sets character darkvision radius | `/vision Gildor 12` |
 | `/darkness`, `/oscurita` | DM only: toggles global map darkness filter | `/darkness`, `/oscurita` |
@@ -425,13 +505,16 @@ The codebase includes automated test suites covering headless unit tests, GUI sm
 # 1. Run unit tests for recent features (multi-scale ruler, criticals, turn economy, units, whispers, death saves)
 $env:DND_MOCK_AUDIO="1"; python test_new_features.py
 
-# 2. Run UI smoke tests across all 19 server and client windows
+# 2. Run authentic 5e RAW rules test suite (Doors, Lockpicking, Room Pins, Reactions, Shield, Evasion, Sneak Attack, Blind Rolls)
+$env:DND_MOCK_AUDIO="1"; python test_authentic_5e.py
+
+# 3. Run UI smoke tests across all 19 server and client windows
 $env:DND_MOCK_AUDIO="1"; python test_ui_smoke.py --no-screens
 
-# 3. Run the complete 53-phase multiplayer game simulation
+# 4. Run the complete 53-phase multiplayer game simulation
 $env:DND_MOCK_AUDIO="1"; python simulate_game_session.py
 
-# 4. Run campaign system tests
+# 5. Run campaign system tests
 $env:DND_MOCK_AUDIO="1"; python -m unittest test_campaign_system.py
 ```
 

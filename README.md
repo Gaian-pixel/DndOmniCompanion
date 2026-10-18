@@ -146,6 +146,7 @@ From the startup launcher choose:
 | `/whisper <name> <msg>` | Alias for private whisper | `/whisper DM I check the chest` |
 | `/sussurra <name> <msg>` | Italian alias for private whisper | `/sussurra Elidor I've got you covered` |
 | `/manuale <term>` or `/rule <term>` | Search indexed 5e PDF rulebooks | `/manuale fireball`, `/rule stealth` |
+| `/broll <formula>` or `/gmroll <formula>` | Secret roll visible only to the Dungeon Master | `/broll 1d20+5 stealth` |
 | `/tsmorte`, `/deathsave`, `/ds` | Roll a 5e Death Saving Throw | `/ds` |
 | `/vision <name> <radius_hex>` | *(DM only)* Set token vision radius | `/vision Gildor 12` |
 
@@ -170,6 +171,9 @@ DndOmniCompanion/
 ├── server/                         # DM Server, 5e Rules Engine, DM GUI & Voice Host
 │   ├── server.py                   # Multi-client TCP game server
 │   ├── dm_gui.py                   # Main Dungeon Master dashboard
+│   ├── dm_automation_panel.py      # Campaign Conduction Panel (3 styles) & DM Pending Actions Dock
+│   ├── dm_travel_dialog.py         # Overland Travel, Marching Order & Rations Dialog
+│   ├── dm_entity_dialogs.py        # Token Sizing, Magical Auras & Entity Config Dialogs
 │   ├── commands.py                 # Central network packet dispatcher
 │   ├── dm_dialogs.py               # DM dialogs (Handouts, Custom NPC, Sheet Viewer, Starter Kit)
 │   ├── dm_generators.py            # Procedural 5e Loot & NPC generators
@@ -221,13 +225,16 @@ DndOmniCompanion/
 # 1. Feature Unit Tests (Multi-scale ruler, Nat20/Nat1 criticals, Turn Economy, ft/m units, Whispers, Death Saves)
 $env:DND_MOCK_AUDIO="1"; python test_new_features.py
 
-# 2. Full UI Smoke Tests across all 19 DM Server & Player Client screens
+# 2. Authentic 5e RAW Rules Test Suite (Doors, Lockpicking, Room Pins, Reactions, Shield, Evasion, Sneak Attack, Blind Rolls)
+$env:DND_MOCK_AUDIO="1"; python test_authentic_5e.py
+
+# 3. Full UI Smoke Tests across all 19 DM Server & Player Client screens
 $env:DND_MOCK_AUDIO="1"; python test_ui_smoke.py --no-screens
 
-# 3. Full 53-Phase End-to-End Multiplayer Simulation
+# 4. Full 53-Phase End-to-End Multiplayer Simulation
 $env:DND_MOCK_AUDIO="1"; python simulate_game_session.py
 
-# 4. Campaign & Scene System Tests
+# 5. Campaign & Scene System Tests
 $env:DND_MOCK_AUDIO="1"; python -m unittest test_campaign_system.py
 ```
 

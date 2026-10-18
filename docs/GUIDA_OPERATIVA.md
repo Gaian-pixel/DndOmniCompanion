@@ -12,7 +12,11 @@ Benvenuto nel manuale operativo e architetturale di **D&D OmniCompanion**, il Vi
 2. [Prerequisiti e Avvio Rapido](#2-prerequisiti-e-avvio-rapido)
 3. [Panoramica Interfaccia Utente e Layout](#3-panoramica-interfaccia-utente-e-layout)
 4. [Operazioni del Dungeon Master (DM)](#4-operazioni-del-dungeon-master-dm)
+   - [Stili di Gestione della Campagna (DM Agency vs Full Automation) e Barra Decisioni](#stili-di-gestione-della-campagna-dm-agency-vs-full-automation-e-barra-decisioni)
    - [Gestione Mappe, Griglia Multi-Scala e Righello](#gestione-mappe-griglia-multi-scala-e-righello)
+   - [Porte, Serrature e Scasso RAW 5e](#porte-serrature-e-scasso-raw-5e)
+   - [Spille di Stanza del Dungeon (Room Pins) e Boxed Text](#spille-di-stanza-del-dungeon-room-pins-e-boxed-text)
+   - [Tiri Segreti del DM (Blind Rolls: /broll, /gmroll)](#tiri-segreti-del-dm-blind-rolls-broll-gmroll)
    - [Nebbia di Guerra, Illuminazione Dinamica e Line of Sight](#nebbia-di-guerra-illuminazione-dinamica-e-line-of-sight)
    - [Trappole, Pericoli e Portali (Teletrasporti)](#trappole-pericoli-e-portali-teletrasporti)
    - [Gestione Combattimento e Bilanciatore Incontri Live](#gestione-combattimento-e-bilanciatore-incontri-live)
@@ -24,6 +28,7 @@ Benvenuto nel manuale operativo e architetturale di **D&D OmniCompanion**, il Vi
 5. [Operazioni del Giocatore (Player)](#5-operazioni-del-giocatore-player)
    - [Wizard di Creazione e Progressione Personaggio](#wizard-di-creazione-e-progressione-personaggio)
    - [Scheda Personaggio Interattiva](#scheda-personaggio-interattiva)
+   - [Sintonia con Oggetti Magici (Attunement `🔮`) e Ispirazione DM](#sintonia-con-oggetti-magici-attunement--e-ispirazione-dm)
    - [Azioni di Combattimento ed Economia del Turno Contestuale](#azioni-di-combattimento-ed-economia-del-turno-contestuale)
    - [Automazione dei Tiri Salvezza contro la Morte](#automazione-dei-tiri-salvezza-contro-la-morte)
    - [Inventario, Ingombro e Approvazione DM Online](#inventario-ingombro-e-approvazione-dm-online)
@@ -34,6 +39,8 @@ Benvenuto nel manuale operativo e architetturale di **D&D OmniCompanion**, il Vi
 6. [Motore delle Meccaniche e Automazioni D&D 5e](#6-motore-delle-meccaniche-e-automazioni-dd-5e)
    - [Successi Critici (20 Naturale) e Fallimenti Critici (1 Naturale)](#successi-critici-20-naturale-e-fallimenti-critici-1-naturale)
    - [Calcolo di Vantaggio e Svantaggio](#calcolo-di-vantaggio-e-svantaggio)
+   - [Reazioni RAW e Incantesimo Scudo (*Shield*)](#reazioni-raw-e-incantesimo-scudo-shield)
+   - [Tratti Speciali: Evasione e Attacco Furtivo](#tratti-speciali-evasione-e-attacco-furtivo)
    - [Sistema di Copertura Dinamica](#sistema-di-copertura-dinamica)
    - [Attacchi di Opportunità](#attacchi-di-opportunità)
    - [Prove di Concentrazione](#prove-di-concentrazione)
@@ -57,6 +64,9 @@ D&D OmniCompanion è strutturato attorno a un'architettura Client-Server asincro
 flowchart TD
     subgraph Server["Server (DM Host)"]
         DM_GUI["DM GUI (dm_gui.py)"]
+        DM_Auto["Automation Panel & Dock (dm_automation_panel.py)"]
+        DM_Travel["Travel & Marching Order (dm_travel_dialog.py)"]
+        DM_Entity["Entity & Token Dialogs (dm_entity_dialogs.py)"]
         S_Core["Game Server (server.py)"]
         S_Rules["Rules Engine (server/rules/*.py)"]
         S_Voice["Voice Server (voice_server.py: UDP 53912)"]
@@ -80,18 +90,32 @@ flowchart TD
     S_Core <-->|TCP: Pacchetti JSON con Prefisso Lunghezza| C2_GUI
     S_Voice <-->|UDP: Pacchetti Audio PCM Grezzi| C1_Voice
     S_Voice <-->|UDP: Pacchetti Audio PCM Grezzi| C2_Voice
+    DM_GUI --> DM_Auto
+    DM_GUI --> DM_Travel
+    DM_GUI --> DM_Entity
     DM_GUI --> S_Core
     S_Core --> S_Rules
     S_Rules --> S_State
 ```
 
 ### Sottosistemi Principali
-* **`common/network_utils.py` & `common/protocol.py`**: Framing binario con prefisso di lunghezza a 4 byte su stream socket TCP, per garantire zero frammentazione dei pacchetti JSON indipendentemente dalla latenza o dalla dimensione del payload. Include l'**Isolamento di Rete del GM Layer** (i broadcast di `GAME_STATE`, `PLAYER_JOINED` e `PLAYER_MOVE` escludono automaticamente i token con `layer == "gm"` per i socket dei giocatori) e i messaggi del protocollo di lavagna tattica (`CLEAR_DRAWINGS_REQUEST`, `CLEAR_DRAWINGS_BROADCAST`).
+* **`common/network_utils.py` & `common/protocol.py`**: Framing binario con prefisso di lunghezza a 4 byte su stream socket TCP, per garantire zero frammentazione dei pacchetti JSON indipendentemente dalla latenza o dalla dimensione del payload. Il modulo `protocol.py` include una **tipizzazione statica rigorosa del protocollo (`TypedDict`)** per garantire contratti di payload robusti tra client e server, l'**Isolamento di Rete del GM Layer** (i broadcast di `GAME_STATE`, `PLAYER_JOINED` e `PLAYER_MOVE` escludono automaticamente i token con `layer == "gm"` per i socket dei giocatori) e i messaggi per lavagna tattica, blind rolls (`/broll`), gestione porte e narrazione stanze.
+* **`server/dm_automation_panel.py`, `dm_travel_dialog.py`, `dm_entity_dialogs.py`**: Moduli specializzati decongestionati dal controller centrale `dm_gui.py`:
+  * `dm_automation_panel.py`: gestisce i 3 profili di conduzione (`🎲 Tavolo Tradizionale`, `⚖️ Ibrido Assistito`, `⚡ Full Automation`), gli 11 toggle granulari e la **Barra Fluttuante delle Decisioni DM in Sospeso** (*Pending Actions Dock*).
+  * `dm_travel_dialog.py`: dialoghi interattivi per la marcia via terra, consumo razioni, ruoli di viaggio e ordine di marcia del party.
+  * `dm_entity_dialogs.py`: configurazione avanzata di taglia token (da Minuscola a Mastodontica), aure magiche e attributi contestuali.
 * **`common/hex_utils.py`**: Motore matematico per griglie geometriche:
   * Sistema di coordinate cubiche ($q, r, s$ con $q + r + s = 0$) con `HexLayout` per griglie esagonali, raycasting Line of Sight (LoS), proiezioni di coni ($60^\circ / 90^\circ$), sfere e linee rette AoE.
   * `SquareLayout` per griglie a scacchiera/quadrate e conversione pixel $\leftrightarrow$ griglia.
   * Funzione polimorfica `grid_distance(a, b, grid_type)` con supporto per metrica di Chebyshev (regola ufficiale D&D 5e per caselle diagonali su griglie quadrate), distanza cubica per esagoni e distanza euclidea per griglie libere (`none`/`gridless`).
-* **`server/rules/`**: Moduli di regole 5e disaccoppiati che isolano combattimento (`combat.py`), movimento (`movement.py`), danni/morte del personaggio (`character.py`), comandi chat (`chat.py`), inventario/scambi (`inventory.py`), interazioni mappa e lavagna (`map_interaction.py`) e audio (`audio.py`).
+* **`server/rules/`**: Moduli di regole 5e disaccoppiati:
+  * `combat.py`: iniziativa, attacchi, critici, copertura, vantaggio/svantaggio, economia turno, prompt di reazione (*Shield* spell, attacchi di opportunità), Evasione e Attacco Furtivo.
+  * `movement.py`: movimento esagonale, FoW, trappole, terreni difficili e teletrasporti tra mappe.
+  * `character.py`: assorbimento danni, PV temporanei, prove di concentrazione (TS COS), 0 HP, morte istantanea, TS morte e riposi.
+  * `chat.py`: chat Discord-style, formule dadi, critici Nat20/Nat1, sussurri privati e blind rolls (`/broll`, `/gmroll`).
+  * `map_interaction.py`: ping, righello, porte interattive, serrature/scasso con arnesi, spille di stanza (*Room Pins*) e narrazione al tavolo.
+  * `inventory.py`: scambi P2P, negozi, valuta, approvazione DM e sintonia magica (`🔮`).
+  * `audio.py`: gestione broadcast audio e soundboard.
 * **`common/i18n.py`**: Dizionario di traduzione bilingue in tempo reale (`IT`/`EN`), conversione unità Imperiale/Metrica (`ft`/`mi` $\leftrightarrow$ `m`/`km`), localizzazione taglie creature, GM layer, strumenti lavagna e motore di calcolo per scale mappa e tempi di viaggio.
 
 ---
@@ -133,6 +157,19 @@ Sia l'interfaccia DM che quella Giocatore sono realizzate con **ttkbootstrap** i
 
 ## 4. Operazioni del Dungeon Master (DM)
 
+### Stili di Gestione della Campagna (DM Agency vs Full Automation) e Barra Decisioni
+Il server implementa un'architettura granulare per arbitrare il livello di automazione delle regole 5e, disaccoppiata in `server/dm_automation_panel.py` e integrata nel `GameState`:
+* **Modello Dati**:
+  * `GameState.automation_profile`: memorizza il profilo globale attivo (`"traditional"`, `"hybrid"`, `"full"`).
+  * `GameState.automation_toggles`: dizionario di 11 flag booleani indipendenti (`auto_attack_damage`, `auto_aoe_damage`, `auto_concentration`, `auto_advantage_disadvantage`, `auto_critical_damage`, `auto_traps`, `auto_turn_economy`, `auto_spell_slots`, `auto_encumbrance`, `auto_death_saves`, `auto_weather_effects`).
+* **Profili Operativi**:
+  * **`🎲 Tavolo Tradizionale`**: Mantiene il controllo completo nelle mani del DM. Gli attacchi e le magie calcolano i valori matematici ma non alterano i PV senza l'approvazione del Master; le porte e i tiri salvezza lasciano spazio alla narrazione; nessun muro invisibile blocca i token.
+  * **`⚖️ Ibrido Assistito`**: Ideale per la maggior parte dei tavoli. Risolve automaticamente le regole complesse (coperture, resistenze, condizioni, formule) e inoltra le richieste critiche (danni ai PG, eventi di morte) alla barra decisioni.
+  * **`⚡ Full Automation`**: Modalità videogioco tattico. Danni sottratti istantaneamente, turni rigidamente bloccati per chi non è attivo, reazioni e trappole automatiche.
+* **Barra Decisioni DM in Sospeso (*Pending Actions Dock*)**:
+  * Un componente dock flottante semi-trasparente posizionato in basso al centro della schermata del DM.
+  * Quando un'azione richiede arbitraggio, viene generata una card con anteprima e pulsanti di risoluzione a 1-click: `[ ✅ Applica ]`, `[ ✂️ Dimezza ]`, `[ ✏️ Modifica ]`, `[ ❌ Nega ]`.
+
 ### Gestione Mappe, Griglia Multi-Scala e Righello
 * **Caricamento Mappe**: Vai su `File -> Carica Mappa`. Formati supportati: `.png`, `.jpg`, `.jpeg`, `.json`.
 * **Motore Multi-Griglia (Esagonale, Quadrata, Senza Griglia)**:
@@ -147,6 +184,23 @@ Sia l'interfaccia DM che quella Giocatore sono realizzate con **ttkbootstrap** i
   * **Scala Personalizzata**: Qualsiasi valore di distanza e unità (`ft`, `m`, `mi`, `km`) per esagono.
   * **Selettore Rapido Scala (`📏 Scala`)**: Clicca sul badge della scala nella barra superiore del DM per cambiare al volo la scala della mappa attiva e trasmetterla in tempo reale a tutti i giocatori connessi.
 * **Editor Mappe**: Scegli `Strumenti -> Editor Mappe` per configurare raggio celle, tipo di griglia (`grid_type`), offset, scala, muri statici, trappole, portali e luci.
+
+### Porte, Serrature e Scasso RAW 5e
+* **Stati Porte**: `open` (aperta), `closed` (chiusa), `locked` (chiusa a chiave con CD), `secret` (segreta), `barred` (sbarrata dall'interno).
+* **Meccanica di Scasso RAW (PHB p. 154)**:
+  * Richiede *Arnesi da Scasso* nell'inventario del PG.
+  * Prova di Destrezza con bonus competenza contro la CD della serratura.
+  * Supporto per tentativi di forzatura con prova di Forza (Atletica) e apertura magica con incantesimo *Scassinare* (*Knock*).
+* **Integrazione con i Profili di Automazione**: Con il profilo *Tradizionale*, il tentativo di scasso richiede l'arbitraggio del DM nella barra decisioni per descrivere l'esito narrativo o applicare imprevisti.
+
+### Spille di Stanza del Dungeon (Room Pins) e Boxed Text
+* **Spille Interattive (`[ 📌 ]`)**: Il DM può posizionare spille numerate o titolate sulla mappa collegate ai paragrafi dell'avventura.
+* **Boxed Text Narrativo**: Riquadro formattato di narrazione ambientale che il DM può leggere a voce o trasmettere istantaneamente con un click (**`📢 Leggi al Tavolo`**) in chat come pergamena condivisa.
+* **Note Segrete del DM**: Area protetta per trappole celate, tattiche dei mostri, tesori nascosti e CD di investigazione, visibile esclusivamente al Master.
+
+### Tiri Segreti del DM (Blind Rolls: `/broll`, `/gmroll`)
+* **Comandi Chat**: `/broll <formula> [motivo]` o `/gmroll <formula> [motivo]`.
+* **Sicurezza Anti-Metagame**: Il server calcola il tiro con il motore matematico di `common/dice.py`. Il valore del dado, i modificatori e il totale sono inviati via TCP solo al socket del DM (`BLIND_ROLL_DM_NOTIFY`). Il giocatore riceve una notifica di avvenuto invio senza conoscere il numero uscito.
 
 ### Nebbia di Guerra, Pennello Manuale, Luci e Line of Sight
 * **Nebbia di Guerra Dinamica (FoW)**: Il canvas nasconde automaticamente le celle inesplorate ai giocatori.
@@ -238,6 +292,16 @@ Organizzata in schede chiare:
 * **Risorse Custom**: Possibilità di aggiungere risorse arbitrarie con Nome, Massimo e Regola di Recupero (*Riposo Breve* vs *Riposo Lungo*).
 * **Recupero Automatico**: Durante un Riposo Breve o Lungo, il motore aggiorna le sole risorse congruenti con la tipologia di riposo effettuato.
 
+### Sintonia con Oggetti Magici (Attunement `🔮`) e Ispirazione DM
+* **Sintonia Magica (DMG p. 136)**:
+  * Tracciamento rigoroso del vincolo a un massimo di **3 oggetti magici sintonizzati** per personaggio.
+  * Gli oggetti sintonizzati applicano automaticamente i modificatori alle statistiche, alla CA e ai tiri per colpire/danni.
+  * Il tentativo di sintonizzare un quarto oggetto richiede prima di interrompere una sintonia esistente durante un riposo breve.
+* **Ispirazione del DM**:
+  * Badge di stato visibile nella testata della scheda e nella summary card (`✨`).
+  * Il DM può conferirla con 1 click o revocarla.
+  * Il giocatore può spendere l'Ispirazione per applicare automaticamente Vantaggio (`2d20kh1`) al prossimo tiro per colpire, tiro salvezza o prova.
+
 ### Azioni di Combattimento ed Economia del Turno Contestuale
 Il pannello **Economia Turno** del Giocatore si adatta automaticamente allo stato del combattimento:
 * **Fuori dal Combattimento (`🧭 Modalità Esplorazione - Movimento Libero`)**:
@@ -316,6 +380,20 @@ Il motore di combattimento calcola dinamicamente vantaggio e svantaggio in base 
 * **Oscurità Magica**: La normale Scurovisione non penetra le sfere di oscurità magica; chiunque si trovi all'interno o attacchi verso l'interno è considerato accecato (PHB p. 194-195).
 * **Annullamento Reciproco**: Se sono presenti contemporaneamente fonti di vantaggio e di svantaggio (inclusa la reciproca cecità nel buio totale tra creature prive di scurovisione), queste si annullano producendo un tiro normale, con motivazione dettagliata registrata nel log di combattimento.
 
+### Reazioni RAW e Incantesimo Scudo (*Shield*)
+* **Gestione Reazioni (PHB p. 190)**: Monitoraggio centralizzato della spesa della reazione per ciascun combattente.
+* **Incantesimo Scudo (*Shield*)**:
+  * Evento scatenante (*trigger*): un attacco a segno o un lancio di *Dardo Incantato* contro un bersaglio con la magia memorizzata/preparata e slot $\ge 1$.
+  * Il client del difensore riceve una richiesta asincrona di reazione con countdown.
+  * In caso di conferma: consumo della reazione, deduzione slot di 1° livello e incremento retroattivo $+5$ CA. Se il nuovo valore di CA supera il tiro per colpire dell'attaccante, l'evento viene ricalcolato come mancato prima dell'assegnazione dei danni.
+
+### Tratti Speciali: Evasione e Attacco Furtivo
+* **Evasione (Ladro lv 7+ / Monaco lv 7+)**:
+  * Su effetti ad area basati su TS Destrezza (es. *Palla di Fuoco*), il modulo `server/rules/combat.py` applica la riduzione automatica: TS superato = 0 danni; TS fallito = metà danno.
+* **Attacco Furtivo (Ladro)**:
+  * Riconoscimento automatico delle condizioni 5e (arma accurata o a distanza, vantaggio al tiro OPPURE alleato entro 1 esagono e assenza di svantaggio, 1 volta per round).
+  * Applicazione automatica dei dadi bonus scalati per livello (da $1d6$ a $10d6$) nel calcolo del pacchetto di danno.
+
 ### Sistema di Copertura Dinamica
 * Se un'altra creatura o un ostacolo si trova direttamente sul raggio esagonale tra attaccante e bersaglio, il bersaglio ottiene automaticamente **Mezza Copertura (+2 CA)**.
 
@@ -365,6 +443,8 @@ Il motore di combattimento calcola dinamicamente vantaggio e svantaggio in base 
 | `/sussurra <nome> <msg>` | Alias italiano per sussurro | `/sussurra Elidor Ho 3 slot rimasti` |
 | `/manuale <termine>` | Ricerca rapida nei manuali PDF 5e indicizzati | `/manuale fireball`, `/manuale stealth` |
 | `/rule <termine>` | Alias per ricerca manuali | `/rule grappling` |
+| `/broll <expr> [motivo]` | Esegue un tiro segreto visibile solo al DM | `/broll 1d20+5 furtività` |
+| `/gmroll <expr> [motivo]` | Alias per tiro segreto al DM | `/gmroll 1d20+3 percezione` |
 | `/tsmorte`, `/deathsave`, `/ds` | Esegue un Tiro Salvezza contro la Morte | `/ds` |
 | `/vision <nome> <raggio>` | Solo DM: imposta il raggio di scurovisione | `/vision Gildor 12` |
 | `/darkness`, `/oscurita` | Solo DM: attiva o disattiva il filtro oscurità globale sulla mappa | `/darkness`, `/oscurita` |
@@ -403,13 +483,16 @@ Il progetto include suite di test automatizzati che coprono unit test headless, 
 # 1. Esegui gli unit test delle funzionalità (righello multi-scala, critici, economia turno, unità, sussurri, TS morte)
 $env:DND_MOCK_AUDIO="1"; python test_new_features.py
 
-# 2. Esegui gli smoke test UI su tutte le 19 finestre server e client
+# 2. Esegui la suite regole autentiche RAW 5e (Porte, Scasso, Spille Stanza, Reazioni, Scudo, Evasione, Furtivo, Blind Rolls)
+$env:DND_MOCK_AUDIO="1"; python test_authentic_5e.py
+
+# 3. Esegui gli smoke test UI su tutte le 19 finestre server e client
 $env:DND_MOCK_AUDIO="1"; python test_ui_smoke.py --no-screens
 
-# 3. Esegui la simulazione multiplayer end-to-end completa (53 fasi)
+# 4. Esegui la simulazione multiplayer end-to-end completa (53 fasi)
 $env:DND_MOCK_AUDIO="1"; python simulate_game_session.py
 
-# 4. Esegui i test del sistema campagne
+# 5. Esegui i test del sistema campagne
 $env:DND_MOCK_AUDIO="1"; python -m unittest test_campaign_system.py
 ```
 

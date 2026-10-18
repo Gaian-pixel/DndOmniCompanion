@@ -146,6 +146,7 @@ Dal selettore iniziale potrai scegliere:
 | `/whisper <nome> <msg>` | Alias per sussurro privato | `/whisper DM Controllo il baule` |
 | `/sussurra <nome> <msg>` | Alias italiano per sussurro privato | `/sussurra Elidor Ti copro io` |
 | `/manuale <termine>` o `/rule <termine>` | Cerca nei manuali PDF 5e indicizzati | `/manuale fireball`, `/rule stealth` |
+| `/broll <formula>` o `/gmroll <formula>` | Tira dadi in modalità segreta (visibile solo al DM) | `/broll 1d20+5 furtività` |
 | `/tsmorte`, `/deathsave`, `/ds` | Esegue un Tiro Salvezza contro la Morte | `/ds` |
 | `/vision <nome> <raggio_hex>` | *(Solo DM)* Imposta il raggio di visione di un token | `/vision Gildor 12` |
 
@@ -170,6 +171,9 @@ DndOmniCompanion/
 ├── server/                         # Server DM, Regole 5e, Plancia DM e Voice Server
 │   ├── server.py                   # Server TCP multi-client
 │   ├── dm_gui.py                   # Plancia principale del Dungeon Master
+│   ├── dm_automation_panel.py      # Pannello di conduzione campagna (3 stili) e Barra Decisioni DM
+│   ├── dm_travel_dialog.py         # Dialogo di viaggio overland, ordine di marcia e razioni
+│   ├── dm_entity_dialogs.py        # Dialoghi per taglia creature, aure magiche e attributi token
 │   ├── commands.py                 # Dispatcher centrale dei pacchetti di rete
 │   ├── dm_dialogs.py               # Dialoghi DM (Handout, PNG Custom, Visualizzatore Schede, Starter Kit)
 │   ├── dm_generators.py            # Generatori procedurali di Bottino 5e e PNG
@@ -221,13 +225,16 @@ DndOmniCompanion/
 # 1. Unit Test delle funzionalità (Righello multi-scala, Critici Nat20/Nat1, Economia Turno, Unità ft/m, Sussurri, TS Morte)
 $env:DND_MOCK_AUDIO="1"; python test_new_features.py
 
-# 2. Smoke Test completo di tutte le 19 schermate UI (Server DM e Client Player)
+# 2. Test Meccaniche Autentiche RAW 5e (Porte, Lockpicking, Room Pins, Reazioni, Shield, Evasione, Furtivo, Blind Rolls)
+$env:DND_MOCK_AUDIO="1"; python test_authentic_5e.py
+
+# 3. Smoke Test completo di tutte le 19 schermate UI (Server DM e Client Player)
 $env:DND_MOCK_AUDIO="1"; python test_ui_smoke.py --no-screens
 
-# 3. Simulazione End-to-End Multiplayer completa (53 fasi)
+# 4. Simulazione End-to-End Multiplayer completa (53 fasi)
 $env:DND_MOCK_AUDIO="1"; python simulate_game_session.py
 
-# 4. Test Sistema Campagne e Scene
+# 5. Test Sistema Campagne e Scene
 $env:DND_MOCK_AUDIO="1"; python -m unittest test_campaign_system.py
 ```
 

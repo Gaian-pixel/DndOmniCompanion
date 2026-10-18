@@ -20,18 +20,26 @@ This manual walks you step by step through starting a session, configuring the i
    - [Multi-Grid Support: Hexagonal, Square & Gridless](#multi-grid-support-hexagonal-square--gridless)
    - [Using the Dynamic Ruler (`[ 📏 ]`)](#using-the-dynamic-ruler---)
 4. [Player Guide](#4-player-guide)
+   - [Standalone Offline Character Manager](#standalone-offline-character-manager)
    - [Character Creation Wizard & Level-Up](#character-creation-wizard--level-up)
    - [Hero Summary Card & Interactive Character Sheet](#hero-summary-card--interactive-character-sheet)
    - [Special Class Resources (Ki, Rage, Bardic Inspiration, etc.)](#special-class-resources-ki-rage-bardic-inspiration-etc)
+   - [Magic Item Attunement (Attunement `🔮`) & DM Inspiration](#magic-item-attunement-attunement--dm-inspiration)
    - [Turn Economy: Exploration vs. Combat](#turn-economy-exploration-vs-combat)
    - [Combat Actions, AoE Spells & Upcasting](#combat-actions-aoe-spells--upcasting)
+   - [RAW Reactions & Shield Spell Prompt](#raw-reactions--shield-spell-prompt)
+   - [Special Traits: Evasion (Rogue/Monk) & Sneak Attack](#special-traits-evasion-roguemonk--sneak-attack)
    - [Hit Points, Rests & Death Saving Throws](#hit-points-rests--death-saving-throws)
    - [Inventory, Encumbrance, Trading & DM Approval](#inventory-encumbrance-trading--dm-approval)
    - [Character Sheet Export (Official D&D 5e PDF & JSON)](#character-sheet-export-official-dd-5e-pdf--json)
    - [Macro Hotbar (Quick Slots 1–10)](#macro-hotbar-quick-slots-110)
 5. [Dungeon Master (DM) Guide](#5-dungeon-master-dm-guide)
+   - [Campaign Management Styles (DM Agency vs. Full Automation) & Pending Actions Dock](#campaign-management-styles-dm-agency-vs-full-automation--pending-actions-dock)
    - [Campaigns, Acts, Scenes & Starter Pack](#campaigns-acts-scenes--starter-pack)
    - [Map Management, Map Editor, Walls, Traps & Portals](#map-management-map-editor-walls-traps--portals)
+   - [Doors, Locks & RAW 5e Lockpicking Mechanics](#doors-locks--raw-5e-lockpicking-mechanics)
+   - [Dungeon Room Pins & Narration Boxed Text](#dungeon-room-pins--narration-boxed-text)
+   - [Blind Rolls to the DM (`/broll`, `/gmroll`)](#blind-rolls-to-the-dm-broll-gmroll)
    - [Fog of War (FoW), Manual Brush, Line of Sight & Lighting](#fog-of-war-fow-manual-brush-line-of-sight--lighting)
    - [Creature Token Sizes & DM Hidden Layer (GM Layer)](#creature-token-sizes--dm-hidden-layer-gm-layer)
    - [Combat Management & Live Encounter Balancer (DMG p. 82)](#combat-management--live-encounter-balancer-dmg-p-82)
@@ -177,6 +185,17 @@ Under the **`🌟 Features`** tab of the Character Sheet you will find the **`�
 * **Custom Resources**: create custom tracking pools with **`+ Add Resource`** by specifying Name, Maximum Value, and Recovery Rule (*Short Rest* or *Long Rest*), or delete with `🗑️`.
 * **Smart Rest Recovery**: taking a *Short Rest* or *Long Rest* automatically replenishes only the resources appropriate for that rest type.
 
+### Magic Item Attunement (Attunement `🔮`) & DM Inspiration
+* **Magic Item Attunement (Attunement `🔮`)**:
+  * As per official RAW 5e rules (DMG p. 136), a character can be attuned to a maximum of **3 magic items simultaneously**.
+  * Under the **🎒 Inventory** tab of the Character Sheet, each item features an attunement toggle indicator `🔮 Attuned`.
+  * The system dynamically counts occupied attunement slots (`🔮 Active Attunement: X / 3`) and prevents exceeding the limit without ending an existing attunement during a short rest.
+  * Passive stat bonuses (e.g., bonuses to AC, attack rolls, ability scores, or saving throws) are automatically calculated and applied directly to your character sheet.
+* **Dungeon Master's Inspiration (`✨ Inspiration`)**:
+  * Displayed prominently at the top of the Character Sheet and in the Hero Summary Card as an **`✨ Inspiration`** badge.
+  * Can be granted by the DM with 1 click to reward exceptional roleplaying, clever ideas, or heroic sacrifices.
+  * The player can spend Inspiration at any time before making an attack roll, saving throw, or ability check to gain immediate **Advantage** (2d20kh1).
+
 ### Turn Economy: Exploration vs. Combat
 The **Turn Economy** section in the `Player Controls` tab automatically adapts to the current game phase:
 
@@ -202,6 +221,30 @@ The **Turn Economy** section in the `Player Controls` tab automatically adapts t
   * Select a higher-level slot to **Upcast** the spell (e.g., casting 1st-level *Magic Missile* using a 3rd-level slot).
   * The designated slot is deducted automatically, and chat broadcasts an announcement noting both the spell's base level and the effective upcast level.
 * **`⏭️ End Turn` Button**: active during your combat turn; immediately advances initiative to the next combatant.
+
+### RAW Reactions & Shield Spell Prompt
+* **RAW Reaction Economy (PHB p. 190)**:
+  * Each creature has exactly one `🛡️ Reaction` per round, which refreshes at the start of its turn.
+  * The engine continuously monitors triggers occurring on other combatants' turns.
+* **Interactive Shield Spell Prompt**:
+  * When an incoming enemy attack roll hits a character's Armor Class (or when targeted by *Magic Missile*), if the character knows or has prepared the *Shield* spell, holds an unspent `🛡️ Reaction`, and has at least one 1st+ level spell slot available, a countdown reaction prompt pops up:
+    * If accepted: spends the round's `🛡️ Reaction`, expends a 1st-level spell slot, and adds **+5 to Armor Class (AC)** until the start of the caster's next turn.
+    * **Retroactive Attack Recalculation**: If the improved AC ($AC + 5$) now equals or exceeds the enemy's attack roll, the attack is retroactively converted from a Hit into a Miss, completely sparing the character from damage!
+* **Dynamic Opportunity Attacks**:
+  * When an adjacent enemy (within 1 hex / $5\text{ ft}$) attempts to move away from melee range without taking the *Disengage* action, the server triggers an Opportunity Attack alert, allowing the defending player to spend their `🛡️ Reaction` to make an immediate melee attack.
+
+### Special Traits: Evasion (Rogue/Monk) & Sneak Attack
+* **Evasion (*PHB p. 79/96*)**:
+  * For 7th-level Rogues and Monks, instinctive agility alters Dexterity saving throws against area effects (such as a *Fireball* spell or dragon breath):
+    * **Successful Save**: takes **0 damage** (instead of half damage).
+    * **Failed Save**: takes only **half damage** (instead of full damage).
+  * The engine automatically checks the character's class and level to adjust damage without requiring manual calculations.
+* **Sneak Attack (*PHB p. 96*)**:
+  * When a Rogue lands an attack, the rules engine automatically validates official 5e conditions:
+    * The attack must use a **Finesse** or **Ranged** weapon.
+    * The Rogue has **Advantage** on the attack roll, OR another enemy of the target is within 1 hex ($5\text{ ft}$), that enemy is not incapacitated, and the Rogue **does not have Disadvantage**.
+    * Sneak Attack damage applies **once per turn**.
+  * When criteria are satisfied, the extra sneak attack dice appropriate for the Rogue's level (from $+1d6$ at 1st level up to $+10d6$ at 19th level) are automatically rolled and combined into the damage report.
 
 ### Hit Points, Rests & Death Saving Throws
 * **Dropping to 0 HP**: your character automatically loses `Concentration` and gains the `Unconscious` and `Prone` conditions. If remaining excess damage is $\ge \text{Max HP}$, **Instant Death** occurs.
@@ -236,6 +279,43 @@ At the bottom of the Player window is a bar with **10 numbered macro buttons (`1
 
 ## 5. Dungeon Master (DM) Guide
 
+### Campaign Management Styles (DM Agency vs. Full Automation) & Pending Actions Dock
+D&D OmniCompanion empowers the Dungeon Master with total control over the balance between **computational automation** and **human adjudication (DM Agency)**, ensuring that software never overrides the Dungeon Master's narrative voice and pacing:
+
+* **The 3 Core Management Profiles**:
+  * **🎲 Traditional Tabletop (Pen & Paper / RAW DM Agency)**:
+    * Authentic tabletop pen-and-paper experience. Critical character sheet changes are never committed automatically.
+    * When weapon attacks or AoE spells hit, damage is not deducted automatically: the system displays the calculated math in the **Floating DM Pending Actions Dock** for instant approval, halving, modification, or rejection.
+    * Locked doors prompt narrative interaction (rusty hinges, trapped keyholes) rather than automatically unlocking upon a click.
+    * Character concentration checks, 0 HP knockouts, and death saves are handled with narrative pacing.
+  * **⚖️ Assisted Hybrid (Recommended for Fluid Sessions)**:
+    * The ideal balance for modern gaming groups. The engine computes complex bookkeeping (resistances, dynamic cover, darkness visibility, difficult terrain penalties, and conditions), while the DM receives ergonomic 1-click decision cards (`[Full]`, `[Half]`, `[Edit]`, `[Reject]`) to validate results effortlessly.
+  * **⚡ Full Automation (CRPG / Fast Tactical)**:
+    * Video game tactical mode. Damage is directly subtracted from HP, doors unlock instantly upon passing DC, out-of-turn actions are locked, and saving throw/reaction prompts trigger automatically.
+* **Switching Profiles on the Fly**:
+  * Click the colored badge **`🎲 Table`**, **`⚖️ Hybrid`**, or **`⚡ Full Auto`** on the map's top ribbon.
+  * Or navigate to **`Tools -> ⚙️ Campaign Management Style (Automations)...`**.
+* **11 Independent Granular Switches**:
+  * From the automation settings dialog, the DM can toggle each system independently:
+    1. `auto_attack_damage`: automatic HP deduction from weapon attacks.
+    2. `auto_aoe_damage`: automatic damage resolution from AoE spells and saving throws.
+    3. `auto_concentration`: automatic Constitution saving throw prompts on damage.
+    4. `auto_advantage_disadvantage`: automatic 2d20 Advantage/Disadvantage resolution.
+    5. `auto_critical_damage`: automatic dice doubling on Natural 20 criticals.
+    6. `auto_traps`: automatic trap triggering and damage application.
+    7. `auto_turn_economy`: strict combat turn locking for inactive players.
+    8. `auto_spell_slots`: automatic deduction of spell slots upon casting.
+    9. `auto_encumbrance`: movement restriction when carrying capacity is exceeded.
+    10. `auto_death_saves`: automatic turn-start Death Saving Throw prompts.
+    11. `auto_weather_effects`: automatic ranged attack penalties in storms, fog, and rain.
+* **Floating DM Pending Actions Dock**:
+  * When running in Traditional or Hybrid mode, whenever an event requires DM oversight (e.g., incoming damage, rest request, lockpicking attempt, or trap trigger), a non-intrusive floating dock appears at the bottom-center of the DM screen:
+  * Shows event details (e.g., `Attack on Gildor: 14 Slashing Damage`) with 1-click action buttons:
+    * `[ ✅ Apply ]` — confirm and execute the action immediately.
+    * `[ ✂️ Half (Resistance) ]` — halving the numeric value before applying.
+    * `[ ✏️ Edit ]` — manually input a custom numeric value.
+    * `[ ❌ Reject ]` — discard the action without altering the game state.
+
 ### Campaigns, Acts, Scenes & Starter Pack
 From the DM **`File`** and **`Tools`** menus:
 * **New Campaign / Active Campaign Editor**: structure your adventure into **Acts**, **Scenes** (each linked to a map file and audio tracks), **NPCs**, and **Prepared Encounters**.
@@ -258,7 +338,56 @@ From the DM **`File`** and **`Tools`** menus:
     * **Hazards on Entry**: stepping onto Ice triggers a **DC 10 Dex saving throw** or falls Prone; entering Briars inflicts **1d4 piercing damage**.
     * **Combat Modifiers**: attacking from unstable footing (Ice, Rubble, Swamp, Mud) imposes **Disadvantage**; striking targets entangled in Briars or stuck in Mud grants **Advantage**.
     * **Coordinate HUD**: hovering over any hex displays its terrain type and movement cost (e.g., `⬡ q:2, r:1 [Ice x2 Mov]`).
-* **Doors & Teleports (`[ 🚪 ]`)**: click the `[ 🚪 ]` tool on the left toolbar and click a hex to link it to another map file (e.g., `crypt_level2.json`). Stepping on that hex automatically transitions the party to the destination map.
+* **Portals & Teleports (`[ 🚪 ]`)**: click the `[ 🚪 ]` tool on the left toolbar and click a hex to link it to another map file (e.g., `crypt_level2.json`). Stepping on that hex automatically transitions the party to the destination map.
+
+### Doors, Locks & RAW 5e Lockpicking Mechanics
+OmniCompanion manages doors, gates, and passageways through an interactive system fully compliant with official 5e rules:
+
+* **Door States**:
+  * **Open (`open`)**: clear passage; Line of Sight freely pierces the threshold.
+  * **Closed (`closed`)**: blocks vision and movement, but opens freely with a simple object interaction.
+  * **Locked (`locked`)**: engaged lock mechanism with an assigned Difficulty Class (e.g., DC 15 or DC 20).
+  * **Secret (`secret`)**: completely hidden on player screens until discovered via Passive Perception or active Investigation; clearly highlighted with a dashed boundary for the DM.
+  * **Barred (`barred`)**: fortified from the inside with heavy timber beams or chains, requiring brute force to breach or unbarring from the opposite side.
+* **Player Door Interactions**:
+  * Clicking or right-clicking an adjacent door presents official RAW options:
+  * **🗝️ Open with Key**: if the character carries the designated key in their inventory, the door unlocks instantly without rolls.
+  * **🛠️ Pick Lock with Thieves' Tools**:
+    * Requires *Thieves' Tools* in the character's inventory (PHB p. 154).
+    * Rolls a **Dexterity (Thieves' Tools)** check adding proficiency bonus (or double proficiency for expertise).
+    * Meeting or exceeding the door's lock DC clicks the mechanism open and transitions the door to unlocked.
+    * In *Traditional* or *Hybrid* mode, the roll triggers a DM notification card to narrate complications (e.g., broken lockpicks on a Natural 1 or tripping a needle trap).
+  * **💥 Force / Bash Open**:
+    * Rolls a **Strength (Athletics)** check against the door's break DC.
+    * A success splinters or forces the door open, but produces a loud crash alerting nearby monsters.
+  * **✨ Knock Spell**:
+    * Instantly unlocks up to two locks or bars, but emanates an echoing knock audible up to 300 feet (90 meters).
+* **DM Door Configuration**:
+  * **Right-Click** any door $\rightarrow$ **`Edit Door...`** to customize initial state, lockpicking DC, break DC, secret status, and destination map file.
+
+### Dungeon Room Pins & Narration Boxed Text
+**Room Pins (`[ 📌 ]`)** turn OmniCompanion into an interactive adventure module:
+
+* **Placing Room Pins**:
+  * The DM selects the **`[ 📌 ]`** tool from the left toolbar or right-clicks any map hex $\rightarrow$ **`Place Room Pin`**.
+  * A numbered/labeled pin appears on the map (e.g., `[ 📌 1: Crypt Entrance ]`), visible only to the DM.
+* **Room Narrative Window**:
+  * Clicking a pin opens a dual-pane narrative inspector:
+    1. **📜 Boxed Narration Text**: evocative environmental descriptions written to be read aloud to players (in official Wizards of the Coast style).
+       * Click **`📢 Read to Table (Broadcast)`** to push formatted parchment prose to every player's chat log with 1 click!
+    2. **🔒 Secret DM Notes**: visible **exclusively to the Master**. Includes hidden traps, monster ambush triggers, concealed loot caches, and investigation clues.
+
+### Blind Rolls to the DM (`/broll`, `/gmroll`)
+To preserve true suspense and prevent player metagaming, OmniCompanion provides built-in blind rolling:
+
+* **Chat Command**: type `/broll <dice> [reason]` or `/gmroll <dice> [reason]`:
+  * Examples: `/broll 1d20+5 Stealth`, `/broll 1d20+3 Passive Perception`, `/gmroll 1d20+7 Disarm Trap`.
+* **Anti-Metagame Behavior**:
+  * The server computes the roll using the full mathematical dice engine (including modifiers, criticals, and arithmetic).
+  * The **numeric roll, individual dice, and total are dispatched EXCLUSIVELY to the Dungeon Master**.
+  * The player receives a discreet confirmation toast in chat:
+    > `🎲 You sent a blind roll to the DM (1d20+5: Stealth). The Master knows the outcome!`
+  * This prevents metagaming when rolling a low number on perception or stealth, keeping players guessing whether the hallway is truly clear or whether their check was simply disastrous!
 
 ### Fog of War (FoW), Manual Brush, Line of Sight & Lighting
 * Click **`[ ☁️ ]`** on the DM's left toolbar to open the **Fog of War** toolbar:
@@ -360,6 +489,8 @@ The rules engine automatically detects every `Natural 20` and `Natural 1` rolled
 | `/sussurra <name> <text>` | Everyone | Italian alias for private whisper | `/sussurra Elidor Heal me!` |
 | `/manuale <term>` | Everyone | Searches a rule, spell, or monster in indexed PDFs | `/manuale grapple` |
 | `/rule <term>` | Everyone | Alias for PDF rulebook search | `/rule concentration` |
+| `/broll <dice> [reason]` | Everyone | Makes a secret roll visible **only to the DM** | `/broll 1d20+5 Stealth` |
+| `/gmroll <dice> [reason]` | Everyone | Alias for secret DM roll | `/gmroll 1d20+3 Perception` |
 | `/tsmorte` / `/deathsave` / `/ds` | Players (at 0 HP) | Rolls a 5e Death Saving Throw | `/ds` |
 | `/vision <name> <radius_hex>` | DM Only | Sets a token's vision radius (in hexes) | `/vision Gildor 12` |
 | `/darkness` / `/oscurita` | DM Only | Toggles environmental darkness on/off on the map | `/darkness` |
