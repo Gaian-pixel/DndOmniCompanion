@@ -1,6 +1,6 @@
 # test_starter_kit_edit.py
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 import tkinter as tk
 from common.campaign import Campaign
 from common.starter_equipment import DEFAULT_CAMPAIGN_STARTER_KIT
@@ -108,6 +108,45 @@ class TestStarterKitEdit(unittest.TestCase):
         self.assertEqual(saved_items[0]["name"], "Due Spade Corte")
         self.assertEqual(saved_items[0]["qty"], 2)
         self.assertEqual(saved_items[2]["name"], "Corda")
+
+    @patch("server.compendium_ui.CompendiumDialog")
+    def test_campaign_starter_kit_add_from_compendium(self, mock_comp_dialog):
+        initial_items = [
+            {"name": "Torcia", "type": "Equipaggiamento", "qty": 1, "weight": 1.0, "desc": "Luce"}
+        ]
+        dlg = CampaignStarterKitDialog(self.root, initial_items=initial_items)
+        self.assertEqual(len(dlg.items), 1)
+
+        captured_callback = None
+        def mock_init(master, on_import_callback=None, is_dm=True, initial_category=None, action_label=None):
+            nonlocal captured_callback
+            captured_callback = on_import_callback
+            mock_inst = MagicMock()
+            return mock_inst
+
+        mock_comp_dialog.side_effect = mock_init
+
+        dlg.on_add_from_compendium()
+        self.assertIsNotNone(captured_callback)
+
+        # Simula importazione dal compendio
+        sample_srd_item = {
+            "name": "Longsword",
+            "equipment_category": {"name": "Weapon"},
+            "weight": 3.0,
+            "damage": {"damage_dice": "1d8", "damage_type": {"name": "Slashing"}},
+            "properties": [{"name": "Versatile"}],
+            "desc": "Spada a una mano versatile."
+        }
+        captured_callback(sample_srd_item, "Equipaggiamento")
+
+        self.assertEqual(len(dlg.items), 2)
+        added = dlg.items[1]
+        self.assertEqual(added["name"], "Longsword")
+        self.assertEqual(added["type"], "Arma")
+        self.assertEqual(added["weight"], 3.0)
+        self.assertIn("1d8", added["desc"])
+        self.assertIn("Versatile", added["desc"])
 
 if __name__ == '__main__':
     unittest.main()

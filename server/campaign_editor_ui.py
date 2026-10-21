@@ -197,7 +197,7 @@ class CampaignEncounterDialog(tk.Toplevel):
                 })
                 self.refresh_monsters_list()
                 
-            dlg = CompendiumDialog(self, on_import_callback=on_imported, is_dm=True)
+            dlg = CompendiumDialog(self, on_import_callback=on_imported, is_dm=True, initial_category="Mostri", action_label="➕ Aggiungi all'Incontro")
             dlg.grab_set()
         except Exception as e:
             messagebox.showerror("Errore", f"Impossibile aprire il compendio: {e}", parent=self)
@@ -253,6 +253,8 @@ class CampaignEditorDialog(tk.Toplevel):
         
         actions_box = tk.Frame(top_bar, bg=BG_COLOR)
         actions_box.pack(side=tk.RIGHT)
+        
+        ttk.Button(actions_box, text="📖 Compendio 5e", command=self.open_global_compendium, style="Primary.TButton").pack(side=tk.LEFT, padx=4)
         
         self.btn_fs = ttk.Button(actions_box, text="⛶ Schermo Intero", command=self.toggle_fullscreen)
         self.btn_fs.pack(side=tk.LEFT, padx=4)
@@ -427,7 +429,10 @@ class CampaignEditorDialog(tk.Toplevel):
             font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED
         ).pack(anchor="w", pady=(2, 6))
         
-        ttk.Button(kit_frame, text="✏️ Modifica Equipaggiamento Iniziale...", command=self.edit_starter_kit, style="Gold.TButton").pack(fill=tk.X)
+        kit_btn_box = tk.Frame(kit_frame, bg=SURFACE_COLOR_ALT)
+        kit_btn_box.pack(fill=tk.X)
+        ttk.Button(kit_btn_box, text="✏️ Modifica Kit Iniziale...", command=self.edit_starter_kit, style="Gold.TButton").pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
+        ttk.Button(kit_btn_box, text="📖 Da Compendio...", command=self.add_starter_kit_from_compendium, style="Primary.TButton").pack(side=tk.RIGHT)
         
         # Sinossi / Descrizione pubblica
         tk.Label(col_left, text="Descrizione / Sinossi per i Giocatori:", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(anchor="w", pady=(5, 0))
@@ -831,7 +836,10 @@ class CampaignEditorDialog(tk.Toplevel):
         top_row.pack(fill=tk.X, pady=(0, 8))
         
         tk.Label(top_row, text="Personaggi Non Giocanti (PNG) Chiave", font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(side=tk.LEFT)
-        ttk.Button(top_row, text="+ Nuovo PNG", command=self.add_npc_dialog, style="Primary.TButton").pack(side=tk.RIGHT)
+        btn_box = tk.Frame(top_row, bg=BG_COLOR)
+        btn_box.pack(side=tk.RIGHT)
+        ttk.Button(btn_box, text="📖 Aggiungi da Compendio...", command=self.add_npc_from_compendium, style="Gold.TButton").pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(btn_box, text="+ Nuovo PNG Manuale", command=self.add_npc_dialog, style="Primary.TButton").pack(side=tk.RIGHT)
         
         tree_frame = tk.Frame(parent, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
         tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
@@ -966,6 +974,7 @@ class CampaignEditorDialog(tk.Toplevel):
         tk.Label(top_row, text="Handouts, Documenti e Indizi Grafici", font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(side=tk.LEFT)
         btn_box = tk.Frame(top_row, bg=BG_COLOR)
         btn_box.pack(side=tk.RIGHT)
+        ttk.Button(btn_box, text="📖 Aggiungi da Compendio...", command=self.add_handout_from_compendium, style="Gold.TButton").pack(side=tk.LEFT, padx=3)
         ttk.Button(btn_box, text="+ Handout Testuale", command=self.add_text_handout, style="Primary.TButton").pack(side=tk.LEFT, padx=3)
         ttk.Button(btn_box, text="+ Handout Immagine", command=self.add_image_handout, style="Primary.TButton").pack(side=tk.LEFT, padx=3)
         
@@ -1157,6 +1166,257 @@ class CampaignEditorDialog(tk.Toplevel):
                 self.on_save_callback(self.campaign)
         except Exception as e:
             messagebox.showerror("Errore Salvataggio", f"Impossibile salvare la campagna: {e}", parent=self)
+
+    # -------------------------------------------------------------
+    # METODI IMPORTAZIONE DAL COMPENDIO 5E
+    # -------------------------------------------------------------
+    def _import_starter_kit_data(self, item_data: Dict[str, Any], category: str):
+        name = item_data.get("name", "Nuovo Oggetto")
+        raw_cat = ""
+        eq_cat = item_data.get("equipment_category")
+        if isinstance(eq_cat, dict):
+            raw_cat = eq_cat.get("name", "")
+        elif isinstance(eq_cat, str):
+            raw_cat = eq_cat
+        if not raw_cat:
+            raw_cat = item_data.get("type", category or "Equipaggiamento")
+
+        cat_lower = (str(raw_cat) + " " + str(category)).lower()
+        if "weapon" in cat_lower or "arma" in cat_lower:
+            item_type = "Arma"
+        elif "armor" in cat_lower or "armatura" in cat_lower:
+            item_type = "Armatura"
+        elif "shield" in cat_lower or "scudo" in cat_lower:
+            item_type = "Scudo"
+        elif "potion" in cat_lower or "pozione" in cat_lower or "consumab" in cat_lower:
+            item_type = "Consumabile"
+        elif "ammunition" in cat_lower or "munizion" in cat_lower:
+            item_type = "Munizioni"
+        elif "magic" in cat_lower or "magico" in cat_lower:
+            item_type = "Magico"
+        elif "tool" in cat_lower or "strument" in cat_lower:
+            item_type = "Strumenti"
+        else:
+            item_type = "Equipaggiamento"
+
+        try:
+            weight = float(item_data.get("weight", 1.0) or 0.0)
+        except (ValueError, TypeError):
+            weight = 0.0
+
+        desc_parts = []
+        if item_data.get("damage"):
+            dmg = item_data["damage"]
+            dice = dmg.get("damage_dice", "")
+            dtype = dmg.get("damage_type", {}).get("name", "") if isinstance(dmg.get("damage_type"), dict) else str(dmg.get("damage_type", ""))
+            if dice:
+                desc_parts.append(f"Danno: {dice} {dtype}".strip())
+        if item_data.get("armor_class"):
+            ac_info = item_data["armor_class"]
+            base_ac = ac_info.get("base", 10) if isinstance(ac_info, dict) else ac_info
+            desc_parts.append(f"CA: {base_ac}")
+        if item_data.get("properties"):
+            props = [p.get("name") for p in item_data["properties"] if isinstance(p, dict) and p.get("name")]
+            if props:
+                desc_parts.append(f"Proprietà: {', '.join(props)}")
+
+        raw_desc = item_data.get("desc", "")
+        if isinstance(raw_desc, list):
+            raw_desc = " ".join(str(d) for d in raw_desc)
+        if raw_desc:
+            desc_parts.append(str(raw_desc).strip())
+
+        full_desc = " | ".join(desc_parts) if desc_parts else "Oggetto dal Compendio 5e"
+
+        new_item = {
+            "name": name,
+            "type": item_type,
+            "qty": 1,
+            "weight": weight,
+            "desc": full_desc
+        }
+        self.campaign.starter_kit.append(new_item)
+        if hasattr(self, "lbl_kit_count") and self.lbl_kit_count:
+            self.lbl_kit_count.config(text=self._get_kit_summary_text())
+
+    def add_starter_kit_from_compendium(self):
+        try:
+            from server.compendium_ui import CompendiumDialog
+            dlg = CompendiumDialog(
+                self,
+                on_import_callback=self._import_starter_kit_data,
+                is_dm=True,
+                initial_category="Equipaggiamento",
+                action_label="➕ Aggiungi al Kit"
+            )
+            dlg.grab_set()
+        except Exception as e:
+            messagebox.showerror("Errore Compendio", f"Impossibile aprire il compendio: {e}", parent=self)
+
+    def _import_npc_data(self, item_data: Dict[str, Any], category: str):
+        name = item_data.get("name", "PNG Compendio")
+        orig_name = name
+        cnt = 1
+        while any(n.get("name") == name for n in self.campaign.npcs):
+            cnt += 1
+            name = f"{orig_name} ({cnt})"
+
+        hp = item_data.get("hit_points", item_data.get("hp", 20))
+        ac_val = item_data.get("armor_class", item_data.get("ac", 12))
+        ac = normalize_ac_value(ac_val)
+
+        role = item_data.get("type", "Creatura/PNG")
+        if item_data.get("subtype"):
+            role = f"{role} ({item_data.get('subtype')})"
+
+        notes_parts = []
+        align = item_data.get("alignment", "")
+        if align:
+            notes_parts.append(f"Allineamento: {align}")
+        cr = item_data.get("challenge_rating", item_data.get("cr"))
+        if cr is not None:
+            notes_parts.append(f"Grado Sfida (CR): {cr}")
+        senses = item_data.get("senses", "")
+        if senses:
+            notes_parts.append(f"Sensi: {senses}")
+        langs = item_data.get("languages", "")
+        if langs:
+            notes_parts.append(f"Linguaggi: {langs}")
+
+        acts = item_data.get("actions", [])
+        if acts:
+            act_names = [a.get("name") for a in acts if isinstance(a, dict) and a.get("name")]
+            if act_names:
+                notes_parts.append(f"Azioni: {', '.join(act_names[:5])}")
+
+        notes_str = " | ".join(notes_parts)
+
+        npc_entry = {
+            "name": name,
+            "role": role,
+            "hp": hp,
+            "ac": ac,
+            "faction": "Neutrale",
+            "notes": notes_str,
+            "attributes": extract_and_normalize_attributes(item_data.get("attributes"), name),
+            "actions": acts,
+            "features": item_data.get("special_abilities", item_data.get("features", [])),
+            "speed": item_data.get("speed", 30),
+            "cr": str(cr or "1")
+        }
+        self.campaign.npcs.append(npc_entry)
+        self.refresh_npcs()
+
+    def add_npc_from_compendium(self):
+        try:
+            from server.compendium_ui import CompendiumDialog
+            dlg = CompendiumDialog(
+                self,
+                on_import_callback=self._import_npc_data,
+                is_dm=True,
+                initial_category="Mostri",
+                action_label="➕ Aggiungi ai PNG Campagna"
+            )
+            dlg.grab_set()
+        except Exception as e:
+            messagebox.showerror("Errore Compendio", f"Impossibile aprire il compendio: {e}", parent=self)
+
+    def _import_handout_data(self, item_data: Dict[str, Any], category: str):
+        name = item_data.get("name", "Documento Compendio")
+        title = name
+        c = 1
+        while any(h.get("title") == title for h in self.campaign.handouts):
+            c += 1
+            title = f"{name} ({c})"
+
+        lines = [f"📜 {title.upper()}", f"Categoria: {category}"]
+        if item_data.get("type"):
+            lines.append(f"Tipo: {item_data.get('type')}")
+        if item_data.get("rarity"):
+            lines.append(f"Rarità: {item_data.get('rarity')}")
+        if item_data.get("level") is not None:
+            lines.append(f"Livello: {item_data.get('level')}")
+        if item_data.get("school"):
+            sch = item_data['school'].get('name') if isinstance(item_data['school'], dict) else item_data['school']
+            lines.append(f"Scuola: {sch}")
+        if item_data.get("casting_time"):
+            lines.append(f"Tempo di lancio: {item_data.get('casting_time')}")
+        if item_data.get("range"):
+            lines.append(f"Gittata: {item_data.get('range')}")
+        if item_data.get("duration"):
+            lines.append(f"Durata: {item_data.get('duration')}")
+        if item_data.get("damage"):
+            dmg = item_data["damage"]
+            dice = dmg.get("damage_dice", "")
+            dtype = dmg.get("damage_type", {}).get("name", "") if isinstance(dmg.get("damage_type"), dict) else str(dmg.get("damage_type", ""))
+            if dice:
+                lines.append(f"Danno: {dice} {dtype}".strip())
+        if item_data.get("armor_class"):
+            ac_info = item_data["armor_class"]
+            base_ac = ac_info.get("base", 10) if isinstance(ac_info, dict) else ac_info
+            lines.append(f"Classe Armatura: {base_ac}")
+
+        desc = item_data.get("desc", "")
+        if isinstance(desc, list):
+            desc = "\n\n".join(str(d) for d in desc)
+        if desc:
+            lines.append(f"\n{desc}")
+
+        full_content = "\n".join(lines).strip()
+        self.campaign.add_handout(title, content=full_content)
+        self.refresh_handouts()
+
+    def add_handout_from_compendium(self):
+        try:
+            from server.compendium_ui import CompendiumDialog
+            dlg = CompendiumDialog(
+                self,
+                on_import_callback=self._import_handout_data,
+                is_dm=True,
+                initial_category="Oggetti Magici",
+                action_label="➕ Aggiungi agli Handout"
+            )
+            dlg.grab_set()
+        except Exception as e:
+            messagebox.showerror("Errore Compendio", f"Impossibile aprire il compendio: {e}", parent=self)
+
+    def open_global_compendium(self):
+        try:
+            from server.compendium_ui import CompendiumDialog
+            def _on_global_imported(item_data, category):
+                cat_lower = category.lower() if category else ""
+                cur_tab = ""
+                try:
+                    cur_tab = self.notebook.tab(self.notebook.select(), "text")
+                except Exception:
+                    pass
+
+                if "incontri" in cur_tab.lower() or ("mostri" in cat_lower and "png" not in cur_tab.lower()):
+                    name = item_data.get("name", "Mostro")
+                    hp = item_data.get("hit_points", 15)
+                    dex = item_data.get("dexterity", 10)
+                    init_mod = (dex - 10) // 2
+                    xp = item_data.get("xp", 50)
+                    if not self.campaign.encounters:
+                        self.campaign.add_encounter("Incontro Compendio", [])
+                    self.campaign.encounters[-1]["monsters"].append({
+                        "name": name, "count": 1, "hp": hp, "initiative": init_mod, "xp": xp
+                    })
+                    self.refresh_encounters()
+                    messagebox.showinfo("Incontro Aggiornato", f"'{name}' aggiunto all'ultimo incontro preparato!", parent=self)
+                elif "png" in cur_tab.lower():
+                    self._import_npc_data(item_data, category)
+                elif "handout" in cur_tab.lower() or "regole" in cat_lower:
+                    self._import_handout_data(item_data, category)
+                elif "generale" in cur_tab.lower() or any(k in cat_lower for k in ["equipaggiamento", "armi", "pozioni", "oggetti"]):
+                    self._import_starter_kit_data(item_data, category)
+                else:
+                    self._import_handout_data(item_data, category)
+
+            dlg = CompendiumDialog(self, on_import_callback=_on_global_imported, is_dm=True, action_label="➕ Importa nella Campagna")
+            dlg.grab_set()
+        except Exception as e:
+            messagebox.showerror("Errore Compendio", f"Impossibile aprire il compendio: {e}", parent=self)
 
     def apply_to_running_game(self):
         if not self.game_state:

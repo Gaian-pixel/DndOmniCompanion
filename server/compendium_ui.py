@@ -33,7 +33,7 @@ from common.srd_offline import (
 class CompendiumDialog(tk.Toplevel):
     """Finestra Compendio 5e SRD con Split View e Statblock interattivo."""
 
-    def __init__(self, master, on_import_callback: Optional[Callable] = None, is_dm: bool = True):
+    def __init__(self, master, on_import_callback: Optional[Callable] = None, is_dm: bool = True, initial_category: Optional[str] = None, action_label: Optional[str] = None):
         super().__init__(master)
         self.title("Compendio 5e SRD • Consultazione & Importazione")
         self.minsize(980, 680)
@@ -42,6 +42,8 @@ class CompendiumDialog(tk.Toplevel):
 
         self.on_import_callback = on_import_callback
         self.is_dm = is_dm
+        self.initial_category = initial_category
+        self.action_label = action_label
 
         self.base_url = "https://www.dnd5eapi.co/api"
         self.current_items: List[Dict[str, Any]] = []
@@ -94,7 +96,9 @@ class CompendiumDialog(tk.Toplevel):
         self.category_cb.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.category_cb.bind("<<ComboboxSelected>>", self._on_category_changed)
 
-        if self.is_dm:
+        if self.initial_category and self.initial_category in categories:
+            self.category_var.set(self.initial_category)
+        elif self.is_dm:
             self.category_var.set("Mostri")
         else:
             self.category_var.set("Incantesimi")
@@ -159,6 +163,9 @@ class CompendiumDialog(tk.Toplevel):
         ttk.Button(btn_frame, text="Gestisci Compendi", command=self.open_downloader).pack(side=tk.LEFT, padx=(0, 4))
         if self.is_dm:
             ttk.Button(btn_frame, text="➕ Crea Custom", command=self.create_custom_item).pack(side=tk.LEFT)
+        if self.on_import_callback:
+            import_btn_label = self.action_label or "➕ Importa Selezionato"
+            ttk.Button(btn_frame, text=import_btn_label, command=self.import_selected, style="Gold.TButton").pack(side=tk.RIGHT)
 
         # -------------------------------------------------------------
         # PANNELLO DESTRO (Statblock Card 5e)
@@ -166,7 +173,7 @@ class CompendiumDialog(tk.Toplevel):
         right_panel = ttk.Frame(self.paned)
         self.paned.add(right_panel, weight=1)
 
-        action_txt = "Schiera sulla Mappa" if self.is_dm else "Aggiungi al Personaggio"
+        action_txt = self.action_label or ("Schiera sulla Mappa" if self.is_dm else "Aggiungi al Personaggio")
         self.statblock_view = StatblockCardView(
             right_panel,
             on_primary_action=self._on_statblock_action,

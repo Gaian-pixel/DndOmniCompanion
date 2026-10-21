@@ -658,6 +658,7 @@ class CampaignStarterKitDialog(tk.Toplevel):
         btn_row.pack(fill=tk.X, pady=(0, 10))
 
         ttk.Button(btn_row, text=_t("btn_add_item", default="➕ Aggiungi Oggetto"), command=self.on_add_item, style="Gold.TButton").pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_row, text="📖 Aggiungi dal Compendio...", command=self.on_add_from_compendium, style="Primary.TButton").pack(side=tk.LEFT, padx=3)
         self.btn_edit = ttk.Button(btn_row, text=_t("btn_edit_selected", default="✏️ Modifica Selezionato"), command=self.on_edit_item)
         self.btn_edit.pack(side=tk.LEFT, padx=3)
         ttk.Button(btn_row, text=_t("btn_remove_selected", default="🗑️ Rimuovi Selezionato"), command=self.on_remove_item).pack(side=tk.LEFT, padx=3)
@@ -689,6 +690,85 @@ class CampaignStarterKitDialog(tk.Toplevel):
             self.tree.see(new_idx)
 
         StarterKitItemEditorDialog(self, item_data=None, on_save=_add_callback)
+
+    def on_add_from_compendium(self):
+        try:
+            from server.compendium_ui import CompendiumDialog
+            def _on_imported(item_data, category):
+                name = item_data.get("name", "Nuovo Oggetto")
+                raw_cat = ""
+                eq_cat = item_data.get("equipment_category")
+                if isinstance(eq_cat, dict):
+                    raw_cat = eq_cat.get("name", "")
+                elif isinstance(eq_cat, str):
+                    raw_cat = eq_cat
+                if not raw_cat:
+                    raw_cat = item_data.get("type", category or "Equipaggiamento")
+
+                cat_lower = (str(raw_cat) + " " + str(category)).lower()
+                if "weapon" in cat_lower or "arma" in cat_lower:
+                    item_type = "Arma"
+                elif "armor" in cat_lower or "armatura" in cat_lower:
+                    item_type = "Armatura"
+                elif "shield" in cat_lower or "scudo" in cat_lower:
+                    item_type = "Scudo"
+                elif "potion" in cat_lower or "pozione" in cat_lower or "consumab" in cat_lower:
+                    item_type = "Consumabile"
+                elif "ammunition" in cat_lower or "munizion" in cat_lower:
+                    item_type = "Munizioni"
+                elif "magic" in cat_lower or "magico" in cat_lower:
+                    item_type = "Magico"
+                elif "tool" in cat_lower or "strument" in cat_lower:
+                    item_type = "Strumenti"
+                else:
+                    item_type = "Equipaggiamento"
+
+                try:
+                    weight = float(item_data.get("weight", 1.0) or 0.0)
+                except (ValueError, TypeError):
+                    weight = 0.0
+
+                desc_parts = []
+                if item_data.get("damage"):
+                    dmg = item_data["damage"]
+                    dice = dmg.get("damage_dice", "")
+                    dtype = dmg.get("damage_type", {}).get("name", "") if isinstance(dmg.get("damage_type"), dict) else str(dmg.get("damage_type", ""))
+                    if dice:
+                        desc_parts.append(f"Danno: {dice} {dtype}".strip())
+                if item_data.get("armor_class"):
+                    ac_info = item_data["armor_class"]
+                    base_ac = ac_info.get("base", 10) if isinstance(ac_info, dict) else ac_info
+                    desc_parts.append(f"CA: {base_ac}")
+                if item_data.get("properties"):
+                    props = [p.get("name") for p in item_data["properties"] if isinstance(p, dict) and p.get("name")]
+                    if props:
+                        desc_parts.append(f"Proprietà: {', '.join(props)}")
+
+                raw_desc = item_data.get("desc", "")
+                if isinstance(raw_desc, list):
+                    raw_desc = " ".join(str(d) for d in raw_desc)
+                if raw_desc:
+                    desc_parts.append(str(raw_desc).strip())
+
+                full_desc = " | ".join(desc_parts) if desc_parts else "Oggetto dal Compendio 5e"
+
+                new_item = {
+                    "name": name,
+                    "type": item_type,
+                    "qty": 1,
+                    "weight": weight,
+                    "desc": full_desc
+                }
+                self.items.append(new_item)
+                self.refresh_list()
+                new_idx = str(len(self.items) - 1)
+                self.tree.selection_set(new_idx)
+                self.tree.see(new_idx)
+
+            dlg = CompendiumDialog(self, on_import_callback=_on_imported, is_dm=True, initial_category="Equipaggiamento", action_label="➕ Aggiungi al Kit")
+            dlg.grab_set()
+        except Exception as e:
+            messagebox.showerror("Errore Compendio", f"Impossibile aprire il compendio: {e}", parent=self)
 
     def on_edit_item(self):
         sel = self.tree.selection()
