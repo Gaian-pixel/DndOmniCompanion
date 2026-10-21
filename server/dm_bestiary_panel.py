@@ -122,7 +122,12 @@ class DMBestiaryPanel(ttk.Frame):
         self.btn_bestiary_full = ttk.Button(
             b_btn_frame, text=_t("btn_full_sheet"), command=self.open_bestiario_manual_entry, style="Info.TButton"
         )
-        self.btn_bestiary_full.pack(side=tk.LEFT, padx=(2, 0))
+        self.btn_bestiary_full.pack(side=tk.LEFT, padx=(2, 2))
+
+        self.btn_bestiary_create = ttk.Button(
+            b_btn_frame, text="+ Crea Mostro", command=self.open_custom_monster_dialog, style="Success.TButton"
+        )
+        self.btn_bestiary_create.pack(side=tk.LEFT, padx=(2, 0))
 
     def search_bestiario(self):
         query = self.bestiario_search_var.get().strip().lower()
@@ -269,6 +274,10 @@ class DMBestiaryPanel(ttk.Frame):
             self.lbl_prev_badges.config(text="Seleziona 'Scheda Completa' o fai doppio click per visualizzare.")
             self.lbl_prev_attrs.config(text="")
             self.lbl_prev_actions.config(text=res.get("summary", ""))
+
+    def open_custom_monster_dialog(self):
+        from server.dm_dialogs import CustomNPCDialog
+        CustomNPCDialog(dm_gui=self.dm_gui)
 
     def open_bestiario_manual_entry(self):
         sel = self.bestiario_listbox.curselection()

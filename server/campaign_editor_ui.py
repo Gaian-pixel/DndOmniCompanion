@@ -164,36 +164,73 @@ class CampaignEncounterDialog(tk.Toplevel):
         self.refresh_monsters_list()
 
     def add_monster_manual(self):
-        name = simpledialog.askstring("Nuovo Mostro", "Nome del mostro/avversario:", parent=self)
-        if not name or not name.strip(): return
-        hp = simpledialog.askinteger("Punti Ferita", "HP massimi:", initialvalue=15, minvalue=1, parent=self) or 15
-        init = simpledialog.askinteger("Iniziativa", "Bonus iniziativa (Des):", initialvalue=0, parent=self) or 0
-        xp = simpledialog.askinteger("XP", "Punti Esperienza (XP):", initialvalue=50, minvalue=0, parent=self) or 50
-        self.monsters.append({
-            "name": name.strip(),
-            "count": 1,
-            "hp": hp,
-            "initiative": init,
-            "xp": xp
-        })
-        self.refresh_monsters_list()
+        try:
+            from server.dm_dialogs import CustomNPCDialog
+            def on_saved(monster_sheet):
+                name = monster_sheet.get("name", "Mostro")
+                hp = monster_sheet.get("hp", 15)
+                init = monster_sheet.get("initiative", 0)
+                xp = monster_sheet.get("xp", 50)
+                ac = monster_sheet.get("ac", 10)
+                self.monsters.append({
+                    "name": name,
+                    "count": 1,
+                    "hp": hp,
+                    "initiative": init,
+                    "xp": xp,
+                    "ac": ac,
+                    "attributes": monster_sheet.get("attributes", {}),
+                    "strength": monster_sheet.get("strength", 10),
+                    "dexterity": monster_sheet.get("dexterity", 10),
+                    "constitution": monster_sheet.get("constitution", 10),
+                    "intelligence": monster_sheet.get("intelligence", 10),
+                    "wisdom": monster_sheet.get("wisdom", 10),
+                    "charisma": monster_sheet.get("charisma", 10),
+                    "sheet": monster_sheet
+                })
+                self.refresh_monsters_list()
+
+            CustomNPCDialog(master=self, on_save_callback=on_saved)
+        except Exception as e:
+            name = simpledialog.askstring("Nuovo Mostro", "Nome del mostro/avversario:", parent=self)
+            if not name or not name.strip(): return
+            hp = simpledialog.askinteger("Punti Ferita", "HP massimi:", initialvalue=15, minvalue=1, parent=self) or 15
+            init = simpledialog.askinteger("Iniziativa", "Bonus iniziativa (Des):", initialvalue=0, parent=self) or 0
+            xp = simpledialog.askinteger("XP", "Punti Esperienza (XP):", initialvalue=50, minvalue=0, parent=self) or 50
+            self.monsters.append({
+                "name": name.strip(),
+                "count": 1,
+                "hp": hp,
+                "initiative": init,
+                "xp": xp
+            })
+            self.refresh_monsters_list()
 
     def add_from_compendium(self):
         try:
             from server.compendium_ui import CompendiumDialog
             def on_imported(item_data, category):
                 name = item_data.get("name", "Mostro")
-                hp = item_data.get("hit_points", 15)
+                hp = item_data.get("hit_points", item_data.get("hp", 15))
                 # Calcolo des mod per iniziativa
-                dex = item_data.get("dexterity", 10)
-                init_mod = (dex - 10) // 2
+                dex = item_data.get("dexterity") or item_data.get("attributes", {}).get("DES", 10)
+                init_mod = item_data.get("initiative", (dex - 10) // 2)
                 xp = item_data.get("xp", 50)
                 self.monsters.append({
                     "name": name,
                     "count": 1,
                     "hp": hp,
                     "initiative": init_mod,
-                    "xp": xp
+                    "xp": xp,
+                    "ac": item_data.get("ac") or item_data.get("armor_class", 10),
+                    "attributes": item_data.get("attributes", {}),
+                    "strength": item_data.get("strength") or item_data.get("attributes", {}).get("FOR", 10),
+                    "dexterity": item_data.get("dexterity") or item_data.get("attributes", {}).get("DES", 10),
+                    "constitution": item_data.get("constitution") or item_data.get("attributes", {}).get("COS", 10),
+                    "intelligence": item_data.get("intelligence") or item_data.get("attributes", {}).get("INT", 10),
+                    "wisdom": item_data.get("wisdom") or item_data.get("attributes", {}).get("SAG", 10),
+                    "charisma": item_data.get("charisma") or item_data.get("attributes", {}).get("CAR", 10),
+                    "sheet": item_data
                 })
                 self.refresh_monsters_list()
                 
@@ -201,6 +238,21 @@ class CampaignEncounterDialog(tk.Toplevel):
             dlg.grab_set()
         except Exception as e:
             messagebox.showerror("Errore", f"Impossibile aprire il compendio: {e}", parent=self)
+
+    def toggle_fullscreen(self, event=None):
+        self.is_fullscreen = not getattr(self, "is_fullscreen", False)
+        try:
+            self.attributes("-fullscreen", self.is_fullscreen)
+        except Exception:
+            pass
+
+    def exit_fullscreen(self, event=None):
+        if getattr(self, "is_fullscreen", False):
+            self.is_fullscreen = False
+            try:
+                self.attributes("-fullscreen", False)
+            except Exception:
+                pass
 
     def save_encounter(self):
         name = self.ent_name.get().strip()

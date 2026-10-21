@@ -66,56 +66,113 @@ class TextHandoutDialog(tk.Toplevel):
 
 
 class CustomNPCDialog(tk.Toplevel):
-    def __init__(self, dm_gui):
-        super().__init__(dm_gui.master)
+    def __init__(self, dm_gui=None, master=None, on_save_callback=None):
+        parent_win = dm_gui.master if (dm_gui and hasattr(dm_gui, "master")) else (master or (dm_gui if isinstance(dm_gui, (tk.Tk, tk.Toplevel, tk.Widget)) else None))
+        super().__init__(parent_win)
         self.dm_gui = dm_gui
-        self.title(_t("custom_npc_title", default="Crea Nuovo NPC / Mostro Custom"))
-        self.minsize(550, 480)
-        self.transient(dm_gui.master)
+        self.on_save_callback = on_save_callback
+        self.title(_t("custom_npc_title", default="Crea Nuovo Mostro / NPC Custom"))
+        self.minsize(600, 640)
+        if parent_win:
+            self.transient(parent_win)
         self.grab_set()
         apply_modern_window_style(self)
 
-        main_frame = ttk.Frame(self, padding="20")
+        main_frame = ttk.Frame(self, padding="16")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(main_frame, text=_t("custom_npc_name", default="Nome del PNG/Mostro:"), font=FONT_HEADER).pack(anchor=tk.W, pady=(0, 5))
+        # 1. Nome Mostro / PNG
+        ttk.Label(main_frame, text=_t("custom_npc_name", default="Nome del Mostro / PNG:"), font=FONT_HEADER).pack(anchor=tk.W, pady=(0, 4))
         self.name_entry = ttk.Entry(main_frame, font=FONT_MAIN)
-        self.name_entry.pack(fill=tk.X, pady=(0, 15))
+        self.name_entry.pack(fill=tk.X, pady=(0, 10))
 
-        grid_frame = ttk.Frame(main_frame)
-        grid_frame.pack(fill=tk.X, pady=(0, 15))
+        # 2. Parametri di Combattimento (HP, CA, Iniziativa, Velocità, CR, XP)
+        stats_box = ttk.LabelFrame(main_frame, text="Parametri di Combattimento:")
+        stats_box.pack(fill=tk.X, pady=(0, 10), padx=2)
+
+        grid_frame = ttk.Frame(stats_box, padding="8")
+        grid_frame.pack(fill=tk.X)
         grid_frame.columnconfigure(1, weight=1)
         grid_frame.columnconfigure(3, weight=1)
+        grid_frame.columnconfigure(5, weight=1)
 
-        ttk.Label(grid_frame, text=_t("custom_npc_hp", default="HP Massimi:"), font=FONT_BOLD).grid(row=0, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.hp_entry = ttk.Entry(grid_frame, font=FONT_MAIN, width=10)
-        self.hp_entry.insert(0, "10")
-        self.hp_entry.grid(row=0, column=1, pady=5, sticky=tk.W)
+        ttk.Label(grid_frame, text=_t("custom_npc_hp", default="HP Massimi:"), font=FONT_BOLD).grid(row=0, column=0, padx=(0, 6), pady=4, sticky=tk.W)
+        self.hp_entry = ttk.Entry(grid_frame, font=FONT_MAIN, width=8)
+        self.hp_entry.insert(0, "15")
+        self.hp_entry.grid(row=0, column=1, pady=4, sticky=tk.W)
 
-        ttk.Label(grid_frame, text=_t("custom_npc_init", default="Iniziativa:"), font=FONT_BOLD).grid(row=0, column=2, padx=(20, 10), pady=5, sticky=tk.W)
-        self.init_entry = ttk.Entry(grid_frame, font=FONT_MAIN, width=10)
+        ttk.Label(grid_frame, text=_t("custom_npc_ac", default="Classe Armatura (CA):"), font=FONT_BOLD).grid(row=0, column=2, padx=(12, 6), pady=4, sticky=tk.W)
+        self.ac_entry = ttk.Entry(grid_frame, font=FONT_MAIN, width=8)
+        self.ac_entry.insert(0, "12")
+        self.ac_entry.grid(row=0, column=3, pady=4, sticky=tk.W)
+
+        ttk.Label(grid_frame, text=_t("custom_npc_init", default="Iniziativa (bonus):"), font=FONT_BOLD).grid(row=0, column=4, padx=(12, 6), pady=4, sticky=tk.W)
+        self.init_entry = ttk.Entry(grid_frame, font=FONT_MAIN, width=8)
         self.init_entry.insert(0, "0")
-        self.init_entry.grid(row=0, column=3, pady=5, sticky=tk.W)
-
-        ttk.Label(grid_frame, text=_t("custom_npc_ac", default="Classe Armatura (CA):"), font=FONT_BOLD).grid(row=1, column=0, padx=(0, 10), pady=5, sticky=tk.W)
-        self.ac_entry = ttk.Entry(grid_frame, font=FONT_MAIN, width=10)
-        self.ac_entry.insert(0, "10")
-        self.ac_entry.grid(row=1, column=1, pady=5, sticky=tk.W)
+        self.init_entry.grid(row=0, column=5, pady=4, sticky=tk.W)
 
         dist_unit = get_distance_unit()
         default_speed = "9" if dist_unit == "m" else "30"
-        ttk.Label(grid_frame, text=f"Velocità ({dist_unit}):", font=FONT_BOLD).grid(row=1, column=2, padx=(20, 10), pady=5, sticky=tk.W)
-        self.speed_entry = ttk.Entry(grid_frame, font=FONT_MAIN, width=10)
+        ttk.Label(grid_frame, text=f"Velocità ({dist_unit}):", font=FONT_BOLD).grid(row=1, column=0, padx=(0, 6), pady=4, sticky=tk.W)
+        self.speed_entry = ttk.Entry(grid_frame, font=FONT_MAIN, width=8)
         self.speed_entry.insert(0, default_speed)
-        self.speed_entry.grid(row=1, column=3, pady=5, sticky=tk.W)
+        self.speed_entry.grid(row=1, column=1, pady=4, sticky=tk.W)
 
-        ttk.Label(main_frame, text=_t("custom_npc_notes", default="Note/Descrizione (opzionale):"), font=FONT_BOLD).pack(anchor=tk.W, pady=(0, 5))
+        ttk.Label(grid_frame, text="Grado Sfida (CR):", font=FONT_BOLD).grid(row=1, column=2, padx=(12, 6), pady=4, sticky=tk.W)
+        self.cr_entry = ttk.Entry(grid_frame, font=FONT_MAIN, width=8)
+        self.cr_entry.insert(0, "1")
+        self.cr_entry.grid(row=1, column=3, pady=4, sticky=tk.W)
+
+        ttk.Label(grid_frame, text="XP (Esperienza):", font=FONT_BOLD).grid(row=1, column=4, padx=(12, 6), pady=4, sticky=tk.W)
+        self.xp_entry = ttk.Entry(grid_frame, font=FONT_MAIN, width=8)
+        self.xp_entry.insert(0, "50")
+        self.xp_entry.grid(row=1, column=5, pady=4, sticky=tk.W)
+
+        # 3. Caratteristiche 5e (Ability Scores: FOR, DES, COS, INT, SAG, CAR)
+        attr_box = ttk.LabelFrame(main_frame, text="Caratteristiche 5e (Ability Scores):")
+        attr_box.pack(fill=tk.X, pady=(0, 10), padx=2)
+
+        attr_inner = tk.Frame(attr_box, bg=SURFACE_COLOR_ALT, padx=6, pady=8)
+        attr_inner.pack(fill=tk.X, expand=True, padx=4, pady=4)
+
+        self.stat_entries = {}
+        self.stat_mod_labels = {}
+        stats_def = [
+            ("FOR", "FOR", "Forza", "10"),
+            ("DES", "DES", "Destrezza", "10"),
+            ("COS", "COS", "Costituzione", "10"),
+            ("INT", "INT", "Intelligenza", "10"),
+            ("SAG", "SAG", "Saggezza", "10"),
+            ("CAR", "CAR", "Carisma", "10")
+        ]
+
+        for code, label, full_name, default_val in stats_def:
+            col_frame = tk.Frame(attr_inner, bg=SURFACE_COLOR_ALT)
+            col_frame.pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=3)
+
+            tk.Label(col_frame, text=label, font=("Segoe UI", 9, "bold"), bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack()
+
+            var = tk.StringVar(value=default_val)
+            e = tk.Entry(col_frame, textvariable=var, font=("Segoe UI", 11, "bold"), width=4, justify="center",
+                         bg=SURFACE_COLOR, fg=TEXT_COLOR, insertbackground=ACCENT_GOLD, relief=tk.SOLID, bd=1)
+            e.pack(pady=2)
+            self.stat_entries[code] = (e, var)
+
+            mod_lbl = tk.Label(col_frame, text="(+0)", font=("Segoe UI", 8), bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED)
+            mod_lbl.pack()
+            self.stat_mod_labels[code] = mod_lbl
+
+            var.trace_add("write", lambda *args, c=code, v=var, ml=mod_lbl: self._on_stat_changed(c, v, ml))
+
+        # 4. Note / Descrizione / Azioni
+        ttk.Label(main_frame, text=_t("custom_npc_notes", default="Azioni & Note (opzionale):"), font=FONT_BOLD).pack(anchor=tk.W, pady=(0, 4))
         self.notes_text = scrolledtext.ScrolledText(
-            main_frame, font=FONT_MAIN, height=5, wrap=tk.WORD,
+            main_frame, font=FONT_MAIN, height=4, wrap=tk.WORD,
             bg=SURFACE_COLOR, fg=TEXT_COLOR, insertbackground=ACCENT_GOLD
         )
-        self.notes_text.pack(fill=tk.BOTH, expand=True, pady=(0, 15))
+        self.notes_text.pack(fill=tk.BOTH, expand=True, pady=(0, 12))
 
+        # 5. Pulsanti
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(fill=tk.X)
         ttk.Button(btn_frame, text=_t("save", default="Salva (Ctrl+Invio)"), style="Success.TButton", command=self.on_save).pack(side=tk.RIGHT, padx=5)
@@ -124,14 +181,26 @@ class CustomNPCDialog(tk.Toplevel):
         self.bind("<Control-Return>", lambda e: self.on_save())
         self.name_entry.focus_set()
 
+    def _on_stat_changed(self, code, var, mod_lbl):
+        try:
+            val = int(var.get().strip())
+            mod = (val - 10) // 2
+            mod_lbl.config(text=f"({'+' if mod >= 0 else ''}{mod})")
+            if code == "DES" and hasattr(self, "init_entry"):
+                self.init_entry.delete(0, tk.END)
+                self.init_entry.insert(0, str(mod))
+        except Exception:
+            mod_lbl.config(text="(--)")
+
     def on_save(self):
         name = self.name_entry.get().strip()
         if not name:
             messagebox.showwarning(_t("warning", default="Attenzione"), _t("msg_name_required", default="Il nome è obbligatorio."), parent=self)
             return
-        if self.dm_gui.server.game_state.find_player(name):
-            messagebox.showerror(_t("error", default="Errore"), _t("msg_entity_exists", default="Un'entità con questo nome esiste già."), parent=self)
-            return
+        if self.dm_gui and hasattr(self.dm_gui, "server") and hasattr(self.dm_gui.server, "game_state"):
+            if self.dm_gui.server.game_state.find_player(name):
+                messagebox.showerror(_t("error", default="Errore"), _t("msg_entity_exists", default="Un'entità con questo nome esiste già."), parent=self)
+                return
 
         try:
             hp = int(self.hp_entry.get() or 10)
@@ -139,33 +208,67 @@ class CustomNPCDialog(tk.Toplevel):
             ac = int(self.ac_entry.get() or 10)
             raw_spd = float((self.speed_entry.get() or "30").replace(",", "."))
             speed = int(raw_spd) if raw_spd == int(raw_spd) else round(raw_spd, 1)
+            cr = self.cr_entry.get().strip() or "1"
+            xp = int(self.xp_entry.get() or 50)
+
+            attrs = {}
+            for code, (entry_widget, var) in self.stat_entries.items():
+                val_str = var.get().strip()
+                attrs[code] = int(val_str) if val_str else 10
         except ValueError:
-            messagebox.showerror(_t("error", default="Errore"), _t("msg_stat_integer", default="I valori statistici devono essere numeri validi."), parent=self)
+            messagebox.showerror(_t("error", default="Errore"), _t("msg_stat_integer", default="I valori statistici e le caratteristiche devono essere numeri validi."), parent=self)
             return
 
-        npc = Player(name, None, None)
-        npc.hp = hp
-        npc.max_hp = hp
-        npc.initiative = init
-        npc.speed = speed
-        
         from common.srd_offline import extract_and_normalize_attributes
-        attrs = extract_and_normalize_attributes(None, name)
-        
-        npc.full_sheet = {
+        full_attrs = extract_and_normalize_attributes({"attributes": attrs}, name)
+
+        notes = self.notes_text.get("1.0", tk.END).strip()
+
+        monster_sheet = {
             "name": name,
+            "hp": hp,
             "hp_current": hp,
             "hp_max": hp,
+            "hit_points": hp,
             "ac": ac,
+            "armor_class": ac,
+            "initiative": init,
             "speed": speed,
             "speed_unit": get_distance_unit(),
-            "attributes": attrs,
-            "notes": self.notes_text.get("1.0", tk.END).strip()
+            "cr": cr,
+            "challenge_rating": cr,
+            "xp": xp,
+            "attributes": full_attrs,
+            "strength": full_attrs.get("FOR", 10),
+            "dexterity": full_attrs.get("DES", 10),
+            "constitution": full_attrs.get("COS", 10),
+            "intelligence": full_attrs.get("INT", 10),
+            "wisdom": full_attrs.get("SAG", 10),
+            "charisma": full_attrs.get("CAR", 10),
+            "notes": notes,
+            "desc": notes,
+            "is_custom": True
         }
 
-        self.dm_gui.server.game_state.add_player(npc)
-        broadcast(self.dm_gui.server.game_state, make_player_joined(npc.to_dict()))
-        self.dm_gui.log_to_chat(f"[SISTEMA] NPC Custom '{name}' aggiunto alla sessione.")
+        if self.on_save_callback:
+            self.on_save_callback(monster_sheet)
+            self.destroy()
+            return
+
+        if self.dm_gui and hasattr(self.dm_gui, "server"):
+            npc = Player(name, None, None)
+            npc.hp = hp
+            npc.max_hp = hp
+            npc.initiative = init
+            npc.speed = speed
+            npc.full_sheet = monster_sheet
+
+            self.dm_gui.server.game_state.add_player(npc)
+            broadcast(self.dm_gui.server.game_state, make_player_joined(npc.to_dict()))
+            self.dm_gui.log_to_chat(f"[SISTEMA] NPC Custom '{name}' aggiunto alla sessione.")
+            if hasattr(self.dm_gui, "update_player_list"):
+                self.dm_gui.update_player_list()
+
         self.destroy()
 
 

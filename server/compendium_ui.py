@@ -803,52 +803,131 @@ class CompendiumDialog(tk.Toplevel):
             messagebox.showinfo("Avviso", "Seleziona una categoria base come 'Mostri' o 'Equipaggiamento' per creare un custom.")
             return
 
+        is_monster = "mostri" in cat.lower()
+
         win = tk.Toplevel(self)
         win.transient(self)
         win.grab_set()
         win.title(f"Nuovo Custom: {cat}")
-        win.minsize(360, 420)
+        win.minsize(440, 560 if is_monster else 420)
         apply_modern_window_style(win)
 
-        ttk.Label(win, text="Nome:", font=FONT_BOLD).pack(pady=4)
+        ttk.Label(win, text="Nome:", font=FONT_BOLD).pack(pady=(8, 2), anchor="w", padx=12)
         name_var = tk.StringVar()
         ttk.Entry(win, textvariable=name_var).pack(fill=tk.X, padx=12)
 
-        if "mostri" in cat.lower():
-            ttk.Label(win, text="HP:", font=FONT_BOLD).pack(pady=4)
+        stat_vars = {}
+        if is_monster:
+            # 1. Riga Parametri Combattimento
+            m_grid = ttk.Frame(win)
+            m_grid.pack(fill=tk.X, padx=12, pady=6)
+            m_grid.columnconfigure(1, weight=1)
+            m_grid.columnconfigure(3, weight=1)
+            m_grid.columnconfigure(5, weight=1)
+
+            ttk.Label(m_grid, text="HP:", font=FONT_BOLD).grid(row=0, column=0, sticky="w", padx=(0, 4), pady=2)
             hp_var = tk.StringVar(value="20")
-            ttk.Entry(win, textvariable=hp_var).pack(fill=tk.X, padx=12)
+            ttk.Entry(m_grid, textvariable=hp_var, width=7).grid(row=0, column=1, sticky="w", pady=2)
 
-            ttk.Label(win, text="CA (Classe Armatura):", font=FONT_BOLD).pack(pady=4)
+            ttk.Label(m_grid, text="CA:", font=FONT_BOLD).grid(row=0, column=2, sticky="w", padx=(8, 4), pady=2)
             ac_var = tk.StringVar(value="12")
-            ttk.Entry(win, textvariable=ac_var).pack(fill=tk.X, padx=12)
+            ttk.Entry(m_grid, textvariable=ac_var, width=7).grid(row=0, column=3, sticky="w", pady=2)
 
-            ttk.Label(win, text="Iniziativa (bonus):", font=FONT_BOLD).pack(pady=4)
+            ttk.Label(m_grid, text="Iniz.:", font=FONT_BOLD).grid(row=0, column=4, sticky="w", padx=(8, 4), pady=2)
             init_var = tk.StringVar(value="0")
-            ttk.Entry(win, textvariable=init_var).pack(fill=tk.X, padx=12)
+            init_entry = ttk.Entry(m_grid, textvariable=init_var, width=7)
+            init_entry.grid(row=0, column=5, sticky="w", pady=2)
 
-        ttk.Label(win, text="Descrizione / Proprietà:", font=FONT_BOLD).pack(pady=4)
+            ttk.Label(m_grid, text="CR:", font=FONT_BOLD).grid(row=1, column=0, sticky="w", padx=(0, 4), pady=2)
+            cr_var = tk.StringVar(value="1")
+            ttk.Entry(m_grid, textvariable=cr_var, width=7).grid(row=1, column=1, sticky="w", pady=2)
+
+            ttk.Label(m_grid, text="Vel.:", font=FONT_BOLD).grid(row=1, column=2, sticky="w", padx=(8, 4), pady=2)
+            speed_var = tk.StringVar(value="30 ft")
+            ttk.Entry(m_grid, textvariable=speed_var, width=7).grid(row=1, column=3, sticky="w", pady=2)
+
+            # 2. Caratteristiche 5e (Ability Scores: FOR, DES, COS, INT, SAG, CAR)
+            attr_box = ttk.LabelFrame(win, text="Caratteristiche 5e (Ability Scores):")
+            attr_box.pack(fill=tk.X, padx=12, pady=6)
+
+            attr_inner = tk.Frame(attr_box, bg=SURFACE_COLOR_ALT, padx=4, pady=6)
+            attr_inner.pack(fill=tk.X, expand=True)
+
+            for stat_code in ["FOR", "DES", "COS", "INT", "SAG", "CAR"]:
+                col = tk.Frame(attr_inner, bg=SURFACE_COLOR_ALT)
+                col.pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=2)
+
+                tk.Label(col, text=stat_code, font=("Segoe UI", 8, "bold"), bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack()
+                s_var = tk.StringVar(value="10")
+                stat_vars[stat_code] = s_var
+                e = tk.Entry(col, textvariable=s_var, width=4, font=("Segoe UI", 10, "bold"), justify="center",
+                             bg=SURFACE_COLOR, fg=TEXT_COLOR, relief=tk.SOLID, bd=1)
+                e.pack(pady=1)
+
+                m_lbl = tk.Label(col, text="(+0)", font=("Segoe UI", 7), bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED)
+                m_lbl.pack()
+
+                def _make_stat_listener(sc, sv, ml):
+                    def _update_mod(*args):
+                        try:
+                            v = int(sv.get().strip())
+                            mod = (v - 10) // 2
+                            ml.config(text=f"({'+' if mod >= 0 else ''}{mod})")
+                            if sc == "DES":
+                                init_var.set(str(mod))
+                        except Exception:
+                            ml.config(text="(--)")
+                    return _update_mod
+
+                s_var.trace_add("write", _make_stat_listener(stat_code, s_var, m_lbl))
+
+        ttk.Label(win, text="Descrizione / Proprietà / Azioni:", font=FONT_BOLD).pack(pady=(6, 2), anchor="w", padx=12)
         from tkinter import scrolledtext
-        desc_text = scrolledtext.ScrolledText(win, height=6, wrap=tk.WORD)
-        desc_text.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+        desc_text = scrolledtext.ScrolledText(win, height=5, wrap=tk.WORD, bg=SURFACE_COLOR, fg=TEXT_COLOR, insertbackground=ACCENT_GOLD)
+        desc_text.pack(fill=tk.BOTH, expand=True, padx=12, pady=(0, 6))
 
         def save():
-            if not name_var.get():
+            name = name_var.get().strip()
+            if not name:
                 messagebox.showerror("Errore", "Inserisci un nome.", parent=win)
                 return
-            item = {"name": name_var.get(), "desc": desc_text.get("1.0", tk.END).strip(), "is_custom": True}
-            if "mostri" in cat.lower():
+            item = {"name": name, "desc": desc_text.get("1.0", tk.END).strip(), "is_custom": True}
+            if is_monster:
                 try:
-                    item["hp"] = int(hp_var.get())
-                    item["ac"] = int(ac_var.get())
-                    item["initiative"] = int(init_var.get())
-                except Exception:
-                    pass
+                    hp_val = int(hp_var.get())
+                    ac_val = int(ac_var.get())
+                    init_val = int(init_var.get())
+                    item["hp"] = hp_val
+                    item["hit_points"] = hp_val
+                    item["ac"] = ac_val
+                    item["armor_class"] = ac_val
+                    item["initiative"] = init_val
+                    item["cr"] = cr_var.get().strip() or "1"
+                    item["challenge_rating"] = item["cr"]
+                    item["speed"] = speed_var.get().strip() or "30 ft"
+
+                    custom_stats = {}
+                    for sc in ["FOR", "DES", "COS", "INT", "SAG", "CAR"]:
+                        v_str = stat_vars[sc].get().strip()
+                        custom_stats[sc] = int(v_str) if v_str else 10
+
+                    from common.srd_offline import extract_and_normalize_attributes
+                    full_attrs = extract_and_normalize_attributes({"attributes": custom_stats}, name)
+                    item["attributes"] = full_attrs
+                    item["strength"] = full_attrs.get("FOR", 10)
+                    item["dexterity"] = full_attrs.get("DES", 10)
+                    item["constitution"] = full_attrs.get("COS", 10)
+                    item["intelligence"] = full_attrs.get("INT", 10)
+                    item["wisdom"] = full_attrs.get("SAG", 10)
+                    item["charisma"] = full_attrs.get("CAR", 10)
+                except Exception as e:
+                    print("Error saving custom monster stats:", e)
+
             self.compendium_manager.add_item(cat, item)
             self.update_listbox()
             win.destroy()
 
-        ttk.Button(win, text="Salva Custom", command=save, style="Success.TButton").pack(pady=10)
+        ttk.Button(win, text="Salva Custom", command=save, style="Success.TButton").pack(pady=(4, 12))
 
     def open_downloader(self):
         try:
