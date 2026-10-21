@@ -107,8 +107,10 @@ class Campaign:
     def save(self, target_folder: Optional[str] = None) -> str:
         """Salva la campagna nella cartella specificata o nella cartella corrente."""
         if target_folder:
-            self.folder_path = target_folder
-        if not self.folder_path:
+            self.folder_path = os.path.abspath(target_folder)
+        elif self.folder_path:
+            self.folder_path = os.path.abspath(self.folder_path)
+        else:
             slug = slugify(self.name)
             self.folder_path = os.path.join(DEFAULT_CAMPAIGNS_DIR, slug)
             
@@ -120,10 +122,12 @@ class Campaign:
     @classmethod
     def load(cls, folder_path: str) -> "Campaign":
         """Carica una campagna da una cartella o file campaign.json."""
-        if os.path.isfile(folder_path):
-            manifest_file = folder_path
+        abs_target = os.path.abspath(folder_path)
+        if os.path.isfile(abs_target):
+            manifest_file = abs_target
             folder_path = os.path.dirname(manifest_file)
         else:
+            folder_path = abs_target
             manifest_file = os.path.join(folder_path, "campaign.json")
             
         if not os.path.exists(manifest_file):
@@ -162,15 +166,16 @@ class Campaign:
             # Caricamento eventuale mappa iniziale
             if self.starting_map_file:
                 map_path = self.starting_map_file
-                if not os.path.isabs(map_path) and self.folder_path:
-                    cand = os.path.join(self.folder_path, map_path)
-                    if os.path.exists(cand):
-                        map_path = cand
-                if not os.path.exists(map_path):
-                    # Prova nella cartella maps/ globale
-                    cand_global = os.path.join(os.path.dirname(os.path.dirname(__file__)), "maps", os.path.basename(self.starting_map_file))
-                    if os.path.exists(cand_global):
-                        map_path = cand_global
+                if not os.path.isabs(map_path):
+                    # 1. Prova relativo a folder_path della campagna
+                    if self.folder_path and os.path.exists(os.path.join(self.folder_path, map_path)):
+                        map_path = os.path.join(self.folder_path, map_path)
+                    # 2. Prova relativo alla root di progetto
+                    elif os.path.exists(os.path.join(os.path.dirname(os.path.dirname(__file__)), map_path)):
+                        map_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), map_path)
+                    # 3. Prova nella cartella maps/ globale
+                    elif os.path.exists(os.path.join(os.path.dirname(os.path.dirname(__file__)), "maps", os.path.basename(map_path))):
+                        map_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "maps", os.path.basename(map_path))
                 if os.path.exists(map_path):
                     try:
                         import base64

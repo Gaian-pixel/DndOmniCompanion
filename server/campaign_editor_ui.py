@@ -315,6 +315,7 @@ class CampaignEditorDialog(tk.Toplevel):
             ttk.Button(actions_box, text="⚡ Applica Subito al Gioco", command=self.apply_to_running_game, style="Gold.TButton").pack(side=tk.LEFT, padx=4)
         
         ttk.Button(actions_box, text="💾 Salva Campagna", command=self.save_campaign, style="Success.TButton").pack(side=tk.LEFT, padx=4)
+        ttk.Button(actions_box, text="📂 Salva con Nome...", command=self.save_campaign_as, style="Primary.TButton").pack(side=tk.LEFT, padx=4)
         ttk.Button(actions_box, text="Chiudi", command=self.destroy).pack(side=tk.LEFT, padx=4)
         
         # --- NOTEBOOK TABS ---
@@ -395,6 +396,23 @@ class CampaignEditorDialog(tk.Toplevel):
         self.ent_title = ttk.Entry(col_left, font=FONT_MAIN)
         self.ent_title.insert(0, self.campaign.name)
         self.ent_title.pack(fill=tk.X, pady=(2, 10))
+        self.ent_title.bind("<KeyRelease>", self._on_title_changed)
+
+        # Cartella di Salvataggio Campagna (Percorso Personalizzato)
+        from common.campaign import DEFAULT_CAMPAIGNS_DIR, slugify
+        tk.Label(col_left, text="Cartella di Salvataggio (Percorso Personalizzato):", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        folder_row = tk.Frame(col_left, bg=SURFACE_COLOR)
+        folder_row.pack(fill=tk.X, pady=(2, 10))
+
+        self.ent_folder_path = ttk.Entry(folder_row, font=FONT_MAIN)
+        init_folder = self.campaign.folder_path or os.path.join(DEFAULT_CAMPAIGNS_DIR, slugify(self.campaign.name))
+        self.ent_folder_path.insert(0, os.path.abspath(init_folder))
+        self.ent_folder_path.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
+        self.ent_folder_path.bind("<KeyRelease>", self._on_folder_path_typed)
+
+        self.is_custom_folder_path = bool(self.campaign.folder_path and not os.path.abspath(self.campaign.folder_path).startswith(os.path.abspath(DEFAULT_CAMPAIGNS_DIR)))
+
+        ttk.Button(folder_row, text="📁 Sfoglia...", command=self.browse_campaign_folder).pack(side=tk.RIGHT)
         
         # Livello e Meteo
         row_lv = tk.Frame(col_left, bg=SURFACE_COLOR)
@@ -1168,6 +1186,37 @@ class CampaignEditorDialog(tk.Toplevel):
     # -------------------------------------------------------------
     # SALVATAGGIO & APPLICAZIONE
     # -------------------------------------------------------------
+    def _on_title_changed(self, event=None):
+        self._update_date_preview()
+        if not getattr(self, "is_custom_folder_path", False):
+            from common.campaign import DEFAULT_CAMPAIGNS_DIR, slugify
+            title = self.ent_title.get().strip()
+            new_path = os.path.join(DEFAULT_CAMPAIGNS_DIR, slugify(title or "campagna"))
+            if hasattr(self, "ent_folder_path"):
+                self.ent_folder_path.delete(0, tk.END)
+                self.ent_folder_path.insert(0, os.path.abspath(new_path))
+
+    def _on_folder_path_typed(self, event=None):
+        self.is_custom_folder_path = True
+
+    def browse_campaign_folder(self):
+        from common.campaign import DEFAULT_CAMPAIGNS_DIR
+        curr = self.ent_folder_path.get().strip() if hasattr(self, "ent_folder_path") else ""
+        if not curr or not os.path.exists(curr):
+            curr = DEFAULT_CAMPAIGNS_DIR
+        selected = filedialog.askdirectory(
+            title="Seleziona la cartella dove salvare la campagna",
+            initialdir=curr,
+            parent=self
+        )
+        if selected:
+            selected_abs = os.path.abspath(selected)
+            self.is_custom_folder_path = True
+            if hasattr(self, "ent_folder_path"):
+                self.ent_folder_path.delete(0, tk.END)
+                self.ent_folder_path.insert(0, selected_abs)
+            self.campaign.folder_path = selected_abs
+
     def sync_campaign_data(self):
         """Sincronizza le modifiche della UI nell'oggetto Campaign."""
         if hasattr(self, "studio_frame") and self.studio_frame:
@@ -1189,6 +1238,10 @@ class CampaignEditorDialog(tk.Toplevel):
             pass
         self.campaign.description = self.txt_synopsis.get("1.0", tk.END).strip()
         self.campaign.dm_notes = self.txt_dm_notes.get("1.0", tk.END).strip()
+        if hasattr(self, "ent_folder_path"):
+            custom_folder = self.ent_folder_path.get().strip()
+            if custom_folder:
+                self.campaign.folder_path = os.path.abspath(custom_folder)
 
     def toggle_fullscreen(self, event=None):
         self.is_fullscreen = not getattr(self, "is_fullscreen", False)
@@ -1212,7 +1265,47 @@ class CampaignEditorDialog(tk.Toplevel):
     def save_campaign(self):
         self.sync_campaign_data()
         try:
-            folder = self.campaign.save()
+            target_dir = self.campaign.folder_path
+            if hasattr(self, "ent_folder_path"):
+                typed_dir = self.ent_folder_path.get().strip()
+                if typed_dir:
+                    target_dir = os.path.abspath(typed_dir)
+            folder = self.campaign.save(target_folder=target_dir)
+            if hasattr(self, "ent_folder_path"):
+                self.ent_folder_path.delete(0, tk.END)
+                self.ent_folder_path.insert(0, folder)
+            self.title(f"D&D OmniCompanion • Preparazione Campagna: {self.campaign.name}")
+            messagebox.showinfo("Campagna Salvata", f"Campagna '{self.campaign.name}' salvata con successo in:\n{folder}", parent=self)
+            if self.on_save_callback:
+                self.on_save_callback(self.campaign)
+        except Exception as e:
+            messagebox.showerror("Errore Salvataggio", f"Impossibile salvare la campagna: {e}", parent=self)
+
+    def save_campaign_as(self):
+        self.sync_campaign_data()
+        from common.campaign import DEFAULT_CAMPAIGNS_DIR
+        initial_dir = self.campaign.folder_path or DEFAULT_CAMPAIGNS_DIR
+        if not os.path.exists(initial_dir):
+            initial_dir = DEFAULT_CAMPAIGNS_DIR
+        selected = filedialog.askdirectory(
+            title="Salva Campagna Con Nome - Seleziona Cartella di Destinazione",
+            initialdir=initial_dir,
+            parent=self
+        )
+        if not selected:
+            return
+        try:
+            selected_abs = os.path.abspath(selected)
+            manifest_path = os.path.join(selected_abs, "campaign.json")
+            if os.path.exists(manifest_path):
+                if not messagebox.askyesno("Conferma Sovrascrittura", f"Nella cartella selezionata è già presente un file 'campaign.json':\n{selected_abs}\n\nVuoi sovrascriverlo con questa campagna?", parent=self):
+                    return
+            folder = self.campaign.save(target_folder=selected_abs)
+            self.is_custom_folder_path = True
+            if hasattr(self, "ent_folder_path"):
+                self.ent_folder_path.delete(0, tk.END)
+                self.ent_folder_path.insert(0, folder)
+            self.title(f"D&D OmniCompanion • Preparazione Campagna: {self.campaign.name}")
             messagebox.showinfo("Campagna Salvata", f"Campagna '{self.campaign.name}' salvata con successo in:\n{folder}", parent=self)
             if self.on_save_callback:
                 self.on_save_callback(self.campaign)
@@ -1551,6 +1644,7 @@ class CampaignSelectorDialog(tk.Toplevel):
         l_btn_box = tk.Frame(left_card, bg=SURFACE_COLOR)
         l_btn_box.pack(fill=tk.X, pady=(8, 0))
         ttk.Button(l_btn_box, text="+ Nuova Campagna", command=self.create_new_campaign, style="Primary.TButton").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Button(l_btn_box, text="📂 Apri da Percorso...", command=self.load_from_custom_path).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Button(l_btn_box, text="🗑️ Elimina", command=self.delete_campaign).pack(side=tk.LEFT)
         ttk.Button(l_btn_box, text="🔄 Ricarica", command=self.refresh_campaigns).pack(side=tk.RIGHT)
         
@@ -1620,6 +1714,51 @@ class CampaignSelectorDialog(tk.Toplevel):
             self.txt_det_desc.configure(state=tk.DISABLED)
         except Exception as e:
             messagebox.showerror("Errore", f"Impossibile leggere la campagna: {e}", parent=self)
+
+    def load_from_custom_path(self):
+        target = filedialog.askopenfilename(
+            title="Seleziona file manifesto campaign.json",
+            filetypes=[("Manifest Campagna", "campaign.json"), ("File JSON", "*.json"), ("Tutti i file", "*.*")],
+            parent=self
+        )
+        if not target:
+            if messagebox.askyesno("Scegli Cartella", "Vuoi selezionare una cartella di campagna invece di un singolo file?", parent=self):
+                target = filedialog.askdirectory(title="Seleziona la cartella della campagna", parent=self)
+        if not target:
+            return
+        try:
+            camp = Campaign.load(target)
+            folder = os.path.abspath(camp.folder_path)
+            found = False
+            for idx, c in enumerate(self.available_campaigns):
+                if os.path.abspath(c.get("folder_path", "")) == folder:
+                    self.tree_camps.selection_set(str(idx))
+                    self.on_campaign_selected(None)
+                    found = True
+                    break
+            if not found:
+                new_idx = len(self.available_campaigns)
+                c_info = {
+                    "name": camp.name,
+                    "level_range": camp.level_range,
+                    "scenes_count": len(camp.scenes),
+                    "encounters_count": len(camp.encounters),
+                    "quests_count": len(camp.quests),
+                    "folder_path": folder,
+                    "manifest_path": os.path.join(folder, "campaign.json")
+                }
+                self.available_campaigns.append(c_info)
+                self.tree_camps.insert("", tk.END, iid=str(new_idx), values=(
+                    camp.name,
+                    camp.level_range,
+                    str(len(camp.scenes)),
+                    str(len(camp.encounters)),
+                    str(len(camp.quests))
+                ))
+                self.tree_camps.selection_set(str(new_idx))
+                self.on_campaign_selected(None)
+        except Exception as e:
+            messagebox.showerror("Errore Caricamento", f"Impossibile caricare la campagna da '{target}': {e}", parent=self)
 
     def create_new_campaign(self):
         new_camp = Campaign(name="Nuova Campagna")

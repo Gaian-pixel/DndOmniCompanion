@@ -160,7 +160,9 @@ class DM_GUI:
         file_menu = tk.Menu(menubar, tearoff=0)
         file_menu.add_command(label=_t("menu_new_campaign"), command=self.open_new_campaign_dialog)
         file_menu.add_command(label=_t("menu_load_campaign"), command=self.open_load_campaign_dialog)
+        file_menu.add_command(label="📂 Apri Campagna da File / Cartella...", command=self.open_campaign_from_custom_path)
         file_menu.add_command(label=_t("menu_edit_active_campaign"), command=self.open_campaign_editor_dialog)
+        file_menu.add_command(label="💾 Salva Campagna Attiva con Nome...", command=self.save_active_campaign_as)
         file_menu.add_command(label=_t("menu_close_campaign"), command=self.close_active_campaign)
         file_menu.add_separator()
         file_menu.add_command(label="🧭 Flusso Live della Campagna (Ctrl+N)", command=self.open_live_flow_controller)
@@ -2338,6 +2340,65 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                 self.open_load_campaign_dialog()
             else:
                 self.open_new_campaign_dialog()
+
+    def open_campaign_from_custom_path(self):
+        from common.campaign import Campaign
+        target = filedialog.askopenfilename(
+            title="Seleziona file manifesto 'campaign.json'",
+            filetypes=[("Manifest Campagna", "campaign.json"), ("File JSON", "*.json"), ("Tutti i file", "*.*")],
+            parent=self.master
+        )
+        if not target:
+            if messagebox.askyesno("Scegli Cartella", "Vuoi selezionare una cartella di campagna invece di un singolo file?", parent=self.master):
+                target = filedialog.askdirectory(title="Seleziona la cartella della campagna", parent=self.master)
+        if not target:
+            return
+        try:
+            camp = Campaign.load(target)
+            camp.apply_to_game_state(self.server.game_state)
+            if hasattr(self, "session_ledger") and self.session_ledger:
+                self.session_ledger.campaign_name = camp.name
+                if getattr(camp, "start_date", None):
+                    self.session_ledger.start_game_date = dict(camp.start_date)
+                    self.session_ledger.current_game_date = dict(camp.start_date)
+                if getattr(camp, "start_weather", None):
+                    self.session_ledger.current_weather = camp.start_weather
+            if self.server.game_state.current_map:
+                self.fow_enabled_var.set(self.server.game_state.current_map.get("fow_enabled", False))
+                self.redraw_map_and_players()
+            if hasattr(self, 'lbl_campaign_name'):
+                self.lbl_campaign_name.config(text=f"Campagna: {camp.name}")
+            self.log_to_chat(f"[SISTEMA] Campagna '{camp.name}' caricata da {camp.folder_path} e attiva.")
+            messagebox.showinfo("Campagna Caricata", f"Campagna '{camp.name}' caricata con successo da:\n{camp.folder_path}", parent=self.master)
+        except Exception as e:
+            messagebox.showerror("Errore Caricamento", f"Impossibile caricare la campagna: {e}", parent=self.master)
+
+    def save_active_campaign_as(self):
+        active_camp = getattr(self.server.game_state, 'active_campaign', None)
+        if not active_camp:
+            messagebox.showwarning("Nessuna Campagna", "Non c'è una campagna attiva da salvare.", parent=self.master)
+            return
+        from common.campaign import DEFAULT_CAMPAIGNS_DIR
+        initial_dir = active_camp.folder_path or DEFAULT_CAMPAIGNS_DIR
+        if not os.path.exists(initial_dir):
+            initial_dir = DEFAULT_CAMPAIGNS_DIR
+        selected = filedialog.askdirectory(
+            title="Salva Campagna Attiva Con Nome - Seleziona Cartella di Destinazione",
+            initialdir=initial_dir,
+            parent=self.master
+        )
+        if not selected:
+            return
+        try:
+            manifest_path = os.path.join(selected, "campaign.json")
+            if os.path.exists(manifest_path):
+                if not messagebox.askyesno("Conferma Sovrascrittura", f"Nella cartella selezionata è già presente un file 'campaign.json':\n{selected}\n\nVuoi sovrascriverlo con questa campagna?", parent=self.master):
+                    return
+            folder = active_camp.save(target_folder=selected)
+            self.log_to_chat(f"[SISTEMA] Campagna '{active_camp.name}' salvata in: {folder}")
+            messagebox.showinfo("Campagna Salvata", f"Campagna '{active_camp.name}' salvata con successo in:\n{folder}", parent=self.master)
+        except Exception as e:
+            messagebox.showerror("Errore Salvataggio", f"Impossibile salvare la campagna: {e}", parent=self.master)
 
     def close_active_campaign(self):
         active_camp = getattr(self.server.game_state, 'active_campaign', None)
