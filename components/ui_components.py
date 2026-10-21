@@ -92,11 +92,18 @@ class HexMapCanvas(tk.Canvas):
         self._ruler_text_id = None
         self._ruler_text_bg_id = None
         self.ruler_mode = False
+        self.pan_mode = False
+        self._space_held = False
+        self.config(takefocus=True)
         self.pen_mode = False
         self.pen_color = "red"
         self.brush_radius = 0
         self.fow_enabled = False
         self.visible_hexes = set()
+        self.player_name = None
+        self.turn_player_name = ""
+        self.players_data = {}
+        self.aoes_data = []
 
         self.bind("<MouseWheel>", self._zoom)
         self.bind("<Button-4>", self._zoom)
@@ -109,6 +116,28 @@ class HexMapCanvas(tk.Canvas):
         self.bind("<ButtonPress-2>", self._pan_start)
         self.bind("<B2-Motion>", self._pan_move)
         self.bind("<ButtonRelease-2>", self._on_ping_click_b2)
+        self.bind("<Alt-ButtonPress-1>", self._pan_start)
+        self.bind("<Alt-B1-Motion>", self._pan_move)
+        self.bind("<Alt-ButtonRelease-1>", self._on_pan_release)
+        self.bind("<KeyPress-space>", self._on_space_press)
+        self.bind("<KeyRelease-space>", self._on_space_release)
+        self.bind("<h>", self._on_pan_shortcut)
+        self.bind("<H>", self._on_pan_shortcut)
+        self.bind("<p>", self._on_pan_shortcut)
+        self.bind("<P>", self._on_pan_shortcut)
+        self.bind("<Escape>", self._on_escape_press)
+        self.bind("<Up>", lambda e: self._on_key_pan(0, 60, e))
+        self.bind("<Down>", lambda e: self._on_key_pan(0, -60, e))
+        self.bind("<Left>", lambda e: self._on_key_pan(60, 0, e))
+        self.bind("<Right>", lambda e: self._on_key_pan(-60, 0, e))
+        self.bind("<w>", lambda e: self._on_key_pan(0, 60, e))
+        self.bind("<W>", lambda e: self._on_key_pan(0, 60, e))
+        self.bind("<s>", lambda e: self._on_key_pan(0, -60, e))
+        self.bind("<S>", lambda e: self._on_key_pan(0, -60, e))
+        self.bind("<a>", lambda e: self._on_key_pan(60, 0, e))
+        self.bind("<A>", lambda e: self._on_key_pan(60, 0, e))
+        self.bind("<d>", lambda e: self._on_key_pan(-60, 0, e))
+        self.bind("<D>", lambda e: self._on_key_pan(-60, 0, e))
         self.bind("<Button-1>", self._on_canvas_click)
         self.bind("<B1-Motion>", self._on_canvas_drag)
         self.bind("<ButtonRelease-1>", self._on_canvas_release)
@@ -290,15 +319,119 @@ class HexMapCanvas(tk.Canvas):
         else:
             self._on_ping_click(event)
 
+    def toggle_pan_mode(self, enabled=None):
+        if enabled is None:
+            self.pan_mode = not getattr(self, "pan_mode", False)
+        else:
+            self.pan_mode = bool(enabled)
+
+        if self.pan_mode:
+            if getattr(self, "ruler_mode", False):
+                self.ruler_mode = False
+                self.clear_ruler()
+            if getattr(self, "pen_mode", False):
+                self.pen_mode = False
+            try:
+                self.config(cursor="fleur")
+            except Exception:
+                pass
+        else:
+            try:
+                self.config(cursor="tcross" if getattr(self, "ruler_mode", False) else "")
+            except Exception:
+                pass
+        self.redraw()
+        return self.pan_mode
+
+    def pan_by(self, dx: float, dy: float):
+        self.pan_offset_x += dx
+        self.pan_offset_y += dy
+        self.move("all", dx, dy)
+        self._schedule_pan_redraw()
+
+    def _can_handle_key(self):
+        try:
+            focus_widget = self.focus_get()
+            if focus_widget:
+                cls_name = focus_widget.winfo_class()
+                if cls_name in ("Entry", "Text", "TEntry", "Combobox", "TCombobox", "Spinbox", "TSpinbox"):
+                    return False
+        except Exception:
+            pass
+        return True
+
+    def _on_space_press(self, event=None):
+        if not self._can_handle_key():
+            return
+        if not getattr(self, "_space_held", False):
+            self._space_held = True
+            try:
+                self.config(cursor="fleur")
+            except Exception:
+                pass
+        return "break"
+
+    def _on_space_release(self, event=None):
+        if getattr(self, "_space_held", False):
+            self._space_held = False
+            if not getattr(self, "pan_mode", False):
+                try:
+                    self.config(cursor="tcross" if getattr(self, "ruler_mode", False) else "")
+                except Exception:
+                    pass
+        return "break"
+
+    def _on_pan_release(self, event=None):
+        if self._pan_redraw_timer is not None:
+            self.after_cancel(self._pan_redraw_timer)
+            self._pan_redraw_timer = None
+        if getattr(self, "_is_panning", False):
+            self._is_panning = False
+            self.redraw()
+
+    def _on_pan_shortcut(self, event=None):
+        if not self._can_handle_key():
+            return
+        self.toggle_pan_mode()
+        return "break"
+
+    def _on_escape_press(self, event=None):
+        changed = False
+        if getattr(self, "pan_mode", False):
+            self.pan_mode = False
+            changed = True
+        if getattr(self, "ruler_mode", False):
+            self.ruler_mode = False
+            self.clear_ruler()
+            changed = True
+        if getattr(self, "pen_mode", False):
+            self.pen_mode = False
+            changed = True
+        if changed:
+            try:
+                self.config(cursor="")
+            except Exception:
+                pass
+            self.redraw()
+        return "break"
+
+    def _on_key_pan(self, dx: float, dy: float, event=None):
+        if not self._can_handle_key():
+            return
+        self.pan_by(dx, dy)
+        return "break"
+
     def toggle_ruler_mode(self):
         self.ruler_mode = not getattr(self, "ruler_mode", False)
         if not self.ruler_mode:
             self.clear_ruler()
             try:
-                self.config(cursor="")
+                self.config(cursor="fleur" if getattr(self, "pan_mode", False) else "")
             except Exception:
                 pass
         else:
+            if getattr(self, "pan_mode", False):
+                self.pan_mode = False
             try:
                 self.config(cursor="tcross")
             except Exception:
@@ -323,6 +456,10 @@ class HexMapCanvas(tk.Canvas):
             self._ruler_text_bg_id = None
 
     def _on_canvas_click(self, event):
+        try:
+            self.focus_set()
+        except Exception:
+            pass
         if getattr(self, "pen_mode", False):
             self._on_draw_start(event)
             return
@@ -340,6 +477,8 @@ class HexMapCanvas(tk.Canvas):
                 if bx1 <= event.x <= bx2 and by1 <= event.y <= by2:
                     if action_key == "center":
                         self.center_view()
+                    elif action_key == "pan":
+                        self.toggle_pan_mode()
                     elif action_key == "zoom_in":
                         self.zoom_in()
                     elif action_key == "zoom_out":
@@ -353,6 +492,11 @@ class HexMapCanvas(tk.Canvas):
             wbx1, wby1, wbx2, wby2 = self._weather_badge_bbox
             if wbx1 <= event.x <= wbx2 and wby1 <= event.y <= wby2:
                 return
+
+        # 4. Navigazione Mappa (Pan Mode o Spazio tenuto premuto)
+        if getattr(self, "pan_mode", False) or getattr(self, "_space_held", False):
+            self._pan_start(event)
+            return
 
         if not self.hex_layout: return
         world_x = (event.x - self.pan_offset_x) / self.zoom_level
@@ -390,6 +534,9 @@ class HexMapCanvas(tk.Canvas):
         self.on_hex_click_callback(clicked_hex)
 
     def _on_canvas_drag(self, event):
+        if getattr(self, "pan_mode", False) or getattr(self, "_space_held", False) or getattr(self, "_is_panning", False):
+            self._pan_move(event)
+            return
         if getattr(self, "pen_mode", False):
             self._on_draw_move(event)
             return
@@ -457,6 +604,9 @@ class HexMapCanvas(tk.Canvas):
             return
 
     def _on_canvas_release(self, event):
+        if getattr(self, "pan_mode", False) or getattr(self, "_space_held", False) or getattr(self, "_is_panning", False):
+            self._on_pan_release(event)
+            return
         if getattr(self, "pen_mode", False):
             self._on_draw_end(event)
             return
@@ -1549,8 +1699,13 @@ class HexMapCanvas(tk.Canvas):
                     cx_offset += card_w + spacing
 
         # 4. Floating Glassmorphism Map Controls (Bottom-Left Minimalist HUD)
-        cw = self.winfo_width()
-        ch = self.winfo_height()
+        try:
+            cfg_w = int(self.cget("width") or 0)
+            cfg_h = int(self.cget("height") or 0)
+        except Exception:
+            cfg_w, cfg_h = 0, 0
+        cw = max(self.winfo_width(), cfg_w)
+        ch = max(self.winfo_height(), cfg_h)
         if cw > 220 and ch > 160:
             hud_x = 16
             hud_y = ch - 52
@@ -1559,6 +1714,7 @@ class HexMapCanvas(tk.Canvas):
             hud_spacing = 6
             buttons = [
                 ("👆", "center"),
+                ("✋", "pan"),
                 ("➕", "zoom_in"),
                 ("➖", "zoom_out"),
                 ("📏", "ruler"),
@@ -1577,8 +1733,10 @@ class HexMapCanvas(tk.Canvas):
                 bx2 = bx1 + hud_btn_w
                 by2 = by1 + hud_btn_h
                 
-                btn_bg = "#2563EB" if (action_key == "ruler" and getattr(self, "ruler_mode", False)) else "#1A1D24"
-                btn_border = "#60A5FA" if (action_key == "ruler" and getattr(self, "ruler_mode", False)) else "#374151"
+                is_active = (action_key == "ruler" and getattr(self, "ruler_mode", False)) or \
+                            (action_key == "pan" and getattr(self, "pan_mode", False))
+                btn_bg = "#2563EB" if is_active else "#1A1D24"
+                btn_border = "#60A5FA" if is_active else "#374151"
                 
                 self.create_rectangle(bx1, by1, bx2, by2, fill=btn_bg, outline=btn_border, width=1, tags="hud_controls")
                 self.create_text((bx1 + bx2)/2, (by1 + by2)/2, text=icon, font=("Segoe UI Emoji", 11), tags="hud_controls")
@@ -2329,6 +2487,7 @@ class CommandPaletteDialog(tk.Toplevel):
         # 3. AZIONI RAPIDE DELLA UI
         actions = [
             ("toggle_fullscreen", "⛶ Schermo Intero (F11)", "Attiva o disattiva la visualizzazione a schermo intero."),
+            ("toggle_pan", "✋ Naviga Mappa / Pan (Tasto H, P o Spazio)", "Alterna la modalità navigazione mappa per trascinare con tasto sinistro senza rotella."),
             ("center_map", "👆 Centra Vista Mappa", "Centra il canvas all'origine o sui token del tavolo."),
             ("toggle_ruler", "📏 Attiva / Disattiva Righello", "Alterna la modalità misuratore di distanza in piedi (ft)."),
             ("zoom_in", "➕ Ingrandisci Mappa (Zoom +)", "Aumenta il livello di ingrandimento del canvas."),

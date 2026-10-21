@@ -423,6 +423,10 @@ class DM_GUI:
         
         self.btn_ruler = None
 
+        self.btn_pan = ttk.Button(left_toolbar, text="✋", width=3, style="Tool.TButton", command=self.toggle_pan_mode)
+        self.btn_pan.pack(pady=3)
+        ToolTip(self.btn_pan, "Naviga Mappa (Trascina con tasto sinistro senza premere la rotella, oppure tieni premuto Spazio)")
+
         self.btn_fow_tool = ttk.Button(left_toolbar, text="☁️", width=3, style="Tool.TButton", command=self.toggle_fow_quick_tool)
         self.btn_fow_tool.pack(pady=3)
         ToolTip(self.btn_fow_tool, lambda: _t("tool_fog_of_war"))
@@ -810,6 +814,13 @@ class DM_GUI:
         # Scorciatoia Schermo Intero (F11 / Esc)
         self.master.bind("<F11>", self.toggle_fullscreen)
         self.master.bind("<Escape>", self.exit_fullscreen)
+        # Scorciatoie Navigazione Mappa (Spazio, H, P)
+        self.master.bind("<KeyPress-space>", self._on_space_key_press)
+        self.master.bind("<KeyRelease-space>", self._on_space_key_release)
+        self.master.bind("<h>", self._on_shortcut_pan_key)
+        self.master.bind("<H>", self._on_shortcut_pan_key)
+        self.master.bind("<p>", self._on_shortcut_pan_key)
+        self.master.bind("<P>", self._on_shortcut_pan_key)
 
     def open_command_palette(self, event=None):
         try:
@@ -842,6 +853,46 @@ class DM_GUI:
             if hasattr(self, "btn_fullscreen"):
                 self.btn_fullscreen.config(text="⛶")
             self.show_toast(_t("toast_fullscreen_off"), title=_t("menu_fullscreen"), toast_type="info")
+        elif self.map_canvas and getattr(self.map_canvas, "pan_mode", False):
+            self.map_canvas.toggle_pan_mode(False)
+
+    def toggle_pan_mode(self):
+        if self.map_canvas and hasattr(self.map_canvas, "toggle_pan_mode"):
+            is_active = self.map_canvas.toggle_pan_mode()
+            if hasattr(self, "show_toast"):
+                if is_active:
+                    self.show_toast("Modalità Navigazione Mappa attiva (Trascina con Tasto Sinistro)", title="✋ Pan Mappa", toast_type="info")
+                else:
+                    self.show_toast("Modalità Navigazione Mappa disattivata", title="✋ Pan Mappa", toast_type="info")
+            return is_active
+        return False
+
+    def _on_space_key_press(self, event):
+        focus = self.master.focus_get()
+        if focus:
+            try:
+                cls_name = focus.winfo_class()
+                if cls_name in ("Entry", "Text", "TEntry", "Combobox", "TCombobox", "Spinbox", "TSpinbox"):
+                    return
+            except Exception:
+                pass
+        if self.map_canvas and hasattr(self.map_canvas, "_on_space_press"):
+            self.map_canvas._on_space_press(event)
+
+    def _on_space_key_release(self, event):
+        if self.map_canvas and hasattr(self.map_canvas, "_on_space_release"):
+            self.map_canvas._on_space_release(event)
+
+    def _on_shortcut_pan_key(self, event):
+        focus = self.master.focus_get()
+        if focus:
+            try:
+                cls_name = focus.winfo_class()
+                if cls_name in ("Entry", "Text", "TEntry", "Combobox", "TCombobox", "Spinbox", "TSpinbox"):
+                    return
+            except Exception:
+                pass
+        self.toggle_pan_mode()
 
     def _handle_command_palette_action(self, action_type, payload):
         if action_type == "action" and payload == "toggle_fullscreen":
@@ -878,6 +929,8 @@ class DM_GUI:
                 self.open_manuals_dialog()
             elif payload == "toggle_ruler":
                 self.toggle_ruler_mode()
+            elif payload == "toggle_pan":
+                self.toggle_pan_mode()
             elif payload == "open_aoe":
                 self.open_aoe_dialog()
             elif payload == "center_map" and self.map_canvas:

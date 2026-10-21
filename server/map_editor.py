@@ -204,6 +204,15 @@ class MapEditorWindow(tk.Toplevel):
         self.canvas.bind("<B2-Motion>", self._pan_move)
         self.canvas.bind("<Alt-ButtonPress-1>", self._pan_start)
         self.canvas.bind("<Alt-B1-Motion>", self._pan_move)
+        self.canvas.bind("<B1-Motion>", self._on_canvas_b1_motion)
+        self.canvas.bind("<KeyPress-space>", self._on_space_press)
+        self.canvas.bind("<KeyRelease-space>", self._on_space_release)
+        self.bind("<KeyPress-space>", self._on_space_press)
+        self.bind("<KeyRelease-space>", self._on_space_release)
+        self.bind("<Up>", lambda e: self.pan_by(0, 60))
+        self.bind("<Down>", lambda e: self.pan_by(0, -60))
+        self.bind("<Left>", lambda e: self.pan_by(60, 0))
+        self.bind("<Right>", lambda e: self.pan_by(-60, 0))
 
     def _create_layout(self, hex_size, grid_type=None):
         if grid_type is None:
@@ -312,6 +321,49 @@ class MapEditorWindow(tk.Toplevel):
         self._pan_start_x = event.x
         self._pan_start_y = event.y
         self.canvas.move("all", dx, dy)
+
+    def pan_by(self, dx, dy):
+        focus = self.focus_get()
+        if focus:
+            try:
+                cls_name = focus.winfo_class()
+                if cls_name in ("Entry", "Text", "TEntry", "Combobox", "TCombobox", "Spinbox", "TSpinbox"):
+                    return
+            except Exception:
+                pass
+        self.pan_offset_x += dx
+        self.pan_offset_y += dy
+        self.canvas.move("all", dx, dy)
+
+    def _on_space_press(self, event=None):
+        focus = self.focus_get()
+        if focus:
+            try:
+                cls_name = focus.winfo_class()
+                if cls_name in ("Entry", "Text", "TEntry", "Combobox", "TCombobox", "Spinbox", "TSpinbox"):
+                    return
+            except Exception:
+                pass
+        if not getattr(self, "_space_held", False):
+            self._space_held = True
+            try:
+                self.canvas.config(cursor="fleur")
+            except Exception:
+                pass
+        return "break"
+
+    def _on_space_release(self, event=None):
+        if getattr(self, "_space_held", False):
+            self._space_held = False
+            try:
+                self.canvas.config(cursor="")
+            except Exception:
+                pass
+        return "break"
+
+    def _on_canvas_b1_motion(self, event):
+        if getattr(self, "_space_held", False):
+            self._pan_move(event)
 
     def redraw(self, high_res=False):
         """Ridisegna l'intera scena (sfondo e griglia) garantendo perfetto allineamento."""
@@ -597,6 +649,9 @@ class MapEditorWindow(tk.Toplevel):
                 self.canvas.itemconfig(hex_id, fill=t_style["fill"], stipple=t_style["stipple"])
 
     def on_canvas_left_click(self, event):
+        if getattr(self, "_space_held", False):
+            self._pan_start(event)
+            return
         wx, wy = self.screen_to_world(event.x, event.y)
         if self.add_poi_mode:
             self._add_poi_at(wx, wy)
