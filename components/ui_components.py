@@ -1205,8 +1205,10 @@ class HexMapCanvas(tk.Canvas):
             else:
                 scaled_corners = [(sx + dx, sy + dy) for dx, dy in corner_offsets]
             hex_tup = (q, r)
+            is_poi = hex_tup in pois_data
 
-            fill_color = "#FFD700" if hex_tup in pois_data else ""
+            # POI: coloriamo solo il bordo in oro per non coprire l'immagine sottostante
+            fill_color = ""
             stipple_pattern = ""
 
             if hex_tup in walls_set:
@@ -1238,12 +1240,19 @@ class HexMapCanvas(tk.Canvas):
                 fill_color = "black"
                 stipple_pattern = ""
 
-            if scaled_size < 8.0 and not fill_color:
+            if scaled_size < 8.0 and not fill_color and not is_poi:
                 continue
 
-            cell_outline = "" if grid_type in ("none", "gridless") else border_color
+            is_poi_revealed = is_dm or (not fow_enabled) or (hex_tup in fow_revealed) or (hex_tup in visible_now)
+            if is_poi and is_poi_revealed:
+                cell_outline = "#FFD700"
+                cur_line_w = max(2.0, line_w + 1.0)
+            else:
+                cell_outline = "" if grid_type in ("none", "gridless") else border_color
+                cur_line_w = line_w
+
             if cell_outline or fill_color:
-                self.create_polygon(scaled_corners, fill=fill_color, outline=cell_outline, width=line_w, stipple=stipple_pattern)
+                self.create_polygon(scaled_corners, fill=fill_color, outline=cell_outline, width=cur_line_w, stipple=stipple_pattern)
 
             # Icona del terreno difficile se la cella è visibile o svelata
             if hex_tup in diff_terrain_dict and (is_dm or hex_tup in visible_now or hex_tup in fow_revealed):

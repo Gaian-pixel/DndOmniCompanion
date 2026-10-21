@@ -425,7 +425,10 @@ class MapEditorWindow(tk.Toplevel):
         elif t_style:
             style = {"fill": t_style["fill"], "stipple": t_style["stipple"], "outline": self.hex_border_color, "width": 1}
         elif h in self.pois:
-            style = {"fill": self.POI_COLOR, "stipple": "", "outline": self.hex_border_color, "width": 1}
+            # Per i POI coloriamo solo il bordo per non coprire l'immagine sottostante
+            normal_fill = "gray50" if not self.base_image_original else ""
+            normal_stipple = "gray25" if not self.base_image_original else ""
+            style = {"fill": normal_fill, "stipple": normal_stipple, "outline": self.POI_COLOR, "width": 2}
         else:
             style = {"fill": "gray50", "stipple": "gray25", "outline": self.hex_border_color, "width": 1}
         
@@ -456,8 +459,11 @@ class MapEditorWindow(tk.Toplevel):
             self._update_grid_color()
 
     def _update_grid_color(self):
-        for hex_id in self.hex_to_canvas_id.values():
-            self.canvas.itemconfig(hex_id, outline=self.hex_border_color)
+        for h, hex_id in self.hex_to_canvas_id.items():
+            if h in self.pois:
+                self.canvas.itemconfig(hex_id, outline=self.POI_COLOR, width=2)
+            else:
+                self.canvas.itemconfig(hex_id, outline=self.hex_border_color, width=1)
 
     def load_base_image(self):
         """Carica un'immagine di sfondo e reimposta la vista."""
@@ -622,7 +628,9 @@ class MapEditorWindow(tk.Toplevel):
         self.pois[target_hex] = {"title": title, "caption": caption or ""}
         hex_id = self.hex_to_canvas_id.get(target_hex)
         if hex_id:
-            self.canvas.itemconfig(hex_id, fill=self.POI_COLOR, stipple="")
+            normal_fill = "gray50" if not self.base_image_original else ""
+            normal_stipple = "gray25" if not self.base_image_original else ""
+            self.canvas.itemconfig(hex_id, fill=normal_fill, outline=self.POI_COLOR, width=2, stipple=normal_stipple)
             self.canvas.addtag_withtag("poi", hex_id)
         self.toggle_add_poi_mode()
 
