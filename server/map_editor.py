@@ -69,6 +69,7 @@ class MapEditorWindow(tk.Toplevel):
         self.hex_to_canvas_id = {}
         self.hex_layout = None
         self.current_hex_size = 35
+        self.current_grid_type = "hex"
         self.base_image_path = ""
         self.current_hover_poi = None
         self.add_poi_mode = False
@@ -367,7 +368,8 @@ class MapEditorWindow(tk.Toplevel):
         
         # Generazione automatica se c'è già una scala impostata
         if self.hex_layout and not self.grid_hexes:
-            if messagebox.askyesno("Generazione Automatica", "Vuoi riempire automaticamente l'immagine appena caricata con gli esagoni?"):
+            grid_type = self.grid_type_var.get() if hasattr(self, "grid_type_var") else "hex"
+            if messagebox.askyesno("Generazione Automatica", f"Vuoi riempire automaticamente l'immagine appena caricata con la griglia {grid_type}?"):
                 self.generate_auto_grid()
 
     def load_map_file(self):
@@ -383,6 +385,7 @@ class MapEditorWindow(tk.Toplevel):
             hex_size = data.get("hex_size", 60)
             self.current_hex_size = hex_size
             grid_type = data.get("grid_type", "hex")
+            self.current_grid_type = grid_type
             if hasattr(self, "grid_type_var"):
                 self.grid_type_var.set(grid_type)
             
@@ -471,6 +474,10 @@ class MapEditorWindow(tk.Toplevel):
             messagebox.showwarning("Scala non impostata", "Prima scegli un tipo di mappa dal menu in alto.")
             return
 
+        if self.base_image_original:
+            if not (0 <= wx <= self.base_image_original.width and 0 <= wy <= self.base_image_original.height):
+                return
+
         target_hex = self.hex_layout.pixel_to_hex((wx, wy))
         if target_hex not in self.grid_hexes:
             self.grid_hexes.add(target_hex)
@@ -554,6 +561,9 @@ class MapEditorWindow(tk.Toplevel):
                 self.canvas.delete(self.preview_hex_id)
                 self.preview_hex_id = None
             wx, wy = self.screen_to_world(event.x, event.y)
+            if self.base_image_original:
+                if not (0 <= wx <= self.base_image_original.width and 0 <= wy <= self.base_image_original.height):
+                    return
             target_hex = self.hex_layout.pixel_to_hex((wx, wy))
             if target_hex not in self.grid_hexes:
                 self.preview_hex_id = self._draw_single_hex(target_hex, is_preview=True)
@@ -607,52 +617,92 @@ class MapEditorWindow(tk.Toplevel):
                 return
             self._clear_grid()
             
-        self.hex_layout = self._create_layout(new_size)
+        grid_type = self.grid_type_var.get() if hasattr(self, "grid_type_var") else "hex"
+        self.hex_layout = self._create_layout(new_size, grid_type)
         
         if self.base_image_original:
-            if messagebox.askyesno("Generazione Automatica", "Vuoi riempire automaticamente l'intera immagine con le celle?"):
+            if messagebox.askyesno("Generazione Automatica", f"Vuoi riempire automaticamente l'intera immagine con la griglia {grid_type}?"):
                 self.generate_auto_grid()
                 return
                 
         messagebox.showinfo("Griglia Impostata", f"Scala '{selected_scale_name}' applicata. Usa il tasto destro per aggiungere celle manualmente.")
 
     def on_grid_type_selected(self, event=None):
+        new_grid_type = self.grid_type_var.get()
+        old_grid_type = getattr(self, "current_grid_type", "hex")
+        if old_grid_type == new_grid_type:
+            return
+            
+        if self.grid_hexes:
+            if not messagebox.askyesno(
+                "Cambio Tipo Griglia",
+                f"Il passaggio da '{old_grid_type}' a '{new_grid_type}' richiede di rigenerare la griglia poiché i sistemi di coordinate sono incompatibili.\n\nVuoi cancellare la griglia attuale e applicare '{new_grid_type}'?"
+            ):
+                self.grid_type_var.set(old_grid_type)
+                return
+            self._clear_grid()
+            
+        self.current_grid_type = new_grid_type
         if hasattr(self, "current_hex_size") and self.current_hex_size:
-            grid_type = self.grid_type_var.get()
-            self.hex_layout = self._create_layout(self.current_hex_size, grid_type)
+            self.hex_layout = self._create_layout(self.current_hex_size, new_grid_type)
+            if self.base_image_original:
+                if messagebox.askyesno("Generazione Automatica", f"Vuoi riempire automaticamente l'immagine con la griglia {new_grid_type}?"):
+                    self.generate_auto_grid()
+                    return
             self.redraw(high_res=True)
 
     def generate_auto_grid(self):
-        """Genera automaticamente le celle su tutta l'estensione dell'immagine caricata."""
+        """Genera automaticamente le celle su tutta l'estensione dell'immagine caricata senza trasbordare dal perimetro."""
         if not self.base_image_original or not self.hex_layout:
             return
         width = self.base_image_original.width
         height = self.base_image_original.height
         
         grid_type = self.grid_type_var.get() if hasattr(self, "grid_type_var") else "hex"
+        
         if grid_type == "square":
             cell_size = self.hex_layout.size
-            step_x = max(1, int(cell_size / 2))
-            step_y = max(1, int(cell_size / 2))
-            est_count = int((width / cell_size) * (height / cell_size))
+            cols = max(1, int(width // cell_size))
+            rows = max(1, int(height // cell_size))
+            est_count = cols * rows
         else:
-            hex_w = math.sqrt(3) * self.current_hex_size
-            hex_h = 1.5 * self.current_hex_size
-            step_x = max(1, int(hex_w / 2))
-            step_y = max(1, int(hex_h / 2))
+            hex_size = self.current_hex_size
+            hex_w = math.sqrt(3) * hex_size
+            hex_h = 1.5 * hex_size
             est_count = int((width / hex_w) * (height / hex_h))
-        
+            
         if est_count > 5000:
-            if not messagebox.askyesno("Attenzione", f"Generare circa {est_count} celle potrebbe causare rallentamenti. Sei sicuro di voler continuare?"):
+            if not messagebox.askyesno("Attenzione", f"Generare circa {est_count} celle potrebbe richiedere qualche secondo. Continuare?"):
                 return
-                
-        for px in range(0, width + step_x, step_x):
-            for py in range(0, height + step_y, step_y):
-                h = self.hex_layout.pixel_to_hex((px, py))
-                if h not in self.grid_hexes:
-                    self.grid_hexes.add(h)
-                    self._draw_single_hex(h)
-                    
+
+        self._clear_grid()
+        
+        if grid_type == "square":
+            cell_size = self.hex_layout.size
+            cols = max(1, int(width // cell_size))
+            rows = max(1, int(height // cell_size))
+            for q in range(cols):
+                for r in range(rows):
+                    self.grid_hexes.add(Hex(q, r))
+        else:
+            hex_size = self.current_hex_size
+            eps = 0.5
+            min_q = int(math.ceil((hex_size - eps) / (1.5 * hex_size)))
+            max_q = int(math.floor((width + eps - hex_size) / (1.5 * hex_size)))
+            sqrt3 = math.sqrt(3)
+            sqrt3_size = sqrt3 * hex_size
+            half_h = sqrt3_size / 2.0
+            
+            for q in range(min_q, max_q + 1):
+                min_r = int(math.ceil((-eps + half_h * (1 - q)) / sqrt3_size))
+                max_r = int(math.floor((height + eps - half_h * (1 + q)) / sqrt3_size))
+                for r in range(min_r, max_r + 1):
+                    h = Hex(q, r)
+                    corners = self.hex_layout.hex_corners(h)
+                    if all(-eps <= c[0] <= width + eps and -eps <= c[1] <= height + eps for c in corners):
+                        self.grid_hexes.add(h)
+
+        self.redraw(high_res=True)
         messagebox.showinfo("Griglia Generata", f"Generate {len(self.grid_hexes)} celle con successo.")
 
     def _clear_grid(self):

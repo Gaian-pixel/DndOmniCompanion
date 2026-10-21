@@ -1,12 +1,12 @@
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import tkinter as tk
 import os
 import json
 import tempfile
 from PIL import Image
 
-from server.map_editor import MapEditorWindow, Tooltip
+from server.map_editor import MapEditorWindow
 from common.hex_utils import Hex, HexLayout, SquareLayout
 
 
@@ -40,9 +40,9 @@ class TestMapEditor(unittest.TestCase):
         self.assertEqual(self.editor.pan_offset_x, 0.0)
         self.assertEqual(self.editor.pan_offset_y, 0.0)
         self.assertEqual(len(self.editor.grid_hexes), 0)
+        self.assertEqual(self.editor.current_grid_type, "hex")
 
     def test_coordinate_transforms(self):
-        # Initial 1:1 transform
         wx, wy = 150.0, 220.0
         sx, sy = self.editor.world_to_screen(wx, wy)
         self.assertEqual((sx, sy), (150.0, 220.0))
@@ -51,7 +51,6 @@ class TestMapEditor(unittest.TestCase):
         self.assertAlmostEqual(back_wx, wx)
         self.assertAlmostEqual(back_wy, wy)
 
-        # After zoom and pan
         self.editor.zoom_level = 2.0
         self.editor.pan_offset_x = 50.0
         self.editor.pan_offset_y = -30.0
@@ -75,13 +74,9 @@ class TestMapEditor(unittest.TestCase):
         self.editor.pan_offset_y = 40.0
         self.editor.zoom_level = 1.0
 
-        # World point under cursor before zoom
         before_wx, before_wy = self.editor.screen_to_world(400, 300)
-        
-        # Trigger zoom
         self.editor._zoom(MockEvent())
 
-        # World point under cursor after zoom should be IDENTICAL
         after_wx, after_wy = self.editor.screen_to_world(400, 300)
         self.assertAlmostEqual(before_wx, after_wx, places=5)
         self.assertAlmostEqual(before_wy, after_wy, places=5)
@@ -98,7 +93,6 @@ class TestMapEditor(unittest.TestCase):
         self.assertEqual(self.editor.pan_offset_x, 50.0)
         self.assertEqual(self.editor.pan_offset_y, 80.0)
 
-        # Moving further
         self.editor._pan_move(MockEvent(160, 190))
         self.assertEqual(self.editor.pan_offset_x, 60.0)
         self.assertEqual(self.editor.pan_offset_y, 90.0)
@@ -139,8 +133,9 @@ class TestMapEditor(unittest.TestCase):
 
     def test_add_and_delete_hex(self):
         self.editor.hex_layout = self.editor._create_layout(35, "hex")
+        self.editor.base_image_original = Image.new("RGB", (500, 500))
         
-        # Add hex at world coordinate (100, 100)
+        # Add hex at world coordinate (100, 100) inside image
         self.editor._add_hex_at(100, 100)
         self.assertEqual(len(self.editor.grid_hexes), 1)
         added_hex = list(self.editor.grid_hexes)[0]
@@ -151,33 +146,79 @@ class TestMapEditor(unittest.TestCase):
         self.assertEqual(len(self.editor.grid_hexes), 0)
         self.assertEqual(len(self.editor.hex_to_canvas_id), 0)
 
+        # Click outside image bounds should NOT add a hex
+        self.editor._add_hex_at(600, 600)
+        self.assertEqual(len(self.editor.grid_hexes), 0)
+
     @patch("server.map_editor.messagebox.showinfo")
     @patch("server.map_editor.messagebox.askyesno", return_value=True)
-    def test_auto_grid_generation_hex_and_square(self, mock_askyesno, mock_showinfo):
-        # Create a test PIL image 300x200
-        test_img = Image.new("RGB", (300, 200), color="blue")
+    def test_auto_grid_generation_strictly_inside_perimeter(self, mock_askyesno, mock_showinfo):
+        W, H = 800, 600
+        test_img = Image.new("RGB", (W, H), color="blue")
         self.editor.base_image_original = test_img
 
-        # 1. Hex grid auto-generation
+        # 1. Hex grid auto-generation: verify no corner ever exceeds image bounds
         self.editor.current_hex_size = 35
         self.editor.grid_type_var.set("hex")
         self.editor.hex_layout = self.editor._create_layout(35, "hex")
         self.editor.generate_auto_grid()
 
         hex_count = len(self.editor.grid_hexes)
-        self.assertGreater(hex_count, 5)
+        self.assertGreater(hex_count, 10)
 
-        # Clear and test Square grid auto-generation
-        self.editor._clear_grid()
-        self.assertEqual(len(self.editor.grid_hexes), 0)
+        # Verify perimeter bounds for all hexes
+        for h in self.editor.grid_hexes:
+            corners = self.editor.hex_layout.hex_corners(h)
+            for c in corners:
+                self.assertGreaterEqual(c[0], -0.5, f"Hex {h} overflowed left: {c[0]}")
+                self.assertLessEqual(c[0], W + 0.5, f"Hex {h} overflowed right: {c[0]}")
+                self.assertGreaterEqual(c[1], -0.5, f"Hex {h} overflowed top: {c[1]}")
+                self.assertLessEqual(c[1], H + 0.5, f"Hex {h} overflowed bottom: {c[1]}")
 
-        self.editor.current_hex_size = 35
+        # 2. Square grid auto-generation: verify perfect rectangular coverage, no diagonal, no overflow
         self.editor.grid_type_var.set("square")
         self.editor.hex_layout = self.editor._create_layout(35, "square")
         self.editor.generate_auto_grid()
 
         square_count = len(self.editor.grid_hexes)
-        self.assertGreater(square_count, 5)
+        self.assertGreater(square_count, 10)
+
+        # In square layout, min q and r must be 0 (no negative coordinates, no top overflow)
+        qs = [h.q for h in self.editor.grid_hexes]
+        rs = [h.r for h in self.editor.grid_hexes]
+        self.assertEqual(min(qs), 0)
+        self.assertEqual(min(rs), 0)
+
+        for h in self.editor.grid_hexes:
+            corners = self.editor.hex_layout.hex_corners(h)
+            for c in corners:
+                self.assertGreaterEqual(c[0], -0.5, f"Square {h} overflowed left: {c[0]}")
+                self.assertLessEqual(c[0], W + 0.5, f"Square {h} overflowed right: {c[0]}")
+                self.assertGreaterEqual(c[1], -0.5, f"Square {h} overflowed top: {c[1]}")
+                self.assertLessEqual(c[1], H + 0.5, f"Square {h} overflowed bottom: {c[1]}")
+
+    @patch("server.map_editor.messagebox.showinfo")
+    @patch("server.map_editor.messagebox.askyesno", return_value=True)
+    def test_switch_grid_type_clears_old_incompatible_cells(self, mock_askyesno, mock_showinfo):
+        test_img = Image.new("RGB", (800, 600), color="blue")
+        self.editor.base_image_original = test_img
+        self.editor.current_hex_size = 60
+        self.editor.current_grid_type = "hex"
+        self.editor.grid_type_var.set("hex")
+        self.editor.hex_layout = self.editor._create_layout(60, "hex")
+        self.editor.generate_auto_grid()
+
+        self.assertGreater(len(self.editor.grid_hexes), 0)
+        
+        # User switches from "hex" to "square"
+        self.editor.grid_type_var.set("square")
+        self.editor.on_grid_type_selected()
+
+        # Should have regenerated as square with NO negative coordinates
+        self.assertEqual(self.editor.current_grid_type, "square")
+        for h in self.editor.grid_hexes:
+            self.assertGreaterEqual(h.q, 0)
+            self.assertGreaterEqual(h.r, 0)
 
     def test_poi_and_terrain_manipulation(self):
         self.editor.current_hex_size = 35
@@ -201,43 +242,34 @@ class TestMapEditor(unittest.TestCase):
             self.assertEqual(self.editor.pois[target_hex]["title"], "Locanda del Drago")
 
     def test_image_and_grid_alignment_under_zoom_and_pan(self):
-        # Verify that background image anchor and hex vertices move by exact identical pixel offsets
         test_img = Image.new("RGB", (400, 300), color="green")
         self.editor.base_image_original = test_img
         self.editor.current_hex_size = 30
         self.editor.hex_layout = self.editor._create_layout(30, "hex")
         
-        # Add a hex at center (200, 150)
         self.editor._add_hex_at(200, 150)
         h = list(self.editor.grid_hexes)[0]
         
-        # Get center world coordinates
         wx, wy = self.editor.hex_layout.hex_to_pixel(h)
         
-        # Initial 1.0 zoom
         self.editor.redraw()
         img_coords_init = self.editor.canvas.coords(self.editor.bg_canvas_id)
         self.assertEqual(img_coords_init, [0.0, 0.0])
         
-        # Zoom to 1.5 and Pan by (40, -25)
         self.editor.zoom_level = 1.5
         self.editor.pan_offset_x = 40.0
         self.editor.pan_offset_y = -25.0
         self.editor.redraw()
 
-        # Image anchor on canvas must be at (pan_offset_x, pan_offset_y)
         img_coords = self.editor.canvas.coords(self.editor.bg_canvas_id)
         self.assertEqual(img_coords, [40.0, -25.0])
 
-        # Hex polygon vertices must be transformed by: world_coord * 1.5 + (40, -25)
         expected_center_screen_x = wx * 1.5 + 40.0
         expected_center_screen_y = wy * 1.5 - 25.0
 
-        # Polygon coords
         hex_canvas_id = self.editor.hex_to_canvas_id[h]
         poly_coords = self.editor.canvas.coords(hex_canvas_id)
         
-        # Compute polygon centroid on screen
         xs = poly_coords[0::2]
         ys = poly_coords[1::2]
         centroid_x = sum(xs) / len(xs)
@@ -273,11 +305,9 @@ class TestMapEditor(unittest.TestCase):
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(map_data, f)
 
-            # Clear and load from file
             self.editor._clear_grid()
             self.assertEqual(len(self.editor.grid_hexes), 0)
 
-            # Simulate load_map_file contents
             with open(tmp_path, "r", encoding="utf-8") as f:
                 loaded_data = json.load(f)
 
