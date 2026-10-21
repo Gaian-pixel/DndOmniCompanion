@@ -13,9 +13,9 @@ from typing import Optional, Callable, Dict, Any, List
 
 from common.theme import (
     apply_modern_window_style, BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT,
-    BORDER_COLOR, ACCENT_GOLD, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE,
+    BORDER_COLOR, BORDER_GOLD, ACCENT_GOLD, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE,
     TEXT_COLOR, TEXT_MUTED, TEXT_DARK,
-    FONT_TITLE, FONT_HEADER, FONT_MAIN, FONT_BOLD, FONT_SMALL
+    FONT_TITLE, FONT_HEADER, FONT_MAIN, FONT_BOLD, FONT_SMALL, FONT_BADGE
 )
 from common.messagebox import messagebox
 from common.campaign import Campaign, get_available_campaigns, DEFAULT_CAMPAIGNS_DIR
@@ -331,30 +331,53 @@ class CampaignEditorDialog(tk.Toplevel):
         # Calendario Iniziale
         cal_frame = tk.Frame(col_left, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
         cal_frame.pack(fill=tk.X, pady=(0, 12))
-        tk.Label(cal_frame, text="📅 Data & Ora di Partenza", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(anchor="w", pady=(0, 4))
+        
+        cal_header = tk.Frame(cal_frame, bg=SURFACE_COLOR_ALT)
+        cal_header.pack(fill=tk.X, pady=(0, 4))
+        tk.Label(cal_header, text="📅 Data & Ora di Partenza", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(side=tk.LEFT)
         
         r_cal = tk.Frame(cal_frame, bg=SURFACE_COLOR_ALT)
         r_cal.pack(fill=tk.X)
         
-        tk.Label(r_cal, text="Anno:", bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED).pack(side=tk.LEFT)
-        self.sp_year = ttk.Spinbox(r_cal, from_=1, to=3000, width=6)
+        tk.Label(r_cal, text="Anno:", bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_SMALL).pack(side=tk.LEFT)
+        self.sp_year = ttk.Spinbox(r_cal, from_=1, to=3000, width=6, font=FONT_MAIN, command=self._update_date_preview)
         self.sp_year.set(self.campaign.start_date.get("year", 1492))
-        self.sp_year.pack(side=tk.LEFT, padx=(2, 8))
+        self.sp_year.pack(side=tk.LEFT, padx=(3, 8))
+        self.sp_year.bind("<KeyRelease>", lambda e: self._update_date_preview())
         
-        tk.Label(r_cal, text="Mese:", bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED).pack(side=tk.LEFT)
-        self.sp_month = ttk.Spinbox(r_cal, from_=1, to=12, width=4)
+        tk.Label(r_cal, text="Mese:", bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_SMALL).pack(side=tk.LEFT)
+        self.sp_month = ttk.Spinbox(r_cal, from_=1, to=12, width=4, font=FONT_MAIN, command=self._update_date_preview)
         self.sp_month.set(self.campaign.start_date.get("month", 1))
-        self.sp_month.pack(side=tk.LEFT, padx=(2, 8))
+        self.sp_month.pack(side=tk.LEFT, padx=(3, 8))
+        self.sp_month.bind("<KeyRelease>", lambda e: self._update_date_preview())
         
-        tk.Label(r_cal, text="Giorno:", bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED).pack(side=tk.LEFT)
-        self.sp_day = ttk.Spinbox(r_cal, from_=1, to=30, width=4)
+        tk.Label(r_cal, text="Giorno:", bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_SMALL).pack(side=tk.LEFT)
+        self.sp_day = ttk.Spinbox(r_cal, from_=1, to=30, width=4, font=FONT_MAIN, command=self._update_date_preview)
         self.sp_day.set(self.campaign.start_date.get("day", 1))
-        self.sp_day.pack(side=tk.LEFT, padx=(2, 8))
+        self.sp_day.pack(side=tk.LEFT, padx=(3, 8))
+        self.sp_day.bind("<KeyRelease>", lambda e: self._update_date_preview())
         
-        tk.Label(r_cal, text="Ora:", bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED).pack(side=tk.LEFT)
-        self.sp_hour = ttk.Spinbox(r_cal, from_=0, to=23, width=4)
+        tk.Label(r_cal, text="Ora:", bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_SMALL).pack(side=tk.LEFT)
+        self.sp_hour = ttk.Spinbox(r_cal, from_=0, to=23, width=4, font=FONT_MAIN, command=self._update_date_preview)
         self.sp_hour.set(self.campaign.start_date.get("hour", 8))
-        self.sp_hour.pack(side=tk.LEFT, padx=(2, 0))
+        self.sp_hour.pack(side=tk.LEFT, padx=(3, 0))
+        self.sp_hour.bind("<KeyRelease>", lambda e: self._update_date_preview())
+        
+        # Badge anteprima Harptos
+        self.lbl_date_preview = tk.Label(
+            cal_frame,
+            text="",
+            font=FONT_BADGE,
+            bg=SURFACE_COLOR,
+            fg=ACCENT_GOLD,
+            padx=8,
+            pady=3,
+            relief="solid",
+            borderwidth=1,
+            highlightbackground=BORDER_COLOR
+        )
+        self.lbl_date_preview.pack(fill=tk.X, pady=(6, 0))
+        self._update_date_preview()
         
         # Starter Kit Campagna
         kit_frame = tk.Frame(col_left, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
@@ -383,6 +406,29 @@ class CampaignEditorDialog(tk.Toplevel):
                                                      relief="flat", highlightbackground=BORDER_COLOR, highlightthickness=1, wrap=tk.WORD)
         self.txt_dm_notes.insert("1.0", self.campaign.dm_notes)
         self.txt_dm_notes.pack(fill=tk.BOTH, expand=True)
+
+    def _update_date_preview(self, *args):
+        try:
+            y = int(self.sp_year.get())
+        except (ValueError, AttributeError):
+            y = 1492
+        try:
+            m = int(self.sp_month.get())
+        except (ValueError, AttributeError):
+            m = 1
+        try:
+            d = int(self.sp_day.get())
+        except (ValueError, AttributeError):
+            d = 1
+        try:
+            h = int(self.sp_hour.get())
+        except (ValueError, AttributeError):
+            h = 8
+        
+        harptos_months = ["", "Hammer", "Alturiak", "Ches", "Tarsakh", "Mirtul", "Kythorn", "Flamerule", "Eleasis", "Eleint", "Marpenoth", "Uktar", "Nightal"]
+        m_name = harptos_months[m] if 1 <= m <= 12 else f"Mese {m}"
+        if hasattr(self, "lbl_date_preview") and self.lbl_date_preview:
+            self.lbl_date_preview.config(text=f"📅 {d} {m_name}, {y} CV • Ore {h:02d}:00")
 
     def edit_starter_kit(self):
         try:
@@ -1175,10 +1221,15 @@ class CampaignSelectorDialog(tk.Toplevel):
         try:
             self.selected_campaign = Campaign.load(c_info["folder_path"])
             self.lbl_det_title.config(text=f"🏰 {self.selected_campaign.name}")
+            sdate = self.selected_campaign.start_date or {}
+            harptos_months = ["", "Hammer", "Alturiak", "Ches", "Tarsakh", "Mirtul", "Kythorn", "Flamerule", "Eleasis", "Eleint", "Marpenoth", "Uktar", "Nightal"]
+            m_idx = sdate.get("month", 1)
+            m_name = harptos_months[m_idx] if 1 <= m_idx <= 12 else f"Mese {m_idx}"
+            date_str = f"📅 {sdate.get('day', 1)} {m_name} {sdate.get('year', 1492)} CV (Ore {sdate.get('hour', 8):02d}:00)"
             self.lbl_det_meta.config(
-                text=f"Livello: {self.selected_campaign.level_range} | Scene: {len(self.selected_campaign.scenes)} | "
-                     f"Incontri: {len(self.selected_campaign.encounters)} | Quest: {len(self.selected_campaign.quests)} | "
-                     f"PNG: {len(self.selected_campaign.npcs)}"
+                text=f"Livello: {self.selected_campaign.level_range} | {date_str} | Meteo: {self.selected_campaign.start_weather}\n"
+                     f"Scene: {len(self.selected_campaign.scenes)} | Incontri: {len(self.selected_campaign.encounters)} | "
+                     f"Quest: {len(self.selected_campaign.quests)} | PNG: {len(self.selected_campaign.npcs)}"
             )
             self.txt_det_desc.configure(state=tk.NORMAL)
             self.txt_det_desc.delete("1.0", tk.END)

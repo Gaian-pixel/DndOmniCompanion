@@ -145,6 +145,22 @@ def setup_theme(root):
     style.configure('Vertical.TScrollbar', background=SURFACE_COLOR_ALT, troughcolor=BG_COLOR, borderwidth=0, arrowsize=12)
     style.configure('Horizontal.TScrollbar', background=SURFACE_COLOR_ALT, troughcolor=BG_COLOR, borderwidth=0, arrowsize=12)
 
+    # --- SPINBOX ---
+    style.configure('TSpinbox', 
+                    background=SURFACE_COLOR_ALT, 
+                    fieldbackground=SURFACE_COLOR_ALT, 
+                    foreground=TEXT_COLOR, 
+                    arrowcolor=ACCENT_GOLD,
+                    insertcolor=ACCENT_GOLD,
+                    darkcolor=SURFACE_COLOR_ALT,
+                    lightcolor=SURFACE_COLOR_ALT,
+                    bordercolor=BORDER_COLOR,
+                    padding=(4, 2))
+    style.map('TSpinbox', 
+              fieldbackground=[('readonly', SURFACE_COLOR_ALT), ('disabled', BG_COLOR), ('focus', SURFACE_LIGHT)],
+              foreground=[('disabled', TEXT_MUTED), ('!disabled', TEXT_COLOR)],
+              bordercolor=[('focus', ACCENT_GOLD)])
+
     # --- CONFIGURAZIONI GLOBALI PER WIDGET TK CLASSICI ---
     root.option_add('*Listbox.background', SURFACE_COLOR)
     root.option_add('*Listbox.foreground', TEXT_COLOR)
@@ -165,6 +181,12 @@ def setup_theme(root):
     root.option_add('*Entry.foreground', TEXT_COLOR)
     root.option_add('*Entry.insertBackground', ACCENT_GOLD)
     root.option_add('*Entry.font', FONT_MAIN)
+
+    root.option_add('*Spinbox.background', SURFACE_COLOR_ALT)
+    root.option_add('*Spinbox.foreground', TEXT_COLOR)
+    root.option_add('*Spinbox.insertBackground', ACCENT_GOLD)
+    root.option_add('*Spinbox.buttonBackground', SURFACE_COLOR)
+    root.option_add('*Spinbox.font', FONT_MAIN)
 
     root.option_add('*Menu.background', SURFACE_COLOR)
     root.option_add('*Menu.foreground', TEXT_COLOR)
