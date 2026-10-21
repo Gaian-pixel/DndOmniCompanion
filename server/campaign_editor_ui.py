@@ -934,6 +934,7 @@ class CampaignEditorDialog(tk.Toplevel):
         self.tree_npcs.configure(yscrollcommand=sb.set)
         self.tree_npcs.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree_npcs.bind("<Double-Button-1>", lambda e: self.edit_npc_dialog())
         
         ctrl_row = tk.Frame(parent, bg=BG_COLOR)
         ctrl_row.pack(fill=tk.X)
@@ -959,28 +960,76 @@ class CampaignEditorDialog(tk.Toplevel):
             ))
 
     def add_npc_dialog(self):
-        name = simpledialog.askstring("Nuovo PNG", "Nome del PNG:", parent=self)
-        if not name or not name.strip(): return
-        role = simpledialog.askstring("Ruolo", "Ruolo o mestiere (es. 'Locandiere', 'Capoguardia'):", parent=self) or "Cittadino"
-        faction = simpledialog.askstring("Fazione", "Fazione (Alleato, Nemico, Neutrale):", initialvalue="Neutrale", parent=self) or "Neutrale"
-        hp = simpledialog.askinteger("HP", "Punti ferita:", initialvalue=20, minvalue=1, parent=self) or 20
-        ac = simpledialog.askinteger("Classe Armatura", "CA:", initialvalue=12, minvalue=1, parent=self) or 12
-        notes = simpledialog.askstring("Note DM", "Note DM, personalità e segreti:", parent=self) or ""
-        self.campaign.add_npc(name.strip(), role.strip(), hp, ac, notes.strip(), faction.strip())
-        self.refresh_npcs()
+        try:
+            from server.dm_dialogs import CustomNPCDialog
+            def on_saved(npc_sheet):
+                name = npc_sheet.get("name", "Nuovo PNG")
+                role = npc_sheet.get("role", "Cittadino")
+                faction = npc_sheet.get("faction", "Neutrale")
+                hp = npc_sheet.get("hp", 20)
+                ac = npc_sheet.get("ac", 12)
+                notes = npc_sheet.get("notes", "")
+                self.campaign.add_npc(
+                    name=name,
+                    role=role,
+                    hp=hp,
+                    ac=ac,
+                    notes=notes,
+                    faction=faction,
+                    race=npc_sheet.get("race", "Umanoide"),
+                    alignment=npc_sheet.get("alignment", "Neutrale"),
+                    attributes=npc_sheet.get("attributes", {}),
+                    strength=npc_sheet.get("strength", 10),
+                    dexterity=npc_sheet.get("dexterity", 10),
+                    constitution=npc_sheet.get("constitution", 10),
+                    intelligence=npc_sheet.get("intelligence", 10),
+                    wisdom=npc_sheet.get("wisdom", 10),
+                    charisma=npc_sheet.get("charisma", 10),
+                    initiative=npc_sheet.get("initiative", 0),
+                    speed=npc_sheet.get("speed", 30),
+                    cr=npc_sheet.get("cr", "1"),
+                    xp=npc_sheet.get("xp", 50),
+                    actions=npc_sheet.get("actions", ""),
+                    equipment=npc_sheet.get("equipment", ""),
+                    background=npc_sheet.get("background", ""),
+                    sheet=npc_sheet
+                )
+                self.refresh_npcs()
+
+            CustomNPCDialog(master=self, on_save_callback=on_saved)
+        except Exception as e:
+            name = simpledialog.askstring("Nuovo PNG", "Nome del PNG:", parent=self)
+            if not name or not name.strip(): return
+            role = simpledialog.askstring("Ruolo", "Ruolo o mestiere (es. 'Locandiere', 'Capoguardia'):", parent=self) or "Cittadino"
+            faction = simpledialog.askstring("Fazione", "Fazione (Alleato, Nemico, Neutrale):", initialvalue="Neutrale", parent=self) or "Neutrale"
+            hp = simpledialog.askinteger("HP", "Punti ferita:", initialvalue=20, minvalue=1, parent=self) or 20
+            ac = simpledialog.askinteger("Classe Armatura", "CA:", initialvalue=12, minvalue=1, parent=self) or 12
+            notes = simpledialog.askstring("Note DM", "Note DM, personalità e segreti:", parent=self) or ""
+            self.campaign.add_npc(name.strip(), role.strip(), hp, ac, notes.strip(), faction.strip())
+            self.refresh_npcs()
 
     def edit_npc_dialog(self):
         sel = self.tree_npcs.selection()
-        if not sel: return
+        if not sel:
+            messagebox.showinfo("Seleziona PNG", "Seleziona prima un PNG dall'elenco per visualizzarne e modificarne la scheda.", parent=self)
+            return
         idx = int(sel[0])
         npc = self.campaign.npcs[idx]
-        name = simpledialog.askstring("Modifica PNG", "Nome:", initialvalue=npc.get("name"), parent=self)
-        if not name: return
-        npc["name"] = name.strip()
-        npc["role"] = simpledialog.askstring("Ruolo", "Ruolo:", initialvalue=npc.get("role"), parent=self) or "Cittadino"
-        npc["faction"] = simpledialog.askstring("Fazione", "Fazione:", initialvalue=npc.get("faction"), parent=self) or "Neutrale"
-        npc["notes"] = simpledialog.askstring("Note DM", "Note:", initialvalue=npc.get("notes"), parent=self) or ""
-        self.refresh_npcs()
+        try:
+            from server.dm_dialogs import CustomNPCDialog
+            def on_saved(npc_sheet):
+                npc.update(npc_sheet)
+                self.refresh_npcs()
+
+            CustomNPCDialog(master=self, initial_data=npc, on_save_callback=on_saved)
+        except Exception as e:
+            name = simpledialog.askstring("Modifica PNG", "Nome:", initialvalue=npc.get("name"), parent=self)
+            if not name: return
+            npc["name"] = name.strip()
+            npc["role"] = simpledialog.askstring("Ruolo", "Ruolo:", initialvalue=npc.get("role"), parent=self) or "Cittadino"
+            npc["faction"] = simpledialog.askstring("Fazione", "Fazione:", initialvalue=npc.get("faction"), parent=self) or "Neutrale"
+            npc["notes"] = simpledialog.askstring("Note DM", "Note:", initialvalue=npc.get("notes"), parent=self) or ""
+            self.refresh_npcs()
 
     def remove_npc(self):
         sel = self.tree_npcs.selection()

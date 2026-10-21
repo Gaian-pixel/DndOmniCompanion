@@ -220,15 +220,17 @@ class Campaign:
             "completed": False
         })
 
-    def add_npc(self, name: str, role: str, hp: int = 20, ac: int = 12, notes: str = "", faction: str = "Neutrale") -> None:
-        self.npcs.append({
+    def add_npc(self, name: str, role: str, hp: int = 20, ac: int = 12, notes: str = "", faction: str = "Neutrale", **kwargs) -> None:
+        npc_entry = {
             "name": name,
             "role": role,
             "hp": hp,
             "ac": ac,
             "faction": faction,
             "notes": notes
-        })
+        }
+        npc_entry.update(kwargs)
+        self.npcs.append(npc_entry)
 
     def add_handout(self, title: str, content: str = "", image_path: str = "") -> None:
         self.handouts.append({
