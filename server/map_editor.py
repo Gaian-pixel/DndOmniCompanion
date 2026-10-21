@@ -11,6 +11,51 @@ from common.hex_utils import Hex, HexLayout, SquareLayout
 from common.theme import apply_modern_window_style
 
 
+def clip_polygon_to_rect(poly, xmin, ymin, xmax, ymax):
+    """Algoritmo Sutherland-Hodgman per ritagliare un poligono 2D a un rettangolo orientato agli assi."""
+    def clip_edge(points, inside, intersect):
+        out = []
+        if not points:
+            return out
+        prev = points[-1]
+        prev_in = inside(prev)
+        for curr in points:
+            curr_in = inside(curr)
+            if curr_in:
+                if not prev_in:
+                    out.append(intersect(prev, curr))
+                out.append(curr)
+            elif prev_in:
+                out.append(intersect(prev, curr))
+            prev = curr
+            prev_in = curr_in
+        return out
+
+    def intersect_x(p1, p2, x_boundary):
+        dx = p2[0] - p1[0]
+        if abs(dx) < 1e-9:
+            return (x_boundary, p1[1])
+        t = (x_boundary - p1[0]) / dx
+        return (x_boundary, p1[1] + t * (p2[1] - p1[1]))
+
+    def intersect_y(p1, p2, y_boundary):
+        dy = p2[1] - p1[1]
+        if abs(dy) < 1e-9:
+            return (p1[0], y_boundary)
+        t = (y_boundary - p1[1]) / dy
+        return (p1[0] + t * (p2[0] - p1[0]), y_boundary)
+
+    # 1. Sinistra (x >= xmin)
+    p = clip_edge(poly, lambda pt: pt[0] >= xmin, lambda p1, p2: intersect_x(p1, p2, xmin))
+    # 2. Destra (x <= xmax)
+    p = clip_edge(p, lambda pt: pt[0] <= xmax, lambda p1, p2: intersect_x(p1, p2, xmax))
+    # 3. Superiore (y >= ymin)
+    p = clip_edge(p, lambda pt: pt[1] >= ymin, lambda p1, p2: intersect_y(p1, p2, ymin))
+    # 4. Inferiore (y <= ymax)
+    p = clip_edge(p, lambda pt: pt[1] <= ymax, lambda p1, p2: intersect_y(p1, p2, ymax))
+    return p
+
+
 class Tooltip:
     def __init__(self, parent):
         self.parent = parent
@@ -308,9 +353,19 @@ class MapEditorWindow(tk.Toplevel):
     def _draw_single_hex(self, h: Hex, is_preview=False):
         if not self.hex_layout:
             return None
-        corners = [
+        corners = self.hex_layout.hex_corners(h)
+        
+        # Se c'è un'immagine di sfondo, ritaglia i vertici esattamente al perimetro dell'immagine [0, W] x [0, H]
+        if self.base_image_original:
+            w = self.base_image_original.width
+            h_img = self.base_image_original.height
+            corners = clip_polygon_to_rect(corners, 0, 0, w, h_img)
+            if len(corners) < 3:
+                return None
+
+        screen_corners = [
             (cx * self.zoom_level + self.pan_offset_x, cy * self.zoom_level + self.pan_offset_y)
-            for cx, cy in self.hex_layout.hex_corners(h)
+            for cx, cy in corners
         ]
         t_style = self.get_terrain_style(h)
         if is_preview:
@@ -323,7 +378,7 @@ class MapEditorWindow(tk.Toplevel):
             style = {"fill": "gray50", "stipple": "gray25", "outline": self.hex_border_color, "width": 1}
         
         tag = "preview" if is_preview else "hex"
-        canvas_id = self.canvas.create_polygon(corners, **style, tags=tag)
+        canvas_id = self.canvas.create_polygon(screen_corners, **style, tags=tag)
         if not is_preview:
             self.hex_to_canvas_id[h] = canvas_id
         return canvas_id
@@ -369,8 +424,8 @@ class MapEditorWindow(tk.Toplevel):
         # Generazione automatica se c'è già una scala impostata
         if self.hex_layout and not self.grid_hexes:
             grid_type = self.grid_type_var.get() if hasattr(self, "grid_type_var") else "hex"
-            if messagebox.askyesno("Generazione Automatica", f"Vuoi riempire automaticamente l'immagine appena caricata con la griglia {grid_type}?"):
-                self.generate_auto_grid()
+            if messagebox.askyesno("Generazione Automatica", f"Vuoi riempire automaticamente l'immagine appena caricata con la griglia {grid_type}?", parent=self):
+                self.generate_auto_grid(silent=False)
 
     def load_map_file(self):
         """Carica una mappa esistente in formato JSON nell'editor."""
@@ -430,14 +485,14 @@ class MapEditorWindow(tk.Toplevel):
             self.pan_offset_x = 0.0
             self.pan_offset_y = 0.0
             self.redraw(high_res=True)
-            messagebox.showinfo("Mappa Caricata", f"Caricata mappa con {len(self.grid_hexes)} celle.")
+            messagebox.showinfo("Mappa Caricata", f"Caricata mappa con {len(self.grid_hexes)} celle.", parent=self)
         except Exception as e:
-            messagebox.showerror("Errore di Caricamento", f"Impossibile caricare la mappa: {e}")
+            messagebox.showerror("Errore di Caricamento", f"Impossibile caricare la mappa: {e}", parent=self)
 
     def save_map(self):
         """Salva i dati della mappa (celle, POI, terreni difficili, immagine, scala) in formato JSON."""
         if not self.hex_layout:
-            messagebox.showerror("Errore", "Non puoi salvare una mappa senza una scala.")
+            messagebox.showerror("Errore", "Non puoi salvare una mappa senza una scala.", parent=self)
             return
         maps_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "maps")
         file_path = filedialog.asksaveasfilename(initialdir=maps_dir, defaultextension=".json", filetypes=[("Mappe D&D", "*.json")])
@@ -464,14 +519,14 @@ class MapEditorWindow(tk.Toplevel):
         try:
             with open(file_path, 'w', encoding="utf-8") as f:
                 json.dump(map_data, f, indent=2)
-            messagebox.showinfo("Salvataggio Completato", "Mappa salvata con successo.")
+            messagebox.showinfo("Salvataggio Completato", "Mappa salvata con successo.", parent=self)
         except Exception as e:
-            messagebox.showerror("Errore di Salvataggio", f"Impossibile salvare la mappa: {e}")
+            messagebox.showerror("Errore di Salvataggio", f"Impossibile salvare la mappa: {e}", parent=self)
 
     def _add_hex_at(self, wx, wy):
         """Aggiunge un esagono o quadrato nella posizione del mondo specificata."""
         if not self.hex_layout:
-            messagebox.showwarning("Scala non impostata", "Prima scegli un tipo di mappa dal menu in alto.")
+            messagebox.showwarning("Scala non impostata", "Prima scegli un tipo di mappa dal menu in alto.", parent=self)
             return
 
         if self.base_image_original:
@@ -505,7 +560,7 @@ class MapEditorWindow(tk.Toplevel):
             return
         target_hex = self.hex_layout.pixel_to_hex((wx, wy))
         if target_hex not in self.grid_hexes:
-            messagebox.showwarning("Azione non valida", "Puoi aggiungere un Punto di Interesse solo su un esagono esistente.")
+            messagebox.showwarning("Azione non valida", "Puoi aggiungere un Punto di Interesse solo su un esagono esistente.", parent=self)
             return
 
         title = simpledialog.askstring("Nuovo POI", "Inserisci il titolo:", parent=self)
@@ -525,7 +580,7 @@ class MapEditorWindow(tk.Toplevel):
             return
         target_hex = self.hex_layout.pixel_to_hex((wx, wy))
         if target_hex not in self.grid_hexes:
-            messagebox.showwarning("Azione non valida", "Puoi impostare terreno difficile solo su esagoni esistenti.")
+            messagebox.showwarning("Azione non valida", "Puoi impostare terreno difficile solo su esagoni esistenti.", parent=self)
             return
 
         t_type = self.terrain_type_var.get().lower()
@@ -613,7 +668,7 @@ class MapEditorWindow(tk.Toplevel):
         self.current_hex_size = new_size
         
         if self.grid_hexes:
-            if not messagebox.askyesno("Cambio Scala", "Cambiare la scala cancellerà la griglia esistente. Continuare?"):
+            if not messagebox.askyesno("Cambio Scala", "Cambiare la scala cancellerà la griglia esistente. Continuare?", parent=self):
                 return
             self._clear_grid()
             
@@ -621,38 +676,30 @@ class MapEditorWindow(tk.Toplevel):
         self.hex_layout = self._create_layout(new_size, grid_type)
         
         if self.base_image_original:
-            if messagebox.askyesno("Generazione Automatica", f"Vuoi riempire automaticamente l'intera immagine con la griglia {grid_type}?"):
-                self.generate_auto_grid()
+            if messagebox.askyesno("Generazione Automatica", f"Vuoi riempire automaticamente l'intera immagine con la griglia {grid_type}?", parent=self):
+                self.generate_auto_grid(silent=False)
                 return
                 
-        messagebox.showinfo("Griglia Impostata", f"Scala '{selected_scale_name}' applicata. Usa il tasto destro per aggiungere celle manualmente.")
+        messagebox.showinfo("Griglia Impostata", f"Scala '{selected_scale_name}' applicata. Usa il tasto destro per aggiungere celle manualmente.", parent=self)
 
     def on_grid_type_selected(self, event=None):
+        """Passaggio pulito e istantaneo tra tipi di griglia senza popup bloccanti né freeze da grab."""
         new_grid_type = self.grid_type_var.get()
         old_grid_type = getattr(self, "current_grid_type", "hex")
         if old_grid_type == new_grid_type:
             return
             
-        if self.grid_hexes:
-            if not messagebox.askyesno(
-                "Cambio Tipo Griglia",
-                f"Il passaggio da '{old_grid_type}' a '{new_grid_type}' richiede di rigenerare la griglia poiché i sistemi di coordinate sono incompatibili.\n\nVuoi cancellare la griglia attuale e applicare '{new_grid_type}'?"
-            ):
-                self.grid_type_var.set(old_grid_type)
-                return
-            self._clear_grid()
-            
         self.current_grid_type = new_grid_type
         if hasattr(self, "current_hex_size") and self.current_hex_size:
             self.hex_layout = self._create_layout(self.current_hex_size, new_grid_type)
             if self.base_image_original:
-                if messagebox.askyesno("Generazione Automatica", f"Vuoi riempire automaticamente l'immagine con la griglia {new_grid_type}?"):
-                    self.generate_auto_grid()
-                    return
-            self.redraw(high_res=True)
+                self.generate_auto_grid(silent=True)
+            else:
+                self._clear_grid()
+                self.redraw(high_res=True)
 
-    def generate_auto_grid(self):
-        """Genera automaticamente le celle su tutta l'estensione dell'immagine caricata senza trasbordare dal perimetro."""
+    def generate_auto_grid(self, silent=False):
+        """Genera automaticamente le celle su tutta l'estensione dell'immagine caricata combaciando perfettamente col perimetro."""
         if not self.base_image_original or not self.hex_layout:
             return
         width = self.base_image_original.width
@@ -662,8 +709,8 @@ class MapEditorWindow(tk.Toplevel):
         
         if grid_type == "square":
             cell_size = self.hex_layout.size
-            cols = max(1, int(width // cell_size))
-            rows = max(1, int(height // cell_size))
+            cols = max(1, int(math.ceil(width / cell_size)))
+            rows = max(1, int(math.ceil(height / cell_size)))
             est_count = cols * rows
         else:
             hex_size = self.current_hex_size
@@ -671,39 +718,38 @@ class MapEditorWindow(tk.Toplevel):
             hex_h = 1.5 * hex_size
             est_count = int((width / hex_w) * (height / hex_h))
             
-        if est_count > 5000:
-            if not messagebox.askyesno("Attenzione", f"Generare circa {est_count} celle potrebbe richiedere qualche secondo. Continuare?"):
+        if not silent and est_count > 5000:
+            if not messagebox.askyesno("Attenzione", f"Generare circa {est_count} celle potrebbe richiedere qualche secondo. Continuare?", parent=self):
                 return
 
         self._clear_grid()
         
         if grid_type == "square":
             cell_size = self.hex_layout.size
-            cols = max(1, int(width // cell_size))
-            rows = max(1, int(height // cell_size))
+            cols = max(1, int(math.ceil(width / cell_size)))
+            rows = max(1, int(math.ceil(height / cell_size)))
             for q in range(cols):
                 for r in range(rows):
                     self.grid_hexes.add(Hex(q, r))
         else:
             hex_size = self.current_hex_size
-            eps = 0.5
-            min_q = int(math.ceil((hex_size - eps) / (1.5 * hex_size)))
-            max_q = int(math.floor((width + eps - hex_size) / (1.5 * hex_size)))
-            sqrt3 = math.sqrt(3)
-            sqrt3_size = sqrt3 * hex_size
-            half_h = sqrt3_size / 2.0
+            hex_w = math.sqrt(3) * hex_size
+            hex_h = 1.5 * hex_size
+            step_x = max(1, int(hex_w / 2))
+            step_y = max(1, int(hex_h / 2))
             
-            for q in range(min_q, max_q + 1):
-                min_r = int(math.ceil((-eps + half_h * (1 - q)) / sqrt3_size))
-                max_r = int(math.floor((height + eps - half_h * (1 + q)) / sqrt3_size))
-                for r in range(min_r, max_r + 1):
-                    h = Hex(q, r)
-                    corners = self.hex_layout.hex_corners(h)
-                    if all(-eps <= c[0] <= width + eps and -eps <= c[1] <= height + eps for c in corners):
-                        self.grid_hexes.add(h)
+            for px in range(0, width + step_x, step_x):
+                for py in range(0, height + step_y, step_y):
+                    h = self.hex_layout.pixel_to_hex((px, py))
+                    if h not in self.grid_hexes:
+                        corners = self.hex_layout.hex_corners(h)
+                        clipped = clip_polygon_to_rect(corners, 0, 0, width, height)
+                        if len(clipped) >= 3:
+                            self.grid_hexes.add(h)
 
         self.redraw(high_res=True)
-        messagebox.showinfo("Griglia Generata", f"Generate {len(self.grid_hexes)} celle con successo.")
+        if not silent:
+            messagebox.showinfo("Griglia Generata", f"Generate {len(self.grid_hexes)} celle con successo.", parent=self)
 
     def _clear_grid(self):
         self.canvas.delete("hex")

@@ -6,7 +6,7 @@ import json
 import tempfile
 from PIL import Image
 
-from server.map_editor import MapEditorWindow
+from server.map_editor import MapEditorWindow, clip_polygon_to_rect
 from common.hex_utils import Hex, HexLayout, SquareLayout
 
 
@@ -135,90 +135,85 @@ class TestMapEditor(unittest.TestCase):
         self.editor.hex_layout = self.editor._create_layout(35, "hex")
         self.editor.base_image_original = Image.new("RGB", (500, 500))
         
-        # Add hex at world coordinate (100, 100) inside image
         self.editor._add_hex_at(100, 100)
         self.assertEqual(len(self.editor.grid_hexes), 1)
         added_hex = list(self.editor.grid_hexes)[0]
         self.assertIn(added_hex, self.editor.hex_to_canvas_id)
 
-        # Delete hex at same position
         self.editor._delete_hex_at(100, 100)
         self.assertEqual(len(self.editor.grid_hexes), 0)
         self.assertEqual(len(self.editor.hex_to_canvas_id), 0)
 
-        # Click outside image bounds should NOT add a hex
         self.editor._add_hex_at(600, 600)
         self.assertEqual(len(self.editor.grid_hexes), 0)
 
-    @patch("server.map_editor.messagebox.showinfo")
-    @patch("server.map_editor.messagebox.askyesno", return_value=True)
-    def test_auto_grid_generation_strictly_inside_perimeter(self, mock_askyesno, mock_showinfo):
+    def test_auto_grid_generation_flush_with_all_four_sides(self):
         W, H = 800, 600
         test_img = Image.new("RGB", (W, H), color="blue")
         self.editor.base_image_original = test_img
 
-        # 1. Hex grid auto-generation: verify no corner ever exceeds image bounds
-        self.editor.current_hex_size = 35
+        # 1. Hex grid auto-generation: verify perfect flush match on all 4 sides (top, bottom, left, right)
+        self.editor.current_hex_size = 60
         self.editor.grid_type_var.set("hex")
-        self.editor.hex_layout = self.editor._create_layout(35, "hex")
-        self.editor.generate_auto_grid()
+        self.editor.hex_layout = self.editor._create_layout(60, "hex")
+        self.editor.generate_auto_grid(silent=True)
 
-        hex_count = len(self.editor.grid_hexes)
-        self.assertGreater(hex_count, 10)
+        self.assertGreater(len(self.editor.grid_hexes), 10)
 
-        # Verify perimeter bounds for all hexes
-        for h in self.editor.grid_hexes:
-            corners = self.editor.hex_layout.hex_corners(h)
-            for c in corners:
-                self.assertGreaterEqual(c[0], -0.5, f"Hex {h} overflowed left: {c[0]}")
-                self.assertLessEqual(c[0], W + 0.5, f"Hex {h} overflowed right: {c[0]}")
-                self.assertGreaterEqual(c[1], -0.5, f"Hex {h} overflowed top: {c[1]}")
-                self.assertLessEqual(c[1], H + 0.5, f"Hex {h} overflowed bottom: {c[1]}")
+        all_hex_x, all_hex_y = [], []
+        for hex_id in self.editor.hex_to_canvas_id.values():
+            coords = self.editor.canvas.coords(hex_id)
+            all_hex_x.extend(coords[0::2])
+            all_hex_y.extend(coords[1::2])
 
-        # 2. Square grid auto-generation: verify perfect rectangular coverage, no diagonal, no overflow
+        self.assertEqual(min(all_hex_x), 0.0)
+        self.assertEqual(max(all_hex_x), W)
+        self.assertEqual(min(all_hex_y), 0.0)
+        self.assertEqual(max(all_hex_y), H)
+
+        # 2. Square grid auto-generation: verify perfect flush match on all 4 sides
         self.editor.grid_type_var.set("square")
-        self.editor.hex_layout = self.editor._create_layout(35, "square")
-        self.editor.generate_auto_grid()
+        self.editor.on_grid_type_selected()
 
-        square_count = len(self.editor.grid_hexes)
-        self.assertGreater(square_count, 10)
+        self.assertGreater(len(self.editor.grid_hexes), 10)
 
-        # In square layout, min q and r must be 0 (no negative coordinates, no top overflow)
-        qs = [h.q for h in self.editor.grid_hexes]
-        rs = [h.r for h in self.editor.grid_hexes]
-        self.assertEqual(min(qs), 0)
-        self.assertEqual(min(rs), 0)
+        all_sq_x, all_sq_y = [], []
+        for hex_id in self.editor.hex_to_canvas_id.values():
+            coords = self.editor.canvas.coords(hex_id)
+            all_sq_x.extend(coords[0::2])
+            all_sq_y.extend(coords[1::2])
 
-        for h in self.editor.grid_hexes:
-            corners = self.editor.hex_layout.hex_corners(h)
-            for c in corners:
-                self.assertGreaterEqual(c[0], -0.5, f"Square {h} overflowed left: {c[0]}")
-                self.assertLessEqual(c[0], W + 0.5, f"Square {h} overflowed right: {c[0]}")
-                self.assertGreaterEqual(c[1], -0.5, f"Square {h} overflowed top: {c[1]}")
-                self.assertLessEqual(c[1], H + 0.5, f"Square {h} overflowed bottom: {c[1]}")
+        self.assertEqual(min(all_sq_x), 0.0)
+        self.assertEqual(max(all_sq_x), W)
+        self.assertEqual(min(all_sq_y), 0.0)
+        self.assertEqual(max(all_sq_y), H)
 
-    @patch("server.map_editor.messagebox.showinfo")
-    @patch("server.map_editor.messagebox.askyesno", return_value=True)
-    def test_switch_grid_type_clears_old_incompatible_cells(self, mock_askyesno, mock_showinfo):
+    def test_switch_grid_type_under_active_grab_never_freezes(self):
         test_img = Image.new("RGB", (800, 600), color="blue")
         self.editor.base_image_original = test_img
         self.editor.current_hex_size = 60
         self.editor.current_grid_type = "hex"
         self.editor.grid_type_var.set("hex")
         self.editor.hex_layout = self.editor._create_layout(60, "hex")
-        self.editor.generate_auto_grid()
+        self.editor.generate_auto_grid(silent=True)
 
         self.assertGreater(len(self.editor.grid_hexes), 0)
         
-        # User switches from "hex" to "square"
-        self.editor.grid_type_var.set("square")
-        self.editor.on_grid_type_selected()
+        # Simulate active grab from parent
+        self.editor.grab_set()
+        try:
+            self.editor.grid_type_var.set("square")
+            self.editor.on_grid_type_selected()
 
-        # Should have regenerated as square with NO negative coordinates
-        self.assertEqual(self.editor.current_grid_type, "square")
-        for h in self.editor.grid_hexes:
-            self.assertGreaterEqual(h.q, 0)
-            self.assertGreaterEqual(h.r, 0)
+            self.assertEqual(self.editor.current_grid_type, "square")
+            self.assertGreater(len(self.editor.grid_hexes), 0)
+            
+            # Switch back to hex
+            self.editor.grid_type_var.set("hex")
+            self.editor.on_grid_type_selected()
+            self.assertEqual(self.editor.current_grid_type, "hex")
+        finally:
+            self.editor.grab_release()
 
     def test_poi_and_terrain_manipulation(self):
         self.editor.current_hex_size = 35

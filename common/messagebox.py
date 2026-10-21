@@ -3,28 +3,31 @@ from ttkbootstrap.dialogs import Messagebox
 class _MessageBoxWrapper:
     @staticmethod
     def showinfo(title=None, message=None, **kwargs):
-        # Ignore unsupported kwargs
         kwargs.pop('icon', None)
         kwargs.pop('type', None)
-        return Messagebox.show_info(message=str(message), title=str(title))
+        parent = kwargs.pop('parent', None)
+        return Messagebox.show_info(message=str(message), title=str(title), parent=parent)
         
     @staticmethod
     def showerror(title=None, message=None, **kwargs):
         kwargs.pop('icon', None)
         kwargs.pop('type', None)
-        return Messagebox.show_error(message=str(message), title=str(title))
+        parent = kwargs.pop('parent', None)
+        return Messagebox.show_error(message=str(message), title=str(title), parent=parent)
         
     @staticmethod
     def showwarning(title=None, message=None, **kwargs):
         kwargs.pop('icon', None)
         kwargs.pop('type', None)
-        return Messagebox.show_warning(message=str(message), title=str(title))
+        parent = kwargs.pop('parent', None)
+        return Messagebox.show_warning(message=str(message), title=str(title), parent=parent)
         
     @staticmethod
     def askyesno(title=None, message=None, **kwargs):
         kwargs.pop('icon', None)
         kwargs.pop('type', None)
-        result = Messagebox.yesno(message=str(message), title=str(title))
+        parent = kwargs.pop('parent', None)
+        result = Messagebox.yesno(message=str(message), title=str(title), parent=parent)
         if isinstance(result, str):
             return result.lower() == "yes"
         return False
@@ -33,7 +36,8 @@ class _MessageBoxWrapper:
     def askokcancel(title=None, message=None, **kwargs):
         kwargs.pop('icon', None)
         kwargs.pop('type', None)
-        result = Messagebox.okcancel(message=str(message), title=str(title))
+        parent = kwargs.pop('parent', None)
+        result = Messagebox.okcancel(message=str(message), title=str(title), parent=parent)
         if isinstance(result, str):
             return result.lower() == "ok"
         return False
