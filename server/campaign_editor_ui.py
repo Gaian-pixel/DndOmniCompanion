@@ -223,7 +223,8 @@ class CampaignEditorDialog(tk.Toplevel):
         self.on_save_callback = on_save_callback
         
         self.title(f"D&D OmniCompanion • Preparazione Campagna: {self.campaign.name}")
-        self.minsize(920, 680)
+        self.minsize(1050, 720)
+        self.geometry("1150x760")
         self.transient(master)
         self.grab_set()
         apply_modern_window_style(self)
@@ -258,35 +259,58 @@ class CampaignEditorDialog(tk.Toplevel):
         self.notebook = ttk.Notebook(container)
         self.notebook.pack(fill=tk.BOTH, expand=True)
         
-        # TAB 1: GENERALE & METADATI
+        # TAB 1: STUDIO FLUSSO & DNDSCRIPT (Campaign-as-Code & Visual Graph)
+        tab_studio = ttk.Frame(self.notebook, padding=4)
+        self.notebook.add(tab_studio, text="🧭 Flusso & DndScript")
+        self.build_tab_studio(tab_studio)
+        
+        # TAB 2: GENERALE & METADATI
         tab_general = ttk.Frame(self.notebook, padding=12)
         self.notebook.add(tab_general, text="📜 Generale & Note DM")
         self.build_tab_general(tab_general)
         
-        # TAB 2: SCENE & MAPPE
+        # TAB 3: SCENE & MAPPE
         tab_scenes = ttk.Frame(self.notebook, padding=12)
         self.notebook.add(tab_scenes, text="🗺️ Scene & Mappe")
         self.build_tab_scenes(tab_scenes)
         
-        # TAB 3: INCONTRI PREPARATI
+        # TAB 4: INCONTRI PREPARATI
         tab_encounters = ttk.Frame(self.notebook, padding=12)
         self.notebook.add(tab_encounters, text="⚔️ Incontri Tattici")
         self.build_tab_encounters(tab_encounters)
         
-        # TAB 4: MISSIONI & STORIA
+        # TAB 5: MISSIONI & STORIA
         tab_quests = ttk.Frame(self.notebook, padding=12)
         self.notebook.add(tab_quests, text="📖 Trame & Missioni")
         self.build_tab_quests(tab_quests)
         
-        # TAB 5: PNG & FAZIONI
+        # TAB 6: PNG & FAZIONI
         tab_npcs = ttk.Frame(self.notebook, padding=12)
         self.notebook.add(tab_npcs, text="🎭 PNG & Fazioni")
         self.build_tab_npcs(tab_npcs)
         
-        # TAB 6: HANDOUTS
+        # TAB 7: HANDOUTS
         tab_handouts = ttk.Frame(self.notebook, padding=12)
         self.notebook.add(tab_handouts, text="📜 Handouts & Indizi")
         self.build_tab_handouts(tab_handouts)
+
+    def build_tab_studio(self, parent):
+        from server.campaign_studio_ui import CampaignStudioFrame
+        self.studio_frame = CampaignStudioFrame(parent, campaign=self.campaign, on_change_callback=self._on_studio_changed)
+        self.studio_frame.pack(fill=tk.BOTH, expand=True)
+
+    def _on_studio_changed(self):
+        try:
+            if hasattr(self, "tree_scenes"):
+                self.refresh_scenes_tree()
+            if hasattr(self, "tree_encounters"):
+                self.refresh_encounters_tree()
+            if hasattr(self, "tree_quests"):
+                self.refresh_quests_tree()
+            if hasattr(self, "tree_npcs"):
+                self.refresh_npcs_tree()
+        except Exception:
+            pass
 
     # -------------------------------------------------------------
     # TAB 1: GENERALE
@@ -741,11 +765,17 @@ class CampaignEditorDialog(tk.Toplevel):
             self.tree_quests.delete(item)
         for idx, q in enumerate(self.campaign.quests):
             rew = q.get("rewards", {})
+            if isinstance(rew, dict):
+                xp_val = str(rew.get("xp", q.get("xp", 100)))
+                gp_val = str(rew.get("gp", 25))
+            else:
+                xp_val = str(q.get("xp", 100))
+                gp_val = str(rew) if rew else "0"
             self.tree_quests.insert("", tk.END, iid=str(idx), values=(
                 q.get("title", "Missione"),
-                q.get("chapter", "Capitolo 1"),
-                str(rew.get("xp", 100)),
-                str(rew.get("gp", 25)),
+                q.get("chapter", q.get("act", "Atto 1")),
+                xp_val,
+                gp_val,
                 q.get("description", "")
             ))
 
@@ -1064,6 +1094,11 @@ class CampaignEditorDialog(tk.Toplevel):
     # -------------------------------------------------------------
     def sync_campaign_data(self):
         """Sincronizza le modifiche della UI nell'oggetto Campaign."""
+        if hasattr(self, "studio_frame") and self.studio_frame:
+            try:
+                self.studio_frame.sync_text_to_canvas()
+            except Exception as e:
+                print(f"[CAMPAIGN] Errore sync studio_frame: {e}")
         self.campaign.name = self.ent_title.get().strip() or "Campagna Senza Nome"
         self.campaign.level_range = self.ent_level.get().strip() or "1-3"
         self.campaign.start_weather = self.combo_weather.get() or "Sereno"

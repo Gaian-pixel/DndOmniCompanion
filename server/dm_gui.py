@@ -92,6 +92,18 @@ class DM_GUI:
         self.notebook = None
         self.chat_tabs = {}
         self.default_font = ("Georgia", 10)
+
+        # Inizializza SessionLedger per il tracking live e la cronistoria
+        from common.session_chronicle import SessionLedger
+        c_name = self.initial_campaign.name if self.initial_campaign else "Campagna"
+        s_date = getattr(self.initial_campaign, "start_date", {"year": 1492, "month": 1, "day": 1, "hour": 8}) if self.initial_campaign else {"year": 1492, "month": 1, "day": 1, "hour": 8}
+        s_weather = getattr(self.initial_campaign, "start_weather", "Sereno") if self.initial_campaign else "Sereno"
+        self.session_ledger = SessionLedger(
+            campaign_name=c_name,
+            start_game_date=s_date,
+            current_game_date=s_date,
+            current_weather=s_weather
+        )
         setup_theme(self.master)
         self.setup_gui()
         
@@ -150,6 +162,9 @@ class DM_GUI:
         file_menu.add_command(label=_t("menu_load_campaign"), command=self.open_load_campaign_dialog)
         file_menu.add_command(label=_t("menu_edit_active_campaign"), command=self.open_campaign_editor_dialog)
         file_menu.add_command(label=_t("menu_close_campaign"), command=self.close_active_campaign)
+        file_menu.add_separator()
+        file_menu.add_command(label="🧭 Flusso Live della Campagna (Ctrl+N)", command=self.open_live_flow_controller)
+        file_menu.add_command(label="📜 Cronistoria & Recap Sessione...", command=self.open_session_chronicle_dialog)
         file_menu.add_separator()
         file_menu.add_command(label=_t("menu_load_map"), command=self.load_map_from_file)
         file_menu.add_separator()
@@ -725,6 +740,13 @@ class DM_GUI:
                                           bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD, padx=8, pady=4, 
                                           highlightbackground=BORDER_COLOR, highlightthickness=1)
         self.lbl_campaign_name.pack(fill=tk.X, pady=(4, 6))
+
+        flow_btn_box = tk.Frame(tab_world, bg=BG_COLOR)
+        flow_btn_box.pack(fill=tk.X, pady=(0, 6))
+        self.btn_live_flow = ttk.Button(flow_btn_box, text="🧭 Flusso Live", command=self.open_live_flow_controller, style='Gold.TButton')
+        self.btn_live_flow.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
+        self.btn_chronicle = ttk.Button(flow_btn_box, text="📜 Cronistoria", command=self.open_session_chronicle_dialog, style='Info.TButton')
+        self.btn_chronicle.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
         
         self.btn_switch_scene = ttk.Button(tab_world, text=_t("btn_switch_scene"), command=self.switch_campaign_scene_dialog, style='Info.TButton')
         self.btn_switch_scene.pack(fill=tk.X, pady=(0, 8))
@@ -772,6 +794,8 @@ class DM_GUI:
 
         # Scorciatoia universale Command Palette (Ctrl+K)
         self.master.bind("<Control-k>", self.open_command_palette)
+        self.master.bind("<Control-n>", lambda e: self.open_live_flow_controller())
+        self.master.bind("<Control-N>", lambda e: self.open_live_flow_controller())
         self.master.bind("<Control-K>", self.open_command_palette)
 
     def open_command_palette(self, event=None):
@@ -1331,6 +1355,12 @@ class DM_GUI:
         else:
             self.log_to_chat(f"Il tempo avanza di {hours} ore.")
         
+        if hasattr(self, "session_ledger") and self.session_ledger:
+            self.session_ledger.record_time_advance(
+                hours=hours,
+                new_date={"year": gs.time_year, "month": gs.time_month, "day": gs.time_day, "hour": gs.time_hour},
+                new_weather=getattr(gs, "weather", "Sereno")
+            )
         gs._trigger_gui_update()
         broadcast(gs, make_game_state(gs.get_state_dict()))
 
@@ -1354,6 +1384,8 @@ class DM_GUI:
         from common.protocol import make_chat_broadcast, make_game_state
         from server.network import broadcast
         broadcast(gs, make_chat_broadcast("Sistema", msg))
+        if hasattr(self, "session_ledger") and self.session_ledger:
+            self.session_ledger.current_weather = canonical
         gs._trigger_gui_update()
         broadcast(gs, make_game_state(gs.get_state_dict()))
         self.update_state()
@@ -1532,6 +1564,8 @@ class DM_GUI:
         from common.protocol import make_chat_broadcast, make_game_state
         from server.network import broadcast
         broadcast(gs, make_chat_broadcast("Sistema", msg))
+        if hasattr(self, "session_ledger") and self.session_ledger:
+            self.session_ledger.current_weather = new_w
         gs._trigger_gui_update()
         broadcast(gs, make_game_state(gs.get_state_dict()))
         self.update_state()
@@ -2188,6 +2222,13 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         from server.campaign_editor_ui import CampaignSelectorDialog
         def on_selected(camp):
             camp.apply_to_game_state(self.server.game_state)
+            if hasattr(self, "session_ledger") and self.session_ledger:
+                self.session_ledger.campaign_name = camp.name
+                if getattr(camp, "start_date", None):
+                    self.session_ledger.start_game_date = dict(camp.start_date)
+                    self.session_ledger.current_game_date = dict(camp.start_date)
+                if getattr(camp, "start_weather", None):
+                    self.session_ledger.current_weather = camp.start_weather
             if self.server.game_state.current_map:
                 self.fow_enabled_var.set(self.server.game_state.current_map.get("fow_enabled", False))
                 self.redraw_map_and_players()
@@ -2225,6 +2266,15 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             self.lbl_campaign_name.config(text=_t("campaign_none"))
         self.log_to_chat(f"[SISTEMA] Campagna '{camp_name}' chiusa. Modalità sessione libera attiva.")
         self.show_toast(f"Campagna '{camp_name}' chiusa.", title="Campagna", toast_type="info")
+
+    def open_live_flow_controller(self):
+        from server.dm_live_flow import DMLiveFlowDialog
+        DMLiveFlowDialog(self, self.server.game_state, self.session_ledger)
+
+    def open_session_chronicle_dialog(self):
+        from server.dm_live_flow import SessionChronicleDialog
+        active_camp = getattr(self.server.game_state, 'active_campaign', None)
+        SessionChronicleDialog(self, self.session_ledger, campaign=active_camp)
 
     def deploy_campaign_encounter_dialog(self):
         active_camp = getattr(self.server.game_state, 'active_campaign', None)

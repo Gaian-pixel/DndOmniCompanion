@@ -60,6 +60,10 @@ class Campaign:
         # Handouts (lettere, indizi, mappe segrete)
         self.handouts: List[Dict[str, Any]] = []
 
+        # Flow Builder & DndScript (Campaign-as-Code)
+        self.flow_script: str = ""
+        self.flow_graph: Dict[str, Any] = {}
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "name": self.name,
@@ -76,6 +80,8 @@ class Campaign:
             "npcs": self.npcs,
             "shops": self.shops,
             "handouts": self.handouts,
+            "flow_script": self.flow_script,
+            "flow_graph": self.flow_graph,
         }
 
     @classmethod
@@ -94,6 +100,8 @@ class Campaign:
         c.npcs = data.get("npcs", [])
         c.shops = data.get("shops", {})
         c.handouts = data.get("handouts", [])
+        c.flow_script = data.get("flow_script", "")
+        c.flow_graph = data.get("flow_graph", {})
         return c
 
     def save(self, target_folder: Optional[str] = None) -> str:
