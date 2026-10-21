@@ -3,34 +3,57 @@ import tkinter as tk
 from common.messagebox import messagebox
 from tkinter import simpledialog, filedialog, ttk, colorchooser
 import json
+import math
+import os
 from PIL import Image, ImageTk
 
-from common.hex_utils import Hex, HexLayout
-
-class Tooltip:
-    # Questa classe interna non necessita di modifiche
-    def __init__(self, parent):
-        self.parent=parent; self.tip_window=None
-    def show(self, event, poi_data):
-        if self.tip_window or not poi_data: return
-        x, y, _, _=self.parent.bbox("current"); x += self.parent.winfo_rootx() + 25; y += self.parent.winfo_rooty() + 25
-        self.tip_window=tk.Toplevel(self.parent)
-        self.tip_window.wm_overrideredirect(True); self.tip_window.wm_geometry(f"+{x}+{y}")
-        frame=tk.Frame(self.tip_window, bg="#333333", relief="solid", borderwidth=1); frame.pack()
-        tk.Label(frame, text=poi_data['title'], font=("", 10, "bold"), bg="#333333", fg="white").pack(pady=(0, 5), padx=5)
-        if 'image_tk' in poi_data:
-            tk.Label(frame, image=poi_data['image_tk'], bg="#333333").pack(pady=5)
-        tk.Label(frame, text=poi_data['caption'], wraplength=200, bg="#333333", fg="white").pack(padx=5, pady=5)
-    def hide(self):
-        if self.tip_window: self.tip_window.destroy()
-        self.tip_window=None
-
+from common.hex_utils import Hex, HexLayout, SquareLayout
 from common.theme import apply_modern_window_style
 
+
+class Tooltip:
+    def __init__(self, parent):
+        self.parent = parent
+        self.tip_window = None
+
+    def show(self, event, poi_data):
+        if self.tip_window or not poi_data:
+            return
+        bbox = self.parent.bbox("current")
+        if bbox:
+            x = bbox[0] + self.parent.winfo_rootx() + 25
+            y = bbox[1] + self.parent.winfo_rooty() + 25
+        else:
+            x = getattr(event, "x_root", 0) + 15
+            y = getattr(event, "y_root", 0) + 15
+        self.tip_window = tk.Toplevel(self.parent)
+        self.tip_window.wm_overrideredirect(True)
+        self.tip_window.wm_geometry(f"+{x}+{y}")
+        frame = tk.Frame(self.tip_window, bg="#333333", relief="solid", borderwidth=1)
+        frame.pack()
+        tk.Label(frame, text=poi_data.get('title', ''), font=("", 10, "bold"), bg="#333333", fg="white").pack(pady=(0, 5), padx=5)
+        if 'image_tk' in poi_data:
+            tk.Label(frame, image=poi_data['image_tk'], bg="#333333").pack(pady=5)
+        tk.Label(frame, text=poi_data.get('caption', ''), wraplength=200, bg="#333333", fg="white").pack(padx=5, pady=5)
+
+    def hide(self):
+        if self.tip_window:
+            self.tip_window.destroy()
+        self.tip_window = None
+
+
 class MapEditorWindow(tk.Toplevel):
-    MAP_SCALES={"Mappa del Mondo / Regione": 15, "Mappa di Esplorazione (POI)": 35, "Mappa di Combattimento": 60}
-    MAP_SCALE_TYPES={"Mappa del Mondo / Regione": "world", "Mappa di Esplorazione (POI)": "exploration", "Mappa di Combattimento": "combat"}
-    POI_COLOR = "#FFD700" # Oro per i POI
+    MAP_SCALES = {
+        "Mappa del Mondo / Regione": 15,
+        "Mappa di Esplorazione (POI)": 35,
+        "Mappa di Combattimento": 60
+    }
+    MAP_SCALE_TYPES = {
+        "Mappa del Mondo / Regione": "world",
+        "Mappa di Esplorazione (POI)": "exploration",
+        "Mappa di Combattimento": "combat"
+    }
+    POI_COLOR = "#FFD700"  # Oro per i POI
 
     def __init__(self, parent):
         super().__init__(parent)
@@ -38,43 +61,64 @@ class MapEditorWindow(tk.Toplevel):
         self.minsize(1200, 800)
         apply_modern_window_style(self)
 
-        ### MODIFICATO: self.pois è ora un dizionario per mappare Hex -> Dati POI ###
         self.pois = {}
         self.difficult_terrain = {}
         self.add_terrain_mode = False
         
-        self.grid_hexes=set(); self.hex_to_canvas_id={}
-        self.hex_layout=None; self.base_image_path=""
-        self.current_hover_poi=None; self.add_poi_mode=False; self.preview_hex_id=None
-        self.zoom_level = 1.0; self.hex_border_color = "white"
+        self.grid_hexes = set()
+        self.hex_to_canvas_id = {}
+        self.hex_layout = None
+        self.current_hex_size = 35
+        self.base_image_path = ""
+        self.current_hover_poi = None
+        self.add_poi_mode = False
+        self.preview_hex_id = None
+        self.hex_border_color = "white"
 
-        ### NUOVO: Variabili per la gestione dell'immagine di sfondo ###
-        self.base_image_original = None # Immagine PIL originale non scalata
-        self.base_image_tk = None       # Immagine Tkinter attualmente visualizzata
-        self.bg_canvas_id = None        # ID dell'oggetto immagine sul canvas
+        # Trasformazione Vista: Zoom e Pan unificati
+        self.zoom_level = 1.0
+        self.pan_offset_x = 0.0
+        self.pan_offset_y = 0.0
+        self._pan_start_x = 0.0
+        self._pan_start_y = 0.0
+
+        # Gestione immagine di sfondo
+        self.base_image_original = None
+        self.base_image_tk = None
+        self.bg_canvas_id = None
+        self._zoom_timer = None
 
         self.setup_gui()
-        self.tooltip=Tooltip(self.canvas)
+        self.tooltip = Tooltip(self.canvas)
 
     def setup_gui(self):
-        main_frame=ttk.Frame(self, padding=(10, 10)); main_frame.pack(fill=tk.BOTH, expand=True)
-        toolbar=ttk.Frame(main_frame); toolbar.pack(fill=tk.X, pady=5)
+        main_frame = ttk.Frame(self, padding=(10, 10))
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        toolbar = ttk.Frame(main_frame)
+        toolbar.pack(fill=tk.X, pady=5)
+
         ttk.Button(toolbar, text="Carica Immagine", command=self.load_base_image, style="Info.TButton").pack(side=tk.LEFT, padx=5)
         ttk.Button(toolbar, text="Carica Mappa", command=self.load_map_file, style="Info.TButton").pack(side=tk.LEFT, padx=5)
-        map_scale_frame=ttk.Frame(toolbar); map_scale_frame.pack(side=tk.LEFT, padx=10)
+
+        map_scale_frame = ttk.Frame(toolbar)
+        map_scale_frame.pack(side=tk.LEFT, padx=10)
         ttk.Label(map_scale_frame, text="Tipo di Mappa:").pack(side=tk.LEFT)
-        self.map_scale_var=tk.StringVar()
-        map_scale_combo=ttk.Combobox(map_scale_frame, textvariable=self.map_scale_var, values=list(self.MAP_SCALES.keys()), state="readonly")
-        map_scale_combo.pack(side=tk.LEFT, padx=5); map_scale_combo.bind("<<ComboboxSelected>>", self.on_map_scale_selected)
+        self.map_scale_var = tk.StringVar()
+        map_scale_combo = ttk.Combobox(map_scale_frame, textvariable=self.map_scale_var, values=list(self.MAP_SCALES.keys()), state="readonly")
+        map_scale_combo.pack(side=tk.LEFT, padx=5)
+        map_scale_combo.bind("<<ComboboxSelected>>", self.on_map_scale_selected)
         ttk.Button(map_scale_frame, text="Colore Griglia", command=self.choose_hex_color).pack(side=tk.LEFT)
         
-        grid_type_frame=ttk.Frame(toolbar); grid_type_frame.pack(side=tk.LEFT, padx=10)
+        grid_type_frame = ttk.Frame(toolbar)
+        grid_type_frame.pack(side=tk.LEFT, padx=10)
         ttk.Label(grid_type_frame, text="Griglia:").pack(side=tk.LEFT)
-        self.grid_type_var=tk.StringVar(value="hex")
-        grid_type_combo=ttk.Combobox(grid_type_frame, textvariable=self.grid_type_var, values=["hex", "square", "none"], state="readonly", width=8)
+        self.grid_type_var = tk.StringVar(value="hex")
+        grid_type_combo = ttk.Combobox(grid_type_frame, textvariable=self.grid_type_var, values=["hex", "square", "none"], state="readonly", width=8)
         grid_type_combo.pack(side=tk.LEFT, padx=5)
+        grid_type_combo.bind("<<ComboboxSelected>>", self.on_grid_type_selected)
 
-        self.add_poi_button=ttk.Button(toolbar, text="Aggiungi POI", command=self.toggle_add_poi_mode, style="Success.TButton")
+        self.add_poi_button = ttk.Button(toolbar, text="Aggiungi POI", command=self.toggle_add_poi_mode, style="Success.TButton")
         self.add_poi_button.pack(side=tk.LEFT, padx=5)
         
         terrain_frame = ttk.Frame(toolbar)
@@ -85,234 +129,203 @@ class MapEditorWindow(tk.Toplevel):
         self.terrain_type_combo = ttk.Combobox(terrain_frame, textvariable=self.terrain_type_var, values=["Fango", "Ghiaccio", "Rovi", "Macerie", "Palude"], state="readonly", width=8)
         self.terrain_type_combo.pack(side=tk.LEFT, padx=2)
 
+        # Controlli Zoom & Reset
+        zoom_frame = ttk.Frame(toolbar)
+        zoom_frame.pack(side=tk.LEFT, padx=5)
+        ttk.Button(zoom_frame, text="🔍+", width=3, command=self.zoom_in).pack(side=tk.LEFT, padx=1)
+        ttk.Button(zoom_frame, text="🔍-", width=3, command=self.zoom_out).pack(side=tk.LEFT, padx=1)
+        ttk.Button(zoom_frame, text="100%", width=5, command=self.reset_view).pack(side=tk.LEFT, padx=1)
+        ttk.Button(zoom_frame, text="⛶ Adatta", command=self.fit_to_window).pack(side=tk.LEFT, padx=1)
+
         ttk.Button(toolbar, text="Salva Mappa", command=self.save_map, style="Primary.TButton").pack(side=tk.LEFT, padx=5)
-        self.canvas=tk.Canvas(main_frame, bg="#2b2b2b", highlightthickness=0); self.canvas.pack(fill=tk.BOTH, expand=True)
-        self.canvas.bind("<Motion>", self.on_canvas_motion); self.canvas.bind("<Button-1>", self.on_canvas_left_click); self.canvas.bind("<Button-3>", self.on_canvas_right_click); self.canvas.bind("<Leave>", self.on_canvas_leave)
-        self.canvas.bind("<MouseWheel>", self._zoom); self.canvas.bind("<Button-4>", self._zoom); self.canvas.bind("<Button-5>", self._zoom)
-        self.canvas.bind("<ButtonPress-2>", self._pan_start); self.canvas.bind("<B2-Motion>", self._pan_move)
+
+        self.canvas = tk.Canvas(main_frame, bg="#2b2b2b", highlightthickness=0)
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+
+        self.canvas.bind("<Motion>", self.on_canvas_motion)
+        self.canvas.bind("<Button-1>", self.on_canvas_left_click)
+        self.canvas.bind("<Button-3>", self.on_canvas_right_click)
+        self.canvas.bind("<Leave>", self.on_canvas_leave)
+        self.canvas.bind("<MouseWheel>", self._zoom)
+        self.canvas.bind("<Button-4>", self._zoom)
+        self.canvas.bind("<Button-5>", self._zoom)
+        self.bind("<plus>", lambda e: self.zoom_in(e.x, e.y))
+        self.bind("<equal>", lambda e: self.zoom_in(e.x, e.y))
+        self.bind("<KP_Add>", lambda e: self.zoom_in(e.x, e.y))
+        self.bind("<minus>", lambda e: self.zoom_out(e.x, e.y))
+        self.bind("<KP_Subtract>", lambda e: self.zoom_out(e.x, e.y))
+        self.canvas.bind("<ButtonPress-2>", self._pan_start)
+        self.canvas.bind("<B2-Motion>", self._pan_move)
+        self.canvas.bind("<Alt-ButtonPress-1>", self._pan_start)
+        self.canvas.bind("<Alt-B1-Motion>", self._pan_move)
+
+    def _create_layout(self, hex_size, grid_type=None):
+        if grid_type is None:
+            grid_type = self.grid_type_var.get() if hasattr(self, "grid_type_var") else "hex"
+        if grid_type == "square":
+            return SquareLayout(size=hex_size * 1.5, origin=(0, 0))
+        elif grid_type in ("none", "gridless"):
+            return SquareLayout(size=hex_size * 1.5, origin=(0, 0))
+        else:
+            return HexLayout(size=hex_size, origin=(0, 0))
+
+    def screen_to_world(self, sx, sy):
+        wx = (sx - self.pan_offset_x) / self.zoom_level
+        wy = (sy - self.pan_offset_y) / self.zoom_level
+        return wx, wy
+
+    def world_to_screen(self, wx, wy):
+        sx = wx * self.zoom_level + self.pan_offset_x
+        sy = wy * self.zoom_level + self.pan_offset_y
+        return sx, sy
 
     def _zoom(self, event):
-        """ ### MODIFICATO: Ora gestisce anche lo zoom dell'immagine di sfondo con debounce e filtri veloci ### """
-        factor = 1.1 if (event.num == 4 or event.delta > 0) else 0.9
-        
-        # Applica lo zoom a griglia e POI
-        canvas_x = self.canvas.canvasx(event.x)
-        canvas_y = self.canvas.canvasy(event.y)
-        self.canvas.scale("all", canvas_x, canvas_y, factor, factor)
-        
-        # Applica lo zoom all'immagine di sfondo manualmente usando un filtro velocissimo
-        if self.base_image_original:
-            self.zoom_level *= factor
-            new_width = int(self.base_image_original.width * self.zoom_level)
-            new_height = int(self.base_image_original.height * self.zoom_level)
+        """Zoom centrato sul cursore del mouse perfettamente allineato tra immagine e griglia."""
+        factor = 1.15 if (event.num == 4 or getattr(event, "delta", 0) > 0) else 0.85
+        new_zoom = max(0.05, min(10.0, self.zoom_level * factor))
+        if abs(new_zoom - self.zoom_level) < 1e-5:
+            return
             
-            # Evita errori se l'immagine diventa troppo piccola
-            if new_width > 0 and new_height > 0:
-                # Usa NEAREST per prestazioni in tempo reale
-                resized_img = self.base_image_original.resize((new_width, new_height), Image.Resampling.NEAREST)
-                self.base_image_tk = ImageTk.PhotoImage(resized_img)
-                self.canvas.itemconfig(self.bg_canvas_id, image=self.base_image_tk)
-                
-                # Cancella il vecchio timer di debounce
-                if hasattr(self, "_zoom_timer") and self._zoom_timer:
-                    self.after_cancel(self._zoom_timer)
-                
-                # Imposta un timer per ridisegnare ad alta qualità (LANCZOS) quando si smette di zoomare
-                self._zoom_timer = self.after(300, self._render_high_res_image, new_width, new_height)
-        else:
-             self.zoom_level *= factor
-
-    def _render_high_res_image(self, width, height):
         if self.base_image_original:
-            resized_img = self.base_image_original.resize((width, height), Image.Resampling.LANCZOS)
-            self.base_image_tk = ImageTk.PhotoImage(resized_img)
-            self.canvas.itemconfig(self.bg_canvas_id, image=self.base_image_tk)
+            if self.base_image_original.width * new_zoom * self.base_image_original.height * new_zoom > 64000000:
+                return
+
+        mouse_wx, mouse_wy = self.screen_to_world(event.x, event.y)
+        self.zoom_level = new_zoom
+        self.pan_offset_x = event.x - mouse_wx * self.zoom_level
+        self.pan_offset_y = event.y - mouse_wy * self.zoom_level
+
+        if hasattr(self, "_zoom_timer") and self._zoom_timer:
+            self.after_cancel(self._zoom_timer)
             self._zoom_timer = None
 
-    def load_base_image(self):
-        """ ### MODIFICATO: Memorizza l'immagine originale per lo zoom ### """
-        import os
-        maps_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "maps")
-        file_path = filedialog.askopenfilename(initialdir=maps_dir, filetypes=[("Image files", "*.jpg *.jpeg *.png *.bmp")])
-        if not file_path: return
-        self.base_image_path = file_path
-        
-        self.base_image_original = Image.open(file_path) # Salva l'originale
-        self.base_image_tk = ImageTk.PhotoImage(self.base_image_original)
-        
-        if self.bg_canvas_id:
-            self.canvas.itemconfig(self.bg_canvas_id, image=self.base_image_tk)
-        else:
-            self.bg_canvas_id = self.canvas.create_image(0, 0, image=self.base_image_tk, anchor="nw", tags="base_image")
-        
-        self.canvas.tag_lower("base_image")
-        
-        # Generazione automatica se c'è già una scala impostata
-        if self.hex_layout and not self.grid_hexes:
-            if messagebox.askyesno("Generazione Automatica", "Vuoi riempire automaticamente l'immagine appena caricata con gli esagoni?"):
-                self.generate_auto_grid()
+        # Redraw immediato e veloce (NEAREST)
+        self.redraw(high_res=False)
 
-    def _add_poi_at(self, x, y):
-        """ ### MODIFICATO: Trasforma un esagono in un POI ### """
-        if not self.hex_layout: return
-        
-        target_hex = self.hex_layout.pixel_to_hex((x / self.zoom_level, y / self.zoom_level))
-        
-        # Controlla se l'esagono esiste nella griglia
-        if target_hex not in self.grid_hexes:
-            messagebox.showwarning("Azione non valida", "Puoi aggiungere un Punto di Interesse solo su un esagono esistente.")
+        # Debounce per rendering ad alta definizione (LANCZOS)
+        self._zoom_timer = self.after(250, lambda: self.redraw(high_res=True))
+
+    def zoom_in(self, center_x=None, center_y=None):
+        cw = max(self.canvas.winfo_width(), 100)
+        ch = max(self.canvas.winfo_height(), 100)
+        cx = center_x if center_x is not None else cw / 2
+        cy = center_y if center_y is not None else ch / 2
+        class FakeEvent:
+            pass
+        e = FakeEvent()
+        e.num = 0
+        e.delta = 120
+        e.x = cx
+        e.y = cy
+        self._zoom(e)
+
+    def zoom_out(self, center_x=None, center_y=None):
+        cw = max(self.canvas.winfo_width(), 100)
+        ch = max(self.canvas.winfo_height(), 100)
+        cx = center_x if center_x is not None else cw / 2
+        cy = center_y if center_y is not None else ch / 2
+        class FakeEvent:
+            pass
+        e = FakeEvent()
+        e.num = 0
+        e.delta = -120
+        e.x = cx
+        e.y = cy
+        self._zoom(e)
+
+    def reset_view(self):
+        """Ripristina lo zoom al 100% e azzera il pan."""
+        self.zoom_level = 1.0
+        self.pan_offset_x = 0.0
+        self.pan_offset_y = 0.0
+        self.redraw(high_res=True)
+
+    def fit_to_window(self):
+        """Adatta l'immagine e la griglia alle dimensioni correnti della finestra."""
+        if not self.base_image_original:
             return
+        cw = max(self.canvas.winfo_width(), 100)
+        ch = max(self.canvas.winfo_height(), 100)
+        iw, ih = self.base_image_original.size
+        scale_w = cw / iw
+        scale_h = ch / ih
+        self.zoom_level = min(scale_w, scale_h, 1.0)
+        self.pan_offset_x = (cw - iw * self.zoom_level) / 2.0
+        self.pan_offset_y = (ch - ih * self.zoom_level) / 2.0
+        self.redraw(high_res=True)
 
-        title = simpledialog.askstring("Nuovo POI", "Inserisci il titolo:", parent=self)
-        if not title: return
-        caption = simpledialog.askstring("Nuovo POI", "Inserisci la didascalia:", parent=self)
-        
-        # Salva i dati del POI nel dizionario
-        self.pois[target_hex] = {"title": title, "caption": caption}
-        
-        # Colora l'esagono e aggiungi il tag "poi"
-        hex_id = self.hex_to_canvas_id.get(target_hex)
-        if hex_id:
-            self.canvas.itemconfig(hex_id, fill=self.POI_COLOR, stipple="")
-            self.canvas.addtag_withtag("poi", hex_id)
-        
-        self.toggle_add_poi_mode() # Disattiva la modalità dopo aver aggiunto
+    def _pan_start(self, event):
+        self._pan_start_x = event.x
+        self._pan_start_y = event.y
 
-    def handle_poi_hover(self, event):
-        """ ### MODIFICATO: Cerca il POI tramite le coordinate dell'esagono ### """
-        canvas_x = self.canvas.canvasx(event.x)
-        canvas_y = self.canvas.canvasy(event.y)
-        
-        hovered_hex = self.hex_layout.pixel_to_hex((canvas_x / self.zoom_level, canvas_y / self.zoom_level)) if self.hex_layout else None
-        
-        # Se l'esagono sotto il mouse è un POI, mostra il tooltip
-        if hovered_hex and hovered_hex in self.pois:
-            if self.current_hover_poi != hovered_hex:
-                self.current_hover_poi = hovered_hex
-                self.tooltip.hide()
-                self.tooltip.show(event, self.pois[hovered_hex])
-        else:
-            self.current_hover_poi = None
-            self.tooltip.hide()
+    def _pan_move(self, event):
+        dx = event.x - self._pan_start_x
+        dy = event.y - self._pan_start_y
+        self.pan_offset_x += dx
+        self.pan_offset_y += dy
+        self._pan_start_x = event.x
+        self._pan_start_y = event.y
+        self.canvas.move("all", dx, dy)
 
-    def save_map(self):
-        """ ### MODIFICATO: Salva i POI e la scala della mappa nel nuovo formato ### """
-        if not self.hex_layout: messagebox.showerror("Errore", "Non puoi salvare una mappa senza una scala."); return
-        import os
-        maps_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "maps")
-        file_path = filedialog.asksaveasfilename(initialdir=maps_dir, defaultextension=".json", filetypes=[("Mappe D&D", "*.json")])
-        if not file_path: return
-        
-        # Converte le chiavi Hex in stringhe per il salvataggio in JSON
-        pois_to_save = {f"{h.q},{h.r}": data for h, data in self.pois.items()}
-        scale_type = self.MAP_SCALE_TYPES.get(self.map_scale_var.get(), "combat")
-        diff_terrain_to_save = {f"{h.q},{h.r}": t_type for h, t_type in self.difficult_terrain.items()}
-        
-        map_data = {
-            "base_image_path": self.base_image_path,
-            "hex_size": self.hex_layout.size,
-            "grid_type": self.grid_type_var.get() if hasattr(self, "grid_type_var") else "hex",
-            "map_scale_type": scale_type,
-            "hex_border_color": self.hex_border_color,
-            "hexes": [[h.q, h.r] for h in self.grid_hexes],
-            "pois": pois_to_save,
-            "difficult_terrain": diff_terrain_to_save
-        }
-        try:
-            with open(file_path, 'w') as f: json.dump(map_data, f, indent=2)
-            messagebox.showinfo("Salvataggio Completato", "Mappa salvata con successo.")
-        except Exception as e:
-            messagebox.showerror("Errore di Salvataggio", f"Impossibile salvare la mappa: {e}")
+    def redraw(self, high_res=False):
+        """Ridisegna l'intera scena (sfondo e griglia) garantendo perfetto allineamento."""
+        # 1. Immagine di sfondo
+        if self.base_image_original:
+            orig_w, orig_h = self.base_image_original.size
+            new_width = max(1, int(orig_w * self.zoom_level))
+            new_height = max(1, int(orig_h * self.zoom_level))
+            
+            if new_width * new_height < 64000000:
+                resample = Image.Resampling.LANCZOS if high_res else Image.Resampling.NEAREST
+                resized_img = self.base_image_original.resize((new_width, new_height), resample)
+                self.base_image_tk = ImageTk.PhotoImage(resized_img)
+                
+                if self.bg_canvas_id is None:
+                    self.bg_canvas_id = self.canvas.create_image(
+                        self.pan_offset_x, self.pan_offset_y,
+                        image=self.base_image_tk, anchor="nw", tags="base_image"
+                    )
+                else:
+                    self.canvas.coords(self.bg_canvas_id, self.pan_offset_x, self.pan_offset_y)
+                    self.canvas.itemconfig(self.bg_canvas_id, image=self.base_image_tk)
+                self.canvas.tag_lower("base_image")
+        elif self.bg_canvas_id is not None:
+            self.canvas.delete(self.bg_canvas_id)
+            self.bg_canvas_id = None
+            self.base_image_tk = None
 
-    def load_map_file(self):
-        """Carica una mappa esistente in formato JSON nell'editor."""
-        import os
-        maps_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "maps")
-        file_path = filedialog.askopenfilename(initialdir=maps_dir, filetypes=[("Mappe D&D", "*.json")])
-        if not file_path: return
-        try:
-            with open(file_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            self._clear_grid()
-            hex_size = data.get("hex_size", 60)
-            self.hex_layout = HexLayout(size=hex_size, origin=(hex_size, hex_size))
-            if "hex_border_color" in data:
-                self.hex_border_color = data["hex_border_color"]
-            if "grid_type" in data and hasattr(self, "grid_type_var"):
-                self.grid_type_var.set(data["grid_type"])
-            pois_data = data.get("pois", {})
-            for k, p_data in pois_data.items():
-                parts = k.split(",")
-                self.pois[Hex(int(parts[0]), int(parts[1]))] = p_data
-            diff_data = data.get("difficult_terrain", {})
-            if isinstance(diff_data, dict):
-                for k, t_val in diff_data.items():
-                    parts = k.split(",")
-                    t_str = t_val if isinstance(t_val, str) else t_val.get("type", "fango")
-                    self.difficult_terrain[Hex(int(parts[0]), int(parts[1]))] = t_str
-            for pos in data.get("hexes", []):
-                h = Hex(pos[0], pos[1])
-                self.grid_hexes.add(h)
+        # 2. Griglia
+        self.canvas.delete("hex")
+        self.canvas.delete("preview")
+        self.hex_to_canvas_id.clear()
+        self.preview_hex_id = None
+        
+        if self.hex_layout:
+            for h in self.grid_hexes:
                 self._draw_single_hex(h)
-            messagebox.showinfo("Mappa Caricata", f"Caricata mappa con {len(self.grid_hexes)} celle.")
-        except Exception as e:
-            messagebox.showerror("Errore di Caricamento", f"Impossibile caricare la mappa: {e}")
-            
-    def _add_hex_at(self, x, y):
-        """Aggiunge un esagono nella posizione del mouse."""
+
+    def _draw_single_hex(self, h: Hex, is_preview=False):
         if not self.hex_layout:
-            messagebox.showwarning("Scala non impostata", "Prima scegli un tipo di mappa dal menu in alto.")
-            return
-
-        target_hex = self.hex_layout.pixel_to_hex((x / self.zoom_level, y / self.zoom_level))
+            return None
+        corners = [
+            (cx * self.zoom_level + self.pan_offset_x, cy * self.zoom_level + self.pan_offset_y)
+            for cx, cy in self.hex_layout.hex_corners(h)
+        ]
+        t_style = self.get_terrain_style(h)
+        if is_preview:
+            style = {"fill": "", "outline": "red", "width": 2}
+        elif t_style:
+            style = {"fill": t_style["fill"], "stipple": t_style["stipple"], "outline": self.hex_border_color, "width": 1}
+        elif h in self.pois:
+            style = {"fill": self.POI_COLOR, "stipple": "", "outline": self.hex_border_color, "width": 1}
+        else:
+            style = {"fill": "gray50", "stipple": "gray25", "outline": self.hex_border_color, "width": 1}
         
-        # Aggiungi l'esagono solo se non esiste già
-        if target_hex not in self.grid_hexes:
-            self.grid_hexes.add(target_hex)
-            self._draw_single_hex(target_hex)
-
-    def _delete_hex_at(self, x, y):
-        """Cancella un esagono nella posizione del mouse."""
-        if not self.hex_layout: return
-
-        target_hex = self.hex_layout.pixel_to_hex((x / self.zoom_level, y / self.zoom_level))
-        
-        # Cancella l'esagono solo se esiste
-        if target_hex in self.grid_hexes:
-            # Se l'esagono è un POI, rimuovilo prima dai dati
-            if target_hex in self.pois:
-                del self.pois[target_hex]
-            if target_hex in self.difficult_terrain:
-                del self.difficult_terrain[target_hex]
-            
-            canvas_id = self.hex_to_canvas_id.pop(target_hex, None)
-            if canvas_id:
-                self.canvas.delete(canvas_id)
-            self.grid_hexes.remove(target_hex)
-
-    # --- Il resto delle funzioni rimane quasi invariato ---
-    def _pan_start(self, event): self.canvas.scan_mark(event.x, event.y)
-    def _pan_move(self, event): self.canvas.scan_dragto(event.x, event.y, gain=1)
-    def choose_hex_color(self):
-        color_code = colorchooser.askcolor(title="Scegli un colore")
-        if color_code and color_code[1]: self.hex_border_color = color_code[1]; self._update_grid_color()
-    def _update_grid_color(self):
-        for hex_id in self.hex_to_canvas_id.values(): self.canvas.itemconfig(hex_id, outline=self.hex_border_color)
-    def on_canvas_left_click(self, event):
-        canvas_x = self.canvas.canvasx(event.x); canvas_y = self.canvas.canvasy(event.y)
-        if self.add_poi_mode: self._add_poi_at(canvas_x, canvas_y)
-        elif getattr(self, "add_terrain_mode", False): self._toggle_terrain_at(canvas_x, canvas_y)
-        else: self._delete_hex_at(canvas_x, canvas_y)
-    def on_canvas_right_click(self, event):
-        canvas_x = self.canvas.canvasx(event.x); canvas_y = self.canvas.canvasy(event.y)
-        self._add_hex_at(canvas_x, canvas_y)
-    def on_canvas_motion(self, event):
-        self.handle_poi_hover(event) # L'hover dei tooltip usa ancora le coordinate dell'evento
-        if self.hex_layout and not self.add_poi_mode and not getattr(self, "add_terrain_mode", False):
-            canvas_x=self.canvas.canvasx(event.x); canvas_y=self.canvas.canvasy(event.y)
-            if self.preview_hex_id: self.canvas.delete(self.preview_hex_id)
-            target_hex = self.hex_layout.pixel_to_hex((canvas_x / self.zoom_level, canvas_y / self.zoom_level))
-            if target_hex not in self.grid_hexes: self.preview_hex_id = self._draw_single_hex(target_hex, is_preview=True)
+        tag = "preview" if is_preview else "hex"
+        canvas_id = self.canvas.create_polygon(corners, **style, tags=tag)
+        if not is_preview:
+            self.hex_to_canvas_id[h] = canvas_id
+        return canvas_id
 
     def get_terrain_style(self, h):
         if h in self.difficult_terrain:
@@ -328,41 +341,182 @@ class MapEditorWindow(tk.Toplevel):
             return {"fill": fill_c, "stipple": stipple_p}
         return None
 
-    def _draw_single_hex(self, h: Hex, is_preview=False):
-        corners = [(cx * self.zoom_level, cy * self.zoom_level) for cx, cy in self.hex_layout.hex_corners(h)]
-        t_style = self.get_terrain_style(h)
-        if is_preview:
-            style = {"fill": "", "outline": "red", "width": 2}
-        elif t_style:
-            style = {"fill": t_style["fill"], "stipple": t_style["stipple"], "outline": self.hex_border_color, "width": 1}
-        elif h in self.pois:
-            style = {"fill": self.POI_COLOR, "stipple": "", "outline": self.hex_border_color, "width": 1}
-        else:
-            style = {"fill": "gray50", "stipple": "gray25", "outline": self.hex_border_color, "width": 1}
-        canvas_id = self.canvas.create_polygon(corners, **style, tags="hex")
-        if not is_preview: self.hex_to_canvas_id[h] = canvas_id
-        return canvas_id
+    def choose_hex_color(self):
+        color_code = colorchooser.askcolor(title="Scegli un colore", initialcolor=self.hex_border_color)
+        if color_code and color_code[1]:
+            self.hex_border_color = color_code[1]
+            self._update_grid_color()
 
-    def toggle_add_poi_mode(self):
-        self.add_poi_mode=not self.add_poi_mode
-        if self.add_poi_mode and getattr(self, "add_terrain_mode", False):
-            self.toggle_add_terrain_mode()
-        style_name = "Primary.TButton" if self.add_poi_mode else "Success.TButton"
-        cursor="crosshair" if self.add_poi_mode else ""
-        self.add_poi_button.config(style=style_name); self.config(cursor=cursor)
+    def _update_grid_color(self):
+        for hex_id in self.hex_to_canvas_id.values():
+            self.canvas.itemconfig(hex_id, outline=self.hex_border_color)
 
-    def toggle_add_terrain_mode(self):
-        self.add_terrain_mode = not getattr(self, "add_terrain_mode", False)
-        if self.add_terrain_mode and getattr(self, "add_poi_mode", False):
-            self.toggle_add_poi_mode()
-        style_name = "Primary.TButton" if self.add_terrain_mode else "Secondary.TButton"
-        cursor = "crosshair" if self.add_terrain_mode else ""
-        self.add_terrain_button.config(style=style_name)
-        self.config(cursor=cursor)
+    def load_base_image(self):
+        """Carica un'immagine di sfondo e reimposta la vista."""
+        maps_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "maps")
+        file_path = filedialog.askopenfilename(initialdir=maps_dir, filetypes=[("Image files", "*.jpg *.jpeg *.png *.bmp")])
+        if not file_path:
+            return
+        self.base_image_path = file_path
+        self.base_image_original = Image.open(file_path)
+        
+        self.zoom_level = 1.0
+        self.pan_offset_x = 0.0
+        self.pan_offset_y = 0.0
+        self.redraw(high_res=True)
+        
+        # Generazione automatica se c'è già una scala impostata
+        if self.hex_layout and not self.grid_hexes:
+            if messagebox.askyesno("Generazione Automatica", "Vuoi riempire automaticamente l'immagine appena caricata con gli esagoni?"):
+                self.generate_auto_grid()
 
-    def _toggle_terrain_at(self, x, y):
-        if not self.hex_layout: return
-        target_hex = self.hex_layout.pixel_to_hex((x / self.zoom_level, y / self.zoom_level))
+    def load_map_file(self):
+        """Carica una mappa esistente in formato JSON nell'editor."""
+        maps_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "maps")
+        file_path = filedialog.askopenfilename(initialdir=maps_dir, filetypes=[("Mappe D&D", "*.json")])
+        if not file_path:
+            return
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            self._clear_grid()
+            hex_size = data.get("hex_size", 60)
+            self.current_hex_size = hex_size
+            grid_type = data.get("grid_type", "hex")
+            if hasattr(self, "grid_type_var"):
+                self.grid_type_var.set(grid_type)
+            
+            # Scala della mappa
+            map_scale_type = data.get("map_scale_type", "combat")
+            for name, scale_t in self.MAP_SCALE_TYPES.items():
+                if scale_t == map_scale_type:
+                    self.map_scale_var.set(name)
+                    break
+
+            self.hex_layout = self._create_layout(hex_size, grid_type)
+            if "hex_border_color" in data:
+                self.hex_border_color = data["hex_border_color"]
+            
+            pois_data = data.get("pois", {})
+            for k, p_data in pois_data.items():
+                parts = k.split(",")
+                self.pois[Hex(int(parts[0]), int(parts[1]))] = p_data
+            
+            diff_data = data.get("difficult_terrain", {})
+            if isinstance(diff_data, dict):
+                for k, t_val in diff_data.items():
+                    parts = k.split(",")
+                    t_str = t_val if isinstance(t_val, str) else t_val.get("type", "fango")
+                    self.difficult_terrain[Hex(int(parts[0]), int(parts[1]))] = t_str
+            
+            for pos in data.get("hexes", []):
+                h = Hex(pos[0], pos[1])
+                self.grid_hexes.add(h)
+
+            base_img = data.get("base_image_path", "")
+            if base_img and os.path.exists(base_img):
+                self.base_image_path = base_img
+                self.base_image_original = Image.open(base_img)
+            elif base_img:
+                alt_path = os.path.join(maps_dir, os.path.basename(base_img))
+                if os.path.exists(alt_path):
+                    self.base_image_path = alt_path
+                    self.base_image_original = Image.open(alt_path)
+
+            self.zoom_level = 1.0
+            self.pan_offset_x = 0.0
+            self.pan_offset_y = 0.0
+            self.redraw(high_res=True)
+            messagebox.showinfo("Mappa Caricata", f"Caricata mappa con {len(self.grid_hexes)} celle.")
+        except Exception as e:
+            messagebox.showerror("Errore di Caricamento", f"Impossibile caricare la mappa: {e}")
+
+    def save_map(self):
+        """Salva i dati della mappa (celle, POI, terreni difficili, immagine, scala) in formato JSON."""
+        if not self.hex_layout:
+            messagebox.showerror("Errore", "Non puoi salvare una mappa senza una scala.")
+            return
+        maps_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "maps")
+        file_path = filedialog.asksaveasfilename(initialdir=maps_dir, defaultextension=".json", filetypes=[("Mappe D&D", "*.json")])
+        if not file_path:
+            return
+        
+        pois_to_save = {f"{h.q},{h.r}": data for h, data in self.pois.items()}
+        scale_type = self.MAP_SCALE_TYPES.get(self.map_scale_var.get(), "combat")
+        diff_terrain_to_save = {f"{h.q},{h.r}": t_type for h, t_type in self.difficult_terrain.items()}
+        
+        hex_size = getattr(self, "current_hex_size", 60)
+        grid_type = self.grid_type_var.get() if hasattr(self, "grid_type_var") else "hex"
+        
+        map_data = {
+            "base_image_path": self.base_image_path,
+            "hex_size": hex_size,
+            "grid_type": grid_type,
+            "map_scale_type": scale_type,
+            "hex_border_color": self.hex_border_color,
+            "hexes": [[h.q, h.r] for h in self.grid_hexes],
+            "pois": pois_to_save,
+            "difficult_terrain": diff_terrain_to_save
+        }
+        try:
+            with open(file_path, 'w', encoding="utf-8") as f:
+                json.dump(map_data, f, indent=2)
+            messagebox.showinfo("Salvataggio Completato", "Mappa salvata con successo.")
+        except Exception as e:
+            messagebox.showerror("Errore di Salvataggio", f"Impossibile salvare la mappa: {e}")
+
+    def _add_hex_at(self, wx, wy):
+        """Aggiunge un esagono o quadrato nella posizione del mondo specificata."""
+        if not self.hex_layout:
+            messagebox.showwarning("Scala non impostata", "Prima scegli un tipo di mappa dal menu in alto.")
+            return
+
+        target_hex = self.hex_layout.pixel_to_hex((wx, wy))
+        if target_hex not in self.grid_hexes:
+            self.grid_hexes.add(target_hex)
+            self._draw_single_hex(target_hex)
+
+    def _delete_hex_at(self, wx, wy):
+        """Cancella una cella nella posizione del mondo specificata."""
+        if not self.hex_layout:
+            return
+
+        target_hex = self.hex_layout.pixel_to_hex((wx, wy))
+        if target_hex in self.grid_hexes:
+            if target_hex in self.pois:
+                del self.pois[target_hex]
+            if target_hex in self.difficult_terrain:
+                del self.difficult_terrain[target_hex]
+            canvas_id = self.hex_to_canvas_id.pop(target_hex, None)
+            if canvas_id:
+                self.canvas.delete(canvas_id)
+            self.grid_hexes.remove(target_hex)
+
+    def _add_poi_at(self, wx, wy):
+        """Aggiunge o modifica un POI nella cella selezionata."""
+        if not self.hex_layout:
+            return
+        target_hex = self.hex_layout.pixel_to_hex((wx, wy))
+        if target_hex not in self.grid_hexes:
+            messagebox.showwarning("Azione non valida", "Puoi aggiungere un Punto di Interesse solo su un esagono esistente.")
+            return
+
+        title = simpledialog.askstring("Nuovo POI", "Inserisci il titolo:", parent=self)
+        if not title:
+            return
+        caption = simpledialog.askstring("Nuovo POI", "Inserisci la didascalia:", parent=self)
+        self.pois[target_hex] = {"title": title, "caption": caption or ""}
+        hex_id = self.hex_to_canvas_id.get(target_hex)
+        if hex_id:
+            self.canvas.itemconfig(hex_id, fill=self.POI_COLOR, stipple="")
+            self.canvas.addtag_withtag("poi", hex_id)
+        self.toggle_add_poi_mode()
+
+    def _toggle_terrain_at(self, wx, wy):
+        """Imposta o rimuove terreno difficile nella cella selezionata."""
+        if not self.hex_layout:
+            return
+        target_hex = self.hex_layout.pixel_to_hex((wx, wy))
         if target_hex not in self.grid_hexes:
             messagebox.showwarning("Azione non valida", "Puoi impostare terreno difficile solo su esagoni esistenti.")
             return
@@ -379,42 +533,119 @@ class MapEditorWindow(tk.Toplevel):
             hex_id = self.hex_to_canvas_id.get(target_hex)
             if hex_id and t_style:
                 self.canvas.itemconfig(hex_id, fill=t_style["fill"], stipple=t_style["stipple"])
+
+    def on_canvas_left_click(self, event):
+        wx, wy = self.screen_to_world(event.x, event.y)
+        if self.add_poi_mode:
+            self._add_poi_at(wx, wy)
+        elif getattr(self, "add_terrain_mode", False):
+            self._toggle_terrain_at(wx, wy)
+        else:
+            self._delete_hex_at(wx, wy)
+
+    def on_canvas_right_click(self, event):
+        wx, wy = self.screen_to_world(event.x, event.y)
+        self._add_hex_at(wx, wy)
+
+    def on_canvas_motion(self, event):
+        self.handle_poi_hover(event)
+        if self.hex_layout and not self.add_poi_mode and not getattr(self, "add_terrain_mode", False):
+            if self.preview_hex_id:
+                self.canvas.delete(self.preview_hex_id)
+                self.preview_hex_id = None
+            wx, wy = self.screen_to_world(event.x, event.y)
+            target_hex = self.hex_layout.pixel_to_hex((wx, wy))
+            if target_hex not in self.grid_hexes:
+                self.preview_hex_id = self._draw_single_hex(target_hex, is_preview=True)
+
+    def on_canvas_leave(self, event):
+        if self.preview_hex_id:
+            self.canvas.delete(self.preview_hex_id)
+            self.preview_hex_id = None
+        self.tooltip.hide()
+        self.current_hover_poi = None
+
+    def handle_poi_hover(self, event):
+        if not self.hex_layout:
+            return
+        wx, wy = self.screen_to_world(event.x, event.y)
+        hovered_hex = self.hex_layout.pixel_to_hex((wx, wy))
+        if hovered_hex in self.pois:
+            if self.current_hover_poi != hovered_hex:
+                self.current_hover_poi = hovered_hex
+                self.tooltip.hide()
+                self.tooltip.show(event, self.pois[hovered_hex])
+        else:
+            self.current_hover_poi = None
+            self.tooltip.hide()
+
+    def toggle_add_poi_mode(self):
+        self.add_poi_mode = not self.add_poi_mode
+        if self.add_poi_mode and getattr(self, "add_terrain_mode", False):
+            self.toggle_add_terrain_mode()
+        style_name = "Primary.TButton" if self.add_poi_mode else "Success.TButton"
+        cursor = "crosshair" if self.add_poi_mode else ""
+        self.add_poi_button.config(style=style_name)
+        self.config(cursor=cursor)
+
+    def toggle_add_terrain_mode(self):
+        self.add_terrain_mode = not getattr(self, "add_terrain_mode", False)
+        if self.add_terrain_mode and getattr(self, "add_poi_mode", False):
+            self.toggle_add_poi_mode()
+        style_name = "Primary.TButton" if self.add_terrain_mode else "Secondary.TButton"
+        cursor = "crosshair" if self.add_terrain_mode else ""
+        self.add_terrain_button.config(style=style_name)
+        self.config(cursor=cursor)
+
     def on_map_scale_selected(self, event=None):
-        selected_scale_name=self.map_scale_var.get()
-        new_size=self.MAP_SCALES[selected_scale_name]
+        selected_scale_name = self.map_scale_var.get()
+        new_size = self.MAP_SCALES[selected_scale_name]
+        self.current_hex_size = new_size
         
         if self.grid_hexes:
             if not messagebox.askyesno("Cambio Scala", "Cambiare la scala cancellerà la griglia esistente. Continuare?"):
                 return
             self._clear_grid()
             
-        self.hex_layout = HexLayout(size=new_size, origin=(new_size, new_size))
+        self.hex_layout = self._create_layout(new_size)
         
-        # Generazione automatica se c'è un'immagine
         if self.base_image_original:
-            if messagebox.askyesno("Generazione Automatica", "Vuoi riempire automaticamente l'intera immagine con gli esagoni?"):
+            if messagebox.askyesno("Generazione Automatica", "Vuoi riempire automaticamente l'intera immagine con le celle?"):
                 self.generate_auto_grid()
                 return
                 
-        messagebox.showinfo("Griglia Impostata", f"Scala '{selected_scale_name}' applicata. Usa il tasto destro per aggiungere esagoni manualmente.")
-        
+        messagebox.showinfo("Griglia Impostata", f"Scala '{selected_scale_name}' applicata. Usa il tasto destro per aggiungere celle manualmente.")
+
+    def on_grid_type_selected(self, event=None):
+        if hasattr(self, "current_hex_size") and self.current_hex_size:
+            grid_type = self.grid_type_var.get()
+            self.hex_layout = self._create_layout(self.current_hex_size, grid_type)
+            self.redraw(high_res=True)
+
     def generate_auto_grid(self):
-        if not self.base_image_original or not self.hex_layout: return
+        """Genera automaticamente le celle su tutta l'estensione dell'immagine caricata."""
+        if not self.base_image_original or not self.hex_layout:
+            return
         width = self.base_image_original.width
         height = self.base_image_original.height
         
-        import math
-        hex_w = math.sqrt(3) * self.hex_layout.size
-        hex_h = 1.5 * self.hex_layout.size
-        est_count = int((width / hex_w) * (height / hex_h))
+        grid_type = self.grid_type_var.get() if hasattr(self, "grid_type_var") else "hex"
+        if grid_type == "square":
+            cell_size = self.hex_layout.size
+            step_x = max(1, int(cell_size / 2))
+            step_y = max(1, int(cell_size / 2))
+            est_count = int((width / cell_size) * (height / cell_size))
+        else:
+            hex_w = math.sqrt(3) * self.current_hex_size
+            hex_h = 1.5 * self.current_hex_size
+            step_x = max(1, int(hex_w / 2))
+            step_y = max(1, int(hex_h / 2))
+            est_count = int((width / hex_w) * (height / hex_h))
         
         if est_count > 5000:
-            if not messagebox.askyesno("Attenzione", f"Generare circa {est_count} esagoni potrebbe causare rallentamenti. Sei sicuro di voler continuare?"):
+            if not messagebox.askyesno("Attenzione", f"Generare circa {est_count} celle potrebbe causare rallentamenti. Sei sicuro di voler continuare?"):
                 return
                 
-        step_x = max(1, int(hex_w / 2))
-        step_y = max(1, int(hex_h / 2))
-        
         for px in range(0, width + step_x, step_x):
             for py in range(0, height + step_y, step_y):
                 h = self.hex_layout.pixel_to_hex((px, py))
@@ -422,8 +653,13 @@ class MapEditorWindow(tk.Toplevel):
                     self.grid_hexes.add(h)
                     self._draw_single_hex(h)
                     
-        messagebox.showinfo("Griglia Generata", f"Generati {len(self.grid_hexes)} esagoni con successo.")
+        messagebox.showinfo("Griglia Generata", f"Generate {len(self.grid_hexes)} celle con successo.")
+
     def _clear_grid(self):
-        self.canvas.delete("hex"); self.grid_hexes.clear(); self.hex_to_canvas_id.clear(); self.pois.clear()
-    def on_canvas_leave(self, event):
-        if self.preview_hex_id: self.canvas.delete(self.preview_hex_id); self.preview_hex_id = None
+        self.canvas.delete("hex")
+        self.canvas.delete("preview")
+        self.grid_hexes.clear()
+        self.hex_to_canvas_id.clear()
+        self.pois.clear()
+        self.difficult_terrain.clear()
+        self.preview_hex_id = None
