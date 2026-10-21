@@ -4,6 +4,8 @@ Motore Campaign-as-Code e DndScript per DndOmniCompanion.
 Fornisce un linguaggio dichiarativo leggibile e naturale (stile Markdown narrativo)
 per definire la struttura della campagna, con transpiler bidirezionale verso grafo a nodi (FlowGraph)
 e verso gli oggetti VTT di D&D (Scene, Incontri, Quest, PNG, Segreti, Handouts).
+Supporta logica condizionale avanzata (Successo/Fallimento, CD prove, Possesso oggetti)
+e un'ampia varietà di blocchi narrativi e meccanici per D&D 5e.
 """
 
 import re
@@ -15,12 +17,20 @@ from typing import Dict, List, Any, Optional, Tuple
 NODE_TYPES = {
     "scene": {"label": "Scena", "color": "#1971C2", "icon": "🗺️"},
     "encounter": {"label": "Incontro", "color": "#C92A2A", "icon": "⚔️"},
+    "check": {"label": "Prova/CD", "color": "#0CA678", "icon": "🎲"},
+    "trap": {"label": "Trappola", "color": "#D6336C", "icon": "⚠️"},
+    "loot": {"label": "Tesoro", "color": "#F59F00", "icon": "💎"},
     "npc": {"label": "PNG", "color": "#7950F2", "icon": "👤"},
-    "quest": {"label": "Quest", "color": "#F59E0B", "icon": "📜"},
-    "hook": {"label": "Spunto", "color": "#2B8A3E", "icon": "📢"},
-    "choice": {"label": "Bivio", "color": "#E67700", "icon": "🔀"},
+    "shop": {"label": "Emporio", "color": "#1098AD", "icon": "🏬"},
+    "puzzle": {"label": "Enigma", "color": "#AE3EC9", "icon": "🧩"},
+    "rest": {"label": "Riposo", "color": "#2F9E44", "icon": "⛺"},
+    "lore": {"label": "Documento", "color": "#845EF7", "icon": "📜"},
+    "event": {"label": "Evento", "color": "#F76707", "icon": "⏳"},
+    "quest": {"label": "Quest", "color": "#FAB005", "icon": "🏆"},
+    "hook": {"label": "Spunto", "color": "#40C057", "icon": "📢"},
+    "choice": {"label": "Bivio", "color": "#FD7E14", "icon": "🔀"},
     "note": {"label": "Nota", "color": "#495057", "icon": "📝"},
-    "off_track": {"label": "Fuori Pista", "color": "#D9480F", "icon": "⚡"}
+    "off_track": {"label": "Fuori Pista", "color": "#E03131", "icon": "⚡"}
 }
 
 # Mappatura prefissi sintassi DndScript verso node_type
@@ -32,11 +42,57 @@ TYPE_PREFIXES = {
     "INCONTRO": "encounter",
     "ENCOUNTER": "encounter",
     "COMBAT": "encounter",
+    "BATTAGLIA": "encounter",
+    "FIGHT": "encounter",
+    "PROVA": "check",
+    "CHECK": "check",
+    "TEST": "check",
+    "TIRO": "check",
+    "TIRO_SALVEZZA": "check",
+    "TS": "check",
+    "TRAPPOLA": "trap",
+    "TRAP": "trap",
+    "PERICOLO": "trap",
+    "HAZARD": "trap",
+    "TESORO": "loot",
+    "LOOT": "loot",
+    "BOTTINO": "loot",
+    "PREMIO": "loot",
+    "SCRIGNO": "loot",
+    "CHEST": "loot",
     "PNG": "npc",
     "NPC": "npc",
     "PERSONAGGIO": "npc",
+    "EMPORIO": "shop",
+    "SHOP": "shop",
+    "NEGOZIO": "shop",
+    "MERCANTE": "shop",
+    "STORE": "shop",
+    "ENIGMA": "puzzle",
+    "PUZZLE": "puzzle",
+    "MISTERO": "puzzle",
+    "INDOVINELLO": "puzzle",
+    "RIDDLE": "puzzle",
+    "RIPOSO": "rest",
+    "ACCAMPAMENTO": "rest",
+    "CAMP": "rest",
+    "REST": "rest",
+    "RIFUGIO": "rest",
+    "SHELTER": "rest",
+    "DOCUMENTO": "lore",
+    "LORE": "lore",
+    "LIBRO": "lore",
+    "MANOSCRITTO": "lore",
+    "HANDOUT": "lore",
+    "LETTERA": "lore",
+    "EVENTO": "event",
+    "EVENT": "event",
+    "OROLOGIO": "event",
+    "TIMER": "event",
+    "CATACLISMA": "event",
     "QUEST": "quest",
     "MISSIONE": "quest",
+    "OBIETTIVO": "quest",
     "SPUNTO": "hook",
     "VOCE": "hook",
     "HOOK": "hook",
@@ -56,7 +112,15 @@ TYPE_PREFIXES = {
 REVERSE_TYPE_PREFIXES = {
     "scene": "SCENA",
     "encounter": "INCONTRO",
+    "check": "PROVA",
+    "trap": "TRAPPOLA",
+    "loot": "TESORO",
     "npc": "PNG",
+    "shop": "EMPORIO",
+    "puzzle": "ENIGMA",
+    "rest": "RIPOSO",
+    "lore": "DOCUMENTO",
+    "event": "EVENTO",
     "quest": "QUEST",
     "hook": "VOCE",
     "choice": "BIVIO",
@@ -101,12 +165,16 @@ class FlowEdge:
     from_id: str
     to_id: str
     label: str = ""
+    condition_type: str = "default"  # default, check, success, failure, item, else, custom
+    condition_value: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "from_id": self.from_id,
             "to_id": self.to_id,
-            "label": self.label
+            "label": self.label,
+            "condition_type": self.condition_type,
+            "condition_value": self.condition_value
         }
 
     @classmethod
@@ -114,7 +182,9 @@ class FlowEdge:
         return cls(
             from_id=d.get("from_id", ""),
             to_id=d.get("to_id", ""),
-            label=d.get("label", "")
+            label=d.get("label", ""),
+            condition_type=d.get("condition_type", "default"),
+            condition_value=d.get("condition_value", "")
         )
 
 
@@ -158,7 +228,8 @@ class FlowGraph:
 class DndScriptParser:
     """
     Parser robusto ed elastico per la sintassi Campaign-as-Code (DndScript).
-    Estrae nodi, collegamenti condizionali e metadati VTT.
+    Estrae nodi, collegamenti condizionali avanzati (Successo/Fallimento, CD prove, Oggetti)
+    e metadati VTT.
     Non genera mai crash bloccanti per refusi o formattazione parziale.
     """
 
@@ -173,23 +244,28 @@ class DndScriptParser:
 
         lines = text.splitlines()
         current_node: Optional[FlowNode] = None
-        raw_edges: List[Tuple[str, str, str]] = []  # (from_title_or_id, to_target_str, label)
+        # Struttura: (from_id, target_str, label, condition_type, condition_value)
+        raw_edges: List[Tuple[str, str, str, str, str]] = []
         
         # Mappa titoli a ID per risoluzione collegamenti
         title_to_id: Dict[str, str] = {}
         
-        # Pattern per header nodo: # TIPO: Titolo  oppure  ## TIPO: Titolo
+        # Pattern per header nodo: # TIPO: Titolo
         node_header_re = re.compile(r'^\s*#{1,3}\s*([A-Za-z0-9_]+)\s*:\s*(.+)$')
         
-        # Pattern per freccia: -> "condizione" -> DESTINAZIONE  oppure  -> DESTINAZIONE
-        arrow_full_re = re.compile(r'^\s*->\s*(?:"([^"]*)"|\'([^\']*)\')?\s*->\s*(.+)$')
+        # Pattern condizionali specifici su frecce:
+        arrow_if_check_re = re.compile(r'^\s*->\s*(?:SE|IF)\s*\[([^\]]+)\]\s*->\s*(.+)$', re.IGNORECASE)
+        arrow_success_re = re.compile(r'^\s*->\s*(?:SUCCESSO|SUCCESS|VITTORIA)\s*(?:\[([^\]]+)\])?\s*->\s*(.+)$', re.IGNORECASE)
+        arrow_failure_re = re.compile(r'^\s*->\s*(?:FALLIMENTO|FAILURE|FALLITO|SCONFITTA)\s*(?:\[([^\]]+)\])?\s*->\s*(.+)$', re.IGNORECASE)
+        arrow_else_re = re.compile(r'^\s*->\s*(?:ALTRIMENTI|ELSE)\s*->\s*(.+)$', re.IGNORECASE)
+        arrow_item_re = re.compile(r'^\s*->\s*(?:SE POSSIEDE|IF HAS|OGGETTO|ITEM)\s*["\']?([^"\'\->]+)["\']?\s*->\s*(.+)$', re.IGNORECASE)
+        arrow_full_re = re.compile(r'^\s*->\s*(?:"([^"]*)"|\'([^\']*)\')\s*->\s*(.+)$')
         arrow_simple_re = re.compile(r'^\s*->\s*(.+)$')
         
-        # Pattern per chiavi: chiave: valore  oppure  chiave: "valore"
-        key_val_re = re.compile(r'^\s*([a-zA-Z_][a-zA-Z0-9_-]*)\s*:\s*(.+)$')
+        # Pattern per chiavi: chiave: valore (supporta anche caratteri accentati es: abilità)
+        key_val_re = re.compile(r'^\s*([a-zA-Z0-9_àèéìòùÀÈÉÌÒÙ-]+)\s*:\s*(.+)$')
         
         # Pattern per segreti/trappole con CD opzionale:
-        # * SEGRETO [CD 14]: "testo"
         secret_re = re.compile(r'^\s*[\*\-]\s*(SEGRETO|TRAPPOLA|INDICE|VOCE|HANDOUT)\s*(?:\[([^\]]+)\])?\s*:\s*(.+)$', re.IGNORECASE)
 
         line_idx = 0
@@ -240,18 +316,62 @@ class DndScriptParser:
                 graph.nodes[current_node.id] = current_node
                 title_to_id["inizio avventura"] = current_node.id
 
-            # 2. Riconoscimento Frecce / Collegamenti Condizionali
-            arrow_match = arrow_full_re.match(stripped)
-            if arrow_match:
-                lbl = arrow_match.group(1) or arrow_match.group(2) or ""
-                target = arrow_match.group(3).strip()
-                raw_edges.append((current_node.id, target, lbl))
+            # 2. Riconoscimento Frecce Condizionali e Transizioni
+            # A) -> SE [CD ...] -> DESTINAZIONE
+            m_if_check = arrow_if_check_re.match(stripped)
+            if m_if_check:
+                chk_val = m_if_check.group(1).strip()
+                tgt = m_if_check.group(2).strip()
+                raw_edges.append((current_node.id, tgt, f"Se [{chk_val}]", "check", chk_val))
                 continue
 
-            arrow_s_match = arrow_simple_re.match(stripped)
-            if arrow_s_match:
-                target = arrow_s_match.group(1).strip()
-                raw_edges.append((current_node.id, target, ""))
+            # B) -> SUCCESSO -> DESTINAZIONE
+            m_succ = arrow_success_re.match(stripped)
+            if m_succ:
+                extra = (m_succ.group(1) or "").strip()
+                tgt = m_succ.group(2).strip()
+                lbl = f"✅ Successo ({extra})" if extra else "✅ Successo"
+                raw_edges.append((current_node.id, tgt, lbl, "success", extra))
+                continue
+
+            # C) -> FALLIMENTO -> DESTINAZIONE
+            m_fail = arrow_failure_re.match(stripped)
+            if m_fail:
+                extra = (m_fail.group(1) or "").strip()
+                tgt = m_fail.group(2).strip()
+                lbl = f"❌ Fallimento ({extra})" if extra else "❌ Fallimento"
+                raw_edges.append((current_node.id, tgt, lbl, "failure", extra))
+                continue
+
+            # D) -> ALTRIMENTI -> DESTINAZIONE
+            m_else = arrow_else_re.match(stripped)
+            if m_else:
+                tgt = m_else.group(1).strip()
+                raw_edges.append((current_node.id, tgt, "Altrimenti", "else", ""))
+                continue
+
+            # E) -> SE POSSIEDE "Oggetto" -> DESTINAZIONE
+            m_item = arrow_item_re.match(stripped)
+            if m_item:
+                item_name = m_item.group(1).strip().strip('"\'')
+                tgt = m_item.group(2).strip()
+                raw_edges.append((current_node.id, tgt, f"🔑 {item_name}", "item", item_name))
+                continue
+
+            # F) -> "Etichetta generica" -> DESTINAZIONE
+            m_full = arrow_full_re.match(stripped)
+            if m_full:
+                lbl = m_full.group(1) or m_full.group(2) or ""
+                tgt = m_full.group(3).strip()
+                c_type, c_val = self._classify_condition_label(lbl)
+                raw_edges.append((current_node.id, tgt, lbl, c_type, c_val))
+                continue
+
+            # G) -> DESTINAZIONE
+            m_simple = arrow_simple_re.match(stripped)
+            if m_simple:
+                tgt = m_simple.group(1).strip()
+                raw_edges.append((current_node.id, tgt, "", "default", ""))
                 continue
 
             # 3. Riconoscimento Segreti, Trappole, Handouts e Voci
@@ -277,12 +397,16 @@ class DndScriptParser:
                     handouts_list.append({"title": sec_check or sec_val, "file": sec_val})
                 continue
 
-            # 4. Riconoscimento Coppie Chiave: Valore
+            # 4. Riconoscimento Coppie Chiave: Valore per tutti i blocchi
             kv_match = key_val_re.match(stripped)
             if kv_match:
                 key = kv_match.group(1).lower().replace("-", "_")
+                # Normalizza caratteri accentati (es: abilità -> abilita, difficoltà -> difficolta)
+                for acc, repl in [("à", "a"), ("è", "e"), ("é", "e"), ("ì", "i"), ("ò", "o"), ("ù", "u")]:
+                    key = key.replace(acc, repl)
                 val = kv_match.group(2).strip().strip('"\'')
 
+                # Proprietà Scena / Mappe
                 if key in ("mappa", "map", "map_file"):
                     current_node.data["map_file"] = val
                 elif key in ("meteo", "weather"):
@@ -293,16 +417,19 @@ class DndScriptParser:
                     current_node.data["music"] = val
                 elif key in ("narra", "read_aloud", "desc", "description"):
                     current_node.data["read_aloud"] = val
+                # Proprietà Incontri
                 elif key in ("mostri", "monsters"):
                     current_node.data["monsters"] = self._parse_monsters_string(val)
                 elif key in ("cr", "sfida", "challenge"):
                     current_node.data["cr"] = val
                 elif key in ("loot", "bottino", "ricompensa", "reward"):
                     current_node.data["loot"] = val
+                # Proprietà PNG
                 elif key in ("ruolo", "role"):
                     current_node.data["role"] = val
                 elif key in ("allineamento", "alignment"):
                     current_node.data["alignment"] = val
+                # Proprietà Quest
                 elif key in ("obiettivi", "objectives"):
                     objs = [o.strip().strip('"\'') for o in val.split(",") if o.strip()]
                     current_node.data["objectives"] = objs
@@ -311,6 +438,58 @@ class DndScriptParser:
                         current_node.data["xp"] = int(val)
                     except ValueError:
                         current_node.data["xp"] = val
+                # Proprietà Prove / Check
+                elif key in ("abilita", "ability", "skill"):
+                    current_node.data["ability"] = val
+                elif key in ("cd", "dc", "difficolta"):
+                    try:
+                        current_node.data["cd"] = int(val)
+                    except ValueError:
+                        current_node.data["cd"] = val
+                # Proprietà Trappole
+                elif key in ("danno", "damage"):
+                    current_node.data["damage"] = val
+                elif key in ("salvezza", "save", "tiro_salvezza"):
+                    current_node.data["save"] = val
+                elif key in ("cd_disarma", "disarm_dc"):
+                    current_node.data["disarm_dc"] = val
+                # Proprietà Tesoro
+                elif key in ("oro", "gold", "monete"):
+                    current_node.data["gold"] = val
+                elif key in ("oggetti", "items"):
+                    if "," in val:
+                        current_node.data["items"] = [i.strip().strip('"\'') for i in val.split(",") if i.strip()]
+                    else:
+                        current_node.data["items"] = [val.strip().strip('"\'')] if val else []
+                elif key in ("magici", "magic_items"):
+                    current_node.data["magic_items"] = val
+                # Proprietà Emporio / Negozi
+                elif key in ("mercante", "merchant"):
+                    current_node.data["merchant"] = val
+                elif key in ("tipo", "tipo_negozio", "shop_type"):
+                    current_node.data["shop_type"] = val
+                elif key in ("merci", "wares"):
+                    current_node.data["wares"] = val
+                # Proprietà Enigmi
+                elif key in ("indizio", "clue"):
+                    current_node.data["clue"] = val
+                elif key in ("soluzione", "solution"):
+                    current_node.data["solution"] = val
+                # Proprietà Riposo / Accampamento
+                elif key in ("sicurezza", "safety"):
+                    current_node.data["safety"] = val
+                elif key in ("tipo_riposo", "rest_type"):
+                    current_node.data["rest_type"] = val
+                # Proprietà Documenti / Lore
+                elif key in ("autore", "author"):
+                    current_node.data["author"] = val
+                elif key in ("lingua", "language"):
+                    current_node.data["language"] = val
+                # Proprietà Eventi
+                elif key in ("trigger", "innesco"):
+                    current_node.data["trigger"] = val
+                elif key in ("effetto", "effect"):
+                    current_node.data["effect"] = val
                 else:
                     current_node.data[key] = val
                 continue
@@ -322,7 +501,7 @@ class DndScriptParser:
         # -------------------------------------------------------------------
         # Risoluzione Finale dei Collegamenti (Edges)
         # -------------------------------------------------------------------
-        for src_id, raw_target, edge_label in raw_edges:
+        for src_id, raw_target, edge_label, cond_type, cond_val in raw_edges:
             target_clean = raw_target.strip()
             
             # Rimuovi eventuale prefisso del tipo (es: "SCENA: Ingresso Cripta" -> "Ingresso Cripta")
@@ -337,7 +516,6 @@ class DndScriptParser:
             # Se la destinazione non esiste ancora, crea un nodo placeholder
             if not target_id:
                 new_title = raw_target.strip().strip('"\'')
-                # Prova a determinare il tipo dal testo
                 inferred_type = "note"
                 for pfx, t_code in TYPE_PREFIXES.items():
                     if new_title.upper().startswith(f"{pfx}:"):
@@ -358,12 +536,32 @@ class DndScriptParser:
                 title_to_id[new_title.lower()] = new_id
                 target_id = new_id
 
-            graph.edges.append(FlowEdge(from_id=src_id, to_id=target_id, label=edge_label))
+            graph.edges.append(FlowEdge(
+                from_id=src_id,
+                to_id=target_id,
+                label=edge_label,
+                condition_type=cond_type,
+                condition_value=cond_val
+            ))
 
         return graph
 
+    def _classify_condition_label(self, lbl: str) -> Tuple[str, str]:
+        """Classifica un'etichetta di bivio testuale per estrarre la condizione."""
+        lbl_lower = lbl.lower()
+        if "success" in lbl_lower or "vittoria" in lbl_lower or "superat" in lbl_lower:
+            return "success", ""
+        elif "fallim" in lbl_lower or "fail" in lbl_lower or "sconfitt" in lbl_lower:
+            return "failure", ""
+        elif "altrimenti" in lbl_lower or "else" in lbl_lower:
+            return "else", ""
+        elif "chiave" in lbl_lower or "possied" in lbl_lower or "has" in lbl_lower:
+            return "item", lbl
+        elif "cd" in lbl_lower or "dc" in lbl_lower or "prova" in lbl_lower:
+            return "check", lbl
+        return "custom", lbl
+
     def _parse_monsters_string(self, s: str) -> List[Dict[str, Any]]:
-        """Estrae lista mostri da stringhe tipo: 3x 'Lupo', 1x 'Lupo Feroce' oppure '2 Goblin, 1 Orco'."""
         monsters = []
         parts = [p.strip() for p in s.split(",") if p.strip()]
         for p in parts:
@@ -383,14 +581,13 @@ class DndScriptParser:
 
 class DndScriptSerializer:
     """
-    Serializzatore bidirezionale: converte un grafo di nodi e archi (FlowGraph)
-    in testo DndScript pulito, ordinato e formattato a regola d'arte.
+    Serializzatore bidirezionale: converte un FlowGraph in testo DndScript pulito,
+    preservando condizioni avanzate e tutta la varietà di blocchi D&D 5e.
     """
 
     def serialize(self, graph: FlowGraph) -> str:
         lines: List[str] = []
         
-        # Mappa uscite da ciascun nodo
         outgoing: Dict[str, List[FlowEdge]] = {}
         for edge in graph.edges:
             outgoing.setdefault(edge.from_id, []).append(edge)
@@ -404,6 +601,7 @@ class DndScriptSerializer:
             lines.append(f"# {pfx}: {node.title}")
 
             d = node.data
+            # Proprietà standard
             if "map_file" in d and d["map_file"]:
                 lines.append(f'mappa: "{d["map_file"]}"')
             if "weather" in d and d["weather"]:
@@ -425,6 +623,40 @@ class DndScriptSerializer:
             if "xp" in d and d["xp"]:
                 lines.append(f'xp: {d["xp"]}')
 
+            # Nuove proprietà blocchi avanzati
+            if "ability" in d and d["ability"]:
+                lines.append(f'abilita: "{d["ability"]}"')
+            if "cd" in d and d["cd"]:
+                lines.append(f'cd: "{d["cd"]}"')
+            if "damage" in d and d["damage"]:
+                lines.append(f'danno: "{d["damage"]}"')
+            if "save" in d and d["save"]:
+                lines.append(f'salvezza: "{d["save"]}"')
+            if "gold" in d and d["gold"]:
+                lines.append(f'oro: "{d["gold"]}"')
+            if "items" in d and d["items"]:
+                if isinstance(d["items"], list):
+                    it_tokens = [f'"{it}"' for it in d["items"]]
+                    lines.append(f'oggetti: {", ".join(it_tokens)}')
+                else:
+                    lines.append(f'oggetti: "{d["items"]}"')
+            if "merchant" in d and d["merchant"]:
+                lines.append(f'mercante: "{d["merchant"]}"')
+            if "shop_type" in d and d["shop_type"]:
+                lines.append(f'tipo: "{d["shop_type"]}"')
+            if "clue" in d and d["clue"]:
+                lines.append(f'indizio: "{d["clue"]}"')
+            if "solution" in d and d["solution"]:
+                lines.append(f'soluzione: "{d["solution"]}"')
+            if "safety" in d and d["safety"]:
+                lines.append(f'sicurezza: "{d["safety"]}"')
+            if "author" in d and d["author"]:
+                lines.append(f'autore: "{d["author"]}"')
+            if "language" in d and d["language"]:
+                lines.append(f'lingua: "{d["language"]}"')
+            if "trigger" in d and d["trigger"]:
+                lines.append(f'trigger: "{d["trigger"]}"')
+
             # Mostri
             if "monsters" in d and d["monsters"]:
                 m_tokens = []
@@ -439,7 +671,7 @@ class DndScriptSerializer:
                 obs = [f'"{o}"' for o in d["objectives"]]
                 lines.append(f'obiettivi: {", ".join(obs)}')
 
-            # Segreti & Trappole
+            # Segreti & Trappole interni
             if "secrets" in d:
                 for s in d["secrets"]:
                     s_type = s.get("type", "SEGRETO").upper()
@@ -463,16 +695,28 @@ class DndScriptSerializer:
                     if n_line.strip():
                         lines.append(n_line.strip())
 
-            # Connessioni in uscita verso altri nodi
+            # Connessioni e Condizioni in Uscita
             edges = outgoing.get(node.id, [])
             for e in edges:
                 target_node = graph.nodes.get(e.to_id)
-                if target_node:
-                    tgt_pfx = REVERSE_TYPE_PREFIXES.get(target_node.node_type, "NOTA")
-                    if e.label:
-                        lines.append(f'-> "{e.label}" -> {tgt_pfx}: {target_node.title}')
-                    else:
-                        lines.append(f'-> {tgt_pfx}: {target_node.title}')
+                if not target_node:
+                    continue
+                tgt_pfx = REVERSE_TYPE_PREFIXES.get(target_node.node_type, "NOTA")
+                
+                if e.condition_type == "success":
+                    lines.append(f'-> SUCCESSO -> {tgt_pfx}: {target_node.title}')
+                elif e.condition_type == "failure":
+                    lines.append(f'-> FALLIMENTO -> {tgt_pfx}: {target_node.title}')
+                elif e.condition_type == "check" and e.condition_value:
+                    lines.append(f'-> SE [{e.condition_value}] -> {tgt_pfx}: {target_node.title}')
+                elif e.condition_type == "item" and e.condition_value:
+                    lines.append(f'-> SE POSSIEDE "{e.condition_value}" -> {tgt_pfx}: {target_node.title}')
+                elif e.condition_type == "else":
+                    lines.append(f'-> ALTRIMENTI -> {tgt_pfx}: {target_node.title}')
+                elif e.label:
+                    lines.append(f'-> "{e.label}" -> {tgt_pfx}: {target_node.title}')
+                else:
+                    lines.append(f'-> {tgt_pfx}: {target_node.title}')
 
             if idx < len(nodes_list) - 1:
                 lines.append("")
@@ -492,14 +736,15 @@ def sync_flow_graph_to_campaign(graph: FlowGraph, campaign: Any):
     - Nodi Incontro ➔ campaign.encounters
     - Nodi Quest ➔ campaign.quests
     - Nodi PNG ➔ campaign.npcs
-    - Handouts ➔ campaign.handouts
-    - Segreti ➔ aggregati in campaign.dm_notes
-    Mantiene sincronizzato il database della campagna senza perdere nulla.
+    - Nodi Emporio ➔ campaign.shops
+    - Nodi Documento / Handouts ➔ campaign.handouts
+    - Segreti & Trappole ➔ aggregati in campaign.dm_notes
     """
     scenes_map = {s.get("name", ""): s for s in campaign.scenes}
     encounters_map = {e.get("name", ""): e for e in campaign.encounters}
     quests_map = {q.get("title", ""): q for q in campaign.quests}
     npcs_map = {n.get("name", ""): n for n in campaign.npcs}
+    shops_map = dict(getattr(campaign, "shops", {}))
     handouts_map = {h.get("title", ""): h for h in campaign.handouts}
 
     all_secrets = []
@@ -555,7 +800,41 @@ def sync_flow_graph_to_campaign(graph: FlowGraph, campaign: Any):
             npc_entry["alignment"] = d.get("alignment", npc_entry.get("alignment", "Neutrale"))
             npcs_map[node.title] = npc_entry
 
-        # Estrai segreti per il compendio DM
+        elif node.node_type == "shop":
+            items = d.get("items", [])
+            wares = d.get("wares", "")
+            if items and not wares:
+                wares = ", ".join(items) if isinstance(items, list) else str(items)
+            shops_map[node.title] = {
+                "name": node.title,
+                "merchant": d.get("merchant", "Mercante"),
+                "shop_type": d.get("shop_type", "Beni Generali"),
+                "wares": wares,
+                "inventory": items if isinstance(items, list) else ([wares] if wares else [])
+            }
+
+        elif node.node_type == "lore":
+            if node.title not in handouts_map:
+                handouts_map[node.title] = {
+                    "title": node.title,
+                    "description": d.get("read_aloud", "") or d.get("notes", ""),
+                    "content": d.get("read_aloud", "") or d.get("notes", ""),
+                    "image_path": d.get("map_file", ""),
+                    "author": d.get("author", "Anonimo"),
+                    "language": d.get("language", "Comune")
+                }
+
+        # Estrai segreti, trappole ed enigmi per il compendio DM
+        if node.node_type == "check":
+            all_secrets.append(f"• [PROVA] {node.title}: {d.get('ability', 'Abilità')} CD {d.get('cd', 10)}")
+        elif node.node_type == "trap":
+            all_secrets.append(f"• [TRAPPOLA] {node.title}: Danno {d.get('damage', '2d10')} | {d.get('save', 'TS Destrezza')}")
+        elif node.node_type == "puzzle":
+            clue = d.get("clue", "")
+            sol = d.get("solution", "")
+            diff = d.get("difficulty", "Media")
+            all_secrets.append(f"• [ENIGMA] {node.title} (Diff: {diff}): Indizio \"{clue}\" | Soluzione \"{sol}\"")
+
         if "secrets" in d:
             for s in d["secrets"]:
                 chk = f" [{s['check']}]" if s.get("check") else ""
@@ -565,21 +844,23 @@ def sync_flow_graph_to_campaign(graph: FlowGraph, campaign: Any):
     campaign.encounters = list(encounters_map.values())
     campaign.quests = list(quests_map.values())
     campaign.npcs = list(npcs_map.values())
+    campaign.shops = shops_map
+    campaign.handouts = list(handouts_map.values())
 
-    if all_secrets and not campaign.dm_notes:
-        campaign.dm_notes = "SEGRETI E INDIZI DELLA CAMPAGNA:\n" + "\n".join(all_secrets)
+    if all_secrets:
+        header = "=== ENIGMI & PROVE DELLA CAMPAGNA ===\n"
+        sec_block = header + "\n".join(all_secrets)
+        if not campaign.dm_notes:
+            campaign.dm_notes = sec_block
+        elif "ENIGMI & PROVE DELLA CAMPAGNA" not in campaign.dm_notes:
+            campaign.dm_notes = campaign.dm_notes.rstrip() + "\n\n" + sec_block
 
 
 def generate_flow_from_campaign(campaign: Any) -> FlowGraph:
-    """
-    Auto-genera un FlowGraph iniziale a partire da una campagna esistente,
-    garantendo il 100% di retrocompatibilità e zero perdite di dati.
-    """
     graph = FlowGraph()
     x_cursor = 100.0
     y_cursor = 100.0
 
-    # 1. Crea nodo Hub Iniziale
     hub_id = "node_hub"
     hub_node = FlowNode(
         id=hub_id,
@@ -595,7 +876,6 @@ def generate_flow_from_campaign(campaign: Any) -> FlowGraph:
     graph.nodes[hub_id] = hub_node
     x_cursor += 300.0
 
-    # 2. Converti Scene
     scene_ids = []
     for sc in getattr(campaign, "scenes", []):
         sc_title = sc.get("name", "Scena")
@@ -613,12 +893,10 @@ def generate_flow_from_campaign(campaign: Any) -> FlowGraph:
         )
         graph.nodes[sc_id] = s_node
         scene_ids.append(sc_id)
-        # Collega l'hub iniziale alla prima scena
         if len(scene_ids) == 1:
             graph.edges.append(FlowEdge(from_id=hub_id, to_id=sc_id, label="Inizio"))
         y_cursor += 180.0
 
-    # 3. Converti Incontri
     x_cursor += 300.0
     y_cursor = 100.0
     for enc in getattr(campaign, "encounters", []):
@@ -636,12 +914,10 @@ def generate_flow_from_campaign(campaign: Any) -> FlowGraph:
             }
         )
         graph.nodes[enc_id] = e_node
-        # Se c'è una scena creata, collega opzionalmente
         if scene_ids:
             graph.edges.append(FlowEdge(from_id=scene_ids[0], to_id=enc_id, label="Ingaggio"))
         y_cursor += 180.0
 
-    # 4. Converti Quest
     x_cursor += 300.0
     y_cursor = 100.0
     for q in getattr(campaign, "quests", []):

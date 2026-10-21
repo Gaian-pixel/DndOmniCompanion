@@ -99,3 +99,4 @@ mappa: "maps/bosco.json"
 
 if __name__ == '__main__':
     unittest.main()
+

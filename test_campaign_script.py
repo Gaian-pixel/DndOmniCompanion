@@ -169,5 +169,142 @@ xp: 300
         self.assertIn("# INCONTRO: Briganti", script)
         self.assertIn("# QUEST: Salva il borgo", script)
 
+    def test_conditional_transitions_and_roundtrip(self):
+        script = """
+# PROVA: Scassinare Portone
+abilità: "Rapidità di Mano"
+cd: 15
+-> SUCCESSO -> SCENA: Sala del Tesoro
+-> FALLIMENTO -> TRAPPOLA: Dardi Avvelenati
+
+# SCENA: Sala del Tesoro
+-> SE [Percezione CD 14] -> TESORO: Scrigno Segreto
+-> SE POSSIEDE "Chiave Dorata" -> SCENA: Cripta Proibita
+-> ALTRIMENTI -> SCENA: Uscita Comune
+
+# TRAPPOLA: Dardi Avvelenati
+cd: 13
+danno: "2d6 Veleno"
+tiro_salvezza: "Destrezza"
+
+# TESORO: Scrigno Segreto
+monete: "200 mo"
+oggetti: "Anello di Protezione", "Pozione di Volo"
+
+# SCENA: Cripta Proibita
+
+# SCENA: Uscita Comune
+"""
+        parser = DndScriptParser()
+        graph = parser.parse(script)
+
+        # Verifica tipo di nodi
+        scassinare = graph.get_node_by_title("Scassinare Portone")
+        self.assertIsNotNone(scassinare)
+        self.assertEqual(scassinare.node_type, "check")
+        self.assertEqual(scassinare.data.get("ability"), "Rapidità di Mano")
+        self.assertEqual(scassinare.data.get("cd"), 15)
+
+        trappola = graph.get_node_by_title("Dardi Avvelenati")
+        self.assertIsNotNone(trappola)
+        self.assertEqual(trappola.node_type, "trap")
+        self.assertEqual(trappola.data.get("damage"), "2d6 Veleno")
+        self.assertEqual(trappola.data.get("cd"), 13)
+
+        tesoro = graph.get_node_by_title("Scrigno Segreto")
+        self.assertIsNotNone(tesoro)
+        self.assertEqual(tesoro.node_type, "loot")
+        self.assertIn("Anello di Protezione", tesoro.data.get("items", []))
+
+        # Verifica archi con condizioni
+        edges_from_check = [e for e in graph.edges if e.from_id == scassinare.id]
+        self.assertEqual(len(edges_from_check), 2)
+        success_edge = next((e for e in edges_from_check if e.condition_type == "success"), None)
+        failure_edge = next((e for e in edges_from_check if e.condition_type == "failure"), None)
+        self.assertIsNotNone(success_edge)
+        self.assertIsNotNone(failure_edge)
+
+        sala = graph.get_node_by_title("Sala del Tesoro")
+        edges_from_sala = [e for e in graph.edges if e.from_id == sala.id]
+        self.assertEqual(len(edges_from_sala), 3)
+
+        check_edge = next((e for e in edges_from_sala if e.condition_type == "check"), None)
+        item_edge = next((e for e in edges_from_sala if e.condition_type == "item"), None)
+        else_edge = next((e for e in edges_from_sala if e.condition_type == "else"), None)
+
+        self.assertIsNotNone(check_edge)
+        self.assertEqual(check_edge.condition_value, "Percezione CD 14")
+        self.assertIsNotNone(item_edge)
+        self.assertEqual(item_edge.condition_value, "Chiave Dorata")
+        self.assertIsNotNone(else_edge)
+
+        # Test serializzazione e re-parsing
+        serializer = DndScriptSerializer()
+        code = serializer.serialize(graph)
+        self.assertIn("-> SUCCESSO ->", code)
+        self.assertIn("-> FALLIMENTO ->", code)
+        self.assertIn('-> SE [Percezione CD 14] ->', code)
+        self.assertIn('-> SE POSSIEDE "Chiave Dorata" ->', code)
+        self.assertIn('-> ALTRIMENTI ->', code)
+
+        reparsed = parser.parse(code)
+        self.assertEqual(len(reparsed.nodes), len(graph.nodes))
+        self.assertEqual(len(reparsed.edges), len(graph.edges))
+
+    def test_expanded_blocks_and_campaign_sync(self):
+        script = """
+# EMPORIO: La Fucina d'Acciaio
+mercante: "Gunnar il Fabbro"
+tipo: "Armi e Armature"
+oggetti: "Spada Lunga +1", "Corazza a Strisce"
+
+# ENIGMA: Portale delle Rune
+difficoltà: "Difficile"
+indizio: "Tre fuochi accendono l'aurora"
+soluzione: "Runa del Fuoco in alto"
+
+# RIPOSO: Santuario Silvano
+tipo: "Lungo"
+sicurezza: "Molto Sicuro"
+
+# DOCUMENTO: Tomo Proibito
+autore: "Arcimago Valthor"
+lingua: "Draconico"
+narra: "I segreti per infrangere il sigillo del titano."
+
+# EVENTO: Eclissi di Sangue
+innesco: "Allo scoccare della mezzanotte"
+narra: "Il cielo si tinge di rosso scuro."
+"""
+        parser = DndScriptParser()
+        graph = parser.parse(script)
+
+        self.assertIsNotNone(graph.get_node_by_title("La Fucina d'Acciaio"))
+        self.assertIsNotNone(graph.get_node_by_title("Portale delle Rune"))
+        self.assertIsNotNone(graph.get_node_by_title("Santuario Silvano"))
+        self.assertIsNotNone(graph.get_node_by_title("Tomo Proibito"))
+        self.assertIsNotNone(graph.get_node_by_title("Eclissi di Sangue"))
+
+        camp = Campaign(name="Test Espansione")
+        sync_flow_graph_to_campaign(graph, camp)
+
+        # Verifica negozi sincronizzati
+        shops = getattr(camp, "shops", {})
+        self.assertEqual(len(shops), 1)
+        gunnar_shop = shops.get("La Fucina d'Acciaio") or list(shops.values())[0]
+        self.assertEqual(gunnar_shop["merchant"], "Gunnar il Fabbro")
+        self.assertIn("Spada Lunga +1", gunnar_shop["inventory"])
+
+        # Verifica handouts sincronizzati
+        handouts = getattr(camp, "handouts", [])
+        self.assertEqual(len(handouts), 1)
+        self.assertEqual(handouts[0]["title"], "Tomo Proibito")
+        self.assertIn("sigillo", handouts[0]["description"])
+
+        # Verifica note DM arricchite
+        self.assertIn("ENIGMI & PROVE", camp.dm_notes)
+        self.assertIn("Tre fuochi accendono l'aurora", camp.dm_notes)
+
 if __name__ == '__main__':
     unittest.main()
+

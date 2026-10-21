@@ -119,10 +119,37 @@ class CampaignStudioFrame(tk.Frame):
 
         ttk.Button(btn_box, text="+ Scena", command=lambda: self.insert_template("scene")).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_box, text="+ Incontro", command=lambda: self.insert_template("encounter")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_box, text="+ PNG", command=lambda: self.insert_template("npc")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_box, text="+ Quest", command=lambda: self.insert_template("quest")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_box, text="+ Prova", command=lambda: self.insert_template("check")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_box, text="+ Trappola", command=lambda: self.insert_template("trap")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_box, text="+ Tesoro", command=lambda: self.insert_template("loot")).pack(side=tk.LEFT, padx=2)
         ttk.Button(btn_box, text="+ Bivio ->", command=lambda: self.insert_template("branch")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_box, text="⚡ Fuori Pista", command=lambda: self.insert_template("off_track")).pack(side=tk.LEFT, padx=2)
+
+        # Menubutton Condizioni
+        mb_cond = ttk.Menubutton(btn_box, text="Condizioni ▾")
+        menu_cond = tk.Menu(mb_cond, tearoff=0, bg=SURFACE_COLOR, fg=TEXT_COLOR)
+        menu_cond.add_command(label="✅ -> SUCCESSO ->", command=lambda: self.insert_template("cond_success"))
+        menu_cond.add_command(label="❌ -> FALLIMENTO ->", command=lambda: self.insert_template("cond_failure"))
+        menu_cond.add_command(label="🎲 -> SE [Abilità CD] ->", command=lambda: self.insert_template("cond_check"))
+        menu_cond.add_command(label="🔑 -> SE POSSIEDE \"...\" ->", command=lambda: self.insert_template("cond_item"))
+        menu_cond.add_command(label="↩️ -> ALTRIMENTI ->", command=lambda: self.insert_template("cond_else"))
+        mb_cond["menu"] = menu_cond
+        mb_cond.pack(side=tk.LEFT, padx=2)
+
+        # Menubutton Altri Blocchi
+        mb_blocks = ttk.Menubutton(btn_box, text="Altri Blocchi ▾")
+        menu_blocks = tk.Menu(mb_blocks, tearoff=0, bg=SURFACE_COLOR, fg=TEXT_COLOR)
+        menu_blocks.add_command(label="🏬 Emporio", command=lambda: self.insert_template("shop"))
+        menu_blocks.add_command(label="🧩 Enigma", command=lambda: self.insert_template("puzzle"))
+        menu_blocks.add_command(label="👤 PNG", command=lambda: self.insert_template("npc"))
+        menu_blocks.add_command(label="⛺ Riposo", command=lambda: self.insert_template("rest"))
+        menu_blocks.add_command(label="📜 Documento (Lore)", command=lambda: self.insert_template("lore"))
+        menu_blocks.add_command(label="⏳ Evento", command=lambda: self.insert_template("event"))
+        menu_blocks.add_command(label="📜 Quest", command=lambda: self.insert_template("quest"))
+        menu_blocks.add_command(label="📢 Spunto Narrativo", command=lambda: self.insert_template("hook"))
+        menu_blocks.add_command(label="⚡ Fuori Pista", command=lambda: self.insert_template("off_track"))
+        menu_blocks.add_command(label="📝 Nota Narrativa", command=lambda: self.insert_template("note"))
+        mb_blocks["menu"] = menu_blocks
+        mb_blocks.pack(side=tk.LEFT, padx=2)
 
         # Azioni e Sincronizzazione
         sync_box = tk.Frame(top_bar, bg=SURFACE_COLOR)
@@ -251,17 +278,48 @@ class CampaignStudioFrame(tk.Frame):
             snippet = '\n\n# SCENA: Nuova Scena\nmappa: "maps/faerun.json"\nnarra: "Descrizione del luogo..."\n* SEGRETO [Percezione CD 12]: "Indizio nascosto qui..."\n-> "Se continuano a esplorare" -> SCENA: Prossimo Luogo'
         elif block_type == "encounter":
             snippet = '\n\n# INCONTRO: Nuovo Scontro\nmostri: 2x "Goblin", 1x "Hobgoblin"\ncr: 1\nloot: "20 mo, Pozione di Cura"\n-> "Dopo la vittoria" -> SCENA: Prossimo Luogo'
+        elif block_type == "check":
+            snippet = '\n\n# PROVA: Scassinare il Portone\nabilità: "Rapidità di Mano"\ncd: 15\n-> SUCCESSO -> SCENA: Sala del Tesoro\n-> FALLIMENTO -> TRAPPOLA: Dardo Avvelenato'
+        elif block_type == "trap":
+            snippet = '\n\n# TRAPPOLA: Dardi Avvelenati\ncd: 13\ndanno: "2d6 Veleno"\ntiro_salvezza: "Destrezza"\n-> SCENA: Corridoio Principale'
+        elif block_type == "loot":
+            snippet = '\n\n# TESORO: Forziere Nascosto\nmonete: "150 mo, 50 ma"\noggetti: "Pozione di Guarigione Superiore", "Pergamena di Volo"\n-> SCENA: Prossimo Luogo'
+        elif block_type == "shop":
+            snippet = '\n\n# EMPORIO: La Fucina d\'Oro\nmercante: "Gunnar il Fabbro"\ntipo: "Armature ed Equipaggiamento"\noggetti: "Spada Lunga +1", "Scudo di Mithral", "Razioni"'
+        elif block_type == "puzzle":
+            snippet = '\n\n# ENIGMA: Le Statue Elementali\ndifficoltà: "Media"\nindizio: "Il fuoco accende l\'acqua, ma il vento spegne la terra"\nsoluzione: "Allineare i bacili in senso orario"\n-> SUCCESSO -> SCENA: Santuario Segreto\n-> FALLIMENTO -> TRAPPOLA: Fiammata Magica'
+        elif block_type == "rest":
+            snippet = '\n\n# RIPOSO: Radura Protetta\ntipo: "Lungo"\nsicurezza: "Sicuro"\n-> SCENA: Il Risveglio'
+        elif block_type == "lore":
+            snippet = '\n\n# DOCUMENTO: Lettera Incompleta del Culto\nautore: "Malakor il Rosso"\nlingua: "Infernale"\nnarra: "Il testo accenna a un rituale che avrà luogo durante la luna nuova..."'
+        elif block_type == "event":
+            snippet = '\n\n# EVENTO: Arrivo della Guardia Cittadina\ninnesco: "Dopo 3 round di combattimento"\nnarra: "Il rumore delle campane d\'allarme risuona nella piazza."'
         elif block_type == "npc":
             snippet = '\n\n# PNG: Nome Personaggio\nruolo: "Mercante"\nallineamento: "Neutrale Buono"\n* SEGRETO: "Conosce la verità sulla cripta."'
         elif block_type == "quest":
             snippet = '\n\n# QUEST: Titolo Missione\nobiettivi: "Primo obiettivo", "Secondo obiettivo"\nloot: "100 mo"\nxp: 250'
-        elif block_type == "branch":
-            snippet = '\n-> "Se scelgono questa strada" -> SCENA: Destinazione'
+        elif block_type == "hook":
+            snippet = '\n\n# SPUNTO: Una Lettera Anonima\nnarra: "Un messaggero trafelato consegna un plico sigillato con cera nera..."\n-> "Se accettano l\'invito" -> SCENA: Locanda del Cinghiale'
         elif block_type == "off_track":
             snippet = '\n\n# FUORI_PISTA: Azione Improvvisata\nnarra: "I giocatori hanno preso una deviazione non prevista..."\n* NOTE: "Gestito al volo in sessione"'
+        elif block_type == "note":
+            snippet = '\n\n# NOTA: Promemoria DM\nnarra: "Ricordarsi del patto stipulato con l\'entità."'
+        elif block_type == "branch":
+            snippet = '\n-> "Se scelgono questa strada" -> SCENA: Destinazione'
+        elif block_type == "cond_success":
+            snippet = '\n-> SUCCESSO -> SCENA: Destinazione'
+        elif block_type == "cond_failure":
+            snippet = '\n-> FALLIMENTO -> SCENA: Conseguenza'
+        elif block_type == "cond_check":
+            snippet = '\n-> SE [Percezione CD 14] -> SCENA: Destinazione\n-> ALTRIMENTI -> SCENA: Altra Destinazione'
+        elif block_type == "cond_item":
+            snippet = '\n-> SE POSSIEDE "Chiave Antica" -> SCENA: Cripta Chiusa\n-> ALTRIMENTI -> SCENA: Porta Chiusa'
+        elif block_type == "cond_else":
+            snippet = '\n-> ALTRIMENTI -> SCENA: Destinazione'
 
         self.txt_script.insert(tk.INSERT, snippet)
         self.sync_text_to_canvas()
 
     def center_canvas(self):
         self.flow_canvas.reset_view()
+

@@ -167,8 +167,32 @@ class FlowCanvas(tk.Frame):
 
             # Controlla se fa parte del percorso percorso dal party
             is_visited_edge = (src.id in self.visited_node_ids and dst.id in self.visited_node_ids)
-            edge_color = ACCENT_GOLD if is_visited_edge else "#495057"
-            edge_width = max(2, int(2.5 * self.scale)) if is_visited_edge else max(1, int(1.5 * self.scale))
+            cond_type = getattr(edge, "condition_type", "default")
+            cond_val = getattr(edge, "condition_value", "")
+
+            # Palette colori condizioni dinamica
+            if is_visited_edge:
+                edge_color = ACCENT_GOLD
+                edge_width = max(2, int(2.5 * self.scale))
+            elif cond_type == "success":
+                edge_color = "#2FB344"  # Verde brillante successo
+                edge_width = max(1, int(2.0 * self.scale))
+            elif cond_type == "failure":
+                edge_color = "#E03131"  # Rosso rubino fallimento
+                edge_width = max(1, int(2.0 * self.scale))
+            elif cond_type == "check":
+                edge_color = "#F59F00"  # Ambra prova / tiro dado
+                edge_width = max(1, int(2.0 * self.scale))
+            elif cond_type == "item":
+                edge_color = "#9775FA"  # Viola requisito oggetto
+                edge_width = max(1, int(2.0 * self.scale))
+            elif cond_type == "else":
+                edge_color = "#868E96"  # Grigio altrimenti
+                edge_width = max(1, int(1.5 * self.scale))
+            else:
+                edge_color = "#495057"
+                edge_width = max(1, int(1.5 * self.scale))
+
             dash_pattern = None if not dst.node_type == "off_track" else (4, 4)
 
             # Disegna curva Bezier fluida
@@ -193,23 +217,40 @@ class FlowCanvas(tk.Frame):
                 dash=dash_pattern, tags=("edge", f"edge_{edge.from_id}_{edge.to_id}")
             )
 
-            # Etichetta bivio / condizione nel mezzo
-            if edge.label:
+            # Etichetta bivio / condizione nel mezzo con badge stilizzato
+            display_label = ""
+            if cond_type == "success":
+                display_label = "✅ " + (edge.label if edge.label else "Successo")
+            elif cond_type == "failure":
+                display_label = "❌ " + (edge.label if edge.label else "Fallimento")
+            elif cond_type == "check":
+                display_label = "🎲 " + (edge.label if edge.label else f"Prova [{cond_val}]")
+            elif cond_type == "item":
+                display_label = "🔑 " + (edge.label if edge.label else f"Possiede {cond_val}")
+            elif cond_type == "else":
+                display_label = "↩️ " + (edge.label if edge.label else "Altrimenti")
+            elif edge.label:
+                display_label = edge.label
+
+            if display_label:
                 mid_x = (sx1 + sx2) / 2.0
                 mid_y = (sy1 + sy2) / 2.0
                 pad_x = 8 * self.scale
                 pad_y = 3 * self.scale
 
+                label_fg = edge_color if cond_type != "default" else (ACCENT_GOLD if is_visited_edge else TEXT_COLOR)
+                badge_outline = edge_color if cond_type != "default" else BORDER_COLOR
+
                 txt_id = self.canvas.create_text(
-                    mid_x, mid_y, text=edge.label,
-                    fill=ACCENT_GOLD if is_visited_edge else TEXT_COLOR,
+                    mid_x, mid_y, text=display_label,
+                    fill=label_fg,
                     font=("Segoe UI", max(7, int(8 * self.scale)), "bold")
                 )
                 bbox = self.canvas.bbox(txt_id)
                 if bbox:
                     bg_tag = self.canvas.create_rectangle(
                         bbox[0] - pad_x, bbox[1] - pad_y, bbox[2] + pad_x, bbox[3] + pad_y,
-                        fill=SURFACE_COLOR, outline=BORDER_COLOR, width=1
+                        fill="#16181C", outline=badge_outline, width=1
                     )
                     self.canvas.tag_lower(bg_tag, txt_id)
 
@@ -325,22 +366,57 @@ class FlowCanvas(tk.Frame):
 
     def _get_node_subtitle(self, node: FlowNode) -> str:
         d = node.data
-        if node.node_type == "scene":
+        t = node.node_type
+        if t == "scene":
             return d.get("map_file", "Nessuna mappa")[:26]
-        elif node.node_type == "encounter":
+        elif t == "encounter":
             m_cnt = len(d.get("monsters", []))
             cr = d.get("cr", "")
             cr_str = f" • CR {cr}" if cr else ""
             return f"{m_cnt} Mostri{cr_str}"
-        elif node.node_type == "quest":
+        elif t == "check":
+            ab = d.get("ability", "Prova")
+            cd = d.get("cd", 10)
+            return f"{ab} CD {cd}"
+        elif t == "trap":
+            cd = d.get("cd", 12)
+            dmg = d.get("damage", "")
+            dmg_str = f" • {dmg}" if dmg else ""
+            return f"CD {cd}{dmg_str}"[:26]
+        elif t == "loot":
+            g = d.get("gold", "0")
+            itms = len(d.get("items", []))
+            return f"{g} • {itms} oggetti"
+        elif t == "shop":
+            merch = d.get("merchant", "Mercante")
+            stype = d.get("shop_type", "Emporio")
+            return f"{merch} • {stype}"[:26]
+        elif t == "puzzle":
+            diff = d.get("difficulty", "Media")
+            clue = d.get("clue", "")
+            return f"Diff: {diff} • {clue}"[:26]
+        elif t == "rest":
+            rtype = d.get("rest_type", "Breve")
+            safe = d.get("safety", "Sicuro")
+            return f"Riposo {rtype} • {safe}"
+        elif t == "lore":
+            auth = d.get("author", "Anonimo")
+            lang = d.get("language", "Comune")
+            return f"{auth} • {lang}"[:26]
+        elif t == "event":
+            trig = d.get("trigger", "Innesco")
+            return f"Trigger: {trig}"[:26]
+        elif t == "quest":
             objs = len(d.get("objectives", []))
             return f"{objs} Obiettivi configurati"
-        elif node.node_type == "npc":
+        elif t == "npc":
             return f"{d.get('role', 'Comune')} • {d.get('alignment', 'Neutrale')}"
-        elif node.node_type == "hook":
+        elif t == "hook":
             return "Spunto narrativo di partenza"
-        elif node.node_type == "off_track":
+        elif t == "off_track":
             return "⚡ Azione Improvvisata"
+        elif t == "choice":
+            return f"{len(d.get('options', []))} opzioni disponibili"
         sec_cnt = len(d.get("secrets", []))
         return f"{sec_cnt} Segreti" if sec_cnt > 0 else "Nota narrativa"
 
@@ -472,9 +548,24 @@ class FlowCanvas(tk.Frame):
             wx, wy = self.screen_to_world(event.x, event.y)
             menu.add_command(label="➕ Aggiungi Scena...", command=lambda: self._quick_add_node("scene", wx, wy))
             menu.add_command(label="⚔️ Aggiungi Incontro...", command=lambda: self._quick_add_node("encounter", wx, wy))
+            menu.add_command(label="🎲 Aggiungi Prova / CD...", command=lambda: self._quick_add_node("check", wx, wy))
+            menu.add_command(label="⚠️ Aggiungi Trappola...", command=lambda: self._quick_add_node("trap", wx, wy))
+            menu.add_command(label="💎 Aggiungi Tesoro...", command=lambda: self._quick_add_node("loot", wx, wy))
+            menu.add_command(label="🏬 Aggiungi Emporio...", command=lambda: self._quick_add_node("shop", wx, wy))
             menu.add_command(label="👤 Aggiungi PNG...", command=lambda: self._quick_add_node("npc", wx, wy))
-            menu.add_command(label="📢 Aggiungi Spunto...", command=lambda: self._quick_add_node("hook", wx, wy))
-            menu.add_command(label="⚡ Aggiungi Fuori Pista...", command=lambda: self._quick_add_node("off_track", wx, wy))
+            
+            # Sottomenu altri blocchi narrativi
+            other_menu = tk.Menu(menu, tearoff=0, bg=SURFACE_COLOR, fg=TEXT_COLOR)
+            other_menu.add_command(label="🧩 Enigma...", command=lambda: self._quick_add_node("puzzle", wx, wy))
+            other_menu.add_command(label="⛺ Riposo...", command=lambda: self._quick_add_node("rest", wx, wy))
+            other_menu.add_command(label="📜 Documento (Lore)...", command=lambda: self._quick_add_node("lore", wx, wy))
+            other_menu.add_command(label="⏳ Evento a Tempo...", command=lambda: self._quick_add_node("event", wx, wy))
+            other_menu.add_command(label="📜 Quest...", command=lambda: self._quick_add_node("quest", wx, wy))
+            other_menu.add_command(label="📢 Spunto Narrativo...", command=lambda: self._quick_add_node("hook", wx, wy))
+            other_menu.add_command(label="⚡ Fuori Pista...", command=lambda: self._quick_add_node("off_track", wx, wy))
+            other_menu.add_command(label="📝 Nota...", command=lambda: self._quick_add_node("note", wx, wy))
+            menu.add_cascade(label="➕ Altri Blocchi Narrativi", menu=other_menu)
+
             menu.add_separator()
             menu.add_command(label="🔍 Centra Vista", command=self.reset_view)
 
@@ -564,3 +655,4 @@ class FlowCanvas(tk.Frame):
         btn_box.pack(fill=tk.X)
         ttk.Button(btn_box, text="Salva Modifiche", command=save_and_close, style="Gold.TButton").pack(side=tk.RIGHT, padx=(6, 0))
         ttk.Button(btn_box, text="Annulla", command=dlg.destroy).pack(side=tk.RIGHT)
+

@@ -397,3 +397,4 @@ def integrate_off_track_events_into_flow(ledger: SessionLedger, graph: FlowGraph
         last_official_id = new_id
 
     return created_nodes
+

@@ -151,6 +151,34 @@ class DMLiveFlowDialog(tk.Toplevel):
         if active_node and active_node.node_type == "encounter":
             ttk.Button(btn_grid, text="⚔️ Lancia Incontro nel Combat Tracker", command=lambda: self.activate_encounter_on_vtt(active_node), style="Primary.TButton").pack(fill=tk.X, pady=2)
 
+        if active_node and active_node.node_type == "check":
+            ab = active_node.data.get("ability", "Prova")
+            cd = active_node.data.get("cd", 10)
+            ttk.Button(btn_grid, text=f"🎲 Richiedi Prova: {ab} (CD {cd})", command=lambda: self.broadcast_check(active_node), style="Gold.TButton").pack(fill=tk.X, pady=2)
+
+        if active_node and active_node.node_type == "trap":
+            cd = active_node.data.get("cd", 12)
+            dmg = active_node.data.get("damage", "1d10")
+            ttk.Button(btn_grid, text=f"⚠️ Fai Scattare Trappola (CD {cd} • {dmg})", command=lambda: self.trigger_trap(active_node), style="Danger.TButton").pack(fill=tk.X, pady=2)
+
+        if active_node and active_node.node_type == "loot":
+            g = active_node.data.get("gold", "0")
+            items_c = len(active_node.data.get("items", []))
+            ttk.Button(btn_grid, text=f"💎 Distribuisci Tesoro ({g} mo • {items_c} oggetti)", command=lambda: self.award_loot(active_node), style="Gold.TButton").pack(fill=tk.X, pady=2)
+
+        if active_node and active_node.node_type == "shop":
+            ttk.Button(btn_grid, text="🏬 Apri Mercante / Emporio", command=lambda: self.present_shop(active_node), style="Primary.TButton").pack(fill=tk.X, pady=2)
+
+        if active_node and active_node.node_type == "puzzle":
+            ttk.Button(btn_grid, text="🧩 Rivela Indizio Enigma", command=lambda: self.reveal_puzzle(active_node), style="Gold.TButton").pack(fill=tk.X, pady=2)
+
+        if active_node and active_node.node_type == "rest":
+            rt = active_node.data.get("rest_type", "Breve")
+            ttk.Button(btn_grid, text=f"⛺ Esegui Riposo {rt}", command=lambda: self.commence_rest(active_node), style="Primary.TButton").pack(fill=tk.X, pady=2)
+
+        if active_node and active_node.node_type == "lore":
+            ttk.Button(btn_grid, text="📜 Condividi Documento in Chat", command=lambda: self.share_lore(active_node), style="Gold.TButton").pack(fill=tk.X, pady=2)
+
         if active_node and (active_node.data.get("read_aloud") or active_node.data.get("description")):
             ttk.Button(btn_grid, text="📜 Trasmetti Narrazione in Chat", command=lambda: self.broadcast_narration(active_node)).pack(fill=tk.X, pady=2)
 
@@ -183,10 +211,28 @@ class DMLiveFlowDialog(tk.Toplevel):
                 target_node = self.graph.nodes.get(edge.to_id)
                 if not target_node:
                     continue
-                lbl = f'"{edge.label}" ➔ {target_node.title}' if edge.label else f'➔ {target_node.title}'
+                cond_type = getattr(edge, "condition_type", "default")
+                cond_val = getattr(edge, "condition_value", "")
+
+                if cond_type == "success":
+                    prefix = "✅ [SUCCESSO] "
+                elif cond_type == "failure":
+                    prefix = "❌ [FALLIMENTO] "
+                elif cond_type == "check":
+                    prefix = f"🎲 [PROVA: {cond_val or edge.label}] "
+                elif cond_type == "item":
+                    prefix = f"🔑 [POSSIEDE: {cond_val or edge.label}] "
+                elif cond_type == "else":
+                    prefix = "↩️ [ALTRIMENTI] "
+                elif edge.label:
+                    prefix = f'"{edge.label}" ➔ '
+                else:
+                    prefix = "➔ "
+
+                lbl = f"{prefix}{target_node.title}"
                 b_row = tk.Frame(branches_box, bg=SURFACE_COLOR_ALT)
                 b_row.pack(fill=tk.X, pady=2)
-                ttk.Button(b_row, text=lbl, command=lambda tid=target_node.id: self.transition_to_node(tid), style="Info.TButton").pack(fill=tk.X)
+                ttk.Button(b_row, text=lbl, command=lambda tid=target_node.id, pfx=prefix.strip(): self.transition_to_node(tid, branch_info=pfx), style="Info.TButton").pack(fill=tk.X)
         else:
             tk.Label(branches_box, text="Nessun bivio prefissato. Fai clic destro su qualsiasi nodo del canvas per saltare liberamente o improvvisare.",
                      font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, wraplength=400).pack(anchor="w", pady=6)
@@ -195,20 +241,26 @@ class DMLiveFlowDialog(tk.Toplevel):
     # AZIONI VTT
     # -----------------------------------------------------------------------
 
-    def transition_to_node(self, target_node_id: str, is_off_track: bool = False):
+    def transition_to_node(self, target_node_id: str, is_off_track: bool = False, branch_info: str = ""):
         target_node = self.graph.nodes.get(target_node_id)
         if not target_node:
             return
         self._active_node_id = target_node_id
         self.flow_canvas.set_active_party_node(target_node_id)
-        
+
+        detail_text = target_node.data.get("read_aloud", "")
+        if branch_info:
+            detail_text = f"Scelta/Esito: {branch_info}. {detail_text}".strip()
+            if hasattr(self.master_gui, "log_to_chat"):
+                self.master_gui.log_to_chat(f"🔀 [FLUSSO] Il party segue: {branch_info} ➔ {target_node.title}")
+
         # Registra nel ledger
         self.session_ledger.record_node_visit(
             node_id=target_node.id,
             title=target_node.title,
             node_type=target_node.node_type,
             is_off_track=is_off_track,
-            details=target_node.data.get("read_aloud", "")
+            details=detail_text
         )
         self._update_action_panel()
 
@@ -272,6 +324,72 @@ class DMLiveFlowDialog(tk.Toplevel):
         self.master_gui.log_to_chat(f"🔍 [SEGRETO SVELATO] {node.title}: {secret_data.get('text', '')}")
         self._update_action_panel()
         messagebox.showinfo("Segreto Svelato", "Segreto registrato nella cronistoria della sessione!", parent=self)
+
+    def broadcast_check(self, node: FlowNode):
+        ab = node.data.get("ability", "Prova di Caratteristica")
+        cd = node.data.get("cd", 10)
+        msg = f"🎲 [PROVA RICHIESTA] Il Master richiede una prova di {ab} (CD {cd})!"
+        if hasattr(self.master_gui, "log_to_chat"):
+            self.master_gui.log_to_chat(msg)
+        self.session_ledger.record_dm_note(f"Richiesta prova: {ab} (CD {cd}) per {node.title}")
+        messagebox.showinfo("Prova Richiesta", f"Richiesta di {ab} (CD {cd}) trasmessa in chat!", parent=self)
+
+    def trigger_trap(self, node: FlowNode):
+        cd = node.data.get("cd", 12)
+        dmg = node.data.get("damage", "1d10 Danno")
+        save = node.data.get("save", "Destrezza")
+        msg = f"⚠️ [TRAPPOLA ATTIVATA!] '{node.title}' scatta! TS {save} CD {cd}. Danno potenziale: {dmg}!"
+        if hasattr(self.master_gui, "log_to_chat"):
+            self.master_gui.log_to_chat(msg)
+        self.session_ledger.record_dm_note(f"Trappola attivata: {node.title} (CD {cd}, {dmg})")
+        messagebox.showinfo("Trappola Scattata", f"Allarme trappola '{node.title}' trasmesso in chat!", parent=self)
+
+    def award_loot(self, node: FlowNode):
+        g = node.data.get("gold", "0")
+        items = node.data.get("items", [])
+        items_str = ", ".join(items) if items else "Nessun oggetto speciale"
+        msg = f"💎 [TESORO SCOPERTO] Il party trova: {g} monete d'oro e: {items_str}!"
+        if hasattr(self.master_gui, "log_to_chat"):
+            self.master_gui.log_to_chat(msg)
+        self.session_ledger.record_dm_note(f"Tesoro distribuito: {g} mo, {items_str}")
+        messagebox.showinfo("Tesoro Consegnato", f"Bottino di '{node.title}' annunciato ai giocatori!", parent=self)
+
+    def present_shop(self, node: FlowNode):
+        merch = node.data.get("merchant", "Mercante")
+        stype = node.data.get("shop_type", "Bottega")
+        items = node.data.get("items", [])
+        items_str = ", ".join(items) if items else "merci assortite"
+        msg = f"🏬 [EMPORIO] {node.title} ({stype}) gestito da {merch}.\nArticoli in vendita: {items_str}"
+        if hasattr(self.master_gui, "log_to_chat"):
+            self.master_gui.log_to_chat(msg)
+        messagebox.showinfo("Emporio Aperto", f"Lista merci di {merch} trasmessa in chat!", parent=self)
+
+    def reveal_puzzle(self, node: FlowNode):
+        clue = node.data.get("clue", "") or node.data.get("read_aloud", "Nessun indizio.")
+        diff = node.data.get("difficulty", "Media")
+        msg = f"🧩 [ENIGMA: {node.title}] (Difficoltà {diff})\nIndizio per il party: \"{clue}\""
+        if hasattr(self.master_gui, "log_to_chat"):
+            self.master_gui.log_to_chat(msg)
+        messagebox.showinfo("Enigma Trasmesso", "Indizio dell'enigma inviato ai giocatori!", parent=self)
+
+    def commence_rest(self, node: FlowNode):
+        rtype = node.data.get("rest_type", "Breve")
+        safe = node.data.get("safety", "Sicuro")
+        msg = f"⛺ [RIPOSO {rtype.upper()}] Il party si accampa per riposare (Luogo: {safe}). Recupero slot e dadi vita secondo le regole."
+        if hasattr(self.master_gui, "log_to_chat"):
+            self.master_gui.log_to_chat(msg)
+        self.session_ledger.record_dm_note(f"Riposo {rtype} effettuato a {node.title}")
+        messagebox.showinfo("Riposo Avviato", f"Riposo {rtype} annunciato in chat!", parent=self)
+
+    def share_lore(self, node: FlowNode):
+        auth = node.data.get("author", "Anonimo")
+        lang = node.data.get("language", "Comune")
+        text = node.data.get("read_aloud") or node.data.get("description", "Contenuto del documento...")
+        msg = f"📜 [DOCUMENTO: {node.title}] (Autore: {auth}, Lingua: {lang})\n\"{text}\""
+        if hasattr(self.master_gui, "log_to_chat"):
+            self.master_gui.log_to_chat(msg)
+        self.session_ledger.record_secret(title=node.title, check=f"Lingua {lang}", text=text)
+        messagebox.showinfo("Documento Condiviso", f"Documento '{node.title}' inviato ai giocatori!", parent=self)
 
     def activate_free_roam_mode(self):
         self._active_node_id = None
@@ -427,3 +545,4 @@ class SessionChronicleDialog(tk.Toplevel):
             with open(path, "w", encoding="utf-8") as f:
                 f.write(html)
             messagebox.showinfo("Esportato", f"Cronistoria salvata con successo in:\n{path}", parent=self)
+
