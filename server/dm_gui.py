@@ -422,10 +422,7 @@ class DM_GUI:
         left_toolbar.grid(row=0, column=0, sticky="ns", padx=(0, 6))
         
         self.btn_ruler = None
-
-        self.btn_pan = ttk.Button(left_toolbar, text="✋", width=3, style="Tool.TButton", command=self.toggle_pan_mode)
-        self.btn_pan.pack(pady=3)
-        ToolTip(self.btn_pan, "Naviga Mappa (Trascina con tasto sinistro senza premere la rotella, oppure tieni premuto Spazio)")
+        self.btn_pan = None
 
         self.btn_fow_tool = ttk.Button(left_toolbar, text="☁️", width=3, style="Tool.TButton", command=self.toggle_fow_quick_tool)
         self.btn_fow_tool.pack(pady=3)

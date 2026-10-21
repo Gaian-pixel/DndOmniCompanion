@@ -241,10 +241,7 @@ class ClientGUI:
         self.zoom_in_btn = None
         self.zoom_out_btn = None
         self.measure_btn = None
-
-        self.pan_btn = ttk.Button(left_panel, text="✋", width=3, style="Tool.TButton", command=self.toggle_pan_mode)
-        self.pan_btn.pack(pady=3)
-        ToolTip(self.pan_btn, "Naviga Mappa (Trascina con tasto sinistro senza premere la rotella, oppure tieni premuto Spazio)")
+        self.pan_btn = None
 
         self.aoe_button = ttk.Button(left_panel, text="💥", width=3, style="Tool.TButton", command=self.open_aoe_dialog)
         self.aoe_button.pack(pady=3)
