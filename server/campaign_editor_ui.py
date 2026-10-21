@@ -50,6 +50,8 @@ class CampaignEncounterDialog(tk.Toplevel):
         self.configure(bg=BG_COLOR)
         
         self.setup_ui()
+        self.bind("<F11>", self.toggle_fullscreen, add="+")
+        self.bind("<Escape>", self.exit_fullscreen, add="+")
         
     def setup_ui(self):
         container = tk.Frame(self, bg=BG_COLOR, padx=15, pady=12)
@@ -248,6 +250,9 @@ class CampaignEditorDialog(tk.Toplevel):
         
         actions_box = tk.Frame(top_bar, bg=BG_COLOR)
         actions_box.pack(side=tk.RIGHT)
+        
+        self.btn_fs = ttk.Button(actions_box, text="⛶ Schermo Intero", command=self.toggle_fullscreen)
+        self.btn_fs.pack(side=tk.LEFT, padx=4)
         
         if self.game_state:
             ttk.Button(actions_box, text="⚡ Applica Subito al Gioco", command=self.apply_to_running_game, style="Gold.TButton").pack(side=tk.LEFT, padx=4)
@@ -1113,6 +1118,25 @@ class CampaignEditorDialog(tk.Toplevel):
             pass
         self.campaign.description = self.txt_synopsis.get("1.0", tk.END).strip()
         self.campaign.dm_notes = self.txt_dm_notes.get("1.0", tk.END).strip()
+
+    def toggle_fullscreen(self, event=None):
+        self.is_fullscreen = not getattr(self, "is_fullscreen", False)
+        try:
+            self.attributes("-fullscreen", self.is_fullscreen)
+            if hasattr(self, "btn_fs"):
+                self.btn_fs.config(text="🗗 Finestra" if self.is_fullscreen else "⛶ Schermo Intero")
+        except Exception:
+            pass
+
+    def exit_fullscreen(self, event=None):
+        if getattr(self, "is_fullscreen", False):
+            self.is_fullscreen = False
+            try:
+                self.attributes("-fullscreen", False)
+                if hasattr(self, "btn_fs"):
+                    self.btn_fs.config(text="⛶ Schermo Intero")
+            except Exception:
+                pass
 
     def save_campaign(self):
         self.sync_campaign_data()

@@ -102,6 +102,7 @@ class CampaignStudioFrame(tk.Frame):
 
         self._build_ui()
         self.sync_text_to_canvas()
+        self.after(100, self._bind_fullscreen_shortcuts)
 
     def _build_ui(self):
         # 1. Top Control Bar
@@ -155,6 +156,8 @@ class CampaignStudioFrame(tk.Frame):
         sync_box = tk.Frame(top_bar, bg=SURFACE_COLOR)
         sync_box.pack(side=tk.RIGHT)
 
+        self.btn_fs = ttk.Button(sync_box, text="⛶ Schermo Intero", command=self.toggle_fullscreen)
+        self.btn_fs.pack(side=tk.RIGHT, padx=4)
         ttk.Button(sync_box, text="🔍 Centra Flusso", command=self.center_canvas).pack(side=tk.RIGHT, padx=4)
         ttk.Button(sync_box, text="⟳ Aggiorna Flusso", command=self.sync_text_to_canvas, style="Gold.TButton").pack(side=tk.RIGHT, padx=4)
 
@@ -322,4 +325,38 @@ class CampaignStudioFrame(tk.Frame):
 
     def center_canvas(self):
         self.flow_canvas.reset_view()
+
+    def _bind_fullscreen_shortcuts(self):
+        try:
+            top = self.winfo_toplevel()
+            if top:
+                top.bind("<F11>", self.toggle_fullscreen, add="+")
+                top.bind("<Escape>", self.exit_fullscreen, add="+")
+        except Exception:
+            pass
+
+    def toggle_fullscreen(self, event=None):
+        top = self.winfo_toplevel()
+        if not top:
+            return
+        is_fs = getattr(top, "_is_fullscreen", False)
+        is_fs = not is_fs
+        top._is_fullscreen = is_fs
+        try:
+            top.attributes("-fullscreen", is_fs)
+            if hasattr(self, "btn_fs"):
+                self.btn_fs.config(text="🗗 Finestra" if is_fs else "⛶ Schermo Intero")
+        except Exception:
+            pass
+
+    def exit_fullscreen(self, event=None):
+        top = self.winfo_toplevel()
+        if top and getattr(top, "_is_fullscreen", False):
+            top._is_fullscreen = False
+            try:
+                top.attributes("-fullscreen", False)
+                if hasattr(self, "btn_fs"):
+                    self.btn_fs.config(text="⛶ Schermo Intero")
+            except Exception:
+                pass
 

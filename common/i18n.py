@@ -204,6 +204,11 @@ STRINGS = {
 
         # --- Menù Globale ---
         "menu_file": "File",
+        "menu_view": "Visualizza",
+        "menu_fullscreen": "Schermo Intero (F11)",
+        "menu_exit_fullscreen": "Esci da Schermo Intero",
+        "toast_fullscreen_on": "Schermo Intero attivato (Premi F11 o Esc per uscire)",
+        "toast_fullscreen_off": "Schermo Intero disattivato",
         "menu_new_campaign": "Nuova Campagna...",
         "menu_load_campaign": "Carica Campagna...",
         "menu_edit_active_campaign": "Editor Campagna Attiva...",
@@ -909,6 +914,11 @@ STRINGS = {
 
         # --- Global Menu ---
         "menu_file": "File",
+        "menu_view": "View",
+        "menu_fullscreen": "Fullscreen (F11)",
+        "menu_exit_fullscreen": "Exit Fullscreen",
+        "toast_fullscreen_on": "Fullscreen enabled (Press F11 or Esc to exit)",
+        "toast_fullscreen_off": "Fullscreen disabled",
         "menu_new_campaign": "New Campaign...",
         "menu_load_campaign": "Load Campaign...",
         "menu_edit_active_campaign": "Active Campaign Editor...",

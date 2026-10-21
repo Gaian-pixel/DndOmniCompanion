@@ -2328,6 +2328,7 @@ class CommandPaletteDialog(tk.Toplevel):
 
         # 3. AZIONI RAPIDE DELLA UI
         actions = [
+            ("toggle_fullscreen", "⛶ Schermo Intero (F11)", "Attiva o disattiva la visualizzazione a schermo intero."),
             ("center_map", "👆 Centra Vista Mappa", "Centra il canvas all'origine o sui token del tavolo."),
             ("toggle_ruler", "📏 Attiva / Disattiva Righello", "Alterna la modalità misuratore di distanza in piedi (ft)."),
             ("zoom_in", "➕ Ingrandisci Mappa (Zoom +)", "Aumenta il livello di ingrandimento del canvas."),
@@ -2478,6 +2479,15 @@ class CommandPaletteDialog(tk.Toplevel):
             elif act_id == "toggle_ruler" and self.map_canvas:
                 self.map_canvas.ruler_mode = not getattr(self.map_canvas, "ruler_mode", False)
                 self.map_canvas.redraw()
+            elif act_id == "toggle_fullscreen":
+                top = self.master.winfo_toplevel()
+                try:
+                    is_fs = bool(top.attributes("-fullscreen"))
+                    top.attributes("-fullscreen", not is_fs)
+                except Exception:
+                    pass
+                if self.on_action:
+                    self.on_action("action", "toggle_fullscreen")
             elif act_id == "roll_d20":
                 if self.on_action:
                     self.on_action("roll", "1d20")

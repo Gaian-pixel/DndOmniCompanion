@@ -62,6 +62,8 @@ class DMLiveFlowDialog(tk.Toplevel):
 
         self._setup_ui()
         self._update_action_panel()
+        self.bind("<F11>", self.toggle_fullscreen)
+        self.bind("<Escape>", self.exit_fullscreen)
 
     def _setup_ui(self):
         container = tk.Frame(self, bg=BG_COLOR, padx=10, pady=8)
@@ -80,6 +82,8 @@ class DMLiveFlowDialog(tk.Toplevel):
         btn_box = tk.Frame(top_bar, bg=SURFACE_COLOR)
         btn_box.pack(side=tk.RIGHT)
 
+        self.btn_fs = ttk.Button(btn_box, text="⛶ Schermo Intero", command=self.toggle_fullscreen)
+        self.btn_fs.pack(side=tk.RIGHT, padx=4)
         ttk.Button(btn_box, text="⚡ Modalità Fuori Pista", command=self.activate_free_roam_mode, style="Primary.TButton").pack(side=tk.RIGHT, padx=4)
         ttk.Button(btn_box, text="+ Nota Rapida DM", command=self.add_quick_dm_note).pack(side=tk.RIGHT, padx=4)
         ttk.Button(btn_box, text="🔍 Centra", command=lambda: self.flow_canvas.reset_view()).pack(side=tk.RIGHT, padx=4)
@@ -390,6 +394,19 @@ class DMLiveFlowDialog(tk.Toplevel):
             self.master_gui.log_to_chat(msg)
         self.session_ledger.record_secret(title=node.title, check=f"Lingua {lang}", text=text)
         messagebox.showinfo("Documento Condiviso", f"Documento '{node.title}' inviato ai giocatori!", parent=self)
+
+    def toggle_fullscreen(self, event=None):
+        self.is_fullscreen = not getattr(self, "is_fullscreen", False)
+        self.attributes("-fullscreen", self.is_fullscreen)
+        if hasattr(self, "btn_fs"):
+            self.btn_fs.config(text="🗗 Finestra" if self.is_fullscreen else "⛶ Schermo Intero")
+
+    def exit_fullscreen(self, event=None):
+        if getattr(self, "is_fullscreen", False):
+            self.is_fullscreen = False
+            self.attributes("-fullscreen", False)
+            if hasattr(self, "btn_fs"):
+                self.btn_fs.config(text="⛶ Schermo Intero")
 
     def activate_free_roam_mode(self):
         self._active_node_id = None

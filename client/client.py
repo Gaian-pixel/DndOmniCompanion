@@ -135,6 +135,11 @@ class ClientGUI:
         library_menu.add_command(label=_t("menu_quest_log"), command=self.open_quest_log_dialog)
         menubar.add_cascade(label=_t("menu_library"), menu=library_menu)
 
+        # Menu Visualizza / View
+        view_menu = tk.Menu(menubar, tearoff=0)
+        view_menu.add_command(label=_t("menu_fullscreen"), command=self.toggle_fullscreen, accelerator="F11")
+        menubar.add_cascade(label=_t("menu_view"), menu=view_menu)
+
 
         # Menu Lingua / Language
         lang_menu = tk.Menu(menubar, tearoff=0)
@@ -256,6 +261,11 @@ class ClientGUI:
         self.cmd_palette_btn = ttk.Button(left_panel, text="🔍", width=3, style="Tool.TButton", command=self.open_command_palette)
         self.cmd_palette_btn.pack(pady=3)
         ToolTip(self.cmd_palette_btn, lambda: _t("tool_command_palette"))
+
+        # Pulsante rapido Schermo Intero in fondo alla barra
+        self.btn_fullscreen = ttk.Button(left_panel, text="⛶", width=3, style="Tool.TButton", command=self.toggle_fullscreen)
+        self.btn_fullscreen.pack(side=tk.BOTTOM, pady=(0, 4))
+        ToolTip(self.btn_fullscreen, lambda: _t("menu_fullscreen"))
         
         # --- COLONNA 1: MAPPA ---
         map_outer_frame = ttk.Frame(main_frame)
@@ -572,6 +582,9 @@ class ClientGUI:
         # Scorciatoia universale Command Palette (Ctrl+K)
         self.master.bind("<Control-k>", self.open_command_palette)
         self.master.bind("<Control-K>", self.open_command_palette)
+        # Scorciatoia Schermo Intero (F11 / Esc)
+        self.master.bind("<F11>", self.toggle_fullscreen)
+        self.master.bind("<Escape>", self.exit_fullscreen)
 
     def open_command_palette(self, event=None):
         try:
@@ -606,6 +619,26 @@ class ClientGUI:
                 self.open_aoe_dialog()
             elif payload == "center_map" and self.map_canvas:
                 self.map_canvas.center_view()
+            elif payload == "toggle_fullscreen":
+                self.toggle_fullscreen()
+
+    def toggle_fullscreen(self, event=None):
+        self.is_fullscreen = not getattr(self, "is_fullscreen", False)
+        self.master.attributes("-fullscreen", self.is_fullscreen)
+        if hasattr(self, "btn_fullscreen"):
+            self.btn_fullscreen.config(text="🗗" if self.is_fullscreen else "⛶")
+        if self.is_fullscreen:
+            self.show_toast(_t("toast_fullscreen_on"), title=_t("menu_fullscreen"), toast_type="info")
+        else:
+            self.show_toast(_t("toast_fullscreen_off"), title=_t("menu_fullscreen"), toast_type="info")
+
+    def exit_fullscreen(self, event=None):
+        if getattr(self, "is_fullscreen", False):
+            self.is_fullscreen = False
+            self.master.attributes("-fullscreen", False)
+            if hasattr(self, "btn_fullscreen"):
+                self.btn_fullscreen.config(text="⛶")
+            self.show_toast(_t("toast_fullscreen_off"), title=_t("menu_fullscreen"), toast_type="info")
 
     def on_active_character_changed(self, event=None):
         new_active = self.active_character_var.get()

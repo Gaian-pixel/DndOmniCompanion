@@ -197,6 +197,11 @@ class DM_GUI:
         tools_menu.add_command(label=_t("menu_automation_settings"), command=self.open_automation_settings_dialog)
         menubar.add_cascade(label=_t("menu_tools"), menu=tools_menu)
 
+        # Menu Visualizza / View
+        view_menu = tk.Menu(menubar, tearoff=0)
+        view_menu.add_command(label=_t("menu_fullscreen"), command=self.toggle_fullscreen, accelerator="F11")
+        menubar.add_cascade(label=_t("menu_view"), menu=view_menu)
+
         # Menu Lingua / Language
         lang_menu = tk.Menu(menubar, tearoff=0)
         self.lang_var = tk.StringVar(value=get_language())
@@ -473,6 +478,11 @@ class DM_GUI:
         btn_palette = ttk.Button(left_toolbar, text="🔍", width=3, style="Tool.TButton", command=self.open_command_palette)
         btn_palette.pack(pady=3)
         ToolTip(btn_palette, lambda: _t("tool_command_palette"))
+
+        # Pulsante rapido Schermo Intero in fondo alla barra
+        self.btn_fullscreen = ttk.Button(left_toolbar, text="⛶", width=3, style="Tool.TButton", command=self.toggle_fullscreen)
+        self.btn_fullscreen.pack(side=tk.BOTTOM, pady=(0, 4))
+        ToolTip(self.btn_fullscreen, lambda: _t("menu_fullscreen"))
         
         # --- COLONNA 1: MAPPA (Viewport & Status Header) ---
         map_outer_frame = ttk.Frame(main_frame)
@@ -797,6 +807,9 @@ class DM_GUI:
         self.master.bind("<Control-n>", lambda e: self.open_live_flow_controller())
         self.master.bind("<Control-N>", lambda e: self.open_live_flow_controller())
         self.master.bind("<Control-K>", self.open_command_palette)
+        # Scorciatoia Schermo Intero (F11 / Esc)
+        self.master.bind("<F11>", self.toggle_fullscreen)
+        self.master.bind("<Escape>", self.exit_fullscreen)
 
     def open_command_palette(self, event=None):
         try:
@@ -812,7 +825,28 @@ class DM_GUI:
         except Exception as e:
             print("Error opening CommandPaletteDialog in DM_GUI:", e)
 
+    def toggle_fullscreen(self, event=None):
+        self.is_fullscreen = not getattr(self, "is_fullscreen", False)
+        self.master.attributes("-fullscreen", self.is_fullscreen)
+        if hasattr(self, "btn_fullscreen"):
+            self.btn_fullscreen.config(text="🗗" if self.is_fullscreen else "⛶")
+        if self.is_fullscreen:
+            self.show_toast(_t("toast_fullscreen_on"), title=_t("menu_fullscreen"), toast_type="info")
+        else:
+            self.show_toast(_t("toast_fullscreen_off"), title=_t("menu_fullscreen"), toast_type="info")
+
+    def exit_fullscreen(self, event=None):
+        if getattr(self, "is_fullscreen", False):
+            self.is_fullscreen = False
+            self.master.attributes("-fullscreen", False)
+            if hasattr(self, "btn_fullscreen"):
+                self.btn_fullscreen.config(text="⛶")
+            self.show_toast(_t("toast_fullscreen_off"), title=_t("menu_fullscreen"), toast_type="info")
+
     def _handle_command_palette_action(self, action_type, payload):
+        if action_type == "action" and payload == "toggle_fullscreen":
+            self.toggle_fullscreen()
+            return
         if action_type == "roll":
             formula = payload.strip()
             if formula.startswith("/roll"):
