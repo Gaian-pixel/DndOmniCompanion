@@ -1,12 +1,14 @@
 # test_campaign_compendium.py
 """
-Test di integrazione per l'aggiunta di elementi dal compendio 5e in 'Crea Campagna':
+Test di integrazione per l'aggiunta di elementi dal compendio 5e e dai manuali PDF in 'Crea Campagna':
 - Importazione equipaggiamento nello Starter Kit
-- Importazione mostri/PNG dal compendio nei PNG chiave della campagna
-- Importazione magie/oggetti/lore negli Handouts della campagna
+- Importazione mostri/PNG dal compendio e manuali PDF nei PNG chiave della campagna
+- Importazione magie/oggetti/lore dai manuali PDF negli Handouts della campagna
+- Categorie e filtri per manuali PDF (Monster Manual, PHB 2024, DMG 2024, TCoE, XGtE)
 - Consultazione globale dal compendio con routing intelligente dei tab
 """
 
+import os
 import unittest
 from unittest.mock import patch, MagicMock
 import tkinter as tk
@@ -64,6 +66,17 @@ class TestCampaignCompendiumIntegration(unittest.TestCase):
             self.assertEqual(dlg.initial_category, "Equipaggiamento")
             self.assertEqual(dlg.action_label, "➕ Aggiungi al Kit")
             self.assertEqual(dlg.category_var.get(), "Equipaggiamento")
+            dlg.destroy()
+
+    def test_compendium_dialog_includes_pdf_manual_categories(self):
+        """Verifica che CompendiumDialog elenchi le categorie dei manuali PDF."""
+        with patch.object(CompendiumDialog, "fetch_list"):
+            dlg = CompendiumDialog(self.root, is_dm=True)
+            values = dlg.category_cb["values"]
+            self.assertTrue(any("Monster Manual" in v for v in values))
+            self.assertTrue(any("Player's Handbook" in v for v in values))
+            self.assertTrue(any("Dungeon Master's Guide" in v for v in values))
+            self.assertTrue(any("Tutti i Manuali" in v for v in values))
             dlg.destroy()
 
     def test_import_starter_kit_from_compendium_data(self):
@@ -126,6 +139,90 @@ class TestCampaignCompendiumIntegration(unittest.TestCase):
         self.assertEqual(added["title"], "Tomo dei Pensieri Limpidi")
         self.assertIn("Molto Raro", added["content"])
         self.assertIn("Intelligenza di 2", added["content"])
+
+    @patch("server.compendium_ui.messagebox.showinfo")
+    def test_compendium_import_pdf_monster_entry(self, mock_info):
+        """Verifica che una voce mostro estratta da un manuale PDF venga importata con statistiche corrette."""
+        imported_item = {}
+        imported_cat = ""
+        def cb(item, cat):
+            nonlocal imported_item, imported_cat
+            imported_item = item
+            imported_cat = cat
+
+        with patch.object(CompendiumDialog, "fetch_list"):
+            dlg = CompendiumDialog(self.root, on_import_callback=cb, is_dm=True)
+            dlg.category_var.set("📖 [PDF] Monster Manual (Mostri)")
+
+            pdf_monster = {
+                "title": "Beholder Tyrant",
+                "manual": "MM",
+                "manual_name": "Monster Manual",
+                "category": "Mostri & PNG",
+                "page_ref": "Pag. 36",
+                "content": "A spherical floating horror with ten eyestalks and a central eye.",
+                "monster_data": {
+                    "hp": 180,
+                    "ac": 18,
+                    "cr": "13",
+                    "attributes": {"FOR": 10, "DES": 14, "COS": 18, "INT": 17, "SAG": 15, "CAR": 17}
+                }
+            }
+
+            dlg._on_statblock_action(pdf_monster, "Mostri")
+            dlg.destroy()
+
+        self.assertEqual(imported_cat, "Mostri")
+        self.assertEqual(imported_item.get("name"), "Beholder Tyrant")
+        self.assertEqual(imported_item.get("hp"), 180)
+        self.assertEqual(imported_item.get("ac"), 18)
+        self.assertEqual(imported_item.get("cr"), "13")
+        self.assertIn("spherical floating", imported_item.get("desc"))
+
+        # Ora testiamo l'inserimento di questo mostro PDF nei PNG della campagna
+        self.editor._import_npc_data(imported_item, "Mostri")
+        npc = self.camp.npcs[-1]
+        self.assertEqual(npc["name"], "Beholder Tyrant")
+        self.assertEqual(npc["hp"], 180)
+        self.assertEqual(npc["ac"], 18)
+        self.assertEqual(npc["attributes"]["INT"], 17)
+
+    @patch("server.compendium_ui.messagebox.showinfo")
+    def test_compendium_import_pdf_rule_or_item_entry(self, mock_info):
+        """Verifica che una regola o oggetto estratto da un PDF venga importato con fonte manuale."""
+        imported_item = {}
+        imported_cat = ""
+        def cb(item, cat):
+            nonlocal imported_item, imported_cat
+            imported_item = item
+            imported_cat = cat
+
+        with patch.object(CompendiumDialog, "fetch_list"):
+            dlg = CompendiumDialog(self.root, on_import_callback=cb, is_dm=True)
+            dlg.category_var.set("📖 [PDF] Dungeon Master's Guide (DMG 2024)")
+
+            pdf_rule = {
+                "title": "Creating Magic Items",
+                "manual": "DMG",
+                "manual_name": "Dungeon Master's Guide 2024",
+                "category": "Equipaggiamento & Tesori",
+                "page_ref": "Pag. 71",
+                "content": "Crafting a magic item requires a formula, rare ingredients, and focused spellcasting."
+            }
+
+            dlg._on_statblock_action(pdf_rule, "Equipaggiamento")
+            dlg.destroy()
+
+        self.assertEqual(imported_cat, "Equipaggiamento")
+        self.assertEqual(imported_item.get("name"), "Creating Magic Items")
+
+        # Importiamo come handout nella campagna
+        self.editor._import_handout_data(imported_item, "Regole")
+        handout = self.camp.handouts[-1]
+        self.assertEqual(handout["title"], "Creating Magic Items")
+        self.assertIn("Dungeon Master's Guide 2024", handout["content"])
+        self.assertIn("Pag. 71", handout["content"])
+        self.assertIn("Crafting a magic item", handout["content"])
 
     @patch("server.compendium_ui.CompendiumDialog")
     def test_open_global_compendium_modal(self, mock_comp_dialog):

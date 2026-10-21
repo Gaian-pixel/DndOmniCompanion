@@ -695,7 +695,7 @@ class CampaignStarterKitDialog(tk.Toplevel):
         try:
             from server.compendium_ui import CompendiumDialog
             def _on_imported(item_data, category):
-                name = item_data.get("name", "Nuovo Oggetto")
+                name = item_data.get("name") or item_data.get("title", "Nuovo Oggetto")
                 raw_cat = ""
                 eq_cat = item_data.get("equipment_category")
                 if isinstance(eq_cat, dict):
@@ -744,7 +744,7 @@ class CampaignStarterKitDialog(tk.Toplevel):
                     if props:
                         desc_parts.append(f"Proprietà: {', '.join(props)}")
 
-                raw_desc = item_data.get("desc", "")
+                raw_desc = item_data.get("desc", "") or item_data.get("content", "")
                 if isinstance(raw_desc, list):
                     raw_desc = " ".join(str(d) for d in raw_desc)
                 if raw_desc:

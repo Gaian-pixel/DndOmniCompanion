@@ -1171,7 +1171,7 @@ class CampaignEditorDialog(tk.Toplevel):
     # METODI IMPORTAZIONE DAL COMPENDIO 5E
     # -------------------------------------------------------------
     def _import_starter_kit_data(self, item_data: Dict[str, Any], category: str):
-        name = item_data.get("name", "Nuovo Oggetto")
+        name = item_data.get("name") or item_data.get("title", "Nuovo Oggetto")
         raw_cat = ""
         eq_cat = item_data.get("equipment_category")
         if isinstance(eq_cat, dict):
@@ -1220,7 +1220,7 @@ class CampaignEditorDialog(tk.Toplevel):
             if props:
                 desc_parts.append(f"Proprietà: {', '.join(props)}")
 
-        raw_desc = item_data.get("desc", "")
+        raw_desc = item_data.get("desc", "") or item_data.get("content", "")
         if isinstance(raw_desc, list):
             raw_desc = " ".join(str(d) for d in raw_desc)
         if raw_desc:
@@ -1254,7 +1254,7 @@ class CampaignEditorDialog(tk.Toplevel):
             messagebox.showerror("Errore Compendio", f"Impossibile aprire il compendio: {e}", parent=self)
 
     def _import_npc_data(self, item_data: Dict[str, Any], category: str):
-        name = item_data.get("name", "PNG Compendio")
+        name = item_data.get("name") or item_data.get("title", "PNG Compendio")
         orig_name = name
         cnt = 1
         while any(n.get("name") == name for n in self.campaign.npcs):
@@ -1322,7 +1322,7 @@ class CampaignEditorDialog(tk.Toplevel):
             messagebox.showerror("Errore Compendio", f"Impossibile aprire il compendio: {e}", parent=self)
 
     def _import_handout_data(self, item_data: Dict[str, Any], category: str):
-        name = item_data.get("name", "Documento Compendio")
+        name = item_data.get("name") or item_data.get("title", "Documento Compendio")
         title = name
         c = 1
         while any(h.get("title") == title for h in self.campaign.handouts):
@@ -1356,7 +1356,9 @@ class CampaignEditorDialog(tk.Toplevel):
             base_ac = ac_info.get("base", 10) if isinstance(ac_info, dict) else ac_info
             lines.append(f"Classe Armatura: {base_ac}")
 
-        desc = item_data.get("desc", "")
+        if item_data.get("manual_name"):
+            lines.insert(2, f"Fonte Manuale: {item_data.get('manual_name')} {item_data.get('page_ref', '')}".strip())
+        desc = item_data.get("desc", "") or item_data.get("content", "")
         if isinstance(desc, list):
             desc = "\n\n".join(str(d) for d in desc)
         if desc:

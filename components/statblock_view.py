@@ -125,7 +125,7 @@ class StatblockCardView(ttk.Frame):
         container = tk.Frame(self.scroll_content, bg=SURFACE_COLOR, highlightbackground=BORDER_GOLD, highlightthickness=1.5, padx=14, pady=12)
         container.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
-        name = mdata.get("name", "Creatura")
+        name = mdata.get("name") or mdata.get("title", "Creatura")
         size = mdata.get("size", "Media")
         m_type = mdata.get("type", "mostro")
         align = mdata.get("alignment", "qualsiasi allineamento")
@@ -252,7 +252,7 @@ class StatblockCardView(ttk.Frame):
         container = tk.Frame(self.scroll_content, bg=SURFACE_COLOR, highlightbackground=BORDER_GOLD, highlightthickness=1.5, padx=14, pady=12)
         container.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
-        name = item_data.get("name", "Oggetto")
+        name = item_data.get("name") or item_data.get("title", "Oggetto")
         rarity_raw = str(item_data.get("rarity", "Comune")).lower()
         i_type = item_data.get("type") or item_data.get("equipment_category", {}).get("name") if isinstance(item_data.get("equipment_category"), dict) else item_data.get("equipment_category", "Oggetto")
 
@@ -325,7 +325,7 @@ class StatblockCardView(ttk.Frame):
         container = tk.Frame(self.scroll_content, bg=SURFACE_COLOR, highlightbackground=BORDER_GOLD, highlightthickness=1.5, padx=14, pady=12)
         container.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
-        name = sdata.get("name", "Incantesimo")
+        name = sdata.get("name") or sdata.get("title", "Incantesimo")
         lvl = sdata.get("level", 0)
         lvl_str = "Trucchetto" if lvl == 0 or str(lvl).lower() == "cantrip" else f"Livello {lvl}"
         school = sdata.get("school", {}).get("name") if isinstance(sdata.get("school"), dict) else sdata.get("school", "")
@@ -385,6 +385,7 @@ class StatblockCardView(ttk.Frame):
     def show_generic(self, title: str, data_dict: Dict[str, Any]):
         self._clear_content()
         self.current_data = data_dict
+        real_title = title or data_dict.get("name") or data_dict.get("title", "Dettagli")
 
         container = tk.Frame(self.scroll_content, bg=SURFACE_COLOR, highlightbackground=BORDER_GOLD, highlightthickness=1.5, padx=14, pady=12)
         container.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
@@ -392,36 +393,56 @@ class StatblockCardView(ttk.Frame):
         top_row = tk.Frame(container, bg=SURFACE_COLOR)
         top_row.pack(fill=tk.X, pady=(0, 4))
 
-        tk.Label(top_row, text=f"📖 {title}", font=FONT_TITLE, bg=SURFACE_COLOR, fg=ACCENT_GOLD_LIGHT, anchor="w").pack(side=tk.LEFT)
+        title_box = tk.Frame(top_row, bg=SURFACE_COLOR)
+        title_box.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        tk.Label(title_box, text=f"📖 {real_title}", font=FONT_TITLE, bg=SURFACE_COLOR, fg=ACCENT_GOLD_LIGHT, anchor="w").pack(anchor="w")
+
+        manual_name = data_dict.get("manual_name")
+        page_ref = data_dict.get("page_ref")
+        cat_badge = data_dict.get("category")
+        meta_parts = []
+        if manual_name:
+            meta_parts.append(str(manual_name))
+        if page_ref:
+            meta_parts.append(str(page_ref))
+        if cat_badge:
+            meta_parts.append(f"[{cat_badge}]")
+        if meta_parts:
+            tk.Label(title_box, text=" • ".join(meta_parts), font=("Segoe UI", 9, "italic"), bg=SURFACE_COLOR, fg=ACCENT_GOLD, anchor="w").pack(anchor="w")
 
         if self.on_primary_action:
             btn_act = ttk.Button(
                 top_row,
                 text=f"➕ {self.action_label}",
-                command=lambda: self.on_primary_action(data_dict, "Generico"),
+                command=lambda: self.on_primary_action(data_dict, cat_badge or "Generico"),
                 style="Gold.TButton"
             )
-            btn_act.pack(side=tk.RIGHT)
+            btn_act.pack(side=tk.RIGHT, padx=(6, 0))
 
         self._add_divider(container)
 
         txt_frame = tk.Frame(container, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=10)
         txt_frame.pack(fill=tk.BOTH, expand=True, pady=6)
 
-        lines = []
-        if "desc" in data_dict:
-            d = data_dict["desc"]
-            lines.append("\n\n".join(d) if isinstance(d, list) else str(d))
-            lines.append("\n" + "─" * 40 + "\n")
+        if data_dict.get("content"):
+            content_str = data_dict.get("content")
+        else:
+            lines = []
+            if "desc" in data_dict:
+                d = data_dict["desc"]
+                lines.append("\n\n".join(d) if isinstance(d, list) else str(d))
+                lines.append("\n" + "─" * 40 + "\n")
 
-        for k, v in data_dict.items():
-            if k not in ["name", "desc", "url", "index"]:
-                if isinstance(v, (str, int, float, bool)):
-                    lines.append(f"{k.capitalize()}: {v}")
-                elif isinstance(v, list) and v and isinstance(v[0], dict) and "name" in v[0]:
-                    lines.append(f"{k.capitalize()}: {', '.join(x.get('name', '') for x in v)}")
+            for k, v in data_dict.items():
+                if k not in ["name", "title", "desc", "content", "url", "index", "keywords", "monster_data", "id", "pdf_filename", "pdf_page"]:
+                    if isinstance(v, (str, int, float, bool)):
+                        lines.append(f"{k.capitalize()}: {v}")
+                    elif isinstance(v, list) and v and isinstance(v[0], dict) and "name" in v[0]:
+                        lines.append(f"{k.capitalize()}: {', '.join(x.get('name', '') for x in v)}")
 
-        content_str = "\n".join(lines) if lines else "Nessun dettaglio aggiuntivo disponibile."
+            content_str = "\n".join(lines) if lines else "Nessun dettaglio aggiuntivo disponibile."
+
         tk.Label(txt_frame, text=content_str, font=FONT_MAIN, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, justify="left", wraplength=480, anchor="w").pack(anchor="w")
 
     # -------------------------------------------------------------------------
