@@ -8,7 +8,8 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, simpledialog
 from common.messagebox import messagebox
 from common.theme import (
-    apply_modern_window_style, TEXT_COLOR, SURFACE_COLOR, ACCENT_GOLD,
+    apply_modern_window_style, BG_COLOR, BORDER_COLOR, TEXT_COLOR, TEXT_MUTED,
+    SURFACE_COLOR, SURFACE_COLOR_ALT, ACCENT_GOLD,
     FONT_TITLE, FONT_HEADER, FONT_BOLD, FONT_MAIN, FONT_SMALL
 )
 from common.game_state import Player
@@ -474,57 +475,193 @@ class DMPlayerSheetViewer(tk.Toplevel):
         close_btn.pack(side=tk.BOTTOM, pady=(10, 0))
 
 
+class StarterKitItemEditorDialog(tk.Toplevel):
+    """
+    Dialogo modale dedicato per creare o modificare un singolo oggetto dell'equipaggiamento iniziale.
+    Permette di impostare Nome, Categoria, Quantità, Peso e Descrizione/Effetto in una scheda pulita.
+    """
+    def __init__(self, parent, item_data=None, on_save=None):
+        super().__init__(parent)
+        self.item_data = item_data or {}
+        self.on_save = on_save
+        self.is_edit = bool(item_data)
+
+        title = "✏️ Modifica Oggetto Equipaggiamento" if self.is_edit else "➕ Aggiungi Oggetto Equipaggiamento"
+        self.title(title)
+        self.geometry("480x430")
+        self.minsize(440, 390)
+        self.transient(parent)
+        self.grab_set()
+        apply_modern_window_style(self)
+
+        container = tk.Frame(self, bg=BG_COLOR, padx=16, pady=14)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(container, text=title, font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w")
+        sub_text = "Modifica le proprietà dell'oggetto iniziale per il party:" if self.is_edit else "Inserisci le proprietà del nuovo oggetto iniziale per i PG:"
+        tk.Label(container, text=sub_text, font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(2, 10))
+
+        # 1. Nome Oggetto
+        tk.Label(container, text="Nome Oggetto:", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        self.ent_name = ttk.Entry(container, font=FONT_MAIN)
+        self.ent_name.insert(0, self.item_data.get("name", ""))
+        self.ent_name.pack(fill=tk.X, pady=(2, 10))
+        self.ent_name.focus_set()
+
+        # 2. Tipo / Categoria
+        tk.Label(container, text="Tipo / Categoria:", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        types = [
+            "Equipaggiamento", "Consumabile", "Arma", "Armatura", "Scudo",
+            "Munizioni", "Documento", "Valuta", "Strumenti", "Focus", "Magico", "Oggetto"
+        ]
+        self.cb_type = ttk.Combobox(container, values=types, font=FONT_MAIN)
+        self.cb_type.set(self.item_data.get("type", "Equipaggiamento"))
+        self.cb_type.pack(fill=tk.X, pady=(2, 10))
+
+        # 3. Quantità e Peso su riga doppia
+        row_fields = tk.Frame(container, bg=BG_COLOR)
+        row_fields.pack(fill=tk.X, pady=(0, 10))
+        row_fields.columnconfigure(0, weight=1)
+        row_fields.columnconfigure(1, weight=1)
+
+        f_qty = tk.Frame(row_fields, bg=BG_COLOR)
+        f_qty.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        tk.Label(f_qty, text="Quantità:", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        self.sp_qty = ttk.Spinbox(f_qty, from_=1, to=9999, font=FONT_MAIN)
+        self.sp_qty.set(self.item_data.get("qty", 1))
+        self.sp_qty.pack(fill=tk.X, pady=(2, 0))
+
+        f_weight = tk.Frame(row_fields, bg=BG_COLOR)
+        f_weight.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        tk.Label(f_weight, text="Peso unitario (lbs):", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        self.sp_weight = ttk.Spinbox(f_weight, from_=0.0, to=999.0, increment=0.5, font=FONT_MAIN)
+        self.sp_weight.set(self.item_data.get("weight", 1.0))
+        self.sp_weight.pack(fill=tk.X, pady=(2, 0))
+
+        # 4. Descrizione o Proprietà
+        tk.Label(container, text="Descrizione o Effetto:", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        self.txt_desc = scrolledtext.ScrolledText(
+            container, height=4, font=FONT_SMALL,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, relief="flat",
+            highlightbackground=BORDER_COLOR, highlightthickness=1, wrap=tk.WORD
+        )
+        self.txt_desc.insert("1.0", self.item_data.get("desc", ""))
+        self.txt_desc.pack(fill=tk.BOTH, expand=True, pady=(2, 12))
+
+        # 5. Pulsanti Salva / Annulla
+        btn_box = tk.Frame(container, bg=BG_COLOR)
+        btn_box.pack(fill=tk.X)
+
+        btn_save = ttk.Button(btn_box, text="💾 Salva Oggetto", style="Gold.TButton", command=self._save_and_close)
+        btn_save.pack(side=tk.RIGHT, padx=(6, 0))
+        ttk.Button(btn_box, text="Annulla", command=self.destroy).pack(side=tk.RIGHT)
+
+        self.bind("<Return>", lambda e: self._save_and_close())
+        self.bind("<Escape>", lambda e: self.destroy())
+
+    def _save_and_close(self):
+        name = self.ent_name.get().strip()
+        if not name:
+            messagebox.showwarning("Attenzione", "Inserisci il nome dell'oggetto.", parent=self)
+            return
+
+        item_type = self.cb_type.get().strip() or "Equipaggiamento"
+        try:
+            qty = max(1, int(self.sp_qty.get()))
+        except ValueError:
+            qty = 1
+
+        try:
+            weight = max(0.0, float(str(self.sp_weight.get()).replace(",", ".")))
+        except ValueError:
+            weight = 0.0
+
+        desc = self.txt_desc.get("1.0", tk.END).strip()
+
+        result = {
+            "name": name,
+            "type": item_type,
+            "qty": qty,
+            "weight": weight,
+            "desc": desc
+        }
+        if self.on_save:
+            self.on_save(result)
+        self.destroy()
+
+
 class CampaignStarterKitDialog(tk.Toplevel):
-    def __init__(self, dm_gui):
-        super().__init__(dm_gui.master)
+    def __init__(self, dm_gui, initial_items=None, on_save_callback=None):
+        parent = dm_gui if isinstance(dm_gui, (tk.Tk, tk.Toplevel)) else getattr(dm_gui, "master", None)
+        super().__init__(parent)
         self.dm_gui = dm_gui
+        self.on_save_callback = on_save_callback
         self.title(_t("starter_kit_title", default="Configura Starter Pack Campagna (Equipaggiamento Iniziale)"))
-        self.minsize(650, 500)
-        self.transient(dm_gui.master)
+        self.minsize(700, 520)
+        self.geometry("740x550")
+        if parent:
+            self.transient(parent)
         self.grab_set()
         apply_modern_window_style(self)
 
         from common.starter_equipment import get_campaign_starter_kit, DEFAULT_CAMPAIGN_STARTER_KIT
-        cur_kit = getattr(self.dm_gui.server.game_state, "campaign_starter_kit", None)
-        if not cur_kit:
-            cur_kit = get_campaign_starter_kit()
-        self.items = [i.copy() for i in cur_kit]
+        if initial_items is not None:
+            self.items = [i.copy() for i in initial_items]
+        else:
+            cur_kit = None
+            if hasattr(self.dm_gui, "server") and hasattr(self.dm_gui.server, "game_state"):
+                cur_kit = getattr(self.dm_gui.server.game_state, "campaign_starter_kit", None)
+            elif hasattr(self.dm_gui, "game_state") and self.dm_gui.game_state:
+                cur_kit = getattr(self.dm_gui.game_state, "campaign_starter_kit", None)
+            if not cur_kit:
+                cur_kit = get_campaign_starter_kit()
+            self.items = [i.copy() for i in cur_kit]
 
         main_frame = ttk.Frame(self, padding="15")
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         ttk.Label(main_frame, text=_t("starter_kit_header", default="Equipaggiamento Iniziale della Campagna"), font=FONT_HEADER).pack(anchor=tk.W, pady=(0, 5))
-        ttk.Label(main_frame, text=_t("starter_kit_desc", default="I nuovi PG riceveranno automaticamente questi oggetti al loro primo login in questa campagna:"), 
-                  wraplength=600).pack(anchor=tk.W, pady=(0, 10))
+        ttk.Label(
+            main_frame,
+            text=_t("starter_kit_desc", default="I nuovi PG riceveranno automaticamente questi oggetti al loro primo login in questa campagna (fai doppio clic su un elemento per modificarlo):"),
+            wraplength=660
+        ).pack(anchor=tk.W, pady=(0, 10))
 
         tree_frame = ttk.Frame(main_frame)
         tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
-        self.tree = ttk.Treeview(tree_frame, columns=("Nome", "Tipo", "Qty", "Peso", "Desc"), show="headings", height=8)
+        self.tree = ttk.Treeview(tree_frame, columns=("Nome", "Tipo", "Qty", "Peso", "Desc"), show="headings", height=9)
         self.tree.heading("Nome", text=_t("col_item_name", default="Nome Oggetto"))
         self.tree.heading("Tipo", text=_t("col_type", default="Tipo"))
         self.tree.heading("Qty", text=_t("col_quantity", default="Quantità"))
         self.tree.heading("Peso", text=_t("col_weight", default="Peso (lbs)"))
         self.tree.heading("Desc", text=_t("col_description", default="Descrizione"))
-        self.tree.column("Nome", width=150)
-        self.tree.column("Tipo", width=100, anchor="center")
-        self.tree.column("Qty", width=60, anchor="center")
-        self.tree.column("Peso", width=70, anchor="center")
-        self.tree.column("Desc", width=220)
+        self.tree.column("Nome", width=170)
+        self.tree.column("Tipo", width=110, anchor="center")
+        self.tree.column("Qty", width=65, anchor="center")
+        self.tree.column("Peso", width=75, anchor="center")
+        self.tree.column("Desc", width=240)
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         scroll = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree.yview)
         self.tree.configure(yscroll=scroll.set)
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
+        self.tree.bind("<Double-Button-1>", lambda e: self.on_edit_item())
+        self.tree.bind("<Return>", lambda e: self.on_edit_item())
+        self.tree.bind("<Delete>", lambda e: self.on_remove_item())
+        self.tree.bind("<BackSpace>", lambda e: self.on_remove_item())
+
         self.refresh_list()
 
         btn_row = ttk.Frame(main_frame)
         btn_row.pack(fill=tk.X, pady=(0, 10))
 
-        ttk.Button(btn_row, text=_t("btn_add_item", default="+ Aggiungi Oggetto"), command=self.on_add_item).pack(side=tk.LEFT, padx=3)
-        ttk.Button(btn_row, text=_t("btn_remove_selected", default="Rimuovi Selezionato"), command=self.on_remove_item).pack(side=tk.LEFT, padx=3)
-        ttk.Button(btn_row, text=_t("btn_reset_defaults", default="Ripristina Predefiniti"), command=self.on_reset_defaults).pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_row, text=_t("btn_add_item", default="➕ Aggiungi Oggetto"), command=self.on_add_item, style="Gold.TButton").pack(side=tk.LEFT, padx=3)
+        self.btn_edit = ttk.Button(btn_row, text=_t("btn_edit_selected", default="✏️ Modifica Selezionato"), command=self.on_edit_item)
+        self.btn_edit.pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_row, text=_t("btn_remove_selected", default="🗑️ Rimuovi Selezionato"), command=self.on_remove_item).pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_row, text=_t("btn_reset_defaults", default="🔄 Ripristina Predefiniti"), command=self.on_reset_defaults).pack(side=tk.LEFT, padx=3)
 
         bottom_row = ttk.Frame(main_frame)
         bottom_row.pack(fill=tk.X)
@@ -544,37 +681,65 @@ class CampaignStarterKitDialog(tk.Toplevel):
             ))
 
     def on_add_item(self):
-        name = simpledialog.askstring(_t("add", default="Nuovo Oggetto"), _t("col_item_name", default="Nome dell'oggetto:"), parent=self)
-        if not name or not name.strip(): return
-        item_type = simpledialog.askstring(_t("col_type", default="Tipo Oggetto"), _t("prompt_item_type", default="Tipo (Arma, Armatura, Consumabile, Documento, Valuta, Equipaggiamento):"), initialvalue="Equipaggiamento", parent=self) or "Equipaggiamento"
-        qty = simpledialog.askinteger(_t("col_quantity", default="Quantità"), _t("col_quantity", default="Quantità:"), initialvalue=1, minvalue=1, parent=self) or 1
-        desc = simpledialog.askstring(_t("col_description", default="Descrizione"), _t("prompt_item_desc", default="Descrizione o effetto dell'oggetto:"), parent=self) or ""
-        self.items.append({
-            "name": name.strip(),
-            "type": item_type.strip(),
-            "qty": qty,
-            "weight": 1.0,
-            "desc": desc.strip()
-        })
-        self.refresh_list()
+        def _add_callback(new_item):
+            self.items.append(new_item)
+            self.refresh_list()
+            new_idx = str(len(self.items) - 1)
+            self.tree.selection_set(new_idx)
+            self.tree.see(new_idx)
+
+        StarterKitItemEditorDialog(self, item_data=None, on_save=_add_callback)
+
+    def on_edit_item(self):
+        sel = self.tree.selection()
+        if not sel:
+            messagebox.showinfo("Modifica Oggetto", "Seleziona un oggetto dalla tabella per modificarlo (oppure fai doppio clic sulla riga).", parent=self)
+            return
+        idx = int(sel[0])
+        if idx < 0 or idx >= len(self.items):
+            return
+        current_item = self.items[idx]
+
+        def _edit_callback(updated_item):
+            self.items[idx] = updated_item
+            self.refresh_list()
+            self.tree.selection_set(str(idx))
+            self.tree.see(str(idx))
+
+        StarterKitItemEditorDialog(self, item_data=current_item, on_save=_edit_callback)
 
     def on_remove_item(self):
         sel = self.tree.selection()
-        if not sel: return
+        if not sel:
+            messagebox.showinfo("Rimuovi Oggetto", "Seleziona un oggetto dalla tabella da rimuovere.", parent=self)
+            return
         idx = int(sel[0])
-        self.items.pop(idx)
-        self.refresh_list()
+        if idx < 0 or idx >= len(self.items):
+            return
+        item_name = self.items[idx].get("name", "questo oggetto")
+        if messagebox.askyesno("Conferma Rimozione", f"Vuoi davvero rimuovere '{item_name}' dall'equipaggiamento iniziale?", parent=self):
+            self.items.pop(idx)
+            self.refresh_list()
 
     def on_reset_defaults(self):
         from common.starter_equipment import DEFAULT_CAMPAIGN_STARTER_KIT
-        if messagebox.askyesno(_t("btn_reset_defaults", default="Ripristina"), _t("msg_confirm_reset_starter_kit", default="Vuoi ripristinare il kit iniziale predefinito della campagna?"), parent=self):
+        if messagebox.askyesno(_t("btn_reset_defaults", default="Ripristina Predefiniti"), _t("msg_confirm_reset_starter_kit", default="Vuoi ripristinare il kit iniziale predefinito della campagna?"), parent=self):
             self.items = [i.copy() for i in DEFAULT_CAMPAIGN_STARTER_KIT]
             self.refresh_list()
 
     def on_save(self):
-        from common.starter_equipment import save_campaign_starter_kit
-        save_campaign_starter_kit(self.items)
-        self.dm_gui.server.game_state.campaign_starter_kit = [i.copy() for i in self.items]
-        messagebox.showinfo(_t("save", default="Salvato"), _t("msg_starter_kit_saved", default="Equipaggiamento iniziale della campagna salvato con successo!"), parent=self)
+        if self.on_save_callback:
+            self.on_save_callback(self.items)
+
+        if hasattr(self.dm_gui, "server") and hasattr(self.dm_gui.server, "game_state"):
+            self.dm_gui.server.game_state.campaign_starter_kit = [i.copy() for i in self.items]
+        elif hasattr(self.dm_gui, "game_state") and self.dm_gui.game_state:
+            self.dm_gui.game_state.campaign_starter_kit = [i.copy() for i in self.items]
+
+        if not self.on_save_callback:
+            from common.starter_equipment import save_campaign_starter_kit
+            save_campaign_starter_kit(self.items)
+
+        messagebox.showinfo(_t("save", default="Salvato"), _t("msg_starter_kit_saved", default="Equipaggiamento iniziale salvato con successo!"), parent=self)
         self.destroy()
 

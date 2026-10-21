@@ -221,6 +221,9 @@ class CampaignEditorDialog(tk.Toplevel):
     def __init__(self, master, campaign: Optional[Campaign] = None, game_state: Optional[GameState] = None, on_save_callback: Optional[Callable] = None):
         super().__init__(master)
         self.campaign = campaign or Campaign(name="Nuova Campagna Avventura")
+        if not self.campaign.starter_kit:
+            from common.starter_equipment import DEFAULT_CAMPAIGN_STARTER_KIT
+            self.campaign.starter_kit = [item.copy() for item in DEFAULT_CAMPAIGN_STARTER_KIT]
         self.game_state = game_state
         self.on_save_callback = on_save_callback
         
@@ -411,10 +414,20 @@ class CampaignEditorDialog(tk.Toplevel):
         # Starter Kit Campagna
         kit_frame = tk.Frame(col_left, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
         kit_frame.pack(fill=tk.X, pady=(0, 10))
-        tk.Label(kit_frame, text="🎒 Equipaggiamento Iniziale del Party", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).pack(anchor="w")
-        self.lbl_kit_count = tk.Label(kit_frame, text=f"Oggetti configurati: {len(self.campaign.starter_kit)}", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED)
-        self.lbl_kit_count.pack(anchor="w", pady=(2, 4))
-        ttk.Button(kit_frame, text="Configura Starter Kit Campagna...", command=self.edit_starter_kit).pack(fill=tk.X)
+        
+        kit_hdr = tk.Frame(kit_frame, bg=SURFACE_COLOR_ALT)
+        kit_hdr.pack(fill=tk.X)
+        tk.Label(kit_hdr, text="🎒 Equipaggiamento Iniziale del Party", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).pack(side=tk.LEFT)
+        self.lbl_kit_count = tk.Label(kit_hdr, text=self._get_kit_summary_text(), font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD)
+        self.lbl_kit_count.pack(side=tk.RIGHT)
+        
+        tk.Label(
+            kit_frame,
+            text="Oggetti assegnati automaticamente ai PG al loro primo ingresso in questa campagna.",
+            font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED
+        ).pack(anchor="w", pady=(2, 6))
+        
+        ttk.Button(kit_frame, text="✏️ Modifica Equipaggiamento Iniziale...", command=self.edit_starter_kit, style="Gold.TButton").pack(fill=tk.X)
         
         # Sinossi / Descrizione pubblica
         tk.Label(col_left, text="Descrizione / Sinossi per i Giocatori:", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(anchor="w", pady=(5, 0))
@@ -459,23 +472,20 @@ class CampaignEditorDialog(tk.Toplevel):
         if hasattr(self, "lbl_date_preview") and self.lbl_date_preview:
             self.lbl_date_preview.config(text=f"📅 {d} {m_name}, {y} CV • Ore {h:02d}:00")
 
+    def _get_kit_summary_text(self):
+        c = len(self.campaign.starter_kit) if getattr(self, "campaign", None) and getattr(self.campaign, "starter_kit", None) else 0
+        return f"{c} oggetti configurati"
+
     def edit_starter_kit(self):
         try:
             from server.dm_dialogs import CampaignStarterKitDialog
-            # Fake dummy master adapter if needed
-            class DummyGUI:
-                def __init__(self, master, kit_items):
-                    self.master = master
-                    class Srv:
-                        class GS:
-                            def __init__(self, items): self.campaign_starter_kit = items
-                        def __init__(self, items): self.game_state = Srv.GS(items)
-                    self.server = Srv(kit_items)
-            dummy = DummyGUI(self, self.campaign.starter_kit)
-            dlg = CampaignStarterKitDialog(dummy)
+            def on_saved(saved_items):
+                self.campaign.starter_kit = [i.copy() for i in saved_items]
+                if hasattr(self, "lbl_kit_count"):
+                    self.lbl_kit_count.config(text=self._get_kit_summary_text())
+
+            dlg = CampaignStarterKitDialog(self, initial_items=self.campaign.starter_kit, on_save_callback=on_saved)
             dlg.wait_window()
-            self.campaign.starter_kit = dummy.server.game_state.campaign_starter_kit
-            self.lbl_kit_count.config(text=f"Oggetti configurati: {len(self.campaign.starter_kit)}")
         except Exception as e:
             messagebox.showerror("Errore", f"Impossibile aprire l'editor del kit: {e}", parent=self)
 
