@@ -286,7 +286,14 @@ Il server implementa un'architettura granulare per arbitrare il livello di autom
 ## 5. Operazioni del Giocatore (Player)
 
 ### Wizard di Creazione e Progressione Personaggio
-* **UI Stile Baldur's Gate**: Guida passo-passo per classe, razza, punteggi di caratteristica (Standard Array, Point Buy o Tiro Dadi), equipaggiamento iniziale e background.
+* **UI Stile Baldur's Gate in 5 Passi**:
+  * **Passo 1: Razza**: Selezione delle 9 razze canoniche 5e con matrice statistiche, longevità, sensori speciali, resistenze e sinergie. Include il **Compendio Comparativo Avanzato Master-Detail (`[ 📊 Tabella Comparativa ]`)** con ricerca live, filtri tematici a 1-click (`[Tutte]`, `[🛡️ Resistenze]`, `[👁️ Scurovisione]`, `[🏃 Taglia Piccola]`, `[⚔️ Mischia]`, `[✨ Magiche]`), tabella master a 6 colonne con scroll bidirezionale, anteprima reattiva a destra (lore, resistenze, sinergie, tratti completi e sottorazze) e selezione a doppio click.
+  * **Passo 2: Classe**: Selezione delle 12 classi canoniche 5e con Dado Vita ($1\text{d6}$–$1\text{d12}$), Caratteristiche Primarie, Tiri Salvezza, Ruolo, consigli Quick Build ed equipaggiamento di partenza. Include il **Compendio Comparativo Classi** con filtri per categoria (`[Tutte]`, `[Marziali]`, `[Incantatori]`, `[Ibridi]`, `[Esperti]`).
+  * **Passo 3: Caratteristiche**: Standard Array, Point Buy (27 punti) o Tiro Dadi (4d6 drop lowest) con applicazione automatica dei bonus razziali.
+  * **Passo 4: Background**: Competenze, lingue ed equipaggiamento di background.
+  * **Passo 5: Dettagli, Avatar & Token**: Assegnazione nome, divinità, note e caricamento dell'avatar.
+* **Avatar Personaggio & Generazione Automatica Token su Mappa**:
+  * L'immagine caricata per il personaggio (o per PNG e mostri dal DM) viene automaticamente trasformata nel **Token Grafico Tattico renderizzato sul Canvas Mappa**, con ritaglio circolare antialiased, anello colorato coordinato alla fazione/classe e scalatura automatica in base alla Taglia della creatura (da *Minuscola* $0.5\times$ a *Mastodontica* $3.5\times$).
 * **Wizard di Level-Up**: Calcola l'aumento dei PV (tiro del Dado Vita o media fissa), recupera automaticamente i privilegi di classe dall'SRD 5e, gestisce gli Aumento dei Punteggi di Caratteristica (ASI) e sblocca i nuovi slot incantesimo.
 
 ### Scheda Personaggio Interattiva
@@ -333,10 +340,19 @@ Il pannello **Economia Turno** del Giocatore si adatta automaticamente allo stat
   * **1 Naturale**: Conta come **2 Fallimenti** (a 3 fallimenti ottieni la condizione `Morto`).
 * **Subire Danni a 0 PV**: Segna automaticamente un fallimento. Un danno in eccesso pari o superiore ai PV Massimi causa la morte istantanea.
 
-### Inventario, Ingombro e Approvazione DM Online
-* Tracciamento del peso in tempo reale:
-  $$\text{Capacità di Carico} = \text{Forza} \times 15\text{ lbs}$$
-* **Approvazione DM Online**: Durante le sessioni connesse, l'aggiunta di oggetti custom o la richiesta di valuta (`🤝 Richiedi Valuta al DM`) invia una richiesta di approvazione al DM (`CURRENCY_REQUEST` / `ITEM_APPROVAL_REQUEST`).
+### Inventario, Ingombro e Approvazione DM (Online & Offline)
+* **Regole di Approvazione Master Anti-Cheat (Online & Offline)**:
+  * **Blocco Aggiunta/Rimozione Autonoma da SRD**: I giocatori non possono inserire o rimuovere arbitrariamente oggetti nell'inventario o incantesimi nel grimorio tramite il compendio SRD senza l'approvazione del Dungeon Master.
+  * Questa regola architetturale è attiva **sia durante le sessioni multiplayer connesse, sia in modalità offline durante la gestione del personaggio**, prevenendo qualsiasi alterazione arbitraria delle schede. Ogni richiesta genera un evento di approvazione formale inviato al server (`ITEM_APPROVAL_REQUEST` / `SPELL_APPROVAL_REQUEST`).
+* **Sincronizzazione Valute & Peso Reale Corretto**:
+  * **Sincronizzazione Bidirezionale**: Le monete (`MR`, `MA`, `ME`, `MO`, `MP`) sono sincronizzate in tempo reale tra la borsa nell'inventario e la tabella superiore delle valute.
+  * **Calcolo Dinamico del Peso**: Il peso totale dell'inventario somma fedelmente tutti gli oggetti fisici trasportati e il peso reale delle monete secondo la regola ufficiale 5e ($50\text{ monete} = 1\text{ lb}$).
+* **Gestione Contenitori & Spazi Extradimensionali**:
+  * Collocazione immediata a `🎒 Zaino`, `⚔️ Equipaggiato`, `🔮 Borsa Conservante`, `✨ Zaino Pratico`, o `🐴 Cavalcatura`. Il carico all'interno di borse extradimensionali (fino a 500 lbs) non grava sul peso corporeo del personaggio.
+* **Materiali di Consumo Spendibili (`[-1]` / `[+1]`)**:
+  * Pulsanti inline direttamente sulla riga dell'oggetto per munizioni, pozioni, torce e razioni per spendere o reintegrare cariche con 1 click.
+* **Diario e Note con Markdown & Convalida Master**:
+  * Il diario di campagna e le note personali supportano il rendering visivo nativo in Markdown (`**grassetto**`, `*corsivo*`, elenchi, titoli). Le modifiche richiedono la convalida del Master per garantire l'integrità della cronologia di gioco.
 
 ### Grimorio, Gestione Slot e Spell Upcasting
 * Aggiungi incantesimi tramite il browser SRD integrato.

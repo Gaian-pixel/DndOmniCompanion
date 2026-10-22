@@ -289,7 +289,14 @@ The server features a granular architecture for balancing 5e automation with hum
 
 ### Character Creation & Progression Wizard
 * Accessible via `Libreria -> Creazione Personaggio` or the Level-Up button.
-* **Baldur's Gate Styled UI**: Step-by-step guidance for class, race, ability scores (Standard Array, Point Buy, or Custom Rolls), starting gear, and background features.
+* **Baldur's Gate Styled UI in 5 Guided Steps**:
+  * **Step 1: Race**: Selection of the 9 core 5e races with ability matrix, lifespan, senses, resistances, and synergies. Includes the **Master-Detail Advanced Races Compendium (`[ 📊 Tabella Comparativa ]`)** with live search, 1-click category pills (`[Tutte]`, `[🛡️ Resistenze]`, `[👁️ Scurovisione]`, `[🏃 Taglia Piccola]`, `[⚔️ Mischia]`, `[✨ Magiche]`), 6-column master table with bidirectional scrolling, reactive preview card on the right (lore, defenses, class synergies, detailed traits, and subraces), and double-click selection.
+  * **Step 2: Class**: Selection of the 12 core 5e classes with Hit Die ($1\text{d6}$–$1\text{d12}$), Primary Abilities, Saving Throws, Party Role, Complexity, Quick Build recommendations, and starter gear preview. Includes the **Classes Comparison Compendium** with category filters (`[All]`, `[Martial]`, `[Spellcaster]`, `[Hybrid]`, `[Expert]`).
+  * **Step 3: Ability Scores**: Standard Array, Point Buy (27 points), or Dice Roll (4d6 drop lowest) with automatic racial bonus computation.
+  * **Step 4: Background**: Origin proficiencies, bonus languages, and background gear.
+  * **Step 5: Details, Portrait & Token**: Character name, deity, notes, and avatar portrait upload.
+* **Character Avatar & Automatic Map Token**:
+  * Uploaded character portraits (as well as NPC and monster art uploaded by the DM) automatically become the **Tactical Token rendered on the Map Canvas**, featuring antialiased circular framing, faction/class border coloring, condition badges, and dynamic size scaling (Tiny $0.5\times$ to Gargantuan $3.5\times$).
 * **Level-Up Wizard**:
   * Calculates HP gain (Hit Die roll or fixed average).
   * Automatically fetches class features from the 5e SRD for the new level.
@@ -346,11 +353,19 @@ The Player Action Economy panel automatically adapts to whether combat is active
   * **Natural 1**: Counts as **2 Failures** (at 3 failures, you gain the `Morto` condition).
 * **Taking Damage at 0 HP**: Automatically marks a failure (or 2 if a critical hit). Excessive damage exceeding your Max HP causes instant death.
 
-### Inventory & Encumbrance Grid
-* Real-time weight tracking:
-  $$\text{Carrying Capacity} = \text{Strength} \times 15\text{ lbs}$$
-* If total inventory weight exceeds carrying capacity, the weight counter turns red with an **Ingombrato (Encumbered)** warning.
-* **Online DM Approval**: During live connected sessions, adding custom items or requesting gold (`🤝 Request Currency from DM`) sends an approval prompt to the DM (`CURRENCY_REQUEST` / `ITEM_APPROVAL_REQUEST`).
+### Inventory, Encumbrance & DM Approval (Online & Offline)
+* **Anti-Cheat DM Approval Rules (Online & Offline)**:
+  * **Restricted Self-Addition/Removal from SRD**: Players cannot arbitrarily add items or spells to their inventory or spellbook from the SRD compendium, nor remove them at will without DM authorization.
+  * This architectural rule strictly operates **both during live multiplayer sessions and offline during character management**, safeguarding sheet integrity. Any attempted addition or removal routes a formal approval request to the DM (`ITEM_APPROVAL_REQUEST` / `SPELL_APPROVAL_REQUEST`).
+* **Currency Synchronization & True Inventory Weight**:
+  * **Bidirectional Synchronization**: Held coins (`CP`, `SP`, `EP`, `GP`, `PP`) are synchronized in real time between the inventory item list and the top currency table.
+  * **Dynamic Weight Computation**: Total inventory weight accurately reflects all carried physical items, ammunition, weapons, armor, and RAW coin weight ($50\text{ coins} = 1\text{ lb}$).
+* **Container Management & Extradimensional Storage**:
+  * Instant location assignment to `🎒 Backpack`, `⚔️ Equipped`, `🔮 Bag of Holding`, `✨ Handy Haversack`, or `🐴 Mount`. Gear inside extradimensional storage (up to 500 lbs) does not count against carried encumbrance.
+* **Spendable Consumables (`[-1]` / `[+1]`)**:
+  * Inline counter buttons on consumable inventory rows (arrows, bolts, rations, torches, potions) to spend or restore a single unit with 1 click.
+* **Markdown Journal & Notes with DM Validation**:
+  * Campaign journal and personal notes feature full visual Markdown rendering (`**bold**`, `*italics*`, bullet lists, headers). Modifications require Master validation to preserve campaign chronicle integrity.
 
 ### Spellbook, Slot Management & Spell Upcasting
 * Add spells using the built-in SRD browser.

@@ -86,7 +86,25 @@
   * **Legendary Resistances**: Up to 3/day to turn a failed save into a success.
 
 ### 🧙‍♂️ Character Creation, Sheet & Progression
-* **Baldur's Gate Styled Wizard**: Guided Level 1 creation and Level-Up wizard with automatic SRD 5e class features, Hit Dice, and spell slot progression.
+* **Baldur's Gate Styled Wizard with Master-Detail Compendiums**:
+  * **Master-Detail Races Compendium (9 Core 5e Races)**: Accessible via the `[ 📊 Tabella Comparativa ]` button in Step 1 of the Creation Wizard:
+    * **Live Search & Quick Filter Pills**: Real-time search across any trait, stat, or class plus filter buttons (`[Tutte (9)]`, `[🛡️ Resistenze]`, `[👁️ Scurovisione]`, `[🏃 Taglia Piccola]`, `[⚔️ Mischia / Forza]`, `[✨ Magiche / Carisma]`).
+    * **Master-Detail Split-View Layout**: Left comparative table (6 columns: Race with icon, Stat Bonuses, Key Traits, Damage Resistances & Defenses, Size/Speed, Recommended Classes) with bidirectional scrolling, and right reactive preview card.
+    * **Authentic 5e Rules & Lore**: Comprehensive defensive traits (Hellish Fire Resistance, Dwarven Resilience vs Poison, Fey Ancestry with Sleep Immunity, Gnome Cunning vs Mental Magic, Relentless Endurance at 1 HP, Lucky), Class Synergies, Lifespan, full mechanical trait descriptions, and subraces with double-click selection.
+  * **Classes Comparison Compendium (12 Core 5e Classes)**: Accessible in Step 2 with category filters (`[All]`, `[Martial]`, `[Spellcaster]`, `[Hybrid]`, `[Expert]`), Hit Dice (d6–d12), Primary Abilities, Saving Throws, Party Role, Quick Build recommendations, starting equipment preview, and subclasses.
+  * **Assisted Level-Up**: Automatic retrieval of class features, hit dice, and spell slot progression from the 5e SRD compendium.
+* **Character Avatar & Automatic Tactical Map Token**:
+  * Players (and DMs for NPCs and monsters) can upload a portrait for their character.
+  * The uploaded portrait automatically becomes the **tactical circular token on the map canvas** with high-definition antialiased rendering, faction/class color ring, and dynamic scale based on Creature Size (Tiny to Gargantuan).
+* **Anti-Cheat DM Approval Rules & Sheet Integrity (Online & Offline)**:
+  * **Restricted Self-Addition/Removal from SRD**: Players cannot arbitrarily add or remove items or spells from their inventory or spellbook via the SRD browser without DM authorization.
+  * This rule strictly applies **both during live multiplayer sessions and offline during character management**, safeguarding sheet integrity.
+  * **Markdown Journal & Notes with DM Validation**: Native visual rendering for Markdown-formatted text (`**bold**`, `*italics*`, bullet lists, headers) and DM approval requirement for saving campaign chronicle notes.
+  * **Organized Traits & Features View**: Clean separation between innate biological racial traits, active class features, and spendable resources.
+* **Inventory, Currencies, Containers & Spendable Consumables**:
+  * **Currency Sync & Correct Weight**: Dynamic, true-to-life inventory weight calculation including RAW coin weight ($50\text{ coins} = 1\text{ lb}$) with bidirectional synchronization between item lists and the top currency table (`CP`, `SP`, `EP`, `GP`, `PP`).
+  * **Convenient Container Management**: Fast assignment to `🎒 Backpack`, `⚔️ Equipped`, `🔮 Bag of Holding`, `✨ Handy Haversack`, or `🐴 Mount`, with tare vs contents weight tracking.
+  * **Spendable Consumables**: Quick `[-1]` / `[+1]` buttons directly on the inventory row for ammunition (arrows, bolts), rations, torches, and potions to spend resources on the fly.
 * **Short Rest Hit Dice Spending (RAW PHB p. 186)**:
   * Interactive modal `ShortRestDialog` featuring current/max HP, progress health bar, and remaining Hit Dice count.
   * Single-click button to **spend 1 Hit Die at a time** ($1\text{dY} + \text{CON Mod}$, min 1 healed), instantly updating sheet and chat log.
@@ -101,7 +119,6 @@
   * **Tactical "Drop Backpack" Action**: 1-click quick toggle (`[ 🎒 Drop Backpack ]` $\leftrightarrow$ `[ 🎒 Pick Up Backpack ]`) as a free Object Interaction; instantly excludes backpack gear weight from carried load, announcing the action to table chat and restoring full combat speed.
   * **5e Variant: Encumbrance Rule**: Full Strength-based thresholds ($\text{STR} \times 5$, $\text{STR} \times 10$, $\text{STR} \times 15$), RAW coin weight (50 coins = 1 lb), and dynamic penalties: *Normal*, *Encumbered* (-10 ft / -3 m speed), *Heavily Encumbered* (-20 ft / -6 m speed, Disadvantage on STR/DEX/CON attack rolls, checks, and saves), and *Overloaded* (speed drops to 0).
 * **Character Sheet Export (Official D&D 5e PDF & JSON Data)**: Dedicated modal dialog to choose between **Official PDF** (prompts for the blank 3-page D&D 5e PDF template in input, generating a fully filled sheet ready for print or sharing) and **JSON** (full raw backup for campaign import/export).
-* **Online Anti-Cheat & DM Approval**: Requesting currency (`🤝 Request Currency from DM`) or adding custom items requires DM authorization.
 * **Peer-to-Peer Trading & Macro Hotbar**: Direct item/gold transfers between allies and a 10-slot customizable quick macro bar.
 
 ### 📜 Dungeon Master Operations Suite

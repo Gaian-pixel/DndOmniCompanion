@@ -159,11 +159,30 @@ You do not need to start a session or connect to a DM server to create, view, ed
   * The **`📜 Character Sheet`** button is **always active even when disconnected**: click it at any time to inspect your character, test offline dice rolls, edit equipment, level up, manage spells, and export the official PDF.
 
 ### Character Creation Wizard & Level-Up
-* **New Character (Level 1)**: From the Character Manager, the client menu, or the sheet, launch the **Creation Wizard**. It guides you through Race, Class, Background, Ability Scores (Standard Array, Point Buy, or Dice Roll), and starting equipment.
+* **New Character (Level 1 — 5-Step Guided Creation)**: From the Character Manager, the client menu, or the launcher, launch the **Creation Wizard** inspired by Baldur's Gate 3:
+  1. **Step 1: Race**: interactive selection of the 9 core 5e races (*Human, Elf, Dwarf, Halfling, Dragonborn, Gnome, Half-Elf, Half-Orc, Tiefling*) with `[ ◀ Prev ]` / `[ Next ▶ ]` navigation, stat bonus badges, lifespan, vision senses, racial defenses, and class synergies.
+     * **Master-Detail Advanced Races Compendium (`[ 📊 Tabella Comparativa ]`)**:
+       * **Live Search & Quick Category Filters**: Instant search across all keywords plus 1-click filter pills (`[Tutte (9)]`, `[🛡️ Resistenze]`, `[👁️ Scurovisione]`, `[🏃 Taglia Piccola]`, `[⚔️ Mischia / Forza]`, `[✨ Magiche / Carisma]`).
+       * **Master-Detail Split-View Layout**: Left master table with 6 columns (`Race` with icon, `Ability Bonuses`, `Key Traits`, `Resistances & Defenses`, `Size / Speed`, `Recommended Classes`) featuring bidirectional scrolling. Right **Reactive Preview Card** instantly updating when clicking any row or using arrow keys.
+       * **Authentic 5e Rules & Lore**: Comprehensive passive defenses (*Hellish Resistance to Fire* for Tieflings, *Dwarven Resilience vs Poison* for Dwarves, *Fey Ancestry with Sleep Immunity* for Elves/Half-Elves, *Gnome Cunning vs Mental Magic* for Gnomes, *Draconic Damage Resistance* for Dragonborn, *Relentless Endurance at 1 HP* for Half-Orcs, *Lucky and Brave* for Halflings), recommended classes, mechanical breakdown of all traits, and subraces preview.
+       * **Instant Selection**: Double-clicking any row or pressing `[ ✓ Scegli Questa Razza ]` selects the race and returns to the wizard.
+  2. **Step 2: Class**: choose from the 12 core 5e classes with Hit Die ($1\text{d6}$–$1\text{d12}$), Primary Abilities, Saving Throws, Party Role, Complexity, Quick Build recommendations, starter gear preview, and archetypes.
+     * **Classes Comparison Compendium**: Category filter pills (`[All]`, `[Martial]`, `[Spellcaster]`, `[Hybrid]`, `[Expert]`) for party balance analysis.
+  3. **Step 3: Ability Scores**: assign attributes via **Standard Array** (15, 14, 13, 12, 10, 8), **Point Buy** (27 points), or **Dice Roll** (4d6 drop lowest), with automatic, transparent application of racial bonuses to the final sheet.
+  4. **Step 4: Background & Alignment**: select background origin, bonus skills, and personality traits.
+  5. **Step 5: Details, Portrait & Finalization**: character name, deity, notes, and **Character Avatar Upload**.
 * **Leveling Up (`Level Up (+)`)**: Inside the Character Sheet, click `Level Up (+)`:
   * Choose between the **fixed average** Hit Die value or **rolling**.
   * The wizard automatically fetches **new class features** and updates **spell slots** for your new level from the 5e SRD.
   * At ASI levels (e.g., 4, 8, 12, 16, 19), assign your **Ability Score Improvement (+2 / +1+1)** or Feat.
+
+### Character Avatar & Tactical Map Token
+* **Avatar Upload**: During character creation (Step 5) or directly from the Character Sheet, players can upload a custom character portrait (PNG, JPG, WEBP).
+* **High-Definition Map Token**:
+  * The uploaded portrait automatically becomes the **Tactical Token rendered on the Map Canvas**.
+  * Antialiased circular cropping, faction/class border ring, and condition badges.
+  * Dynamically scaled according to **Creature Size** (Tiny $0.5\times$, Medium $1.0\times$, up to Gargantuan $3.5\times$).
+  * The same feature is available to the DM for NPCs and monsters.
 
 In the **`Player Controls`** tab on the right sidebar, the **Hero Summary Card** is always visible at the top:
 * Displays Name, Class/Race/Level, Current/Max HP (plus Temporary HP, Exhaustion level, and active Conditions).
@@ -310,7 +329,21 @@ The **Turn Economy** section in the `Player Controls` tab automatically adapts t
   * **Long Rest**: fully restores HP, all Spell Slots, reduces Exhaustion by 1, recharges all class resources, and **regains up to half of the character's total Hit Dice** ($\max(1, \lfloor\text{Total}/2\rfloor)$ as per official 5e RAW).
 
 ### Inventory, Encumbrance, Trading & DM Approval
-* **Online Security (DM Approval)**: while connected to a live session, ability scores and Max HP are locked. To add currency or custom items, click **`🤝 Request Currency from DM`** or add an item: the DM receives an instant approval prompt.
+* **Anti-Cheat DM Approval Rules & Sheet Integrity (Online & Offline)**:
+  * **Restricted Self-Addition/Removal from SRD**: Players cannot arbitrarily add items or spells to their inventory or spellbook from the SRD compendium, nor remove them at will without DM authorization.
+  * This rule strictly applies **both during live multiplayer sessions and offline during character management**, preserving narrative consistency and preventing unauthorized sheet alterations.
+  * Any attempted addition or removal generates a formal DM approval request (`ITEM_APPROVAL_REQUEST` / `SPELL_APPROVAL_REQUEST`) or remains held pending authorization.
+* **Currency Synchronization & True Inventory Weight**:
+  * **Bidirectional Sync**: Held coins (`CP`, `SP`, `EP`, `GP`, `PP`) are synchronized in real time between the inventory item list and the top currency table. Modifying coins in the top table instantly updates the pouch in the inventory, and vice versa.
+  * **Accurate Real Weight (RAW PHB p. 143)**: Inventory weight accurately calculates the total sum of all physical equipment, weapons, armor, ammunition, and RAW coin weight ($50\text{ coins} = 1\text{ lb}$).
+* **Convenient Container Management & Extradimensional Spaces**:
+  * Instant location assignment to `🎒 Backpack`, `⚔️ Equipped`, `🔮 Bag of Holding`, `✨ Handy Haversack`, or `🐴 Mount`.
+  * Items placed in extradimensional storage (e.g., *Bag of Holding*, up to 500 lbs) do not burden the character's carried load.
+* **Spendable Consumables (`[-1]` / `[+1]`)**:
+  * Inventory rows for consumable items (arrows, bolts, rations, torches, potions) include quick `[-1]` and `[+1]` buttons to spend or restore a single unit with 1 click during combat or exploration.
+* **Markdown Journal & Notes with DM Validation**:
+  * The campaign journal and personal notes support full visual Markdown rendering (`**bold**`, `*italics*`, bullet lists, headers).
+  * Modifying and saving chronicle notes requires Master validation to maintain narrative alignment.
 * **Trading with Allies (`Give` / `🤝 Give Gold to Ally`)**: transfer items or gold pieces directly to another connected party member.
 
 ### Character Sheet Export (Official D&D 5e PDF & JSON)

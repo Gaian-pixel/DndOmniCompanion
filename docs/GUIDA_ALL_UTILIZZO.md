@@ -160,11 +160,30 @@ Non è necessario avviare una sessione o collegarsi a un server per creare, cons
   * Il pulsante **`📜 Scheda PG`** rimane **sempre attivo anche da disconnesso**: cliccandolo puoi visualizzare e modificare la scheda dell'eroe selezionato, testare i tiri di dado offline, gestire armi, inventario, grimorio ed esportare la scheda.
 
 ### Creazione Personaggio (Wizard) e Level-Up
-* **Nuovo Personaggio (Livello 1)**: Dalla finestra di selezione personaggio, dalla Gestione Personaggi o dal menu, avvia il **Wizard di Creazione**. Ti guiderà nella scelta di Razza, Classe, Background, distribuzione delle Caratteristiche (Standard Array, Point Buy o Tiro Dadi) ed equipaggiamento iniziale.
+* **Nuovo Personaggio (Livello 1 — Procedura Guidata in 5 Passi)**: Dalla finestra di selezione personaggio, dalla Gestione Personaggi o dal menu, avvia il **Wizard di Creazione** in stile Baldur's Gate 3:
+  1. **Passo 1: Razza**: selezione interattiva delle 9 razze canoniche 5e (*Umano, Elfo, Nano, Halfling, Draconide, Gnomo, Mezzelfo, Mezzorco, Tiefling*) con navigazione rapida `[ ◀ Prec. ]` / `[ Succ. ▶ ]`, matrice statistiche, longevità, sensori speciali, riquadro resistenze e sinergie di classe.
+     * **Compendio Comparativo Avanzato Master-Detail (`[ 📊 Tabella Comparativa ]`)**:
+       * **Ricerca Live & Filtri Tematici Rapidi**: Barra di ricerca istantanea su qualsiasi parola chiave e pillole filtro a 1-click (`[Tutte (9)]`, `[🛡️ Resistenze]`, `[👁️ Scurovisione]`, `[🏃 Taglia Piccola]`, `[⚔️ Mischia / Forza]`, `[✨ Magiche / Carisma]`).
+       * **Layout Split-View Master-Detail**: A sinistra, tabella master a 6 colonne (`Razza` con icona, `Bonus Caratteristiche`, `Tratti Razziali Chiave`, `Resistenze & Difese`, `Taglia / Vel.`, `Classi Consigliate`) con scroll verticale e orizzontale. A destra, **Scheda Anteprima Reattiva** che si aggiorna in tempo reale cliccando su una riga o scorrendo con la tastiera.
+       * **Dati Meccanici & Lore RAW 5e**: Censimento completo delle difese passive (*Resistenza Infernale al Fuoco* per Tiefling, *Resilienza Nanica vs Veleno* per Nani, *Retaggio Fatato con Immunità al Sonno Magico* per Elfi/Mezzelfi, *Astuzia Gnomesca sui TS vs Magia* per Gnomi, *Resistenza Elementale da Stirpe* per Draconidi, *Tenacia Implacabile a 1 PF* per Mezzorchi, *Fortunato e Coraggioso* per Halfling), classi e sinergie consigliate, spiegazione approfondita di tutti i tratti razziali e anteprima delle sottorazze/varianti.
+       * **Selezione Immediata**: Doppio click su una riga o pulsante `[ ✓ Scegli Questa Razza ]` per applicare la scelta al personaggio e tornare al wizard.
+  2. **Passo 2: Classe**: selezione tra le 12 classi canoniche 5e con Dado Vita ($1\text{d6}$–$1\text{d12}$), Caratteristiche Primarie, Tiri Salvezza con competenza, Ruolo Tattico, Complessità di gioco, consigli Quick Build per neofiti, anteprima equipaggiamento iniziale e sottoclassi.
+     * **Compendio Comparativo Classi**: Tabella comparativa con filtri per categoria (`[Tutte]`, `[Marziali]`, `[Incantatori]`, `[Ibridi]`, `[Esperti]`) per analizzare ruoli e bilanciamento del party.
+  3. **Passo 3: Caratteristiche**: assegnazione punteggi con **Standard Array** (15, 14, 13, 12, 10, 8), **Point Buy** (27 punti) o **Tiro Dadi** (4d6 drop lowest), con somma trasparente e automatica dei bonus razziali alla scheda finale.
+  4. **Passo 4: Background & Allineamento**: scelta dell'origine narrativa, competenze aggiuntive e tratti di personalità.
+  5. **Passo 5: Dettagli, Avatar e Finalizzazione**: assegnazione nome, divinità, note e caricamento dell'immagine avatar del personaggio.
 * **Salita di Livello (`Level Up (+)`)**: Nella Scheda PG, clicca su `Level Up (+)`:
   * Scegli se prendere il **valore medio** del Dado Vita o effettuare il **tiro**.
   * Il sistema scarica automaticamente dal Compendio SRD 5e i **nuovi privilegi di classe** e aggiorna gli **slot incantesimo** del nuovo livello.
   * Ai livelli previsti (es. 4, 8, 12, 16, 19) puoi assegnare l'**Aumento dei Punteggi di Caratteristica (+2 / +1+1)** o un Talento.
+
+### Avatar Personaggio e Generazione Automatica Token su Mappa
+* **Caricamento Avatar**: Sia durante la creazione guidata (Passo 5) sia dalla Scheda Personaggio, il giocatore può caricare un'immagine personalizzata per il proprio eroe (formati PNG, JPG, WEBP).
+* **Token Tattico ad Alta Risoluzione**:
+  * L'immagine del personaggio diventa automaticamente il **Token Grafico visualizzato sul Canvas della Mappa**.
+  * Il motore esegue un ritaglio circolare antialiasing con bordo coordinato (colore fazione/classe) e integra il badge delle condizioni attive.
+  * Il token viene scalato automaticamente in base alla **Taglia della creatura** (da *Minuscola* $0.5\times$ a *Media* $1.0\times$ fino a *Mastodontica* $3.5\times$).
+  * La stessa logica si applica al DM per il caricamento dei ritratti di PNG e mostri.
 
 ### Hero Summary Card e Scheda Personaggio Interattiva
 Nel tab **`Controlli PG`** della sidebar destra trovi sempre in primo piano la **Hero Summary Card**:
@@ -311,7 +330,21 @@ La sezione **Economia Turno** nel tab `Controlli PG` si adatta automaticamente a
   * **Riposo Lungo**: ripristina tutti i PV, tutti gli Slot Incantesimo, azzera i livelli di Indebolimento (Exhaustion -1), ricarica tutte le risorse di classe e **recupera fino a metà dei Dadi Vita totali** del personaggio ($\max(1, \lfloor\text{Totale}/2\rfloor)$ come da regole RAW 5e).
 
 ### Inventario, Ingombro, Scambi e Richieste al DM
-* **Sicurezza Online (Approvazione DM)**: mentre sei connesso a una sessione live, i punteggi di caratteristica e i PV massimi sono protetti. Per aggiungere monete o oggetti custom puoi cliccare su **`🤝 Richiedi Valuta al DM`** o aggiungere un oggetto: il DM riceverà un pop-up di approvazione istantanea.
+* **Regole di Approvazione Master Anti-Cheat & Integrità Scheda (Online & Offline)**:
+  * **Blocco Aggiunta/Rimozione Autonoma da SRD**: I giocatori non possono inserire arbitrariamente nuovi oggetti nell'inventario né incantesimi nel grimorio sfogliando l'SRD compendium, né rimuoverli a proprio piacimento senza l'approvazione del Dungeon Master.
+  * Questa regola opera rigorosamente **sia durante le sessioni connesse, sia in modalità offline durante la gestione del personaggio**, garantendo la fedeltà alla narrazione del Master e impedendo alterazioni arbitrarie dell'equipaggiamento e della lista incantesimi.
+  * Qualsiasi aggiunta o rimozione genera una richiesta formale di approvazione al DM (`ITEM_APPROVAL_REQUEST` / `SPELL_APPROVAL_REQUEST`) o rimane bloccata in attesa di convalida.
+* **Sincronizzazione Valute & Calcolo Dinamico del Peso**:
+  * **Sincronizzazione Bidirezionale**: Le monete possedute (`MR`, `MA`, `ME`, `MO`, `MP`) sono sincronizzate in tempo reale tra la lista dell'inventario e la tabella superiore delle valute. Modificare le monete nella tabella superiore aggiorna istantaneamente la borsa delle monete nell'inventario e viceversa.
+  * **Peso Reale Corretto (RAW PHB p. 143)**: Il peso dell'inventario non è più azzerato o statico, ma riflette fedelmente il peso sommato di tutti gli oggetti fisici, munizioni, armi, armature e il peso reale delle monete ($50\text{ monete} = 1\text{ lb}$).
+* **Gestione Comoda Contenitori & Spazi Extradimensionali**:
+  * Assegnazione immediata a `🎒 Zaino`, `⚔️ Equipaggiato`, `🔮 Borsa Conservante`, `✨ Zaino Pratico`, o `🐴 Cavalcatura`.
+  * Il peso degli oggetti contenuti in spazi extradimensionali (es. *Borsa Conservante*, fino a 500 lbs) viene escluso dal carico corporeo del personaggio, preservandone la mobilità.
+* **Materiali di Consumo Spendibili (`[-1]` / `[+1]`)**:
+  * Nella riga di ciascun oggetto di consumo (frecce, quadrelli, dardi, razioni, torce, fiale d'olio, pozioni) sono presenti comodi pulsanti rapidi `[-1]` e `[+1]` per spendere o reintegrare una singola unità con 1 click senza dover aprire finestre di modifica.
+* **Diario e Note con Markdown & Convalida Master**:
+  * Il diario di campagna e le note personali della Scheda PG supportano il rendering visivo completo in Markdown (`**grassetto**`, `*corsivo*`, elenchi puntati, titoli).
+  * La modifica del diario e delle cronache richiede l'approvazione del Master per preservare la coerenza della storia.
 * **Scambi con Alleati (`Dai` / `🤝 Dai Oro a Compagno`)**: puoi trasferire oggetti o monete direttamente a un altro giocatore connesso.
 
 ### Esportazione Scheda Personaggio (PDF Ufficiale D&D 5e e JSON)

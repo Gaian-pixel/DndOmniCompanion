@@ -86,7 +86,25 @@
   * **Resistenze Leggendarie**: Fino a 3/giorno per trasformare un fallimento al TS in successo.
 
 ### 🧙‍♂️ Creazione Personaggio, Scheda PG & Progressione
-* **Wizard Stile Baldur's Gate**: Creazione guidata al Livello 1 e Level-Up assistito con recupero automatico di privilegi di classe, dadi vita e slot incantesimo dal Compendio SRD 5e.
+* **Wizard Stile Baldur's Gate con Compendi Comparativi Master-Detail**:
+  * **Compendio Comparativo Razze Master-Detail (9 Razze Canoniche 5e)**: Accessibile con il pulsante `[ 📊 Tabella Comparativa ]` nel Passo 1 del Wizard:
+    * **Ricerca e Filtri Rapidi**: Ricerca istantanea su qualsiasi campo e filtri a pulsante (`[Tutte (9)]`, `[🛡️ Resistenze]`, `[👁️ Scurovisione]`, `[🏃 Taglia Piccola]`, `[⚔️ Mischia / Forza]`, `[✨ Magiche / Carisma]`).
+    * **Layout Split-View Master-Detail**: Tabella comparativa a sinistra (6 colonne: Razza con icona, Bonus, Tratti Chiave, Resistenze & Difese, Taglia/Vel., Classi Consigliate) e Scheda Anteprima reattiva a destra.
+    * **Dati Meccanici & Lore RAW 5e**: Censimento completo delle difese passive (Resistenza Infernale al Fuoco, Resilienza Nanica vs Veleno, Retaggio Fatato con Immunità al Sonno Magico, Astuzia Gnomesca vs Magia, Tenacia Implacabile a 1 PF, Fortunato), Sinergie e Classi ideali, longevità, tutti i tratti con spiegazione delle meccaniche e sottorazze con selezione rapida a doppio click.
+  * **Compendio Comparativo Classi (12 Classi Canoniche 5e)**: Accessibile nel Passo 2 con filtri per categoria (`[Tutte]`, `[Marziali]`, `[Incantatori]`, `[Ibridi]`, `[Esperti]`), Dadi Vita (d6–d12), Caratteristiche Primarie, Tiri Salvezza, Ruolo nel party, consigli Quick Build, anteprima equipaggiamento iniziale e sottoclassi.
+  * **Level-Up Assistito**: Recupero automatico di privilegi di classe, dadi vita e slot incantesimo dal Compendio SRD 5e.
+* **Avatar Personaggio & Generazione Automatica Token sulla Mappa**:
+  * Possibilità per i giocatori (e per il DM con PNG e mostri) di caricare un'immagine per il proprio personaggio.
+  * L'immagine caricata diventa automaticamente il **Token visivo renderizzato sulla mappa tattica**, con ritaglio circolare ad alta definizione, bordo colorato coordinato e scalatura dinamica in base alla Taglia della creatura (da *Minuscola* a *Mastodontica*).
+* **Regole di Approvazione Master Anti-Cheat & Integrità Scheda (Online & Offline)**:
+  * **Blocco Aggiunta/Rimozione Autonoma da SRD**: I giocatori non possono inserire o rimuovere arbitrariamente oggetti dall'inventario o incantesimi dal grimorio tramite l'SRD compendium senza l'approvazione del Dungeon Master.
+  * Tale regola vige rigorosamente **sia durante le sessioni connesse, sia in modalità offline**, garantendo la totale integrità delle schede e prevenendo alterazioni non autorizzate.
+  * **Diario e Note con Markdown & Approvazione DM**: Rendering visivo integrato per il testo formattato in Markdown (`**grassetto**`, `*corsivo*`, elenchi puntati, intestazioni) e richiesta di convalida del Master per il salvataggio delle cronache di campagna.
+  * **Visualizzazione Riorganizzata di Tratti & Privilegi**: Chiara separazione tra tratti razziali biologici, privilegi di classe attivi e risorse spendibili.
+* **Inventario, Monete, Contenitori e Consumabili Spendibili**:
+  * **Sincronizzazione Valute & Peso Corretto**: Calcolo dinamico e veritiero del peso reale dell'inventario comprensivo del peso delle monete ($50\text{ monete} = 1\text{ lb}$) con sincronizzazione automatica bidirezionale tra gli oggetti fisici e la tabella superiore delle valute (`MR`, `MA`, `ME`, `MO`, `MP`).
+  * **Gestione Contenitori Comoda**: Assegnazione immediata degli oggetti a `🎒 Zaino`, `⚔️ Equipaggiato`, `🔮 Borsa Conservante`, `✨ Zaino Pratico`, o `🐴 Cavalcatura`, con peso proprio vs peso trasportato.
+  * **Materiali di Consumo Spendibili**: Pulsanti rapidi `[-1]` / `[+1]` sulla riga di munizioni (frecce, quadrelli), razioni, torce e pozioni per spendere risorse al volo durante l'avventura.
 * **Spesa Dadi Vita nel Riposo Breve (RAW PHB p. 186)**:
   * Dialogo modale interattivo `ShortRestDialog` con anteprima PV attuali/massimi, barra salute progressiva e dadi vita rimasti.
   * Pulsante per **spendere 1 singolo Dado Vita** alla volta ($1\text{dY} + \text{Mod COS}$, min 1 recuperato), aggiornando istantaneamente la scheda e la chat.
@@ -101,7 +119,6 @@
   * **Tattica "Sfila lo Zaino a Terra" (*Drop Backpack*)**: Azione rapida a 1-click (`[ 🎒 Sfila Zaino a Terra ]` $\leftrightarrow$ `[ 🎒 Raccogli Zaino ]`) come Interazione con Oggetto Gratuita; esclude istantaneamente il peso degli oggetti nello zaino dal carico corporeo del personaggio, annunciando l'azione in chat e ripristinando la velocità piena in combattimento.
   * **Regola Variante di Ingombro (Variant: Encumbrance)**: Riconoscimento scaglioni di peso basati su FOR ($\text{FOR} \times 5$, $\text{FOR} \times 10$, $\text{FOR} \times 15$), peso reale monete (50 monete = 1 lb) e penalità dinamiche: *Normale*, *Ingombrato* (-10 ft / -3 m vel.), *Gravemente Ingombrato* (-20 ft / -6 m vel. e Svantaggio a tiri per colpire, prove e TS FOR/DES/COS) e *Sovraccarico* (movimento 0).
 * **Esportazione Scheda Personaggio (PDF Ufficiale D&D 5e e JSON Dati)**: Finestra modale per scegliere tra **PDF Ufficiale** (richiede in input il modello PDF vuoto D&D 5e e compila automaticamente la scheda a 3 pagine pronta per la stampa o la condivisione) e **JSON** (backup grezzo per import/export tra campagne).
-* **Approvazione DM Anti-Cheat in Sessione**: Durante le sessioni online, l'aggiunta manuale di valuta o oggetti custom invia una richiesta di approvazione al DM (`🤝 Richiedi Valuta al DM`).
 * **Scambi Peer-to-Peer e Macro Hotbar**: Scambio diretto di oggetti/monete con gli alleati e barra rapida a 10 slot personalizzabili.
 
 ### 📜 Suite Operativa per il Dungeon Master
