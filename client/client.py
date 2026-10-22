@@ -361,11 +361,20 @@ class ClientGUI:
         hero_card = tk.Frame(controls_tab, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
         hero_card.pack(fill=tk.X, pady=(0, 8))
         
-        self.hero_name_lbl = tk.Label(hero_card, text=self.name or _t("no_character"), font=FONT_HEADER, bg=SURFACE_COLOR, fg=ACCENT_GOLD)
+        hero_top = tk.Frame(hero_card, bg=SURFACE_COLOR)
+        hero_top.pack(fill=tk.X, pady=(0, 6))
+
+        self.hero_token_canvas = tk.Canvas(hero_top, width=44, height=44, bg=SURFACE_COLOR, highlightthickness=0)
+        self.hero_token_canvas.pack(side=tk.LEFT, padx=(0, 8))
+
+        hero_text_col = tk.Frame(hero_top, bg=SURFACE_COLOR)
+        hero_text_col.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.hero_name_lbl = tk.Label(hero_text_col, text=self.name or _t("no_character"), font=FONT_HEADER, bg=SURFACE_COLOR, fg=ACCENT_GOLD)
         self.hero_name_lbl.pack(anchor="w")
         
-        self.hero_class_lbl = tk.Label(hero_card, text=_t("adventurer_lvl", lvl=1), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
-        self.hero_class_lbl.pack(anchor="w", pady=(0, 6))
+        self.hero_class_lbl = tk.Label(hero_text_col, text=_t("adventurer_lvl", lvl=1), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
+        self.hero_class_lbl.pack(anchor="w")
         
         # Barra HP Visuale
         hp_row = tk.Frame(hero_card, bg=SURFACE_COLOR)
@@ -706,6 +715,11 @@ class ClientGUI:
     def update_hero_summary_card(self):
         if not hasattr(self, 'hero_name_lbl'): return
         char = getattr(self, 'active_character', None)
+        if hasattr(self, 'hero_token_canvas'):
+            from common.image_utils import render_avatar_on_canvas
+            av_b64 = getattr(char, 'avatar_b64', "") if char else ""
+            c_name = char.name if char else (self.name or "")
+            render_avatar_on_canvas(self.hero_token_canvas, av_b64, c_name, size=44)
         pref_unit = get_distance_unit()
         default_spd_str = format_distance_hexes(6, pref_unit).replace(" ", "")
         if not char:

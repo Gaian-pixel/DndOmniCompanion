@@ -72,6 +72,8 @@ class CustomNPCDialog(tk.Toplevel):
         self.dm_gui = dm_gui
         self.on_save_callback = on_save_callback
         self.initial_data = initial_data or {}
+        self.avatar_b64 = self.initial_data.get("avatar_b64", "")
+        self.avatar_path = self.initial_data.get("avatar_path", "")
 
         name_preset = self.initial_data.get("name", "")
         if self.initial_data:
@@ -123,6 +125,40 @@ class CustomNPCDialog(tk.Toplevel):
 
         header_card.columnconfigure(1, weight=1)
         header_card.columnconfigure(3, weight=1)
+
+        # Riquadro Token Mappa per Mostro / PNG
+        avatar_frame = ttk.Frame(header_card)
+        avatar_frame.grid(row=0, column=4, rowspan=3, padx=(12, 0), sticky="n")
+
+        ttk.Label(avatar_frame, text="Token Mappa:", font=FONT_SMALL).pack(anchor="center")
+        self.token_canvas = tk.Canvas(avatar_frame, width=64, height=64, bg="#181A20", highlightthickness=0)
+        self.token_canvas.pack(pady=2)
+
+        token_btn_box = ttk.Frame(avatar_frame)
+        token_btn_box.pack(fill=tk.X, pady=(2, 0))
+
+        def _update_npc_avatar_preview():
+            from common.image_utils import render_avatar_on_canvas
+            c_name = self.name_entry.get().strip() if hasattr(self, "name_entry") else "PNG"
+            render_avatar_on_canvas(self.token_canvas, getattr(self, "avatar_b64", ""), c_name, size=64)
+
+        def _pick_npc_avatar():
+            from common.image_utils import open_avatar_file_dialog
+            b64, path = open_avatar_file_dialog(parent=self)
+            if b64:
+                self.avatar_b64 = b64
+                self.avatar_path = path
+                _update_npc_avatar_preview()
+
+        def _clear_npc_avatar():
+            self.avatar_b64 = ""
+            self.avatar_path = ""
+            _update_npc_avatar_preview()
+
+        ttk.Button(token_btn_box, text="📁 Scegli", command=_pick_npc_avatar, width=7).pack(side=tk.LEFT, padx=1)
+        ttk.Button(token_btn_box, text="❌", command=_clear_npc_avatar, width=3).pack(side=tk.LEFT, padx=1)
+
+        _update_npc_avatar_preview()
 
         # -------------------------------------------------------------
         # 2. NOTEBOOK A SCHEDE TABELLARI (Combattimento, Azioni, Equip, Note DM)
@@ -382,6 +418,8 @@ class CustomNPCDialog(tk.Toplevel):
             "equipment": equipment,
             "notes": notes,
             "desc": notes,
+            "avatar_b64": getattr(self, "avatar_b64", ""),
+            "avatar_path": getattr(self, "avatar_path", ""),
             "is_custom": True
         }
 
@@ -402,6 +440,7 @@ class CustomNPCDialog(tk.Toplevel):
             npc.initiative = init
             npc.speed = speed
             npc.is_party_member = (faction == "Alleato")
+            npc.avatar_b64 = getattr(self, "avatar_b64", "")
             npc.full_sheet = monster_sheet
 
             self.dm_gui.server.game_state.add_player(npc)

@@ -102,40 +102,57 @@ class CharacterSheetUI(tk.Toplevel):
         header_frame = tk.Frame(main_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
         header_frame.pack(fill=tk.X, pady=(0, 10))
 
-        tk.Label(header_frame, text=_t("sheet_name"), font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).grid(row=0, column=0, sticky="e", padx=(0, 4))
-        self.name_var = tk.StringVar()
-        ttk.Entry(header_frame, textvariable=self.name_var, width=16).grid(row=0, column=1, padx=4, pady=3, sticky="ew")
+        # Riquadro Avatar / Token Personaggio
+        avatar_frame = tk.Frame(header_frame, bg=SURFACE_COLOR)
+        avatar_frame.grid(row=0, column=0, rowspan=4, padx=(0, 12), sticky="n")
 
-        tk.Label(header_frame, text=_t("sheet_campaign"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=0, column=2, sticky="e", padx=(8, 4))
+        self.avatar_canvas = tk.Canvas(avatar_frame, width=64, height=64, bg="#181A20", highlightthickness=0, cursor="hand2")
+        self.avatar_canvas.pack(pady=(0, 2))
+        self.avatar_canvas.bind("<Button-1>", lambda e: self._on_avatar_clicked())
+        self.avatar_canvas.bind("<Button-3>", self._on_avatar_right_click)
+        ToolTip(self.avatar_canvas, "Clicca per caricare o modificare l'immagine del token sulla mappa")
+
+        self.btn_edit_avatar = tk.Button(
+            avatar_frame, text="📷 Token", font=("Segoe UI", 8),
+            bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, activebackground=SURFACE_COLOR,
+            relief=tk.FLAT, bd=0, padx=4, pady=1, command=self._on_avatar_clicked
+        )
+        self.btn_edit_avatar.pack()
+
+        tk.Label(header_frame, text=_t("sheet_name"), font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).grid(row=0, column=1, sticky="e", padx=(0, 4))
+        self.name_var = tk.StringVar()
+        ttk.Entry(header_frame, textvariable=self.name_var, width=16).grid(row=0, column=2, padx=4, pady=3, sticky="ew")
+
+        tk.Label(header_frame, text=_t("sheet_campaign"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=0, column=3, sticky="e", padx=(8, 4))
         self.campaign_var = tk.StringVar()
-        ttk.Entry(header_frame, textvariable=self.campaign_var, width=14).grid(row=0, column=3, padx=4, pady=3, sticky="ew")
+        ttk.Entry(header_frame, textvariable=self.campaign_var, width=14).grid(row=0, column=4, padx=4, pady=3, sticky="ew")
 
         self.levelup_btn = ttk.Button(header_frame, text=_t("sheet_levelup_btn"), command=self.level_up, style="Gold.TButton")
-        self.levelup_btn.grid(row=0, column=4, columnspan=3, padx=(10, 0), pady=3, sticky="ew")
+        self.levelup_btn.grid(row=0, column=5, columnspan=3, padx=(10, 0), pady=3, sticky="ew")
 
-        tk.Label(header_frame, text=_t("sheet_class"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=1, column=0, sticky="e", padx=(0, 4))
+        tk.Label(header_frame, text=_t("sheet_class"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=1, column=1, sticky="e", padx=(0, 4))
         self.class_var = tk.StringVar()
-        ttk.Entry(header_frame, textvariable=self.class_var, width=16).grid(row=1, column=1, padx=4, pady=3, sticky="ew")
+        ttk.Entry(header_frame, textvariable=self.class_var, width=16).grid(row=1, column=2, padx=4, pady=3, sticky="ew")
 
-        tk.Label(header_frame, text=_t("sheet_level"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=1, column=2, sticky="e", padx=(8, 4))
+        tk.Label(header_frame, text=_t("sheet_level"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=1, column=3, sticky="e", padx=(8, 4))
         self.level_var = tk.IntVar()
         self.level_var.trace_add("write", lambda *args: self.update_skill_modifiers() if hasattr(self, "update_skill_modifiers") else None)
-        ttk.Entry(header_frame, textvariable=self.level_var, width=4, state="readonly", justify="center").grid(row=1, column=3, padx=4, pady=3, sticky="w")
+        ttk.Entry(header_frame, textvariable=self.level_var, width=4, state="readonly", justify="center").grid(row=1, column=4, padx=4, pady=3, sticky="w")
         
-        tk.Label(header_frame, text=_t("sheet_exp"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=1, column=4, sticky="e", padx=(8, 4))
+        tk.Label(header_frame, text=_t("sheet_exp"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=1, column=5, sticky="e", padx=(8, 4))
         self.exp_label = tk.Label(header_frame, text="0 / 300", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_COLOR)
-        self.exp_label.grid(row=1, column=5, padx=4, pady=3, sticky="w")
+        self.exp_label.grid(row=1, column=6, padx=4, pady=3, sticky="w")
         self.exp_progress = ttk.Progressbar(header_frame, length=90, mode='determinate')
-        self.exp_progress.grid(row=1, column=6, padx=4, pady=3, sticky="w")
+        self.exp_progress.grid(row=1, column=7, padx=4, pady=3, sticky="w")
 
-        tk.Label(header_frame, text=_t("sheet_race"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=2, column=0, sticky="e", padx=(0, 4))
+        tk.Label(header_frame, text=_t("sheet_race"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=2, column=1, sticky="e", padx=(0, 4))
         self.race_var = tk.StringVar()
-        ttk.Entry(header_frame, textvariable=self.race_var, width=16).grid(row=2, column=1, padx=4, pady=3, sticky="ew")
+        ttk.Entry(header_frame, textvariable=self.race_var, width=16).grid(row=2, column=2, padx=4, pady=3, sticky="ew")
 
-        tk.Label(header_frame, text="Sottoclasse:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=2, column=2, sticky="e", padx=(8, 4))
+        tk.Label(header_frame, text="Sottoclasse:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=2, column=3, sticky="e", padx=(8, 4))
         self.subclass_var = tk.StringVar()
         self.subclass_combo = ttk.Combobox(header_frame, textvariable=self.subclass_var, width=14)
-        self.subclass_combo.grid(row=2, column=3, padx=4, pady=3, sticky="ew")
+        self.subclass_combo.grid(row=2, column=4, padx=4, pady=3, sticky="ew")
         ToolTip(self.subclass_combo, "Sottoclasse / Archetipo D&D 5e (Seleziona dalla lista SRD o digita il tuo archetipo)")
 
         self.btn_inspiration = tk.Button(
@@ -143,15 +160,15 @@ class CharacterSheetUI(tk.Toplevel):
             bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, activebackground=SURFACE_COLOR,
             relief=tk.FLAT, bd=0, padx=8, pady=2, command=self.on_inspiration_clicked
         )
-        self.btn_inspiration.grid(row=2, column=4, columnspan=3, padx=(8, 0), pady=3, sticky="ew")
+        self.btn_inspiration.grid(row=2, column=5, columnspan=3, padx=(8, 0), pady=3, sticky="ew")
 
-        tk.Label(header_frame, text="Background:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=3, column=0, sticky="e", padx=(0, 4))
+        tk.Label(header_frame, text="Background:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=3, column=1, sticky="e", padx=(0, 4))
         self.background_var = tk.StringVar()
-        ttk.Entry(header_frame, textvariable=self.background_var, width=16).grid(row=3, column=1, padx=4, pady=3, sticky="ew")
+        ttk.Entry(header_frame, textvariable=self.background_var, width=16).grid(row=3, column=2, padx=4, pady=3, sticky="ew")
 
-        tk.Label(header_frame, text="Allineamento:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=3, column=2, sticky="e", padx=(8, 4))
+        tk.Label(header_frame, text="Allineamento:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=3, column=3, sticky="e", padx=(8, 4))
         self.alignment_var = tk.StringVar()
-        ttk.Entry(header_frame, textvariable=self.alignment_var, width=14).grid(row=3, column=3, padx=4, pady=3, sticky="ew")
+        ttk.Entry(header_frame, textvariable=self.alignment_var, width=14).grid(row=3, column=4, padx=4, pady=3, sticky="ew")
 
         # Corpo centrale
         body_frame = ttk.Frame(main_frame)
@@ -1439,7 +1456,37 @@ class CharacterSheetUI(tk.Toplevel):
                 break
         self.subclass_combo['values'] = found_options
 
+
+    def _on_avatar_clicked(self):
+        from common.image_utils import open_avatar_file_dialog, render_avatar_on_canvas
+        b64, path = open_avatar_file_dialog(parent=self)
+        if b64:
+            self.character.avatar_b64 = b64
+            self.character.avatar_path = path
+            render_avatar_on_canvas(self.avatar_canvas, b64, self.character.name, size=64)
+            self.manager.update_character(self.character)
+            if self.is_connected and self.on_save_callback:
+                self.on_save_callback(self.character)
+
+    def _on_avatar_right_click(self, event):
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="📁 Scegli Nuova Immagine Token...", command=self._on_avatar_clicked)
+        menu.add_command(label="❌ Rimuovi Immagine Token", command=self._remove_avatar)
+        menu.tk_popup(event.x_root, event.y_root)
+
+    def _remove_avatar(self):
+        from common.image_utils import render_avatar_on_canvas
+        self.character.avatar_b64 = ""
+        self.character.avatar_path = ""
+        render_avatar_on_canvas(self.avatar_canvas, "", self.character.name, size=64)
+        self.manager.update_character(self.character)
+        if self.is_connected and self.on_save_callback:
+            self.on_save_callback(self.character)
+
     def load_data(self):
+        from common.image_utils import render_avatar_on_canvas
+        if hasattr(self, "avatar_canvas"):
+            render_avatar_on_canvas(self.avatar_canvas, getattr(self.character, "avatar_b64", ""), self.character.name, size=64)
         self.name_var.set(self.character.name)
         self.campaign_var.set(self.character.campaign)
         self.class_var.set(self.character.char_class)

@@ -385,6 +385,7 @@ class DM_GUI:
         self.player_menu.add_command(label=_t("ctx_spend_legendary"), command=self.open_spend_legendary_action_dialog)
         self.player_menu.add_command(label=_t("ctx_set_owner"), command=self.open_set_owner_dialog)
         self.player_menu.add_command(label=_t("ctx_open_private_chat"), command=self.open_private_chat_from_context)
+        self.player_menu.add_command(label="🖼️ Imposta Immagine / Token...", command=self.open_set_token_image_dialog)
         self.player_menu.add_separator()
         size_menu = tk.Menu(
             self.player_menu, tearoff=0,
@@ -1922,7 +1923,7 @@ class DM_GUI:
                 "aura_color": getattr(p, "aura_color", "yellow"),
                 "light_radius": getattr(p, "light_radius", 0),
                 "light_color": getattr(p, "light_color", "#FFD700"),
-                "avatar_b64": getattr(p, "avatar_b64", None),
+                "avatar_b64": getattr(p, "avatar_b64", None) or (p.full_sheet.get("avatar_b64") if isinstance(getattr(p, "full_sheet", None), dict) else None),
                 "is_hidden": getattr(p, "is_hidden", False),
                 "legendary_resistances_max": getattr(p, "legendary_resistances_max", 0),
                 "legendary_actions_max": getattr(p, "legendary_actions_max", 0),
@@ -3026,6 +3027,28 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
 
     def open_spend_legendary_action_dialog(self):
         return dm_open_spend_legendary_action_dialog(self)
+
+    def open_set_token_image_dialog(self):
+        target_name = self.get_selected_player_name()
+        if not target_name:
+            messagebox.showinfo("Seleziona Token", "Seleziona prima un token o entità dalla lista o dalla mappa.", parent=self.master)
+            return
+        player = self.server.game_state.find_player(target_name)
+        if not player:
+            return
+
+        from common.image_utils import open_avatar_file_dialog
+        b64, path = open_avatar_file_dialog(parent=self.master)
+        if b64:
+            player.avatar_b64 = b64
+            if isinstance(getattr(player, "full_sheet", None), dict):
+                player.full_sheet["avatar_b64"] = b64
+                player.full_sheet["avatar_path"] = path
+            self.server.game_state._trigger_gui_update()
+            from common.protocol import make_game_state
+            from common.network_utils import broadcast
+            broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
+            self.show_toast(f"Token di '{target_name}' aggiornato sulla mappa!", title="Token Mappa", toast_type="success")
 
     def open_place_trap_dialog(self, clicked_hex):
         return dm_open_place_trap_dialog(self, clicked_hex)

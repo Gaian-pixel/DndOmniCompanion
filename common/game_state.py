@@ -97,7 +97,7 @@ class Player:
             "legendary_resistances_current": getattr(self, "legendary_resistances_current", 0),
             "legendary_actions_max": getattr(self, "legendary_actions_max", 0),
             "legendary_actions_current": getattr(self, "legendary_actions_current", 0),
-            "avatar_b64": self.full_sheet.get("avatar_b64") if self.full_sheet else None,
+            "avatar_b64": getattr(self, "avatar_b64", None) or (self.full_sheet.get("avatar_b64") if isinstance(getattr(self, "full_sheet", None), dict) else None),
             "is_party_member": getattr(self, "is_party_member", False),
             "owner": getattr(self, "owner", None),
             "speed": getattr(self, "speed", 30),
@@ -142,6 +142,7 @@ class Player:
         p.layer = data.get("layer", "token")
         p.has_darkvision = data.get("has_darkvision", None)
         p.has_lair_actions = data.get("has_lair_actions", False)
+        p.avatar_b64 = data.get("avatar_b64", None)
         return p
 
 

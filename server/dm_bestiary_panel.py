@@ -345,6 +345,7 @@ class DMBestiaryPanel(ttk.Frame):
         npc.legendary_actions_current = leg_act
         npc.has_lair_actions = has_lair
         npc.has_darkvision = extract_darkvision_flag(mdata)
+        npc.avatar_b64 = mdata.get("avatar_b64") or (mdata.get("full_sheet", {}).get("avatar_b64") if isinstance(mdata.get("full_sheet"), dict) else None)
 
         npc.full_sheet = {
             "name": npc.name,

@@ -107,6 +107,7 @@ def handle_update_full_sheet_request(data, player, game_state):
                 char_data["inventory_grid"] = client_inv
 
         player.full_sheet = char_data
+        player.avatar_b64 = char_data.get("avatar_b64") or getattr(player, "avatar_b64", None)
         player.hp = char_data.get("hp_current", player.hp)
         player.max_hp = char_data.get("hp_max", player.max_hp)
         player.temp_hp = char_data.get("temp_hp", getattr(player, "temp_hp", 0))

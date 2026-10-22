@@ -90,7 +90,9 @@ class CharacterCreationWizard(tk.Toplevel):
             "secret": "",
             "party_tie": "",
             "trinket": "",
-            "backstory": ""
+            "backstory": "",
+            "avatar_b64": "",
+            "avatar_path": ""
         }
         
         self.current_step = 0
@@ -511,6 +513,58 @@ class CharacterCreationWizard(tk.Toplevel):
         align_cb = ttk.Combobox(ana_frame, textvariable=self.align_var, values=align_keys, state="readonly", width=18)
         align_cb.grid(row=1, column=3, sticky="ew", pady=4)
 
+        # 1.1 Sezione Ritratto Personaggio & Token Mappa
+        token_card = ttk.LabelFrame(parent, text="🖼️ Ritratto Personaggio & Token Mappa", padding=8)
+        token_card.pack(fill=tk.X, pady=(0, 10))
+
+        token_row = ttk.Frame(token_card)
+        token_row.pack(fill=tk.X)
+
+        self.token_canvas = tk.Canvas(token_row, width=64, height=64, bg="#181A20", highlightthickness=0)
+        self.token_canvas.pack(side=tk.LEFT, padx=(0, 12))
+
+        token_info = ttk.Frame(token_row)
+        token_info.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        ttk.Label(token_info, text="Aspetto del Personaggio & Token di Gioco:", font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        ttk.Label(token_info, text="L'immagine scelta verrà ritagliata in forma circolare e utilizzata come token interattivo sulla mappa.", style="Muted.TLabel", wraplength=420, justify=tk.LEFT).pack(anchor="w", pady=(1, 4))
+
+        token_btn_row = ttk.Frame(token_info)
+        token_btn_row.pack(anchor="w", pady=(2, 0))
+
+        self.token_status_lbl = ttk.Label(token_btn_row, text="Nessuna immagine impostata", style="Muted.TLabel")
+
+        def _update_token_preview():
+            cur_b64 = self.char_data.get("avatar_b64", "")
+            cur_name = self.name_var.get() if hasattr(self, "name_var") else self.char_data.get("name", "")
+            from common.image_utils import render_avatar_on_canvas
+            render_avatar_on_canvas(self.token_canvas, cur_b64, cur_name, size=64)
+            if cur_b64:
+                path = self.char_data.get("avatar_path", "")
+                fn = os.path.basename(path) if path else "Immagine caricata"
+                self.token_status_lbl.config(text=f"✅ {fn}")
+            else:
+                self.token_status_lbl.config(text="Nessuna immagine (token con iniziali)")
+
+        def _pick_image():
+            from common.image_utils import open_avatar_file_dialog
+            b64, path = open_avatar_file_dialog(parent=self)
+            if b64:
+                self.char_data["avatar_b64"] = b64
+                self.char_data["avatar_path"] = path
+                _update_token_preview()
+
+        def _clear_image():
+            self.char_data["avatar_b64"] = ""
+            self.char_data["avatar_path"] = ""
+            _update_token_preview()
+
+        ttk.Button(token_btn_row, text="📁 Scegli Immagine...", command=_pick_image, style="Primary.TButton").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(token_btn_row, text="❌ Rimuovi", command=_clear_image).pack(side=tk.LEFT, padx=(0, 10))
+        self.token_status_lbl.pack(side=tk.LEFT, padx=4)
+
+        _update_token_preview()
+
         # Suggerimento Allineamento
         tip_frame = ttk.Frame(parent, style="Surface.TFrame", padding=8)
         tip_frame.pack(fill=tk.X, pady=(4, 10))
@@ -621,6 +675,8 @@ class CharacterCreationWizard(tk.Toplevel):
         c.party_tie = self.char_data.get("party_tie", "")
         c.trinket = self.char_data.get("trinket", "")
         c.backstory = self.char_data.get("backstory", "")
+        c.avatar_b64 = self.char_data.get("avatar_b64", "")
+        c.avatar_path = self.char_data.get("avatar_path", "")
         c.level = 1
         
         # Calcolo attributi = array + bonus razza

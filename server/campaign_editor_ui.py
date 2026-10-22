@@ -992,7 +992,9 @@ class CampaignEditorDialog(tk.Toplevel):
                     actions=npc_sheet.get("actions", ""),
                     equipment=npc_sheet.get("equipment", ""),
                     background=npc_sheet.get("background", ""),
-                    sheet=npc_sheet
+                    sheet=npc_sheet,
+                    avatar_b64=npc_sheet.get("avatar_b64", ""),
+                    avatar_path=npc_sheet.get("avatar_path", "")
                 )
                 self.refresh_npcs()
 
@@ -1063,6 +1065,7 @@ class CampaignEditorDialog(tk.Toplevel):
         speed_val, speed_disp, speed_unit = normalize_speed_value(npc_data.get("speed", 30))
         p.speed = speed_val
         p.speed_unit = speed_unit
+        p.avatar_b64 = npc_data.get("avatar_b64") or (npc_data.get("sheet", {}).get("avatar_b64") if isinstance(npc_data.get("sheet"), dict) else None)
         p.full_sheet = {
             "name": p.name,
             "char_class": npc_data.get("role", "PNG"),

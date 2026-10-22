@@ -118,6 +118,8 @@ class Character:
         self.party_tie = ""
         self.trinket = ""
         self.backstory = ""
+        self.avatar_b64 = ""
+        self.avatar_path = ""
         
         # Statistiche Base
         self.attributes = {"FOR": 10, "DES": 10, "COS": 10, "INT": 10, "SAG": 10, "CAR": 10}

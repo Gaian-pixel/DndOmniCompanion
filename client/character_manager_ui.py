@@ -318,14 +318,20 @@ class CharacterManagerDialog(tk.Toplevel):
         top_box = tk.Frame(scroll_frame, bg=SURFACE_COLOR)
         top_box.pack(fill=tk.X, pady=(0, 8))
 
-        icon = get_class_icon(char.char_class)
-        tk.Label(
-            top_box,
-            text=icon,
-            font=("Segoe UI", 26),
-            bg=SURFACE_COLOR,
-            fg=ACCENT_GOLD
-        ).pack(side=tk.LEFT, padx=(0, 10))
+        if getattr(char, "avatar_b64", ""):
+            from common.image_utils import render_avatar_on_canvas
+            card_canvas = tk.Canvas(top_box, width=48, height=48, bg=SURFACE_COLOR, highlightthickness=0)
+            card_canvas.pack(side=tk.LEFT, padx=(0, 10))
+            render_avatar_on_canvas(card_canvas, char.avatar_b64, char.name, size=48)
+        else:
+            icon = get_class_icon(char.char_class)
+            tk.Label(
+                top_box,
+                text=icon,
+                font=("Segoe UI", 26),
+                bg=SURFACE_COLOR,
+                fg=ACCENT_GOLD
+            ).pack(side=tk.LEFT, padx=(0, 10))
 
         name_box = tk.Frame(top_box, bg=SURFACE_COLOR)
         name_box.pack(side=tk.LEFT, fill=tk.X, expand=True)

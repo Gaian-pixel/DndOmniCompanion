@@ -1552,7 +1552,7 @@ class HexMapCanvas(tk.Canvas):
 
             if avatar_b64:
                 target_size = max(16, int(radius * 2))
-                cache_key = f"{name}_{target_size}"
+                cache_key = f"{name}_{hash(avatar_b64[:64])}_{target_size}"
                 if cache_key not in self._avatar_cache:
                     try:
                         img_bytes = base64.b64decode(avatar_b64)
