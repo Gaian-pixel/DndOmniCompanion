@@ -106,6 +106,15 @@ def handle_update_full_sheet_request(data, player, game_state):
                             allowed_counts[k] = rem_allowed - actual_q
                 char_data["inventory_grid"] = client_inv
 
+            # Proteggi diario, note e privilegi registrati sul server da modifiche non approvate
+            if "journal_notes" in player.full_sheet and player.full_sheet["journal_notes"]:
+                char_data["journal_notes"] = player.full_sheet["journal_notes"]
+            if "notes" in player.full_sheet and player.full_sheet["notes"]:
+                char_data["notes"] = player.full_sheet["notes"]
+            if "features" in player.full_sheet and player.full_sheet["features"]:
+                if char_data.get("level", 1) <= player.full_sheet.get("level", 1):
+                    char_data["features"] = player.full_sheet["features"]
+
         player.full_sheet = char_data
         player.avatar_b64 = char_data.get("avatar_b64") or getattr(player, "avatar_b64", None)
         player.hp = char_data.get("hp_current", player.hp)
@@ -281,3 +290,17 @@ def handle_item_approval_request(data, player, game_state):
     })
     game_state.log_dm_message(f"[OGGETTO] {player.name} richiede approvazione per '{item.get('name', 'Oggetto')}'.")
 
+
+def handle_journal_approval_request(data, player, game_state):
+    content = data.get("content", "")
+    field_name = data.get("field_name", "journal_notes")
+    title = data.get("title", "")
+    game_state.gui_queue.put({
+        "type": "JOURNAL_APPROVAL_REQUEST",
+        "player": player,
+        "field_name": field_name,
+        "content": content,
+        "title": title
+    })
+    field_disp = "Biografia & Diario" if "journal" in field_name else ("Privilegi & Tratti" if "features" in field_name else "Appunti / Note")
+    game_state.log_dm_message(f"[DIARIO] {player.name} richiede l'approvazione per modificare {field_disp}.")

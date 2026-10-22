@@ -396,6 +396,9 @@ class Character:
                 continue
             try:
                 w = float(item.get("weight", 0.0) or 0.0)
+                if w <= 0.0 and item.get("name"):
+                    from common.starter_equipment import lookup_standard_weight
+                    w = lookup_standard_weight(item.get("name", ""))
                 qty = int(item.get("qty", 1) or 1)
                 item_weight = w * qty
             except (ValueError, TypeError):

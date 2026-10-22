@@ -5,7 +5,7 @@ import urllib.request
 import urllib.parse
 import json
 from common.messagebox import messagebox
-from tkinter import ttk, simpledialog
+from tkinter import ttk, simpledialog, scrolledtext
 from common.theme import (
     BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT, BORDER_COLOR,
     TEXT_COLOR, TEXT_MUTED, TEXT_DARK,
@@ -69,8 +69,234 @@ SRD_SUBCLASSES = {
     "wizard": ["School of Evocation", "School of Abjuration", "School of Divination", "School of Necromancy", "School of Transmutation", "School of Illusion", "School of Enchantment", "School of Conjuration"]
 }
 
+
+def configure_markdown_tags(text_widget):
+    """Configura i tag grafici per il rendering Markdown ricco e dark fantasy."""
+    text_widget.tag_configure("h1", font=("Segoe UI", 13, "bold"), foreground=ACCENT_GOLD, spacing1=8, spacing3=4)
+    text_widget.tag_configure("h2", font=("Segoe UI", 11, "bold"), foreground=ACCENT_GOLD, spacing1=6, spacing3=3)
+    text_widget.tag_configure("h3", font=("Segoe UI", 10, "bold"), foreground="#F1C40F", spacing1=5, spacing3=2)
+    text_widget.tag_configure("h4", font=("Segoe UI", 9, "bold"), foreground="#5DADE2", spacing1=4, spacing3=2)
+    text_widget.tag_configure("bold", font=("Segoe UI", 9, "bold"), foreground="#FFFFFF")
+    text_widget.tag_configure("italic", font=("Segoe UI", 9, "italic"), foreground="#D0D0D0")
+    text_widget.tag_configure("bullet_symbol", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, lmargin1=16, lmargin2=28)
+    text_widget.tag_configure("bullet_line", font=("Segoe UI", 9), foreground=TEXT_COLOR, lmargin1=16, lmargin2=28, spacing1=2, spacing3=2)
+    text_widget.tag_configure("normal", font=("Segoe UI", 9), foreground=TEXT_COLOR, spacing1=2, spacing3=2)
+    text_widget.tag_configure("quote", font=("Segoe UI", 9, "italic"), foreground=TEXT_MUTED, lmargin1=20, lmargin2=20, spacing1=2, spacing3=2)
+
+def render_markdown_to_widget(text_widget, markdown_text: str):
+    """Parsa e inserisce testo formattato Markdown in uno ScrolledText/Text."""
+    text_widget.config(state="normal")
+    text_widget.delete("1.0", tk.END)
+    if not markdown_text:
+        text_widget.config(state="disabled")
+        return
+
+    def _insert_inline(txt, base_tags=("normal",)):
+        tokens = re.split(r'(\*\*.*?\*\*|\*.*?\*)', txt)
+        for tok in tokens:
+            if not tok: continue
+            if tok.startswith("**") and tok.endswith("**") and len(tok) >= 4:
+                text_widget.insert(tk.END, tok[2:-2], ("bold",) + base_tags)
+            elif tok.startswith("*") and tok.endswith("*") and len(tok) >= 2:
+                text_widget.insert(tk.END, tok[1:-1], ("italic",) + base_tags)
+            else:
+                text_widget.insert(tk.END, tok, base_tags)
+
+    lines = markdown_text.splitlines()
+    for line in lines:
+        stripped = line.strip()
+        if not stripped:
+            text_widget.insert(tk.END, "\n", ("normal",))
+            continue
+        if stripped.startswith("#### "):
+            text_widget.insert(tk.END, stripped[5:] + "\n", ("h4",))
+        elif stripped.startswith("### "):
+            text_widget.insert(tk.END, stripped[4:] + "\n", ("h3",))
+        elif stripped.startswith("## "):
+            text_widget.insert(tk.END, stripped[3:] + "\n", ("h2",))
+        elif stripped.startswith("# "):
+            text_widget.insert(tk.END, stripped[2:] + "\n", ("h1",))
+        elif stripped.startswith("> "):
+            text_widget.insert(tk.END, stripped[2:] + "\n", ("quote",))
+        elif stripped.startswith("• ") or stripped.startswith("- "):
+            bullet_body = stripped[2:]
+            text_widget.insert(tk.END, "  • ", ("bullet_symbol",))
+            _insert_inline(bullet_body, base_tags=("bullet_line",))
+            text_widget.insert(tk.END, "\n", ("bullet_line",))
+        else:
+            _insert_inline(line, base_tags=("normal",))
+            text_widget.insert(tk.END, "\n", ("normal",))
+
+    text_widget.config(state="disabled")
+
+def parse_features_text(raw_text: str):
+    """Estrae categorie e tratti strutturati da un testo libero con sezioni standard D&D."""
+    if not raw_text or not raw_text.strip():
+        return []
+    items = []
+    current_cat = "Altro"
+    current_title = ""
+    current_body = []
+    
+    for line in raw_text.splitlines():
+        s = line.strip()
+        if not s:
+            if current_body:
+                current_body.append("")
+            continue
+        s_lower = s.lower()
+        if s_lower.startswith("tratti razziali") or "tratti razziali:" in s_lower:
+            if current_title:
+                items.append({"name": current_title, "category": current_cat, "desc": "\n".join(current_body).strip()})
+                current_body = []
+            current_cat = "Tratto Razziale"
+            current_title = "Tratti Razziali"
+        elif s_lower.startswith("tratti classe") or "tratti classe:" in s_lower:
+            if current_title:
+                items.append({"name": current_title, "category": current_cat, "desc": "\n".join(current_body).strip()})
+                current_body = []
+            current_cat = "Privilegio di Classe"
+            current_title = "Tratti di Classe Base"
+        elif "privilegio di background" in s_lower or s_lower.startswith("background:"):
+            if current_title:
+                items.append({"name": current_title, "category": current_cat, "desc": "\n".join(current_body).strip()})
+                current_body = []
+            current_cat = "Tratto di Background"
+            m = re.search(r'\((.*?)\)', s)
+            current_title = f"Background: {m.group(1)}" if m else "Privilegio di Background"
+        elif s.startswith("---") and "---" in s[3:]:
+            if current_title:
+                items.append({"name": current_title, "category": current_cat, "desc": "\n".join(current_body).strip()})
+                current_body = []
+            current_cat = "Privilegio di Classe"
+            clean_hdr = s.replace("-", "").strip()
+            current_title = clean_hdr or "Privilegi di Livello"
+        elif s.startswith("- ") and current_cat == "Privilegio di Classe" and "livello" in current_title.lower():
+            ft_name = s[2:].strip()
+            items.append({"name": ft_name, "category": "Privilegio di Classe", "desc": f"Privilegio di classe: {ft_name}"})
+        elif s.startswith("=== ") and s.endswith(" ==="):
+            if current_title:
+                items.append({"name": current_title, "category": current_cat, "desc": "\n".join(current_body).strip()})
+                current_body = []
+            clean_cat = s[4:-4].strip().title()
+            current_cat = clean_cat
+            current_title = ""
+        elif s.startswith("★ "):
+            if current_title:
+                items.append({"name": current_title, "category": current_cat, "desc": "\n".join(current_body).strip()})
+                current_body = []
+            current_title = s[2:].strip()
+        else:
+            if not current_title:
+                current_title = s[:30]
+            current_body.append(line)
+            
+    if current_title and current_body:
+        items.append({"name": current_title, "category": current_cat, "desc": "\n".join(current_body).strip()})
+        
+    return items
+
+def serialize_features_list(features_list):
+    """Rigenera il testo leggibile di features mantenendo la compatibilità con export e schede."""
+    if not features_list:
+        return ""
+    grouped = {}
+    for feat in features_list:
+        cat = feat.get("category", "Altro")
+        grouped.setdefault(cat, []).append(feat)
+        
+    lines = []
+    order = ["Tratto Razziale", "Privilegio di Classe", "Tratto di Background", "Talento", "Altro"]
+    
+    for cat in order:
+        items = grouped.get(cat, [])
+        if not items: continue
+        if cat == "Tratto Razziale":
+            lines.append("=== TRATTI RAZZIALI ===")
+        elif cat == "Privilegio di Classe":
+            lines.append("=== PRIVILEGI DI CLASSE ===")
+        elif cat == "Tratto di Background":
+            lines.append("=== TRATTI DI BACKGROUND ===")
+        elif cat == "Talento":
+            lines.append("=== TALENTI & DONI ===")
+        else:
+            lines.append("=== ALTRI TRATTI E CAPACITÀ ===")
+            
+        for item in items:
+            name = item.get("name", "Tratto")
+            desc = item.get("desc", "").strip()
+            lines.append(f"★ {name}")
+            if desc:
+                lines.append(desc)
+            lines.append("")
+            
+    for cat, items in grouped.items():
+        if cat not in order and items:
+            lines.append(f"=== {cat.upper()} ===")
+            for item in items:
+                lines.append(f"★ {item.get('name', 'Tratto')}")
+                if item.get("desc"): lines.append(item.get("desc").strip())
+                lines.append("")
+                
+    return "\n".join(lines).strip()
+
+
+class FeatureEditorDialog(tk.Toplevel):
+    def __init__(self, parent, item=None, on_save_callback=None):
+        super().__init__(parent)
+        self.item = item or {}
+        self.on_save_callback = on_save_callback
+        is_edit = bool(item)
+        self.title("Modifica Tratto / Privilegio" if is_edit else "Nuovo Tratto o Privilegio")
+        self.geometry("520x460")
+        self.minsize(440, 380)
+        self.transient(parent)
+        self.grab_set()
+        apply_modern_window_style(self)
+        
+        body = ttk.Frame(self, padding="14")
+        body.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(body, text="★ Modifica Tratto o Privilegio" if is_edit else "★ Aggiungi Tratto o Privilegio", font=FONT_BOLD).pack(anchor="w", pady=(0, 10))
+        
+        ttk.Label(body, text="Nome:", style="Muted.TLabel").pack(anchor="w", pady=(2, 1))
+        self.name_var = tk.StringVar(value=self.item.get("name", ""))
+        self.name_entry = ttk.Entry(body, textvariable=self.name_var)
+        self.name_entry.pack(fill=tk.X, pady=(0, 8))
+        self.name_entry.focus_set()
+        
+        ttk.Label(body, text="Categoria:", style="Muted.TLabel").pack(anchor="w", pady=(2, 1))
+        self.cat_var = tk.StringVar(value=self.item.get("category", "Privilegio di Classe"))
+        cats = ["Privilegio di Classe", "Tratto Razziale", "Tratto di Background", "Talento", "Altro"]
+        self.cat_combo = ttk.Combobox(body, textvariable=self.cat_var, values=cats, state="readonly")
+        self.cat_combo.pack(fill=tk.X, pady=(0, 8))
+        
+        ttk.Label(body, text="Descrizione & Dettagli:", style="Muted.TLabel").pack(anchor="w", pady=(2, 1))
+        self.desc_text = scrolledtext.ScrolledText(body, wrap=tk.WORD, font=FONT_MAIN, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, padx=6, pady=6)
+        self.desc_text.pack(fill=tk.BOTH, expand=True, pady=(0, 12))
+        self.desc_text.insert("1.0", self.item.get("desc", ""))
+        
+        btn_box = ttk.Frame(body)
+        btn_box.pack(fill=tk.X)
+        
+        def save_and_close():
+            nm = self.name_var.get().strip()
+            if not nm:
+                messagebox.showwarning("Nome Mancante", "Inserisci un nome per il tratto o privilegio.", parent=self)
+                return
+            cat = self.cat_var.get().strip() or "Altro"
+            desc = self.desc_text.get("1.0", tk.END).strip()
+            result = {"name": nm, "category": cat, "desc": desc}
+            if self.on_save_callback:
+                self.on_save_callback(result)
+            self.destroy()
+            
+        ttk.Button(btn_box, text="💾 Salva", command=save_and_close, style="Success.TButton").pack(side=tk.RIGHT, padx=4)
+        ttk.Button(btn_box, text="Annulla", command=self.destroy).pack(side=tk.RIGHT, padx=4)
+
+
 class CharacterSheetUI(tk.Toplevel):
-    def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, give_gold_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None, custom_spell_request_callback=None, request_currency_callback=None, request_item_callback=None, is_connected=False):
+    def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, give_gold_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None, custom_spell_request_callback=None, request_currency_callback=None, request_item_callback=None, is_connected=False, request_journal_approval_callback=None):
         super().__init__(master)
         self.title(f"{_t('sheet_title')} - {character.name}")
         self.minsize(700, 700)
@@ -90,6 +316,10 @@ class CharacterSheetUI(tk.Toplevel):
         self.is_connected = is_connected
         self.default_font = ("Georgia", 10)
         self.initial_currency = {}
+        self.request_journal_approval_callback = request_journal_approval_callback
+        self._suppress_weight_sync = True
+        self._initial_text_fields = {}
+        self._markdown_widgets = {}
         
         self.setup_ui()
         self.load_data()
@@ -454,6 +684,8 @@ class CharacterSheetUI(tk.Toplevel):
                 self.build_spells_tab(frame)
             elif attr == "journal_notes":
                 self.create_journal_tab(frame)
+            elif attr == "notes":
+                self.create_notes_tab(frame)
             else:
                 txt = tk.Text(frame, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=self.default_font, wrap=tk.WORD)
                 txt.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
@@ -488,14 +720,211 @@ class CharacterSheetUI(tk.Toplevel):
         self.resources_container.pack(fill=tk.X, pady=2)
         self.refresh_custom_resources_ui()
         
-        # 2. Box Privilegi e Tratti di Classe (Testo)
-        txt_hdr = tk.Frame(parent_frame, bg=SURFACE_COLOR)
-        txt_hdr.pack(fill=tk.X, padx=4, pady=(4, 2))
-        tk.Label(txt_hdr, text="📜 Privilegi, Tratti Razziali e Capacità:", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(anchor="w")
+        # 2. Box Privilegi e Tratti di Classe (Strutturato con Categorie e Preview)
+        ft_card = tk.Frame(parent_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=6)
+        ft_card.pack(fill=tk.BOTH, expand=True, padx=4, pady=(2, 4))
         
-        txt = tk.Text(parent_frame, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=self.default_font, wrap=tk.WORD)
-        txt.pack(fill=tk.BOTH, expand=True, padx=4, pady=2)
+        ft_toolbar = tk.Frame(ft_card, bg=SURFACE_COLOR)
+        ft_toolbar.pack(fill=tk.X, pady=(0, 6))
+        
+        tk.Label(ft_toolbar, text="📜 Privilegi di Classe, Tratti Razziali e Talenti", font=FONT_BOLD, fg=ACCENT_GOLD, bg=SURFACE_COLOR).pack(side=tk.LEFT)
+        
+        btn_box = tk.Frame(ft_toolbar, bg=SURFACE_COLOR)
+        btn_box.pack(side=tk.RIGHT)
+        
+        if self.is_connected:
+            self.btn_prop_features = ttk.Button(btn_box, text="📤 Proponi al Master", command=self.propose_features_approval, style="Gold.TButton")
+            self.btn_prop_features.pack(side=tk.RIGHT, padx=3)
+            
+        self.btn_view_features = ttk.Button(btn_box, text="👁️ Vista Testo", command=self.toggle_features_view_mode)
+        self.btn_view_features.pack(side=tk.RIGHT, padx=3)
+        
+        self.btn_del_feature = ttk.Button(btn_box, text="🗑️ Elimina", command=self.delete_selected_feature, style="Danger.TButton")
+        self.btn_del_feature.pack(side=tk.RIGHT, padx=3)
+        
+        self.btn_edit_feature = ttk.Button(btn_box, text="✏️ Modifica", command=self.open_edit_feature_dialog)
+        self.btn_edit_feature.pack(side=tk.RIGHT, padx=3)
+        
+        self.btn_add_feature = ttk.Button(btn_box, text="➕ Aggiungi Tratto", command=self.open_add_feature_dialog, style="Success.TButton")
+        self.btn_add_feature.pack(side=tk.RIGHT, padx=3)
+        
+        self.features_main_container = tk.Frame(ft_card, bg=SURFACE_COLOR)
+        self.features_main_container.pack(fill=tk.BOTH, expand=True)
+        
+        # 2a. Vista Strutturata (Treeview a sinistra, Dettaglio a destra)
+        self.features_paned = ttk.PanedWindow(self.features_main_container, orient=tk.HORIZONTAL)
+        self.features_paned.pack(fill=tk.BOTH, expand=True)
+        
+        tree_frame = ttk.Frame(self.features_paned, padding=2)
+        self.features_paned.add(tree_frame, weight=1)
+        
+        self.features_tree = ttk.Treeview(tree_frame, selectmode="browse", show="tree")
+        tree_scroll = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.features_tree.yview)
+        self.features_tree.configure(yscrollcommand=tree_scroll.set)
+        
+        self.features_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.features_tree.bind("<<TreeviewSelect>>", self._on_feature_tree_selected)
+        
+        detail_frame = tk.Frame(self.features_paned, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
+        self.features_paned.add(detail_frame, weight=2)
+        
+        self.feat_detail_title = tk.Label(detail_frame, text="Seleziona un tratto o privilegio", font=("Segoe UI", 11, "bold"), fg=ACCENT_GOLD, bg=SURFACE_COLOR_ALT, anchor="w")
+        self.feat_detail_title.pack(fill=tk.X, pady=(0, 2))
+        
+        self.feat_detail_badge = tk.Label(detail_frame, text="", font=FONT_SMALL, fg="#5DADE2", bg=SURFACE_COLOR_ALT, anchor="w")
+        self.feat_detail_badge.pack(fill=tk.X, pady=(0, 6))
+        
+        self.feat_detail_desc = scrolledtext.ScrolledText(detail_frame, wrap=tk.WORD, font=FONT_MAIN, bg=SURFACE_COLOR, fg=TEXT_COLOR, padx=6, pady=6)
+        self.feat_detail_desc.pack(fill=tk.BOTH, expand=True)
+        configure_markdown_tags(self.feat_detail_desc)
+        self.feat_detail_desc.config(state="disabled")
+        
+        # 2b. Vista Testo Libero
+        self.features_text_frame = tk.Frame(self.features_main_container, bg=SURFACE_COLOR)
+        txt = tk.Text(self.features_text_frame, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=self.default_font, wrap=tk.WORD, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=6)
+        txt.pack(fill=tk.BOTH, expand=True)
         self.text_widgets["features"] = txt
+        
+        self._features_view_mode = "structured"
+
+    def refresh_features_ui(self):
+        if not hasattr(self, 'features_tree') or not self.features_tree.winfo_exists():
+            return
+            
+        for it in self.features_tree.get_children():
+            self.features_tree.delete(it)
+            
+        flist = getattr(self.character, "features_list", None)
+        if flist is None:
+            raw_f = getattr(self.character, "features", "")
+            flist = parse_features_text(raw_f)
+            self.character.features_list = flist
+            
+        cat_labels = {
+            "Privilegio di Classe": "🛡️ Privilegi di Classe",
+            "Tratto Razziale": "🧬 Tratti Razziali",
+            "Tratto di Background": "📜 Tratti di Background",
+            "Talento": "⚡ Talenti & Doni",
+            "Altro": "🔮 Altri Tratti e Capacità"
+        }
+        
+        cat_nodes = {}
+        for cat_key, cat_label in cat_labels.items():
+            cat_nodes[cat_key] = self.features_tree.insert("", tk.END, text=cat_label, open=True)
+            
+        for idx, feat in enumerate(flist):
+            nm = feat.get("name", "Tratto")
+            cat = feat.get("category", "Altro")
+            parent_node = cat_nodes.get(cat, cat_nodes["Altro"])
+            self.features_tree.insert(parent_node, tk.END, iid=f"feat_{idx}", text=f"  ★ {nm}")
+            
+        serialized = serialize_features_list(flist)
+        self.character.features = serialized
+        if "features" in self.text_widgets:
+            txt = self.text_widgets["features"]
+            txt.config(state="normal")
+            txt.delete("1.0", tk.END)
+            txt.insert("1.0", serialized)
+
+    def _on_feature_tree_selected(self, event=None):
+        sel = self.features_tree.selection()
+        if not sel: return
+        node_id = sel[0]
+        if not node_id.startswith("feat_"):
+            return
+        idx = int(node_id.replace("feat_", ""))
+        flist = getattr(self.character, "features_list", [])
+        if 0 <= idx < len(flist):
+            feat = flist[idx]
+            nm = feat.get("name", "")
+            cat = feat.get("category", "")
+            desc = feat.get("desc", "")
+            
+            self.feat_detail_title.config(text=f"★ {nm}")
+            self.feat_detail_badge.config(text=f"[{cat}]")
+            render_markdown_to_widget(self.feat_detail_desc, desc)
+
+    def open_add_feature_dialog(self):
+        def _on_save(new_item):
+            if not hasattr(self.character, "features_list") or not isinstance(self.character.features_list, list):
+                self.character.features_list = []
+            self.character.features_list.append(new_item)
+            self.refresh_features_ui()
+            self.manager.save_characters()
+            if self.is_connected and self.request_journal_approval_callback:
+                if messagebox.askyesno("Approvazione Master", f"Hai aggiunto '{new_item.get('name')}'.\n\nVuoi inviare la richiesta di approvazione al Dungeon Master?", parent=self):
+                    self.request_journal_approval_callback("features", self.character.features, f"Aggiunto {new_item.get('name')}")
+        FeatureEditorDialog(self, on_save_callback=_on_save)
+
+    def open_edit_feature_dialog(self):
+        sel = self.features_tree.selection()
+        if not sel or not sel[0].startswith("feat_"):
+            messagebox.showinfo("Seleziona", "Seleziona prima un tratto dall'elenco a sinistra da modificare.", parent=self)
+            return
+        idx = int(sel[0].replace("feat_", ""))
+        flist = getattr(self.character, "features_list", [])
+        if 0 <= idx < len(flist):
+            def _on_save(updated_item):
+                flist[idx] = updated_item
+                self.refresh_features_ui()
+                self.manager.save_characters()
+                if self.is_connected and self.request_journal_approval_callback:
+                    if messagebox.askyesno("Approvazione Master", f"Hai modificato '{updated_item.get('name')}'.\n\nVuoi inviare la richiesta di approvazione al Master?", parent=self):
+                        self.request_journal_approval_callback("features", self.character.features, f"Modificato {updated_item.get('name')}")
+            FeatureEditorDialog(self, item=flist[idx], on_save_callback=_on_save)
+
+    def delete_selected_feature(self):
+        sel = self.features_tree.selection()
+        if not sel or not sel[0].startswith("feat_"):
+            messagebox.showinfo("Seleziona", "Seleziona prima un tratto dall'elenco a sinistra da eliminare.", parent=self)
+            return
+        idx = int(sel[0].replace("feat_", ""))
+        flist = getattr(self.character, "features_list", [])
+        if 0 <= idx < len(flist):
+            nm = flist[idx].get("name", "questo tratto")
+            if messagebox.askyesno("Elimina", f"Sei sicuro di voler eliminare '{nm}'?", parent=self):
+                flist.pop(idx)
+                self.refresh_features_ui()
+                self.manager.save_characters()
+                if self.is_connected and self.request_journal_approval_callback:
+                    if messagebox.askyesno("Approvazione Master", f"Hai rimosso '{nm}'.\n\nVuoi notificare il Dungeon Master?", parent=self):
+                        self.request_journal_approval_callback("features", self.character.features, f"Rimosso {nm}")
+
+    def toggle_features_view_mode(self):
+        if self._features_view_mode == "structured":
+            self.features_paned.pack_forget()
+            self.features_text_frame.pack(fill=tk.BOTH, expand=True)
+            self._features_view_mode = "text"
+            self.btn_view_features.config(text="👁️ Vista Categorie")
+            self.btn_add_feature.pack_forget()
+            self.btn_edit_feature.pack_forget()
+            self.btn_del_feature.pack_forget()
+        else:
+            raw_text = self.text_widgets["features"].get("1.0", tk.END).strip()
+            self.character.features_list = parse_features_text(raw_text)
+            self.features_text_frame.pack_forget()
+            self.features_paned.pack(fill=tk.BOTH, expand=True)
+            self._features_view_mode = "structured"
+            self.btn_view_features.config(text="👁️ Vista Testo")
+            self.btn_add_feature.pack(side=tk.RIGHT, padx=3)
+            self.btn_edit_feature.pack(side=tk.RIGHT, padx=3)
+            self.btn_del_feature.pack(side=tk.RIGHT, padx=3)
+            self.refresh_features_ui()
+
+    def propose_features_approval(self):
+        if not self.is_connected:
+            messagebox.showinfo("Offline", "Questa funzione è attiva solo durante una sessione di gioco connessa al Master.", parent=self)
+            return
+        if self._features_view_mode == "text":
+            content = self.text_widgets["features"].get("1.0", tk.END).strip()
+        else:
+            content = serialize_features_list(getattr(self.character, "features_list", []))
+            
+        if self.request_journal_approval_callback:
+            sent = self.request_journal_approval_callback("features", content, "Aggiornamento Privilegi e Tratti")
+            if sent:
+                messagebox.showinfo("Richiesta Inviata", "La proposta di aggiornamento per 'Privilegi & Tratti' è stata inviata al Master.\nRiceverai una notifica quando il Master la approverà.", parent=self)
 
     def refresh_custom_resources_ui(self):
         if not hasattr(self, "resources_container") or not self.resources_container.winfo_exists():
@@ -1067,14 +1496,24 @@ class CharacterSheetUI(tk.Toplevel):
     def calculate_total_weight(self):
         if not hasattr(self, 'weight_vars') or not hasattr(self, 'weight_label'):
             return
+        if getattr(self, '_suppress_weight_sync', False):
+            return
             
+        from common.starter_equipment import lookup_standard_weight
         # Sincronizza i pesi inseriti nella UI sugli oggetti
         for i in range(25):
             if i < len(self.character.inventory_grid):
                 item = self.character.inventory_grid[i]
                 if item and i < len(self.weight_vars):
                     try:
-                        item["weight"] = float(self.weight_vars[i].get())
+                        w_val = float(self.weight_vars[i].get())
+                        if w_val > 0:
+                            item["weight"] = w_val
+                        elif not item.get("weight") or float(item.get("weight", 0)) == 0:
+                            std_w = lookup_standard_weight(item.get("name", ""))
+                            if std_w > 0:
+                                item["weight"] = std_w
+                                self.weight_vars[i].set(std_w)
                     except (tk.TclError, ValueError):
                         pass
 
@@ -1211,7 +1650,11 @@ class CharacterSheetUI(tk.Toplevel):
         btn_frame = ttk.Frame(parent_frame)
         btn_frame.pack(fill=tk.X, padx=5, pady=5)
         ttk.Button(btn_frame, text="Nuovo", command=self.add_spell).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="Cerca Incantesimo (SRD)", command=self.search_spell_srd).pack(side=tk.LEFT, padx=5)
+        srd_btn_txt = "📜 Richiedi Incantesimo (SRD)" if self.is_connected else "📜 Cerca Incantesimo (SRD)"
+        srd_btn = ttk.Button(btn_frame, text=srd_btn_txt, command=self.search_spell_srd)
+        srd_btn.pack(side=tk.LEFT, padx=5)
+        tip_msg = "Cerca un incantesimo da SRD/Manuali e invialo al DM per approvazione" if self.is_connected else "Cerca e aggiungi un incantesimo dall'SRD o dai manuali al Grimorio"
+        ToolTip(srd_btn, tip_msg)
         ttk.Button(btn_frame, text="Rimuovi", command=self.remove_spell).pack(side=tk.LEFT, padx=5)
         ttk.Button(btn_frame, text="Dettagli / Lancia", command=self.cast_spell).pack(side=tk.RIGHT, padx=5)
 
@@ -1351,6 +1794,32 @@ class CharacterSheetUI(tk.Toplevel):
         ttk.Button(btn_frame, text="Lancia in Chat", command=do_cast).pack(side=tk.LEFT, padx=10)
         ttk.Button(btn_frame, text="Attacca Bersaglio", command=do_attack, style="Danger.TButton").pack(side=tk.LEFT, padx=10)
 
+    def _handle_found_spell(self, name, level, time, rng, desc):
+        spell_dict = {
+            "name": name,
+            "level": level,
+            "time": time,
+            "range": rng,
+            "desc": desc
+        }
+        if self.is_connected:
+            if not getattr(self, "custom_spell_request_callback", None):
+                messagebox.showwarning("Non Consentito", "In sessione multiplayer non puoi aggiungere autonomamente incantesimi al Grimorio. Richiedi l'aggiunta al Master.", parent=self)
+                return
+            if messagebox.askyesno(
+                "Richiesta Approvazione al Master",
+                f"★ {name} (Livello {level})\nTempo: {time} | Gittata: {rng}\n\n"
+                f"⚠️ Sei connesso a una sessione multiplayer: non puoi aggiungere incantesimi direttamente al Grimorio senza il permesso del Master.\n\n"
+                f"Vuoi inviare la richiesta di approvazione per questo incantesimo al Dungeon Master?",
+                parent=self
+            ):
+                sent = self.custom_spell_request_callback(spell_dict)
+                if sent:
+                    messagebox.showinfo("Richiesta Inviata", f"Richiesta per l'incantesimo '{name}' inviata al Master!\nRiceverai una notifica quando il Master risponderà.", parent=self)
+        else:
+            if messagebox.askyesno("Aggiungi al Grimorio", f"Aggiungere '{name}' (Livello {level}) al tuo Grimorio?", parent=self):
+                self._add_fetched_spell(name, level, time, rng, desc)
+
     def search_spell_srd(self):
         query = simpledialog.askstring("Cerca Incantesimo", "Nome incantesimo (in italiano o inglese, es. Fireball, Palla di Fuoco, Scudo):")
         if not query: return
@@ -1381,7 +1850,7 @@ class CharacterSheetUI(tk.Toplevel):
                     lvl = 0
                 
                 if messagebox.askyesno("Incantesimo Trovato nel Manuale", f"Trovato in {ref}:\n\n★ {title}\nLivello stimato: {lvl}\n\n{summary}\n\nAggiungere al Grimorio?"):
-                    self._add_fetched_spell(title, lvl, "1 Azione", "Vedi manuale", content)
+                    self._handle_found_spell(title, lvl, "1 Azione", "Vedi manuale", content)
                     return
         except Exception as e:
             print("[GRIMORIO] Errore ricerca manuale offline:", e)
@@ -1412,13 +1881,13 @@ class CharacterSheetUI(tk.Toplevel):
                     desc_list = spell_data.get("desc", [])
                     desc = "\n".join(desc_list) if isinstance(desc_list, list) else str(desc_list)
                     
-                    self.after(0, lambda: self._add_fetched_spell(name, level, time, rng, desc))
+                    self.after(0, lambda: self._handle_found_spell(name, level, time, rng, desc))
                 else:
                     from common.srd_offline import search_spells_offline
                     local_hits = search_spells_offline(query_clean)
                     if local_hits:
                         sp = local_hits[0]
-                        self.after(0, lambda: self._add_fetched_spell(sp["name"], sp["level"], sp["time"], sp["range"], sp["desc"]))
+                        self.after(0, lambda: self._handle_found_spell(sp["name"], sp["level"], sp["time"], sp["range"], sp["desc"]))
                     else:
                         self.after(0, lambda: messagebox.showinfo("Nessun risultato", f"Incantesimo '{query}' non trovato nei manuali, nell'SRD locale o online."))
             except Exception:
@@ -1427,7 +1896,7 @@ class CharacterSheetUI(tk.Toplevel):
                 local_hits = search_spells_offline(query_clean)
                 if local_hits:
                     sp = local_hits[0]
-                    self.after(0, lambda: self._add_fetched_spell(sp["name"], sp["level"], sp["time"], sp["range"], sp["desc"]))
+                    self.after(0, lambda: self._handle_found_spell(sp["name"], sp["level"], sp["time"], sp["range"], sp["desc"]))
                 else:
                     self.after(0, lambda: messagebox.showinfo("Nessun risultato", f"Incantesimo '{query}' non trovato nei manuali o nell'SRD locale (offline)."))
                 
@@ -1538,9 +2007,24 @@ class CharacterSheetUI(tk.Toplevel):
         for attr, txt in self.text_widgets.items():
             txt.config(state=tk.NORMAL)
             txt.delete("1.0", tk.END)
-            txt.insert("1.0", getattr(self.character, attr, ""))
-            if attr == "features":
-                txt.config(state=tk.DISABLED)
+            val = getattr(self.character, attr, "")
+            txt.insert("1.0", val)
+            if attr in getattr(self, "_markdown_widgets", {}):
+                bundle = self._markdown_widgets[attr]
+                render_markdown_to_widget(bundle["preview"], val)
+                if not val.strip():
+                    bundle["preview"].pack_forget()
+                    bundle["edit"].pack(fill=tk.BOTH, expand=True)
+                    bundle["btn_toggle"].config(text="👁️ Vista Formattata (Markdown)")
+                    bundle["mode"] = "edit"
+                else:
+                    bundle["edit"].pack_forget()
+                    bundle["preview"].pack(fill=tk.BOTH, expand=True)
+                    bundle["btn_toggle"].config(text="✏️ Modifica Testo")
+                    bundle["mode"] = "preview"
+
+        if hasattr(self, 'refresh_features_ui'):
+            self.refresh_features_ui()
                 
         if hasattr(self.character, "currency"):
             for coin, var in self.currency_vars.items():
@@ -1568,6 +2052,13 @@ class CharacterSheetUI(tk.Toplevel):
         self.update_inspiration_ui()
         self.update_exp_ui()
         self.update_skill_modifiers()
+        self._suppress_weight_sync = False
+        self.calculate_total_weight()
+        self._initial_text_fields = {
+            "journal_notes": getattr(self.character, "journal_notes", ""),
+            "notes": getattr(self.character, "notes", ""),
+            "features": getattr(self.character, "features", "")
+        }
 
     def update_skill_modifiers(self):
         """Calcola e aggiorna dinamicamente i bonus calcolati (+X / -X) per tutte le abilità."""
@@ -1631,10 +2122,21 @@ class CharacterSheetUI(tk.Toplevel):
 
     def refresh_inventory_grid(self):
         backpack_dropped = getattr(self.character, "backpack_dropped", False)
+        from common.starter_equipment import lookup_standard_weight
         for i, item in enumerate(self.character.inventory_grid):
             btn = self.inventory_buttons[i]
             if item:
                 name = item.get("name", _t("sheet_item"))
+                item_w = item.get("weight", 0.0)
+                try:
+                    item_w = float(item_w)
+                except (ValueError, TypeError):
+                    item_w = 0.0
+                if item_w <= 0.0:
+                    std_w = lookup_standard_weight(name)
+                    if std_w > 0:
+                        item["weight"] = std_w
+                        item_w = std_w
                 qty = item.get("qty", 1)
                 icon = get_item_icon(item)
                 item_type = item.get("type", "")
@@ -1658,7 +2160,7 @@ class CharacterSheetUI(tk.Toplevel):
                 btn.config(text=f"{c_icon} {icon} {short_name} (x{qty}){type_str}{ground_tag}", style=btn_style)
                 
                 if hasattr(self, 'weight_vars') and i < len(self.weight_vars):
-                    self.weight_vars[i].set(item.get("weight", 0.0))
+                    self.weight_vars[i].set(item.get("weight", item_w if "item_w" in locals() else 0.0))
                 if hasattr(self, 'attuned_vars') and i < len(self.attuned_vars):
                     self.attuned_vars[i].set(item.get("attuned", False))
                 desc = item.get("desc", "")
@@ -2106,9 +2608,45 @@ class CharacterSheetUI(tk.Toplevel):
                 self.character.speed_unit = self.speed_unit_var.get()
                 set_distance_unit(self.character.speed_unit)
             
-            for attr, txt in self.text_widgets.items():
-                val = txt.get("1.0", tk.END).strip()
-                setattr(self.character, attr, val)
+            if self.is_connected:
+                approval_fields = [
+                    ("journal_notes", "Biografia & Diario"),
+                    ("notes", "Appunti di Sessione"),
+                    ("features", "Tratti & Privilegi")
+                ]
+                for attr_key, disp_name in approval_fields:
+                    if attr_key in self.text_widgets:
+                        new_val = self.text_widgets[attr_key].get("1.0", tk.END).strip()
+                        initial_val = self._initial_text_fields.get(attr_key, getattr(self.character, attr_key, "")).strip()
+                        if new_val != initial_val:
+                            if messagebox.askyesno(
+                                "Richiesta Approvazione al Master",
+                                f"Hai modificato la sezione '{disp_name}'.\n\n"
+                                f"Sei in sessione multiplayer: per applicare queste modifiche è richiesta l'approvazione del Dungeon Master.\n\n"
+                                f"Vuoi inviare la richiesta di approvazione al Master ora?",
+                                parent=self
+                            ):
+                                if self.request_journal_approval_callback:
+                                    self.request_journal_approval_callback(attr_key, new_val, title=f"Aggiornamento {disp_name}")
+                            setattr(self.character, attr_key, initial_val)
+                    elif attr_key == "features" and hasattr(self.character, "features_list"):
+                        serialized = serialize_features_list(self.character.features_list)
+                        initial_val = self._initial_text_fields.get("features", getattr(self.character, "features", "")).strip()
+                        if serialized != initial_val:
+                            if messagebox.askyesno(
+                                "Richiesta Approvazione al Master",
+                                f"Hai modificato i Tratti & Privilegi del personaggio.\n\n"
+                                f"Sei in sessione multiplayer: per applicare queste modifiche è richiesta l'approvazione del Dungeon Master.\n\n"
+                                f"Vuoi inviare la richiesta di approvazione al Master ora?",
+                                parent=self
+                            ):
+                                if self.request_journal_approval_callback:
+                                    self.request_journal_approval_callback("features", serialized, title="Aggiornamento Tratti & Privilegi")
+                            setattr(self.character, "features", initial_val)
+            else:
+                for attr, txt in self.text_widgets.items():
+                    val = txt.get("1.0", tk.END).strip()
+                    setattr(self.character, attr, val)
                 
             if not hasattr(self.character, "currency"):
                 self.character.currency = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
@@ -2700,16 +3238,112 @@ class CharacterSheetUI(tk.Toplevel):
         else:
             messagebox.showinfo("Danni", msg)
 
-    def create_journal_tab(self, parent_frame):
-        header = tk.Frame(parent_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=6)
-        header.pack(fill=tk.X, pady=(0, 6))
-        tk.Label(header, text="📜 Diario di Bordo & Note Personali", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(side=tk.LEFT)
-        tk.Label(header, text="Appunti di sessione, indizi, nomi e segreti del personaggio", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(side=tk.LEFT, padx=10)
+    def create_markdown_journal_tab(self, parent_frame, field_name, title, subtitle):
+        hdr = tk.Frame(parent_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=6)
+        hdr.pack(fill=tk.X, pady=(0, 4))
         
-        txt = tk.Text(parent_frame, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=self.default_font, wrap=tk.WORD,
-                      highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=8)
-        txt.pack(fill=tk.BOTH, expand=True)
-        self.text_widgets["journal_notes"] = txt
+        left_box = tk.Frame(hdr, bg=SURFACE_COLOR)
+        left_box.pack(side=tk.LEFT, fill=tk.Y)
+        
+        tk.Label(left_box, text=title, font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(anchor="w")
+        tk.Label(left_box, text=subtitle, font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+        
+        btn_box = tk.Frame(hdr, bg=SURFACE_COLOR)
+        btn_box.pack(side=tk.RIGHT)
+        
+        if self.is_connected:
+            badge = tk.Label(btn_box, text="🔒 Approvazione DM Attiva", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD, padx=6, pady=2)
+            badge.pack(side=tk.LEFT, padx=4)
+            
+            btn_prop = ttk.Button(btn_box, text="📤 Proponi al Master", command=lambda f=field_name, t=title: self.propose_text_field_approval(f, t), style="Gold.TButton")
+            btn_prop.pack(side=tk.LEFT, padx=3)
+        else:
+            btn_save = ttk.Button(btn_box, text="💾 Salva Modifiche", command=lambda f=field_name: self.save_text_field_offline(f), style="Success.TButton")
+            btn_save.pack(side=tk.LEFT, padx=3)
+            
+        btn_toggle = ttk.Button(btn_box, text="✏️ Modifica Testo")
+        btn_toggle.pack(side=tk.LEFT, padx=3)
+        
+        body_container = tk.Frame(parent_frame, bg=SURFACE_COLOR)
+        body_container.pack(fill=tk.BOTH, expand=True)
+        
+        preview_box = scrolledtext.ScrolledText(body_container, wrap=tk.WORD, font=FONT_MAIN, bg=SURFACE_COLOR, fg=TEXT_COLOR, padx=8, pady=8, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        configure_markdown_tags(preview_box)
+        preview_box.config(state="disabled")
+        
+        edit_box = scrolledtext.ScrolledText(body_container, wrap=tk.WORD, font=FONT_MAIN, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, padx=8, pady=8, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        
+        self.text_widgets[field_name] = edit_box
+        
+        widgets_bundle = {
+            "preview": preview_box,
+            "edit": edit_box,
+            "btn_toggle": btn_toggle,
+            "mode": "preview"
+        }
+        self._markdown_widgets[field_name] = widgets_bundle
+        
+        def _toggle_mode():
+            cur_mode = widgets_bundle["mode"]
+            if cur_mode == "preview":
+                preview_box.pack_forget()
+                edit_box.pack(fill=tk.BOTH, expand=True)
+                btn_toggle.config(text="👁️ Vista Formattata (Markdown)")
+                widgets_bundle["mode"] = "edit"
+                edit_box.focus_set()
+            else:
+                content = edit_box.get("1.0", tk.END).strip()
+                render_markdown_to_widget(preview_box, content)
+                edit_box.pack_forget()
+                preview_box.pack(fill=tk.BOTH, expand=True)
+                btn_toggle.config(text="✏️ Modifica Testo")
+                widgets_bundle["mode"] = "preview"
+                
+        btn_toggle.config(command=_toggle_mode)
+        preview_box.pack(fill=tk.BOTH, expand=True)
+
+    def create_journal_tab(self, parent_frame):
+        self.create_markdown_journal_tab(
+            parent_frame, 
+            field_name="journal_notes",
+            title="📖 Biografia & Diario del Personaggio",
+            subtitle="Storia, legami, ideali, segreti e cronaca di viaggio (supporta Markdown #, ##, **, *, •)"
+        )
+
+    def create_notes_tab(self, parent_frame):
+        self.create_markdown_journal_tab(
+            parent_frame, 
+            field_name="notes",
+            title="📝 Appunti di Sessione & Note Rapide",
+            subtitle="Indizi, promesse, PNG incontrati, mappe e appunti tattici (supporta Markdown #, ##, **, *)"
+        )
+
+    def propose_text_field_approval(self, field_name, field_title):
+        if not self.is_connected:
+            messagebox.showinfo("Offline", "Questa funzione è disponibile solo se connesso a una sessione multiplayer con il Master.", parent=self)
+            return
+        if field_name not in self.text_widgets:
+            return
+        content = self.text_widgets[field_name].get("1.0", tk.END).strip()
+        init_val = self._initial_text_fields.get(field_name, getattr(self.character, field_name, "")).strip()
+        if content == init_val:
+            messagebox.showinfo("Nessuna Modifica", "Non hai apportato alcuna modifica rispetto alla versione attuale salvata.", parent=self)
+            return
+        if self.request_journal_approval_callback:
+            sent = self.request_journal_approval_callback(field_name, content, f"Modifica {field_title}")
+            if sent:
+                messagebox.showinfo("Richiesta Inviata", f"Le modifiche a '{field_title}' sono state inviate al Master per approvazione!\nRiceverai una notifica quando il Master le approverà.", parent=self)
+
+    def save_text_field_offline(self, field_name):
+        if field_name not in self.text_widgets:
+            return
+        content = self.text_widgets[field_name].get("1.0", tk.END).strip()
+        setattr(self.character, field_name, content)
+        self.manager.save_characters()
+        bundle = self._markdown_widgets.get(field_name)
+        if bundle:
+            render_markdown_to_widget(bundle["preview"], content)
+        messagebox.showinfo("Salvataggio", "Modifiche salvate con successo nella scheda del personaggio!", parent=self)
 
     def on_give_gold_click(self):
         if not getattr(self, "give_gold_callback", None) or not getattr(self, "players_list_callback", None):

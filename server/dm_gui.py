@@ -2745,6 +2745,8 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                     self.map_canvas.draw_ping(payload.get("q"), payload.get("r"), payload.get("color", "yellow"))
                 elif msg_type == "CUSTOM_SPELL_REQUEST":
                     self.prompt_custom_spell_approval(msg.get("player"), msg.get("spell"))
+                elif msg_type == "JOURNAL_APPROVAL_REQUEST":
+                    self.prompt_journal_approval(msg.get("player"), msg.get("field_name"), msg.get("content"), msg.get("title"))
                 elif msg_type == "CURRENCY_REQUEST":
                     self.prompt_currency_approval(msg.get("player"), msg.get("coin"), msg.get("amount"), msg.get("reason"))
                 elif msg_type == "ITEM_APPROVAL_REQUEST":
@@ -2839,6 +2841,57 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             if player.conn:
                 send_message(player.conn, make_item_approval_response(p_name, item, slot_idx, approved=False, reason="Il Master ha respinto l'aggiunta di questo oggetto."))
             self.log_to_chat(f"[SISTEMA] Respinto oggetto '{it_name}' per {p_name}.")
+
+    def prompt_journal_approval(self, player, field_name, content, title):
+        if not player: return
+        p_name = getattr(player, "name", "Giocatore")
+        field_disp = "Biografia & Diario" if "journal" in str(field_name) else ("Privilegi & Tratti" if "features" in str(field_name) else "Appunti / Note")
+        
+        dlg = tk.Toplevel(self.master)
+        dlg.title(f"Approvazione Modifiche - {field_disp}")
+        dlg.geometry("560x520")
+        dlg.minsize(480, 420)
+        dlg.transient(self.master)
+        dlg.grab_set()
+        apply_modern_window_style(dlg)
+        
+        main_box = ttk.Frame(dlg, padding="14")
+        main_box.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(main_box, text=f"📜 Richiesta di Modifica da {p_name}", font=FONT_BOLD).pack(anchor="w", pady=(0, 2))
+        ttk.Label(main_box, text=f"Il giocatore richiede di aggiornare la sezione '{field_disp}':", style="Muted.TLabel").pack(anchor="w", pady=(0, 8))
+        
+        txt_prev = scrolledtext.ScrolledText(main_box, wrap=tk.WORD, font=FONT_MAIN, bg=SURFACE_COLOR, fg=TEXT_COLOR, padx=6, pady=6)
+        txt_prev.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        txt_prev.insert(tk.END, content)
+        txt_prev.config(state=tk.DISABLED)
+        
+        btn_box = ttk.Frame(main_box)
+        btn_box.pack(fill=tk.X)
+        
+        from common.protocol import make_journal_approval_response, make_chat_broadcast, make_game_state
+        from common.network_utils import send_message, broadcast
+        
+        def on_approve():
+            sheet = getattr(player, "full_sheet", None)
+            if sheet and isinstance(sheet, dict):
+                sheet[field_name] = content
+            if player.conn:
+                send_message(player.conn, make_journal_approval_response(p_name, field_name, content, approved=True))
+            broadcast(self.server.game_state, make_chat_broadcast("Sistema", f"[DIARIO] Il Master ha APPROVATO le modifiche a {field_disp} per {p_name}!"))
+            self.log_to_chat(f"[SISTEMA] Approvate modifiche a {field_disp} per {p_name}.")
+            self.server.game_state._trigger_gui_update()
+            broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
+            dlg.destroy()
+            
+        def on_reject():
+            if player.conn:
+                send_message(player.conn, make_journal_approval_response(p_name, field_name, content, approved=False, reason="Il Master ha respinto le modifiche proposte."))
+            self.log_to_chat(f"[SISTEMA] Respinte modifiche a {field_disp} per {p_name}.")
+            dlg.destroy()
+            
+        ttk.Button(btn_box, text="✅ Approva Modifiche", command=on_approve, style="Success.TButton").pack(side=tk.RIGHT, padx=4)
+        ttk.Button(btn_box, text="❌ Respingi", command=on_reject, style="Danger.TButton").pack(side=tk.RIGHT, padx=4)
 
     def prompt_custom_spell_approval(self, player, spell):
         if not player or not spell: return

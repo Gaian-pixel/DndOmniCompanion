@@ -493,3 +493,49 @@ def apply_campaign_starter_kit(char_obj_or_dict, campaign_items=None):
     set_attr("campaign_starter_received", True)
     return char_obj_or_dict
 
+# Pesi standard D&D 5e (RAW) per oggetti ed equipaggiamento comune (in lbs)
+STANDARD_ITEM_WEIGHTS = {
+    # Armature & Scudi
+    "imbottita": 8.0, "cuoio": 10.0, "corazza di cuoio": 10.0, "cuoio borchiato": 13.0,
+    "pelle": 12.0, "giaco di maglia": 20.0, "cotta a scaglie": 45.0, "corazza di piastre": 65.0,
+    "cotta di maglia": 55.0, "corazza a strisce": 60.0, "armatura di piastre": 65.0,
+    "armatura a piastre": 65.0, "scudo": 6.0, "scudo con emblema": 6.0,
+    # Armi
+    "pugnale": 1.0, "due pugnali": 2.0, "stocco": 2.0, "spada corta": 2.0, "due spade corte": 4.0,
+    "spada lunga": 3.0, "spadone": 6.0, "spada a due mani": 6.0, "scimitarra": 3.0,
+    "ascia": 4.0, "ascia da battaglia": 4.0, "ascia bipenne": 7.0, "ascia da lancio": 2.0,
+    "martello da guerra": 2.0, "maglio": 10.0, "mazza": 4.0, "mazza da guerra": 4.0,
+    "giavellotto": 2.0, "giavellotti": 6.0, "cinque giavellotti": 10.0, "lancia": 3.0,
+    "alabarda": 6.0, "giusarma": 6.0, "giusarma / alabarda": 6.0, "randello": 2.0, "bastone ferrato": 4.0,
+    "arco corto": 2.0, "arco lungo": 2.0, "balestra leggera": 5.0, "balestra pesante": 18.0,
+    "balestra a mano": 3.0, "frecce": 1.0, "dardo": 0.25, "dardi": 1.5, "dardi da balestra": 1.5, "dieci dardi": 1.5, "faretra": 1.0,
+    # Attrezzi, Zaini & Equipaggiamento
+    "zaino da esploratore": 10.0, "zaino da studioso": 10.0, "zaino da scassinatore": 12.0,
+    "zaino da sacerdote": 10.0, "zaino da intrattenitore": 8.0, "zaino da diplomatico": 8.0,
+    "zaino da esploratore sotterraneo": 12.0, "zaino": 5.0, "sacco a pelo": 7.0,
+    "corda di canapa (15m)": 10.0, "corda": 5.0, "torcia": 1.0, "torce (10)": 10.0, "lanterna": 2.0,
+    "lanterna a occhio di bue": 2.0, "olio (fiaschetta)": 1.0, "fiaschetta d'olio": 1.0,
+    "acciarino": 1.0, "razione": 2.0, "razioni": 10.0, "razioni (10 giorni)": 20.0,
+    "borraccia": 5.0, "piede di porco": 5.0, "martello": 3.0, "chiodi da roccia": 2.5,
+    "strumenti da scasso": 1.0, "borsa dei componenti": 2.0, "grimorio del mago": 3.0,
+    "grimorio": 3.0, "focus arcano": 1.0, "simbolo sacro": 1.0, "borsa da guaritore": 3.0,
+    "pozione di guarigione": 0.5, "pozione": 0.5, "antidoto": 0.1, "monete d'oro": 0.2
+}
+
+def lookup_standard_weight(item_name: str) -> float:
+    """Restituisce il peso standard D&D 5e in lbs per un oggetto in base al nome."""
+    if not item_name or not isinstance(item_name, str):
+        return 0.0
+    name_clean = item_name.strip().lower()
+    
+    # Ricerca esatta
+    if name_clean in STANDARD_ITEM_WEIGHTS:
+        return STANDARD_ITEM_WEIGHTS[name_clean]
+        
+    # Ricerca parziale
+    for k, w in STANDARD_ITEM_WEIGHTS.items():
+        if k in name_clean or name_clean in k:
+            return w
+            
+    return 1.0  # Peso simbolico di default se oggetto comune non censito
+

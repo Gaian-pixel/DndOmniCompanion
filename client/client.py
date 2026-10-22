@@ -2704,6 +2704,7 @@ class ClientGUI:
             "CUSTOM_SPELL_RESPONSE": self.handle_custom_spell_response,
             "CURRENCY_RESPONSE": self.handle_currency_response,
             "ITEM_APPROVAL_RESPONSE": self.handle_item_approval_response,
+            "JOURNAL_APPROVAL_RESPONSE": self.handle_journal_approval_response,
             "CAMPAIGN_STARTER_GRANTED": self.handle_campaign_starter_granted,
             "UPDATE_INSPIRATION": self.handle_update_inspiration,
             "PROMPT_SAVE": self.handle_prompt_save,
@@ -2903,6 +2904,35 @@ class ClientGUI:
         else:
             msg = reason or "La tua richiesta di valuta è stata respinta dal Master."
             self.show_toast(msg, title="Richiesta Respinta", toast_type="warning")
+
+    def handle_journal_approval_response(self, data):
+        approved = data.get("approved", False)
+        field_name = data.get("field_name")
+        content = data.get("content")
+        reason = data.get("reason", "")
+        field_disp = "Biografia & Diario" if "journal" in str(field_name) else ("Tratti & Privilegi" if "features" in str(field_name) else "Appunti di Sessione")
+        if approved:
+            if self.active_character:
+                if hasattr(self.active_character, field_name):
+                    setattr(self.active_character, field_name, content)
+                self.character_manager.save_characters()
+                if hasattr(self, 'stats_window') and self.stats_window and self.stats_window.winfo_exists():
+                    self.stats_window.load_data()
+            self.show_toast(f"Il Dungeon Master ha APPROVATO le tue modifiche a '{field_disp}'!", title="Modifica Approvata!", toast_type="success")
+            self.log_to_chat(f"📜 Il Master ha approvato le modifiche a '{field_disp}'.", "Sistema", ACCENT_GOLD)
+        else:
+            msg = reason or f"La richiesta di modifica per '{field_disp}' è stata respinta dal Master."
+            self.show_toast(msg, title="Modifica Respinta", toast_type="warning")
+            self.log_to_chat(f"❌ {msg}", "Sistema", "#FF6B6B")
+
+    def request_journal_approval(self, field_name, content, title=""):
+        if self.is_connected:
+            from common.protocol import make_journal_approval_request
+            self.network.send(make_journal_approval_request(field_name, content, title))
+            return True
+        else:
+            messagebox.showwarning("Non Connesso", "Devi essere connesso per richiedere l'approvazione al Master.")
+            return False
 
     def handle_item_approval_response(self, data):
         approved = data.get("approved", False)
@@ -3562,7 +3592,8 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                          custom_spell_request_callback=self.request_custom_spell,
                          request_currency_callback=self.request_currency,
                          request_item_callback=self.request_item_approval,
-                         is_connected=self.is_connected)
+                         is_connected=self.is_connected,
+                         request_journal_approval_callback=self.request_journal_approval)
 
     def do_trade(self, item, target_name):
         if self.is_connected:

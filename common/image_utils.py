@@ -157,3 +157,4 @@ def render_avatar_on_canvas(canvas, avatar_b64: str, display_name: str = "", siz
             canvas.create_text(cx, cy, text=initials, fill="#FFFFFF", font=("Segoe UI", font_size, "bold"), tags=tag)
     except Exception as e:
         print(f"[image_utils] Errore render avatar su canvas: {e}")
+

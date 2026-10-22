@@ -339,6 +339,12 @@ def make_item_approval_request(item: dict, slot_idx: int = None):
 def make_item_approval_response(player_name: str, item: dict, slot_idx: int, approved: bool, reason: str = ""):
     return {"type": "ITEM_APPROVAL_RESPONSE", "data": {"player_name": player_name, "item": item, "slot_idx": slot_idx, "approved": approved, "reason": reason}}
 
+def make_journal_approval_request(field_name: str, content: str, title: str = ""):
+    return {"type": "JOURNAL_APPROVAL_REQUEST", "data": {"field_name": field_name, "content": content, "title": title}}
+
+def make_journal_approval_response(player_name: str, field_name: str, content: str, approved: bool, reason: str = ""):
+    return {"type": "JOURNAL_APPROVAL_RESPONSE", "data": {"player_name": player_name, "field_name": field_name, "content": content, "approved": approved, "reason": reason}}
+
 def make_clear_drawings_request():
     return {"type": "CLEAR_DRAWINGS_REQUEST", "data": {}}
 
