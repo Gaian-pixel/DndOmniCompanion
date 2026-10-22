@@ -31,7 +31,10 @@ CLASSES = {
     "Warlock": {"desc": "Un incantatore arcano vincolato da un patto con un'entità ultraterrena, come un folletto o un demone.\nDado Vita: d8.\nCompetenze: Armature leggere, armi semplici.", "hd": 8}
 }
 
+ALIGNMENT_NONE = "Nessuno (Non specificato)"
+
 ALIGNMENTS = {
+    ALIGNMENT_NONE: "Nessun allineamento predefinito: puoi scegliere liberamente la condotta del tuo personaggio durante la campagna senza etichette morali imposte.",
     "LB (Legale Buono)": "Un personaggio Legale Buono si comporta come la società si aspetta, in modo giusto e difendendo i deboli (es. i Paladini).",
     "NB (Neutrale Buono)": "Fanno del loro meglio per aiutare gli altri assecondando le loro necessità. Re e governanti sono importanti, ma l'aiuto diretto è primario.",
     "CB (Caotico Buono)": "Agiscono secondo coscienza senza preoccuparsi delle regole, aiutando chi ne ha bisogno seguendo la propria morale.",
@@ -50,7 +53,8 @@ class CharacterCreationWizard(tk.Toplevel):
     def __init__(self, master, manager, on_complete_callback):
         super().__init__(master)
         self.title("Creazione Guidata Personaggio (D&D 5e)")
-        self.minsize(550, 550)
+        self.minsize(580, 620)
+        self.geometry("600x640")
         apply_modern_window_style(self)
         self.transient(master)
         self.grab_set()
@@ -67,7 +71,7 @@ class CharacterCreationWizard(tk.Toplevel):
             "name": "",
             "campaign": "",
             "background": "",
-            "alignment": "NB (Neutrale Buono)"
+            "alignment": ""
         }
         
         self.current_step = 0
@@ -132,7 +136,12 @@ class CharacterCreationWizard(tk.Toplevel):
             self.char_data["name"] = name
             self.char_data["campaign"] = self.camp_var.get().strip()
             self.char_data["background"] = self.bg_var.get().strip()
-            self.char_data["alignment"] = self.align_var.get().split(" ")[0].strip()
+            
+            raw_align = self.align_var.get().strip()
+            if not raw_align or raw_align == ALIGNMENT_NONE or raw_align.startswith("Nessun"):
+                self.char_data["alignment"] = ""
+            else:
+                self.char_data["alignment"] = raw_align.split(" ")[0].strip()
             
             self.finish_creation()
             return
@@ -243,22 +252,46 @@ class CharacterCreationWizard(tk.Toplevel):
         self.bg_var = tk.StringVar(value=self.char_data["background"])
         ttk.Entry(frame, textvariable=self.bg_var).grid(row=2, column=1, pady=5, padx=5, sticky="ew")
 
-        ttk.Label(frame, text="Allineamento:").grid(row=3, column=0, sticky="e", pady=5)
+        ttk.Label(frame, text="Allineamento (opzionale):").grid(row=3, column=0, sticky="e", pady=5)
         
         align_keys = list(ALIGNMENTS.keys())
-        # Cerchiamo di pre-selezionare quello corretto
-        initial_align = align_keys[1]
-        for k in align_keys:
-            if k.startswith(self.char_data["alignment"]):
-                initial_align = k
-                break
+        # Preselezione: Nessuno (Non specificato) se vuoto, altrimenti cerca corrispondenza
+        initial_align = ALIGNMENT_NONE
+        cur_align = self.char_data.get("alignment", "")
+        if cur_align:
+            for k in align_keys:
+                if k != ALIGNMENT_NONE and k.startswith(cur_align):
+                    initial_align = k
+                    break
                 
         self.align_var = tk.StringVar(value=initial_align)
-        align_cb = ttk.Combobox(frame, textvariable=self.align_var, values=align_keys, state="readonly", width=20)
+        align_cb = ttk.Combobox(frame, textvariable=self.align_var, values=align_keys, state="readonly", width=26)
         align_cb.grid(row=3, column=1, pady=5, padx=5, sticky="w")
         
-        align_desc_label = ttk.Label(frame, text="", style="Muted.TLabel", wraplength=450, justify=tk.LEFT)
-        align_desc_label.grid(row=4, column=0, columnspan=2, pady=10)
+        try:
+            from components.ui_components import ToolTip
+            ToolTip(align_cb, "L'allineamento è facoltativo: è solo una possibile linea guida morale e non definisce per forza il giocatore che sarai.")
+        except Exception:
+            pass
+
+        # Card di Suggerimento esplicativo D&D 5e
+        tip_frame = ttk.Frame(frame, style="Surface.TFrame", padding=10)
+        tip_frame.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(12, 6))
+
+        tip_title = ttk.Label(tip_frame, text="💡 Suggerimento sull'Allineamento:", font=("Segoe UI", 9, "bold"))
+        tip_title.pack(anchor="w", pady=(0, 2))
+
+        tip_msg = (
+            "L'allineamento in D&D 5e è puramente facoltativo ed è solo una possibile linea guida "
+            "per interpretare il personaggio. Non definisce per forza il giocatore o il personaggio "
+            "che sarai al tavolo: le tue scelte, i tuoi ideali e le tue decisioni nel corso dell'avventura "
+            "avranno sempre la precedenza."
+        )
+        tip_desc = ttk.Label(tip_frame, text=tip_msg, style="Muted.TLabel", wraplength=480, justify=tk.LEFT)
+        tip_desc.pack(fill=tk.X)
+
+        align_desc_label = ttk.Label(frame, text="", style="Muted.TLabel", wraplength=480, justify=tk.LEFT)
+        align_desc_label.grid(row=5, column=0, columnspan=2, pady=(4, 10))
         
         def update_align_desc(*args):
             a = self.align_var.get()
@@ -309,16 +342,28 @@ class CharacterCreationWizard(tk.Toplevel):
         apply_class_and_race_starter_kit(c)
         c.features = f"Tratti razziali:\n{race_info['desc']}\n\nTratti classe:\n{class_info['desc']}"
         
-        # Async fetch for Level 1 features
+        # Async fetch for Level 1 features (prima offline SRD istantaneo, poi fallback online se necessario)
         def _fetch_level_1():
             try:
-                import requests
-                from .progression_ui import CLASS_MAP
-                class_en = CLASS_MAP.get(c.char_class.lower())
-                if class_en:
-                    resp = requests.get(f"https://www.dnd5eapi.co/api/classes/{class_en}/levels/1", timeout=3)
-                    if resp.status_code == 200:
-                        data = resp.json()
+                from common.srd_offline import get_class_level_features_offline
+                off_data = get_class_level_features_offline(c.char_class, 1)
+                if off_data and off_data.get("features"):
+                    c.features += "\n\n--- Privilegi di Livello 1 ---\n" + "\n".join(f"- {ft}" for ft in off_data["features"])
+                    if off_data.get("spell_slots"):
+                        for lvl_str, cnt in off_data["spell_slots"].items():
+                            c.spell_slots[lvl_str] = [0, cnt]
+                else:
+                    import urllib.request
+                    import json
+                    from .progression_ui import CLASS_MAP
+                    class_en = CLASS_MAP.get(c.char_class.lower())
+                    if class_en:
+                        req = urllib.request.Request(
+                            f"https://www.dnd5eapi.co/api/classes/{class_en}/levels/1",
+                            headers={'User-Agent': 'Mozilla/5.0'}
+                        )
+                        with urllib.request.urlopen(req, timeout=1.5) as resp:
+                            data = json.loads(resp.read().decode('utf-8'))
                         feats = [f["name"] for f in data.get("features", [])]
                         if feats:
                             c.features += "\n\n--- Privilegi di Livello 1 (API) ---\n" + "\n".join(f"- {ft}" for ft in feats)
@@ -328,17 +373,32 @@ class CharacterCreationWizard(tk.Toplevel):
                                 key = f"spell_slots_level_{i}"
                                 if key in sc:
                                     c.spell_slots[str(i)] = [0, sc[key]]
-            except Exception as e:
-                print("Error fetching API level 1 data:", e)
+            except Exception:
+                pass
             
-            self.master.after(0, self._on_creation_done, c)
+            try:
+                self.master.after(0, self._on_creation_done, c)
+            except RuntimeError:
+                try:
+                    self._on_creation_done(c)
+                except Exception:
+                    pass
             
         import threading
         threading.Thread(target=_fetch_level_1, daemon=True).start()
 
     def _on_creation_done(self, c):
         self.manager.add_character(c)
-        messagebox.showinfo("Successo", f"Personaggio '{c.name}' creato con successo!")
+        try:
+            messagebox.showinfo("Successo", f"Personaggio '{c.name}' creato con successo!", parent=self)
+        except Exception:
+            pass
         if self.on_complete_callback:
-            self.on_complete_callback(c)
-        self.destroy()
+            try:
+                self.on_complete_callback(c)
+            except Exception:
+                pass
+        try:
+            self.destroy()
+        except Exception:
+            pass
