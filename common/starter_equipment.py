@@ -548,3 +548,70 @@ def lookup_standard_weight(item_name: str) -> float:
             
     return 1.0  # Peso simbolico di default se oggetto comune non censito
 
+
+
+# --- CONTENUTI DETTAGLIATI DEI PACK INIZIALI 5E (SPACCHETTABILI) ---
+STARTER_PACK_CONTENTS = {
+    "zaino da esploratore": [
+        {"name": "Sacco a Pelo", "type": "Equipaggiamento", "qty": 1, "weight": 7.0, "container": "backpack", "desc": "Un caldo sacco a pelo per riposare all'aperto."},
+        {"name": "Acciarino", "type": "Equipaggiamento", "qty": 1, "weight": 1.0, "container": "backpack", "desc": "Pietra focaia e acciarino per accendere fuochi."},
+        {"name": "Torce", "type": "Consumabile", "qty": 10, "weight": 1.0, "container": "backpack", "desc": "10 torce. Ciascuna brucia per 1 ora illuminando 6m di luce intensa e 6m fioca."},
+        {"name": "Razioni da Viaggio", "type": "Consumabile", "qty": 10, "weight": 2.0, "container": "backpack", "desc": "10 razioni giornaliere di cibo secco e nutriente."},
+        {"name": "Corda di Canapa (15m)", "type": "Equipaggiamento", "qty": 1, "weight": 10.0, "container": "backpack", "desc": "Corda resistente da 15 metri (50 ft)."},
+        {"name": "Borraccia", "type": "Equipaggiamento", "qty": 1, "weight": 5.0, "container": "backpack", "desc": "Contiene fino a 2 litri d'acqua fresca."}
+    ],
+    "zaino da studioso": [
+        {"name": "Libro di Nozioni", "type": "Equipaggiamento", "qty": 1, "weight": 5.0, "container": "backpack", "desc": "Tomo di appunti accademici e teoria."},
+        {"name": "Inchiostro e Penna d'Oca", "type": "Equipaggiamento", "qty": 1, "weight": 0.5, "container": "backpack", "desc": "Boccetta di inchiostro nero e penna."},
+        {"name": "Fogli di Pergamena", "type": "Consumabile", "qty": 10, "weight": 0.1, "container": "backpack", "desc": "10 fogli di pergamena vergine per appunti o incantesimi."},
+        {"name": "Borsa di Sabbia", "type": "Equipaggiamento", "qty": 1, "weight": 1.0, "container": "backpack", "desc": "Per asciugare l'inchiostro fresco."},
+        {"name": "Razioni da Viaggio", "type": "Consumabile", "qty": 5, "weight": 2.0, "container": "backpack", "desc": "5 razioni giornaliere di cibo."},
+        {"name": "Borraccia", "type": "Equipaggiamento", "qty": 1, "weight": 5.0, "container": "backpack", "desc": "Contiene fino a 2 litri d'acqua."}
+    ],
+    "zaino da scassinatore": [
+        {"name": "Piede di Porco", "type": "Equipaggiamento", "qty": 1, "weight": 5.0, "container": "backpack", "desc": "Fornisce vantaggio alle prove di Forza per forzare porte e casse."},
+        {"name": "Martello", "type": "Equipaggiamento", "qty": 1, "weight": 3.0, "container": "backpack", "desc": "Martello compatto da carpentiere."},
+        {"name": "Chiodi da Roccia", "type": "Consumabile", "qty": 10, "weight": 0.25, "container": "backpack", "desc": "10 chiodi per ancoraggi e scalata."},
+        {"name": "Corda di Canapa (15m)", "type": "Equipaggiamento", "qty": 1, "weight": 10.0, "container": "backpack", "desc": "Corda resistente da 15 metri."},
+        {"name": "Candele", "type": "Consumabile", "qty": 5, "weight": 0.1, "container": "backpack", "desc": "5 candele. Ciascuna brucia per 1 ora (1.5m luce intensa)."},
+        {"name": "Razioni da Viaggio", "type": "Consumabile", "qty": 5, "weight": 2.0, "container": "backpack", "desc": "5 razioni giornaliere di cibo."},
+        {"name": "Acciarino", "type": "Equipaggiamento", "qty": 1, "weight": 1.0, "container": "backpack", "desc": "Per accendere il fuoco."}
+    ],
+    "zaino da sacerdote": [
+        {"name": "Coperta", "type": "Equipaggiamento", "qty": 1, "weight": 3.0, "container": "backpack", "desc": "Coperta pesante di lana."},
+        {"name": "Candele", "type": "Consumabile", "qty": 10, "weight": 0.1, "container": "backpack", "desc": "10 candele benedette."},
+        {"name": "Acciarino", "type": "Equipaggiamento", "qty": 1, "weight": 1.0, "container": "backpack", "desc": "Per accendere candele e fuochi."},
+        {"name": "Incensiere", "type": "Equipaggiamento", "qty": 1, "weight": 2.0, "container": "backpack", "desc": "Incensiere per riti sacri con incenso."},
+        {"name": "Vesti da Cerimonia", "type": "Equipaggiamento", "qty": 1, "weight": 4.0, "container": "backpack", "desc": "Abiti sacri della propria fede."},
+        {"name": "Razioni da Viaggio", "type": "Consumabile", "qty": 2, "weight": 2.0, "container": "backpack", "desc": "2 razioni di cibo."},
+        {"name": "Borraccia", "type": "Equipaggiamento", "qty": 1, "weight": 5.0, "container": "backpack", "desc": "Borraccia d'acqua."}
+    ],
+    "zaino da esploratore sotterraneo": [
+        {"name": "Piede di Porco", "type": "Equipaggiamento", "qty": 1, "weight": 5.0, "container": "backpack", "desc": "Vantaggio alle prove di Forza per forzare aperture."},
+        {"name": "Martello", "type": "Equipaggiamento", "qty": 1, "weight": 3.0, "container": "backpack", "desc": "Martello da esplorazione."},
+        {"name": "Chiodi da Roccia", "type": "Consumabile", "qty": 10, "weight": 0.25, "container": "backpack", "desc": "10 chiodi di metallo."},
+        {"name": "Torce", "type": "Consumabile", "qty": 10, "weight": 1.0, "container": "backpack", "desc": "10 torce da dungeon."},
+        {"name": "Acciarino", "type": "Equipaggiamento", "qty": 1, "weight": 1.0, "container": "backpack", "desc": "Acciarino e pietra focaia."},
+        {"name": "Razioni da Viaggio", "type": "Consumabile", "qty": 10, "weight": 2.0, "container": "backpack", "desc": "10 razioni nutrienti."},
+        {"name": "Borraccia", "type": "Equipaggiamento", "qty": 1, "weight": 5.0, "container": "backpack", "desc": "Borraccia da 2 litri."},
+        {"name": "Corda di Canapa (15m)", "type": "Equipaggiamento", "qty": 1, "weight": 10.0, "container": "backpack", "desc": "Corda da 15 metri."}
+    ],
+    "zaino da intrattenitore": [
+        {"name": "Sacco a Pelo", "type": "Equipaggiamento", "qty": 1, "weight": 7.0, "container": "backpack", "desc": "Sacco a pelo da viaggio."},
+        {"name": "Costumi di Scena", "type": "Equipaggiamento", "qty": 2, "weight": 4.0, "container": "backpack", "desc": "Due completi teatrali appariscenti."},
+        {"name": "Candele", "type": "Consumabile", "qty": 5, "weight": 0.1, "container": "backpack", "desc": "5 candele."},
+        {"name": "Razioni da Viaggio", "type": "Consumabile", "qty": 5, "weight": 2.0, "container": "backpack", "desc": "5 razioni di cibo."},
+        {"name": "Borraccia", "type": "Equipaggiamento", "qty": 1, "weight": 5.0, "container": "backpack", "desc": "Borraccia per bevande."},
+        {"name": "Trucchi e Cosmetici", "type": "Equipaggiamento", "qty": 1, "weight": 1.0, "container": "backpack", "desc": "Set per trucco e travestimento rapido."}
+    ]
+}
+
+def get_pack_contents(pack_name: str):
+    """Restituisce la lista di oggetti contenuti in uno zaino/kit iniziale 5e se apribile, altrimenti None."""
+    if not pack_name or not isinstance(pack_name, str):
+        return None
+    p_lower = pack_name.strip().lower()
+    for k, v in STARTER_PACK_CONTENTS.items():
+        if k in p_lower:
+            return [it.copy() for it in v]
+    return None

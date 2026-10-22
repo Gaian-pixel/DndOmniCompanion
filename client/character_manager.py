@@ -422,6 +422,32 @@ class Character:
                     
         return round(total, 2)
 
+    def find_ammunition(self, weapon_name: str):
+        """Trova le munizioni corrispondenti a un'arma (es. frecce per archi, dardi per balestre)."""
+        w_lower = str(weapon_name).lower()
+        target_ammo = None
+        if any(k in w_lower for k in ["arco", "bow"]):
+            target_ammo = ["frecc", "arrow"]
+        elif any(k in w_lower for k in ["balestra", "crossbow"]):
+            target_ammo = ["dard", "bolt"]
+        elif any(k in w_lower for k in ["fionda", "sling"]):
+            target_ammo = ["proiettil", "bullet", "sassi"]
+            
+        if not target_ammo:
+            return None, None
+            
+        for idx, it in enumerate(getattr(self, "inventory_grid", [])):
+            if not it or not isinstance(it, dict):
+                continue
+            nm = str(it.get("name", "")).lower()
+            try:
+                qty = int(it.get("qty", 0))
+            except (ValueError, TypeError):
+                qty = 0
+            if qty > 0 and any(t in nm for t in target_ammo):
+                return it, idx
+        return None, None
+
     def get_container_contents_weight(self, container_key: str) -> float:
         """Restituisce la somma dei pesi degli oggetti collocati in uno specifico contenitore."""
         tot = 0.0

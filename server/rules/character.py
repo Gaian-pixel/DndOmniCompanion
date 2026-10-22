@@ -81,6 +81,7 @@ def handle_update_full_sheet_request(data, player, game_state):
             client_inv = char_data.get("inventory_grid", [])
             if isinstance(server_inv, list) and isinstance(client_inv, list):
                 allowed_counts = {}
+                from common.starter_equipment import get_pack_contents
                 for s_it in server_inv:
                     if isinstance(s_it, dict) and s_it.get("name"):
                         k = str(s_it.get("name", "")).strip().lower()
@@ -89,6 +90,12 @@ def handle_update_full_sheet_request(data, player, game_state):
                         except (ValueError, TypeError):
                             q = 1
                         allowed_counts[k] = allowed_counts.get(k, 0) + q
+                        pack_subs = get_pack_contents(k)
+                        if pack_subs:
+                            for p_sub in pack_subs:
+                                sub_k = str(p_sub.get("name", "")).strip().lower()
+                                sub_q = int(p_sub.get("qty", 1) or 1) * q
+                                allowed_counts[sub_k] = allowed_counts.get(sub_k, 0) + sub_q
                 for s_i in range(len(client_inv)):
                     c_it = client_inv[s_i]
                     if isinstance(c_it, dict) and c_it.get("name"):

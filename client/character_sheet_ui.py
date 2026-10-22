@@ -320,6 +320,11 @@ class CharacterSheetUI(tk.Toplevel):
         self._suppress_weight_sync = True
         self._initial_text_fields = {}
         self._markdown_widgets = {}
+        self.current_container_filter = "all"
+        self.inventory_row_frames = []
+        self.container_quick_buttons = []
+        self.spend_buttons = []
+        self.container_filter_btns = {}
         
         self.setup_ui()
         self.load_data()
@@ -1310,6 +1315,32 @@ class CharacterSheetUI(tk.Toplevel):
         self.lbl_attunement_status = tk.Label(inv_bar, text="", font=FONT_SMALL, fg=ACCENT_GOLD, bg=BG_COLOR)
         self.lbl_attunement_status.pack(side=tk.RIGHT, padx=6)
 
+        # 2b. Barra Filtro e Gestione Contenitori (Zaino, Addosso, Borsa Conservante, ecc.)
+        self.container_filter_bar = tk.Frame(parent_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=4)
+        self.container_filter_bar.pack(fill=tk.X, padx=6, pady=(2, 4))
+        
+        c_filter_top = tk.Frame(self.container_filter_bar, bg=SURFACE_COLOR_ALT)
+        c_filter_top.pack(fill=tk.X, pady=(0, 2))
+        
+        tk.Label(c_filter_top, text="Contenitore:", font=FONT_SMALL, fg=TEXT_MUTED, bg=SURFACE_COLOR_ALT).pack(side=tk.LEFT, padx=(2, 6))
+        
+        self.container_filter_btns = {}
+        filters_def = [
+            ("all", "📦 Tutti"),
+            ("backpack", "🎒 Zaino"),
+            ("equipped", "⚔️ Addosso"),
+            ("bag_of_holding", "🔮 Borsa"),
+            ("haversack", "✨ Zaino Pratico"),
+            ("mount", "🐴 Cavalcatura"),
+        ]
+        for f_key, f_label in filters_def:
+            b = ttk.Button(c_filter_top, text=f_label, command=lambda k=f_key: self.set_container_filter(k), style="Slot.TButton")
+            b.pack(side=tk.LEFT, padx=2)
+            self.container_filter_btns[f_key] = b
+            
+        self.container_info_lbl = tk.Label(self.container_filter_bar, text="", font=FONT_SMALL, fg=ACCENT_GOLD, bg=SURFACE_COLOR_ALT)
+        self.container_info_lbl.pack(anchor="w", padx=2, pady=(2, 0))
+
         # 3. Lista Griglia 25 Slot (Canvas Dark con auto-stretch e zero bordi bianchi)
         list_frame = tk.Frame(parent_frame, bg=BG_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
         list_frame.pack(fill=tk.BOTH, expand=True, padx=6, pady=2)
@@ -1346,11 +1377,16 @@ class CharacterSheetUI(tk.Toplevel):
         hdr_frame.pack(fill=tk.X, padx=2, pady=(0, 2))
         
         tk.Label(hdr_frame, text="#", font=FONT_BOLD, fg=TEXT_MUTED, bg=SURFACE_COLOR_ALT, width=3).pack(side=tk.LEFT)
+        tk.Label(hdr_frame, text="Cont.", font=FONT_BOLD, fg=TEXT_MUTED, bg=SURFACE_COLOR_ALT, width=4).pack(side=tk.LEFT, padx=(2, 2))
         tk.Label(hdr_frame, text=_t("sheet_item"), font=FONT_BOLD, fg=TEXT_MUTED, bg=SURFACE_COLOR_ALT).pack(side=tk.LEFT, padx=6, expand=True, fill=tk.X)
-        tk.Label(hdr_frame, text=_t("sheet_weight_col"), font=FONT_BOLD, fg=TEXT_MUTED, bg=SURFACE_COLOR_ALT, width=10).pack(side=tk.RIGHT, padx=4)
         tk.Label(hdr_frame, text="🔮 " + _t("sheet_attunement"), font=FONT_BOLD, fg=TEXT_MUTED, bg=SURFACE_COLOR_ALT, width=8).pack(side=tk.RIGHT, padx=4)
+        tk.Label(hdr_frame, text=_t("sheet_weight_col"), font=FONT_BOLD, fg=TEXT_MUTED, bg=SURFACE_COLOR_ALT, width=10).pack(side=tk.RIGHT, padx=4)
+        tk.Label(hdr_frame, text="Spendi", font=FONT_BOLD, fg=TEXT_MUTED, bg=SURFACE_COLOR_ALT, width=5).pack(side=tk.RIGHT, padx=4)
 
+        self.inventory_row_frames = []
         self.inventory_buttons = []
+        self.container_quick_buttons = []
+        self.spend_buttons = []
         self.weight_vars = []
         self.attuned_vars = []
         
@@ -1358,15 +1394,30 @@ class CharacterSheetUI(tk.Toplevel):
             row_bg = SURFACE_COLOR if (i % 2 == 0) else SURFACE_COLOR_ALT
             row_frame = tk.Frame(scrollable_frame, bg=row_bg, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=2)
             row_frame.pack(fill=tk.X, padx=2, pady=1)
+            self.inventory_row_frames.append(row_frame)
             
             # Indice slot #i+1
             lbl_idx = tk.Label(row_frame, text=f"#{i+1:02d}", font=FONT_SMALL, fg=TEXT_MUTED, bg=row_bg, width=3)
-            lbl_idx.pack(side=tk.LEFT, padx=(2, 4))
+            lbl_idx.pack(side=tk.LEFT, padx=(2, 2))
+            
+            # Bottone Rapido Contenitore (Collocazione)
+            btn_c = tk.Button(row_frame, text="🎒", font=("Segoe UI Emoji", 10), relief=tk.FLAT, bd=0, bg=row_bg, fg=TEXT_COLOR, activebackground=BORDER_COLOR, width=3)
+            btn_c.pack(side=tk.LEFT, padx=(0, 2))
+            btn_c.config(command=lambda idx=i, b=btn_c: self.open_quick_container_picker(idx, b))
+            ToolTip(btn_c, "Sposta rapidamente questo oggetto in un altro contenitore (Zaino, Addosso, Borsa Conservante, ecc.)")
+            self.container_quick_buttons.append(btn_c)
             
             # Bottone Oggetto
             btn = ttk.Button(row_frame, text=_t("sheet_empty_slot_desc"), command=lambda idx=i: self.on_inventory_click(idx), style="Slot.TButton")
-            btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+            btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
+            btn.bind("<Button-3>", lambda e, idx=i: self.show_container_context_menu(e, idx))
+            row_frame.bind("<Button-3>", lambda e, idx=i: self.show_container_context_menu(e, idx))
             self.inventory_buttons.append(btn)
+            
+            # Bottone Rapido Spendi / Consuma / Spacchetta
+            btn_spend = ttk.Button(row_frame, text="-1", width=4, style="Small.TButton", command=lambda idx=i: self.on_quick_spend_or_open_click(idx))
+            btn_spend.pack(side=tk.RIGHT, padx=2)
+            self.spend_buttons.append(btn_spend)
             
             # Peso
             w_frame = tk.Frame(row_frame, bg=row_bg)
@@ -1380,7 +1431,7 @@ class CharacterSheetUI(tk.Toplevel):
             
             # Sintonia
             a_frame = tk.Frame(row_frame, bg=row_bg)
-            a_frame.pack(side=tk.RIGHT, padx=6)
+            a_frame.pack(side=tk.RIGHT, padx=4)
             a_var = tk.BooleanVar(value=False)
             a_var.trace_add("write", lambda *args, idx=i: self.check_attunement(idx))
             cb = ttk.Checkbutton(a_frame, variable=a_var)
@@ -2238,11 +2289,109 @@ class CharacterSheetUI(tk.Toplevel):
             self.exp_progress['value'] = 1
             self.levelup_btn.grid_forget()
 
+    def set_container_filter(self, container_key: str):
+        self.current_container_filter = container_key
+        self.refresh_inventory_grid()
+
     def refresh_inventory_grid(self):
         backpack_dropped = getattr(self.character, "backpack_dropped", False)
-        from common.starter_equipment import lookup_standard_weight
+        from common.starter_equipment import lookup_standard_weight, get_pack_contents
+        from client.character_manager import CONTAINERS
+        
+        # 1. Calcola statistiche per contenitore
+        c_counts = {"all": 0, "backpack": 0, "equipped": 0, "bag_of_holding": 0, "haversack": 0, "mount": 0}
+        c_weights = {"all": 0.0, "backpack": 0.0, "equipped": 0.0, "bag_of_holding": 0.0, "haversack": 0.0, "mount": 0}
+        
+        for item in self.character.inventory_grid:
+            if not item or not isinstance(item, dict):
+                continue
+            c_key = item.get("container")
+            if not c_key:
+                itype = str(item.get("type", "")).strip().lower()
+                c_key = "equipped" if itype in ("arma", "armatura", "scudo", "weapon", "armor", "shield") else "backpack"
+            if c_key not in c_counts:
+                c_key = "backpack"
+            c_counts[c_key] += 1
+            c_counts["all"] += 1
+            
+            try:
+                w = float(item.get("weight", 0.0) or 0.0)
+                q = int(item.get("qty", 1) or 1)
+                c_weights[c_key] += round(w * q, 2)
+                c_weights["all"] += round(w * q, 2)
+            except (ValueError, TypeError):
+                pass
+                
+        # 2. Aggiorna bottoni del filtro contenitori
+        if hasattr(self, "container_filter_btns"):
+            filter_labels = [
+                ("all", f"📦 Tutti ({c_counts['all']}/25)"),
+                ("backpack", f"🎒 Zaino ({c_counts['backpack']})"),
+                ("equipped", f"⚔️ Addosso ({c_counts['equipped']})"),
+                ("bag_of_holding", f"🔮 Borsa ({c_counts['bag_of_holding']})"),
+                ("haversack", f"✨ Pratico ({c_counts['haversack']})"),
+                ("mount", f"🐴 Cavalcatura ({c_counts['mount']})"),
+            ]
+            for f_key, f_lbl in filter_labels:
+                btn_widget = self.container_filter_btns.get(f_key)
+                if btn_widget and btn_widget.winfo_exists():
+                    is_active = (f_key == getattr(self, "current_container_filter", "all"))
+                    btn_widget.config(text=f_lbl, style="Gold.TButton" if is_active else "Slot.TButton")
+                    
+        # 3. Aggiorna stringa informativa del contenitore
+        if hasattr(self, "container_info_lbl") and self.container_info_lbl.winfo_exists():
+            active_f = getattr(self, "current_container_filter", "all")
+            if active_f == "all":
+                carried_w = self.character.get_carried_weight()
+                self.container_info_lbl.config(
+                    text=f"📦 Tutti gli Oggetti: {c_counts['all']}/25 slot occupati • Carico Trasportato: {carried_w} lbs"
+                )
+            elif active_f == "backpack":
+                bp_state = "⚠️ A Terra (Escluso dal carico)" if backpack_dropped else "Indossato (Sul personaggio)"
+                self.container_info_lbl.config(
+                    text=f"🎒 Zaino: {c_counts['backpack']} oggetti • Peso interno: {c_weights['backpack']:.1f} lbs • Stato: {bp_state}"
+                )
+            elif active_f == "equipped":
+                self.container_info_lbl.config(
+                    text=f"⚔️ Addosso / Equipaggiato: {c_counts['equipped']} oggetti • Peso: {c_weights['equipped']:.1f} lbs (Grava sempre sul carico corporeo)"
+                )
+            elif active_f == "bag_of_holding":
+                self.container_info_lbl.config(
+                    text=f"🔮 Borsa Conservante: {c_counts['bag_of_holding']} oggetti • Peso interno: {c_weights['bag_of_holding']:.1f} / 500.0 lbs (Extradimensionale)"
+                )
+            elif active_f == "haversack":
+                self.container_info_lbl.config(
+                    text=f"✨ Zaino Pratico di Heward: {c_counts['haversack']} oggetti • Peso interno: {c_weights['haversack']:.1f} / 120.0 lbs (Extradimensionale)"
+                )
+            elif active_f == "mount":
+                self.container_info_lbl.config(
+                    text=f"🐴 Sacca da Sella / Cavalcatura: {c_counts['mount']} oggetti • Peso: {c_weights['mount']:.1f} lbs (Non grava sul PG)"
+                )
+                
+        # 4. Aggiorna ciascuna riga dello slot
+        active_filter = getattr(self, "current_container_filter", "all")
         for i, item in enumerate(self.character.inventory_grid):
             btn = self.inventory_buttons[i]
+            btn_c = self.container_quick_buttons[i] if i < len(self.container_quick_buttons) else None
+            btn_sp = self.spend_buttons[i] if i < len(self.spend_buttons) else None
+            row_frame = self.inventory_row_frames[i] if i < len(self.inventory_row_frames) else None
+            
+            # Filtro visibilità riga
+            item_c = "backpack"
+            if item:
+                item_c = item.get("container")
+                if not item_c:
+                    itype = str(item.get("type", "")).strip().lower()
+                    item_c = "equipped" if itype in ("arma", "armatura", "scudo", "weapon", "armor", "shield") else "backpack"
+            
+            should_show = (active_filter == "all") or (item and item_c == active_filter)
+            if row_frame:
+                if should_show:
+                    row_frame.pack(fill=tk.X, padx=2, pady=1)
+                else:
+                    row_frame.pack_forget()
+                    continue
+
             if item:
                 name = item.get("name", _t("sheet_item"))
                 item_w = item.get("weight", 0.0)
@@ -2260,22 +2409,32 @@ class CharacterSheetUI(tk.Toplevel):
                 item_type = item.get("type", "")
                 type_str = f" [{item_type}]" if item_type else ""
                 
-                c_key = item.get("container")
-                if not c_key:
-                    itype = str(item_type).strip().lower()
-                    c_key = "equipped" if itype in ("arma", "armatura", "scudo", "weapon", "armor", "shield") else "backpack"
-                    
-                from client.character_manager import CONTAINERS
-                c_info = CONTAINERS.get(c_key, CONTAINERS["backpack"])
+                c_info = CONTAINERS.get(item_c, CONTAINERS["backpack"])
                 c_icon = c_info.get("icon", "🎒")
                 c_name = c_info.get("name_it" if get_language() == "it" else "name_en", "Zaino")
                 
-                is_on_ground = (c_key == "backpack" and backpack_dropped)
+                is_on_ground = (item_c == "backpack" and backpack_dropped)
                 ground_tag = " [A Terra]" if is_on_ground else ""
                 
                 short_name = name[:18] + ".." if len(name) > 18 else name
                 btn_style = "Slot.TButton" if is_on_ground else "SlotFilled.TButton"
                 btn.config(text=f"{c_icon} {icon} {short_name} (x{qty}){type_str}{ground_tag}", style=btn_style)
+                
+                if btn_c:
+                    btn_c.config(text=c_icon, state=tk.NORMAL)
+                    ToolTip(btn_c, f"Collocato in: {c_icon} {c_name}\nClicca per spostare in un altro contenitore")
+                    
+                is_spendable = self.is_spendable_item(item)
+                pack_items = get_pack_contents(name)
+                if btn_sp:
+                    if is_spendable:
+                        btn_sp.config(text="-1", state=tk.NORMAL)
+                        ToolTip(btn_sp, f"Spendi / Consuma 1x {name} (Rimanenti: {qty})\nClicca per spendere")
+                    elif pack_items:
+                        btn_sp.config(text="📦", state=tk.NORMAL)
+                        ToolTip(btn_sp, f"Spacchetta '{name}' estraendo i contenuti ({len(pack_items)} oggetti)")
+                    else:
+                        btn_sp.config(text="", state=tk.DISABLED)
                 
                 if hasattr(self, 'weight_vars') and i < len(self.weight_vars):
                     self.weight_vars[i].set(item.get("weight", item_w if "item_w" in locals() else 0.0))
@@ -2284,22 +2443,353 @@ class CharacterSheetUI(tk.Toplevel):
                 desc = item.get("desc", "")
                 weight = item.get("weight", 0.0)
                 ground_status = "\n⚠️ QUESTO OGGETTO È A TERRA CON LO ZAINO!" if is_on_ground else ""
-                tip_text = f"{name} (x{qty})\nCollocazione: {c_icon} {c_name}\nTipo: {item_type}\nPeso: {weight} lbs{ground_status}\n\n{desc}" if desc else f"{name} (x{qty})\nCollocazione: {c_icon} {c_name}\nTipo: {item_type}\nPeso: {weight} lbs{ground_status}"
+                spend_status = f"\n🏹 Oggetto Spendibile: clicca '[-1]' per consumare 1 unità." if is_spendable else ""
+                pack_status = f"\n📦 Pacchetto Apribile: clicca '[📦]' per estrarre gli oggetti." if pack_items else ""
+                tip_text = f"{name} (x{qty})\nCollocazione: {c_icon} {c_name}\nTipo: {item_type}\nPeso: {weight} lbs{ground_status}{spend_status}{pack_status}\n\n{desc}" if desc else f"{name} (x{qty})\nCollocazione: {c_icon} {c_name}\nTipo: {item_type}\nPeso: {weight} lbs{ground_status}{spend_status}{pack_status}"
                 ToolTip(btn, tip_text)
             else:
                 btn.config(text=f"➕ {_t('sheet_empty_slot_desc')}", style="Slot.TButton")
                 empty_tip = _t("sheet_empty_slot_desc") if self.is_connected else "Slot Vuoto (L'assegnazione di oggetti richiede l'approvazione del Master in sessione)"
                 ToolTip(btn, empty_tip)
+                if btn_c:
+                    btn_c.config(text="➕", state=tk.DISABLED)
+                if btn_sp:
+                    btn_sp.config(text="", state=tk.DISABLED)
                 if hasattr(self, 'weight_vars') and i < len(self.weight_vars):
                     self.weight_vars[i].set(0.0)
                 if hasattr(self, 'attuned_vars') and i < len(self.attuned_vars):
                     self.attuned_vars[i].set(False)
+                    
         if hasattr(self, 'check_attunement'):
             self.check_attunement()
         if hasattr(self, 'calculate_total_weight'):
             self.calculate_total_weight()
         if hasattr(self, 'update_currency_total'):
             self.update_currency_total()
+
+    def is_spendable_item(self, item: dict) -> bool:
+        """Determina se un oggetto è spendibile/consumabile (frecce, dardi, pozioni, razioni, torce, ecc.)."""
+        if not item or not isinstance(item, dict):
+            return False
+        qty = item.get("qty", 1)
+        try:
+            qty = int(qty)
+        except (ValueError, TypeError):
+            qty = 1
+        if qty <= 0:
+            return False
+        itype = str(item.get("type", "")).strip().lower()
+        iname = str(item.get("name", "")).strip().lower()
+        idesc = str(item.get("desc", "")).strip().lower()
+        
+        if any(k in itype for k in ["munizion", "ammunition", "ammo", "consumab", "pozion", "potion", "pergamena", "scroll"]):
+            return True
+        if any(k in iname or k in idesc for k in [
+            "frecc", "arrow", "dard", "bolt", "proiettil", "bullet",
+            "pozione", "potion", "elisir", "fiala", "vial", "razion", "ration",
+            "torcia", "torce", "torch", "boccetta", "olio", "oil", "antidoto",
+            "erba", "benda", "bende", "kit medic", "healer's kit", "candela", "candele"
+        ]):
+            return True
+        if qty > 1 and itype not in ["arma", "armatura", "scudo", "weapon", "armor", "shield"]:
+            return True
+        return False
+
+    def on_quick_spend_or_open_click(self, slot_idx: int):
+        if slot_idx < 0 or slot_idx >= len(self.character.inventory_grid):
+            return
+        item = self.character.inventory_grid[slot_idx]
+        if not item or not isinstance(item, dict):
+            return
+        from common.starter_equipment import get_pack_contents
+        if get_pack_contents(item.get("name", "")):
+            self.unpack_starter_pack(slot_idx)
+        elif self.is_spendable_item(item):
+            self.spend_consumable(slot_idx, 1)
+
+    def spend_consumable(self, slot_idx: int, amount: int = 1):
+        if slot_idx < 0 or slot_idx >= len(self.character.inventory_grid):
+            return
+        item = self.character.inventory_grid[slot_idx]
+        if not item or not isinstance(item, dict):
+            return
+            
+        it_name = item.get("name", "Oggetto")
+        try:
+            current_qty = int(item.get("qty", 1))
+        except (ValueError, TypeError):
+            current_qty = 1
+            
+        if current_qty < amount:
+            messagebox.showwarning("Quantità Insufficiente", f"Non hai abbastanza {it_name} (Disponibili: {current_qty}, Richiesti: {amount}).", parent=self)
+            return
+            
+        heal_msg = ""
+        iname_lower = it_name.lower()
+        if "pozione di guarigione" in iname_lower or "potion of healing" in iname_lower:
+            import random
+            heal_roll = random.randint(1, 4) + random.randint(1, 4) + 2
+            old_hp = self.character.hp_current
+            self.character.hp_current = min(self.character.hp_max, self.character.hp_current + heal_roll)
+            if hasattr(self, "hp_current_entry") and self.hp_current_entry.winfo_exists():
+                self.hp_current_entry.delete(0, tk.END)
+                self.hp_current_entry.insert(0, str(self.character.hp_current))
+            if hasattr(self, "update_hp_bar"):
+                self.update_hp_bar()
+            heal_msg = f"\n🧪 Hai bevuto la pozione e recuperato +{heal_roll} PF (ora {self.character.hp_current}/{self.character.hp_max})!"
+
+        new_qty = current_qty - amount
+        if new_qty > 0:
+            item["qty"] = new_qty
+            status_text = f"Hai consumato {amount}x {it_name}. Rimanenti: {new_qty}.{heal_msg}"
+        else:
+            ans = messagebox.askyesno(
+                "Oggetto Esaurito",
+                f"Hai consumato l'ultima unità di '{it_name}'!{heal_msg}\n\nVuoi liberare lo slot nell'inventario?",
+                parent=self
+            )
+            if ans:
+                self.character.inventory_grid[slot_idx] = None
+                status_text = f"Hai consumato l'ultima unità di {it_name}. Slot liberato.{heal_msg}"
+            else:
+                item["qty"] = 0
+                status_text = f"Hai consumato l'ultima unità di {it_name}. Rimanenti: 0 (Esaurito).{heal_msg}"
+
+        self.manager.update_character(self.character)
+        if hasattr(self.manager, 'save_characters'):
+            self.manager.save_characters()
+            
+        self.refresh_inventory_grid()
+        self.refresh_weapons_list()
+        
+        if self.is_connected and getattr(self, "network", None):
+            from common.protocol import make_update_full_sheet_request, make_chat_broadcast
+            self.network.send(make_update_full_sheet_request(self.character.to_dict()))
+            self.network.send(make_chat_broadcast(self.character.name, f"[CONSUMO] {self.character.name} ha consumato {amount}x {it_name} (Rimanenti: {new_qty})"))
+            
+        if hasattr(self, "show_toast"):
+            self.show_toast(status_text, title="Oggetto Consumato", toast_type="info")
+        else:
+            messagebox.showinfo("Oggetto Consumato", status_text, parent=self)
+
+    def prompt_spend_custom_amount(self, slot_idx: int):
+        if slot_idx < 0 or slot_idx >= len(self.character.inventory_grid):
+            return
+        item = self.character.inventory_grid[slot_idx]
+        if not item: return
+        it_name = item.get("name", "Oggetto")
+        try:
+            qty = int(item.get("qty", 1))
+        except (ValueError, TypeError):
+            qty = 1
+        ans = simpledialog.askinteger(
+            "Spendi Quantità",
+            f"Quante unità di '{it_name}' vuoi spendere / consumare?\n(Disponibili: {qty})",
+            parent=self,
+            minvalue=1,
+            maxvalue=max(1, qty),
+            initialvalue=1
+        )
+        if ans:
+            self.spend_consumable(slot_idx, ans)
+
+    def unpack_starter_pack(self, slot_idx: int):
+        if slot_idx < 0 or slot_idx >= len(self.character.inventory_grid):
+            return
+        item = self.character.inventory_grid[slot_idx]
+        if not item or not isinstance(item, dict):
+            return
+        pack_name = item.get("name", "")
+        from common.starter_equipment import get_pack_contents
+        sub_items = get_pack_contents(pack_name)
+        if not sub_items:
+            messagebox.showinfo("Non è un Pacchetto", f"'{pack_name}' non è un pacchetto o kit apribile.", parent=self)
+            return
+            
+        free_slots = [idx for idx, it in enumerate(self.character.inventory_grid) if it is None]
+        slots_needed = len(sub_items) - 1
+        if len(free_slots) < slots_needed:
+            messagebox.showwarning(
+                "Spazio Insufficiente",
+                f"Per spacchettare '{pack_name}' servono {len(sub_items)} slot liberi nello zaino (attualmente ne hai {len(free_slots)+1}).\n\n"
+                "Libera prima qualche slot per estrarre tutti gli oggetti individuali.",
+                parent=self
+            )
+            return
+            
+        if not messagebox.askyesno(
+            "Spacchetta Contenuto",
+            f"Vuoi estrarre tutti gli oggetti da '{pack_name}' nello zaino?\n\nVerranno inseriti {len(sub_items)} oggetti individuali (torce, razioni, corda, ecc.) spendibili singolarmente.",
+            parent=self
+        ):
+            return
+            
+        self.character.inventory_grid[slot_idx] = sub_items[0]
+        curr_sub_idx = 1
+        for free_idx in free_slots:
+            if curr_sub_idx >= len(sub_items):
+                break
+            self.character.inventory_grid[free_idx] = sub_items[curr_sub_idx]
+            curr_sub_idx += 1
+            
+        self.manager.update_character(self.character)
+        if hasattr(self.manager, 'save_characters'):
+            self.manager.save_characters()
+            
+        self.refresh_inventory_grid()
+        self.refresh_weapons_list()
+        
+        if self.is_connected and getattr(self, "network", None):
+            from common.protocol import make_update_full_sheet_request, make_chat_broadcast
+            self.network.send(make_update_full_sheet_request(self.character.to_dict()))
+            self.network.send(make_chat_broadcast(self.character.name, f"[INVENTARIO] {self.character.name} ha spacchettato '{pack_name}' estraendo i contenuti nello zaino."))
+            
+        messagebox.showinfo(
+            "Contenuto Estratto",
+            f"'{pack_name}' è stato spacchettato con successo!\nTutti gli oggetti (incluse torce e razioni) sono ora gestibili e spendibili direttamente nello zaino.",
+            parent=self
+        )
+
+    def move_item_to_container(self, slot_idx: int, target_container: str):
+        if slot_idx < 0 or slot_idx >= len(self.character.inventory_grid):
+            return
+        item = self.character.inventory_grid[slot_idx]
+        if not item or not isinstance(item, dict):
+            return
+        from client.character_manager import CONTAINERS
+        c_info = CONTAINERS.get(target_container, CONTAINERS.get("backpack", {}))
+        c_name = c_info.get("name_it" if get_language() == "it" else "name_en", target_container)
+        c_icon = c_info.get("icon", "📦")
+        
+        old_container = item.get("container", "backpack")
+        if old_container == target_container:
+            return
+            
+        item["container"] = target_container
+        self.manager.update_character(self.character)
+        if hasattr(self.manager, 'save_characters'):
+            self.manager.save_characters()
+            
+        self.refresh_inventory_grid()
+        
+        if self.is_connected and getattr(self, "network", None):
+            from common.protocol import make_update_full_sheet_request
+            self.network.send(make_update_full_sheet_request(self.character.to_dict()))
+
+    def open_quick_container_picker(self, slot_idx: int, button_widget: tk.Widget):
+        if slot_idx < 0 or slot_idx >= len(self.character.inventory_grid):
+            return
+        item = self.character.inventory_grid[slot_idx]
+        if not item or not isinstance(item, dict):
+            return
+            
+        it_name = item.get("name", "Oggetto")
+        curr_c = item.get("container", "backpack")
+        from client.character_manager import CONTAINERS
+        
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label=f"📦 Collocazione: {it_name}", state="disabled")
+        menu.add_separator()
+        
+        for c_id, c_data in CONTAINERS.items():
+            c_icon = c_data.get("icon", "")
+            c_name = c_data.get("name_it" if get_language() == "it" else "name_en", c_id)
+            prefix = "✓ " if c_id == curr_c else "   "
+            menu.add_command(
+                label=f"{prefix}{c_icon} {c_name}",
+                command=lambda c=c_id: self.move_item_to_container(slot_idx, c)
+            )
+            
+        x = button_widget.winfo_rootx()
+        y = button_widget.winfo_rooty() + button_widget.winfo_height()
+        try:
+            menu.tk_popup(x, y)
+        finally:
+            menu.grab_release()
+
+    def show_container_context_menu(self, event, slot_idx: int):
+        if slot_idx < 0 or slot_idx >= len(self.character.inventory_grid):
+            return
+        item = self.character.inventory_grid[slot_idx]
+        menu = tk.Menu(self, tearoff=0)
+        
+        if item and isinstance(item, dict):
+            it_name = item.get("name", "Oggetto")
+            curr_c = item.get("container", "backpack")
+            from client.character_manager import CONTAINERS
+            
+            menu.add_command(label=f"📦 {it_name}", state="disabled")
+            menu.add_separator()
+            
+            c_menu = tk.Menu(menu, tearoff=0)
+            for c_id, c_data in CONTAINERS.items():
+                c_icon = c_data.get("icon", "")
+                c_name = c_data.get("name_it" if get_language() == "it" else "name_en", c_id)
+                prefix = "✓ " if c_id == curr_c else "   "
+                c_menu.add_command(
+                    label=f"{prefix}{c_icon} {c_name}",
+                    command=lambda c=c_id: self.move_item_to_container(slot_idx, c)
+                )
+            menu.add_cascade(label="Sposta in Contenitore...", menu=c_menu)
+            
+            if self.is_spendable_item(item):
+                qty = item.get("qty", 1)
+                menu.add_command(
+                    label=f"🏹 Spendi / Usa 1 (Disponibili: {qty})",
+                    command=lambda: self.spend_consumable(slot_idx, 1)
+                )
+                menu.add_command(
+                    label="🔢 Spendi Quantità...",
+                    command=lambda: self.prompt_spend_custom_amount(slot_idx)
+                )
+                
+            from common.starter_equipment import get_pack_contents
+            if get_pack_contents(item.get("name", "")):
+                menu.add_command(
+                    label="📦 Spacchetta / Estrai Contenuto nello Zaino",
+                    command=lambda: self.unpack_starter_pack(slot_idx)
+                )
+                
+            menu.add_separator()
+            menu.add_command(label="✏️ Modifica Dettagli...", command=lambda: self.open_item_details_dialog(slot_idx, item))
+            menu.add_command(label="🗑️ Richiedi Rimozione...", command=lambda: self.prompt_item_removal(slot_idx, item))
+        else:
+            menu.add_command(label=f"Slot #{slot_idx+1} Vuoto", state="disabled")
+            if self.is_connected:
+                menu.add_command(label="➕ Aggiungi Oggetto...", command=lambda: self.on_inventory_click(slot_idx))
+                
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def prompt_item_removal(self, slot_idx: int, item: dict):
+        if not self.is_connected:
+            messagebox.showwarning(
+                "Azione Non Consentita",
+                "Non puoi rimuovere o scartare oggetti dall'inventario in modalità offline.\n\n"
+                "La rimozione di oggetti richiede sempre l'approvazione del Dungeon Master durante una sessione di gioco.",
+                parent=self
+            )
+            return
+            
+        it_name = item.get("name", "questo oggetto")
+        if not getattr(self, "request_item_callback", None):
+            messagebox.showwarning("Non Consentito", "In sessione multiplayer la rimozione di oggetti richiede l'approvazione del Master.", parent=self)
+            return
+            
+        if messagebox.askyesno(
+            "Richiesta Rimozione al Master",
+            f"Vuoi inviare la richiesta di rimozione per '{it_name}' (Slot #{slot_idx+1}) al Dungeon Master per approvazione?",
+            parent=self
+        ):
+            sent = self.request_item_callback({"name": it_name, "action": "remove", "type": item.get("type", "")}, slot_idx=slot_idx)
+            if sent:
+                messagebox.showinfo(
+                    "Richiesta Inviata",
+                    f"Richiesta di rimozione per '{it_name}' inviata al Master!\nL'oggetto verrà rimosso dallo zaino una volta approvato.",
+                    parent=self
+                )
 
     def on_inventory_click(self, idx):
         item = self.character.inventory_grid[idx]
@@ -2512,7 +3002,20 @@ class CharacterSheetUI(tk.Toplevel):
                 selected_idx = opt_idx
                 break
         container_combo.current(selected_idx)
-        container_combo.pack(fill=tk.X, pady=(0, 4))
+        container_combo.pack(fill=tk.X, pady=(0, 2))
+
+        # Pulsanti rapidi cambio contenitore
+        c_quick_frame = tk.Frame(body, bg=SURFACE_COLOR)
+        c_quick_frame.pack(fill=tk.X, pady=(2, 6))
+        tk.Label(c_quick_frame, text="Sposta rapido:", font=FONT_SMALL, fg=TEXT_MUTED, bg=SURFACE_COLOR).pack(side=tk.LEFT, padx=(0, 4))
+        for opt_idx, (code, label) in enumerate(container_opts):
+            c_icon = CONTAINERS.get(code, {}).get("icon", "📦")
+            btn_cq = ttk.Button(
+                c_quick_frame, text=c_icon, width=3,
+                command=lambda oi=opt_idx: container_combo.current(oi)
+            )
+            btn_cq.pack(side=tk.LEFT, padx=1)
+            ToolTip(btn_cq, f"Imposta collocazione: {label}")
 
         qp_frame = tk.Frame(body, bg=SURFACE_COLOR)
         qp_frame.pack(fill=tk.X, pady=4)
@@ -2608,6 +3111,24 @@ class CharacterSheetUI(tk.Toplevel):
             elif target:
                 messagebox.showerror("Errore", "Giocatore non trovato.", parent=win)
                 
+        if self.is_spendable_item(item):
+            def _use_one():
+                win.destroy()
+                self.spend_consumable(idx, 1)
+            ttk.Button(btn_frame, text="🏹 Spendi 1", command=_use_one, style="Gold.TButton").pack(side=tk.LEFT, padx=2)
+            
+            def _spend_custom():
+                win.destroy()
+                self.prompt_spend_custom_amount(idx)
+            ttk.Button(btn_frame, text="🔢 Spendi...", command=_spend_custom).pack(side=tk.LEFT, padx=2)
+            
+        from common.starter_equipment import get_pack_contents
+        if get_pack_contents(item.get("name", "")):
+            def _unpack():
+                win.destroy()
+                self.unpack_starter_pack(idx)
+            ttk.Button(btn_frame, text="📦 Spacchetta", command=_unpack, style="Gold.TButton").pack(side=tk.LEFT, padx=2)
+
         ttk.Button(btn_frame, text="💾 Salva", command=save_item, style="Gold.TButton").pack(side=tk.LEFT, padx=3)
         ttk.Button(btn_frame, text="🤝 Dona", command=trade).pack(side=tk.LEFT, padx=3)
         ttk.Button(btn_frame, text="🗑️ Scarta", command=discard, style="Danger.TButton").pack(side=tk.LEFT, padx=3)
@@ -3293,8 +3814,17 @@ class CharacterSheetUI(tk.Toplevel):
             tk.Label(r3, text=f"TxC: {txc_str}", font=("Georgia", 11, "bold"), bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(side=tk.LEFT, padx=(0, 15))
             tk.Label(r3, text=f"Danno: {dmg_str}", font=("Georgia", 11, "bold"), bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).pack(side=tk.LEFT)
             
+            ammo_item, ammo_idx = self.character.find_ammunition(w.get("name", ""))
+            if ammo_item:
+                ammo_lbl = tk.Label(r3, text=f"🏹 Munizioni: {ammo_item.get('qty', 0)}x {ammo_item.get('name')}", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD)
+                ammo_lbl.pack(side=tk.RIGHT, padx=4)
+            
             r4 = tk.Frame(card, bg=SURFACE_COLOR)
             r4.pack(fill=tk.X)
+            
+            if ammo_item:
+                btn_ammo = ttk.Button(r4, text=f"🏹 -1 {ammo_item.get('name')}", command=lambda a_idx=ammo_idx: self.spend_consumable(a_idx, 1), style="Gold.TButton")
+                btn_ammo.pack(side=tk.LEFT, padx=(0, 4))
             
             if getattr(self, "attack_callback", None):
                 btn_target = ttk.Button(r4, text=f"🎯 Bersaglio ({txc_str})", command=lambda weapon=w, txc=total_txc, dmg=dmg_formula: self.execute_targeted_attack(weapon, txc, dmg), style="Gold.TButton")
@@ -3402,6 +3932,27 @@ class CharacterSheetUI(tk.Toplevel):
         is_fail = (base_roll == 1)
         weapon["_last_crit"] = is_crit
         
+        ammo_item, ammo_idx = self.character.find_ammunition(weapon.get("name", ""))
+        ammo_note = ""
+        if ammo_item:
+            a_name = ammo_item.get("name", "Munizione")
+            try:
+                a_qty = int(ammo_item.get("qty", 1))
+            except (ValueError, TypeError):
+                a_qty = 1
+            if a_qty > 0:
+                ammo_item["qty"] = a_qty - 1
+                ammo_note = f"\n🏹 Consumata 1x {a_name} (Rimanenti nello zaino: {ammo_item['qty']})."
+                self.manager.save_characters()
+                self.refresh_inventory_grid()
+                self.refresh_weapons_list()
+                if self.is_connected and getattr(self, "network", None):
+                    from common.protocol import make_update_full_sheet_request, make_chat_broadcast
+                    self.network.send(make_update_full_sheet_request(self.character.to_dict()))
+                    self.network.send(make_chat_broadcast(self.character.name, f"[MUNIZIONI] {self.character.name} ha consumato 1x {a_name} per l'attacco (Rimanenti: {ammo_item['qty']})."))
+            else:
+                messagebox.showwarning("Munizioni Esaurite", f"⚠️ Non hai più {a_name} nello zaino per attaccare con {w_name}!", parent=self)
+
         adv_text = f" ({adv_state})" if adv_state not in ("Normale", _t("adv_normal"), "") else ""
         
         if is_crit:
@@ -3413,6 +3964,7 @@ class CharacterSheetUI(tk.Toplevel):
         else:
             msg = f"⚔️ {self.character.name} attacca con {w_name}{adv_text}: [d20: {rolls_str}] {txc_sign} = {total}"
             
+        msg += ammo_note
         self.adv_dis_var.set(_t("adv_normal"))
         if self.roll_callback:
             self.roll_callback("0d0", msg)

@@ -386,6 +386,121 @@ class TestCharacterSheetEnhancements(unittest.TestCase):
         apply_class_and_race_starter_kit(c)
         self.assertGreater(c.currency.get("MO", 0), 0)
 
+    def test_container_filtering_and_quick_move(self):
+        """Verifica il cambio rapido di contenitore e il filtro visivo per contenitori."""
+        if not self.root:
+            self.skipTest("Tkinter non disponibile in ambiente headless")
+        from client.character_sheet_ui import CharacterSheetUI
+        c = Character("ContainerHero")
+        c.inventory_grid = [None] * 25
+        c.inventory_grid[0] = {"name": "Spada Lunga", "type": "Arma", "qty": 1, "weight": 3.0, "container": "equipped"}
+        c.inventory_grid[1] = {"name": "Razioni", "type": "Consumabile", "qty": 10, "weight": 2.0, "container": "backpack"}
+        c.inventory_grid[2] = {"name": "Gemma Preziosa", "type": "Tesoro", "qty": 1, "weight": 0.1, "container": "bag_of_holding"}
+        cm = MagicMock()
+
+        ui = CharacterSheetUI(self.root, c, cm, is_connected=False)
+        
+        # Test Sposta Contenitore
+        ui.move_item_to_container(1, "bag_of_holding")
+        self.assertEqual(c.inventory_grid[1]["container"], "bag_of_holding")
+        
+        # Test Filtro Contenitore: Seleziona "bag_of_holding"
+        ui.set_container_filter("bag_of_holding")
+        self.assertEqual(ui.current_container_filter, "bag_of_holding")
+        self.assertEqual(ui.inventory_row_frames[0].winfo_manager(), "")
+        self.assertEqual(ui.inventory_row_frames[1].winfo_manager(), "pack")
+        self.assertEqual(ui.inventory_row_frames[2].winfo_manager(), "pack")
+        
+        # Reset a "all"
+        ui.set_container_filter("all")
+        self.assertEqual(ui.inventory_row_frames[0].winfo_manager(), "pack")
+        self.assertEqual(ui.inventory_row_frames[1].winfo_manager(), "pack")
+        ui.destroy()
+
+    def test_spend_consumable_quantity_and_weight(self):
+        """Verifica che la spesa di munizioni/consumabili scali quantità e aggiorni il carico."""
+        if not self.root:
+            self.skipTest("Tkinter non disponibile in ambiente headless")
+        from client.character_sheet_ui import CharacterSheetUI
+        c = Character("ArcherHero")
+        c.inventory_grid = [None] * 25
+        c.inventory_grid[0] = {"name": "Frecce", "type": "Munizioni", "qty": 20, "weight": 0.05, "container": "backpack"}
+        cm = MagicMock()
+
+        with patch("common.messagebox.messagebox.showinfo"):
+            ui = CharacterSheetUI(self.root, c, cm, is_connected=False)
+            
+            # Spendi 1 freccia
+            ui.spend_consumable(0, 1)
+            self.assertEqual(c.inventory_grid[0]["qty"], 19)
+            
+            # Spendi altre 5 frecce
+            ui.spend_consumable(0, 5)
+            self.assertEqual(c.inventory_grid[0]["qty"], 14)
+            ui.destroy()
+
+    def test_spend_healing_potion_heals_character(self):
+        """Verifica che consumare una Pozione di Guarigione ripristini PF al personaggio."""
+        if not self.root:
+            self.skipTest("Tkinter non disponibile in ambiente headless")
+        from client.character_sheet_ui import CharacterSheetUI
+        c = Character("WoundedHero")
+        c.hp_max = 20
+        c.hp_current = 5
+        c.inventory_grid = [None] * 25
+        c.inventory_grid[0] = {"name": "Pozione di Guarigione", "type": "Consumabile", "qty": 2, "weight": 0.5, "container": "backpack"}
+        cm = MagicMock()
+
+        with patch("common.messagebox.messagebox.showinfo"):
+            ui = CharacterSheetUI(self.root, c, cm, is_connected=False)
+            ui.spend_consumable(0, 1)
+            self.assertEqual(c.inventory_grid[0]["qty"], 1)
+            # La pozione cura 2d4+2 (da 4 a 10 PF recuperati)
+            self.assertGreater(c.hp_current, 5)
+            self.assertLessEqual(c.hp_current, 20)
+            ui.destroy()
+
+    def test_starter_pack_unpacking(self):
+        """Verifica che spacchettare uno Zaino da Esploratore estragga tutti i suoi contenuti individuali."""
+        if not self.root:
+            self.skipTest("Tkinter non disponibile in ambiente headless")
+        from client.character_sheet_ui import CharacterSheetUI
+        c = Character("ExplorerHero")
+        c.inventory_grid = [None] * 25
+        c.inventory_grid[0] = {"name": "Zaino da Esploratore", "type": "Equipaggiamento", "qty": 1, "weight": 10.0, "container": "backpack"}
+        cm = MagicMock()
+
+        with patch("common.messagebox.messagebox.askyesno", return_value=True),              patch("common.messagebox.messagebox.showinfo"):
+            ui = CharacterSheetUI(self.root, c, cm, is_connected=False)
+            ui.unpack_starter_pack(0)
+            
+            # Gli slot ora devono contenere Sacco a Pelo, Torce, Razioni, ecc.
+            item_names = [it["name"] for it in c.inventory_grid if it]
+            self.assertIn("Torce", item_names)
+            self.assertIn("Razioni da Viaggio", item_names)
+            self.assertIn("Sacco a Pelo", item_names)
+            self.assertIn("Acciarino", item_names)
+            ui.destroy()
+
+    def test_weapon_attack_consumes_ammunition(self):
+        """Verifica che attaccare con un arco consumi automaticamente 1 freccia dallo zaino."""
+        if not self.root:
+            self.skipTest("Tkinter non disponibile in ambiente headless")
+        from client.character_sheet_ui import CharacterSheetUI
+        c = Character("RangerArcher")
+        c.inventory_grid = [None] * 25
+        c.inventory_grid[0] = {"name": "Frecce", "type": "Munizioni", "qty": 20, "weight": 1.0, "container": "backpack"}
+        c.weapons = [{"name": "Arco Lungo", "damage_dice": "1d8", "type": "A Distanza", "proficient": True, "ability": "DES"}]
+        cm = MagicMock()
+
+        with patch("common.messagebox.messagebox.showinfo"):
+            ui = CharacterSheetUI(self.root, c, cm, is_connected=False)
+            weapon = c.weapons[0]
+            ui.execute_weapon_attack(weapon, 5)
+            # Frecce passano da 20 a 19
+            self.assertEqual(c.inventory_grid[0]["qty"], 19)
+            ui.destroy()
+
 if __name__ == "__main__":
     unittest.main()
 
