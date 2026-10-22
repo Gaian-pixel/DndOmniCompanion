@@ -368,7 +368,7 @@ def apply_class_and_race_starter_kit(char_obj_or_dict):
         else:
             char_obj_or_dict[key] = value
 
-    char_class = get_attr("char_class", "")
+    char_class = get_attr("char_class", "") or get_attr("character_class", "")
     race = get_attr("race", "")
     attributes = get_attr("attributes", {})
     
@@ -398,6 +398,15 @@ def apply_class_and_race_starter_kit(char_obj_or_dict):
             cleaned_grid.append(None)
             
         set_attr("inventory_grid", cleaned_grid)
+        
+        # Riporta e assegna le monete del kit nella tabella valute
+        cur = get_attr("currency", {})
+        if not isinstance(cur, dict):
+            cur = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
+        for itm in items:
+            if itm.get("type") == "Valuta" or "monet" in itm.get("name", "").lower():
+                cur["MO"] = cur.get("MO", 0) + itm.get("qty", 10)
+        set_attr("currency", cur)
         
         # Calcola e imposta la Classe Armatura (CA)
         computed_ac = calculate_initial_ac(char_class, attributes, has_shield=has_shield)

@@ -2804,16 +2804,26 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         it_weight = item.get("weight", 0.0)
         it_attuned = "Sì" if item.get("attuned") else "No"
         it_desc = item.get("desc", "")
+        is_remove = item.get("action") == "remove"
         
-        prompt_text = (
-            f"Il giocatore '{p_name}' richiede di aggiungere un oggetto allo zaino:\n\n"
-            f"• Oggetto: {it_name}\n"
-            f"• Categoria: {it_type} (Quantità: {it_qty}, Peso: {it_weight} lbs)\n"
-            f"• Richiede Sintonia: {it_attuned}\n\n"
-            f"Descrizione:\n{it_desc}\n\n"
-            f"Vuoi approvare questo oggetto per l'inventario di {p_name}?"
-        )
-        approved = messagebox.askyesno("Approvazione Oggetto Inventario", prompt_text, parent=self.master)
+        if is_remove:
+            prompt_text = (
+                f"Il giocatore '{p_name}' richiede di RIMUOVERE un oggetto dallo zaino:\n\n"
+                f"• Oggetto: {it_name} (Slot #{slot_idx+1 if slot_idx is not None else '?'})\n\n"
+                f"Vuoi approvare la rimozione di questo oggetto dall'inventario di {p_name}?"
+            )
+            dialog_title = "Approvazione Rimozione Oggetto"
+        else:
+            prompt_text = (
+                f"Il giocatore '{p_name}' richiede di aggiungere un oggetto allo zaino:\n\n"
+                f"• Oggetto: {it_name}\n"
+                f"• Categoria: {it_type} (Quantità: {it_qty}, Peso: {it_weight} lbs)\n"
+                f"• Richiede Sintonia: {it_attuned}\n\n"
+                f"Descrizione:\n{it_desc}\n\n"
+                f"Vuoi approvare questo oggetto per l'inventario di {p_name}?"
+            )
+            dialog_title = "Approvazione Oggetto Inventario"
+        approved = messagebox.askyesno(dialog_title, prompt_text, parent=self.master)
         
         from common.protocol import make_item_approval_response, make_chat_broadcast, make_game_state
         from common.network_utils import send_message, broadcast
@@ -2823,24 +2833,34 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                 if not isinstance(sheet.get("inventory_grid"), list):
                     sheet["inventory_grid"] = [None] * 25
                 target_slot = slot_idx if (slot_idx is not None and 0 <= slot_idx < 25) else None
-                if target_slot is None or sheet["inventory_grid"][target_slot] is not None:
-                    for s_i in range(len(sheet["inventory_grid"])):
-                        if sheet["inventory_grid"][s_i] is None:
-                            target_slot = s_i
-                            break
-                if target_slot is not None and target_slot < 25:
-                    sheet["inventory_grid"][target_slot] = item
-                    slot_idx = target_slot
+                if is_remove:
+                    if target_slot is not None:
+                        sheet["inventory_grid"][target_slot] = None
+                    else:
+                        for s_i in range(len(sheet["inventory_grid"])):
+                            if sheet["inventory_grid"][s_i] and sheet["inventory_grid"][s_i].get("name") == it_name:
+                                sheet["inventory_grid"][s_i] = None
+                                break
+                else:
+                    if target_slot is None or sheet["inventory_grid"][target_slot] is not None:
+                        for s_i in range(len(sheet["inventory_grid"])):
+                            if sheet["inventory_grid"][s_i] is None:
+                                target_slot = s_i
+                                break
+                    if target_slot is not None and target_slot < 25:
+                        sheet["inventory_grid"][target_slot] = item
+                        slot_idx = target_slot
             if player.conn:
                 send_message(player.conn, make_item_approval_response(p_name, item, slot_idx, approved=True))
-            broadcast(self.server.game_state, make_chat_broadcast("Sistema", f"[INVENTARIO] Il Master ha APPROVATO l'oggetto '{it_name}' per {p_name}!"))
-            self.log_to_chat(f"[SISTEMA] Approvato oggetto '{it_name}' per {p_name}.")
+            action_desc = "la rimozione di" if is_remove else "l'assegnazione di"
+            broadcast(self.server.game_state, make_chat_broadcast("Sistema", f"[INVENTARIO] Il Master ha APPROVATO {action_desc} '{it_name}' per {p_name}!"))
+            self.log_to_chat(f"[SISTEMA] Approvata richiesta {action_desc} '{it_name}' per {p_name}.")
             self.server.game_state._trigger_gui_update()
             broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
         else:
             if player.conn:
-                send_message(player.conn, make_item_approval_response(p_name, item, slot_idx, approved=False, reason="Il Master ha respinto l'aggiunta di questo oggetto."))
-            self.log_to_chat(f"[SISTEMA] Respinto oggetto '{it_name}' per {p_name}.")
+                send_message(player.conn, make_item_approval_response(p_name, item, slot_idx, approved=False, reason="Il Master ha respinto la richiesta."))
+            self.log_to_chat(f"[SISTEMA] Respinta richiesta per '{it_name}' di {p_name}.")
 
     def prompt_journal_approval(self, player, field_name, content, title):
         if not player: return
@@ -2901,30 +2921,53 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         s_time = spell.get("time", "1 Azione")
         s_rng = spell.get("range", "Contatto")
         s_desc = spell.get("desc", "")
+        is_remove = spell.get("action") == "remove"
         
         lvl_str = "Trucchetto (Lvl 0)" if s_lvl == 0 else f"Livello {s_lvl}"
-        prompt_text = (
-            f"Il giocatore '{p_name}' richiede il permesso di creare il seguente incantesimo:\n\n"
-            f"• Nome: {s_name}\n"
-            f"• Livello: {lvl_str}\n"
-            f"• Tempo di Lancio: {s_time}\n"
-            f"• Raggio / Gittata: {s_rng}\n\n"
-            f"Descrizione:\n{s_desc}\n\n"
-            f"Vuoi approvare questo incantesimo e permetterne l'aggiunta al suo Grimorio?"
-        )
-        approved = messagebox.askyesno("Richiesta Incantesimo Custom", prompt_text, parent=self.master)
+        if is_remove:
+            prompt_text = (
+                f"Il giocatore '{p_name}' richiede di RIMUOVERE il seguente incantesimo dal proprio Grimorio:\n\n"
+                f"• Nome: {s_name}\n"
+                f"• Livello: {lvl_str}\n\n"
+                f"Vuoi approvare la rimozione di questo incantesimo?"
+            )
+            dialog_title = "Approvazione Rimozione Incantesimo"
+        else:
+            prompt_text = (
+                f"Il giocatore '{p_name}' richiede il permesso di aggiungere il seguente incantesimo al proprio Grimorio:\n\n"
+                f"• Nome: {s_name}\n"
+                f"• Livello: {lvl_str}\n"
+                f"• Tempo di Lancio: {s_time}\n"
+                f"• Raggio / Gittata: {s_rng}\n\n"
+                f"Descrizione:\n{s_desc}\n\n"
+                f"Vuoi approvare questo incantesimo e permetterne l'aggiunta al suo Grimorio?"
+            )
+            dialog_title = "Richiesta Approvazione Incantesimo"
+        approved = messagebox.askyesno(dialog_title, prompt_text, parent=self.master)
         
-        from common.protocol import make_custom_spell_response, make_chat_broadcast
+        from common.protocol import make_custom_spell_response, make_chat_broadcast, make_game_state
         from common.network_utils import send_message, broadcast
         if approved:
+            sheet = getattr(player, "full_sheet", None)
+            if sheet and isinstance(sheet, dict):
+                if not isinstance(sheet.get("spellbook"), list):
+                    sheet["spellbook"] = []
+                if is_remove:
+                    sheet["spellbook"] = [s for s in sheet["spellbook"] if s.get("name") != s_name]
+                else:
+                    if not any(s.get("name") == s_name for s in sheet["spellbook"]):
+                        sheet["spellbook"].append(spell)
             if player.conn:
                 send_message(player.conn, make_custom_spell_response(p_name, spell, approved=True))
-            broadcast(self.server.game_state, make_chat_broadcast("Sistema", f"[MAGIA] Il Master ha APPROVATO l'incantesimo custom '{s_name}' per {p_name}!"))
-            self.log_to_chat(f"[SISTEMA] Approvato incantesimo custom '{s_name}' per {p_name}.")
+            action_desc = "la rimozione di" if is_remove else "l'incantesimo"
+            broadcast(self.server.game_state, make_chat_broadcast("Sistema", f"[MAGIA] Il Master ha APPROVATO {action_desc} '{s_name}' per {p_name}!"))
+            self.log_to_chat(f"[SISTEMA] Approvata richiesta {action_desc} '{s_name}' per {p_name}.")
+            self.server.game_state._trigger_gui_update()
+            broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
         else:
             if player.conn:
-                send_message(player.conn, make_custom_spell_response(p_name, spell, approved=False, reason="Il Master ha respinto la richiesta per questo incantesimo."))
-            self.log_to_chat(f"[SISTEMA] Respinto incantesimo custom '{s_name}' per {p_name}.")
+                send_message(player.conn, make_custom_spell_response(p_name, spell, approved=False, reason="Il Master ha respinto la richiesta."))
+            self.log_to_chat(f"[SISTEMA] Respinta richiesta per '{s_name}' di {p_name}.")
 
     def on_closing(self):
         if messagebox.askokcancel(_t("menu_exit"), _t("confirm_exit_server")):

@@ -1422,6 +1422,74 @@ class CharacterSheetUI(tk.Toplevel):
         btn_give_gold = ttk.Button(btn_bar, text=_t("sheet_give_gold_btn"), command=self.on_give_gold_click, style="Gold.TButton")
         btn_give_gold.pack(side=tk.RIGHT, padx=2)
 
+    def sync_inventory_coins_to_currency(self):
+        """
+        Rileva le monete presenti come oggetti nella griglia inventario (es. kit iniziali,
+        monete d'oro, sacche di monete) e garantisce che vengano riportate
+        nella tabella superiore delle valute (character.currency / MR, MA, ME, MO, MP).
+        """
+        if not hasattr(self.character, "currency") or not isinstance(self.character.currency, dict):
+            self.character.currency = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
+            
+        for k in ["MR", "MA", "ME", "MO", "MP"]:
+            if k not in self.character.currency:
+                self.character.currency[k] = 0
+
+        grid = getattr(self.character, "inventory_grid", [])
+        if not isinstance(grid, list):
+            return
+
+        inv_coins = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
+        has_coin_items = False
+        
+        for it in grid:
+            if not it or not isinstance(it, dict):
+                continue
+            nm = it.get("name", "").strip().lower()
+            itype = str(it.get("type", "")).strip().lower()
+            desc = str(it.get("desc", "")).strip().lower()
+            
+            is_coin = (itype in ["valuta", "currency", "moneta", "monete"]) or ("monet" in nm) or ("borsa" in nm) or ("borsello" in nm)
+            if not is_coin:
+                continue
+                
+            full_text = f"{nm} {desc}"
+            has_coin_items = True
+            
+            # 1. Ricerca quantitativi espliciti menzionati nel testo (es. "50 MA e 5 MP")
+            found_any_explicit = False
+            for c_code, pat in [
+                ("MP", r"(\d+)\s*(?:mp|pp|monete d'platino|platino)"),
+                ("ME", r"(\d+)\s*(?:me|ep|monete d'electrum|electrum|electro)"),
+                ("MA", r"(\d+)\s*(?:ma|sp|monete d'argento|argento)"),
+                ("MR", r"(\d+)\s*(?:mr|cp|monete di rame|rame)"),
+                ("MO", r"(\d+)\s*(?:mo|gp|monete d'oro|oro)")
+            ]:
+                m = re.search(pat, full_text, re.IGNORECASE)
+                if m:
+                    inv_coins[c_code] += int(m.group(1))
+                    found_any_explicit = True
+                    
+            # 2. Se non ci sono pattern espliciti, usa la quantita dell'oggetto e deduci il tipo di moneta
+            if not found_any_explicit:
+                qty = it.get("qty", 1)
+                coin_type = "MO"
+                if re.search(r"\b(?:platino|pp)\b|\bmp\b", full_text, re.IGNORECASE):
+                    coin_type = "MP"
+                elif re.search(r"\b(?:electrum|electro|ep)\b|\bme\b", full_text, re.IGNORECASE):
+                    coin_type = "ME"
+                elif re.search(r"\b(?:argento|sp)\b|\bma\b", full_text, re.IGNORECASE):
+                    coin_type = "MA"
+                elif re.search(r"\b(?:rame|cp)\b|\bmr\b", full_text, re.IGNORECASE):
+                    coin_type = "MR"
+                inv_coins[coin_type] += qty
+
+        if has_coin_items:
+            for c_code, c_amount in inv_coins.items():
+                if c_amount > 0 and self.character.currency.get(c_code, 0) < c_amount:
+                    self.character.currency[c_code] = c_amount
+                    if hasattr(self, "currency_vars") and c_code in self.currency_vars:
+                        self.currency_vars[c_code].set(self.character.currency[c_code])
     def update_currency_total(self, *args):
         if not hasattr(self, "currency_vars") or not hasattr(self, "currency_total_lbl"):
             return
@@ -1696,10 +1764,34 @@ class CharacterSheetUI(tk.Toplevel):
         sel = self.spell_tree.selection()
         if not sel: return
         idx = int(sel[0])
-        if messagebox.askyesno("Conferma", "Vuoi rimuovere questo incantesimo?"):
-            self.character.spellbook.pop(idx)
-            self.refresh_spell_list()
-            self.manager.save_characters()
+        sp = self.character.spellbook[idx]
+        s_name = sp.get("name", "questo incantesimo")
+        
+        if not self.is_connected:
+            messagebox.showwarning(
+                "Azione Non Consentita",
+                f"Non puoi rimuovere '{s_name}' dal Grimorio in modalità offline.\n\n"
+                "La rimozione di incantesimi richiede sempre l'approvazione del Dungeon Master durante una sessione di gioco.",
+                parent=self
+            )
+            return
+            
+        if not getattr(self, "custom_spell_request_callback", None):
+            messagebox.showwarning("Non Consentito", "In sessione multiplayer la rimozione di incantesimi richiede l'approvazione del Master.", parent=self)
+            return
+            
+        if messagebox.askyesno(
+            "Richiesta Rimozione al Master",
+            f"Vuoi inviare la richiesta di rimozione per l'incantesimo '{s_name}' al Dungeon Master per approvazione?",
+            parent=self
+        ):
+            sent = self.custom_spell_request_callback({"name": s_name, "level": sp.get("level", 0), "action": "remove"})
+            if sent:
+                messagebox.showinfo(
+                    "Richiesta Inviata",
+                    f"Richiesta di rimozione per '{s_name}' inviata al Master!\nL'incantesimo verrà rimosso dal tuo Grimorio una volta approvato.",
+                    parent=self
+                )
 
     def cast_spell(self):
         sel = self.spell_tree.selection()
@@ -2049,6 +2141,9 @@ class CharacterSheetUI(tk.Toplevel):
         if hasattr(self, 'refresh_features_ui'):
             self.refresh_features_ui()
                 
+        # Sincronizza le monete presenti nell'inventario con la tabella superiore delle valute
+        self.sync_inventory_coins_to_currency()
+
         if hasattr(self.character, "currency"):
             for coin, var in self.currency_vars.items():
                 var.set(self.character.currency.get(coin, 0))
@@ -2465,13 +2560,33 @@ class CharacterSheetUI(tk.Toplevel):
             win.destroy()
             
         def discard():
-            if messagebox.askyesno("Conferma Scarto", _t("sheet_discard_confirm"), parent=win):
-                self.character.inventory_grid[idx] = None
-                self.refresh_inventory_grid()
-                self.manager.update_character(self.character)
-                if hasattr(self.manager, 'save_characters'):
-                    self.manager.save_characters()
-                win.destroy()
+            if not self.is_connected:
+                messagebox.showwarning(
+                    "Azione Non Consentita",
+                    "Non puoi rimuovere o scartare oggetti dall'inventario in modalità offline.\n\n"
+                    "La rimozione di oggetti richiede sempre l'approvazione del Dungeon Master durante una sessione di gioco.",
+                    parent=win
+                )
+                return
+                
+            it_name = item.get("name", "questo oggetto")
+            if not getattr(self, "request_item_callback", None):
+                messagebox.showwarning("Non Consentito", "In sessione multiplayer la rimozione di oggetti richiede l'approvazione del Master.", parent=win)
+                return
+                
+            if messagebox.askyesno(
+                "Richiesta Rimozione al Master",
+                f"Vuoi inviare la richiesta di rimozione per '{it_name}' (Slot #{idx+1}) al Dungeon Master per approvazione?",
+                parent=win
+            ):
+                sent = self.request_item_callback({"name": it_name, "action": "remove", "type": item.get("type", "")}, slot_idx=idx)
+                if sent:
+                    win.destroy()
+                    messagebox.showinfo(
+                        "Richiesta Inviata",
+                        f"Richiesta di rimozione per '{it_name}' inviata al Master!\nL'oggetto verrà rimosso dallo zaino una volta approvato.",
+                        parent=self
+                    )
                 
         def trade():
             if not hasattr(self, 'players_list_callback') or not hasattr(self, 'trade_callback'):
@@ -3235,12 +3350,26 @@ class CharacterSheetUI(tk.Toplevel):
         WeaponDialog(self, weapon_data=weapon, on_save_callback=_on_save)
 
     def remove_weapon(self, idx):
-        if idx < len(self.character.weapons):
-            w_name = self.character.weapons[idx].get("name", "Arma")
-            if messagebox.askyesno("Rimuovi Arma", f"Rimuovere l'arma '{w_name}'?"):
-                self.character.weapons.pop(idx)
-                self.manager.save_characters()
-                self.refresh_weapons_list()
+        if idx >= len(self.character.weapons):
+            return
+        w_name = self.character.weapons[idx].get("name", "Arma")
+        if not self.is_connected:
+            messagebox.showwarning(
+                "Azione Non Consentita",
+                f"Non puoi rimuovere '{w_name}' dalla scheda in modalità offline.\n\n"
+                "La rimozione di armi ed equipaggiamento richiede sempre l'approvazione del Dungeon Master durante una sessione di gioco.",
+                parent=self
+            )
+            return
+            
+        if not getattr(self, "request_item_callback", None):
+            messagebox.showwarning("Non Consentito", "In sessione multiplayer la rimozione di armi richiede l'approvazione del Master.", parent=self)
+            return
+            
+        if messagebox.askyesno("Richiesta Rimozione al Master", f"Vuoi inviare la richiesta di rimozione per l'arma '{w_name}' al Dungeon Master?", parent=self):
+            sent = self.request_item_callback({"name": w_name, "action": "remove", "type": "Arma"})
+            if sent:
+                messagebox.showinfo("Richiesta Inviata", f"Richiesta di rimozione per '{w_name}' inviata al Master!", parent=self)
 
     def execute_weapon_attack(self, weapon, total_txc):
         import random

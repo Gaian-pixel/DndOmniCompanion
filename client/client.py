@@ -2868,8 +2868,18 @@ class ClientGUI:
         approved = data.get("approved", False)
         spell = data.get("spell", {})
         spell_name = spell.get("name", "Incantesimo")
+        is_remove = spell.get("action") == "remove"
         if approved:
             if self.active_character:
+                if is_remove:
+                    self.active_character.spellbook = [s for s in getattr(self.active_character, "spellbook", []) if s.get("name") != spell_name]
+                    self.character_manager.save_characters()
+                    if hasattr(self, 'stats_window') and self.stats_window and self.stats_window.winfo_exists():
+                        self.stats_window.refresh_spell_list()
+                    from common.protocol import make_update_full_sheet_request
+                    self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
+                    self.show_toast(f"Il Dungeon Master ha APPROVATO la rimozione di '{spell_name}' dal Grimorio.", title="Rimozione Approvata", toast_type="info")
+                    return
                 if not hasattr(self.active_character, "spellbook") or not isinstance(self.active_character.spellbook, list):
                     self.active_character.spellbook = []
                 if not any(s.get("name") == spell_name for s in self.active_character.spellbook):
@@ -2882,7 +2892,8 @@ class ClientGUI:
             self.show_toast(f"Il Dungeon Master ha APPROVATO l'incantesimo '{spell_name}'!\nÈ stato aggiunto al tuo Grimorio.", title="Incantesimo Approvato!", toast_type="success")
         else:
             reason = data.get("reason", "Il Master ha respinto la richiesta.")
-            self.show_toast(f"Il Dungeon Master ha RESPINTO '{spell_name}'.\nMotivo: {reason}", title="Incantesimo Rifiutato", toast_type="warning")
+            act_disp = "la rimozione di" if is_remove else "la richiesta per"
+            self.show_toast(f"Il Dungeon Master ha RESPINTO {act_disp} '{spell_name}'.\nMotivo: {reason}", title="Richiesta Rifiutata", toast_type="warning")
 
     def handle_currency_response(self, data):
         approved = data.get("approved", False)
@@ -2940,8 +2951,26 @@ class ClientGUI:
         slot_idx = data.get("slot_idx")
         reason = data.get("reason", "")
         it_name = item.get("name", "Oggetto")
+        is_remove = item.get("action") == "remove"
         if approved:
             if self.active_character:
+                if is_remove:
+                    if not hasattr(self.active_character, "inventory_grid") or not isinstance(self.active_character.inventory_grid, list):
+                        self.active_character.inventory_grid = [None] * 25
+                    if slot_idx is not None and 0 <= slot_idx < len(self.active_character.inventory_grid):
+                        self.active_character.inventory_grid[slot_idx] = None
+                    else:
+                        for i in range(len(self.active_character.inventory_grid)):
+                            if self.active_character.inventory_grid[i] and self.active_character.inventory_grid[i].get("name") == it_name:
+                                self.active_character.inventory_grid[i] = None
+                                break
+                    self.character_manager.save_characters()
+                    if hasattr(self, 'stats_window') and self.stats_window and self.stats_window.winfo_exists():
+                        self.stats_window.refresh_inventory_grid()
+                    from common.protocol import make_update_full_sheet_request
+                    self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
+                    self.show_toast(f"Il Dungeon Master ha APPROVATO la rimozione di '{it_name}' dallo zaino.", title="Rimozione Approvata", toast_type="info")
+                    return
                 if not hasattr(self.active_character, "inventory_grid") or not isinstance(self.active_character.inventory_grid, list):
                     self.active_character.inventory_grid = [None] * 25
                 if slot_idx is not None and 0 <= slot_idx < len(self.active_character.inventory_grid):
@@ -2956,8 +2985,9 @@ class ClientGUI:
                     self.stats_window.refresh_inventory_grid()
             self.show_toast(f"Il Dungeon Master ha APPROVATO '{it_name}'!\nL'oggetto è stato aggiunto al tuo inventario.", title="Oggetto Approvato!", toast_type="success")
         else:
-            msg = reason or f"La richiesta per '{it_name}' è stata respinta dal Master."
-            self.show_toast(msg, title="Oggetto Respinto", toast_type="warning")
+            act_disp = "la rimozione di" if is_remove else "la richiesta per"
+            msg = reason or f"La richiesta per {act_disp} '{it_name}' è stata respinta dal Master."
+            self.show_toast(msg, title="Richiesta Respinta", toast_type="warning")
 
     def handle_campaign_starter_granted(self, data):
         full_sheet = data.get("full_sheet")
