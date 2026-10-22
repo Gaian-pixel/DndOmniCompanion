@@ -528,19 +528,19 @@ Il progetto include suite di test automatizzati che coprono unit test headless, 
 
 ```powershell
 # 1. Esegui gli unit test delle funzionalità (righello multi-scala, critici, economia turno, unità, sussurri, TS morte)
-$env:DND_MOCK_AUDIO="1"; python test_new_features.py
+$env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 2. Esegui la suite regole autentiche RAW 5e (Porte, Scasso, Spille Stanza, Reazioni, Scudo, Evasione, Furtivo, Blind Rolls)
-$env:DND_MOCK_AUDIO="1"; python test_authentic_5e.py
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_authentic_5e.py
 
 # 3. Esegui gli smoke test UI su tutte le 19 finestre server e client
-$env:DND_MOCK_AUDIO="1"; python test_ui_smoke.py --no-screens
+$env:DND_MOCK_AUDIO="1"; python tests/test_ui_smoke.py --no-screens
 
 # 4. Esegui la simulazione multiplayer end-to-end completa (53 fasi)
 $env:DND_MOCK_AUDIO="1"; python simulate_game_session.py
 
 # 5. Esegui i test del sistema campagne
-$env:DND_MOCK_AUDIO="1"; python -m unittest test_campaign_system.py
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_campaign_system.py
 ```
 
 Tutte le suite di test passano con **0 errori**, garantendo l'affidabilità end-to-end su socket di rete, meccaniche di combattimento e rendering grafico.

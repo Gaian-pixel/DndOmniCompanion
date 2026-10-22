@@ -274,19 +274,19 @@ DndOmniCompanion/
 
 ```powershell
 # 1. Feature Unit Tests (Multi-scale ruler, Nat20/Nat1 criticals, Turn Economy, ft/m units, Whispers, Death Saves)
-$env:DND_MOCK_AUDIO="1"; python test_new_features.py
+$env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 2. Authentic 5e RAW Rules Test Suite (Doors, Lockpicking, Room Pins, Reactions, Shield, Evasion, Sneak Attack, Blind Rolls)
-$env:DND_MOCK_AUDIO="1"; python test_authentic_5e.py
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_authentic_5e.py
 
 # 3. Full UI Smoke Tests across all 19 DM Server & Player Client screens
-$env:DND_MOCK_AUDIO="1"; python test_ui_smoke.py --no-screens
+$env:DND_MOCK_AUDIO="1"; python tests/test_ui_smoke.py --no-screens
 
 # 4. Full 53-Phase End-to-End Multiplayer Simulation
 $env:DND_MOCK_AUDIO="1"; python simulate_game_session.py
 
 # 5. Campaign & Scene System Tests
-$env:DND_MOCK_AUDIO="1"; python -m unittest test_campaign_system.py
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_campaign_system.py
 ```
 
 ---

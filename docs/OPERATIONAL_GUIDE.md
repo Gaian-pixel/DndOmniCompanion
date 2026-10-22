@@ -541,19 +541,19 @@ The codebase includes automated test suites covering headless unit tests, GUI sm
 
 ```powershell
 # 1. Run unit tests for recent features (multi-scale ruler, criticals, turn economy, units, whispers, death saves)
-$env:DND_MOCK_AUDIO="1"; python test_new_features.py
+$env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 2. Run authentic 5e RAW rules test suite (Doors, Lockpicking, Room Pins, Reactions, Shield, Evasion, Sneak Attack, Blind Rolls)
-$env:DND_MOCK_AUDIO="1"; python test_authentic_5e.py
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_authentic_5e.py
 
 # 3. Run UI smoke tests across all 19 server and client windows
-$env:DND_MOCK_AUDIO="1"; python test_ui_smoke.py --no-screens
+$env:DND_MOCK_AUDIO="1"; python tests/test_ui_smoke.py --no-screens
 
 # 4. Run the complete 53-phase multiplayer game simulation
 $env:DND_MOCK_AUDIO="1"; python simulate_game_session.py
 
 # 5. Run campaign system tests
-$env:DND_MOCK_AUDIO="1"; python -m unittest test_campaign_system.py
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_campaign_system.py
 ```
 
 All test suites pass with **0 failures**, validating end-to-end reliability across network sockets, combat mechanics, and graphical rendering.

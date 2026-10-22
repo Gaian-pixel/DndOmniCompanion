@@ -10,11 +10,11 @@ import traceback
 import tkinter as tk
 from unittest.mock import patch
 
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 os.environ["DND_MOCK_AUDIO"] = "1"
 
 TAKE_SCREENS = "--no-screens" not in sys.argv
-OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ui_screenshots")
+OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ui_screenshots")
 
 results = []
 tk_errors = []

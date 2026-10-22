@@ -5,7 +5,7 @@ import time
 import tkinter as tk
 from unittest.mock import patch
 
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from server.server import DM_GUI
 from client.client import ClientGUI
