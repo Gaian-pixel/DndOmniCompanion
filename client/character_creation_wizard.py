@@ -22,6 +22,7 @@ from common.theme import (
     FONT_BADGE
 )
 from common.classes_data import CLASSES, get_class_info, get_class_names, CLASS_CATEGORIES, get_classes_by_category
+from common.races_data import RACES, get_race_info, get_race_names
 from common.backgrounds_data import (
     BACKGROUNDS,
     PERSONAL_QUESTS,
@@ -33,17 +34,7 @@ from common.backgrounds_data import (
     generate_backstory
 )
 
-RACES = {
-    "Umano": {"desc": "Gli umani sono i più adattabili e ambiziosi tra le razze comuni. \nBonus: +1 a tutte le caratteristiche.\nVelocità: 30 ft.", "bonuses": {"FOR": 1, "DES": 1, "COS": 1, "INT": 1, "SAG": 1, "CAR": 1}, "speed": 30},
-    "Elfo": {"desc": "Un popolo magico e di fascino ultraterreno, longevo e affine alla natura.\nBonus: +2 Destrezza.\nTratti: Scurovisione, Sensi Acuti, Retaggio Fatato, Trance.\nVelocità: 30 ft.", "bonuses": {"DES": 2}, "speed": 30},
-    "Nano": {"desc": "Fieri e resistenti, noti come abili guerrieri, minatori e lavoratori di pietra e metallo.\nBonus: +2 Costituzione.\nTratti: Scurovisione, Resilienza Nanica, Addestramento in combattimento.\nVelocità: 25 ft.", "bonuses": {"COS": 2}, "speed": 25},
-    "Halfling": {"desc": "Un popolo minuto e pacifico, noto per la sua fortuna e destrezza.\nBonus: +2 Destrezza.\nTratti: Fortunato, Coraggioso, Agilità Halfling.\nVelocità: 25 ft.", "bonuses": {"DES": 2}, "speed": 25},
-    "Draconide": {"desc": "Umanoidi nati dal sangue dei draghi, fieri e dediti all'onore.\nBonus: +2 Forza, +1 Carisma.\nTratti: Ascendenza Draconica, Arma a Soffio, Resistenza ai Danni.\nVelocità: 30 ft.", "bonuses": {"FOR": 2, "CAR": 1}, "speed": 30},
-    "Mezzelfo": {"desc": "Uniscono il meglio di due mondi: la curiosità umana e la grazia elfica.\nBonus: +2 Carisma, +1 a altre due caratteristiche a scelta.\nTratti: Scurovisione, Retaggio Fatato, Versatilità nelle Competenze.\nVelocità: 30 ft.", "bonuses": {"CAR": 2, "DES": 1, "INT": 1}, "speed": 30},
-    "Mezzorco": {"desc": "Fieri e selvaggi, guidati da forti passioni e da una forza fisica impressionante.\nBonus: +2 Forza, +1 Costituzione.\nTratti: Scurovisione, Minaccioso, Tenacia Implacabile, Attacchi Selvaggi.\nVelocità: 30 ft.", "bonuses": {"FOR": 2, "COS": 1}, "speed": 30},
-    "Gnomo": {"desc": "Pieni di energia ed entusiasmo, inventori curiosi e maghi ingegnosi.\nBonus: +2 Intelligenza.\nTratti: Scurovisione, Astuzia Gnomesca.\nVelocità: 25 ft.", "bonuses": {"INT": 2}, "speed": 25},
-    "Tiefling": {"desc": "Umanoidi toccati dai piani infernali, spesso guardati con sospetto.\nBonus: +2 Carisma, +1 Intelligenza.\nTratti: Scurovisione, Resistenza Infernale, Eredità Infernale.\nVelocità: 30 ft.", "bonuses": {"CAR": 2, "INT": 1}, "speed": 30}
-}
+# RACES importato da common.races_data
 
 # CLASSES importato da common.classes_data
 
@@ -138,7 +129,7 @@ class CharacterCreationWizard(tk.Toplevel):
         self.step_indicator_lbl.config(text=f"Passo {step_idx + 1} di {len(self.steps)}")
 
         # I passi 1, 3 e 4 hanno molti elementi o descrizioni ricche: usiamo una Canvas scorrevole fluida
-        if step_idx in (1, 3, 4):
+        if step_idx in (0, 1, 3, 4):
             canvas = tk.Canvas(self.container, highlightthickness=0, borderwidth=0)
             scrollbar = ttk.Scrollbar(self.container, orient="vertical", command=canvas.yview)
             scroll_frame = ttk.Frame(canvas)
@@ -246,27 +237,259 @@ class CharacterCreationWizard(tk.Toplevel):
     # -------------------------------------------------------------------------
     # PASSO 1: RAZZA
     # -------------------------------------------------------------------------
+    def open_races_comparison_dialog(self):
+        """Apre una finestra modale con la tabella comparativa di tutte le 9 razze 5e."""
+        top = tk.Toplevel(self)
+        top.title("Tabella Comparativa delle 9 Razze (D&D 5e)")
+        top.geometry("860x480")
+        top.minsize(750, 380)
+        apply_modern_window_style(top)
+        top.transient(self)
+        top.grab_set()
+
+        header_frame = ttk.Frame(top, padding=(12, 10))
+        header_frame.pack(fill=tk.X)
+        ttk.Label(header_frame, text="📊 Confronto Rapido delle Razze", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(
+            header_frame,
+            text="Confronta Bonus alle Caratteristiche, Velocità, Taglia, Sensi e Tratti Razziali. Fai doppio clic su una riga per selezionarla.",
+            style="Muted.TLabel"
+        ).pack(anchor="w", pady=(2, 0))
+
+        # Tabella Treeview
+        columns = ("razza", "bonus", "velocita", "taglia", "sensi", "linguaggi", "tratto_chiave")
+        tree = ttk.Treeview(top, columns=columns, show="headings", height=10)
+        tree.heading("razza", text="Razza")
+        tree.heading("bonus", text="Bonus Caratteristiche")
+        tree.heading("velocita", text="Velocità")
+        tree.heading("taglia", text="Taglia")
+        tree.heading("sensi", text="Sensi")
+        tree.heading("linguaggi", text="Linguaggi")
+        tree.heading("tratto_chiave", text="Tratto Chiave")
+
+        tree.column("razza", width=95, anchor="center")
+        tree.column("bonus", width=180, anchor="w")
+        tree.column("velocita", width=75, anchor="center")
+        tree.column("taglia", width=75, anchor="center")
+        tree.column("sensi", width=130, anchor="w")
+        tree.column("linguaggi", width=130, anchor="w")
+        tree.column("tratto_chiave", width=150, anchor="w")
+
+        for r_name, r_info in RACES.items():
+            first_trait = r_info.get("traits", [("", "")])[0][0] if r_info.get("traits") else ""
+            tree.insert("", tk.END, iid=r_name, values=(
+                r_name,
+                r_info.get("bonuses_display", ""),
+                f"{r_info.get('speed', 30)} ft",
+                r_info.get("size", "Media").split()[0],
+                r_info.get("vision", "Normale").split()[0],
+                r_info.get("languages", "").split(",")[0],
+                first_trait
+            ))
+
+        scroll = ttk.Scrollbar(top, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        
+        table_frame = ttk.Frame(top, padding=(12, 0))
+        table_frame.pack(fill=tk.BOTH, expand=True)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        def _select_and_close():
+            sel = tree.selection()
+            if sel:
+                chosen = sel[0]
+                if hasattr(self, "race_var"):
+                    self.race_var.set(chosen)
+                top.destroy()
+
+        tree.bind("<Double-1>", lambda e: _select_and_close())
+
+        btn_bar = ttk.Frame(top, style="Surface.TFrame", padding=(12, 10))
+        btn_bar.pack(fill=tk.X, side=tk.BOTTOM)
+        
+        ttk.Button(btn_bar, text="Annulla", command=top.destroy, style="Dark.TButton").pack(side=tk.LEFT)
+        ttk.Button(btn_bar, text="✓ Scegli Questa Razza", command=_select_and_close, style="Primary.TButton").pack(side=tk.RIGHT)
+
     def build_step_race(self, parent=None):
         parent = parent or self.container
-        ttk.Label(parent, text="Passo 1: Scegli la Razza", style="Title.TLabel").pack(pady=(0, 10))
         
-        self.race_var = tk.StringVar(value=self.char_data["race"])
-        desc_label = ttk.Label(parent, text="", wraplength=520, justify=tk.LEFT)
+        # Header descrittivo
+        header_frame = ttk.Frame(parent)
+        header_frame.pack(fill=tk.X, pady=(0, 6))
+        
+        ttk.Label(header_frame, text="Passo 1: Scegli la Razza", style="Title.TLabel").pack(anchor="center")
+        ttk.Label(
+            header_frame,
+            text="La razza definisce la tua discendenza biologica e culturale, i bonus alle caratteristiche, la taglia, la velocità e i talenti innati.",
+            style="Muted.TLabel",
+            justify=tk.CENTER,
+            wraplength=640
+        ).pack(anchor="center", pady=(2, 0))
+
+        # Barra di selezione razza con pulsanti rapido precedente/successivo e tabella comparativa
+        sel_frame = ttk.Frame(parent, style="Surface.TFrame", padding=(10, 8))
+        sel_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(sel_frame, text="🧬 Razza:", font=("Segoe UI", 11, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT, padx=(5, 10))
+        
+        race_list = list(RACES.keys())
+        current_race = self.char_data.get("race", "Umano")
+        if current_race not in race_list:
+            current_race = race_list[0]
+            
+        self.race_var = tk.StringVar(value=current_race)
+        
+        def _prev_race():
+            r = self.race_var.get()
+            idx = race_list.index(r) if r in race_list else 0
+            self.race_var.set(race_list[(idx - 1) % len(race_list)])
+            
+        def _next_race():
+            r = self.race_var.get()
+            idx = race_list.index(r) if r in race_list else 0
+            self.race_var.set(race_list[(idx + 1) % len(race_list)])
+
+        btn_prev = ttk.Button(sel_frame, text="◀ Prec.", width=8, command=_prev_race, style="Dark.TButton")
+        btn_prev.pack(side=tk.LEFT, padx=3)
+        
+        cb = ttk.Combobox(sel_frame, textvariable=self.race_var, values=race_list, state="readonly", font=("Georgia", 11, "bold"), width=16)
+        cb.pack(side=tk.LEFT, padx=6)
+        
+        btn_next = ttk.Button(sel_frame, text="Succ. ▶", width=8, command=_next_race, style="Dark.TButton")
+        btn_next.pack(side=tk.LEFT, padx=3)
+        
+        btn_compare = ttk.Button(sel_frame, text="📊 Tabella Comparativa", command=self.open_races_comparison_dialog, style="Gold.TButton")
+        btn_compare.pack(side=tk.RIGHT, padx=5)
+
+        size_badge_lbl = ttk.Label(sel_frame, text="", style="BadgeBlue.TLabel")
+        size_badge_lbl.pack(side=tk.RIGHT, padx=8)
+
+        # Scheda Dettagli Razza (Card)
+        card = ttk.Frame(parent, style="Card.TFrame", padding=14)
+        card.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # Testata della card
+        top_frame = ttk.Frame(card, style="Surface.TFrame")
+        top_frame.pack(fill=tk.X, pady=(0, 6))
+        
+        name_lbl = ttk.Label(top_frame, text="", font=("Georgia", 16, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel")
+        name_lbl.pack(anchor="w")
+        
+        tagline_lbl = ttk.Label(top_frame, text="", font=("Segoe UI", 10, "italic"), foreground=TEXT_COLOR, wraplength=640, justify=tk.LEFT, style="Surface.TLabel")
+        tagline_lbl.pack(anchor="w", pady=(2, 6))
+        
+        ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
+        
+        # Griglia Quick Stats
+        stats_frame = ttk.Frame(card, style="Surface.TFrame")
+        stats_frame.pack(fill=tk.X, pady=(2, 8))
+        stats_frame.columnconfigure(0, weight=1)
+        stats_frame.columnconfigure(1, weight=1)
+        
+        # Cella 1: Bonus Caratteristiche
+        cell_bon = ttk.Frame(stats_frame, style="Surface.TFrame")
+        cell_bon.grid(row=0, column=0, sticky="w", padx=6, pady=3)
+        ttk.Label(cell_bon, text="⚡ Bonus:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
+        bon_val_lbl = ttk.Label(cell_bon, text="", font=("Segoe UI", 9, "bold"), foreground="#51CF66", style="Surface.TLabel")
+        bon_val_lbl.pack(side=tk.LEFT, padx=4)
+        
+        # Cella 2: Velocità & Taglia
+        cell_speed = ttk.Frame(stats_frame, style="Surface.TFrame")
+        cell_speed.grid(row=0, column=1, sticky="w", padx=6, pady=3)
+        ttk.Label(cell_speed, text="🏃 Velocità & Taglia:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
+        speed_val_lbl = ttk.Label(cell_speed, text="", font=("Segoe UI", 9), style="Surface.TLabel")
+        speed_val_lbl.pack(side=tk.LEFT, padx=4)
+        
+        # Cella 3: Sensi Speciali
+        cell_vis = ttk.Frame(stats_frame, style="Surface.TFrame")
+        cell_vis.grid(row=1, column=0, sticky="w", padx=6, pady=3)
+        ttk.Label(cell_vis, text="👁️ Sensi:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
+        vis_val_lbl = ttk.Label(cell_vis, text="", font=("Segoe UI", 9), style="Surface.TLabel")
+        vis_val_lbl.pack(side=tk.LEFT, padx=4)
+        
+        # Cella 4: Linguaggi
+        cell_lang = ttk.Frame(stats_frame, style="Surface.TFrame")
+        cell_lang.grid(row=1, column=1, sticky="w", padx=6, pady=3)
+        ttk.Label(cell_lang, text="🗣️ Linguaggi:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
+        lang_val_lbl = ttk.Label(cell_lang, text="", font=("Segoe UI", 9), wraplength=300, justify=tk.LEFT, style="Surface.TLabel")
+        lang_val_lbl.pack(side=tk.LEFT, padx=4)
+
+        ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
+
+        # Sezione: Sinergie di Classe & Consigli
+        synergy_box = ttk.Frame(card, style="Surface.TFrame", padding=(8, 6))
+        synergy_box.pack(fill=tk.X, pady=(2, 6))
+        ttk.Label(synergy_box, text="⭐ Sinergie di Classe Consigliate:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD_LIGHT, style="Surface.TLabel").pack(anchor="w")
+        synergy_lbl = ttk.Label(synergy_box, text="", font=("Segoe UI", 9), wraplength=620, justify=tk.LEFT, style="Surface.TLabel")
+        synergy_lbl.pack(anchor="w", padx=(10, 0), pady=(1, 2))
+
+        ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
+        
+        # Sezione 1: Panoramica Narrativa
+        ttk.Label(card, text="📖 Panoramica & Lore Narrativa", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
+        overview_lbl = ttk.Label(card, text="", font=("Segoe UI", 9), wraplength=640, justify=tk.LEFT, style="Surface.TLabel")
+        overview_lbl.pack(anchor="w", pady=(2, 8))
+        
+        ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
+        
+        # Sezione 2: Tratti Razziali Innati
+        ttk.Label(card, text="🧬 Tratti Razziali Innati", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
+        traits_container = ttk.Frame(card, style="Surface.TFrame")
+        traits_container.pack(fill=tk.X, pady=(2, 8))
+        
+        ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
+        
+        # Sezione 3: Sottorazze & Varianti
+        ttk.Label(card, text="🌿 Sottorazze e Varianti Famose", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
+        subraces_lbl = ttk.Label(card, text="", font=("Segoe UI", 9), wraplength=640, justify=tk.LEFT, style="Surface.TLabel")
+        subraces_lbl.pack(anchor="w", pady=(2, 6))
+
+        # Sezione 4: Longevità
+        lifespan_box = ttk.Frame(card, style="Surface.TFrame", padding=(8, 4))
+        lifespan_box.pack(fill=tk.X, pady=(2, 4))
+        ttk.Label(lifespan_box, text="⏳ Longevità & Maturità:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
+        lifespan_lbl = ttk.Label(lifespan_box, text="", font=("Segoe UI", 9), style="Surface.TLabel")
+        lifespan_lbl.pack(side=tk.LEFT, padx=6)
         
         def update_desc(*args):
             r = self.race_var.get()
             self.char_data["race"] = r
             if r in RACES:
-                desc_label.config(text=RACES[r]["desc"])
-            
-        self.race_var.trace_add("write", update_desc)
-        
-        cb = ttk.Combobox(parent, textvariable=self.race_var, values=list(RACES.keys()), state="readonly", font=self.default_font, width=22)
-        cb.pack(pady=10)
-            
-        desc_label.pack(pady=15, fill=tk.X)
-        update_desc()
+                info = RACES[r]
+                name_lbl.config(text=f"Razza: {r}")
+                size_badge_lbl.config(text=f"🏃 {info.get('speed', 30)} ft | {info.get('size', 'Media').split()[0]}")
+                tagline_lbl.config(text=f'"{info.get("tagline", "")}"')
+                bon_val_lbl.config(text=info.get("bonuses_display", ""))
+                speed_val_lbl.config(text=f"{info.get('speed', 30)} ft ({round(info.get('speed', 30)*0.3)} m) | Taglia {info.get('size', 'Media').split()[0]}")
+                vis_val_lbl.config(text=info.get("vision", "Normale"))
+                lang_val_lbl.config(text=info.get("languages", "Comune"))
+                synergy_lbl.config(text=info.get("synergies", ""))
+                overview_lbl.config(text=info.get("overview", ""))
+                lifespan_lbl.config(text=info.get("lifespan", ""))
+                
+                subs = info.get("subraces_preview", [])
+                subraces_lbl.config(text="\n".join(f"• {sub}" for sub in subs))
+                
+                # Rigenera blocchi tratti razziali
+                for w in traits_container.winfo_children():
+                    w.destroy()
+                for t_name, t_desc in info.get("traits", []):
+                    t_row = ttk.Frame(traits_container, style="Surface.TFrame")
+                    t_row.pack(fill=tk.X, pady=2)
+                    ttk.Label(t_row, text=f"• {t_name}:", font=("Segoe UI", 9, "bold"), foreground="#F59E0B", style="Surface.TLabel").pack(anchor="w")
+                    ttk.Label(t_row, text=t_desc, font=("Segoe UI", 9), wraplength=630, justify=tk.LEFT, style="Surface.TLabel").pack(anchor="w", padx=(12, 0), pady=(1, 2))
+                    
+                if hasattr(self, "scroll_canvas") and self.scroll_canvas and self.scroll_canvas.winfo_exists():
+                    try:
+                        self.scroll_canvas.update_idletasks()
+                        self.scroll_canvas.configure(scrollregion=self.scroll_canvas.bbox("all"))
+                        self.scroll_canvas.yview_moveto(0.0)
+                    except Exception:
+                        pass
 
+        self.race_var.trace_add("write", update_desc)
+        update_desc()
     # -------------------------------------------------------------------------
     # PASSO 2: CLASSE
     # -------------------------------------------------------------------------
