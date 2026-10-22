@@ -164,5 +164,86 @@ class TestEncounterCompendiumFilter(unittest.TestCase):
         self.assertEqual(kwargs.get("initial_category"), "Mostri")
 
 
+    def test_listbox_curselection_and_import_flow(self):
+        """Verifica che la selezione e importazione da Listbox non sollevi AttributeError e invochi il callback."""
+        imported = []
+        def on_import(data, cat):
+            imported.append((data, cat))
+
+        with patch.object(CompendiumDialog, "fetch_list"):
+            dlg = CompendiumDialog(
+                self.root,
+                on_import_callback=on_import,
+                monsters_only=True,
+                action_label="➕ Aggiungi all'Incontro"
+            )
+
+        # Inseriamo mostro fittizio nei current_items
+        test_monster = {
+            "name": "Goblin Esploratore",
+            "hit_points": 7,
+            "armor_class": 15,
+            "challenge_rating": "1/4",
+            "actions": [{"name": "Scimitarra", "desc": "+4 a colpire, 1d6+2 taglienti"}]
+        }
+        dlg.compendium_manager.get_items = MagicMock(return_value=[])
+        dlg.current_items = [test_monster]
+        dlg.update_listbox()
+
+        # 1. Test nessun elemento selezionato
+        dlg.listbox.selection_clear(0, tk.END)
+        with patch("common.messagebox.messagebox.showinfo") as mock_info:
+            dlg.import_selected()
+            self.assertEqual(len(imported), 0)
+            mock_info.assert_called_once()
+
+        # 2. Seleziona elemento nella listbox (indice 0)
+        dlg.listbox.selection_set(0)
+        sel_item = dlg.get_selected_item()
+        self.assertIsNotNone(sel_item)
+        self.assertEqual(sel_item["name"], "Goblin Esploratore")
+
+        # 3. Invoca _on_item_selected (simula click utente)
+        dlg._on_item_selected()
+
+        # 4. Invoca import_selected (simula click pulsante 'Aggiungi all'Incontro')
+        with patch("common.messagebox.messagebox.showinfo"):
+            dlg.import_selected()
+
+        self.assertEqual(len(imported), 1)
+        imported_data, imported_cat = imported[0]
+        self.assertEqual(imported_data["name"], "Goblin Esploratore")
+        self.assertEqual(imported_cat, "Mostri")
+        dlg.destroy()
+
+    def test_encounter_builder_import_integration(self):
+        """Verifica che EncounterBuilderDialog riceva il mostro importato e lo registri correttamente."""
+        eb = EncounterBuilderDialog(self.root, MagicMock())
+        monster_data = {
+            "name": "Orco Berserker",
+            "hit_points": 30,
+            "armor_class": 13,
+            "challenge_rating": "2",
+            "xp": 450,
+            "dexterity": 12,
+            "speed": 30
+        }
+        eb.on_monster_imported(monster_data, "Mostri")
+        
+        # Verifica presenza nell'elenco mostri dell'incontro
+        names = [m["name"] for m in eb.monsters]
+        self.assertIn("Orco Berserker", names)
+        orco = next(m for m in eb.monsters if m["name"] == "Orco Berserker")
+        self.assertEqual(orco["count"], 1)
+        self.assertEqual(orco["hp"], 30)
+        self.assertEqual(orco["ac"], 13)
+        self.assertEqual(orco["xp"], 450)
+
+        # Se importato nuovamente, incrementa il conteggio invece di duplicare
+        eb.on_monster_imported(monster_data, "Mostri")
+        self.assertEqual(orco["count"], 2)
+        eb.destroy()
+
 if __name__ == "__main__":
     unittest.main()
+

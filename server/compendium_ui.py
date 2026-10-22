@@ -59,6 +59,7 @@ class CompendiumDialog(tk.Toplevel):
 
         self.base_url = "https://www.dnd5eapi.co/api"
         self.current_items: List[Dict[str, Any]] = []
+        self.displayed_items: List[Dict[str, Any]] = []
         self.compendium_manager = CompendiumManager()
         self.pdf_indexer = PDFManualsIndexer()
 
@@ -529,6 +530,7 @@ class CompendiumDialog(tk.Toplevel):
 
     def update_listbox(self):
         self.listbox.delete(0, tk.END)
+        self.displayed_items = []
         search_text = self.search_var.get().lower().strip()
         cat = self.category_var.get()
 
@@ -550,6 +552,7 @@ class CompendiumDialog(tk.Toplevel):
             if search_text and search_text not in name.lower():
                 continue
             self.listbox.insert(tk.END, f"[Custom] {name}")
+            self.displayed_items.append(item)
 
         # 2. Elementi correnti (SRD, Offline, PDF Manuals)
         shown_count = 0
@@ -606,6 +609,7 @@ class CompendiumDialog(tk.Toplevel):
                 tag = name
 
             self.listbox.insert(tk.END, tag)
+            self.displayed_items.append(item)
             shown_count += 1
 
         self.status_var.set(f"Elementi visualizzati: {shown_count}")
@@ -614,9 +618,22 @@ class CompendiumDialog(tk.Toplevel):
     # DETTAGLI E STATBLOCK
     # -------------------------------------------------------------------------
     def get_selected_item(self) -> Optional[Dict[str, Any]]:
-        sel = self.listbox.selection()
+        if hasattr(self.listbox, "curselection"):
+            sel = self.listbox.curselection()
+        elif hasattr(self.listbox, "selection"):
+            sel = self.listbox.selection()
+        else:
+            return None
         if not sel:
             return None
+
+        try:
+            idx = int(sel[0])
+            if hasattr(self, "displayed_items") and 0 <= idx < len(self.displayed_items):
+                return self.displayed_items[idx]
+        except (ValueError, TypeError, IndexError):
+            pass
+
         selected_text = self.listbox.get(sel[0])
 
         if selected_text.startswith("[Custom] "):
@@ -770,7 +787,10 @@ class CompendiumDialog(tk.Toplevel):
     def import_selected(self):
         """Importa l'elemento selezionato nella listbox."""
         item = self.get_selected_item()
-        if not item or not self.on_import_callback:
+        if not item:
+            messagebox.showinfo("Avviso", "Seleziona prima un elemento dalla lista da aggiungere.", parent=self)
+            return
+        if not self.on_import_callback:
             return
 
         cat = self.category_var.get()
@@ -778,15 +798,30 @@ class CompendiumDialog(tk.Toplevel):
             self._on_statblock_action(item, cat)
             return
 
-        # Fetch asincrono se online
-        url = item.get("url")
         item_name = item.get("name") or item.get("title", "")
+        # Se è un mostro presente localmente nei dati offline SRD, importa istantaneamente
+        try:
+            from common.srd_offline import get_monster_offline
+            local_m = get_monster_offline(item_name)
+            if local_m:
+                self._on_statblock_action(local_m, cat)
+                return
+        except Exception:
+            pass
+
+        url = item.get("url")
+        if url and url in self._item_details_cache:
+            self._on_statblock_action(self._item_details_cache[url], cat)
+            return
+
+        # Fetch asincrono se online
         self.status_var.set(f"Importazione di {item_name}...")
         def do_import():
             try:
                 req = urllib.request.Request("https://www.dnd5eapi.co" + url, headers={'User-Agent': 'Mozilla/5.0'})
                 with urllib.request.urlopen(req, timeout=3.5) as response:
                     data = json.loads(response.read().decode('utf-8'))
+                self._item_details_cache[url] = data
                 self.after(0, lambda: self.status_var.set("Importazione completata."))
                 self.after(0, lambda: self._on_statblock_action(data, cat))
             except Exception as e:

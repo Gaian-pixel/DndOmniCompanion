@@ -58,6 +58,11 @@ class StatblockCardView(ttk.Frame):
         self._setup_layout()
         self.show_placeholder()
 
+    def _format_action_label(self, icon: str) -> str:
+        raw = (self.action_label or "Importa").strip()
+        cleaned = raw.lstrip("⚔️✨📜➕🎁📦• ").strip()
+        return f"{icon} {cleaned}" if cleaned else f"{icon} {raw}"
+
     def _setup_layout(self):
         # Canvas scorrevole per ospitare schede di qualsiasi altezza
         self.canvas = tk.Canvas(self, bg=BG_COLOR, highlightthickness=0, borderwidth=0)
@@ -144,7 +149,7 @@ class StatblockCardView(ttk.Frame):
         if self.on_primary_action:
             btn_act = ttk.Button(
                 top_row,
-                text=f"⚔️ {self.action_label}",
+                text=self._format_action_label("⚔️"),
                 command=lambda: self.on_primary_action(mdata, "Mostri"),
                 style="Gold.TButton"
             )
@@ -273,7 +278,7 @@ class StatblockCardView(ttk.Frame):
         if self.on_primary_action:
             btn_act = ttk.Button(
                 top_row,
-                text=f"🎁 {self.action_label}",
+                text=self._format_action_label("🎁"),
                 command=lambda: self.on_primary_action(item_data, "Oggetti"),
                 style="Gold.TButton"
             )
@@ -414,7 +419,7 @@ class StatblockCardView(ttk.Frame):
         if self.on_primary_action:
             btn_act = ttk.Button(
                 top_row,
-                text=f"➕ {self.action_label}",
+                text=self._format_action_label("➕"),
                 command=lambda: self.on_primary_action(data_dict, cat_badge or "Generico"),
                 style="Gold.TButton"
             )
