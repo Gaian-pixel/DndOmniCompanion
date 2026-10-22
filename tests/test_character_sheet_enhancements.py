@@ -184,5 +184,83 @@ class TestCharacterSheetEnhancements(unittest.TestCase):
             self.assertEqual(call_arg["level"], 3)
             ui.destroy()
 
+    def test_offline_inventory_add_blocked(self):
+        """Verifica che in modalità offline non sia possibile aggiungere oggetti autonomamente."""
+        if not self.root:
+            self.skipTest("Tkinter non disponibile in ambiente headless")
+        from client.character_sheet_ui import CharacterSheetUI
+        c = Character("HeroOffline")
+        cm = MagicMock()
+
+        with patch("common.messagebox.messagebox.showwarning") as mock_warn:
+            ui = CharacterSheetUI(self.root, c, cm, is_connected=False)
+            
+            # Clic su slot vuoto
+            ui.on_inventory_click(0)
+            mock_warn.assert_called()
+            self.assertIsNone(c.inventory_grid[0])
+            
+            # Apertura dialogo custom item
+            mock_warn.reset_mock()
+            ui.open_custom_item_dialog(0)
+            mock_warn.assert_called()
+            
+            # Apertura compendio inventario
+            mock_warn.reset_mock()
+            ui.open_inventory_compendium()
+            mock_warn.assert_called()
+            
+            ui.destroy()
+
+    def test_offline_spell_add_blocked(self):
+        """Verifica che in modalità offline non sia possibile aggiungere incantesimi al Grimorio."""
+        if not self.root:
+            self.skipTest("Tkinter non disponibile in ambiente headless")
+        from client.character_sheet_ui import CharacterSheetUI
+        c = Character("MageOffline")
+        c.spellbook = []
+        cm = MagicMock()
+
+        with patch("common.messagebox.messagebox.showwarning") as mock_warn:
+            ui = CharacterSheetUI(self.root, c, cm, is_connected=False)
+            
+            # Aggiunta manuale
+            ui.add_spell()
+            mock_warn.assert_called()
+            
+            # Aggiunta da ricerca SRD / manuale
+            mock_warn.reset_mock()
+            ui._handle_found_spell("Dardo Incantato", 1, "1 Azione", "36m", "Tre dardi magici...")
+            mock_warn.assert_called()
+            self.assertEqual(len(c.spellbook), 0)
+            
+            ui.destroy()
+
+    def test_offline_weapon_and_compendium_import_blocked(self):
+        """Verifica che l'importazione da compendio e l'aggiunta di armi siano bloccate offline."""
+        if not self.root:
+            self.skipTest("Tkinter non disponibile in ambiente headless")
+        from client.character_sheet_ui import CharacterSheetUI
+        c = Character("FighterOffline")
+        c.weapons = []
+        cm = MagicMock()
+
+        with patch("common.messagebox.messagebox.showwarning") as mock_warn:
+            ui = CharacterSheetUI(self.root, c, cm, is_connected=False)
+            
+            # Aggiunta arma offline
+            ui.open_add_weapon_dialog()
+            mock_warn.assert_called()
+            self.assertEqual(len(c.weapons), 0)
+            
+            # Import da compendio offline
+            mock_warn.reset_mock()
+            ui.import_from_compendium_to_slot({"name": "Ascia da Battaglia"}, "Arma", 0)
+            mock_warn.assert_called()
+            self.assertIsNone(c.inventory_grid[0])
+            
+            ui.destroy()
+
 if __name__ == "__main__":
     unittest.main()
+

@@ -1407,11 +1407,17 @@ class CharacterSheetUI(tk.Toplevel):
         btn_bar = tk.Frame(bottom_frame, bg=SURFACE_COLOR_ALT)
         btn_bar.pack(fill=tk.X, pady=(2, 0))
         
-        compendium_btn = ttk.Button(btn_bar, text=_t("sheet_search_compendium"), command=self.open_inventory_compendium)
+        comp_btn_txt = _t("sheet_search_compendium") if self.is_connected else f"{_t('sheet_search_compendium')} 🔒"
+        compendium_btn = ttk.Button(btn_bar, text=comp_btn_txt, command=self.open_inventory_compendium)
         compendium_btn.pack(side=tk.LEFT, padx=2)
+        comp_tip = "Cerca un oggetto nel compendio e invia richiesta al DM" if self.is_connected else "L'aggiunta di oggetti richiede l'approvazione del Master in sessione"
+        ToolTip(compendium_btn, comp_tip)
         
-        custom_btn = ttk.Button(btn_bar, text=_t("sheet_add_custom_item"), command=self.open_custom_item_dialog)
+        custom_btn_txt = _t("sheet_add_custom_item") if self.is_connected else f"{_t('sheet_add_custom_item')} 🔒"
+        custom_btn = ttk.Button(btn_bar, text=custom_btn_txt, command=self.open_custom_item_dialog)
         custom_btn.pack(side=tk.LEFT, padx=4)
+        custom_tip = "Crea un oggetto personalizzato e invia richiesta al DM" if self.is_connected else "L'aggiunta di oggetti richiede l'approvazione del Master in sessione"
+        ToolTip(custom_btn, custom_tip)
         
         btn_give_gold = ttk.Button(btn_bar, text=_t("sheet_give_gold_btn"), command=self.on_give_gold_click, style="Gold.TButton")
         btn_give_gold.pack(side=tk.RIGHT, padx=2)
@@ -1649,7 +1655,11 @@ class CharacterSheetUI(tk.Toplevel):
         
         btn_frame = ttk.Frame(parent_frame)
         btn_frame.pack(fill=tk.X, padx=5, pady=5)
-        ttk.Button(btn_frame, text="Nuovo", command=self.add_spell).pack(side=tk.LEFT, padx=5)
+        add_spell_txt = "+ Richiedi Incantesimo" if self.is_connected else "+ Nuovo Incantesimo 🔒"
+        btn_new_spell = ttk.Button(btn_frame, text=add_spell_txt, command=self.add_spell)
+        btn_new_spell.pack(side=tk.LEFT, padx=5)
+        add_spell_tip = "Crea un incantesimo custom e invialo al Master per approvazione" if self.is_connected else "L'aggiunta di incantesimi richiede l'approvazione del Master in sessione"
+        ToolTip(btn_new_spell, add_spell_tip)
         srd_btn_txt = "📜 Richiedi Incantesimo (SRD)" if self.is_connected else "📜 Cerca Incantesimo (SRD)"
         srd_btn = ttk.Button(btn_frame, text=srd_btn_txt, command=self.search_spell_srd)
         srd_btn.pack(side=tk.LEFT, padx=5)
@@ -1672,6 +1682,14 @@ class CharacterSheetUI(tk.Toplevel):
             self.spell_tree.insert("", tk.END, iid=str(i), values=(lvl_str, s.get("name", ""), s.get("time", ""), s.get("range", "")))
 
     def add_spell(self):
+        if not self.is_connected:
+            messagebox.showwarning(
+                "Azione Non Consentita",
+                "Non puoi aggiungere incantesimi al Grimorio in modalità offline.\n\n"
+                "L'apprendimento e l'aggiunta di nuovi incantesimi richiede sempre l'approvazione del Dungeon Master durante una sessione di gioco.",
+                parent=self
+            )
+            return
         SpellEditorDialog(self)
 
     def remove_spell(self):
@@ -1817,8 +1835,13 @@ class CharacterSheetUI(tk.Toplevel):
                 if sent:
                     messagebox.showinfo("Richiesta Inviata", f"Richiesta per l'incantesimo '{name}' inviata al Master!\nRiceverai una notifica quando il Master risponderà.", parent=self)
         else:
-            if messagebox.askyesno("Aggiungi al Grimorio", f"Aggiungere '{name}' (Livello {level}) al tuo Grimorio?", parent=self):
-                self._add_fetched_spell(name, level, time, rng, desc)
+            messagebox.showwarning(
+                "Azione Non Consentita",
+                f"★ {name} (Livello {level})\n\n"
+                f"Non puoi aggiungere incantesimi al Grimorio autonomamente, nemmeno in modalità offline.\n\n"
+                f"L'acquisizione di nuovi incantesimi richiede sempre l'approvazione del Dungeon Master durante una sessione di gioco.",
+                parent=self
+            )
 
     def search_spell_srd(self):
         query = simpledialog.askstring("Cerca Incantesimo", "Nome incantesimo (in italiano o inglese, es. Fireball, Palla di Fuoco, Scudo):")
@@ -2170,7 +2193,8 @@ class CharacterSheetUI(tk.Toplevel):
                 ToolTip(btn, tip_text)
             else:
                 btn.config(text=f"➕ {_t('sheet_empty_slot_desc')}", style="Slot.TButton")
-                ToolTip(btn, _t("sheet_empty_slot_desc"))
+                empty_tip = _t("sheet_empty_slot_desc") if self.is_connected else "Slot Vuoto (L'assegnazione di oggetti richiede l'approvazione del Master in sessione)"
+                ToolTip(btn, empty_tip)
                 if hasattr(self, 'weight_vars') and i < len(self.weight_vars):
                     self.weight_vars[i].set(0.0)
                 if hasattr(self, 'attuned_vars') and i < len(self.attuned_vars):
@@ -2185,6 +2209,14 @@ class CharacterSheetUI(tk.Toplevel):
     def on_inventory_click(self, idx):
         item = self.character.inventory_grid[idx]
         if not item:
+            if not self.is_connected:
+                messagebox.showwarning(
+                    "Azione Non Consentita",
+                    "Non puoi aggiungere oggetti all'inventario autonomamente in modalità offline.\n\n"
+                    "L'assegnazione e l'aggiunta di nuovi oggetti possono avvenire esclusivamente con l'approvazione del Dungeon Master durante una sessione di gioco.",
+                    parent=self
+                )
+                return
             self.prompt_add_item_dialog(idx)
             return
         self.open_item_details_dialog(idx, item)
@@ -2219,13 +2251,21 @@ class CharacterSheetUI(tk.Toplevel):
         ttk.Button(btn_frame, text="Annulla", command=win.destroy).pack(fill=tk.X, pady=4)
 
     def open_custom_item_dialog(self, target_idx=None):
+        if not self.is_connected:
+            messagebox.showwarning(
+                "Azione Non Consentita",
+                "Non puoi creare o aggiungere oggetti all'inventario in modalità offline.\n\n"
+                "La creazione di nuovi oggetti richiede l'approvazione del Dungeon Master durante una sessione di gioco connessa.",
+                parent=self
+            )
+            return
         if target_idx is None:
             for i, it in enumerate(self.character.inventory_grid):
                 if not it:
                     target_idx = i
                     break
         if target_idx is None:
-            messagebox.showerror("Zaino Pieno", "Non c'è spazio libero nello zaino per un nuovo oggetto!")
+            messagebox.showerror("Zaino Pieno", "Non c'è spazio libero nello zaino per un nuovo oggetto!", parent=self)
             return
             
         win = tk.Toplevel(self)
@@ -2459,30 +2499,50 @@ class CharacterSheetUI(tk.Toplevel):
         ttk.Button(btn_frame, text="Chiudi", command=win.destroy).pack(side=tk.RIGHT, padx=3)
 
     def open_inventory_compendium_for_slot(self, slot_idx):
+        if not self.is_connected:
+            messagebox.showwarning(
+                "Azione Non Consentita",
+                "Non puoi aggiungere oggetti all'inventario dal Compendio in modalità offline.\n\n"
+                "L'importazione di oggetti richiede l'approvazione del Dungeon Master durante una sessione di gioco connessa.",
+                parent=self
+            )
+            return
         from server.compendium_ui import CompendiumDialog
         def on_import(item_data, category):
             self.import_from_compendium_to_slot(item_data, category, slot_idx)
         CompendiumDialog(self.master, on_import_callback=on_import, is_dm=False)
 
     def import_from_compendium_to_slot(self, item_data, category, target_idx=None):
+        if not self.is_connected:
+            messagebox.showwarning(
+                "Azione Non Consentita",
+                "Non puoi aggiungere oggetti o incantesimi alla scheda senza l'approvazione del Dungeon Master durante una sessione di gioco.",
+                parent=self
+            )
+            return
         if category == "Incantesimi":
-            if not hasattr(self.character, "spellbook"):
-                self.character.spellbook = []
             desc = item_data.get("desc", "")
             if isinstance(desc, list):
                 desc = "\n".join(desc)
-            self.character.spellbook.append({
+            spell_dict = {
                 "name": item_data.get("name", ""),
                 "level": item_data.get("level", 0),
                 "time": item_data.get("casting_time", ""),
                 "range": item_data.get("range", ""),
                 "desc": desc
-            })
-            self.refresh_spell_list()
-            self.manager.update_character(self.character)
-            if hasattr(self.manager, 'save_characters'):
-                self.manager.save_characters()
-            messagebox.showinfo("Importato", f"{item_data.get('name')} importato come Incantesimo!")
+            }
+            if self.custom_spell_request_callback:
+                if messagebox.askyesno(
+                    "Richiesta Approvazione al Master",
+                    f"Incantesimo selezionato: ★ {spell_dict['name']} (Livello {spell_dict['level']})\n\n"
+                    f"Vuoi inviare la richiesta di approvazione per questo incantesimo al Dungeon Master?",
+                    parent=self
+                ):
+                    sent = self.custom_spell_request_callback(spell_dict)
+                    if sent:
+                        messagebox.showinfo("Richiesta Inviata", f"Richiesta per '{spell_dict['name']}' inviata al Master!\nRiceverai una notifica quando il Master risponderà.", parent=self)
+            else:
+                messagebox.showwarning("Non Connesso", "Devi essere connesso al server per richiedere l'approvazione di un incantesimo.", parent=self)
             return
 
         if target_idx is None:
@@ -2555,6 +2615,14 @@ class CharacterSheetUI(tk.Toplevel):
                 pass
 
     def open_inventory_compendium(self):
+        if not self.is_connected:
+            messagebox.showwarning(
+                "Azione Non Consentita",
+                "Non puoi aggiungere oggetti all'inventario dal Compendio in modalità offline.\n\n"
+                "L'importazione di oggetti richiede l'approvazione del Dungeon Master durante una sessione di gioco connessa.",
+                parent=self
+            )
+            return
         from server.compendium_ui import CompendiumDialog
         CompendiumDialog(self.master, on_import_callback=self.import_from_compendium, is_dm=False)
 
@@ -3043,7 +3111,10 @@ class CharacterSheetUI(tk.Toplevel):
         bar.pack(fill=tk.X, pady=(0, 6))
         
         tk.Label(bar, text="⚔️ Armi & Attacchi Rapidi 5e", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(side=tk.LEFT)
-        ttk.Button(bar, text="+ Aggiungi Arma", command=self.open_add_weapon_dialog, style="Gold.TButton").pack(side=tk.RIGHT)
+        add_w_txt = "+ Richiedi Arma" if self.is_connected else "+ Aggiungi Arma 🔒"
+        btn_add_w = ttk.Button(bar, text=add_w_txt, command=self.open_add_weapon_dialog, style="Gold.TButton")
+        btn_add_w.pack(side=tk.RIGHT)
+        ToolTip(btn_add_w, "Invia richiesta al Master per una nuova arma" if self.is_connected else "L'aggiunta di armi richiede l'approvazione del Master in sessione")
         
         canvas = tk.Canvas(parent_frame, bg=BG_COLOR, highlightthickness=0)
         sb = ttk.Scrollbar(parent_frame, orient=tk.VERTICAL, command=canvas.yview)
@@ -3137,11 +3208,23 @@ class CharacterSheetUI(tk.Toplevel):
             self.execute_weapon_attack(weapon, total_txc)
 
     def open_add_weapon_dialog(self):
+        if not self.is_connected:
+            messagebox.showwarning(
+                "Azione Non Consentita",
+                "Non puoi aggiungere armi alla scheda autonomamente in modalità offline.\n\n"
+                "L'assegnazione di nuove armi richiede l'approvazione del Dungeon Master durante una sessione di gioco.",
+                parent=self
+            )
+            return
         def _on_save(w_data):
-            if not hasattr(self.character, "weapons"): self.character.weapons = []
-            self.character.weapons.append(w_data)
-            self.manager.save_characters()
-            self.refresh_weapons_list()
+            if getattr(self, "request_item_callback", None):
+                self.request_item_callback(w_data)
+                messagebox.showinfo("Richiesta Inviata", f"Richiesta di aggiunta per l'arma '{w_data.get('name')}' inviata al Master per approvazione!", parent=self)
+            else:
+                if not hasattr(self.character, "weapons"): self.character.weapons = []
+                self.character.weapons.append(w_data)
+                self.manager.save_characters()
+                self.refresh_weapons_list()
         WeaponDialog(self, on_save_callback=_on_save)
 
     def open_edit_weapon_dialog(self, weapon, idx):
