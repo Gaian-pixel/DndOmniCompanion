@@ -69,6 +69,8 @@ This manual walks you step by step through starting a session, configuring the i
      * **✨ Create Character (Wizard)**: immediately starts the step-by-step Baldur's Gate 3 inspired character creation wizard for a Level 1 hero.
      * **🛡️ Join Game**: opens the Player VTT client. From `Server -> Connect to Server...` (or `Reconnect to Last Server`), choose your character, enter the DM's IP address (`127.0.0.1` or LAN/VPN IP), and click **Connect**.
 
+* **Single-Window Architecture (In-Place)**: All secondary configuration and management views (*👤 Character Manager*, *✨ Create Character*, and *📜 Prepare / Edit Campaign*) render seamlessly in-place within the launcher window. A top navigation banner `[ ← Back to Main Menu / Torna al Menu Principale ]` lets you return to the launcher menu at any time, eliminating desktop window clutter.
+
 ---
 
 ## 2. Interface Overview & Global Settings
@@ -197,7 +199,15 @@ In the **`Player Controls`** tab on the right sidebar, the **Hero Summary Card**
     * **Light Spell**: $20\text{ ft}$ bright, $20\text{ ft}$ dim (8-hex radius), magical cyan glow `#66D9E8`.
   * **Dynamic FoW Integration**: toggling lights automatically reveals Fog of War based on $\max(\text{vision\_radius}, \text{light\_radius})$.
 
-Click **`📋 Character Sheet`** to open the full multi-tabbed sheet:
+#### Single-Window Character Sheet Architecture (Center Overlay & Docking)
+Inside the player client, the Character Sheet leverages an ergonomic single-window architecture:
+* **Battlemap Center Overlay**: Clicking **`📋 Character Sheet`** or pressing the **`C`** hotkey opens the sheet as a centered floating panel directly above the battlemap canvas (`Center Overlay`), avoiding window multiplication.
+* **Instant Dismissal via `Esc`**: You can close the overlay at any time by pressing **`Esc`** or clicking the top-right `✖` button, instantly returning full focus to map navigation.
+* **Flexible Docking & Detaching (Multi-Monitor)**:
+  * **`[ ◱ Detach Window / Stacca Finestra ]`**: Clicking this button on the overlay header detaches the Character Sheet into a standalone floating Tkinter window—perfect for dual-monitor setups or side-by-side reference.
+  * **`[ ◰ Dock to Map / Riaggancia alla Mappa ]`**: From the detached window, clicking this button immediately re-docks the sheet back as a center overlay inside the main VTT canvas without state loss.
+
+Clicking **`📋 Character Sheet`** or opening the overlay presents the following tabs:
 1. **Stats & Combat**: Ability Scores, Saving Throws, all 18 Skills with Proficiency selector (`0 = None`, `1 = Proficient +PB`, `2 = Expertise +2×PB`) and `🎲` 1-click roll buttons, quick HP adjusters (`-5`, `-1`, `+1`, `+5`), Short/Long Rest buttons, Hit Dice, and Death Saves.
 2. **⚔️ Weapons & Attacks**: weapon list with automatic attack bonus and damage roll buttons.
 3. **🎒 Inventory**: item management with weight, magic item attunement (max 3 `🔮`), Coin Pouch (`cp`, `sp`, `ep`, `gp`, `pp`), and automatic **Encumbrance** tracking ($\text{Strength} \times 15\text{ lbs}$).
@@ -599,6 +609,9 @@ The rules engine automatically detects every `Natural 20` and `Natural 1` rolled
 
 | Command / Shortcut | Who Can Use It | Effect | Example |
 |---|---|---|---|
+| `C` | Everyone | Toggle Character Sheet (Center Overlay / Re-dock) | `C` |
+| `Esc` | Everyone | Close Character Sheet or active Overlay | `Esc` |
+| `F11` | Everyone | Toggle Fullscreen mode | `F11` |
 | `Ctrl + K` | Everyone | Opens the Quick Command Palette | `Ctrl+K` $\rightarrow$ `fireball` |
 | `/roll <dice>` or `/r <dice>` | Everyone | Rolls dice (supports `kh1`/`kl1` for advantage/disadvantage) | `/roll 2d20kh1+5`, `/r 4d6` |
 | `/w <name> <text>` | Everyone | Sends a private whisper | `/w DM I check for secret doors` |

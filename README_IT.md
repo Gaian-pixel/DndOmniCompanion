@@ -27,6 +27,14 @@
 
 ## 🌟 Caratteristiche Principali
 
+### 🖥️ Esperienza e Architettura Mono-Finestra (Single-Window & Center Overlay)
+* **Launcher Unificato In-Place**: Tutte le sezioni del launcher (*Gestione Personaggi*, *Wizard Creazione Guidata PG* ed *Editor Campagna*) vengono renderizzate direttamente in-place all'interno della stessa finestra principale, provviste di una comoda barra superiore `[ ← Torna al Menu Principale ]`, azzerando la moltiplicazione di finestre secondarie.
+* **Scheda PG come Center Overlay nel VTT**: Nel client di gioco, la Scheda del Personaggio si apre direttamente come un raffinato overlay fluttuante al centro della mappa (`Center Overlay`), attivabile con un click su `📋 Scheda PG` o premendo il tasto rapido **`C`**.
+* **Chiusura Rapida con `Esc`**: L'overlay si chiude all'istante premendo **`Esc`** o cliccando la `✖` in alto a destra, tornando subito al controllo totale della mappa tattica.
+* **Aggancio / Sgancio Flessibile (Docking / Detaching)**:
+  * Pulsante **`[ ◱ Stacca Finestra ]`**: Converte all'istante l'overlay in una finestra Tkinter fluttuante e indipendente, ideale per setup multi-monitor o per chi preferisce visualizzare scheda e canvas affiancati.
+  * Pulsante **`[ ◰ Riaggancia alla Mappa ]`**: Riaggancia immediatamente la scheda staccata all'interno del VTT principale come overlay centrale senza perdere modifiche né stato.
+
 ### 🗺️ Virtual Tabletop (VTT) Multi-Griglia & Multi-Scala
 * **Supporto Multi-Griglia (Esagonale, Quadrata, Senza Griglia)**:
   * **Griglia Esagonale (`hex`)**: La classica griglia tattica esagonale per avventure e dungeon.
@@ -176,9 +184,12 @@ Dal selettore iniziale potrai scegliere:
 
 ## 🎮 Comandi Rapidi & Controlli
 
-### Controlli Mappa (Canvas)
+### Controlli Mappa & Scorciatoie da Tastiera
 | Input / Strumento | Azione |
 |---|---|
+| **`C`** | Mostra / Nascondi la **Scheda Personaggio** (Center Overlay / Riaggancia) |
+| **`Esc`** | Chiude la Scheda Personaggio o l'Overlay aperto |
+| **`F11`** | Attiva / Disattiva la modalità **Schermo Intero** (Fullscreen) |
 | **Click Destro / Centrale + Trascina** | Sposta l'inquadratura della mappa (Pan) |
 | **Rotellina del Mouse Su / Giù** | Zoom avanti / indietro centrato sul cursore |
 | **Click Sinistro su Esagono / Trascina Token** | Muove il token lungo il percorso esagonale valido |
@@ -264,28 +275,38 @@ DndOmniCompanion/
 │   ├── USER_GUIDE.md               # Complete User Guide (English)
 │   ├── GUIDA_OPERATIVA.md          # Manuale operativo e architettura (Italiano)
 │   └── OPERATIONAL_GUIDE.md        # System & Operational Manual (English)
-├── main.py                         # Launcher unificato (DM Host / Player Client)
-└── simulate_game_session.py        # Simulazione automatica end-to-end (53 fasi)
+├── tests/                          # Suite di test automatizzati (254 test)
+│   ├── simulate_game_session.py    # Simulazione multiplayer end-to-end (53 fasi)
+│   ├── test_mono_finestra.py       # Test architettura single-window, overlay e docking
+│   ├── test_authentic_5e.py        # Test regole autentiche RAW 5e
+│   ├── test_ui_smoke.py            # Smoke test di tutte le schermate grafiche
+│   └── ... (28 moduli di test unitari e di integrazione)
+└── main.py                         # Launcher unificato (DM Host / Player Client)
 ```
 
 ---
 
 ## 🧪 Test e Verifica Automatica
 
+Tutti i **254 test automatizzati** passano al 100% con 0 errori:
+
 ```powershell
-# 1. Unit Test delle funzionalità (Righello multi-scala, Critici Nat20/Nat1, Economia Turno, Unità ft/m, Sussurri, TS Morte)
+# 1. Unit Test completi (254 test: righello, critici, mono-finestra, economia turno, unità, inventario, razze/classi)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 2. Test Meccaniche Autentiche RAW 5e (Porte, Lockpicking, Room Pins, Reazioni, Shield, Evasione, Furtivo, Blind Rolls)
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_authentic_5e.py
 
-# 3. Smoke Test completo di tutte le 19 schermate UI (Server DM e Client Player)
+# 3. Test Architettura Mono-Finestra (In-place frames, overlay canvas, docking/detaching, hotkeys C/Esc)
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_mono_finestra.py
+
+# 4. Smoke Test completo di tutte le 19 schermate UI (Server DM e Client Player)
 $env:DND_MOCK_AUDIO="1"; python tests/test_ui_smoke.py --no-screens
 
-# 4. Simulazione End-to-End Multiplayer completa (53 fasi)
-$env:DND_MOCK_AUDIO="1"; python simulate_game_session.py
+# 5. Simulazione End-to-End Multiplayer completa (53 fasi)
+$env:DND_MOCK_AUDIO="1"; python tests/simulate_game_session.py
 
-# 5. Test Sistema Campagne e Scene
+# 6. Test Sistema Campagne e Scene
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_campaign_system.py
 ```
 

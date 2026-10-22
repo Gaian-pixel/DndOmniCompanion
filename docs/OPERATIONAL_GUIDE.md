@@ -156,6 +156,28 @@ Both the DM and Player interfaces are built with **ttkbootstrap** in modern dark
 
 * **Quick Command Palette (`Ctrl+K`)**: Press `Ctrl+K` at any time to search 5e rules, monsters, spells, map tokens, or execute instant `/roll` commands.
 
+### Single-Window Architecture (Mono-Finestra & Decoupled Frame Pattern)
+
+D&D OmniCompanion implements a decoupled architectural pattern allowing UI components to be used interchangeably as in-place embedded frames or as standalone dialog windows (`Toplevel`):
+
+1. **`*Frame` vs `*Dialog` Pattern**:
+   * Core UI components inherit from `ttk.Frame` (or `tk.Frame`), accepting any generic `parent` container and separating presentation logic from top-level window management:
+     * `CharacterManagerFrame` (in `client/character_manager_ui.py`) $\leftrightarrow$ `CharacterManagerDialog`
+     * `CharacterCreationWizardFrame` (in `client/character_creation_wizard.py`) $\leftrightarrow$ `CharacterCreationWizardDialog`
+     * `CharacterSheetFrame` (in `client/character_sheet_ui.py`) $\leftrightarrow$ `CharacterSheetDialog`
+     * `CampaignEditorFrame` (in `server/campaign_editor_ui.py`) $\leftrightarrow$ `CampaignEditorDialog`
+   * Corresponding `*Dialog` classes act as lightweight wrappers that construct a `tk.Toplevel`, instantiate their respective `*Frame`, and delegate calls, ensuring full backward compatibility.
+
+2. **In-Place Launcher Navigation (`main.py`)**:
+   * The unified launcher manages navigation within a single host window. When the user launches a tool (e.g. Character Manager or Campaign Editor), the initial role cards are hidden (`pack_forget()`) and the corresponding `*Frame` is packed directly in-place.
+   * A persistent top navigation banner (`_build_banner()`) provides a `[ ← Back to Main Menu / Torna al Menu Principale ]` button to cleanly unmount the active frame and restore the role selector.
+
+3. **Center Overlay & Dock/Detach Lifecycle in Player VTT (`client/client.py`)**:
+   * **Center Overlay**: The Character Sheet mounts dynamically as a centered overlay (`_sheet_overlay_frame`) placed directly above the map viewport via `place()`, complete with a title bar featuring `[ ◱ Detach Window / Stacca Finestra ]` and `✖` buttons.
+   * **Global Shortcuts**: Hotkeys **`C`** (toggle overlay / re-dock) and **`Esc`** (close overlay if open) are bound directly to the main toplevel window (`<c>`, `<C>`, `<Escape>`).
+   * **Detaching (`detach_character_sheet()`)**: Destroys the in-canvas overlay frame, spawns a new `tk.Toplevel` (`_sheet_window`), embeds `CharacterSheetFrame` inside it, and attaches the `[ ◰ Dock to Map / Riaggancia alla Mappa ]` action button.
+   * **Docking (`dock_character_sheet()`)**: Safely closes the detached window and recreates the centered overlay on the map canvas, guaranteeing seamless continuity of character data and state.
+
 ---
 
 ## 4. Dungeon Master (DM) Operations
@@ -514,6 +536,9 @@ The combat engine supports both automated raycast cover calculation and explicit
 
 | Action | Control | Description |
 |---|---|---|
+| **Character Sheet (Overlay/Dock)** | `C` | Toggle Character Sheet (Center Overlay / Re-dock). |
+| **Close Sheet / Overlay** | `Esc` | Close Character Sheet or active Overlay. |
+| **Fullscreen** | `F11` | Toggle Fullscreen mode. |
 | **Command Palette** | `Ctrl + K` | Opens universal search for rules, monsters, spells, tokens, and rolls. |
 | **Pan Map** | Right-Click + Drag or Middle-Click + Drag | Smooth canvas viewport navigation. |
 | **Zoom Map** | Mouse Wheel Up / Down | Zooms in/out centered on cursor. |
@@ -537,22 +562,25 @@ D&D OmniCompanion features full live bilingual localization and dual measurement
 
 ## 10. Testing Suite & Quality Assurance
 
-The codebase includes automated test suites covering headless unit tests, GUI smoke tests, and full multiplayer simulation:
+The codebase includes a consolidated testing suite in the `tests/` directory with **254 automated tests** passing at 100% with 0 failures, covering headless unit tests, GUI smoke tests, single-window architecture, and full multiplayer simulation:
 
 ```powershell
-# 1. Run unit tests for recent features (multi-scale ruler, criticals, turn economy, units, whispers, death saves)
+# 1. Run comprehensive unit tests (254 tests: ruler, criticals, single-window, turn economy, units, inventory, races/classes)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 2. Run authentic 5e RAW rules test suite (Doors, Lockpicking, Room Pins, Reactions, Shield, Evasion, Sneak Attack, Blind Rolls)
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_authentic_5e.py
 
-# 3. Run UI smoke tests across all 19 server and client windows
+# 3. Run Single-Window Architecture tests (In-place frames, canvas overlay, docking/detaching, hotkeys C/Esc)
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_mono_finestra.py
+
+# 4. Run UI smoke tests across all 19 server and client windows
 $env:DND_MOCK_AUDIO="1"; python tests/test_ui_smoke.py --no-screens
 
-# 4. Run the complete 53-phase multiplayer game simulation
-$env:DND_MOCK_AUDIO="1"; python simulate_game_session.py
+# 5. Run the complete 53-phase multiplayer game simulation
+$env:DND_MOCK_AUDIO="1"; python tests/simulate_game_session.py
 
-# 5. Run campaign system tests
+# 6. Run campaign system tests
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_campaign_system.py
 ```
 

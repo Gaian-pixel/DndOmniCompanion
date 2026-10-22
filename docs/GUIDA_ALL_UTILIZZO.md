@@ -70,6 +70,8 @@ Questa guida illustra passo dopo passo come avviare una sessione, configurare l'
      * **✨ Crea Personaggio (Guidato)**: avvia subito la procedura guidata passo-passo (Razza, Classe, Statistiche, Background, Equipaggiamento) per creare un eroe di 1° livello.
      * **🛡️ Unisciti alla Partita**: avvia il client Giocatore. Dal menu `Server -> Connetti al Server...` (oppure `Riconnetti Ultimo Server`), scegli il tuo personaggio, inserisci l'indirizzo IP del DM (`127.0.0.1` o IP LAN/VPN) e clicca su **Connetti**.
 
+* **Esperienza Mono-Finestra (In-Place)**: Tutte le viste secondarie del launcher (*👤 Gestione Personaggi*, *✨ Crea Personaggio* e *📜 Prepara / Modifica Campagna*) si aprono direttamente in-place all'interno della stessa finestra principale, corredate da una barra superiore `[ ← Torna al Menu Principale ]` per tornare alla schermata iniziale con un click, azzerando la proliferazione di finestre sul desktop.
+
 ---
 
 ## 2. Panoramica dell'Interfaccia e Impostazioni Globali
@@ -199,7 +201,15 @@ Nel tab **`Controlli PG`** della sidebar destra trovi sempre in primo piano la *
     * **Incantesimo Luce**: $20\text{ ft}$ luce intensa, $20\text{ ft}$ luce fioca (raggio 8 esagoni), bagliore ciano magico `#66D9E8`.
   * **Sincronizzazione FoW**: accendere la luce aggiorna in tempo reale la visibilità del token sulla mappa, svelando la Nebbia di Guerra calcolata su $\max(\text{vision\_radius}, \text{light\_radius})$.
 
-Cliccando su **`📋 Scheda PG`** si apre la scheda completa divisa in schede:
+#### Architettura Mono-Finestra: Center Overlay e Docking/Detaching
+Nel client di gioco, la Scheda Personaggio adotta una moderna architettura mono-finestra:
+* **Center Overlay sulla Mappa**: Cliccando su **`📋 Scheda PG`** o premendo il tasto rapido **`C`**, la scheda si apre direttamente come un elegante overlay fluttuante al centro della mappa tattica (`Center Overlay`), senza moltiplicare finestre.
+* **Chiusura Immediata con `Esc`**: Puoi chiudere l'overlay in qualsiasi momento premendo **`Esc`** o cliccando la `✖` in alto a destra, riprendendo subito il controllo completo della mappa.
+* **Stacco e Riaggancio Flessibile (Multi-Monitor)**:
+  * **`[ ◱ Stacca Finestra ]`**: Cliccando questo pulsante nella testata dell'overlay, la Scheda PG viene staccata in una finestra Tkinter fluttuante e indipendente, ideale per postazioni a doppio monitor o per chi desidera affiancare scheda e canvas.
+  * **`[ ◰ Riaggancia alla Mappa ]`**: Dalla finestra staccata, un click su questo pulsante riaggancia immediatamente la scheda al centro del canvas del VTT come overlay, preservando modifiche e stato.
+
+Cliccando su **`📋 Scheda PG`** o aprendo l'overlay, la scheda si presenta divisa nei seguenti tab:
 1. **Statistiche & Combattimento**: Punteggi di Caratteristica, Tiri Salvezza, Abilità con selettore di Competenza (`0 = Nessuna`, `1 = Competente +PB`, `2 = Maestria +2×PB`) e pulsante `🎲` per tirare direttamente in chat, Gestione PV rapidi (`-5`, `-1`, `+1`, `+5`), Riposo Breve/Lungo, Dadi Vita e Tiri contro la Morte.
 2. **⚔️ Armi & Attacchi**: elenco delle armi con calcolo automatico del bonus al tiro per colpire e del danno.
 3. **🎒 Inventario**: gestione oggetti con peso individuale, sintonizzazione magica (max 3 oggetti `🔮`), Borsa delle Monete (`MR`, `MA`, `ME`, `MO`, `MP`) e calcolo automatico dell'**Ingombro** ($\text{Forza} \times 15\text{ lbs}$).
@@ -600,6 +610,9 @@ Il motore di gioco rileva automaticamente ogni `20 Naturale` e `1 Naturale` tira
 
 | Comando / Scorciatoia | Chi può usarlo | Effetto | Esempio |
 |---|---|---|---|
+| `C` | Tutti | Mostra / Nascondi la Scheda Personaggio (Center Overlay / Riaggancia) | `C` |
+| `Esc` | Tutti | Chiude la Scheda Personaggio o l'Overlay aperto | `Esc` |
+| `F11` | Tutti | Attiva / Disattiva la modalità Schermo Intero (Fullscreen) | `F11` |
 | `Ctrl + K` | Tutti | Apre la Tavolozza Comandi Rapida | `Ctrl+K` $\rightarrow$ `fireball` |
 | `/roll <dadi>` o `/r <dadi>` | Tutti | Lancia dadi (supporta `kh1`/`kl1` per vantaggio/svantaggio) | `/roll 2d20kh1+5`, `/r 4d6` |
 | `/w <nome> <testo>` | Tutti | Invia un sussurro privato | `/w DM Cerco porte segrete` |

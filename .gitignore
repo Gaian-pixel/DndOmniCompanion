@@ -41,3 +41,6 @@ dnd_blankcharactersheet*.pdf
 *.pdf
 
 
+
+# Code Reviews & AI Artifacts
+*review*.md

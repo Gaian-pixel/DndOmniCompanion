@@ -27,6 +27,14 @@
 
 ## 🌟 Key Highlights
 
+### 🖥️ Single-Window Architecture (Mono-Finestra & Center Overlay)
+* **Unified In-Place Launcher**: All secondary launcher tools (*Character Manager*, *Creation Wizard*, and *Campaign Editor*) render seamlessly in-place within the primary window, equipped with an intuitive `[ ← Torna al Menu Principale / Back to Main Menu ]` top banner, eliminating floating window clutter.
+* **Character Sheet as Center Overlay in VTT**: Within the game client, the Character Sheet opens directly as a sleek floating overlay in the middle of the battlemap canvas (`Center Overlay`), toggled via `📋 Character Sheet` or the **`C`** hotkey.
+* **Instant Dismissal via `Esc`**: The overlay closes instantly upon pressing **`Esc`** or clicking the top-right `✖`, returning immediate full focus to map navigation.
+* **Flexible Docking & Detaching**:
+  * Button **`[ ◱ Stacca Finestra / Detach Window ]`**: Immediately converts the overlay into an independent floating Tkinter window, ideal for dual-monitor battlestations or side-by-side management.
+  * Button **`[ ◰ Riaggancia alla Mappa / Dock to Map ]`**: Re-embeds the detached window right back into the main VTT as a central canvas overlay with zero state loss.
+
 ### 🗺️ Multi-Grid & Multi-Scale Virtual Tabletop (VTT)
 * **Multi-Grid Geometries (Hexagonal, Square, Gridless)**:
   * **Hex Grid (`hex`)**: Classic tactical hex grid for wilderness and dungeons.
@@ -176,9 +184,12 @@ From the startup launcher choose:
 
 ## 🎮 Quick Controls & Shortcuts
 
-### Map Canvas Controls
+### Map Canvas Controls & Keyboard Shortcuts
 | Input / Tool | Action |
 |---|---|
+| **`C`** | Toggle **Character Sheet** (Center Overlay / Re-dock) |
+| **`Esc`** | Close Character Sheet or active Overlay |
+| **`F11`** | Toggle **Fullscreen** mode |
 | **Right-Click / Middle-Click + Drag** | Pan the map viewport |
 | **Mouse Wheel Up / Down** | Zoom in / out centered on cursor |
 | **Left-Click on Hex / Drag Token** | Move active token along valid hex paths |
@@ -264,28 +275,38 @@ DndOmniCompanion/
 │   ├── GUIDA_ALL_UTILIZZO.md       # Manuale completo all'utilizzo (Italiano)
 │   ├── OPERATIONAL_GUIDE.md        # System & Operational Manual (English)
 │   └── GUIDA_OPERATIVA.md          # Manuale operativo e architettura (Italiano)
-├── main.py                         # Unified launcher (DM Host / Player Client)
-└── simulate_game_session.py        # Full 53-phase automated end-to-end simulation
+├── tests/                          # Automated testing suite (254 passing tests)
+│   ├── simulate_game_session.py    # End-to-end multiplayer simulation (53 phases)
+│   ├── test_mono_finestra.py       # Single-window, overlay, and docking architecture tests
+│   ├── test_authentic_5e.py        # Authentic 5e RAW rules test suite
+│   ├── test_ui_smoke.py            # Smoke tests across all graphical windows
+│   └── ... (28 modular unit and integration test suites)
+└── main.py                         # Unified launcher (DM Host / Player Client)
 ```
 
 ---
 
 ## 🧪 Automated Testing & Verification
 
+All **254 automated tests** pass with 100% success and 0 failures:
+
 ```powershell
-# 1. Feature Unit Tests (Multi-scale ruler, Nat20/Nat1 criticals, Turn Economy, ft/m units, Whispers, Death Saves)
+# 1. Comprehensive Unit Tests (254 tests: ruler, criticals, single-window, turn economy, units, inventory, races/classes)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 2. Authentic 5e RAW Rules Test Suite (Doors, Lockpicking, Room Pins, Reactions, Shield, Evasion, Sneak Attack, Blind Rolls)
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_authentic_5e.py
 
-# 3. Full UI Smoke Tests across all 19 DM Server & Player Client screens
+# 3. Single-Window Architecture Tests (In-place frames, canvas overlay, docking/detaching, hotkeys C/Esc)
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_mono_finestra.py
+
+# 4. Full UI Smoke Tests across all 19 DM Server & Player Client screens
 $env:DND_MOCK_AUDIO="1"; python tests/test_ui_smoke.py --no-screens
 
-# 4. Full 53-Phase End-to-End Multiplayer Simulation
-$env:DND_MOCK_AUDIO="1"; python simulate_game_session.py
+# 5. Full 53-Phase End-to-End Multiplayer Simulation
+$env:DND_MOCK_AUDIO="1"; python tests/simulate_game_session.py
 
-# 5. Campaign & Scene System Tests
+# 6. Campaign & Scene System Tests
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_campaign_system.py
 ```
 

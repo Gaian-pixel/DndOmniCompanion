@@ -155,6 +155,28 @@ Sia l'interfaccia DM che quella Giocatore sono realizzate con **ttkbootstrap** i
 
 * **Tavolozza Comandi Rapida (`Ctrl+K`)**: Premi `Ctrl+K` in qualsiasi momento per cercare regole 5e, mostri, incantesimi, token sulla mappa o eseguire tiri `/roll` istantanei.
 
+### Architettura Mono-Finestra (Single-Window & Decoupled Frame Pattern)
+
+D&D OmniCompanion implementa un pattern architetturale disaccoppiato che consente di utilizzare i componenti dell'interfaccia sia come frame integrati in-place sia come finestre di dialogo indipendenti (`Toplevel`):
+
+1. **Pattern `*Frame` vs `*Dialog`**:
+   * I componenti principali dell'interfaccia sono ingegnerizzati ereditando da `ttk.Frame` (o `tk.Frame`), accettando un contenitore `parent` generico e separando la logica di presentazione dal container di primo livello:
+     * `CharacterManagerFrame` (in `client/character_manager_ui.py`) $\leftrightarrow$ `CharacterManagerDialog`
+     * `CharacterCreationWizardFrame` (in `client/character_creation_wizard.py`) $\leftrightarrow$ `CharacterCreationWizardDialog`
+     * `CharacterSheetFrame` (in `client/character_sheet_ui.py`) $\leftrightarrow$ `CharacterSheetDialog`
+     * `CampaignEditorFrame` (in `server/campaign_editor_ui.py`) $\leftrightarrow$ `CampaignEditorDialog`
+   * I corrispondenti `*Dialog` fungono da leggeri wrapper che creano un `tk.Toplevel`, istanziano il rispettivo `*Frame` ed espongono i metodi delegati, garantendo piena retrocompatibilità.
+
+2. **Navigazione In-Place nel Launcher (`main.py`)**:
+   * Il launcher unificato gestisce la navigazione tra le schermate tramite un container a vista singola. Quando l'utente seleziona un'opzione (es. Gestione Personaggi o Editor Campagna), il pannello di selezione iniziale viene nascosto (`pack_forget()`) e viene montato il relativo `*Frame`.
+   * Un banner persistente in alto (`_build_banner()`) fornisce il pulsante `[ ← Torna al Menu Principale ]` per smontare il frame attivo e ripristinare il selettore dei ruoli.
+
+3. **Center Overlay e Ciclo di Vita Dock/Detach nel Client VTT (`client/client.py`)**:
+   * **Center Overlay**: La Scheda PG viene montata dinamicamente come un overlay centrale (`_sheet_overlay_frame`) posizionato sopra il viewport della mappa con `place()`, corredato di barra del titolo con pulsanti `[ ◱ Stacca Finestra ]` e `✖`.
+   * **Scorciatoie Globali**: I tasti **`C`** (toggle overlay / riaggancia) ed **`Esc`** (chiudi overlay se attivo) sono agganciati alla toplevel principale (`<c>`, `<C>`, `<Escape>`).
+   * **Stacco (`detach_character_sheet()`)**: Distrugge il frame overlay interno, crea un nuovo `tk.Toplevel` (`_sheet_window`), istanzia `CharacterSheetFrame` nella nuova finestra e aggiunge il pulsante `[ ◰ Riaggancia alla Mappa ]`.
+   * **Riaggancio (`dock_character_sheet()`)**: Chiude in modo pulito la finestra staccata e ricrea l'overlay centrale sulla mappa, garantendo la totale continuità dello stato del personaggio.
+
 ---
 
 ## 4. Operazioni del Dungeon Master (DM)
@@ -501,6 +523,9 @@ Il motore di combattimento supporta sia la determinazione geometrica automatica 
 
 | Azione | Controllo | Descrizione |
 |---|---|---|
+| **Scheda PG (Overlay/Dock)** | `C` | Mostra / Nascondi la Scheda Personaggio (Center Overlay / Riaggancia). |
+| **Chiudi Scheda / Overlay** | `Esc` | Chiude la Scheda Personaggio o l'Overlay aperto. |
+| **Schermo Intero** | `F11` | Attiva / Disattiva la modalità Schermo Intero (Fullscreen). |
 | **Tavolozza Comandi** | `Ctrl + K` | Apre la ricerca universale per regole, mostri, incantesimi, token e tiri. |
 | **Pan Mappa** | Click Destro + Trascina o Click Centrale + Trascina | Navigazione fluida dell'inquadratura. |
 | **Zoom Mappa** | Rotellina Mouse Su / Giù | Zoom avanti/indietro centrato sul cursore. |
@@ -524,22 +549,25 @@ D&D OmniCompanion offre localizzazione bilingue live e doppio sistema di misuraz
 
 ## 10. Suite di Test e Quality Assurance
 
-Il progetto include suite di test automatizzati che coprono unit test headless, smoke test della GUI e simulazione multiplayer completa:
+Il progetto include una suite consolidata nella cartella `tests/` con **254 test automatizzati** che passano al 100% con 0 errori, coprendo unit test headless, smoke test della GUI, architettura mono-finestra e simulazione multiplayer completa:
 
 ```powershell
-# 1. Esegui gli unit test delle funzionalità (righello multi-scala, critici, economia turno, unità, sussurri, TS morte)
+# 1. Esegui l'intera suite di unit test (254 test: righello, critici, mono-finestra, economia turno, unità, inventario, razze/classi)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 2. Esegui la suite regole autentiche RAW 5e (Porte, Scasso, Spille Stanza, Reazioni, Scudo, Evasione, Furtivo, Blind Rolls)
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_authentic_5e.py
 
-# 3. Esegui gli smoke test UI su tutte le 19 finestre server e client
+# 3. Esegui i test dell'architettura Mono-Finestra (In-place frames, canvas overlay, docking/detaching, hotkeys C/Esc)
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_mono_finestra.py
+
+# 4. Esegui gli smoke test UI su tutte le 19 finestre server e client
 $env:DND_MOCK_AUDIO="1"; python tests/test_ui_smoke.py --no-screens
 
-# 4. Esegui la simulazione multiplayer end-to-end completa (53 fasi)
-$env:DND_MOCK_AUDIO="1"; python simulate_game_session.py
+# 5. Esegui la simulazione multiplayer end-to-end completa (53 fasi)
+$env:DND_MOCK_AUDIO="1"; python tests/simulate_game_session.py
 
-# 5. Esegui i test del sistema campagne
+# 6. Esegui i test del sistema campagne
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_campaign_system.py
 ```
 
