@@ -39,18 +39,23 @@ from common.pdf_manuals_indexer import PDFManualsIndexer, PDF_DIR
 class CompendiumDialog(tk.Toplevel):
     """Finestra Compendio 5e con Split View, Statblock interattivo e supporto Manuali PDF."""
 
-    def __init__(self, master, on_import_callback: Optional[Callable] = None, is_dm: bool = True, initial_category: Optional[str] = None, action_label: Optional[str] = None):
+    def __init__(self, master, on_import_callback: Optional[Callable] = None, is_dm: bool = True, initial_category: Optional[str] = None, action_label: Optional[str] = None, monsters_only: bool = False, allowed_categories: Optional[List[str]] = None):
         super().__init__(master)
-        self.title("Compendio 5e SRD & Manuali PDF • Consultazione & Importazione")
-        self.minsize(1020, 700)
-        self.geometry("1100x740")
-        self.transient(master)
-        apply_modern_window_style(self)
-
         self.on_import_callback = on_import_callback
         self.is_dm = is_dm
         self.initial_category = initial_category
         self.action_label = action_label
+        self.monsters_only = monsters_only
+        self.allowed_categories = allowed_categories
+
+        if self.monsters_only:
+            self.title("Compendio Avversari 5e SRD & Manuali PDF • Mostri e PNG")
+        else:
+            self.title("Compendio 5e SRD & Manuali PDF • Consultazione & Importazione")
+        self.minsize(1020, 700)
+        self.geometry("1100x740")
+        self.transient(master)
+        apply_modern_window_style(self)
 
         self.base_url = "https://www.dnd5eapi.co/api"
         self.current_items: List[Dict[str, Any]] = []
@@ -67,9 +72,51 @@ class CompendiumDialog(tk.Toplevel):
         self.fetch_list()
 
     def _build_category_list(self) -> List[str]:
+        if getattr(self, "monsters_only", False):
+            # In modalità creazione incontro: solo categorie pertinenti a Mostri e NPC
+            categories = ["Mostri", "PNG"]
+
+            try:
+                from server.srd_downloader import DOWNLOADABLE_COMPENDIUMS
+                for comp in DOWNLOADABLE_COMPENDIUMS:
+                    path = os.path.join(self.data_dir, comp["filename"])
+                    if os.path.exists(path):
+                        ctype = str(comp.get("type", "")).lower()
+                        cname = str(comp.get("name", "")).lower()
+                        if ctype == "mostri" or any(k in cname for k in ["mostr", "creature", "beast", "tome of beasts", "npc", "png"]):
+                            name = f"[OFFLINE] {comp['name']}"
+                            categories.append(name)
+                            self.offline_compendiums[name] = path
+            except ImportError:
+                pass
+
+            pdf_cats = [
+                "📖 [PDF] Monster Manual (Mostri)",
+                "📖 [PDF] Mostri & PNG dai Manuali",
+            ]
+
+            try:
+                for f in self.pdf_indexer.get_pdf_files():
+                    fn_clean = os.path.splitext(f)[0].replace("_", " ")
+                    custom_cat = f"📖 [PDF] {fn_clean}"
+                    low = custom_cat.lower()
+                    if any(known in low for known in ["monster manual", "players handbook", "player's handbook", "dungeon master", "tasha", "xanathar"]):
+                        continue
+                    if any(k in low for k in ["mostr", "monster", "creatur", "bestiar", "npc", "png"]):
+                        if custom_cat not in pdf_cats:
+                            pdf_cats.append(custom_cat)
+            except Exception:
+                pass
+
+            all_cats = categories + pdf_cats
+            if getattr(self, "allowed_categories", None):
+                allowed_low = [a.lower() for a in self.allowed_categories]
+                all_cats = [c for c in all_cats if any(a in c.lower() for a in allowed_low)]
+            return all_cats or ["Mostri"]
+
         categories = ["Incantesimi", "Regole", "Classi", "Tratti", "Equipaggiamento", "Armi", "Pozioni", "Oggetti Magici"]
         if self.is_dm:
-            categories = ["Mostri"] + categories
+            categories = ["Mostri", "PNG"] + categories
 
         # Rileva compendi offline scaricati
         try:
@@ -108,7 +155,11 @@ class CompendiumDialog(tk.Toplevel):
         except Exception:
             pass
 
-        return categories + pdf_cats
+        all_cats = categories + pdf_cats
+        if getattr(self, "allowed_categories", None):
+            allowed_low = [a.lower() for a in self.allowed_categories]
+            all_cats = [c for c in all_cats if any(a in c.lower() for a in allowed_low)]
+        return all_cats
 
     def setup_ui(self):
         # Master-Detail PanedWindow
@@ -140,7 +191,7 @@ class CompendiumDialog(tk.Toplevel):
                     matched = c
                     break
             self.category_var.set(matched or categories[0])
-        elif self.is_dm:
+        elif getattr(self, "monsters_only", False) or self.is_dm:
             self.category_var.set("Mostri")
         else:
             self.category_var.set("Incantesimi")
@@ -237,7 +288,7 @@ class CompendiumDialog(tk.Toplevel):
         self.filter_widgets.clear()
 
         cat = self.category_var.get()
-        is_monster_cat = "mostri" in cat.lower() or "creature" in cat.lower() or "tome of beasts" in cat.lower() or "monster manual" in cat.lower()
+        is_monster_cat = "mostri" in cat.lower() or "png" in cat.lower() or "npc" in cat.lower() or "creature" in cat.lower() or "tome of beasts" in cat.lower() or "monster manual" in cat.lower()
         is_item_cat = any(k in cat.lower() for k in ["oggetti", "equipaggiamento", "armi", "pozioni", "magic-item", "tesor"])
         is_spell_cat = "incantesimi" in cat.lower() or "spell" in cat.lower()
 
@@ -367,6 +418,44 @@ class CompendiumDialog(tk.Toplevel):
             return
 
         # 2. Compendi Offline scaricati
+        # 2. Categoria PNG (Custom e SRD Umanoidi)
+        if cat == "PNG":
+            self.status_var.set("Caricamento PNG (Custom & SRD)...")
+            self.listbox.delete(0, tk.END)
+            self.current_items = []
+
+            def do_load_png():
+                custom_pngs = self.compendium_manager.get_items("PNG")
+                srd_pngs = []
+                try:
+                    from common.srd_offline import get_all_monsters_offline
+                    all_m = get_all_monsters_offline()
+                    npc_keywords = [
+                        "guard", "guardia", "mage", "mago", "priest", "sacerdote", "cultist", "cultista",
+                        "bandit", "bandito", "knight", "cavaliere", "veteran", "veterano", "spy", "spia",
+                        "assassin", "assassino", "commoner", "popolano", "noble", "nobile", "thug",
+                        "berserker", "druid", "druido", "gladiator", "gladiatore", "archmage", "arcimago",
+                        "acolyte", "accolito", "captain", "capitano", "scout", "esploratore", "tribal warrior"
+                    ]
+                    for m in all_m:
+                        m_type = str(m.get("type", "")).lower()
+                        m_name = str(m.get("name", "")).lower()
+                        if "humanoid" in m_type or "umanoide" in m_type or any(k in m_name for k in npc_keywords):
+                            m_copy = dict(m)
+                            m_copy["is_npc"] = True
+                            srd_pngs.append(m_copy)
+                except Exception:
+                    pass
+                self.current_items = custom_pngs + srd_pngs
+                try:
+                    self.after(0, self.update_listbox)
+                    self.after(0, lambda: self.status_var.set(f"Trovati {len(self.current_items)} PNG (Custom & SRD)."))
+                except RuntimeError:
+                    pass
+
+            threading.Thread(target=do_load_png, daemon=True).start()
+            return
+
         if hasattr(self, 'offline_compendiums') and cat in self.offline_compendiums:
             self.status_var.set("Caricamento compendio offline...")
             def do_load():
@@ -443,7 +532,7 @@ class CompendiumDialog(tk.Toplevel):
         search_text = self.search_var.get().lower().strip()
         cat = self.category_var.get()
 
-        is_monster_cat = "mostri" in cat.lower() or "creature" in cat.lower() or "tome of beasts" in cat.lower() or "monster manual" in cat.lower()
+        is_monster_cat = "mostri" in cat.lower() or "png" in cat.lower() or "npc" in cat.lower() or "creature" in cat.lower() or "tome of beasts" in cat.lower() or "monster manual" in cat.lower()
         is_item_cat = any(k in cat.lower() for k in ["oggetti", "equipaggiamento", "armi", "pozioni", "magic-item", "tesor"])
         is_spell_cat = "incantesimi" in cat.lower() or "spell" in cat.lower()
 
@@ -559,7 +648,7 @@ class CompendiumDialog(tk.Toplevel):
         cat = self.category_var.get()
         item_cat = (item.get("category") or cat).lower()
 
-        is_monster = "mostri" in item_cat or "creature" in item_cat or "monster_data" in item
+        is_monster = "mostri" in item_cat or "png" in item_cat or "npc" in item_cat or "creature" in item_cat or "monster_data" in item
         is_item = any(k in item_cat for k in ["oggetti", "equipaggiamento", "armi", "pozioni", "magic-item", "tesor"])
         is_spell = "incantesimi" in item_cat or "spell" in item_cat
 
@@ -646,7 +735,7 @@ class CompendiumDialog(tk.Toplevel):
         cat = self.category_var.get()
         item_cat = (item_data.get("category") or cat).lower()
 
-        if "mostr" in item_cat or "creatur" in item_cat or "monster_data" in item_data or "ac" in item_data:
+        if "mostr" in item_cat or "png" in item_cat or "npc" in item_cat or "creatur" in item_cat or "monster_data" in item_data or "ac" in item_data:
             real_cat = "Mostri"
         elif "incantesim" in item_cat or "spell" in item_cat:
             real_cat = "Incantesimi"
@@ -800,10 +889,13 @@ class CompendiumDialog(tk.Toplevel):
     def create_custom_item(self):
         cat = self.category_var.get()
         if cat.startswith("[OFFLINE] ") or "[PDF]" in cat:
-            messagebox.showinfo("Avviso", "Seleziona una categoria base come 'Mostri' o 'Equipaggiamento' per creare un custom.")
-            return
+            if getattr(self, "monsters_only", False):
+                cat = "Mostri"
+            else:
+                messagebox.showinfo("Avviso", "Seleziona una categoria base come 'Mostri' o 'Equipaggiamento' per creare un custom.")
+                return
 
-        is_monster = "mostri" in cat.lower()
+        is_monster = "mostri" in cat.lower() or "png" in cat.lower() or "npc" in cat.lower() or getattr(self, "monsters_only", False)
 
         win = tk.Toplevel(self)
         win.transient(self)

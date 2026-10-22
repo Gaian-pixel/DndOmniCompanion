@@ -664,6 +664,9 @@ def search_monsters_offline(query: str, max_results: int = 20) -> List[Dict[str,
 def get_monster_offline(name: str) -> Optional[Dict[str, Any]]:
     return OfflineSRD.get_instance().get_monster(name)
 
+def get_all_monsters_offline() -> List[Dict[str, Any]]:
+    return list(OfflineSRD.get_instance()._load_monsters())
+
 def get_class_level_features_offline(char_class: str, level: int) -> Dict[str, Any]:
     return OfflineSRD.get_instance().get_class_level_features(char_class, level)
 

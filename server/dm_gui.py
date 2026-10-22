@@ -1084,7 +1084,14 @@ class DM_GUI:
     def spawn_png_dialog(self):
         try:
             from server.compendium_ui import CompendiumDialog
-            win = CompendiumDialog(self.master, on_import_callback=self.on_monster_spawned, is_dm=True)
+            win = CompendiumDialog(
+                self.master,
+                on_import_callback=self.on_monster_spawned,
+                is_dm=True,
+                initial_category="Mostri",
+                monsters_only=True,
+                action_label="➕ Schiera sulla Mappa"
+            )
             win.grab_set()
         except ImportError as e:
             from common.messagebox import messagebox

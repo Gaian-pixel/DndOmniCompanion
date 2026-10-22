@@ -6,6 +6,7 @@ class CompendiumManager:
         self.data_file = os.path.join(os.path.dirname(__file__), "..", "srd_data", "custom_compendium.json")
         self.data = {
             "Mostri": [],
+            "PNG": [],
             "Armi": [],
             "Pozioni": [],
             "Equipaggiamento": [],

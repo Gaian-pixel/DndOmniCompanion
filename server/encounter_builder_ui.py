@@ -125,7 +125,14 @@ class EncounterBuilderDialog(tk.Toplevel):
     def open_compendium(self):
         try:
             from server.compendium_ui import CompendiumDialog
-            win = CompendiumDialog(self, on_import_callback=self.on_monster_imported, is_dm=True)
+            win = CompendiumDialog(
+                self,
+                on_import_callback=self.on_monster_imported,
+                is_dm=True,
+                initial_category="Mostri",
+                monsters_only=True,
+                action_label="➕ Aggiungi all'Incontro"
+            )
             win.grab_set()
         except Exception as e:
             messagebox.showerror("Errore", str(e))

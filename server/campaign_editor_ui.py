@@ -234,7 +234,7 @@ class CampaignEncounterDialog(tk.Toplevel):
                 })
                 self.refresh_monsters_list()
                 
-            dlg = CompendiumDialog(self, on_import_callback=on_imported, is_dm=True, initial_category="Mostri", action_label="➕ Aggiungi all'Incontro")
+            dlg = CompendiumDialog(self, on_import_callback=on_imported, is_dm=True, initial_category="Mostri", action_label="➕ Aggiungi all'Incontro", monsters_only=True)
             dlg.grab_set()
         except Exception as e:
             messagebox.showerror("Errore", f"Impossibile aprire il compendio: {e}", parent=self)
@@ -1509,7 +1509,8 @@ class CampaignEditorDialog(tk.Toplevel):
                 on_import_callback=self._import_npc_data,
                 is_dm=True,
                 initial_category="Mostri",
-                action_label="➕ Aggiungi ai PNG Campagna"
+                action_label="➕ Aggiungi ai PNG Campagna",
+                monsters_only=True
             )
             dlg.grab_set()
         except Exception as e:
