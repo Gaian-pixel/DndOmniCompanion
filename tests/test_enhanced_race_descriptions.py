@@ -3,12 +3,12 @@
 Test completi per le descrizioni arricchite delle Razze di D&D 5e:
 - Completezza e autenticità del catalogo delle 9 Razze in common/races_data.py
 - Validità dei Bonus alle Caratteristiche, Velocità, Taglia, Sensi e Tratti Razziali
-- Campi arricchiti: Sinergie di Classe, Sottorazze, Longevità e Lore Narrativa
+- Campi arricchiti: Resistenze & Difese, Classi Consigliate, Sinergie, Sottorazze, Icona ed Allineamento
 - Formattazione e consistenza della stringa retrocompatibile 'desc'
 - Funzioni get_race_info e get_race_names
 - Retrocompatibilità dell'import da client.character_creation_wizard
 - Funzionamento del Passo 1 (Scelta Razza) del CharacterCreationWizard con canvas scorrevole,
-  pulsanti di navigazione rapida, tabella comparativa modale e aggiornamento reattivo dei dettagli.
+  pulsanti di navigazione rapida, tabella comparativa modale avanzata Master-Detail e aggiornamento reattivo.
 - Applicazione corretta dei bonus razziali alla scheda finale del personaggio.
 """
 
@@ -16,6 +16,7 @@ import time
 import unittest
 from unittest.mock import MagicMock, patch
 import tkinter as tk
+from tkinter import ttk
 
 from common.theme import setup_theme
 from common.races_data import RACES, get_race_info, get_race_names
@@ -89,6 +90,11 @@ class TestEnhancedRaceDescriptions(unittest.TestCase):
             self.assertTrue(len(info["vision"]) > 0, f"Sensi mancanti per {r_name}")
             self.assertTrue(len(info["lifespan"]) > 10, f"Longevità mancante per {r_name}")
             self.assertTrue(len(info["synergies"]) > 15, f"Sinergie mancanti per {r_name}")
+            self.assertTrue(len(info.get("best_classes", "")) > 5, f"Classi consigliate mancanti per {r_name}")
+            self.assertTrue(len(info.get("resistances", "")) > 0, f"Resistenze mancanti per {r_name}")
+            self.assertTrue(len(info.get("key_traits_summary", "")) > 10, f"Sommario tratti mancante per {r_name}")
+            self.assertTrue(len(info.get("icon", "")) > 0, f"Icona mancante per {r_name}")
+            self.assertTrue(len(info.get("category_tags", [])) >= 1, f"Tag categorie mancanti per {r_name}")
             
             # Lore narrativa ricca (> 100 caratteri)
             self.assertTrue(len(info["overview"]) >= 100, f"Overview troppo breve per {r_name}")
@@ -109,6 +115,8 @@ class TestEnhancedRaceDescriptions(unittest.TestCase):
             self.assertIn("Tratti Razziali", desc)
             self.assertIn("Sottorazze", desc)
             self.assertIn("Sinergie di Classe", desc)
+            self.assertIn("Resistenze & Difese", desc)
+            self.assertIn("Classi Consigliate", desc)
 
     def test_get_race_info_and_fallback(self):
         """Verifica il comportamento di get_race_info con razze note e fallback."""
@@ -125,7 +133,7 @@ class TestEnhancedRaceDescriptions(unittest.TestCase):
         self.assertIs(WIZARD_RACES, RACES)
 
     def test_wizard_step_race_ui_interaction(self):
-        """Verifica l'interfaccia interattiva del Passo 1 (Razza) nel Wizard e la tabella comparativa."""
+        """Verifica l'interfaccia interattiva del Passo 1 (Razza) nel Wizard e la tabella comparativa Master-Detail."""
         if not self.root:
             self.skipTest("Tkinter non disponibile in ambiente headless")
             
@@ -154,6 +162,31 @@ class TestEnhancedRaceDescriptions(unittest.TestCase):
         wiz.open_races_comparison_dialog()
         top_windows = [w for w in wiz.winfo_children() if isinstance(w, tk.Toplevel)]
         self.assertTrue(len(top_windows) > 0)
+        
+        dlg = top_windows[-1]
+        # Troviamo la treeview all'interno del dialogo modale
+        treeviews = [w for w in dlg.winfo_children() if isinstance(w, ttk.Treeview)]
+        # Se contenuta in un PanedWindow/Frame, cerchiamo ricorsivamente
+        def find_tree(widget):
+            if isinstance(widget, ttk.Treeview):
+                return widget
+            for ch in widget.winfo_children():
+                res = find_tree(ch)
+                if res:
+                    return res
+            return None
+        
+        tree = find_tree(dlg)
+        self.assertIsNotNone(tree)
+        # Verifica colonne della tabella comparativa arricchita
+        cols = tree["columns"]
+        self.assertIn("razza", cols)
+        self.assertIn("bonus", cols)
+        self.assertIn("tratti", cols)
+        self.assertIn("resistenze", cols)
+        self.assertIn("classi", cols)
+        
+        # Chiudiamo il dialogo
         for tw in top_windows:
             tw.destroy()
 
@@ -161,6 +194,47 @@ class TestEnhancedRaceDescriptions(unittest.TestCase):
         wiz.next_step()
         self.assertEqual(wiz.current_step, 1)
         
+        wiz.destroy()
+
+    def test_races_comparison_master_detail_features(self):
+        """Verifica le funzionalità Master-Detail, filtri e selezione del compendio comparativo."""
+        if not self.root:
+            self.skipTest("Tkinter non disponibile in ambiente headless")
+            
+        mgr = MagicMock(spec=CharacterManager)
+        wiz = CharacterCreationWizard(self.root, mgr, on_complete_callback=lambda c: None)
+        wiz.current_step = 0
+        wiz.show_step()
+        
+        wiz.open_races_comparison_dialog()
+        top_windows = [w for w in wiz.winfo_children() if isinstance(w, tk.Toplevel)]
+        self.assertTrue(len(top_windows) > 0)
+        dlg = top_windows[-1]
+        
+        # Cerchiamo la Treeview
+        def find_tree(widget):
+            if isinstance(widget, ttk.Treeview):
+                return widget
+            for ch in widget.winfo_children():
+                res = find_tree(ch)
+                if res:
+                    return res
+            return None
+            
+        tree = find_tree(dlg)
+        self.assertIsNotNone(tree)
+        
+        # Verifichiamo che tutte le 9 razze siano presenti nella vista iniziale "Tutte"
+        items = tree.get_children()
+        self.assertEqual(len(items), 9)
+        
+        # Selezionando una riga, verifichiamo la selezione
+        tree.selection_set("Gnomo")
+        tree.event_generate("<<TreeviewSelect>>")
+        self.assertEqual(tree.selection(), ("Gnomo",))
+        
+        for tw in top_windows:
+            tw.destroy()
         wiz.destroy()
 
     def test_character_creation_race_bonuses_application(self):

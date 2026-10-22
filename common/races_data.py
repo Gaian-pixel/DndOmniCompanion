@@ -5,7 +5,8 @@ Catalogo completo e autentico delle 9 Razze di D&D 5e (SRD & Manuale del Giocato
 - Tratti razziali biologici e soprannaturali dettagliati con meccaniche 5e
 - Bonus di Caratteristica, Velocità di base e Taglia
 - Sensi speciali (Scurovisione) e Linguaggi conosciuti
-- Consiglio di Ruolo & Sinergie di Classe
+- Resistenze ai danni & Immunità speciali
+- Consiglio di Ruolo, Classi Consigliate & Sinergie di Classe
 - Anteprima delle Sottorazze e Varianti
 - Longevità ed Allineamento culturale tipico
 """
@@ -15,6 +16,7 @@ from typing import Dict, Any, List, Optional
 
 RACES: Dict[str, Dict[str, Any]] = {
     "Umano": {
+        "icon": "👤",
         "bonuses": {"FOR": 1, "DES": 1, "COS": 1, "INT": 1, "SAG": 1, "CAR": 1},
         "bonuses_display": "+1 a Tutte le Caratteristiche (FOR, DES, COS, INT, SAG, CAR)",
         "speed": 30,
@@ -24,6 +26,10 @@ RACES: Dict[str, Dict[str, Any]] = {
         "vision": "Normale",
         "lifespan": "Maturano verso i 18 anni e raramente vivono più di un secolo.",
         "synergies": "Eccezionali per qualsiasi classe e combinazioni multiclasse grazie al bonus universale a tutti i punteggi.",
+        "best_classes": "Qualsiasi Classe, Guerriero, Mago, Multiclasse",
+        "resistances": "Nessuna (bilanciata dal +1 a tutte le caratteristiche)",
+        "key_traits_summary": "+1 a Tutte le Caratteristiche, Versatilità universale, Spirito pionieristico",
+        "category_tags": ["Versatilità", "Umanoide", "Tutti i Ruoli"],
         "overview": (
             "Nelle terre del multiverso gli umani sono i più giovani tra i popoli comuni, ma la loro ambizione non conosce limiti. "
             "Laddove gli elfi contemplano un bosco per secoli e i nani perfezionano una singola forgia, gli umani costruiscono città, "
@@ -46,6 +52,7 @@ RACES: Dict[str, Dict[str, Any]] = {
         ]
     },
     "Elfo": {
+        "icon": "🧝",
         "bonuses": {"DES": 2},
         "bonuses_display": "+2 Destrezza",
         "speed": 30,
@@ -55,6 +62,10 @@ RACES: Dict[str, Dict[str, Any]] = {
         "vision": "Scurovisione 18 metri (60 ft)",
         "lifespan": "Raggiungono la maturità a circa 100 anni e possono vivere oltre i 750 anni.",
         "synergies": "Ideali per Ladri, Ranger, Monaci, Maghi e schermidori agili che sfruttano l'alta Destrezza e i riflessi.",
+        "best_classes": "Ladro, Ranger, Monaco, Mago",
+        "resistances": "Immunità Sonno Magico, Vantaggio vs Charme (Retaggio Fatato)",
+        "key_traits_summary": "Scurovisione 18m, Sensi Acuti (+Percezione), Retaggio Fatato, Trance (4h)",
+        "category_tags": ["Scurovisione", "Immunità/Difese", "Destrezza"],
         "overview": (
             "Gli elfi sono un popolo magico di bellezza sovrannaturale originario della Selva Fatata (Feywild). "
             "I loro corpi slanciati si muovono con passo leggero senza far rumore, e i loro volti non conoscono la decadenza senile. "
@@ -85,6 +96,7 @@ RACES: Dict[str, Dict[str, Any]] = {
         ]
     },
     "Nano": {
+        "icon": "🧔",
         "bonuses": {"COS": 2},
         "bonuses_display": "+2 Costituzione",
         "speed": 25,
@@ -94,6 +106,10 @@ RACES: Dict[str, Dict[str, Any]] = {
         "vision": "Scurovisione 18 metri (60 ft)",
         "lifespan": "Considerati giovani fino a 50 anni, vivono in media oltre 350 anni.",
         "synergies": "Perfetti per Guerrieri, Chierici, Barbari e Paladini grazie all'alta Costituzione e alla resistenza al veleno.",
+        "best_classes": "Guerriero, Chierico, Barbaro, Paladino",
+        "resistances": "Resistenza Veleno (danni dimezzati), Vantaggio vs Veleno",
+        "key_traits_summary": "Scurovisione 18m, Resilienza Nanica (Resist. Veleno), Armi naniche, Passo Sicuro in armatura",
+        "category_tags": ["Scurovisione", "Resistenze", "Mischia/Forza"],
         "overview": (
             "I nani sono rinomati in tutto il multiverso per il loro senso inflessibile dell'onore, la lealtà al clan e l'incredibile "
             "memoria per alleanze e faide. Scavano sale maestose nel grembo delle montagne, forgiando armi e armature indistruttibili. "
@@ -123,6 +139,7 @@ RACES: Dict[str, Dict[str, Any]] = {
         ]
     },
     "Halfling": {
+        "icon": "🍀",
         "bonuses": {"DES": 2},
         "bonuses_display": "+2 Destrezza",
         "speed": 25,
@@ -132,6 +149,10 @@ RACES: Dict[str, Dict[str, Any]] = {
         "vision": "Normale",
         "lifespan": "Adulti a 20 anni, vivono felicemente fino a circa 150 anni.",
         "synergies": "Fantastici per Ladri, Bardi, Ranger e Stregoni: il tratto Fortunato impedisce i fallimenti critici sui dadi!",
+        "best_classes": "Ladro, Bardo, Ranger, Stregone",
+        "resistances": "Vantaggio vs Paura (Coraggioso), Ritiro 1 naturali (Fortunato)",
+        "key_traits_summary": "Fortunato (ritiro 1 naturali su d20), Coraggioso, Agilità Halfling tra taglie grandi",
+        "category_tags": ["Taglia Piccola", "Immunità/Difese", "Destrezza"],
         "overview": (
             "Gli halfling amano la quiete, i campi coltivati, il buon cibo e i focolari accoglienti. Tuttavia, quando la sorte chiama, "
             "rivelano un coraggio e una determinazione sorprendenti. Piccoli di statura e silenziosi nei movimenti, sanno insinuarsi ovunque "
@@ -156,6 +177,7 @@ RACES: Dict[str, Dict[str, Any]] = {
         ]
     },
     "Draconide": {
+        "icon": "🐲",
         "bonuses": {"FOR": 2, "CAR": 1},
         "bonuses_display": "+2 Forza, +1 Carisma",
         "speed": 30,
@@ -165,6 +187,10 @@ RACES: Dict[str, Dict[str, Any]] = {
         "vision": "Normale",
         "lifespan": "Crescono rapidamente (adulti a 15 anni) e vivono circa 80 anni.",
         "synergies": "Perfetti per Paladini, Guerrieri, Barbari e Stregoni grazie alla potente sinergia tra Forza elevata e Carisma.",
+        "best_classes": "Paladino, Guerriero, Barbaro, Stregone",
+        "resistances": "Resistenza Elementale (Fuoco, Freddo, Acido, Fulmine o Veleno in base alla stirpe)",
+        "key_traits_summary": "Ascendenza Draconica, Arma a Soffio (cono/linea 2d6+ ricarica riposo), Resistenza ai Danni",
+        "category_tags": ["Resistenze", "Mischia/Forza", "Magia Innata"],
         "overview": (
             "I draconidi portano nel loro portamento la fierezza e il retaggio dei draghi antichi. Privi di ali o coda, ma rivestiti "
             "di scaglie resistenti e con tratti draconici possenti, considerano l'onore personale e la reputazione del clan il bene più prezioso. "
@@ -196,6 +222,7 @@ RACES: Dict[str, Dict[str, Any]] = {
         ]
     },
     "Gnomo": {
+        "icon": "⚙️",
         "bonuses": {"INT": 2},
         "bonuses_display": "+2 Intelligenza",
         "speed": 25,
@@ -205,6 +232,10 @@ RACES: Dict[str, Dict[str, Any]] = {
         "vision": "Scurovisione 18 metri (60 ft)",
         "lifespan": "Adulti a 40 anni, vivono regolarmente tra i 350 e i 500 anni.",
         "synergies": "La scelta d'eccellenza per Maghi, Artefici e investigatori arcani grazie all'Intelligenza e all'Astuzia Gnomesca.",
+        "best_classes": "Mago, Artefice, Ladro, Chierico",
+        "resistances": "Vantaggio vs Magia (Astuzia Gnomesca: TS su INT, SAG, CAR contro incantesimi)",
+        "key_traits_summary": "Scurovisione 18m, Astuzia Gnomesca (barriera difensiva vs magia mentale)",
+        "category_tags": ["Taglia Piccola", "Scurovisione", "Immunità/Difese", "Magia Innata"],
         "overview": (
             "L'entusiasmo di uno gnomo per la vita e la conoscenza è incontenibile. Parlano rapidamente, i loro occhi brillano di meraviglia "
             "e considerano il multiverso un gigantesco rompicapo da esplorare e perfezionare. Abitano tane sotterranee nascoste o boschi incantati, "
@@ -226,6 +257,7 @@ RACES: Dict[str, Dict[str, Any]] = {
         ]
     },
     "Mezzelfo": {
+        "icon": "✨",
         "bonuses": {"CAR": 2, "DES": 1, "COS": 1},
         "bonuses_display": "+2 Carisma, +1 a due altre caratteristiche a scelta",
         "speed": 30,
@@ -235,6 +267,10 @@ RACES: Dict[str, Dict[str, Any]] = {
         "vision": "Scurovisione 18 metri (60 ft)",
         "lifespan": "Maturano a 20 anni e possono vivere oltre 180 anni.",
         "synergies": "Ideali per Bardi, Stregoni, Warlock e Paladini: il bonus di +2 a Carisma e le competenze extra li rendono irresistibili.",
+        "best_classes": "Bardo, Stregone, Paladino, Warlock",
+        "resistances": "Immunità Sonno Magico, Vantaggio vs Charme (Retaggio Fatato)",
+        "key_traits_summary": "Scurovisione 18m, Retaggio Fatato, Versatilità nelle Competenze (2 abilità libere)",
+        "category_tags": ["Scurovisione", "Immunità/Difese", "Carisma/Versatilità"],
         "overview": (
             "I mezzelfi camminano al confine tra due culture, spesso fungendo da diplomatici, ambasciatori e avventurieri cosmopoliti. "
             "Possiedono il fascino naturale e la longevità degli elfi, uniti alla determinazione instancabile e all'adattabilità degli umani. "
@@ -258,6 +294,7 @@ RACES: Dict[str, Dict[str, Any]] = {
         ]
     },
     "Mezzorco": {
+        "icon": "🪓",
         "bonuses": {"FOR": 2, "COS": 1},
         "bonuses_display": "+2 Forza, +1 Costituzione",
         "speed": 30,
@@ -267,6 +304,10 @@ RACES: Dict[str, Dict[str, Any]] = {
         "vision": "Scurovisione 18 metri (60 ft)",
         "lifespan": "Maturano a 14 anni e raramente superano i 75 anni a causa della loro indole bellicosa.",
         "synergies": "I sovrani assoluti della prima linea per Barbari, Guerrieri e Paladini: critici devastanti e salvataggio dallo 0 PF.",
+        "best_classes": "Barbaro, Guerriero, Paladino",
+        "resistances": "Tenacia Implacabile (sopravvive a 1 PF invece di cadere a 0 PF)",
+        "key_traits_summary": "Scurovisione 18m, Minaccioso (+Intimidire), Tenacia Implacabile (1 PF), Attacchi Selvaggi",
+        "category_tags": ["Scurovisione", "Mischia/Forza", "Immunità/Difese"],
         "overview": (
             "I mezzorchi sentono scorrere nelle vene passioni roventi: gioia sfrenata, collera selvaggia e una lealtà incrollabile verso chi "
             "dimostra loro vero rispetto. Spesso guardati con diffidenza nelle città, conquistano il loro posto nel mondo attraverso "
@@ -294,6 +335,7 @@ RACES: Dict[str, Dict[str, Any]] = {
         ]
     },
     "Tiefling": {
+        "icon": "🔥",
         "bonuses": {"CAR": 2, "INT": 1},
         "bonuses_display": "+2 Carisma, +1 Intelligenza",
         "speed": 30,
@@ -303,6 +345,10 @@ RACES: Dict[str, Dict[str, Any]] = {
         "vision": "Scurovisione 18 metri (60 ft)",
         "lifespan": "Maturano come gli umani e vivono circa 90-100 anni.",
         "synergies": "Eccezionali per Stregoni, Warlock, Bardi e Maghi: Carisma dominante, resistenza al fuoco e magie gratuite innate.",
+        "best_classes": "Stregone, Warlock, Bardo, Mago",
+        "resistances": "Resistenza Fuoco (danni da fuoco dimezzati - Resistenza Infernale)",
+        "key_traits_summary": "Scurovisione 18m, Resistenza Infernale (Fuoco), Eredità Infernale (magia oscura innata)",
+        "category_tags": ["Scurovisione", "Resistenze", "Magia Innata"],
         "overview": (
             "I tiefling portano sul corpo il marchio visibile di un antico patto stretto dai loro avi con i signori dei Nove Inferi. "
             "Corna imponenti, pelle dai riflessi cremisi o bronzei, denti appuntiti e una coda affusolata li rendono spesso bersaglio di timori superstiziosi. "
@@ -344,7 +390,9 @@ for _r_name, _r_info in RACES.items():
         f"👁️ Sensi: {_r_info['vision']}\n"
         f"🗣️ Linguaggi: {_r_info['languages']}\n"
         f"⏳ Longevità: {_r_info['lifespan']}\n"
-        f"⭐ Sinergie di Classe: {_r_info['synergies']}\n\n"
+        f"🛡️ Resistenze & Difese: {_r_info.get('resistances', 'Nessuna')}\n"
+        f"⭐ Sinergie di Classe: {_r_info['synergies']}\n"
+        f"🎯 Classi Consigliate: {_r_info.get('best_classes', '')}\n\n"
         f"📖 Panoramica & Lore:\n{_r_info['overview']}\n\n"
         f"🧬 Tratti Razziali:\n{_traits_text}\n\n"
         f"🌿 Sottorazze & Varianti:\n{_subs_text}"

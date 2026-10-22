@@ -238,77 +238,385 @@ class CharacterCreationWizard(tk.Toplevel):
     # PASSO 1: RAZZA
     # -------------------------------------------------------------------------
     def open_races_comparison_dialog(self):
-        """Apre una finestra modale con la tabella comparativa di tutte le 9 razze 5e."""
+        """Apre una finestra modale con il compendio comparativo avanzato Master-Detail di tutte le 9 razze 5e."""
         top = tk.Toplevel(self)
-        top.title("Tabella Comparativa delle 9 Razze (D&D 5e)")
-        top.geometry("860x480")
-        top.minsize(750, 380)
+        top.title("Compendio & Confronto Comparativo Razze (D&D 5e)")
+        top.geometry("1060x650")
+        top.minsize(920, 520)
         apply_modern_window_style(top)
         top.transient(self)
         top.grab_set()
 
-        header_frame = ttk.Frame(top, padding=(12, 10))
+        # Header Frame
+        header_frame = ttk.Frame(top, padding=(14, 10, 14, 6))
         header_frame.pack(fill=tk.X)
-        ttk.Label(header_frame, text="📊 Confronto Rapido delle Razze", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(header_frame, text="📊 Compendio e Confronto Comparativo delle Razze (D&D 5e)", style="Title.TLabel").pack(anchor="w")
         ttk.Label(
             header_frame,
-            text="Confronta Bonus alle Caratteristiche, Velocità, Taglia, Sensi e Tratti Razziali. Fai doppio clic su una riga per selezionarla.",
+            text="Filtra e confronta le 9 razze canoniche: bonus, resistenze e sinergie. Clicca su una riga per l'anteprima istantanea a destra o fai doppio clic per selezionare.",
             style="Muted.TLabel"
         ).pack(anchor="w", pady=(2, 0))
 
-        # Tabella Treeview
-        columns = ("razza", "bonus", "velocita", "taglia", "sensi", "linguaggi", "tratto_chiave")
-        tree = ttk.Treeview(top, columns=columns, show="headings", height=10)
+        # Search & Filter Frame
+        filter_bar = ttk.Frame(top, padding=(14, 2, 14, 8))
+        filter_bar.pack(fill=tk.X)
+
+        ttk.Label(filter_bar, text="🔍 Cerca:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD).pack(side=tk.LEFT, padx=(0, 6))
+        search_var = tk.StringVar()
+        search_entry = ttk.Entry(filter_bar, textvariable=search_var, width=22)
+        search_entry.pack(side=tk.LEFT, padx=(0, 10))
+
+        filter_category_var = tk.StringVar(value="Tutte")
+
+        filter_chips = [
+            ("Tutte (9)", "Tutte"),
+            ("🛡️ Resistenze", "Resistenze"),
+            ("👁️ Scurovisione", "Scurovisione"),
+            ("🏃 Taglia Piccola", "Piccola"),
+            ("⚔️ Mischia / Forza", "Mischia"),
+            ("✨ Magiche / Carisma", "Magiche"),
+        ]
+
+        def _set_cat_filter(cat_val):
+            filter_category_var.set(cat_val)
+            _refresh_table()
+
+        chips_frame = ttk.Frame(filter_bar)
+        chips_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        chip_buttons = {}
+        for chip_label, chip_val in filter_chips:
+            b = ttk.Button(
+                chips_frame,
+                text=chip_label,
+                style="Primary.TButton" if chip_val == "Tutte" else "Dark.TButton",
+                command=lambda cv=chip_val: _set_cat_filter(cv)
+            )
+            b.pack(side=tk.LEFT, padx=3)
+            chip_buttons[chip_val] = b
+
+        # Master-Detail PanedWindow
+        main_paned = ttk.PanedWindow(top, orient=tk.HORIZONTAL)
+        main_paned.pack(fill=tk.BOTH, expand=True, padx=14, pady=(0, 6))
+
+        # Left: Table Frame (~60%)
+        table_frame = ttk.Frame(main_paned, style="Surface.TFrame")
+        main_paned.add(table_frame, weight=3)
+
+        # Right: Preview Detail Frame (~40%)
+        preview_container = ttk.Frame(main_paned, style="Card.TFrame", padding=1)
+        main_paned.add(preview_container, weight=2)
+
+        # Table Treeview
+        columns = ("razza", "bonus", "tratti", "resistenze", "taglia_vel", "classi")
+        tree = ttk.Treeview(table_frame, columns=columns, show="headings", selectmode="browse")
         tree.heading("razza", text="Razza")
         tree.heading("bonus", text="Bonus Caratteristiche")
-        tree.heading("velocita", text="Velocità")
-        tree.heading("taglia", text="Taglia")
-        tree.heading("sensi", text="Sensi")
-        tree.heading("linguaggi", text="Linguaggi")
-        tree.heading("tratto_chiave", text="Tratto Chiave")
+        tree.heading("tratti", text="Tratti Razziali Chiave")
+        tree.heading("resistenze", text="Resistenze & Difese")
+        tree.heading("taglia_vel", text="Taglia / Vel.")
+        tree.heading("classi", text="Classi Consigliate")
 
-        tree.column("razza", width=95, anchor="center")
-        tree.column("bonus", width=180, anchor="w")
-        tree.column("velocita", width=75, anchor="center")
-        tree.column("taglia", width=75, anchor="center")
-        tree.column("sensi", width=130, anchor="w")
-        tree.column("linguaggi", width=130, anchor="w")
-        tree.column("tratto_chiave", width=150, anchor="w")
+        tree.column("razza", width=105, anchor="w")
+        tree.column("bonus", width=155, anchor="w")
+        tree.column("tratti", width=180, anchor="w")
+        tree.column("resistenze", width=160, anchor="w")
+        tree.column("taglia_vel", width=85, anchor="center")
+        tree.column("classi", width=150, anchor="w")
 
-        for r_name, r_info in RACES.items():
-            first_trait = r_info.get("traits", [("", "")])[0][0] if r_info.get("traits") else ""
-            tree.insert("", tk.END, iid=r_name, values=(
-                r_name,
-                r_info.get("bonuses_display", ""),
-                f"{r_info.get('speed', 30)} ft",
-                r_info.get("size", "Media").split()[0],
-                r_info.get("vision", "Normale").split()[0],
-                r_info.get("languages", "").split(",")[0],
-                first_trait
-            ))
+        v_scroll = ttk.Scrollbar(table_frame, orient="vertical", command=tree.yview)
+        h_scroll = ttk.Scrollbar(table_frame, orient="horizontal", command=tree.xview)
+        tree.configure(yscrollcommand=v_scroll.set, xscrollcommand=h_scroll.set)
 
-        scroll = ttk.Scrollbar(top, orient="vertical", command=tree.yview)
-        tree.configure(yscrollcommand=scroll.set)
-        
-        table_frame = ttk.Frame(top, padding=(12, 0))
-        table_frame.pack(fill=tk.BOTH, expand=True)
-        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        tree.grid(row=0, column=0, sticky="nsew")
+        v_scroll.grid(row=0, column=1, sticky="ns")
+        h_scroll.grid(row=1, column=0, sticky="ew")
+        table_frame.rowconfigure(0, weight=1)
+        table_frame.columnconfigure(0, weight=1)
+
+        # Preview Scrollable Canvas setup
+        preview_canvas = tk.Canvas(preview_container, bg=SURFACE_COLOR, highlightthickness=0)
+        preview_scrollbar = ttk.Scrollbar(preview_container, orient="vertical", command=preview_canvas.yview)
+        preview_inner = ttk.Frame(preview_canvas, style="Surface.TFrame", padding=12)
+
+        preview_canvas.configure(yscrollcommand=preview_scrollbar.set)
+        preview_canvas_window = preview_canvas.create_window((0, 0), window=preview_inner, anchor="nw")
+
+        def _on_preview_config(event):
+            preview_canvas.itemconfig(preview_canvas_window, width=event.width)
+            preview_canvas.configure(scrollregion=preview_canvas.bbox("all"))
+
+        def _on_inner_config(event):
+            preview_canvas.configure(scrollregion=preview_canvas.bbox("all"))
+
+        preview_canvas.bind("<Configure>", _on_preview_config)
+        preview_inner.bind("<Configure>", _on_inner_config)
+
+        def _on_mousewheel(event):
+            try:
+                preview_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            except Exception:
+                pass
+
+        preview_canvas.bind("<MouseWheel>", _on_mousewheel)
+        preview_inner.bind("<MouseWheel>", _on_mousewheel)
+
+        preview_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        preview_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        selected_race_name = [self.char_data.get("race", "Umano")]
 
         def _select_and_close():
             sel = tree.selection()
-            if sel:
-                chosen = sel[0]
+            chosen = sel[0] if sel else selected_race_name[0]
+            if chosen:
                 if hasattr(self, "race_var"):
                     self.race_var.set(chosen)
-                top.destroy()
+            top.destroy()
 
+        def _render_preview(r_name):
+            selected_race_name[0] = r_name
+            for widget in preview_inner.winfo_children():
+                widget.destroy()
+
+            r_info = RACES.get(r_name, RACES["Umano"])
+
+            # Race Header
+            hdr = ttk.Frame(preview_inner, style="Surface.TFrame")
+            hdr.pack(fill=tk.X, pady=(0, 6))
+
+            icon = r_info.get("icon", "🧬")
+            ttk.Label(
+                hdr,
+                text=f"{icon} {r_name}",
+                font=("Georgia", 16, "bold"),
+                foreground=ACCENT_GOLD,
+                style="Surface.TLabel"
+            ).pack(anchor="w")
+
+            ttk.Label(
+                hdr,
+                text=r_info.get("tagline", ""),
+                font=("Segoe UI", 9, "italic"),
+                foreground=TEXT_COLOR,
+                wraplength=340,
+                justify=tk.LEFT,
+                style="Surface.TLabel"
+            ).pack(anchor="w", pady=(3, 0))
+
+            ttk.Separator(preview_inner, orient="horizontal").pack(fill=tk.X, pady=6)
+
+            # Quick Specs Matrix
+            specs_frame = ttk.Frame(preview_inner, style="Surface.TFrame")
+            specs_frame.pack(fill=tk.X, pady=(0, 6))
+
+            def _add_spec(parent, icon_char, label, value, val_color=TEXT_COLOR):
+                f = ttk.Frame(parent, style="Surface.TFrame")
+                f.pack(fill=tk.X, pady=1)
+                ttk.Label(f, text=f"{icon_char} {label}:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
+                ttk.Label(f, text=f" {value}", font=("Segoe UI", 9), foreground=val_color, wraplength=250, justify=tk.LEFT, style="Surface.TLabel").pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+            _add_spec(specs_frame, "⚡", "Bonus Caratteristiche", r_info.get("bonuses_display", ""), "#51CF66")
+            _add_spec(specs_frame, "🏃", "Velocità & Taglia", f"{r_info.get('speed', 30)} ft  •  {r_info.get('size', 'Media')}")
+            _add_spec(specs_frame, "👁️", "Sensi & Visione", r_info.get("vision", "Normale"))
+            _add_spec(specs_frame, "🗣️", "Linguaggi", r_info.get("languages", "Comune"))
+            _add_spec(specs_frame, "⏳", "Longevità Tipica", r_info.get("lifespan", ""))
+
+            # Resistenze & Difese Highlight Box
+            res_val = r_info.get("resistances", "Nessuna")
+            res_box = ttk.LabelFrame(preview_inner, text="🛡️ Resistenze, Immunità & Difese", padding=(8, 6))
+            res_box.pack(fill=tk.X, pady=6)
+            ttk.Label(
+                res_box,
+                text=res_val,
+                font=("Segoe UI", 9, "bold" if res_val != "Nessuna" else "normal"),
+                foreground="#4DABF7" if res_val != "Nessuna" else TEXT_MUTED,
+                wraplength=330,
+                justify=tk.LEFT,
+                style="Surface.TLabel"
+            ).pack(anchor="w")
+
+            # Sinergie & Classi Ideali Box
+            syn_box = ttk.LabelFrame(preview_inner, text="⭐ Sinergie & Classi Ideali", padding=(8, 6))
+            syn_box.pack(fill=tk.X, pady=6)
+            best_cls = r_info.get("best_classes", "")
+            if best_cls:
+                ttk.Label(
+                    syn_box,
+                    text=f"🎯 Ottimale per: {best_cls}",
+                    font=("Segoe UI", 9, "bold"),
+                    foreground=ACCENT_GOLD_LIGHT,
+                    wraplength=330,
+                    justify=tk.LEFT,
+                    style="Surface.TLabel"
+                ).pack(anchor="w", pady=(0, 3))
+            ttk.Label(
+                syn_box,
+                text=r_info.get("synergies", ""),
+                font=("Segoe UI", 9),
+                foreground=TEXT_COLOR,
+                wraplength=330,
+                justify=tk.LEFT,
+                style="Surface.TLabel"
+            ).pack(anchor="w")
+
+            # Tratti Razziali Completi
+            traits = r_info.get("traits", [])
+            if traits:
+                traits_box = ttk.LabelFrame(preview_inner, text=f"🧬 Tratti Razziali ({len(traits)})", padding=(8, 6))
+                traits_box.pack(fill=tk.X, pady=6)
+                for t_name, t_desc in traits:
+                    t_frame = ttk.Frame(traits_box, style="Surface.TFrame")
+                    t_frame.pack(fill=tk.X, pady=(2, 4))
+                    ttk.Label(
+                        t_frame,
+                        text=f"• {t_name}",
+                        font=("Segoe UI", 9, "bold"),
+                        foreground=ACCENT_GOLD,
+                        style="Surface.TLabel"
+                    ).pack(anchor="w")
+                    ttk.Label(
+                        t_frame,
+                        text=t_desc,
+                        font=("Segoe UI", 8),
+                        foreground=TEXT_COLOR,
+                        wraplength=325,
+                        justify=tk.LEFT,
+                        style="Surface.TLabel"
+                    ).pack(anchor="w", padx=(10, 0))
+
+            # Sottorazze & Varianti
+            subraces = r_info.get("subraces_preview", [])
+            if subraces:
+                sub_box = ttk.LabelFrame(preview_inner, text=f"🌿 Sottorazze & Varianti ({len(subraces)})", padding=(8, 6))
+                sub_box.pack(fill=tk.X, pady=6)
+                for sub in subraces:
+                    ttk.Label(
+                        sub_box,
+                        text=f"• {sub}",
+                        font=("Segoe UI", 8),
+                        foreground=TEXT_MUTED,
+                        wraplength=325,
+                        justify=tk.LEFT,
+                        style="Surface.TLabel"
+                    ).pack(anchor="w", pady=1)
+
+            # Action button in preview card
+            ttk.Button(
+                preview_inner,
+                text=f"✓ Scegli {r_name}",
+                style="Primary.TButton",
+                command=_select_and_close
+            ).pack(fill=tk.X, pady=(10, 4))
+
+        def _refresh_table(*args):
+            cat = filter_category_var.get()
+            query = search_var.get().strip().lower()
+
+            for chip_val, btn in chip_buttons.items():
+                if chip_val == cat:
+                    btn.configure(style="Primary.TButton")
+                else:
+                    btn.configure(style="Dark.TButton")
+
+            # Clear current items
+            for item in tree.get_children():
+                tree.delete(item)
+
+            filtered_races = []
+            for r_name, r_info in RACES.items():
+                tags = r_info.get("category_tags", [])
+                res = r_info.get("resistances", "")
+                size = r_info.get("size", "")
+                vision = r_info.get("vision", "")
+                bonuses = r_info.get("bonuses", {})
+
+                # Category match
+                if cat == "Resistenze":
+                    if not (any(t in ["Resistenze", "Immunità/Difese"] for t in tags) or "Resistenza" in res or "Immunità" in res or "Vantaggio" in res):
+                        continue
+                elif cat == "Scurovisione":
+                    if "Scurovisione" not in vision:
+                        continue
+                elif cat == "Piccola":
+                    if "Piccola" not in size:
+                        continue
+                elif cat == "Mischia":
+                    if not (any(t in ["Mischia/Forza", "Destrezza"] for t in tags) or "FOR" in bonuses or "COS" in bonuses):
+                        continue
+                elif cat == "Magiche":
+                    if not (any(t in ["Magia Innata", "Carisma/Versatilità"] for t in tags) or any(k in bonuses for k in ["INT", "CAR", "SAG"])):
+                        continue
+
+                # Query match
+                if query:
+                    haystack = (
+                        f"{r_name} {r_info.get('bonuses_display', '')} {r_info.get('key_traits_summary', '')} "
+                        f"{r_info.get('resistances', '')} {r_info.get('best_classes', '')} {r_info.get('synergies', '')} "
+                        f"{r_info.get('tagline', '')} {r_info.get('size', '')} {r_info.get('languages', '')}"
+                    ).lower()
+                    if query not in haystack:
+                        continue
+
+                filtered_races.append((r_name, r_info))
+
+            for r_name, r_info in filtered_races:
+                icon = r_info.get("icon", "")
+                disp_name = f"{icon} {r_name}" if icon else r_name
+                size_short = r_info.get("size", "Media").split()[0]
+                speed_str = f"{r_info.get('speed', 30)} ft"
+                taglia_vel = f"{size_short} | {speed_str}"
+                tree.insert(
+                    "",
+                    tk.END,
+                    iid=r_name,
+                    values=(
+                        disp_name,
+                        r_info.get("bonuses_display", ""),
+                        r_info.get("key_traits_summary", ""),
+                        r_info.get("resistances", ""),
+                        taglia_vel,
+                        r_info.get("best_classes", "")
+                    )
+                )
+
+            # Auto-select row if matches current or first
+            current_target = selected_race_name[0]
+            if current_target in tree.get_children():
+                tree.selection_set(current_target)
+                tree.focus(current_target)
+                tree.see(current_target)
+                _render_preview(current_target)
+            elif tree.get_children():
+                first = tree.get_children()[0]
+                tree.selection_set(first)
+                tree.focus(first)
+                tree.see(first)
+                _render_preview(first)
+
+        def _on_tree_select(event=None):
+            sel = tree.selection()
+            if sel:
+                chosen = sel[0]
+                _render_preview(chosen)
+
+        tree.bind("<<TreeviewSelect>>", _on_tree_select)
         tree.bind("<Double-1>", lambda e: _select_and_close())
+        search_var.trace_add("write", _refresh_table)
 
-        btn_bar = ttk.Frame(top, style="Surface.TFrame", padding=(12, 10))
+        # Initial population
+        _refresh_table()
+
+        # Bottom Bar
+        btn_bar = ttk.Frame(top, style="Surface.TFrame", padding=(14, 10))
         btn_bar.pack(fill=tk.X, side=tk.BOTTOM)
-        
+
         ttk.Button(btn_bar, text="Annulla", command=top.destroy, style="Dark.TButton").pack(side=tk.LEFT)
+        ttk.Label(
+            btn_bar,
+            text="💡 Suggerimento: Seleziona una razza per visualizzarne i dettagli o premi 'Scegli Questa Razza'.",
+            style="Muted.TLabel"
+        ).pack(side=tk.LEFT, padx=16)
         ttk.Button(btn_bar, text="✓ Scegli Questa Razza", command=_select_and_close, style="Primary.TButton").pack(side=tk.RIGHT)
 
     def build_step_race(self, parent=None):
@@ -415,6 +723,13 @@ class CharacterCreationWizard(tk.Toplevel):
         lang_val_lbl = ttk.Label(cell_lang, text="", font=("Segoe UI", 9), wraplength=300, justify=tk.LEFT, style="Surface.TLabel")
         lang_val_lbl.pack(side=tk.LEFT, padx=4)
 
+        # Cella 5: Resistenze & Difese
+        cell_res = ttk.Frame(stats_frame, style="Surface.TFrame")
+        cell_res.grid(row=2, column=0, columnspan=2, sticky="w", padx=6, pady=3)
+        ttk.Label(cell_res, text="🛡️ Resistenze & Difese:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
+        res_val_lbl = ttk.Label(cell_res, text="", font=("Segoe UI", 9, "bold"), foreground="#4DABF7", wraplength=480, justify=tk.LEFT, style="Surface.TLabel")
+        res_val_lbl.pack(side=tk.LEFT, padx=4)
+
         ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
 
         # Sezione: Sinergie di Classe & Consigli
@@ -464,7 +779,10 @@ class CharacterCreationWizard(tk.Toplevel):
                 speed_val_lbl.config(text=f"{info.get('speed', 30)} ft ({round(info.get('speed', 30)*0.3)} m) | Taglia {info.get('size', 'Media').split()[0]}")
                 vis_val_lbl.config(text=info.get("vision", "Normale"))
                 lang_val_lbl.config(text=info.get("languages", "Comune"))
-                synergy_lbl.config(text=info.get("synergies", ""))
+                res_val_lbl.config(text=info.get("resistances", "Nessuna"))
+                best_cls = info.get("best_classes", "")
+                best_prefix = f"🎯 Ottimale per: {best_cls}\n" if best_cls else ""
+                synergy_lbl.config(text=f"{best_prefix}{info.get('synergies', '')}")
                 overview_lbl.config(text=info.get("overview", ""))
                 lifespan_lbl.config(text=info.get("lifespan", ""))
                 
