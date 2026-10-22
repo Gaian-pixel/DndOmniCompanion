@@ -1,8 +1,21 @@
 import tkinter as tk
 from common.messagebox import messagebox
 from tkinter import ttk
+import random
+from typing import Dict, Any, List
+
 from .character_manager import Character
 from common.theme import apply_modern_window_style
+from common.backgrounds_data import (
+    BACKGROUNDS,
+    PERSONAL_QUESTS,
+    CHARACTER_SECRETS,
+    PARTY_TIES,
+    TRINKETS,
+    ALIGNMENT_NONE,
+    ALIGNMENTS,
+    generate_backstory
+)
 
 RACES = {
     "Umano": {"desc": "Gli umani sono i più adattabili e ambiziosi tra le razze comuni. \nBonus: +1 a tutte le caratteristiche.\nVelocità: 30 ft.", "bonuses": {"FOR": 1, "DES": 1, "COS": 1, "INT": 1, "SAG": 1, "CAR": 1}, "speed": 30},
@@ -31,30 +44,22 @@ CLASSES = {
     "Warlock": {"desc": "Un incantatore arcano vincolato da un patto con un'entità ultraterrena, come un folletto o un demone.\nDado Vita: d8.\nCompetenze: Armature leggere, armi semplici.", "hd": 8}
 }
 
-ALIGNMENT_NONE = "Nessuno (Non specificato)"
-
-ALIGNMENTS = {
-    ALIGNMENT_NONE: "Nessun allineamento predefinito: puoi scegliere liberamente la condotta del tuo personaggio durante la campagna senza etichette morali imposte.",
-    "LB (Legale Buono)": "Un personaggio Legale Buono si comporta come la società si aspetta, in modo giusto e difendendo i deboli (es. i Paladini).",
-    "NB (Neutrale Buono)": "Fanno del loro meglio per aiutare gli altri assecondando le loro necessità. Re e governanti sono importanti, ma l'aiuto diretto è primario.",
-    "CB (Caotico Buono)": "Agiscono secondo coscienza senza preoccuparsi delle regole, aiutando chi ne ha bisogno seguendo la propria morale.",
-    "LN (Legale Neutrale)": "Seguono la legge, le tradizioni o un codice personale senza farsi guidare da compassione o malvagità. L'ordine è assoluto.",
-    "N (Neutrale Puro)": "Preferiscono tenersi a distanza dai problemi morali, evitando di schierarsi e agendo in modo naturale.",
-    "CN (Caotico Neutrale)": "Seguono i loro capricci, valutando la propria libertà personale al di sopra di tutto. Sfuggono alle imposizioni.",
-    "LM (Legale Malvagio)": "Sfruttano sistematicamente il sistema, le regole o una gerarchia per ottenere ciò che vogliono senza pietà.",
-    "NM (Neutrale Malvagio)": "Fanno tutto ciò che serve per ottenere i loro scopi, senza alcun rimorso. Pensano solo ed esclusivamente a sé stessi.",
-    "CM (Caotico Malvagio)": "Agiscono mossi da brama, odio e sete di distruzione. Brutali e imprevedibili."
-}
-
 STANDARD_ARRAY = [15, 14, 13, 12, 10, 8]
 ATTRIBUTES = ["FOR", "DES", "COS", "INT", "SAG", "CAR"]
+ALL_SKILLS_5E = [
+    "Acrobazia", "Addestrare Animali", "Arcano", "Atletica", "Furtività",
+    "Indagare", "Inganno", "Intimidire", "Intrattenere", "Intuizione",
+    "Medicina", "Natura", "Percezione", "Persuasione", "Prestidigitazione",
+    "Religione", "Sopravvivenza", "Storia"
+]
+
 
 class CharacterCreationWizard(tk.Toplevel):
     def __init__(self, master, manager, on_complete_callback):
         super().__init__(master)
-        self.title("Creazione Guidata Personaggio (D&D 5e)")
-        self.minsize(580, 620)
-        self.geometry("600x640")
+        self.title("Creazione Guidata Personaggio & Background (D&D 5e)")
+        self.minsize(700, 720)
+        self.geometry("760x780")
         apply_modern_window_style(self)
         self.transient(master)
         self.grab_set()
@@ -64,14 +69,28 @@ class CharacterCreationWizard(tk.Toplevel):
         self.default_font = ("Georgia", 11)
         
         # Dati in costruzione
-        self.char_data = {
+        self.char_data: Dict[str, Any] = {
             "race": "Umano",
             "char_class": "Guerriero",
             "attributes": {"FOR": 15, "DES": 14, "COS": 13, "INT": 12, "SAG": 10, "CAR": 8},
             "name": "",
             "campaign": "",
-            "background": "",
-            "alignment": ""
+            "origin_place": "",
+            "background": "Accolito",
+            "background_skills": ["Intuizione", "Religione"],
+            "background_feature_name": "Rifugio del Fedele",
+            "background_feature_desc": "Tu e i tuoi compagni potete ricevere cure e ospitalità gratuita presso i templi e santuari della tua fede.",
+            "background_gold": 15,
+            "alignment": "",
+            "personality_trait": "",
+            "ideal": "",
+            "bond": "",
+            "flaw": "",
+            "personal_quest": "",
+            "secret": "",
+            "party_tie": "",
+            "trinket": "",
+            "backstory": ""
         }
         
         self.current_step = 0
@@ -79,10 +98,11 @@ class CharacterCreationWizard(tk.Toplevel):
             self.build_step_race,
             self.build_step_class,
             self.build_step_attributes,
-            self.build_step_details
+            self.build_step_background,
+            self.build_step_narrative
         ]
         
-        self.container = ttk.Frame(self, padding=20)
+        self.container = ttk.Frame(self, padding=16)
         self.container.pack(fill=tk.BOTH, expand=True)
         
         self.btn_frame = ttk.Frame(self, style="Surface.TFrame", padding=10)
@@ -91,18 +111,54 @@ class CharacterCreationWizard(tk.Toplevel):
         self.prev_btn = ttk.Button(self.btn_frame, text="< Indietro", command=self.prev_step)
         self.prev_btn.pack(side=tk.LEFT)
         
+        self.step_indicator_lbl = ttk.Label(self.btn_frame, text="", style="Muted.TLabel")
+        self.step_indicator_lbl.pack(side=tk.LEFT, padx=20)
+
         self.next_btn = ttk.Button(self.btn_frame, text="Avanti >", command=self.next_step, style="Primary.TButton")
         self.next_btn.pack(side=tk.RIGHT)
         
         self.show_step()
 
     def clear_container(self):
+        try:
+            self.unbind_all("<MouseWheel>")
+        except Exception:
+            pass
         for widget in self.container.winfo_children():
             widget.destroy()
 
     def show_step(self):
         self.clear_container()
-        self.steps[self.current_step]()
+        step_idx = self.current_step
+        self.step_indicator_lbl.config(text=f"Passo {step_idx + 1} di {len(self.steps)}")
+
+        # Passi 3 e 4 hanno molti elementi interattivi: usiamo una Canvas scorrevole fluida
+        if step_idx in (3, 4):
+            canvas = tk.Canvas(self.container, highlightthickness=0, borderwidth=0)
+            scrollbar = ttk.Scrollbar(self.container, orient="vertical", command=canvas.yview)
+            scroll_frame = ttk.Frame(canvas)
+            scroll_frame.bind(
+                "<Configure>",
+                lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+            )
+            canvas_window = canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+            
+            def _on_canvas_configure(event):
+                canvas.itemconfig(canvas_window, width=event.width)
+            canvas.bind("<Configure>", _on_canvas_configure)
+            
+            def _on_mousewheel(event):
+                if canvas.winfo_exists():
+                    canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            canvas.bind_all("<MouseWheel>", _on_mousewheel)
+            
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            canvas.configure(yscrollcommand=scrollbar.set)
+            
+            self.steps[step_idx](scroll_frame)
+        else:
+            self.steps[step_idx](self.container)
         
         if self.current_step == 0:
             self.prev_btn.config(state=tk.DISABLED)
@@ -110,7 +166,7 @@ class CharacterCreationWizard(tk.Toplevel):
             self.prev_btn.config(state=tk.NORMAL)
             
         if self.current_step == len(self.steps) - 1:
-            self.next_btn.config(text="Fine e Crea")
+            self.next_btn.config(text="Fine e Crea Personaggio")
         else:
             self.next_btn.config(text="Avanti >")
 
@@ -120,87 +176,130 @@ class CharacterCreationWizard(tk.Toplevel):
             self.show_step()
 
     def next_step(self):
+        # Validazione Passo 3: Caratteristiche
         if self.current_step == 2:
-            vals = [var.get() for var in self.attr_vars.values()]
-            if len(set(vals)) != len(STANDARD_ARRAY) or sorted(vals, reverse=True) != STANDARD_ARRAY:
-                messagebox.showerror("Errore", "Devi assegnare ogni valore della Array Standard (15,14,13,12,10,8) esattamente una volta.")
-                return
-            for k in ATTRIBUTES:
-                self.char_data["attributes"][k] = self.attr_vars[k].get()
-                
+            if hasattr(self, "attr_vars"):
+                vals = [var.get() for var in self.attr_vars.values()]
+                if len(set(vals)) != len(STANDARD_ARRAY) or sorted(vals, reverse=True) != STANDARD_ARRAY:
+                    messagebox.showerror("Errore", "Devi assegnare ogni valore della Array Standard (15,14,13,12,10,8) esattamente una volta.")
+                    return
+                for k in ATTRIBUTES:
+                    self.char_data["attributes"][k] = self.attr_vars[k].get()
+
+        # Salvataggio Passo 4: Background & Competenze
         if self.current_step == 3:
-            name = self.name_var.get().strip()
-            if not name:
-                messagebox.showerror("Errore", "Il nome del personaggio è obbligatorio.")
-                return
-            self.char_data["name"] = name
-            self.char_data["campaign"] = self.camp_var.get().strip()
-            self.char_data["background"] = self.bg_var.get().strip()
-            
-            raw_align = self.align_var.get().strip()
-            if not raw_align or raw_align == ALIGNMENT_NONE or raw_align.startswith("Nessun"):
-                self.char_data["alignment"] = ""
-            else:
-                self.char_data["alignment"] = raw_align.split(" ")[0].strip()
+            if hasattr(self, "bg_name_var"):
+                self.char_data["background"] = self.bg_name_var.get().strip()
+            if hasattr(self, "trait_var"):
+                self.char_data["personality_trait"] = self.trait_var.get().strip()
+            if hasattr(self, "ideal_var"):
+                self.char_data["ideal"] = self.ideal_var.get().strip()
+            if hasattr(self, "bond_var"):
+                self.char_data["bond"] = self.bond_var.get().strip()
+            if hasattr(self, "flaw_var"):
+                self.char_data["flaw"] = self.flaw_var.get().strip()
+            if hasattr(self, "custom_skill1_var") and self.char_data["background"] == "Personalizzato":
+                self.char_data["background_skills"] = [self.custom_skill1_var.get(), self.custom_skill2_var.get()]
+
+        # Validazione & Creazione Passo 5: Dettagli Finali & Narrativa
+        if self.current_step == 4:
+            if hasattr(self, "name_var"):
+                name = self.name_var.get().strip()
+                if not name:
+                    messagebox.showerror("Errore", "Il nome del personaggio è obbligatorio.")
+                    return
+                self.char_data["name"] = name
+            if hasattr(self, "camp_var"):
+                self.char_data["campaign"] = self.camp_var.get().strip()
+            if hasattr(self, "origin_var"):
+                self.char_data["origin_place"] = self.origin_var.get().strip()
+            if hasattr(self, "align_var"):
+                raw_align = self.align_var.get().strip()
+                if not raw_align or raw_align == ALIGNMENT_NONE or raw_align.startswith("Nessun"):
+                    self.char_data["alignment"] = ""
+                else:
+                    self.char_data["alignment"] = raw_align.split(" ")[0].strip()
+            if hasattr(self, "quest_var"):
+                self.char_data["personal_quest"] = self.quest_var.get().strip()
+            if hasattr(self, "secret_var"):
+                self.char_data["secret"] = self.secret_var.get().strip()
+            if hasattr(self, "party_tie_var"):
+                self.char_data["party_tie"] = self.party_tie_var.get().strip()
+            if hasattr(self, "trinket_var"):
+                self.char_data["trinket"] = self.trinket_var.get().strip()
+            if hasattr(self, "backstory_text"):
+                self.char_data["backstory"] = self.backstory_text.get("1.0", tk.END).strip()
             
             self.finish_creation()
             return
-            
+
         self.current_step += 1
         self.show_step()
 
-    def build_step_race(self):
-        ttk.Label(self.container, text="Passo 1: Scegli la Razza", style="Title.TLabel").pack(pady=(0, 10))
+    # -------------------------------------------------------------------------
+    # PASSO 1: RAZZA
+    # -------------------------------------------------------------------------
+    def build_step_race(self, parent=None):
+        parent = parent or self.container
+        ttk.Label(parent, text="Passo 1: Scegli la Razza", style="Title.TLabel").pack(pady=(0, 10))
         
         self.race_var = tk.StringVar(value=self.char_data["race"])
-        
-        desc_label = ttk.Label(self.container, text="", wraplength=450, justify=tk.LEFT)
+        desc_label = ttk.Label(parent, text="", wraplength=520, justify=tk.LEFT)
         
         def update_desc(*args):
             r = self.race_var.get()
             self.char_data["race"] = r
-            desc_label.config(text=RACES[r]["desc"])
+            if r in RACES:
+                desc_label.config(text=RACES[r]["desc"])
             
         self.race_var.trace_add("write", update_desc)
         
-        cb = ttk.Combobox(self.container, textvariable=self.race_var, values=list(RACES.keys()), state="readonly", font=self.default_font)
+        cb = ttk.Combobox(parent, textvariable=self.race_var, values=list(RACES.keys()), state="readonly", font=self.default_font, width=22)
         cb.pack(pady=10)
             
         desc_label.pack(pady=15, fill=tk.X)
         update_desc()
 
-    def build_step_class(self):
-        ttk.Label(self.container, text="Passo 2: Scegli la Classe", style="Title.TLabel").pack(pady=(0, 10))
+    # -------------------------------------------------------------------------
+    # PASSO 2: CLASSE
+    # -------------------------------------------------------------------------
+    def build_step_class(self, parent=None):
+        parent = parent or self.container
+        ttk.Label(parent, text="Passo 2: Scegli la Classe", style="Title.TLabel").pack(pady=(0, 10))
         
         self.class_var = tk.StringVar(value=self.char_data["char_class"])
-        
-        desc_label = ttk.Label(self.container, text="", wraplength=450, justify=tk.LEFT)
+        desc_label = ttk.Label(parent, text="", wraplength=520, justify=tk.LEFT)
         
         def update_desc(*args):
             c = self.class_var.get()
             self.char_data["char_class"] = c
-            desc_label.config(text=CLASSES[c]["desc"])
+            if c in CLASSES:
+                desc_label.config(text=CLASSES[c]["desc"])
             
         self.class_var.trace_add("write", update_desc)
         
-        cb = ttk.Combobox(self.container, textvariable=self.class_var, values=list(CLASSES.keys()), state="readonly", font=self.default_font)
+        cb = ttk.Combobox(parent, textvariable=self.class_var, values=list(CLASSES.keys()), state="readonly", font=self.default_font, width=22)
         cb.pack(pady=10)
             
         desc_label.pack(pady=15, fill=tk.X)
         update_desc()
 
-    def build_step_attributes(self):
-        ttk.Label(self.container, text="Passo 3: Caratteristiche (Standard Array)", style="Title.TLabel").pack(pady=(0, 10))
-        ttk.Label(self.container, text="Assegna i valori: 15, 14, 13, 12, 10, 8\nI valori si scambieranno automaticamente per non avere duplicati.").pack(pady=(0, 15))
+    # -------------------------------------------------------------------------
+    # PASSO 3: CARATTERISTICHE (STANDARD ARRAY)
+    # -------------------------------------------------------------------------
+    def build_step_attributes(self, parent=None):
+        parent = parent or self.container
+        ttk.Label(parent, text="Passo 3: Caratteristiche (Standard Array)", style="Title.TLabel").pack(pady=(0, 10))
+        ttk.Label(parent, text="Assegna i valori: 15, 14, 13, 12, 10, 8\nI valori si scambieranno automaticamente per non avere duplicati.", justify=tk.CENTER).pack(pady=(0, 15))
         
         self.attr_vars = {}
         self.old_attr_values = {}
         
-        frame = ttk.Frame(self.container)
+        frame = ttk.Frame(parent)
         frame.pack()
         
         for i, attr in enumerate(ATTRIBUTES):
-            val = STANDARD_ARRAY[i]
+            val = self.char_data["attributes"].get(attr, STANDARD_ARRAY[i])
             var = tk.IntVar(value=val)
             self.attr_vars[attr] = var
             self.old_attr_values[attr] = val
@@ -226,36 +325,181 @@ class CharacterCreationWizard(tk.Toplevel):
             self._is_swapping = False
 
         for i, attr in enumerate(ATTRIBUTES):
-            ttk.Label(frame, text=attr).grid(row=i, column=0, sticky="e", padx=5, pady=2)
+            ttk.Label(frame, text=attr, font=("Segoe UI", 10, "bold")).grid(row=i, column=0, sticky="e", padx=8, pady=4)
             
             var = self.attr_vars[attr]
             var.trace_add("write", lambda name, index, mode, a=attr: on_var_change(a))
             
-            cb = ttk.Combobox(frame, textvariable=var, values=STANDARD_ARRAY, state="readonly", width=5)
-            cb.grid(row=i, column=1, padx=5, pady=2)
+            cb = ttk.Combobox(frame, textvariable=var, values=STANDARD_ARRAY, state="readonly", width=6, justify="center")
+            cb.grid(row=i, column=1, padx=8, pady=4)
 
-    def build_step_details(self):
-        ttk.Label(self.container, text="Passo 4: Dettagli Finali", style="Title.TLabel").pack(pady=(0, 10))
+    # -------------------------------------------------------------------------
+    # PASSO 4: BACKGROUND & COMPETENZE
+    # -------------------------------------------------------------------------
+    def build_step_background(self, parent):
+        ttk.Label(parent, text="Passo 4: Scegli il Background & le Competenze", style="Title.TLabel").pack(pady=(0, 4))
+        ttk.Label(parent, text="Il tuo passato plasma le tue competenze nelle abilità, i privilegi sociali e l'indole morale.", style="Muted.TLabel").pack(pady=(0, 12))
         
-        frame = ttk.Frame(self.container)
-        frame.pack(fill=tk.BOTH, expand=True)
+        # 1. Selezione del Background
+        top_bar = ttk.Frame(parent)
+        top_bar.pack(fill=tk.X, pady=(0, 10))
         
-        ttk.Label(frame, text="Nome:").grid(row=0, column=0, sticky="e", pady=5)
-        self.name_var = tk.StringVar(value=self.char_data["name"])
-        ttk.Entry(frame, textvariable=self.name_var).grid(row=0, column=1, pady=5, padx=5, sticky="ew")
+        ttk.Label(top_bar, text="Background 5e:", font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=(0, 6))
         
-        ttk.Label(frame, text="Campagna:").grid(row=1, column=0, sticky="e", pady=5)
-        self.camp_var = tk.StringVar(value=self.char_data["campaign"])
-        ttk.Entry(frame, textvariable=self.camp_var).grid(row=1, column=1, pady=5, padx=5, sticky="ew")
+        cur_bg = self.char_data.get("background") or "Accolito"
+        self.bg_name_var = tk.StringVar(value=cur_bg)
+        bg_cb = ttk.Combobox(top_bar, textvariable=self.bg_name_var, values=list(BACKGROUNDS.keys()), state="readonly", width=25, font=self.default_font)
+        bg_cb.pack(side=tk.LEFT, padx=4)
+        
+        # 2. Scheda Descrittiva del Background (Info, Privilegio, Abilità)
+        card_bg = ttk.Frame(parent, style="Surface.TFrame", padding=12)
+        card_bg.pack(fill=tk.X, pady=(0, 14))
+        
+        lbl_bg_desc = ttk.Label(card_bg, text="", wraplength=580, justify=tk.LEFT)
+        lbl_bg_desc.pack(anchor="w", pady=(0, 8))
+        
+        skills_row = ttk.Frame(card_bg)
+        skills_row.pack(fill=tk.X, pady=(2, 6))
+        ttk.Label(skills_row, text="🎯 Competenze Abilità:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
+        lbl_skills = ttk.Label(skills_row, text="", style="Primary.TLabel")
+        lbl_skills.pack(side=tk.LEFT)
 
-        ttk.Label(frame, text="Background:").grid(row=2, column=0, sticky="e", pady=5)
-        self.bg_var = tk.StringVar(value=self.char_data["background"])
-        ttk.Entry(frame, textvariable=self.bg_var).grid(row=2, column=1, pady=5, padx=5, sticky="ew")
+        # Selettori abilità custom nel caso di background 'Personalizzato'
+        self.custom_skills_frame = ttk.Frame(card_bg)
+        self.custom_skill1_var = tk.StringVar(value="Intuizione")
+        self.custom_skill2_var = tk.StringVar(value="Percezione")
+        ttk.Label(self.custom_skills_frame, text="Scegli 2 Abilità:").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Combobox(self.custom_skills_frame, textvariable=self.custom_skill1_var, values=ALL_SKILLS_5E, state="readonly", width=14).pack(side=tk.LEFT, padx=3)
+        ttk.Combobox(self.custom_skills_frame, textvariable=self.custom_skill2_var, values=ALL_SKILLS_5E, state="readonly", width=14).pack(side=tk.LEFT, padx=3)
 
-        ttk.Label(frame, text="Allineamento (opzionale):").grid(row=3, column=0, sticky="e", pady=5)
+        feat_box = ttk.Frame(card_bg)
+        feat_box.pack(fill=tk.X, pady=(4, 6))
+        lbl_feat_title = ttk.Label(feat_box, text="", font=("Segoe UI", 9, "bold"))
+        lbl_feat_title.pack(anchor="w")
+        lbl_feat_desc = ttk.Label(feat_box, text="", style="Muted.TLabel", wraplength=580, justify=tk.LEFT)
+        lbl_feat_desc.pack(anchor="w", pady=(2, 0))
+
+        lbl_equip = ttk.Label(card_bg, text="", style="Muted.TLabel", wraplength=580, justify=tk.LEFT)
+        lbl_equip.pack(anchor="w", pady=(6, 0))
+
+        # 3. Le 4 Colonne Ruolistiche 5e (Tratti, Ideali, Legami, Difetti)
+        roleplay_header = ttk.Frame(parent)
+        roleplay_header.pack(fill=tk.X, pady=(10, 6))
+        ttk.Label(roleplay_header, text="🎭 Le 4 Colonne Ruolistiche (D&D 5e)", font=("Segoe UI", 11, "bold")).pack(side=tk.LEFT)
+        
+        btn_roll_all = ttk.Button(roleplay_header, text="🎲 Tira Tutti i Tratti Casuali", command=lambda: self._roll_all_roleplay_traits(), style="Gold.TButton")
+        btn_roll_all.pack(side=tk.RIGHT)
+
+        rp_grid = ttk.Frame(parent)
+        rp_grid.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        rp_grid.columnconfigure(0, weight=1)
+
+        # Variabili ruolistiche
+        self.trait_var = tk.StringVar(value=self.char_data.get("personality_trait", ""))
+        self.ideal_var = tk.StringVar(value=self.char_data.get("ideal", ""))
+        self.bond_var = tk.StringVar(value=self.char_data.get("bond", ""))
+        self.flaw_var = tk.StringVar(value=self.char_data.get("flaw", ""))
+
+        self.rp_combos = {}
+
+        def make_rp_row(row_idx, title, var, rp_key):
+            row_frame = ttk.Frame(rp_grid)
+            row_frame.grid(row=row_idx, column=0, sticky="ew", pady=4)
+            
+            hdr_f = ttk.Frame(row_frame)
+            hdr_f.pack(fill=tk.X)
+            ttk.Label(hdr_f, text=title, font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT)
+            
+            def do_roll():
+                bg = BACKGROUNDS.get(self.bg_name_var.get(), BACKGROUNDS["Accolito"])
+                pool = bg.get(rp_key, [])
+                if pool:
+                    var.set(random.choice(pool))
+            
+            btn_roll = ttk.Button(hdr_f, text="🎲", width=3, command=do_roll)
+            btn_roll.pack(side=tk.RIGHT)
+
+            cb = ttk.Combobox(row_frame, textvariable=var, state="normal")
+            cb.pack(fill=tk.X, pady=(2, 4))
+            self.rp_combos[rp_key] = cb
+
+        make_rp_row(0, "Tratto Caratteriale (Abitudini & Modi di fare):", self.trait_var, "traits")
+        make_rp_row(1, "Ideale (Principio etico o morale):", self.ideal_var, "ideals")
+        make_rp_row(2, "Legame (La persona, luogo o memoria per cui moriresti):", self.bond_var, "bonds")
+        make_rp_row(3, "Difetto (Vizio segreto, debolezza o fobia):", self.flaw_var, "flaws")
+
+        def update_bg_info(*args):
+            bg_name = self.bg_name_var.get()
+            info = BACKGROUNDS.get(bg_name, BACKGROUNDS["Accolito"])
+            
+            self.char_data["background"] = bg_name
+            self.char_data["background_feature_name"] = info["feature_name"]
+            self.char_data["background_feature_desc"] = info["feature_desc"]
+            self.char_data["background_gold"] = info.get("gold", 15)
+            
+            lbl_bg_desc.config(text=info["desc"])
+            
+            if bg_name == "Personalizzato":
+                skills_row.pack_forget()
+                self.custom_skills_frame.pack(fill=tk.X, pady=(2, 6))
+                self.char_data["background_skills"] = [self.custom_skill1_var.get(), self.custom_skill2_var.get()]
+            else:
+                self.custom_skills_frame.pack_forget()
+                skills_row.pack(fill=tk.X, pady=(2, 6))
+                lbl_skills.config(text=", ".join(info["skills"]))
+                self.char_data["background_skills"] = list(info["skills"])
+
+            lbl_feat_title.config(text=f"📜 Privilegio: {info['feature_name']}")
+            lbl_feat_desc.config(text=info["feature_desc"])
+            lbl_equip.config(text=f"🎒 Equipaggiamento & Oro Iniziale: {info['equipment']}")
+
+            # Aggiorna opzioni delle 4 colonne ruolistiche
+            for key, cb in self.rp_combos.items():
+                opts = info.get(key, [])
+                cb["values"] = opts
+                # Se il valore corrente è vuoto, pre-seleziona il primo
+                current_v = cb.get()
+                if not current_v and opts:
+                    cb.set(opts[0])
+
+        self.bg_name_var.trace_add("write", update_bg_info)
+        update_bg_info()
+
+    def _roll_all_roleplay_traits(self):
+        bg = BACKGROUNDS.get(self.bg_name_var.get(), BACKGROUNDS["Accolito"])
+        for key, var in [("traits", self.trait_var), ("ideals", self.ideal_var), ("bonds", self.bond_var), ("flaws", self.flaw_var)]:
+            pool = bg.get(key, [])
+            if pool:
+                var.set(random.choice(pool))
+
+    # -------------------------------------------------------------------------
+    # PASSO 5: NARRATIVA, OBIETTIVI & DETTAGLI FINALI
+    # -------------------------------------------------------------------------
+    def build_step_narrative(self, parent):
+        ttk.Label(parent, text="Passo 5: Narrativa, Obiettivi & Dettagli Finali", style="Title.TLabel").pack(pady=(0, 4))
+        ttk.Label(parent, text="Definisci gli obiettivi della tua avventura, i tuoi segreti e componi la tua storia.", style="Muted.TLabel").pack(pady=(0, 10))
+
+        # 1. Sezione Anagrafica Base (Nome, Campagna, Origine)
+        ana_frame = ttk.Frame(parent)
+        ana_frame.pack(fill=tk.X, pady=(0, 8))
+        ana_frame.columnconfigure(1, weight=1)
+        ana_frame.columnconfigure(3, weight=1)
+
+        ttk.Label(ana_frame, text="Nome:*", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="e", padx=(0, 4), pady=4)
+        self.name_var = tk.StringVar(value=self.char_data.get("name", ""))
+        ttk.Entry(ana_frame, textvariable=self.name_var).grid(row=0, column=1, sticky="ew", padx=(0, 10), pady=4)
+
+        ttk.Label(ana_frame, text="Campagna:", font=("Segoe UI", 9)).grid(row=0, column=2, sticky="e", padx=(0, 4), pady=4)
+        self.camp_var = tk.StringVar(value=self.char_data.get("campaign", ""))
+        ttk.Entry(ana_frame, textvariable=self.camp_var).grid(row=0, column=3, sticky="ew", pady=4)
+
+        ttk.Label(ana_frame, text="Origine / Città:", font=("Segoe UI", 9)).grid(row=1, column=0, sticky="e", padx=(0, 4), pady=4)
+        self.origin_var = tk.StringVar(value=self.char_data.get("origin_place", "Terre d'origine"))
+        ttk.Entry(ana_frame, textvariable=self.origin_var).grid(row=1, column=1, sticky="ew", padx=(0, 10), pady=4)
+
+        ttk.Label(ana_frame, text="Allineamento:", font=("Segoe UI", 9)).grid(row=1, column=2, sticky="e", padx=(0, 4), pady=4)
         
         align_keys = list(ALIGNMENTS.keys())
-        # Preselezione: Nessuno (Non specificato) se vuoto, altrimenti cerca corrispondenza
         initial_align = ALIGNMENT_NONE
         cur_align = self.char_data.get("alignment", "")
         if cur_align:
@@ -263,55 +507,124 @@ class CharacterCreationWizard(tk.Toplevel):
                 if k != ALIGNMENT_NONE and k.startswith(cur_align):
                     initial_align = k
                     break
-                
         self.align_var = tk.StringVar(value=initial_align)
-        align_cb = ttk.Combobox(frame, textvariable=self.align_var, values=align_keys, state="readonly", width=26)
-        align_cb.grid(row=3, column=1, pady=5, padx=5, sticky="w")
-        
-        try:
-            from components.ui_components import ToolTip
-            ToolTip(align_cb, "L'allineamento è facoltativo: è solo una possibile linea guida morale e non definisce per forza il giocatore che sarai.")
-        except Exception:
-            pass
+        align_cb = ttk.Combobox(ana_frame, textvariable=self.align_var, values=align_keys, state="readonly", width=18)
+        align_cb.grid(row=1, column=3, sticky="ew", pady=4)
 
-        # Card di Suggerimento esplicativo D&D 5e
-        tip_frame = ttk.Frame(frame, style="Surface.TFrame", padding=10)
-        tip_frame.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(12, 6))
-
-        tip_title = ttk.Label(tip_frame, text="💡 Suggerimento sull'Allineamento:", font=("Segoe UI", 9, "bold"))
-        tip_title.pack(anchor="w", pady=(0, 2))
-
-        tip_msg = (
-            "L'allineamento in D&D 5e è puramente facoltativo ed è solo una possibile linea guida "
-            "per interpretare il personaggio. Non definisce per forza il giocatore o il personaggio "
-            "che sarai al tavolo: le tue scelte, i tuoi ideali e le tue decisioni nel corso dell'avventura "
-            "avranno sempre la precedenza."
+        # Suggerimento Allineamento
+        tip_frame = ttk.Frame(parent, style="Surface.TFrame", padding=8)
+        tip_frame.pack(fill=tk.X, pady=(4, 10))
+        tip_txt = (
+            "💡 Allineamento Opzionale: In D&D 5e l'allineamento è solo una possibile bussola etica e una linea guida. "
+            "Non definisce per forza il giocatore o il personaggio che sarai al tavolo: le tue scelte avranno sempre la precedenza."
         )
-        tip_desc = ttk.Label(tip_frame, text=tip_msg, style="Muted.TLabel", wraplength=480, justify=tk.LEFT)
-        tip_desc.pack(fill=tk.X)
+        ttk.Label(tip_frame, text=tip_txt, style="Muted.TLabel", wraplength=580, justify=tk.LEFT).pack(fill=tk.X)
 
-        align_desc_label = ttk.Label(frame, text="", style="Muted.TLabel", wraplength=480, justify=tk.LEFT)
-        align_desc_label.grid(row=5, column=0, columnspan=2, pady=(4, 10))
+        # 2. Ganci Narrativi e Dinamiche di Gruppo (Obiettivo, Segreto, Legame, Cimelio)
+        narr_card = ttk.Frame(parent, style="Surface.TFrame", padding=10)
+        narr_card.pack(fill=tk.X, pady=(0, 10))
         
-        def update_align_desc(*args):
-            a = self.align_var.get()
-            align_desc_label.config(text=ALIGNMENTS.get(a, ""))
+        # Helper per creare righe con combobox e dado 🎲
+        def make_narrative_picker(label_text, var, options_list, badge_text=""):
+            row = ttk.Frame(narr_card)
+            row.pack(fill=tk.X, pady=3)
             
-        self.align_var.trace_add("write", update_align_desc)
-        update_align_desc()
-        
-        frame.columnconfigure(1, weight=1)
+            top_line = ttk.Frame(row)
+            top_line.pack(fill=tk.X)
+            
+            ttk.Label(top_line, text=label_text, font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT)
+            if badge_text:
+                ttk.Label(top_line, text=f" {badge_text}", style="Gold.TLabel").pack(side=tk.LEFT)
+            
+            def roll_val():
+                if options_list:
+                    pick = random.choice(options_list)
+                    var.set(pick if isinstance(pick, str) else pick.get("title", ""))
+            
+            ttk.Button(top_line, text="🎲", width=3, command=roll_val).pack(side=tk.RIGHT)
 
+            raw_opts = [o if isinstance(o, str) else f"{o['title']} — {o['desc']}" for o in options_list]
+            
+            cb = ttk.Combobox(row, textvariable=var, values=raw_opts, state="normal")
+            cb.pack(fill=tk.X, pady=(2, 4))
+            return cb
+
+        self.quest_var = tk.StringVar(value=self.char_data.get("personal_quest", f"{PERSONAL_QUESTS[0]['title']} — {PERSONAL_QUESTS[0]['desc']}"))
+        make_narrative_picker("🎯 Obiettivo Personale / Gancio d'Avventura:", self.quest_var, PERSONAL_QUESTS)
+
+        self.secret_var = tk.StringVar(value=self.char_data.get("secret", f"{CHARACTER_SECRETS[0]['title']} — {CHARACTER_SECRETS[0]['desc']}"))
+        make_narrative_picker("🔒 Segreto del Personaggio (per il Master):", self.secret_var, CHARACTER_SECRETS, badge_text="[Visibile solo a te e al DM]")
+
+        self.party_tie_var = tk.StringVar(value=self.char_data.get("party_tie", f"{PARTY_TIES[0]['title']} — {PARTY_TIES[0]['desc']}"))
+        make_narrative_picker("🤝 Legame con il Gruppo (Party Tie):", self.party_tie_var, PARTY_TIES)
+
+        self.trinket_var = tk.StringVar(value=self.char_data.get("trinket", TRINKETS[0]))
+        make_narrative_picker("🗝️ Cimelio Personale (Trinket con significato affettivo):", self.trinket_var, TRINKETS)
+
+        # 3. Generatore & Editor della Backstory
+        story_card = ttk.Frame(parent)
+        story_card.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
+
+        story_top = ttk.Frame(story_card)
+        story_top.pack(fill=tk.X, pady=(0, 4))
+        
+        ttk.Label(story_top, text="📖 Biografia & Storia dell'Eroe:", font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT)
+        
+        def compose_story():
+            story = generate_backstory(
+                name=self.name_var.get(),
+                race=self.char_data.get("race", "Umano"),
+                char_class=self.char_data.get("char_class", "Guerriero"),
+                background=self.char_data.get("background", "Accolito"),
+                origin_place=self.origin_var.get(),
+                trait=self.trait_var.get() if hasattr(self, "trait_var") else "",
+                ideal=self.ideal_var.get() if hasattr(self, "ideal_var") else "",
+                bond=self.bond_var.get() if hasattr(self, "bond_var") else "",
+                flaw=self.flaw_var.get() if hasattr(self, "flaw_var") else "",
+                quest=self.quest_var.get(),
+                secret=self.secret_var.get(),
+                trinket=self.trinket_var.get()
+            )
+            self.backstory_text.delete("1.0", tk.END)
+            self.backstory_text.insert(tk.END, story)
+
+        btn_compose = ttk.Button(story_top, text="✨ Componi la mia Storia (Automatico)", command=compose_story, style="Gold.TButton")
+        btn_compose.pack(side=tk.RIGHT)
+
+        self.backstory_text = tk.Text(story_card, height=6, wrap=tk.WORD, font=self.default_font)
+        self.backstory_text.pack(fill=tk.BOTH, expand=True, pady=(2, 6))
+        
+        # Se abbiamo già una backstory, la carichiamo, altrimenti componiamo una prima bozza evocativa
+        existing_story = self.char_data.get("backstory", "").strip()
+        if existing_story:
+            self.backstory_text.insert(tk.END, existing_story)
+        else:
+            compose_story()
+
+    # -------------------------------------------------------------------------
+    # CONCLUSIONE E CREAZIONE FINALE
+    # -------------------------------------------------------------------------
     def finish_creation(self):
         c = Character(name=self.char_data["name"], campaign=self.char_data["campaign"])
         c.race = self.char_data["race"]
         c.char_class = self.char_data["char_class"]
         c.background = self.char_data["background"]
-        c.alignment = self.char_data["alignment"]
+        c.background_feature_name = self.char_data.get("background_feature_name", "")
+        c.background_feature_desc = self.char_data.get("background_feature_desc", "")
+        c.alignment = self.char_data.get("alignment", "")
+        c.personality_trait = self.char_data.get("personality_trait", "")
+        c.ideal = self.char_data.get("ideal", "")
+        c.bond = self.char_data.get("bond", "")
+        c.flaw = self.char_data.get("flaw", "")
+        c.personal_quest = self.char_data.get("personal_quest", "")
+        c.secret = self.char_data.get("secret", "")
+        c.party_tie = self.char_data.get("party_tie", "")
+        c.trinket = self.char_data.get("trinket", "")
+        c.backstory = self.char_data.get("backstory", "")
         c.level = 1
         
         # Calcolo attributi = array + bonus razza
-        race_info = RACES[c.race]
+        race_info = RACES.get(c.race, RACES["Umano"])
         for attr in ATTRIBUTES:
             base = self.char_data["attributes"][attr]
             bonus = race_info["bonuses"].get(attr, 0)
@@ -324,24 +637,96 @@ class CharacterCreationWizard(tk.Toplevel):
         dex_mod = get_mod(c.attributes["DES"])
         
         # Calcolo HP
-        class_info = CLASSES[c.char_class]
+        class_info = CLASSES.get(c.char_class, CLASSES["Guerriero"])
         c.hp_max = class_info["hd"] + con_mod
         c.hp_current = c.hp_max
         
-        # Calcolo AC base (10 + Dex) - l'armatura potrà essere aggiunta dopo
+        # Calcolo AC base (10 + Dex)
         c.ac = 10 + dex_mod
-        
-        # Iniziativa = Dex mod
         c.initiative = dex_mod
-        
-        # Velocità
-        c.speed = race_info["speed"]
+        c.speed = race_info.get("speed", 30)
         
         # Equipaggiamento iniziale di classe (armi, armature, scudi) e incantesimi
         from common.starter_equipment import apply_class_and_race_starter_kit
         apply_class_and_race_starter_kit(c)
-        c.features = f"Tratti razziali:\n{race_info['desc']}\n\nTratti classe:\n{class_info['desc']}"
         
+        # Aggiungi oro iniziale del background
+        bg_gold = int(self.char_data.get("background_gold", 10))
+        if hasattr(c, "currency") and isinstance(c.currency, dict):
+            c.currency["MO"] = c.currency.get("MO", 0) + bg_gold
+
+        # Aggiungi cimelio all'inventario
+        if c.trinket:
+            trinket_item = {
+                "name": f"Cimelio: {c.trinket[:25]}...",
+                "type": "Cimelio",
+                "desc": c.trinket,
+                "qty": 1,
+                "weight": 0.5
+            }
+            if hasattr(c, "inventory") and isinstance(c.inventory, list):
+                c.inventory.append(trinket_item)
+            if hasattr(c, "inventory_grid") and isinstance(c.inventory_grid, list):
+                for idx in range(len(c.inventory_grid)):
+                    if c.inventory_grid[idx] is None:
+                        c.inventory_grid[idx] = trinket_item
+                        break
+
+        # Competenze nelle abilità conferite dal background
+        bg_skills = self.char_data.get("background_skills", [])
+        for sk in bg_skills:
+            if hasattr(c, "skills") and isinstance(c.skills, dict):
+                if sk in c.skills and c.skills[sk] == 0:
+                    c.skills[sk] = 1
+
+        # Privilegi del personaggio (Razza + Classe + Privilegio di Background)
+        bg_feat_txt = ""
+        if c.background_feature_name:
+            bg_feat_txt = f"\n\nPrivilegio di Background ({c.background_feature_name}):\n{c.background_feature_desc}"
+        
+        c.features = f"Tratti razziali:\n{race_info['desc']}\n\nTratti classe:\n{class_info['desc']}{bg_feat_txt}"
+
+        # Diario del Personaggio (Note ben formattate pronte nel tab 'Diario')
+        notes_lines = []
+        notes_lines.append(f"# Biografia & Origini di {c.name}")
+        notes_lines.append(f"**Razza:** {c.race} | **Classe:** {c.char_class} | **Background:** {c.background}")
+        if self.char_data.get("origin_place"):
+            notes_lines.append(f"**Luogo d'Origine:** {self.char_data['origin_place']}")
+        if c.alignment:
+            notes_lines.append(f"**Allineamento:** {c.alignment}")
+        notes_lines.append("")
+        
+        notes_lines.append("## 🎭 Spunti di Ruolo (D&D 5e)")
+        if c.personality_trait:
+            notes_lines.append(f"- **Tratto Caratteriale:** {c.personality_trait}")
+        if c.ideal:
+            notes_lines.append(f"- **Ideale:** {c.ideal}")
+        if c.bond:
+            notes_lines.append(f"- **Legame:** {c.bond}")
+        if c.flaw:
+            notes_lines.append(f"- **Difetto:** {c.flaw}")
+        notes_lines.append("")
+
+        notes_lines.append("## 🎯 Obiettivi & Segreti")
+        if c.personal_quest:
+            notes_lines.append(f"- **Obiettivo Personale:** {c.personal_quest}")
+        if c.secret:
+            notes_lines.append(f"- **Segreto (per il Master):** {c.secret}")
+        if c.party_tie:
+            notes_lines.append(f"- **Legame con il Gruppo:** {c.party_tie}")
+        if c.trinket:
+            notes_lines.append(f"- **Cimelio Personale:** {c.trinket}")
+        notes_lines.append("")
+
+        if c.backstory:
+            notes_lines.append("## 📖 Storia dell'Eroe")
+            notes_lines.append(c.backstory)
+            notes_lines.append("")
+
+        notes_lines.append("## 📝 Diario delle Sessioni")
+        notes_lines.append("*Spazio per appunti, indizi, promesse e scoperte durante le sessioni di gioco.*")
+        c.journal_notes = "\n".join(notes_lines)
+
         # Async fetch for Level 1 features (prima offline SRD istantaneo, poi fallback online se necessario)
         def _fetch_level_1():
             try:

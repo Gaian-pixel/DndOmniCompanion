@@ -58,8 +58,8 @@ class TestOptionalAlignmentCreation(unittest.TestCase):
         
         self.assertEqual(wiz.char_data["alignment"], "")
         
-        # Andiamo al passo 4 (Dettagli)
-        wiz.current_step = 3
+        # Andiamo all'ultimo passo (Dettagli & Narrativa)
+        wiz.current_step = len(wiz.steps) - 1
         wiz.show_step()
         
         # Verifica che il combobox sia impostato su ALIGNMENT_NONE
@@ -91,7 +91,7 @@ class TestOptionalAlignmentCreation(unittest.TestCase):
         created = []
         wiz = CharacterCreationWizard(self.root, self.mgr, on_complete_callback=lambda c: created.append(c))
         
-        wiz.current_step = 3
+        wiz.current_step = len(wiz.steps) - 1
         wiz.show_step()
         
         wiz.name_var.set("Paladino di Giustizia")
@@ -117,7 +117,7 @@ class TestOptionalAlignmentCreation(unittest.TestCase):
     def test_wizard_guideline_hint_displayed(self):
         """Verifica che nel passo 4 sia presente il suggerimento sulla linea guida dell'allineamento."""
         wiz = CharacterCreationWizard(self.root, self.mgr, on_complete_callback=lambda c: None)
-        wiz.current_step = 3
+        wiz.current_step = len(wiz.steps) - 1
         wiz.show_step()
 
         # Ispeziona i widget generati nel container

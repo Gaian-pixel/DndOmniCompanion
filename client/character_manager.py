@@ -107,6 +107,17 @@ class Character:
         self.exp = 0
         self.alignment = ""
         self.background = ""
+        self.background_feature_name = ""
+        self.background_feature_desc = ""
+        self.personality_trait = ""
+        self.ideal = ""
+        self.bond = ""
+        self.flaw = ""
+        self.personal_quest = ""
+        self.secret = ""
+        self.party_tie = ""
+        self.trinket = ""
+        self.backstory = ""
         
         # Statistiche Base
         self.attributes = {"FOR": 10, "DES": 10, "COS": 10, "INT": 10, "SAG": 10, "CAR": 10}

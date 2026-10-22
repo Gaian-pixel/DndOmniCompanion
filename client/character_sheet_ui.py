@@ -145,6 +145,14 @@ class CharacterSheetUI(tk.Toplevel):
         )
         self.btn_inspiration.grid(row=2, column=4, columnspan=3, padx=(8, 0), pady=3, sticky="ew")
 
+        tk.Label(header_frame, text="Background:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=3, column=0, sticky="e", padx=(0, 4))
+        self.background_var = tk.StringVar()
+        ttk.Entry(header_frame, textvariable=self.background_var, width=16).grid(row=3, column=1, padx=4, pady=3, sticky="ew")
+
+        tk.Label(header_frame, text="Allineamento:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=3, column=2, sticky="e", padx=(8, 4))
+        self.alignment_var = tk.StringVar()
+        ttk.Entry(header_frame, textvariable=self.alignment_var, width=14).grid(row=3, column=3, padx=4, pady=3, sticky="ew")
+
         # Corpo centrale
         body_frame = ttk.Frame(main_frame)
         body_frame.pack(fill=tk.BOTH, expand=True)
@@ -1440,6 +1448,10 @@ class CharacterSheetUI(tk.Toplevel):
         if hasattr(self, 'subclass_var'):
             self.subclass_var.set(getattr(self.character, "subclass", ""))
             self.update_subclass_suggestions()
+        if hasattr(self, 'background_var'):
+            self.background_var.set(getattr(self.character, "background", ""))
+        if hasattr(self, 'alignment_var'):
+            self.alignment_var.set(getattr(self.character, "alignment", ""))
         if hasattr(self, 'class_var') and not getattr(self, '_class_var_traced', False):
             self.class_var.trace_add("write", lambda *args: self.update_subclass_suggestions())
             self._class_var_traced = True
@@ -2020,6 +2032,10 @@ class CharacterSheetUI(tk.Toplevel):
             self.character.race = self.race_var.get()
             if hasattr(self, "subclass_var"):
                 self.character.subclass = self.subclass_var.get().strip()
+            if hasattr(self, "background_var"):
+                self.character.background = self.background_var.get().strip()
+            if hasattr(self, "alignment_var"):
+                self.character.alignment = self.alignment_var.get().strip()
             
             for k, var in self.attr_vars.items():
                 self.character.attributes[k] = var.get()
