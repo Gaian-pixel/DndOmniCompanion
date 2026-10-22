@@ -268,26 +268,31 @@ class CampaignEncounterDialog(tk.Toplevel):
         self.destroy()
 
 
-class CampaignEditorDialog(tk.Toplevel):
-    """Editor moderno completo per la preparazione in anticipo di una campagna."""
-    def __init__(self, master, campaign: Optional[Campaign] = None, game_state: Optional[GameState] = None, on_save_callback: Optional[Callable] = None):
-        super().__init__(master)
+class CampaignEditorFrame(tk.Frame):
+    """Frame autonomo per la preparazione in anticipo di una campagna."""
+    def __init__(self, master, campaign: Optional[Campaign] = None, game_state: Optional[GameState] = None, on_save_callback: Optional[Callable] = None, on_close_callback: Optional[Callable] = None, **kwargs):
+        super().__init__(master, bg=BG_COLOR, **kwargs)
         self.campaign = campaign or Campaign(name="Nuova Campagna Avventura")
         if not self.campaign.starter_kit:
             from common.starter_equipment import DEFAULT_CAMPAIGN_STARTER_KIT
             self.campaign.starter_kit = [item.copy() for item in DEFAULT_CAMPAIGN_STARTER_KIT]
         self.game_state = game_state
         self.on_save_callback = on_save_callback
-        
-        self.title(f"D&D OmniCompanion • Preparazione Campagna: {self.campaign.name}")
-        self.minsize(1050, 720)
-        self.geometry("1150x760")
-        self.transient(master)
-        self.grab_set()
-        apply_modern_window_style(self)
-        self.configure(bg=BG_COLOR)
+        self.on_close_callback = on_close_callback
+        self.is_fullscreen = False
         
         self.setup_ui()
+
+    def close_editor(self):
+        if self.on_close_callback:
+            self.on_close_callback()
+        else:
+            self.destroy()
+
+    def title(self, text):
+        top = self.winfo_toplevel()
+        if hasattr(top, "title"):
+            top.title(text)
 
     def setup_ui(self):
         container = tk.Frame(self, bg=BG_COLOR, padx=16, pady=14)
@@ -316,7 +321,7 @@ class CampaignEditorDialog(tk.Toplevel):
         
         ttk.Button(actions_box, text="💾 Salva Campagna", command=self.save_campaign, style="Success.TButton").pack(side=tk.LEFT, padx=4)
         ttk.Button(actions_box, text="📂 Salva con Nome...", command=self.save_campaign_as, style="Primary.TButton").pack(side=tk.LEFT, padx=4)
-        ttk.Button(actions_box, text="Chiudi", command=self.destroy).pack(side=tk.LEFT, padx=4)
+        ttk.Button(actions_box, text="← Torna al Menu" if self.on_close_callback else "Chiudi", command=self.close_editor).pack(side=tk.LEFT, padx=4)
         
         # --- NOTEBOOK TABS ---
         self.notebook = ttk.Notebook(container)
@@ -1298,7 +1303,8 @@ class CampaignEditorDialog(tk.Toplevel):
     def toggle_fullscreen(self, event=None):
         self.is_fullscreen = not getattr(self, "is_fullscreen", False)
         try:
-            self.attributes("-fullscreen", self.is_fullscreen)
+            top = self.winfo_toplevel()
+            top.attributes("-fullscreen", self.is_fullscreen)
             if hasattr(self, "btn_fs"):
                 self.btn_fs.config(text="🗗 Finestra" if self.is_fullscreen else "⛶ Schermo Intero")
         except Exception:
@@ -1308,7 +1314,8 @@ class CampaignEditorDialog(tk.Toplevel):
         if getattr(self, "is_fullscreen", False):
             self.is_fullscreen = False
             try:
-                self.attributes("-fullscreen", False)
+                top = self.winfo_toplevel()
+                top.attributes("-fullscreen", False)
                 if hasattr(self, "btn_fs"):
                     self.btn_fs.config(text="⛶ Schermo Intero")
             except Exception:
@@ -1626,25 +1633,80 @@ class CampaignEditorDialog(tk.Toplevel):
         messagebox.showinfo("Applicato", f"La campagna '{self.campaign.name}' è ora attiva nella sessione corrente!", parent=self)
 
 
-class CampaignSelectorDialog(tk.Toplevel):
-    """Dialogo per visualizzare, scegliere o creare campagne prima di iniziare la sessione."""
-    def __init__(self, master, on_select_callback: Callable[[Campaign], None], on_edit_callback: Optional[Callable[[Campaign], None]] = None):
+class CampaignEditorDialog(tk.Toplevel):
+    """
+    Finestra modale per l'Editor Campagne (retrocompatibile al 100%).
+    Incapsula CampaignEditorFrame delegando metodi ed attributi.
+    """
+    def __init__(self, master, campaign: Optional[Campaign] = None, game_state: Optional[GameState] = None, on_save_callback: Optional[Callable] = None):
         super().__init__(master)
-        self.on_select_callback = on_select_callback
-        self.on_edit_callback = on_edit_callback
-        
-        self.title("D&D OmniCompanion • Seleziona Campagna")
-        self.minsize(820, 520)
+        c_name = campaign.name if campaign else "Nuova Campagna Avventura"
+        self.title(f"D&D OmniCompanion • Preparazione Campagna: {c_name}")
+        self.minsize(1050, 720)
+        self.geometry("1150x760")
         self.transient(master)
         self.grab_set()
         apply_modern_window_style(self)
         self.configure(bg=BG_COLOR)
+
+        self._frame_internal = CampaignEditorFrame(
+            self,
+            campaign=campaign,
+            game_state=game_state,
+            on_save_callback=on_save_callback,
+            on_close_callback=self.destroy
+        )
+        self._frame_internal.pack(fill=tk.BOTH, expand=True)
+
+    def toggle_fullscreen(self, event=None):
+        if hasattr(self, "_frame_internal"):
+            return self._frame_internal.toggle_fullscreen(event)
+
+    def exit_fullscreen(self, event=None):
+        if hasattr(self, "_frame_internal"):
+            return self._frame_internal.exit_fullscreen(event)
+
+    def destroy(self):
+        try:
+            super().destroy()
+        except (tk.TclError, Exception):
+            pass
+
+    def __getattr__(self, name):
+        if name in ("_tclCommands", "_w", "_name", "tk", "master", "children"):
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+        if "_frame_internal" in self.__dict__ and hasattr(self.__dict__["_frame_internal"], name):
+            return getattr(self.__dict__["_frame_internal"], name)
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+    def __setattr__(self, name, value):
+        if name in ("_frame_internal",) or "_frame_internal" not in self.__dict__:
+            super().__setattr__(name, value)
+        elif hasattr(self.__dict__["_frame_internal"], name):
+            setattr(self.__dict__["_frame_internal"], name, value)
+        else:
+            super().__setattr__(name, value)
+
+
+class CampaignSelectorFrame(tk.Frame):
+    """Frame autonomo per la selezione e gestione delle campagne preparate."""
+    def __init__(self, master, on_select_callback: Callable[[Campaign], None], on_edit_callback: Optional[Callable[[Campaign], None]] = None, on_close_callback: Optional[Callable[[], None]] = None, **kwargs):
+        super().__init__(master, bg=BG_COLOR, **kwargs)
+        self.on_select_callback = on_select_callback
+        self.on_edit_callback = on_edit_callback
+        self.on_close_callback = on_close_callback
         
         self.available_campaigns: List[Dict[str, Any]] = []
         self.selected_campaign: Optional[Campaign] = None
         
         self.setup_ui()
         self.refresh_campaigns()
+
+    def close_selector(self):
+        if self.on_close_callback:
+            self.on_close_callback()
+        else:
+            self.destroy()
 
     def setup_ui(self):
         container = tk.Frame(self, bg=BG_COLOR, padx=16, pady=14)
@@ -1656,6 +1718,10 @@ class CampaignSelectorDialog(tk.Toplevel):
         tk.Label(hdr, text="📚 Libreria Campagne Preparate", font=("Georgia", 16, "bold"), bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w")
         tk.Label(hdr, text="Seleziona una campagna esistente, preparane una nuova offline oppure modifica i contenuti",
                  font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+
+        if self.on_close_callback:
+            btn_back = ttk.Button(hdr, text="← Torna al Menu", command=self.close_selector, style="Tool.TButton")
+            btn_back.place(relx=1.0, rely=0.0, anchor="ne")
         
         # Main Split Frame
         main_split = tk.Frame(container, bg=BG_COLOR)
@@ -1725,7 +1791,7 @@ class CampaignSelectorDialog(tk.Toplevel):
         
         self.btn_play = ttk.Button(bottom_row, text="🚀 Avvia Partita con Questa Campagna", command=self.confirm_and_play, style="Gold.TButton")
         self.btn_play.pack(side=tk.RIGHT, padx=(6, 0))
-        ttk.Button(bottom_row, text="Annulla", command=self.destroy).pack(side=tk.RIGHT)
+        ttk.Button(bottom_row, text="← Torna al Menu" if self.on_close_callback else "Annulla", command=self.close_selector).pack(side=tk.RIGHT)
 
     def refresh_campaigns(self):
         for it in self.tree_camps.get_children():
@@ -1815,18 +1881,24 @@ class CampaignSelectorDialog(tk.Toplevel):
 
     def create_new_campaign(self):
         new_camp = Campaign(name="Nuova Campagna")
+        if self.on_edit_callback:
+            self.on_edit_callback(new_camp)
+            return
         def on_saved(saved_camp):
             self.refresh_campaigns()
-        dlg = CampaignEditorDialog(self, campaign=new_camp, on_save_callback=on_saved)
+        dlg = CampaignEditorDialog(self.winfo_toplevel(), campaign=new_camp, on_save_callback=on_saved)
         dlg.wait_window()
 
     def edit_selected_campaign(self):
         if not self.selected_campaign:
             messagebox.showwarning("Attenzione", "Seleziona prima una campagna.", parent=self)
             return
+        if self.on_edit_callback:
+            self.on_edit_callback(self.selected_campaign)
+            return
         def on_saved(saved_camp):
             self.refresh_campaigns()
-        dlg = CampaignEditorDialog(self, campaign=self.selected_campaign, on_save_callback=on_saved)
+        dlg = CampaignEditorDialog(self.winfo_toplevel(), campaign=self.selected_campaign, on_save_callback=on_saved)
         dlg.wait_window()
 
     def delete_campaign(self):
@@ -1852,7 +1924,51 @@ class CampaignSelectorDialog(tk.Toplevel):
             self.grab_release()
         except Exception:
             pass
-        self.destroy()
+        self.close_selector()
         self.on_select_callback(camp)
+
+
+class CampaignSelectorDialog(tk.Toplevel):
+    """
+    Finestra modale per la selezione della campagna (retrocompatibile al 100%).
+    Incapsula CampaignSelectorFrame delegando metodi ed attributi.
+    """
+    def __init__(self, master, on_select_callback: Callable[[Campaign], None], on_edit_callback: Optional[Callable[[Campaign], None]] = None):
+        super().__init__(master)
+        self.title("D&D OmniCompanion • Seleziona Campagna")
+        self.minsize(820, 520)
+        self.transient(master)
+        self.grab_set()
+        apply_modern_window_style(self)
+        self.configure(bg=BG_COLOR)
+
+        self._frame_internal = CampaignSelectorFrame(
+            self,
+            on_select_callback=on_select_callback,
+            on_edit_callback=on_edit_callback,
+            on_close_callback=self.destroy
+        )
+        self._frame_internal.pack(fill=tk.BOTH, expand=True)
+
+    def destroy(self):
+        try:
+            super().destroy()
+        except (tk.TclError, Exception):
+            pass
+
+    def __getattr__(self, name):
+        if name in ("_tclCommands", "_w", "_name", "tk", "master", "children"):
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+        if "_frame_internal" in self.__dict__ and hasattr(self.__dict__["_frame_internal"], name):
+            return getattr(self.__dict__["_frame_internal"], name)
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+    def __setattr__(self, name, value):
+        if name in ("_frame_internal",) or "_frame_internal" not in self.__dict__:
+            super().__setattr__(name, value)
+        elif hasattr(self.__dict__["_frame_internal"], name):
+            setattr(self.__dict__["_frame_internal"], name, value)
+        else:
+            super().__setattr__(name, value)
 
 

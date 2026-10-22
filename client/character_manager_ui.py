@@ -41,35 +41,41 @@ def get_class_icon(char_class: str) -> str:
     return "👤"
 
 
-class CharacterManagerDialog(tk.Toplevel):
+class CharacterManagerFrame(tk.Frame):
     """
-    Finestra per la gestione autonoma ed offline dei personaggi.
-    Accessibile sia dal Launcher iniziale (main.py) che dall'interfaccia Client (client.py).
+    Frame autonomo per la gestione offline dei personaggi.
+    Utilizzabile sia incorporato (mono-finestra in main.py) sia dentro CharacterManagerDialog.
     """
     def __init__(
         self, 
-        master: tk.Tk | tk.Toplevel, 
+        master: tk.Tk | tk.Toplevel | tk.Frame, 
         manager: Optional[CharacterManager] = None, 
-        on_select_callback: Optional[Callable[[Character], None]] = None
+        on_select_callback: Optional[Callable[[Character], None]] = None,
+        on_close_callback: Optional[Callable[[], None]] = None,
+        on_create_wizard_callback: Optional[Callable[[], None]] = None,
+        is_embedded: bool = False,
+        **kwargs
     ):
-        super().__init__(master)
+        super().__init__(master, bg=BG_COLOR, **kwargs)
         self.manager = manager or CharacterManager()
         self.on_select_callback = on_select_callback
+        self.on_close_callback = on_close_callback
+        self.on_create_wizard_callback = on_create_wizard_callback
+        self.is_embedded = is_embedded
         self.selected_character: Optional[Character] = None
         self.filtered_characters: list[Character] = []
-
-        self.title(_t("char_manager_title"))
-        self.minsize(860, 560)
-        self.transient(master)
-        self.grab_set()
-        apply_modern_window_style(self)
-        self.configure(bg=BG_COLOR)
 
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self.apply_filter())
 
         self.setup_ui()
         self.refresh_list()
+
+    def close_view(self):
+        if self.on_close_callback:
+            self.on_close_callback()
+        else:
+            self.destroy()
 
     def setup_ui(self):
         container = tk.Frame(self, bg=BG_COLOR, padx=16, pady=12)
@@ -108,6 +114,15 @@ class CharacterManagerDialog(tk.Toplevel):
             bg=BG_COLOR,
             fg=TEXT_MUTED
         ).pack(anchor="w")
+
+        if self.on_close_callback:
+            btn_back = ttk.Button(
+                top_row,
+                text="← Torna al Menu",
+                command=self.close_view,
+                style="Tool.TButton"
+            )
+            btn_back.pack(side=tk.RIGHT, padx=4)
 
         # Linea divisoria dorata sottile
         tk.Frame(hdr_frame, bg="#A37F2C", height=1).pack(fill=tk.X, pady=(8, 0))
@@ -207,7 +222,7 @@ class CharacterManagerDialog(tk.Toplevel):
         self.count_lbl = tk.Label(bottom_bar, text="", font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED)
         self.count_lbl.pack(side=tk.LEFT)
 
-        ttk.Button(bottom_bar, text=_t("ok"), width=12, command=self.destroy).pack(side=tk.RIGHT)
+        ttk.Button(bottom_bar, text="← Torna al Menu" if self.on_close_callback else _t("ok"), width=16, command=self.close_view).pack(side=tk.RIGHT)
 
     def refresh_list(self):
         """Ricarica tutti i personaggi dal manager e aggiorna la visualizzazione."""
@@ -483,6 +498,10 @@ class CharacterManagerDialog(tk.Toplevel):
 
     def create_wizard_character(self):
         """Apre la creazione guidata passo-passo."""
+        if self.on_create_wizard_callback:
+            self.on_create_wizard_callback()
+            return
+
         def on_created(new_char):
             self.refresh_list()
             if new_char and hasattr(new_char, "id"):
@@ -492,7 +511,7 @@ class CharacterManagerDialog(tk.Toplevel):
                     self.tree.see(new_char.id)
                 self.render_character_details(new_char)
 
-        wizard = CharacterCreationWizard(self, self.manager, on_complete_callback=on_created)
+        wizard = CharacterCreationWizard(self.winfo_toplevel(), self.manager, on_complete_callback=on_created)
         self.wait_window(wizard)
 
     def create_manual_character(self):
@@ -545,5 +564,57 @@ class CharacterManagerDialog(tk.Toplevel):
     def confirm_selection(self):
         """Conferma la selezione e invoca la callback esterna (se presente)."""
         if self.selected_character and self.on_select_callback:
-            self.on_select_callback(self.selected_character)
-            self.destroy()
+            cb = self.on_select_callback
+            char = self.selected_character
+            self.close_view()
+            cb(char)
+
+
+class CharacterManagerDialog(tk.Toplevel):
+    """
+    Finestra modale per la gestione autonoma ed offline dei personaggi (retrocompatibile al 100%).
+    Incapsula CharacterManagerFrame delegando metodi ed attributi.
+    """
+    def __init__(
+        self, 
+        master: tk.Tk | tk.Toplevel, 
+        manager: Optional[CharacterManager] = None, 
+        on_select_callback: Optional[Callable[[Character], None]] = None
+    ):
+        super().__init__(master)
+        self.title(_t("char_manager_title"))
+        self.minsize(860, 560)
+        self.transient(master)
+        self.grab_set()
+        apply_modern_window_style(self)
+        self.configure(bg=BG_COLOR)
+
+        self._frame_internal = CharacterManagerFrame(
+            self,
+            manager=manager,
+            on_select_callback=on_select_callback,
+            on_close_callback=self.destroy,
+            is_embedded=False
+        )
+        self._frame_internal.pack(fill=tk.BOTH, expand=True)
+
+    def destroy(self):
+        try:
+            super().destroy()
+        except (tk.TclError, Exception):
+            pass
+
+    def __getattr__(self, name):
+        if name in ("_tclCommands", "_w", "_name", "tk", "master", "children"):
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+        if "_frame_internal" in self.__dict__ and hasattr(self.__dict__["_frame_internal"], name):
+            return getattr(self.__dict__["_frame_internal"], name)
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+    def __setattr__(self, name, value):
+        if name in ("_frame_internal",) or "_frame_internal" not in self.__dict__:
+            super().__setattr__(name, value)
+        elif hasattr(self.__dict__["_frame_internal"], name):
+            setattr(self.__dict__["_frame_internal"], name, value)
+        else:
+            super().__setattr__(name, value)

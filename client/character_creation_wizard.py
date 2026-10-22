@@ -48,18 +48,13 @@ ALL_SKILLS_5E = [
 ]
 
 
-class CharacterCreationWizard(tk.Toplevel):
-    def __init__(self, master, manager, on_complete_callback):
-        super().__init__(master)
-        self.title("Creazione Guidata Personaggio & Background (D&D 5e)")
-        self.minsize(700, 720)
-        self.geometry("760x780")
-        apply_modern_window_style(self)
-        self.transient(master)
-        self.grab_set()
-        
+class CharacterCreationWizardFrame(ttk.Frame):
+    def __init__(self, master, manager, on_complete_callback, on_close_callback=None, is_embedded=False, **kwargs):
+        super().__init__(master, **kwargs)
         self.manager = manager
         self.on_complete_callback = on_complete_callback
+        self.on_close_callback = on_close_callback
+        self.is_embedded = is_embedded
         self.default_font = ("Georgia", 11)
         
         # Dati in costruzione
@@ -103,6 +98,10 @@ class CharacterCreationWizard(tk.Toplevel):
         
         self.btn_frame = ttk.Frame(self, style="Surface.TFrame", padding=10)
         self.btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
+
+        if self.on_close_callback:
+            self.cancel_btn = ttk.Button(self.btn_frame, text="← Torna al Menu", command=self.close_wizard, style="Tool.TButton")
+            self.cancel_btn.pack(side=tk.LEFT, padx=(0, 10))
         
         self.prev_btn = ttk.Button(self.btn_frame, text="< Indietro", command=self.prev_step)
         self.prev_btn.pack(side=tk.LEFT)
@@ -114,6 +113,12 @@ class CharacterCreationWizard(tk.Toplevel):
         self.next_btn.pack(side=tk.RIGHT)
         
         self.show_step()
+
+    def close_wizard(self):
+        if self.on_close_callback:
+            self.on_close_callback()
+        else:
+            self.destroy()
 
     def clear_container(self):
         try:
@@ -239,12 +244,13 @@ class CharacterCreationWizard(tk.Toplevel):
     # -------------------------------------------------------------------------
     def open_races_comparison_dialog(self):
         """Apre una finestra modale con il compendio comparativo avanzato Master-Detail di tutte le 9 razze 5e."""
-        top = tk.Toplevel(self)
+        parent_win = self.winfo_toplevel()
+        top = tk.Toplevel(parent_win)
         top.title("Compendio & Confronto Comparativo Razze (D&D 5e)")
         top.geometry("1060x650")
         top.minsize(920, 520)
         apply_modern_window_style(top)
-        top.transient(self)
+        top.transient(parent_win)
         top.grab_set()
 
         # Header Frame
@@ -813,12 +819,13 @@ class CharacterCreationWizard(tk.Toplevel):
     # -------------------------------------------------------------------------
     def open_classes_comparison_dialog(self):
         """Apre una finestra modale con la tabella comparativa di tutte le 12 classi 5e."""
-        top = tk.Toplevel(self)
+        parent_win = self.winfo_toplevel()
+        top = tk.Toplevel(parent_win)
         top.title("Tabella Comparativa delle 12 Classi (D&D 5e)")
         top.geometry("860x520")
         top.minsize(750, 400)
         apply_modern_window_style(top)
-        top.transient(self)
+        top.transient(parent_win)
         top.grab_set()
 
         header_frame = ttk.Frame(top, padding=(12, 10))
@@ -1682,6 +1689,51 @@ class CharacterCreationWizard(tk.Toplevel):
             except Exception:
                 pass
         try:
-            self.destroy()
+            self.close_wizard()
         except Exception:
             pass
+
+
+class CharacterCreationWizard(tk.Toplevel):
+    """
+    Finestra modale per la creazione guidata del personaggio (retrocompatibile al 100%).
+    Incapsula CharacterCreationWizardFrame delegando attributi e metodi.
+    """
+    def __init__(self, master, manager, on_complete_callback):
+        super().__init__(master)
+        self.title("Creazione Guidata Personaggio & Background (D&D 5e)")
+        self.minsize(700, 720)
+        self.geometry("760x780")
+        apply_modern_window_style(self)
+        self.transient(master)
+        self.grab_set()
+
+        self._frame_internal = CharacterCreationWizardFrame(
+            self,
+            manager=manager,
+            on_complete_callback=on_complete_callback,
+            on_close_callback=self.destroy,
+            is_embedded=False
+        )
+        self._frame_internal.pack(fill=tk.BOTH, expand=True)
+
+    def destroy(self):
+        try:
+            super().destroy()
+        except (tk.TclError, Exception):
+            pass
+
+    def __getattr__(self, name):
+        if name in ("_tclCommands", "_w", "_name", "tk", "master", "children"):
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+        if "_frame_internal" in self.__dict__ and hasattr(self.__dict__["_frame_internal"], name):
+            return getattr(self.__dict__["_frame_internal"], name)
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+    def __setattr__(self, name, value):
+        if name in ("_frame_internal",) or "_frame_internal" not in self.__dict__:
+            super().__setattr__(name, value)
+        elif hasattr(self.__dict__["_frame_internal"], name):
+            setattr(self.__dict__["_frame_internal"], name, value)
+        else:
+            super().__setattr__(name, value)

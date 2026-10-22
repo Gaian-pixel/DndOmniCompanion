@@ -295,12 +295,9 @@ class FeatureEditorDialog(tk.Toplevel):
         ttk.Button(btn_box, text="Annulla", command=self.destroy).pack(side=tk.RIGHT, padx=4)
 
 
-class CharacterSheetUI(tk.Toplevel):
-    def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, give_gold_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None, custom_spell_request_callback=None, request_currency_callback=None, request_item_callback=None, is_connected=False, request_journal_approval_callback=None):
-        super().__init__(master)
-        self.title(f"{_t('sheet_title')} - {character.name}")
-        self.minsize(700, 700)
-        apply_modern_window_style(self)
+class CharacterSheetFrame(ttk.Frame):
+    def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, give_gold_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None, custom_spell_request_callback=None, request_currency_callback=None, request_item_callback=None, is_connected=False, request_journal_approval_callback=None, on_close_callback=None, on_detach_callback=None, on_dock_callback=None, is_overlay=False, **kwargs):
+        super().__init__(master, **kwargs)
         self.character = character
         self.manager = manager
         self.on_save_callback = on_save_callback
@@ -325,11 +322,49 @@ class CharacterSheetUI(tk.Toplevel):
         self.container_quick_buttons = []
         self.spend_buttons = []
         self.container_filter_btns = {}
+        self.on_close_callback = on_close_callback
+        self.on_detach_callback = on_detach_callback
+        self.on_dock_callback = on_dock_callback
+        self.is_overlay = is_overlay
         
         self.setup_ui()
         self.load_data()
 
+    def close_sheet(self):
+        if self.on_close_callback:
+            self.on_close_callback()
+        else:
+            self.destroy()
+
     def setup_ui(self):
+        # Banner di controllo overlay/docking se overlay o con callback
+        if self.is_overlay or self.on_detach_callback or self.on_dock_callback:
+            overlay_header = tk.Frame(self, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=5)
+            overlay_header.pack(fill=tk.X, padx=10, pady=(6, 2))
+
+            tk.Label(
+                overlay_header,
+                text=f"📜 {_t('sheet_title')} • {self.character.name} (Livello {self.character.level} {self.character.char_class})",
+                font=FONT_BOLD,
+                bg=SURFACE_COLOR,
+                fg=ACCENT_GOLD
+            ).pack(side=tk.LEFT)
+
+            if self.on_close_callback:
+                btn_close = ttk.Button(overlay_header, text="✕ Chiudi (Esc)", command=self.close_sheet, style="Danger.TButton")
+                btn_close.pack(side=tk.RIGHT, padx=(4, 0))
+                ToolTip(btn_close, "Chiudi la vista scheda e torna alla mappa (Esc)")
+
+            if self.on_detach_callback:
+                btn_detach = ttk.Button(overlay_header, text="◱ Stacca Finestra", command=self.on_detach_callback, style="Tool.TButton")
+                btn_detach.pack(side=tk.RIGHT, padx=(4, 0))
+                ToolTip(btn_detach, "Apri la scheda in una finestra separata indipendente")
+
+            if self.on_dock_callback:
+                btn_dock = ttk.Button(overlay_header, text="◰ Riaggancia alla Mappa", command=self.on_dock_callback, style="Gold.TButton")
+                btn_dock.pack(side=tk.RIGHT, padx=(4, 0))
+                ToolTip(btn_dock, "Riaggancia la scheda all'interno della finestra principale del VTT")
+
         main_frame = ttk.Frame(self, padding=10)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -707,7 +742,7 @@ class CharacterSheetUI(tk.Toplevel):
         
         save_btn = ttk.Button(btn_frame, text=f"{_t('save')} (Ctrl+S)", command=self.save_character, style="Primary.TButton")
         save_btn.pack(side=tk.RIGHT, padx=5)
-        ttk.Button(btn_frame, text=_t("cancel"), command=self.destroy).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(btn_frame, text=_t("cancel"), command=self.close_sheet).pack(side=tk.RIGHT, padx=5)
         self.bind("<Control-s>", self.save_character)
         self.bind("<Control-S>", self.save_character)
 
@@ -3392,7 +3427,7 @@ class CharacterSheetUI(tk.Toplevel):
             if self.on_save_callback:
                 self.on_save_callback(self.character)
                 
-            self.destroy()
+            self.close_sheet()
         except ValueError:
             messagebox.showerror("Errore", "Assicurati di inserire valori numerici validi nei campi numerici.")
 
@@ -4128,6 +4163,95 @@ class CharacterSheetUI(tk.Toplevel):
         
         self.give_gold_callback(target, amount)
         self.currency_vars["MO"].set(max(0, cur_gold - amount))
+
+
+class CharacterSheetUI(tk.Toplevel):
+    """
+    Finestra modale / fluttuante per la Scheda Personaggio (retrocompatibile al 100%).
+    Incapsula CharacterSheetFrame delegando attributi e metodi, supportando al contempo
+    il riaggancio alla finestra principale (on_dock_callback).
+    """
+    def __init__(
+        self, 
+        master, 
+        character, 
+        manager, 
+        on_save_callback=None, 
+        roll_callback=None, 
+        trade_callback=None, 
+        give_gold_callback=None, 
+        players_list_callback=None, 
+        attack_callback=None, 
+        long_rest_callback=None, 
+        custom_spell_request_callback=None, 
+        request_currency_callback=None, 
+        request_item_callback=None, 
+        is_connected=False, 
+        request_journal_approval_callback=None,
+        on_dock_callback=None
+    ):
+        super().__init__(master)
+        self.title(f"{_t('sheet_title')} - {character.name}")
+        self.minsize(700, 700)
+        apply_modern_window_style(self)
+        self.on_dock_callback = on_dock_callback
+
+        self._sheet_frame_internal = CharacterSheetFrame(
+            self,
+            character=character,
+            manager=manager,
+            on_save_callback=on_save_callback,
+            roll_callback=roll_callback,
+            trade_callback=trade_callback,
+            give_gold_callback=give_gold_callback,
+            players_list_callback=players_list_callback,
+            attack_callback=attack_callback,
+            long_rest_callback=long_rest_callback,
+            custom_spell_request_callback=custom_spell_request_callback,
+            request_currency_callback=request_currency_callback,
+            request_item_callback=request_item_callback,
+            is_connected=is_connected,
+            request_journal_approval_callback=request_journal_approval_callback,
+            on_close_callback=self.destroy,
+            on_dock_callback=self._handle_dock if on_dock_callback else None,
+            is_overlay=False
+        )
+        self._sheet_frame_internal.pack(fill=tk.BOTH, expand=True)
+
+    def _handle_dock(self):
+        cb = self.on_dock_callback
+        self.destroy()
+        if cb:
+            cb()
+
+    @property
+    def sheet_frame(self):
+        return self._sheet_frame_internal
+
+    def destroy(self):
+        try:
+            super().destroy()
+        except (tk.TclError, Exception):
+            pass
+
+    def __getattr__(self, name):
+        if name in ("_tclCommands", "_w", "_name", "tk", "master", "children"):
+            raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+        if "_sheet_frame_internal" in self.__dict__ and hasattr(self.__dict__["_sheet_frame_internal"], name):
+            return getattr(self.__dict__["_sheet_frame_internal"], name)
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+
+    def __setattr__(self, name, value):
+        if name in ("_sheet_frame_internal", "on_dock_callback") or "_sheet_frame_internal" not in self.__dict__:
+            super().__setattr__(name, value)
+        elif hasattr(self.__dict__["_sheet_frame_internal"], name):
+            setattr(self.__dict__["_sheet_frame_internal"], name, value)
+        else:
+            super().__setattr__(name, value)
+
+
+CharacterSheetUI.open_export_character_dialog = CharacterSheetFrame.open_export_character_dialog
+CharacterSheetUI._generate_character_html = CharacterSheetFrame._generate_character_html
 
 
 class SpellEditorDialog(tk.Toplevel):

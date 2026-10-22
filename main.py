@@ -30,6 +30,9 @@ def start_app():
     pos_y = max(0, (root.winfo_screenheight() // 2) - (win_h // 2))
     root.geometry(f"{win_w}x{win_h}+{pos_x}+{pos_y}")
 
+    content_container = tk.Frame(root, bg=BG_COLOR)
+    content_container.pack(fill=tk.BOTH, expand=True)
+
     def launch_dm(campaign=None):
         for widget in root.winfo_children():
             widget.destroy()
@@ -37,31 +40,6 @@ def start_app():
         root.minsize(950, 650)
         from server.server import DM_GUI
         app = DM_GUI(root, initial_campaign=campaign)
-
-    def launch_dm_campaign_picker():
-        from server.campaign_editor_ui import CampaignSelectorDialog
-        def on_selected(camp):
-            launch_dm(campaign=camp)
-        dlg = CampaignSelectorDialog(root, on_select_callback=on_selected)
-
-    def open_campaign_builder():
-        from server.campaign_editor_ui import CampaignEditorDialog
-        dlg = CampaignEditorDialog(root)
-
-    def open_character_manager():
-        from client.character_manager import CharacterManager
-        from client.character_manager_ui import CharacterManagerDialog
-        def on_selected_to_play(char):
-            launch_player(initial_character=char)
-        dlg = CharacterManagerDialog(root, manager=CharacterManager(), on_select_callback=on_selected_to_play)
-
-    def open_character_wizard():
-        from client.character_manager import CharacterManager
-        from client.character_creation_wizard import CharacterCreationWizard
-        mgr = CharacterManager()
-        def on_created(new_char):
-            open_character_manager()
-        dlg = CharacterCreationWizard(root, manager=mgr, on_complete_callback=on_created)
 
     def launch_player(initial_character=None):
         for widget in root.winfo_children():
@@ -71,17 +49,91 @@ def start_app():
         from client.client import ClientGUI
         app = ClientGUI(root, initial_character=initial_character)
 
+    def show_campaign_selector_view():
+        for w in content_container.winfo_children():
+            w.destroy()
+        root.resizable(True, True)
+        root.minsize(820, 520)
+        root.geometry("880x580")
+        root.title(f"{_t('app_title')} • Libreria Campagne Preparate")
+        
+        from server.campaign_editor_ui import CampaignSelectorFrame
+        selector = CampaignSelectorFrame(
+            content_container,
+            on_select_callback=lambda camp: launch_dm(campaign=camp),
+            on_edit_callback=lambda camp: show_campaign_editor_view(campaign=camp),
+            on_close_callback=show_launcher_menu
+        )
+        selector.pack(fill=tk.BOTH, expand=True)
+
+    def show_campaign_editor_view(campaign=None):
+        for w in content_container.winfo_children():
+            w.destroy()
+        root.resizable(True, True)
+        root.minsize(980, 680)
+        root.geometry("1150x760")
+        c_title = campaign.name if campaign else "Nuova Campagna"
+        root.title(f"{_t('app_title')} • Editor Campagna: {c_title}")
+        
+        from server.campaign_editor_ui import CampaignEditorFrame
+        editor = CampaignEditorFrame(
+            content_container,
+            campaign=campaign,
+            on_save_callback=lambda c: None,
+            on_close_callback=show_launcher_menu
+        )
+        editor.pack(fill=tk.BOTH, expand=True)
+
+    def show_character_manager_view():
+        for w in content_container.winfo_children():
+            w.destroy()
+        root.resizable(True, True)
+        root.minsize(860, 560)
+        root.geometry("900x620")
+        root.title(f"{_t('app_title')} • {_t('char_manager_title')}")
+        
+        from client.character_manager import CharacterManager
+        from client.character_manager_ui import CharacterManagerFrame
+        mgr_view = CharacterManagerFrame(
+            content_container,
+            manager=CharacterManager(),
+            on_select_callback=lambda char: launch_player(initial_character=char),
+            on_close_callback=show_launcher_menu,
+            on_create_wizard_callback=show_character_wizard_view,
+            is_embedded=True
+        )
+        mgr_view.pack(fill=tk.BOTH, expand=True)
+
+    def show_character_wizard_view():
+        for w in content_container.winfo_children():
+            w.destroy()
+        root.resizable(True, True)
+        root.minsize(760, 700)
+        root.geometry("820x760")
+        root.title(f"{_t('app_title')} • Creazione Guidata Personaggio")
+        
+        from client.character_manager import CharacterManager
+        from client.character_creation_wizard import CharacterCreationWizardFrame
+        wizard_view = CharacterCreationWizardFrame(
+            content_container,
+            manager=CharacterManager(),
+            on_complete_callback=lambda new_char: show_character_manager_view(),
+            on_close_callback=show_launcher_menu,
+            is_embedded=True
+        )
+        wizard_view.pack(fill=tk.BOTH, expand=True)
+
     def on_toggle_lang():
         toggle_language()
-        render_ui()
+        show_launcher_menu()
 
-    content_container = tk.Frame(root, bg=BG_COLOR)
-    content_container.pack(fill=tk.BOTH, expand=True)
-
-    def render_ui():
+    def show_launcher_menu():
         for w in content_container.winfo_children():
             w.destroy()
 
+        root.resizable(False, False)
+        root.minsize(640, 500)
+        root.geometry("640x500")
         root.title(f"{_t('app_title')} • Launcher")
 
         # --- HEADER SECTION ---
@@ -145,8 +197,8 @@ def start_app():
 
         btn_dm_box = tk.Frame(dm_card, bg=SURFACE_COLOR)
         btn_dm_box.pack(fill=tk.X, side=tk.BOTTOM)
-        ttk.Button(btn_dm_box, text=_t("launcher_dm_btn_camp"), command=launch_dm_campaign_picker, style="Gold.TButton").pack(fill=tk.X, pady=(0, 4))
-        ttk.Button(btn_dm_box, text=_t("launcher_dm_btn_edit"), command=open_campaign_builder).pack(fill=tk.X, pady=(0, 4))
+        ttk.Button(btn_dm_box, text=_t("launcher_dm_btn_camp"), command=show_campaign_selector_view, style="Gold.TButton").pack(fill=tk.X, pady=(0, 4))
+        ttk.Button(btn_dm_box, text=_t("launcher_dm_btn_edit"), command=lambda: show_campaign_editor_view(None)).pack(fill=tk.X, pady=(0, 4))
         ttk.Button(btn_dm_box, text=_t("launcher_dm_btn_quick"), command=lambda: launch_dm(None)).pack(fill=tk.X)
 
         # CARD 2: GIOCATORE
@@ -167,16 +219,16 @@ def start_app():
 
         btn_pl_box = tk.Frame(player_card, bg=SURFACE_COLOR)
         btn_pl_box.pack(fill=tk.X, side=tk.BOTTOM)
-        ttk.Button(btn_pl_box, text=_t("launcher_player_btn_manage_chars"), command=open_character_manager, style="Gold.TButton").pack(fill=tk.X, pady=(0, 4))
-        ttk.Button(btn_pl_box, text=_t("launcher_player_btn_create_char"), command=open_character_wizard).pack(fill=tk.X, pady=(0, 4))
-        ttk.Button(btn_pl_box, text=_t("launcher_player_btn_join"), command=launch_player, style="Primary.TButton").pack(fill=tk.X)
+        ttk.Button(btn_pl_box, text=_t("launcher_player_btn_manage_chars"), command=show_character_manager_view, style="Gold.TButton").pack(fill=tk.X, pady=(0, 4))
+        ttk.Button(btn_pl_box, text=_t("launcher_player_btn_create_char"), command=show_character_wizard_view).pack(fill=tk.X, pady=(0, 4))
+        ttk.Button(btn_pl_box, text=_t("launcher_player_btn_join"), command=lambda: launch_player(None), style="Primary.TButton").pack(fill=tk.X)
 
         # --- FOOTER ---
         footer = tk.Frame(content_container, bg=BG_COLOR)
         footer.pack(fill=tk.X, padx=25, pady=(8, 12))
         tk.Label(footer, text=_t("launcher_footer"), font=("Segoe UI", 8), bg=BG_COLOR, fg="#5C5F66").pack()
 
-    render_ui()
+    show_launcher_menu()
     root.mainloop()
 
 if __name__ == "__main__":

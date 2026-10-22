@@ -269,11 +269,18 @@ class ClientGUI:
         ToolTip(self.btn_fullscreen, lambda: _t("menu_fullscreen"))
         
         # --- COLONNA 1: MAPPA ---
-        map_outer_frame = ttk.Frame(main_frame)
-        map_outer_frame.grid(row=0, column=1, sticky="nsew", padx=4)
+        self.map_outer_frame = ttk.Frame(main_frame)
+        self.map_outer_frame.grid(row=0, column=1, sticky="nsew", padx=4)
+        map_outer_frame = self.map_outer_frame
         
-        self.map_canvas = HexMapCanvas(map_outer_frame, bg="#121316")
+        self.map_canvas = HexMapCanvas(self.map_outer_frame, bg="#121316")
         self.map_canvas.pack(fill=tk.BOTH, expand=True)
+
+        # Overlay Centro-Schermo per la Scheda Personaggio (Mono-Finestra)
+        self.center_overlay_frame = tk.Frame(self.map_outer_frame, bg=BG_COLOR, highlightbackground=ACCENT_GOLD, highlightthickness=2)
+        self.stats_overlay_visible = False
+        self.stats_detached_window = None
+        self.stats_sheet_frame = None
         self.aoe_mode = False
         self.aoe_params = None
         self.map_canvas.set_on_click_callback(self.on_hex_click)
@@ -592,9 +599,11 @@ class ClientGUI:
         # Scorciatoia universale Command Palette (Ctrl+K)
         self.master.bind("<Control-k>", self.open_command_palette)
         self.master.bind("<Control-K>", self.open_command_palette)
-        # Scorciatoia Schermo Intero (F11 / Esc)
+        # Scorciatoia Schermo Intero (F11 / Esc) & Scheda PG (C)
         self.master.bind("<F11>", self.toggle_fullscreen)
-        self.master.bind("<Escape>", self.exit_fullscreen)
+        self.master.bind("<Escape>", self._on_key_escape)
+        self.master.bind("<c>", self._on_key_c)
+        self.master.bind("<C>", self._on_key_c)
         # Scorciatoie Navigazione Mappa (Spazio, H, P)
         self.master.bind("<KeyPress-space>", self._on_space_key_press)
         self.master.bind("<KeyRelease-space>", self._on_space_key_release)
@@ -3604,7 +3613,32 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                 msg = f"🎲 [Offline] {reason}"
             self.log_to_chat(msg, "Globale", sender="Offline", color="#5C7CFA")
 
+    def _on_key_c(self, event):
+        if event.widget and isinstance(event.widget, (tk.Entry, ttk.Entry, tk.Text, ttk.Combobox, scrolledtext.ScrolledText)):
+            return
+        self.open_stats_dialog()
+
+    def _on_key_escape(self, event):
+        if getattr(self, "stats_overlay_visible", False):
+            self.hide_stats_overlay()
+            return "break"
+        return self.exit_fullscreen(event)
+
     def open_stats_dialog(self):
+        # Se c'è già una finestra staccata aperta, portala in primo piano
+        if getattr(self, "stats_detached_window", None) and self.stats_detached_window.winfo_exists():
+            self.stats_detached_window.lift()
+            self.stats_detached_window.focus_force()
+            return
+
+        # Se l'overlay centro-schermo è già visibile, agisce da toggle e lo chiude
+        if getattr(self, "stats_overlay_visible", False):
+            self.hide_stats_overlay()
+            return
+
+        self.show_stats_overlay()
+
+    def show_stats_overlay(self):
         if not self.active_character:
             self.refresh_offline_characters()
             if not self.active_character:
@@ -3612,18 +3646,76 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                     self.open_create_character_dialog()
                 return
 
-        self.stats_window = CharacterSheetUI(self.master, self.active_character, self.character_manager, 
-                         on_save_callback=self.on_character_saved, 
-                         roll_callback=self.do_roll, 
-                         trade_callback=self.do_trade,
-                         give_gold_callback=self.give_gold,
-                         attack_callback=self.on_attack_action, 
-                         players_list_callback=self.get_player_names,
-                         custom_spell_request_callback=self.request_custom_spell,
-                         request_currency_callback=self.request_currency,
-                         request_item_callback=self.request_item_approval,
-                         is_connected=self.is_connected,
-                         request_journal_approval_callback=self.request_journal_approval)
+        for child in self.center_overlay_frame.winfo_children():
+            child.destroy()
+
+        from client.character_sheet_ui import CharacterSheetFrame
+        self.stats_sheet_frame = CharacterSheetFrame(
+            self.center_overlay_frame,
+            character=self.active_character,
+            manager=self.character_manager,
+            on_save_callback=self.on_character_saved,
+            roll_callback=self.do_roll,
+            trade_callback=self.do_trade,
+            give_gold_callback=self.give_gold,
+            attack_callback=self.on_attack_action,
+            players_list_callback=self.get_player_names,
+            custom_spell_request_callback=self.request_custom_spell,
+            request_currency_callback=self.request_currency,
+            request_item_callback=self.request_item_approval,
+            is_connected=self.is_connected,
+            request_journal_approval_callback=self.request_journal_approval,
+            on_close_callback=self.hide_stats_overlay,
+            on_detach_callback=self.detach_character_sheet,
+            is_overlay=True
+        )
+        self.stats_sheet_frame.pack(fill=tk.BOTH, expand=True)
+        self.stats_window = self.stats_sheet_frame
+
+        self.center_overlay_frame.place(relx=0.01, rely=0.01, relwidth=0.98, relheight=0.98)
+        self.center_overlay_frame.lift()
+        self.stats_overlay_visible = True
+
+    def hide_stats_overlay(self):
+        self.center_overlay_frame.place_forget()
+        self.stats_overlay_visible = False
+        if hasattr(self, 'stats_sheet_frame') and self.stats_sheet_frame:
+            try:
+                self.stats_sheet_frame.save_character()
+            except Exception:
+                pass
+
+    def detach_character_sheet(self):
+        self.hide_stats_overlay()
+        from client.character_sheet_ui import CharacterSheetUI
+        self.stats_detached_window = CharacterSheetUI(
+            self.master,
+            character=self.active_character,
+            manager=self.character_manager,
+            on_save_callback=self.on_character_saved,
+            roll_callback=self.do_roll,
+            trade_callback=self.do_trade,
+            give_gold_callback=self.give_gold,
+            attack_callback=self.on_attack_action,
+            players_list_callback=self.get_player_names,
+            custom_spell_request_callback=self.request_custom_spell,
+            request_currency_callback=self.request_currency,
+            request_item_callback=self.request_item_approval,
+            is_connected=self.is_connected,
+            request_journal_approval_callback=self.request_journal_approval,
+            on_dock_callback=self.dock_character_sheet
+        )
+        self.stats_window = self.stats_detached_window
+
+    def dock_character_sheet(self):
+        if getattr(self, "stats_detached_window", None):
+            try:
+                if self.stats_detached_window.winfo_exists():
+                    self.stats_detached_window.destroy()
+            except Exception:
+                pass
+            self.stats_detached_window = None
+        self.show_stats_overlay()
 
     def do_trade(self, item, target_name):
         if self.is_connected:
