@@ -21,7 +21,7 @@ from common.theme import (
     FONT_SMALL,
     FONT_BADGE
 )
-from common.classes_data import CLASSES, get_class_info, get_class_names
+from common.classes_data import CLASSES, get_class_info, get_class_names, CLASS_CATEGORIES, get_classes_by_category
 from common.backgrounds_data import (
     BACKGROUNDS,
     PERSONAL_QUESTS,
@@ -270,22 +270,131 @@ class CharacterCreationWizard(tk.Toplevel):
     # -------------------------------------------------------------------------
     # PASSO 2: CLASSE
     # -------------------------------------------------------------------------
+    def open_classes_comparison_dialog(self):
+        """Apre una finestra modale con la tabella comparativa di tutte le 12 classi 5e."""
+        top = tk.Toplevel(self)
+        top.title("Tabella Comparativa delle 12 Classi (D&D 5e)")
+        top.geometry("860x520")
+        top.minsize(750, 400)
+        apply_modern_window_style(top)
+        top.transient(self)
+        top.grab_set()
+
+        header_frame = ttk.Frame(top, padding=(12, 10))
+        header_frame.pack(fill=tk.X)
+        ttk.Label(header_frame, text="📊 Confronto Rapido delle Classi", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(
+            header_frame,
+            text="Confronta Dadi Vita, Ruolo Tattico, Caratteristiche Primarie e Complessità per scegliere l'eroe perfetto. Fai doppio clic su una riga per selezionarla.",
+            style="Muted.TLabel"
+        ).pack(anchor="w", pady=(2, 0))
+
+        # Tabella Treeview
+        columns = ("classe", "categoria", "ruolo", "hd", "primaria", "tiri_salvezza", "complessita")
+        tree = ttk.Treeview(top, columns=columns, show="headings", height=13)
+        tree.heading("classe", text="Classe")
+        tree.heading("categoria", text="Categoria")
+        tree.heading("ruolo", text="Ruolo nel Party")
+        tree.heading("hd", text="Dado Vita")
+        tree.heading("primaria", text="Caratteristica Primaria")
+        tree.heading("tiri_salvezza", text="Tiri Salvezza")
+        tree.heading("complessita", text="Complessità")
+
+        tree.column("classe", width=95, anchor="center")
+        tree.column("categoria", width=90, anchor="center")
+        tree.column("ruolo", width=220, anchor="w")
+        tree.column("hd", width=75, anchor="center")
+        tree.column("primaria", width=140, anchor="w")
+        tree.column("tiri_salvezza", width=110, anchor="center")
+        tree.column("complessita", width=110, anchor="w")
+
+        for c_name, c_info in CLASSES.items():
+            comp_short = c_info.get("complexity", "").split("(")[0].strip()
+            tree.insert("", tk.END, iid=c_name, values=(
+                c_name,
+                c_info.get("category", "Marziale"),
+                c_info.get("role", ""),
+                f"d{c_info.get('hd', 8)}",
+                c_info.get("primary_stat", ""),
+                c_info.get("saving_throws", ""),
+                comp_short
+            ))
+
+        scroll = ttk.Scrollbar(top, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=scroll.set)
+        
+        table_frame = ttk.Frame(top, padding=(12, 0))
+        table_frame.pack(fill=tk.BOTH, expand=True)
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        def _select_and_close():
+            sel = tree.selection()
+            if sel:
+                chosen = sel[0]
+                if hasattr(self, "class_var"):
+                    self.class_var.set(chosen)
+                top.destroy()
+
+        tree.bind("<Double-1>", lambda e: _select_and_close())
+
+        btn_bar = ttk.Frame(top, style="Surface.TFrame", padding=(12, 10))
+        btn_bar.pack(fill=tk.X, side=tk.BOTTOM)
+        
+        ttk.Button(btn_bar, text="Annulla", command=top.destroy, style="Dark.TButton").pack(side=tk.LEFT)
+        ttk.Button(btn_bar, text="✓ Scegli Questa Classe", command=_select_and_close, style="Primary.TButton").pack(side=tk.RIGHT)
+
     def build_step_class(self, parent=None):
         parent = parent or self.container
         
         # Header descrittivo
         header_frame = ttk.Frame(parent)
-        header_frame.pack(fill=tk.X, pady=(0, 8))
+        header_frame.pack(fill=tk.X, pady=(0, 6))
         
         ttk.Label(header_frame, text="Passo 2: Scegli la Classe", style="Title.TLabel").pack(anchor="center")
         ttk.Label(
             header_frame,
-            text="La classe definisce la vocazione, le capacità marziali o magiche, i privilegi speciali e il ruolo tattico del tuo avventuriero.",
+            text="La classe definisce la vocazione, le abilità marziali o magiche, i privilegi speciali e il ruolo tattico del tuo avventuriero.",
             style="Muted.TLabel",
             justify=tk.CENTER,
             wraplength=640
         ).pack(anchor="center", pady=(2, 0))
+
+        # Barra Filtri di Categoria & Confronto
+        filter_bar = ttk.Frame(parent, style="Surface.TFrame", padding=(8, 5))
+        filter_bar.pack(fill=tk.X, pady=(0, 8))
         
+        ttk.Label(filter_bar, text="Filtra:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT, padx=(5, 6))
+        
+        self.active_category_var = tk.StringVar(value="Tutte")
+        cat_buttons = {}
+
+        def _filter_classes(cat):
+            self.active_category_var.set(cat)
+            filtered_names = get_classes_by_category(cat)
+            cb["values"] = filtered_names
+            for c_name, btn in cat_buttons.items():
+                if c_name == cat:
+                    btn.configure(style="Primary.TButton")
+                else:
+                    btn.configure(style="Dark.TButton")
+            # Se la classe corrente non è nel filtro, seleziona la prima
+            if self.class_var.get() not in filtered_names and filtered_names:
+                self.class_var.set(filtered_names[0])
+
+        for cat in CLASS_CATEGORIES:
+            btn = ttk.Button(
+                filter_bar,
+                text=cat,
+                command=lambda c=cat: _filter_classes(c),
+                style="Primary.TButton" if cat == "Tutte" else "Dark.TButton"
+            )
+            btn.pack(side=tk.LEFT, padx=3)
+            cat_buttons[cat] = btn
+
+        btn_compare = ttk.Button(filter_bar, text="📊 Tabella Comparativa", command=self.open_classes_comparison_dialog, style="Gold.TButton")
+        btn_compare.pack(side=tk.RIGHT, padx=5)
+
         # Barra di selezione classe con pulsanti rapido precedente/successivo e badge ruolo
         sel_frame = ttk.Frame(parent, style="Surface.TFrame", padding=(10, 8))
         sel_frame.pack(fill=tk.X, pady=(0, 10))
@@ -301,13 +410,15 @@ class CharacterCreationWizard(tk.Toplevel):
         
         def _prev_class():
             c = self.class_var.get()
-            idx = class_list.index(c) if c in class_list else 0
-            self.class_var.set(class_list[(idx - 1) % len(class_list)])
+            cur_values = list(cb["values"]) if cb["values"] else class_list
+            idx = cur_values.index(c) if c in cur_values else 0
+            self.class_var.set(cur_values[(idx - 1) % len(cur_values)])
             
         def _next_class():
             c = self.class_var.get()
-            idx = class_list.index(c) if c in class_list else 0
-            self.class_var.set(class_list[(idx + 1) % len(class_list)])
+            cur_values = list(cb["values"]) if cb["values"] else class_list
+            idx = cur_values.index(c) if c in cur_values else 0
+            self.class_var.set(cur_values[(idx + 1) % len(cur_values)])
 
         btn_prev = ttk.Button(sel_frame, text="◀ Prec.", width=8, command=_prev_class, style="Dark.TButton")
         btn_prev.pack(side=tk.LEFT, padx=3)
@@ -329,11 +440,17 @@ class CharacterCreationWizard(tk.Toplevel):
         top_frame = ttk.Frame(card, style="Surface.TFrame")
         top_frame.pack(fill=tk.X, pady=(0, 6))
         
-        name_lbl = ttk.Label(top_frame, text="", font=("Georgia", 16, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel")
-        name_lbl.pack(anchor="w")
+        title_row = ttk.Frame(top_frame, style="Surface.TFrame")
+        title_row.pack(fill=tk.X)
+        
+        name_lbl = ttk.Label(title_row, text="", font=("Georgia", 16, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel")
+        name_lbl.pack(side=tk.LEFT)
+        
+        complexity_lbl = ttk.Label(title_row, text="", style="Badge.TLabel")
+        complexity_lbl.pack(side=tk.RIGHT)
         
         tagline_lbl = ttk.Label(top_frame, text="", font=("Segoe UI", 10, "italic"), foreground=TEXT_COLOR, wraplength=640, justify=tk.LEFT, style="Surface.TLabel")
-        tagline_lbl.pack(anchor="w", pady=(2, 6))
+        tagline_lbl.pack(anchor="w", pady=(3, 6))
         
         ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
         
@@ -372,6 +489,30 @@ class CharacterCreationWizard(tk.Toplevel):
         prof_val_lbl.pack(side=tk.LEFT, padx=4)
 
         ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
+
+        # Sezione: Creazione Rapida & Priorità Caratteristiche (Quick Build)
+        quick_build_box = ttk.Frame(card, style="Surface.TFrame", padding=(8, 6))
+        quick_build_box.pack(fill=tk.X, pady=(2, 6))
+        ttk.Label(quick_build_box, text="💡 Consiglio di Creazione Rapida (per il Passo 3):", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD_LIGHT, style="Surface.TLabel").pack(anchor="w")
+        quick_build_lbl = ttk.Label(quick_build_box, text="", font=("Segoe UI", 9), wraplength=620, justify=tk.LEFT, style="Surface.TLabel")
+        quick_build_lbl.pack(anchor="w", padx=(10, 0), pady=(1, 2))
+
+        # Sezione: Dotazione & Equipaggiamento Iniziale (Starter Kit)
+        gear_box = ttk.Frame(card, style="Surface.TFrame", padding=(8, 6))
+        gear_box.pack(fill=tk.X, pady=(2, 6))
+        ttk.Label(gear_box, text="🎒 Dotazione Iniziale di Classe (fornita all'inizio):", font=("Segoe UI", 9, "bold"), foreground="#51CF66", style="Surface.TLabel").pack(anchor="w")
+        gear_lbl = ttk.Label(gear_box, text="", font=("Segoe UI", 9), wraplength=620, justify=tk.LEFT, style="Surface.TLabel")
+        gear_lbl.pack(anchor="w", padx=(10, 0), pady=(1, 2))
+
+        # Sezione opzionale: Magia & Incantesimi Iniziali
+        magic_box = ttk.Frame(card, style="Surface.TFrame", padding=(8, 6))
+        magic_box.pack(fill=tk.X, pady=(2, 6))
+        magic_title_lbl = ttk.Label(magic_box, text="✨ Magia & Incantesimi Iniziali (Livello 1):", font=("Segoe UI", 9, "bold"), foreground="#4DABF7", style="Surface.TLabel")
+        magic_title_lbl.pack(anchor="w")
+        magic_lbl = ttk.Label(magic_box, text="", font=("Segoe UI", 9), wraplength=620, justify=tk.LEFT, style="Surface.TLabel")
+        magic_lbl.pack(anchor="w", padx=(10, 0), pady=(1, 2))
+
+        ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
         
         # Sezione 1: Panoramica Narrativa
         ttk.Label(card, text="📖 Panoramica & Identità Narrativa", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
@@ -405,20 +546,32 @@ class CharacterCreationWizard(tk.Toplevel):
             if c in CLASSES:
                 info = CLASSES[c]
                 name_lbl.config(text=f"Classe: {c}")
-                role_badge_lbl.config(text=info["role"])
-                tagline_lbl.config(text=f'"{info["tagline"]}"')
+                role_badge_lbl.config(text=info.get("role", ""))
+                complexity_lbl.config(text=info.get("complexity", "").split("(")[0].strip())
+                tagline_lbl.config(text=f'"{info.get("tagline", "")}"')
                 hd_val_lbl.config(text=f"d{info['hd']} (PF al 1°: {info['hd']} + mod. COS)")
-                prim_val_lbl.config(text=info["primary_stat"])
-                st_val_lbl.config(text=info["saving_throws"])
-                prof_val_lbl.config(text=f"{info['armor_prof']}; {info['weapon_prof']}")
-                overview_lbl.config(text=info["overview"])
-                playstyle_lbl.config(text=info["playstyle"])
-                subclasses_lbl.config(text="\n".join(f"• {sub}" for sub in info["subclasses_preview"]))
+                prim_val_lbl.config(text=info.get("primary_stat", ""))
+                st_val_lbl.config(text=info.get("saving_throws", ""))
+                prof_val_lbl.config(text=f"{info.get('armor_prof', '')}; {info.get('weapon_prof', '')}")
+                quick_build_lbl.config(text=info.get("quick_build", ""))
+                gear_lbl.config(text=info.get("starter_gear", ""))
+                
+                # Box magia
+                spells = info.get("starter_spells")
+                if spells:
+                    magic_box.pack(fill=tk.X, pady=(2, 6))
+                    magic_lbl.config(text=spells)
+                else:
+                    magic_box.pack_forget()
+
+                overview_lbl.config(text=info.get("overview", ""))
+                playstyle_lbl.config(text=info.get("playstyle", ""))
+                subclasses_lbl.config(text="\n".join(f"• {sub}" for sub in info.get("subclasses_preview", [])))
                 
                 # Rigenera blocchi privilegi di livello 1
                 for w in features_container.winfo_children():
                     w.destroy()
-                for feat_name, feat_desc in info["features_lvl1"]:
+                for feat_name, feat_desc in info.get("features_lvl1", []):
                     f_row = ttk.Frame(features_container, style="Surface.TFrame")
                     f_row.pack(fill=tk.X, pady=2)
                     ttk.Label(f_row, text=f"• {feat_name}:", font=("Segoe UI", 9, "bold"), foreground="#F59E0B", style="Surface.TLabel").pack(anchor="w")
@@ -434,7 +587,6 @@ class CharacterCreationWizard(tk.Toplevel):
 
         self.class_var.trace_add("write", update_desc)
         update_desc()
-
     # -------------------------------------------------------------------------
     # PASSO 3: CARATTERISTICHE (STANDARD ARRAY)
     # -------------------------------------------------------------------------

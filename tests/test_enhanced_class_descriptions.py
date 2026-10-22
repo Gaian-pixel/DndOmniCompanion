@@ -3,11 +3,13 @@
 Test completi per le descrizioni arricchite delle Classi di D&D 5e:
 - Completezza e autenticità del catalogo delle 12 Classi in common/classes_data.py
 - Validità dei Dadi Vita, Tiri Salvezza, Ruolo, Competenze e Privilegi di Livello 1
+- Campi arricchiti: Complessità, Creazione Rapida (Quick Build), Dotazione Iniziale, Magia
+- Filtri di categoria e funzione get_classes_by_category
 - Formattazione e consistenza della stringa retrocompatibile 'desc'
 - Funzioni get_class_info e get_class_names
 - Retrocompatibilità dell'import da client.character_creation_wizard
 - Funzionamento del Passo 2 (Scelta Classe) del CharacterCreationWizard con canvas scorrevole,
-  pulsanti di navigazione rapida e aggiornamento reattivo dei dettagli.
+  filtri a pillola, tabella comparativa modale, pulsanti di navigazione rapida e aggiornamento reattivo dei dettagli.
 """
 
 import time
@@ -16,7 +18,13 @@ from unittest.mock import MagicMock, patch
 import tkinter as tk
 
 from common.theme import setup_theme
-from common.classes_data import CLASSES, get_class_info, get_class_names
+from common.classes_data import (
+    CLASSES,
+    CLASS_CATEGORIES,
+    get_class_info,
+    get_class_names,
+    get_classes_by_category
+)
 from client.character_manager import CharacterManager, Character
 from client.character_creation_wizard import CharacterCreationWizard, CLASSES as WIZARD_CLASSES
 
@@ -54,6 +62,37 @@ class TestEnhancedClassDescriptions(unittest.TestCase):
             self.assertIn(cls_name, CLASSES, f"Classe {cls_name} mancante nel dizionario CLASSES")
             self.assertIn(cls_name, names, f"Classe {cls_name} mancante in get_class_names()")
 
+    def test_class_categories_and_filtering(self):
+        """Verifica i filtri di categoria per raggruppare le classi per archetipo di gioco."""
+        self.assertIn("Tutte", CLASS_CATEGORIES)
+        self.assertIn("⚔️ Marziali", CLASS_CATEGORIES)
+        self.assertIn("🔮 Incantatori", CLASS_CATEGORIES)
+        self.assertIn("🛡️ Ibridi", CLASS_CATEGORIES)
+        self.assertIn("🗡️ Esperti", CLASS_CATEGORIES)
+
+        marziali = get_classes_by_category("⚔️ Marziali")
+        self.assertIn("Guerriero", marziali)
+        self.assertIn("Barbaro", marziali)
+        self.assertIn("Monaco", marziali)
+
+        incantatori = get_classes_by_category("🔮 Incantatori")
+        self.assertIn("Mago", incantatori)
+        self.assertIn("Chierico", incantatori)
+        self.assertIn("Bardo", incantatori)
+        self.assertIn("Stregone", incantatori)
+        self.assertIn("Warlock", incantatori)
+        self.assertIn("Druido", incantatori)
+
+        ibridi = get_classes_by_category("🛡️ Ibridi")
+        self.assertIn("Paladino", ibridi)
+        self.assertIn("Ranger", ibridi)
+
+        esperti = get_classes_by_category("🗡️ Esperti")
+        self.assertIn("Ladro", esperti)
+
+        tutte = get_classes_by_category("Tutte")
+        self.assertEqual(len(tutte), 12)
+
     def test_class_data_fields_completeness(self):
         """Verifica che ogni classe contenga tutti i campi strutturati e descrizioni ricche."""
         expected_hit_dice = {
@@ -84,6 +123,12 @@ class TestEnhancedClassDescriptions(unittest.TestCase):
             self.assertTrue(len(info["weapon_prof"]) > 0, f"Competenze armi mancanti per {cls_name}")
             self.assertTrue(len(info["skills_info"]) > 5, f"Info abilità mancanti per {cls_name}")
             
+            # Nuovi campi arricchiti: Complessità, Quick Build, Dotazione Iniziale
+            self.assertTrue(len(info.get("complexity", "")) > 5, f"Complessità mancante per {cls_name}")
+            self.assertTrue(len(info.get("quick_build", "")) > 20, f"Quick build mancante per {cls_name}")
+            self.assertTrue(len(info.get("starter_gear", "")) > 15, f"Dotazione iniziale mancante per {cls_name}")
+            self.assertIn(info.get("category"), ["Marziale", "Incantatore", "Ibrido", "Esperto"])
+
             # Panoramica narrativa ricca (> 100 caratteri)
             self.assertTrue(len(info["overview"]) >= 100, f"Panoramica troppo breve per {cls_name}")
             
@@ -106,6 +151,8 @@ class TestEnhancedClassDescriptions(unittest.TestCase):
             self.assertIn("Privilegi di Livello 1", desc)
             self.assertIn("Stile di Gioco", desc)
             self.assertIn("Archetipi Futuri", desc)
+            self.assertIn("Dotazione Iniziale", desc)
+            self.assertIn("Creazione Rapida", desc)
 
     def test_get_class_info_and_fallback(self):
         """Verifica il comportamento di get_class_info con classi note e fallback."""
@@ -121,8 +168,8 @@ class TestEnhancedClassDescriptions(unittest.TestCase):
         """Verifica che l'import diretto di CLASSES dal wizard rimanga identico."""
         self.assertIs(WIZARD_CLASSES, CLASSES)
 
-    def test_wizard_step_class_ui_interaction(self):
-        """Verifica l'interfaccia interattiva del Passo 2 (Classe) nel Wizard."""
+    def test_wizard_step_class_ui_interaction_and_filter(self):
+        """Verifica l'interfaccia interattiva del Passo 2 (Classe) nel Wizard e i filtri di categoria."""
         if not self.root:
             self.skipTest("Tkinter non disponibile in ambiente headless")
             
@@ -147,6 +194,14 @@ class TestEnhancedClassDescriptions(unittest.TestCase):
         wiz.class_var.set("Barbaro")
         self.assertEqual(wiz.char_data["char_class"], "Barbaro")
         
+        # Apertura della finestra modale di confronto rapido
+        wiz.open_classes_comparison_dialog()
+        # Verifichiamo che la finestra modale sia stata aperta e poi la chiudiamo
+        top_windows = [w for w in wiz.winfo_children() if isinstance(w, tk.Toplevel)]
+        self.assertTrue(len(top_windows) > 0)
+        for tw in top_windows:
+            tw.destroy()
+
         # Passiamo al passo successivo
         wiz.next_step()
         self.assertEqual(wiz.current_step, 2)

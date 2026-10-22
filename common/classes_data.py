@@ -2,21 +2,36 @@
 """
 Catalogo completo e autentico delle 12 Classi di D&D 5e (SRD & Manuale del Giocatore):
 - Descrizioni narrative approfondite ed evocative
-- Ruolo tattico nel gruppo (Party Role)
+- Ruolo tattico nel gruppo (Party Role) e Grado di Complessità (Guida Neofiti/Esperti)
 - Dadi Vita e calcolo PF al 1° livello
 - Caratteristiche primarie e Tiri Salvezza con competenza
 - Competenze complete (Armature, Armi, Strumenti, Abilità di classe)
 - Privilegi chiave di 1° Livello dettagliati con regole 5e
 - Guida allo stile di gioco e consigli tattici (combattimento ed esplorazione)
+- Consiglio di Creazione Rapida (Quick Build) per assegnazione caratteristiche
+- Dotazione & Equipaggiamento iniziale (Starter Kit)
+- Dettaglio Magia & Incantesimi iniziali (per classi incantatrici)
 - Anteprima degli archetipi e delle sottoclassi future
 """
 
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Optional
+
+
+CLASS_CATEGORIES = ["Tutte", "⚔️ Marziali", "🔮 Incantatori", "🛡️ Ibridi", "🗡️ Esperti"]
+
+CATEGORY_MAP = {
+    "⚔️ Marziali": "Marziale",
+    "🔮 Incantatori": "Incantatore",
+    "🛡️ Ibridi": "Ibrido",
+    "🗡️ Esperti": "Esperto"
+}
 
 
 CLASSES: Dict[str, Dict[str, Any]] = {
     "Barbaro": {
         "hd": 12,
+        "category": "Marziale",
+        "complexity": "⭐ Principiante (Azione diretta, salute colossale, gestione intuitiva dell'Ira)",
         "role": "🛡️ Tank Primario & Danni da Mischia (Striker)",
         "tagline": "Un fiero guerriero primordiale alimentato da una furia selvaggia che sfida la morte e abbatte ogni ostacolo.",
         "primary_stat": "Forza (Attacco & Danni), Costituzione (Punti Ferita & CA)",
@@ -25,6 +40,9 @@ CLASSES: Dict[str, Dict[str, Any]] = {
         "weapon_prof": "Armi semplici, armi marziali",
         "tools_prof": "Nessuno",
         "skills_info": "2 a scelta tra Atletica, Addestrare Animali, Intimidire, Natura, Percezione, Sopravvivenza",
+        "quick_build": "Assegna il tuo 15 a Forza e il 14 a Costituzione. Metti il 13 a Destrezza (per alzare la CA senz'armatura) e lascia l'8 a Intelligenza.",
+        "starter_gear": "Ascia Bipenne (1d12), 2 Asce da Lancio, 4 Giavellotti, Zaino da Esploratore, 10 Monete d'Oro (Nessuna armatura necessaria)",
+        "starter_spells": None,
         "overview": (
             "Dalle gelide tundre del nord ai recessi delle giungle primordiali, i barbari incarnano la potenza indomita "
             "della terra. In battaglia non si affidano alla fredda tecnica accademica, ma risvegliano una furia ancestrale "
@@ -59,6 +77,8 @@ CLASSES: Dict[str, Dict[str, Any]] = {
     },
     "Bardo": {
         "hd": 8,
+        "category": "Incantatore",
+        "complexity": "⭐⭐⭐ Avanzato (Incantatore versatile a tutto tondo, gestione dadi Ispirazione e magie di controllo)",
         "role": "🎭 Supporto d'Eccellenza, Buffer/Debuffer, Faccia del Party & Factotum",
         "tagline": "Maestro della parola, della canzone e della magia sottile, capace di tessere incantesimi dalle melodie del multiverso.",
         "primary_stat": "Carisma (Incantesimi & Abilità Sociali), Destrezza (CA & Armi Accurate)",
@@ -67,6 +87,9 @@ CLASSES: Dict[str, Dict[str, Any]] = {
         "weapon_prof": "Armi semplici, balestre a mano, spade lunghe, stocchi, spade corte",
         "tools_prof": "3 strumenti musicali a scelta",
         "skills_info": "3 abilità qualsiasi a scelta (massima versatilità di personalizzazione)",
+        "quick_build": "Assegna il tuo 15 a Carisma e il 14 a Destrezza. Metti il 13 a Costituzione (per i tiri Concentrazione) e lascia l'8 a Forza.",
+        "starter_gear": "Corazza di Cuoio (CA 11+DES), Stocco (1d8 accurata), Pugnale, Liuto (Focus Arcano), Zaino da Intrattenitore, 15 Monete d'Oro",
+        "starter_spells": "2 Trucchetti (Beffa Crudele, Luci Danzanti) + 4 Incantesimi di 1° liv (Cura Ferite, Parola Guaritrice, Sonno, Sussurri Dissonanti) | 2 Slot di 1° livello",
         "overview": (
             "Che intoni ballate nelle grandi corti o decanti leggende proibite nelle taverne del porto, il bardo comprende che "
             "il cosmo è scaturito dalla musica primordiale della Creazione. Imparando a manipolare tali armonie, il bardo tesse "
@@ -98,6 +121,8 @@ CLASSES: Dict[str, Dict[str, Any]] = {
     },
     "Chierico": {
         "hd": 8,
+        "category": "Incantatore",
+        "complexity": "⭐⭐ Intermedio (Ottima armatura e sopravvivenza, intera lista incantesimi preparabili ogni giorno)",
         "role": "☀️ Guaritore Supremo, Custode Divino, Buffer Protettivo & Off-Tank",
         "tagline": "Campione consacrato di una divinità o ideale cosmico, brandisce il potere dei piani per sanare i giusti e purificare il male.",
         "primary_stat": "Saggezza (Incantesimi), Costituzione (Concentrazione & PF), Forza (se in mischia)",
@@ -106,6 +131,9 @@ CLASSES: Dict[str, Dict[str, Any]] = {
         "weapon_prof": "Armi semplici (più armi marziali con alcuni Domini)",
         "tools_prof": "Nessuno (utilizza un Simbolo Sacro come focus)",
         "skills_info": "2 a scelta tra Storia, Intuizione, Medicina, Persuasione, Religione",
+        "quick_build": "Assegna il tuo 15 a Saggezza e il 14 a Costituzione. Metti il 13 a Forza (se usi armature pesanti o combatti in mischia) o a Destrezza.",
+        "starter_gear": "Cotta di Maglia (CA 16) o Armatura Media, Mazza da Guerra, Scudo con Emblema (+2 CA), Balestra Leggera con 20 Dardi, Simbolo Sacro, Zaino da Sacerdote, 10 Monete d'Oro",
+        "starter_spells": "3 Trucchetti (Fiamma Sacra, Guida, Taumaturgia) + Incantesimi di Dominio sempre pronti + Tutta la lista di 1° liv preparabile (Benedizione, Cura Ferite, Santuario, Scudo della Fede) | 2 Slot di 1° livello",
         "overview": (
             "I chierici sono i tramiti viventi attraverso cui gli dèi manifestano la loro volontà nei regni mortali. "
             "Non sono semplici studiosi o officianti, ma veri campioni investiti direttamente di parte della grazia e della gloria divina. "
@@ -137,6 +165,8 @@ CLASSES: Dict[str, Dict[str, Any]] = {
     },
     "Druido": {
         "hd": 8,
+        "category": "Incantatore",
+        "complexity": "⭐⭐⭐ Avanzato (Controllo dell'area, intera lista incantesimi della natura e Forma Selvatica con statistiche di bestie)",
         "role": "🌿 Controllo del Campo (Crowd Control), Mutaforma, Guaritore & Tank Adattivo",
         "tagline": "Sacerdote della Vecchia Fede e custode dell'equilibrio naturale, muta la sua forma in fiera e comanda le forze della terra.",
         "primary_stat": "Saggezza (Incantesimi & Natura), Costituzione e Destrezza (Sopravvivenza)",
@@ -145,6 +175,9 @@ CLASSES: Dict[str, Dict[str, Any]] = {
         "weapon_prof": "Clave, pugnali, dardi, giavellotti, mazze, bastoni ferrati, scimitarre, falcetti, fionde, lance",
         "tools_prof": "Borsa da erborista",
         "skills_info": "2 a scelta tra Arcana, Addestrare Animali, Intuizione, Medicina, Natura, Percezione, Religione, Sopravvivenza",
+        "quick_build": "Assegna il tuo 15 a Saggezza e il 14 a Costituzione. Metti il 13 a Destrezza (per CA e iniziativa) e lascia l'8 a Forza o Carisma.",
+        "starter_gear": "Corazza di Cuoio (CA 11+DES), Scudo di Legno (+2 CA non metallico), Scimitarra (1d6), Focus Druidico (Vischio/Tasso), Zaino da Esploratore, 10 Monete d'Oro",
+        "starter_spells": "2 Trucchetti (Prod чудо di Fiamma, Druidcraft) + Tutta la lista di 1° liv preparabile (Intralciare, Bacche Benefiche, Cura Ferite, Nube di Nebbia) | 2 Slot di 1° livello",
         "overview": (
             "Lontano dal chiasso delle città fortificate, i druidi si radunano in cerchi megalitici e boschi sacri per onorare l'Antica Fede. "
             "Considerano la natura non un bene da sfruttare, ma un ecosistema sacro di cui preservare l'equilibrio. "
@@ -179,6 +212,8 @@ CLASSES: Dict[str, Dict[str, Any]] = {
     },
     "Guerriero": {
         "hd": 10,
+        "category": "Marziale",
+        "complexity": "⭐ Principiante (Ideale per neofiti, massima personalizzazione di stili di combattimento e armi)",
         "role": "⚔️ Pilastro Marziale, Maestro d'Armi, Tank Difensivo & Striker Inarrestabile",
         "tagline": "Campione assoluto dell'arte militare e dell'acciaio, forgiato da una disciplina ferrea e versatile in ogni teatro di guerra.",
         "primary_stat": "Forza (Armi Pesanti & Armature a Piastre) o Destrezza (Tiro con l'Arco & Armi Accurate)",
@@ -187,6 +222,9 @@ CLASSES: Dict[str, Dict[str, Any]] = {
         "weapon_prof": "Tutte le armi semplici, tutte le armi marziali",
         "tools_prof": "Nessuno",
         "skills_info": "2 a scelta tra Acrobazia, Addestrare Animali, Atletica, Storia, Intuizione, Intimidire, Percezione, Sopravvivenza",
+        "quick_build": "Se usi armi pesanti da mischia: 15 Forza, 14 Costituzione, 13 Destrezza. Se sei arciere o schermidore: 15 Destrezza, 14 Costituzione, 13 Forza.",
+        "starter_gear": "Cotta di Maglia (CA 16) o Armatura di Cuoio con Arco Lungo, Spada Lunga e Scudo (+2 CA) o Spadone a Due Mani, Balestra Leggera con 20 Dardi, Zaino da Avventuriero, 10 Monete d'Oro",
+        "starter_spells": None,
         "overview": (
             "Non tutti gli eroi devono il proprio valore a scintille divine o sangue fatato: il guerriero conquista la propria leggenda "
             "palmo a palmo con il sudore della fronte, la disciplina inflessibile e la padronanza millimetrica di ogni lama, scudo e armatura. "
@@ -222,6 +260,8 @@ CLASSES: Dict[str, Dict[str, Any]] = {
     },
     "Ladro": {
         "hd": 8,
+        "category": "Esperto",
+        "complexity": "⭐⭐ Intermedio (Precisione chirurgica, posizionamento per Attacco Furtivo e maestria eccezionale nelle abilità)",
         "role": "🗡️ Striker Furtivo a Singolo Bersaglio, Disattivatore di Trappole, Scout & Maestro delle Abilità",
         "tagline": "Maestro delle ombre, dell'inganno e della precisione chirurgica; colpisce nei punti vitali prima di dissolversi nel buio.",
         "primary_stat": "Destrezza (Attacco furtivo, CA, Iniziativa, Scasso), Intelligenza o Carisma",
@@ -230,6 +270,9 @@ CLASSES: Dict[str, Dict[str, Any]] = {
         "weapon_prof": "Armi semplici, balestre a mano, spade lunghe, stocchi, spade corte",
         "tools_prof": "Strumenti da scasso (Thieves' Tools)",
         "skills_info": "4 abilità a scelta tra Acrobazia, Atletica, Furtività, Indagare, Inganno, Intimidire, Intrattenere, Intuizione, Percezione, Persuasione, Rapidità di Mano",
+        "quick_build": "Assegna il tuo 15 a Destrezza. Metti il 14 a Costituzione e il 13 a Intelligenza (se investigatore o futuro mistificatore arcano) o Carisma (se ingannatore). Lascia l'8 a Forza.",
+        "starter_gear": "Corazza di Cuoio (CA 11+DES), Stocco (1d8 accurata), Arco Corto con Faretra e 20 Frecce, Due Pugnali, Strumenti da Scasso, Zaino da Scassinatore, 10 Monete d'Oro",
+        "starter_spells": None,
         "overview": (
             "I ladri sanno che la forza bruta è spesso un vicolo cieco: un colpo ben assestato tra i punti deboli di una corazza "
             "o un meccanismo sabotato nell'ombra neutralizzano il più temibile signore della guerra in un attimo. "
@@ -264,6 +307,8 @@ CLASSES: Dict[str, Dict[str, Any]] = {
     },
     "Mago": {
         "hd": 6,
+        "category": "Incantatore",
+        "complexity": "⭐⭐⭐ Avanzato (Il più vasto arsenale d'incantesimi del gioco, gestione del grimorio, trascrizione tomi e lancio di rituali)",
         "role": "🔮 Maestro del Controllo dell'Area, Danni Magici ad Area (Blaster) & Risolutore Arcano",
         "tagline": "Il sommo studioso delle leggi arcane, custode del più vasto e formidabile grimorio di incantesimi del multiverso.",
         "primary_stat": "Intelligenza (Incantesimi & CD), Costituzione e Destrezza (Sopravvivenza & Concentrazione)",
@@ -272,6 +317,9 @@ CLASSES: Dict[str, Dict[str, Any]] = {
         "weapon_prof": "Pugnali, dardi, fionde, bastoni ferrati, balestre leggere",
         "tools_prof": "Nessuno (utilizza Bacchetta, Verga, Cristallo o Grimorio come focus)",
         "skills_info": "2 a scelta tra Arcana, Storia, Intuizione, Indagare, Medicina, Religione",
+        "quick_build": "Assegna il tuo 15 a Intelligenza. Metti il 14 a Costituzione (per PF e Concentrazione) e il 13 a Destrezza (per la CA). Lascia l'8 a Forza.",
+        "starter_gear": "Libro degli Incantesimi (Grimorio con 6 incantesimi di 1° liv), Pugnale, Focus Arcano (Bacchetta o Cristallo), Zaino da Studioso, Borsa per Componenti, 10 Monete d'Oro",
+        "starter_spells": "3 Trucchetti (Raggio di Gelo, Prestidigitazione, Luce) + 6 Incantesimi nel Grimorio (Dardo Incantato, Armatura Magica, Scudo, Sonno, Individuazione del Magico, Allarme) | 2 Slot di 1° liv + Recupero Arcano",
         "overview": (
             "Per il mago la magia non è un dono ereditario né una grazia divina: è una scienza esatta e sublime, le cui formule "
             "si svelano solo attraverso decenni di studio meticoloso, calcoli rigorosi e sperimentazioni ardite. "
@@ -305,6 +353,8 @@ CLASSES: Dict[str, Dict[str, Any]] = {
     },
     "Monaco": {
         "hd": 8,
+        "category": "Marziale",
+        "complexity": "⭐⭐⭐ Avanzato (Combattente senz'armi iper-mobile, gestione attenta dei punti Ki e posizionamento tattico)",
         "role": "🥋 Skirmisher Ipermobile, Disruptor da Mischia, Cacciatore di Incantatori & Maestro del Ki",
         "tagline": "Maestro asceta delle arti marziali che incanala l'energia spirituale del Ki per colpire a raffica e muoversi come il vento.",
         "primary_stat": "Destrezza (Attacchi, Danni senz'armi & CA), Saggezza (CA & CD del Ki)",
@@ -313,6 +363,9 @@ CLASSES: Dict[str, Dict[str, Any]] = {
         "weapon_prof": "Armi semplici, spade corte",
         "tools_prof": "Uno strumento da artigiano o uno strumento musicale a scelta",
         "skills_info": "2 a scelta tra Acrobazia, Atletica, Storia, Intuizione, Religione, Furtività",
+        "quick_build": "Assegna il tuo 15 a Destrezza e il 14 a Saggezza (entrambe alzano la CA senz'armatura!). Metti il 13 a Costituzione e lascia l'8 a Forza.",
+        "starter_gear": "Spada Corta (1d6), 10 Dardi da Lancio, Zaino da Esploratore, 5 Monete d'Oro (Nessuna armatura o scudo necessari)",
+        "starter_spells": None,
         "overview": (
             "Nei monasteri arroccati su cime impervie o nascosti tra valli solitarie, i monaci apprendono a purificare corpo e spirito. "
             "Attraverso la meditazione e l'allenamento fisico estenuante, imparano a controllare il Ki: l'energia vitale primordiale che "
@@ -346,6 +399,8 @@ CLASSES: Dict[str, Dict[str, Any]] = {
     },
     "Paladino": {
         "hd": 10,
+        "category": "Ibrido",
+        "complexity": "⭐⭐ Intermedio (Formidabile bastione corazzato con riserva curativa autonoma e devastanti punizioni divine)",
         "role": "🛡️ Tank Corazzato da Prima Linea, Danni da Raffica Esplosivi (Burst Smite) & Faro delle Auree",
         "tagline": "Sacro crociato vincolato da un giuramento incrollabile, fonde possanza marziale, armature pesanti e punizioni celesti.",
         "primary_stat": "Forza (Attacchi da Mischia & Armature Pesanti), Carisma (Incantesimi, Auree & CD)",
@@ -354,6 +409,9 @@ CLASSES: Dict[str, Dict[str, Any]] = {
         "weapon_prof": "Tutte le armi semplici, tutte le armi marziali",
         "tools_prof": "Nessuno (utilizza un Simbolo Sacro come focus)",
         "skills_info": "2 a scelta tra Atletica, Intuizione, Intimidire, Medicina, Persuasione, Religione",
+        "quick_build": "Assegna il tuo 15 a Forza (per cotta di maglia e armi pesanti) e il 14 a Carisma (per incantesimi, auree e CD). Metti il 13 a Costituzione.",
+        "starter_gear": "Cotta di Maglia (CA 16 pesante), Spada Lunga (1d8/1d10), Scudo con Emblema Sacro (+2 CA), 5 Giavellotti, Simbolo Sacro, Zaino da Sacerdote, 10 Monete d'Oro",
+        "starter_spells": "Magia Divina al 2° livello | Incantesimi di punizione, cura e protezione (Punizione Divina, Benedizione, Scudo della Fede)",
         "overview": (
             "Un paladino è definito dal proprio Giuramento: una promessa solenne e incrollabile fatta a una causa, a una divinità "
             "o a un principio assoluto di giustizia o redenzione. Tale determinazione è talmente pura da manifestarsi fisicamente sotto forma "
@@ -388,6 +446,8 @@ CLASSES: Dict[str, Dict[str, Any]] = {
     },
     "Ranger": {
         "hd": 10,
+        "category": "Ibrido",
+        "complexity": "⭐⭐ Intermedio (Tiratore d'élite o schermidore furtivo con abilità di sopravvivenza ed esplorazione)",
         "role": "🏹 Tiratore Infallibile (Sniper o Combattente a Due Armi), Scout d'Avanguardia & Guida Naturale",
         "tagline": "Maestro delle tracce e sentinella dei confini naturali, fonde precisione marziale e comunione con le terre selvagge.",
         "primary_stat": "Destrezza (Arco, Armi Accurate, CA & Iniziativa), Saggezza (Percezione, Sopravvivenza & Magia)",
@@ -396,6 +456,9 @@ CLASSES: Dict[str, Dict[str, Any]] = {
         "weapon_prof": "Tutte le armi semplici, tutte le armi marziali",
         "tools_prof": "Nessuno",
         "skills_info": "3 a scelta tra Addestrare Animali, Atletica, Furtività, Indagare, Intuizione, Natura, Percezione, Sopravvivenza",
+        "quick_build": "Assegna il tuo 15 a Destrezza e il 14 a Saggezza (per incantesimi e Percezione). Metti il 13 a Costituzione e lascia l'8 a Forza o Carisma.",
+        "starter_gear": "Cotta a Scaglie (CA 14+DES max +2), Due Spade Corte, Arco Lungo con Faretra e 20 Frecce, Zaino da Esploratore, 10 Monete d'Oro",
+        "starter_spells": "Magia Silvana al 2° livello | Incantesimi di caccia e sopravvivenza (Marchio del Cacciatore, Bacche Benefiche, Salto)",
         "overview": (
             "Oltre i confini delle città fortificate si estendono foreste millenarie, paludi spettrali e picchi montani proibitivi. "
             "È qui che vive il ranger: una sentinella silenziosa che conosce i punti deboli di ogni predatore e le insidie del territorio. "
@@ -433,6 +496,8 @@ CLASSES: Dict[str, Dict[str, Any]] = {
     },
     "Stregone": {
         "hd": 6,
+        "category": "Incantatore",
+        "complexity": "⭐⭐⭐ Avanzato (Potenza arcana esplosiva, gestione dei punti stregoneria e Metamagia per alterare le regole magiche)",
         "role": "💥 Bombardiere Arcano (Blaster), Nuke a Bersaglio Multiplo, Manipolatore di Magia & Volto",
         "tagline": "Incantatore con la magia che gli scorre direttamente nel sangue, capace di piegare e alterare le leggi dell'arcano con la Metamagia.",
         "primary_stat": "Carisma (Incantesimi, Attacchi & CD), Costituzione (Punti Ferita & Concentrazione)",
@@ -441,6 +506,9 @@ CLASSES: Dict[str, Dict[str, Any]] = {
         "weapon_prof": "Pugnali, dardi, fionde, bastoni ferrati, balestre leggere",
         "tools_prof": "Nessuno (utilizza un Cristallo, Verga, Bacchetta o Focus Arcano)",
         "skills_info": "2 a scelta tra Arcana, Inganno, Intimidire, Intuizione, Persuasione, Religione",
+        "quick_build": "Assegna il tuo 15 a Carisma e il 14 a Costituzione (la competenza nei TS di Costituzione protegge la Concentrazione!). Metti il 13 a Destrezza per la CA.",
+        "starter_gear": "Balestra Leggera con 20 Dardi, Due Pugnali, Focus Arcano (Cristallo), Zaino da Esploratore Sotterraneo, 10 Monete d'Oro",
+        "starter_spells": "4 Trucchetti (Dardo di Fuoco, Raggio di Gelo, Prestidigitazione, Illusione Minore) + 2 Incantesimi noti (Mani Brucianti, Armatura Magica o Scudo) | 2 Slot di 1° livello",
         "overview": (
             "Lo stregone non ha bisogno di passare notti insonni su antichi tomi né di pregare divinità distanti: per lui la magia è "
             "un diritto di nascita, un fuoco primordiale che vibra direttamente nel suo sangue. Che tale retaggio discenda da un antenato drago, "
@@ -474,6 +542,8 @@ CLASSES: Dict[str, Dict[str, Any]] = {
     },
     "Warlock": {
         "hd": 8,
+        "category": "Incantatore",
+        "complexity": "⭐⭐⭐ Avanzato (Magia del Patto con slot a livello massimo che si ricaricano a Riposo Breve e personalizzazione con Suppliche Occulte)",
         "role": "🔮 Cecchino Arcano a Volontà (Eldritch Blast), Magia a Ricarica Rapida (Riposo Breve) & Striker Ibrido",
         "tagline": "Cercatore di segreti proibiti legato da un patto occulto a un'entità ultraterrena; esercita slot che si ricaricano a ogni Riposo Breve!",
         "primary_stat": "Carisma (Incantesimi & CD), Destrezza e Costituzione (Sopravvivenza & CA)",
@@ -482,6 +552,9 @@ CLASSES: Dict[str, Dict[str, Any]] = {
         "weapon_prof": "Armi semplici",
         "tools_prof": "Nessuno (utilizza un Focus Arcano)",
         "skills_info": "2 a scelta tra Arcana, Storia, Inganno, Intimidire, Indagare, Natura, Religione",
+        "quick_build": "Assegna il tuo 15 a Carisma e il 14 a Costituzione. Metti il 13 a Destrezza (per CA e iniziativa con armature leggere) e lascia l'8 a Forza.",
+        "starter_gear": "Corazza di Cuoio (CA 11+DES), Balestra Leggera con 20 Dardi, Due Pugnali, Focus Arcano (Verga), Zaino da Studioso, 10 Monete d'Oro",
+        "starter_spells": "2 Trucchetti (Deflagrazione Mistica / Eldritch Blast, Tocco Gelido) + 2 Incantesimi noti (Armatura di Agathys, Anatema / Hex) | 1 Slot al livello massimo (Ricarica a Riposo Breve in 1 ora!)",
         "overview": (
             "Spinto da un'insaziabile brama di conoscenza o costretto da un destino avverso, il warlock ha osato stipulare un patto con "
             "un'entità millenaria appartenente a dimensioni ultraterrene: un arcidiavolo infernale, una regina delle fate, un'aberrazione "
@@ -523,6 +596,7 @@ CLASSES: Dict[str, Dict[str, Any]] = {
 for _c_name, _c_info in CLASSES.items():
     _feats_text = "\n".join(f"  • {_fn}:\n    {_fd}" for _fn, _fd in _c_info["features_lvl1"])
     _subs_text = "\n".join(f"  • {_sub}" for _sub in _c_info["subclasses_preview"])
+    _spells_text = f"\n✨ Magia Iniziale:\n  {_c_info['starter_spells']}\n" if _c_info.get("starter_spells") else ""
     _c_info["desc"] = (
         f"{_c_info['tagline']}\n\n"
         f"🎲 Dado Vita: d{_c_info['hd']} (PF al 1° liv: {_c_info['hd']} + mod. COS)\n"
@@ -530,7 +604,11 @@ for _c_name, _c_info in CLASSES.items():
         f"🛡️ Tiri Salvezza: {_c_info['saving_throws']}\n"
         f"⚔️ Competenze Armature: {_c_info['armor_prof']}\n"
         f"⚔️ Competenze Armi: {_c_info['weapon_prof']}\n"
-        f"🎭 Ruolo nel Party: {_c_info['role']}\n\n"
+        f"🎭 Ruolo nel Party: {_c_info['role']}\n"
+        f"📊 Complessità: {_c_info['complexity']}\n"
+        f"💡 Creazione Rapida: {_c_info['quick_build']}\n"
+        f"🎒 Dotazione Iniziale: {_c_info['starter_gear']}"
+        f"{_spells_text}\n"
         f"📖 Panoramica & Identità:\n{_c_info['overview']}\n\n"
         f"⚔️ Privilegi di Livello 1:\n{_feats_text}\n\n"
         f"🎯 Stile di Gioco & Tattica:\n{_c_info['playstyle']}\n\n"
@@ -546,3 +624,11 @@ def get_class_info(class_name: str) -> Dict[str, Any]:
 def get_class_names() -> List[str]:
     """Restituisce l'elenco di tutte le classi disponibili ordinate."""
     return list(CLASSES.keys())
+
+
+def get_classes_by_category(category_filter: str) -> List[str]:
+    """Restituisce l'elenco delle classi filtrate per categoria o tutte."""
+    if not category_filter or category_filter == "Tutte":
+        return list(CLASSES.keys())
+    target_cat = CATEGORY_MAP.get(category_filter, category_filter)
+    return [name for name, info in CLASSES.items() if info.get("category") == target_cat]
