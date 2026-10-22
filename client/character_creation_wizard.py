@@ -5,7 +5,23 @@ import random
 from typing import Dict, Any, List
 
 from .character_manager import Character
-from common.theme import apply_modern_window_style
+from common.theme import (
+    apply_modern_window_style,
+    ACCENT_GOLD,
+    ACCENT_GOLD_LIGHT,
+    SURFACE_COLOR,
+    SURFACE_COLOR_ALT,
+    TEXT_COLOR,
+    TEXT_MUTED,
+    BORDER_COLOR,
+    FONT_TITLE,
+    FONT_HEADER,
+    FONT_BOLD,
+    FONT_MAIN,
+    FONT_SMALL,
+    FONT_BADGE
+)
+from common.classes_data import CLASSES, get_class_info, get_class_names
 from common.backgrounds_data import (
     BACKGROUNDS,
     PERSONAL_QUESTS,
@@ -29,20 +45,7 @@ RACES = {
     "Tiefling": {"desc": "Umanoidi toccati dai piani infernali, spesso guardati con sospetto.\nBonus: +2 Carisma, +1 Intelligenza.\nTratti: Scurovisione, Resistenza Infernale, Eredità Infernale.\nVelocità: 30 ft.", "bonuses": {"CAR": 2, "INT": 1}, "speed": 30}
 }
 
-CLASSES = {
-    "Barbaro": {"desc": "Un feroce guerriero di origini primitive che può entrare in un'ira da battaglia.\nDado Vita: d12.\nCompetenze: Armature leggere/medie, scudi, armi semplici e marziali.", "hd": 12},
-    "Bardo": {"desc": "Un incantatore la cui magia deriva dalla musica, dall'arte o dall'oratoria.\nDado Vita: d8.\nCompetenze: Armature leggere, armi semplici, balestre a mano, spade lunghe, spade corte.", "hd": 8},
-    "Chierico": {"desc": "Un campione sacerdotale che impugna la magia divina al servizio di una divinità.\nDado Vita: d8.\nCompetenze: Armature leggere/medie, scudi, armi semplici.", "hd": 8},
-    "Druido": {"desc": "Un sacerdote dell'Antica Fede, incantatore legato ai poteri della natura e della mutaforma.\nDado Vita: d8.\nCompetenze: Armature leggere/medie (non di metallo), scudi, clave, pugnali, dardi.", "hd": 8},
-    "Guerriero": {"desc": "Un maestro del combattimento marziale, addestrato in un'ampia varietà di armi e armature.\nDado Vita: d10.\nCompetenze: Tutte le armature, scudi, armi semplici e marziali.", "hd": 10},
-    "Ladro": {"desc": "Un mascalzone che usa la furtività e i trucchetti per superare ostacoli e nemici.\nDado Vita: d8.\nCompetenze: Armature leggere, armi semplici, balestre a mano, spade lunghe, spade corte.", "hd": 8},
-    "Mago": {"desc": "Un incantatore arcano che attinge la magia dallo studio rigoroso dei tomi e dei segreti arcani.\nDado Vita: d6.\nCompetenze: Pugnali, dardi, fionde, bastoni ferrati, balestre leggere.", "hd": 6},
-    "Monaco": {"desc": "Un maestro delle arti marziali che imbriglia il potere del corpo per perseguire la perfezione fisica e spirituale.\nDado Vita: d8.\nCompetenze: Armi semplici, spade corte.", "hd": 8},
-    "Paladino": {"desc": "Un sacro guerriero vincolato da un giuramento, che unisce poteri divini ad addestramento militare.\nDado Vita: d10.\nCompetenze: Tutte le armature, scudi, armi semplici e marziali.", "hd": 10},
-    "Ranger": {"desc": "Un esploratore e cacciatore che usa il suo retaggio marziale e naturale per contrastare le minacce oltre i confini della civiltà.\nDado Vita: d10.\nCompetenze: Armature leggere/medie, scudi, armi semplici e marziali.", "hd": 10},
-    "Stregone": {"desc": "Un incantatore arcano la cui magia è innata, ereditata o il risultato di una discendenza misteriosa.\nDado Vita: d6.\nCompetenze: Pugnali, dardi, fionde, bastoni ferrati, balestre leggere.", "hd": 6},
-    "Warlock": {"desc": "Un incantatore arcano vincolato da un patto con un'entità ultraterrena, come un folletto o un demone.\nDado Vita: d8.\nCompetenze: Armature leggere, armi semplici.", "hd": 8}
-}
+# CLASSES importato da common.classes_data
 
 STANDARD_ARRAY = [15, 14, 13, 12, 10, 8]
 ATTRIBUTES = ["FOR", "DES", "COS", "INT", "SAG", "CAR"]
@@ -134,8 +137,8 @@ class CharacterCreationWizard(tk.Toplevel):
         step_idx = self.current_step
         self.step_indicator_lbl.config(text=f"Passo {step_idx + 1} di {len(self.steps)}")
 
-        # Passi 3 e 4 hanno molti elementi interattivi: usiamo una Canvas scorrevole fluida
-        if step_idx in (3, 4):
+        # I passi 1, 3 e 4 hanno molti elementi o descrizioni ricche: usiamo una Canvas scorrevole fluida
+        if step_idx in (1, 3, 4):
             canvas = tk.Canvas(self.container, highlightthickness=0, borderwidth=0)
             scrollbar = ttk.Scrollbar(self.container, orient="vertical", command=canvas.yview)
             scroll_frame = ttk.Frame(canvas)
@@ -158,8 +161,10 @@ class CharacterCreationWizard(tk.Toplevel):
             canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             canvas.configure(yscrollcommand=scrollbar.set)
             
+            self.scroll_canvas = canvas
             self.steps[step_idx](scroll_frame)
         else:
+            self.scroll_canvas = None
             self.steps[step_idx](self.container)
         
         if self.current_step == 0:
@@ -267,23 +272,167 @@ class CharacterCreationWizard(tk.Toplevel):
     # -------------------------------------------------------------------------
     def build_step_class(self, parent=None):
         parent = parent or self.container
-        ttk.Label(parent, text="Passo 2: Scegli la Classe", style="Title.TLabel").pack(pady=(0, 10))
         
-        self.class_var = tk.StringVar(value=self.char_data["char_class"])
-        desc_label = ttk.Label(parent, text="", wraplength=520, justify=tk.LEFT)
+        # Header descrittivo
+        header_frame = ttk.Frame(parent)
+        header_frame.pack(fill=tk.X, pady=(0, 8))
+        
+        ttk.Label(header_frame, text="Passo 2: Scegli la Classe", style="Title.TLabel").pack(anchor="center")
+        ttk.Label(
+            header_frame,
+            text="La classe definisce la vocazione, le capacità marziali o magiche, i privilegi speciali e il ruolo tattico del tuo avventuriero.",
+            style="Muted.TLabel",
+            justify=tk.CENTER,
+            wraplength=640
+        ).pack(anchor="center", pady=(2, 0))
+        
+        # Barra di selezione classe con pulsanti rapido precedente/successivo e badge ruolo
+        sel_frame = ttk.Frame(parent, style="Surface.TFrame", padding=(10, 8))
+        sel_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        ttk.Label(sel_frame, text="⚔️ Classe:", font=("Segoe UI", 11, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT, padx=(5, 10))
+        
+        class_list = list(CLASSES.keys())
+        current_class = self.char_data.get("char_class", "Guerriero")
+        if current_class not in class_list:
+            current_class = class_list[0]
+            
+        self.class_var = tk.StringVar(value=current_class)
+        
+        def _prev_class():
+            c = self.class_var.get()
+            idx = class_list.index(c) if c in class_list else 0
+            self.class_var.set(class_list[(idx - 1) % len(class_list)])
+            
+        def _next_class():
+            c = self.class_var.get()
+            idx = class_list.index(c) if c in class_list else 0
+            self.class_var.set(class_list[(idx + 1) % len(class_list)])
+
+        btn_prev = ttk.Button(sel_frame, text="◀ Prec.", width=8, command=_prev_class, style="Dark.TButton")
+        btn_prev.pack(side=tk.LEFT, padx=3)
+        
+        cb = ttk.Combobox(sel_frame, textvariable=self.class_var, values=class_list, state="readonly", font=("Georgia", 11, "bold"), width=16)
+        cb.pack(side=tk.LEFT, padx=6)
+        
+        btn_next = ttk.Button(sel_frame, text="Succ. ▶", width=8, command=_next_class, style="Dark.TButton")
+        btn_next.pack(side=tk.LEFT, padx=3)
+        
+        role_badge_lbl = ttk.Label(sel_frame, text="", style="BadgeBlue.TLabel")
+        role_badge_lbl.pack(side=tk.RIGHT, padx=5)
+
+        # Scheda Dettagli Classe (Card)
+        card = ttk.Frame(parent, style="Card.TFrame", padding=14)
+        card.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
+        # Testata della card
+        top_frame = ttk.Frame(card, style="Surface.TFrame")
+        top_frame.pack(fill=tk.X, pady=(0, 6))
+        
+        name_lbl = ttk.Label(top_frame, text="", font=("Georgia", 16, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel")
+        name_lbl.pack(anchor="w")
+        
+        tagline_lbl = ttk.Label(top_frame, text="", font=("Segoe UI", 10, "italic"), foreground=TEXT_COLOR, wraplength=640, justify=tk.LEFT, style="Surface.TLabel")
+        tagline_lbl.pack(anchor="w", pady=(2, 6))
+        
+        ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
+        
+        # Griglia Quick Stats / Pillole informative
+        stats_frame = ttk.Frame(card, style="Surface.TFrame")
+        stats_frame.pack(fill=tk.X, pady=(2, 8))
+        stats_frame.columnconfigure(0, weight=1)
+        stats_frame.columnconfigure(1, weight=1)
+        
+        # Cella 1: Dado Vita
+        cell_hd = ttk.Frame(stats_frame, style="Surface.TFrame")
+        cell_hd.grid(row=0, column=0, sticky="w", padx=6, pady=3)
+        ttk.Label(cell_hd, text="🎲 Dado Vita:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
+        hd_val_lbl = ttk.Label(cell_hd, text="", font=("Segoe UI", 9), style="Surface.TLabel")
+        hd_val_lbl.pack(side=tk.LEFT, padx=4)
+        
+        # Cella 2: Caratteristica Primaria
+        cell_prim = ttk.Frame(stats_frame, style="Surface.TFrame")
+        cell_prim.grid(row=0, column=1, sticky="w", padx=6, pady=3)
+        ttk.Label(cell_prim, text="⭐ Primaria:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
+        prim_val_lbl = ttk.Label(cell_prim, text="", font=("Segoe UI", 9), style="Surface.TLabel")
+        prim_val_lbl.pack(side=tk.LEFT, padx=4)
+        
+        # Cella 3: Tiri Salvezza
+        cell_st = ttk.Frame(stats_frame, style="Surface.TFrame")
+        cell_st.grid(row=1, column=0, sticky="w", padx=6, pady=3)
+        ttk.Label(cell_st, text="🛡️ Tiri Salvezza:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
+        st_val_lbl = ttk.Label(cell_st, text="", font=("Segoe UI", 9), style="Surface.TLabel")
+        st_val_lbl.pack(side=tk.LEFT, padx=4)
+        
+        # Cella 4: Competenze
+        cell_prof = ttk.Frame(stats_frame, style="Surface.TFrame")
+        cell_prof.grid(row=1, column=1, sticky="w", padx=6, pady=3)
+        ttk.Label(cell_prof, text="⚔️ Competenze:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
+        prof_val_lbl = ttk.Label(cell_prof, text="", font=("Segoe UI", 9), wraplength=300, justify=tk.LEFT, style="Surface.TLabel")
+        prof_val_lbl.pack(side=tk.LEFT, padx=4)
+
+        ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
+        
+        # Sezione 1: Panoramica Narrativa
+        ttk.Label(card, text="📖 Panoramica & Identità Narrativa", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
+        overview_lbl = ttk.Label(card, text="", font=("Segoe UI", 9), wraplength=640, justify=tk.LEFT, style="Surface.TLabel")
+        overview_lbl.pack(anchor="w", pady=(2, 8))
+        
+        ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
+        
+        # Sezione 2: Privilegi di Livello 1
+        ttk.Label(card, text="⚔️ Privilegi Chiave di Livello 1", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
+        features_container = ttk.Frame(card, style="Surface.TFrame")
+        features_container.pack(fill=tk.X, pady=(2, 8))
+        
+        ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
+        
+        # Sezione 3: Stile di Gioco & Tattica
+        ttk.Label(card, text="🎯 Stile di Gioco & Ruolo nel Gruppo", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
+        playstyle_lbl = ttk.Label(card, text="", font=("Segoe UI", 9), wraplength=640, justify=tk.LEFT, style="Surface.TLabel")
+        playstyle_lbl.pack(anchor="w", pady=(2, 8))
+        
+        ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
+        
+        # Sezione 4: Archetipi Futuri
+        ttk.Label(card, text="🔮 Archetipi e Sottoclassi Future", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
+        subclasses_lbl = ttk.Label(card, text="", font=("Segoe UI", 9), wraplength=640, justify=tk.LEFT, style="Surface.TLabel")
+        subclasses_lbl.pack(anchor="w", pady=(2, 4))
         
         def update_desc(*args):
             c = self.class_var.get()
             self.char_data["char_class"] = c
             if c in CLASSES:
-                desc_label.config(text=CLASSES[c]["desc"])
-            
+                info = CLASSES[c]
+                name_lbl.config(text=f"Classe: {c}")
+                role_badge_lbl.config(text=info["role"])
+                tagline_lbl.config(text=f'"{info["tagline"]}"')
+                hd_val_lbl.config(text=f"d{info['hd']} (PF al 1°: {info['hd']} + mod. COS)")
+                prim_val_lbl.config(text=info["primary_stat"])
+                st_val_lbl.config(text=info["saving_throws"])
+                prof_val_lbl.config(text=f"{info['armor_prof']}; {info['weapon_prof']}")
+                overview_lbl.config(text=info["overview"])
+                playstyle_lbl.config(text=info["playstyle"])
+                subclasses_lbl.config(text="\n".join(f"• {sub}" for sub in info["subclasses_preview"]))
+                
+                # Rigenera blocchi privilegi di livello 1
+                for w in features_container.winfo_children():
+                    w.destroy()
+                for feat_name, feat_desc in info["features_lvl1"]:
+                    f_row = ttk.Frame(features_container, style="Surface.TFrame")
+                    f_row.pack(fill=tk.X, pady=2)
+                    ttk.Label(f_row, text=f"• {feat_name}:", font=("Segoe UI", 9, "bold"), foreground="#F59E0B", style="Surface.TLabel").pack(anchor="w")
+                    ttk.Label(f_row, text=feat_desc, font=("Segoe UI", 9), wraplength=630, justify=tk.LEFT, style="Surface.TLabel").pack(anchor="w", padx=(12, 0), pady=(1, 2))
+                    
+                if hasattr(self, "scroll_canvas") and self.scroll_canvas and self.scroll_canvas.winfo_exists():
+                    try:
+                        self.scroll_canvas.update_idletasks()
+                        self.scroll_canvas.configure(scrollregion=self.scroll_canvas.bbox("all"))
+                        self.scroll_canvas.yview_moveto(0.0)
+                    except Exception:
+                        pass
+
         self.class_var.trace_add("write", update_desc)
-        
-        cb = ttk.Combobox(parent, textvariable=self.class_var, values=list(CLASSES.keys()), state="readonly", font=self.default_font, width=22)
-        cb.pack(pady=10)
-            
-        desc_label.pack(pady=15, fill=tk.X)
         update_desc()
 
     # -------------------------------------------------------------------------
