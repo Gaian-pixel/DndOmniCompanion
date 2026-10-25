@@ -4142,6 +4142,10 @@ class CharacterSheetFrame(ttk.Frame):
             
         btn_toggle = ttk.Button(btn_box, text="✏️ Modifica Testo")
         btn_toggle.pack(side=tk.LEFT, padx=3)
+
+        if field_name == "journal_notes":
+            btn_gen = ttk.Button(btn_box, text="✨ Genera Storia", command=self._generate_character_backstory, style="Gold.TButton")
+            btn_gen.pack(side=tk.LEFT, padx=3)
         
         body_container = tk.Frame(parent_frame, bg=SURFACE_COLOR)
         body_container.pack(fill=tk.BOTH, expand=True)
@@ -4188,6 +4192,36 @@ class CharacterSheetFrame(ttk.Frame):
             title="📖 Biografia & Diario del Personaggio",
             subtitle="Storia, legami, ideali, segreti e cronaca di viaggio (supporta Markdown #, ##, **, *, •)"
         )
+
+    def _generate_character_backstory(self):
+        from common.backgrounds_data import generate_backstory
+        edit_box = self.text_widgets.get("journal_notes")
+        if not edit_box:
+            return
+        cur_content = edit_box.get("1.0", tk.END).strip()
+        if cur_content:
+            if not messagebox.askyesno("Conferma Generazione Storia", "Il diario contiene già del testo. Vuoi comporre e inserire la biografia narrativa ufficiale D&D 5e basata su razza, classe, background e tratti del tuo eroe?", parent=self):
+                return
+        story = generate_backstory(
+            name=self.character.name,
+            race=getattr(self.character, "race", "Umano"),
+            char_class=getattr(self.character, "char_class", "Guerriero"),
+            background=getattr(self.character, "background", "Accolito"),
+            origin_place=getattr(self.character, "origin_place", "Terre d'Origine"),
+            trait=getattr(self.character, "personality_trait", ""),
+            ideal=getattr(self.character, "ideal", ""),
+            bond=getattr(self.character, "bond", ""),
+            flaw=getattr(self.character, "flaw", ""),
+            quest=getattr(self.character, "personal_quest", ""),
+            secret=getattr(self.character, "secret", ""),
+            party_tie=getattr(self.character, "party_tie", ""),
+            trinket=getattr(self.character, "trinket", ""),
+            include_headers=True
+        )
+        edit_box.delete("1.0", tk.END)
+        edit_box.insert("1.0", story)
+        self.save_text_field_offline("journal_notes")
+        messagebox.showinfo("Storia Creata", "Biografia narrativa generata con successo e salvata nel Diario del Personaggio!", parent=self)
 
     def create_notes_tab(self, parent_frame):
         self.create_markdown_journal_tab(

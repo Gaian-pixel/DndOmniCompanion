@@ -212,6 +212,74 @@ class TestBackgroundAndNarrative(unittest.TestCase):
         sheet.destroy()
 
 
+    def test_advanced_backstory_multi_styles_and_coherence(self):
+        """Verifica la coerenza avanzata dei capitoli narrativi, degli stili e della pulizia etichette."""
+        from common.backgrounds_data import generate_backstory, NARRATIVE_STYLES
+        
+        # Stile Dark Fantasy con Tiefling Warlock
+        story_dark = generate_backstory(
+            name="Morvath",
+            race="Tiefling",
+            char_class="Warlock",
+            background="Criminale / Spia",
+            origin_place="Bassifondi di Baldur's Gate",
+            trait="Controllo sempre ogni via di fuga.",
+            ideal="Libertà: le catene vanno spezzate. (Caotico)",
+            bond="Qualcuno è stato incastrato per un mio colpo.",
+            flaw="Non riesco a fidarmi di nessuno.",
+            quest="Maledizione da Spezzare",
+            secret="Patto dell'Ombra",
+            party_tie="Salvezza Reciproca",
+            trinket="Una lettera con ceralacca nera mai aperta.",
+            narrative_style="dark",
+            include_headers=True
+        )
+        self.assertIn("Morvath", story_dark)
+        self.assertIn("Tiefling", story_dark)
+        self.assertIn("Warlock", story_dark)
+        self.assertIn("Bassifondi di Baldur's Gate", story_dark)
+        self.assertIn("Libertà", story_dark)
+        # Verifica che (Caotico) sia stato ripulito per eleganza
+        self.assertNotIn("(Caotico)", story_dark)
+        self.assertIn("I. Origini e Retaggio", story_dark)
+        self.assertIn("V. L'Anima dell'Eroe", story_dark)
+        self.assertTrue(len(story_dark.split("\n\n")) >= 5)
+
+        # Stile Picaresco con Halfling Ladro
+        story_pic = generate_backstory(
+            name="Regis",
+            race="Halfling",
+            char_class="Ladro",
+            background="Monello (Urchin)",
+            origin_place="Luskan",
+            narrative_style="picaresque",
+            include_headers=False
+        )
+        self.assertIn("Regis", story_pic)
+        self.assertIn("Halfling", story_pic)
+        self.assertIn("Ladro", story_pic)
+        self.assertTrue(len(story_pic.split("\n\n")) >= 4)
+
+    def test_character_sheet_generate_backstory_button(self):
+        """Verifica che la scheda PG possa generare la biografia guidata direttamente nel diario."""
+        char = Character(name="Bruenor", campaign="Faerun")
+        char.race = "Nano"
+        char.char_class = "Guerriero"
+        char.background = "Nobile"
+        char.personality_trait = "Orgoglioso della mia casata."
+        char.ideal = "Rispetto: per gli antenati. (Legale)"
+        
+        sheet = CharacterSheetUI(self.root, char, self.mgr)
+        self.assertTrue(hasattr(sheet, "_generate_character_backstory"))
+        with patch("common.messagebox.messagebox.showinfo"), patch("common.messagebox.messagebox.askyesno", return_value=True):
+            sheet._generate_character_backstory()
+        
+        journal_text = sheet.text_widgets["journal_notes"].get("1.0", tk.END)
+        self.assertIn("Bruenor", journal_text)
+        self.assertIn("Nano", journal_text)
+        self.assertIn("Guerriero", journal_text)
+        sheet.destroy()
+
 if __name__ == "__main__":
     unittest.main()
 

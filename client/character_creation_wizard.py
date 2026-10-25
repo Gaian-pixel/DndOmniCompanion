@@ -1584,7 +1584,10 @@ class CharacterCreationWizardFrame(ttk.Frame):
         
         ttk.Label(story_top, text="📖 Biografia & Storia dell'Eroe:", font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT)
         
-        def compose_story():
+        def compose_story(variation=0):
+            style_val = getattr(self, "story_style_var", None)
+            style_str = style_val.get() if style_val else "heroic"
+            party_tie_val = self.party_tie_var.get() if hasattr(self, "party_tie_var") else ""
             story = generate_backstory(
                 name=self.name_var.get(),
                 race=self.char_data.get("race", "Umano"),
@@ -1597,16 +1600,53 @@ class CharacterCreationWizardFrame(ttk.Frame):
                 flaw=self.flaw_var.get() if hasattr(self, "flaw_var") else "",
                 quest=self.quest_var.get(),
                 secret=self.secret_var.get(),
-                trinket=self.trinket_var.get()
+                trinket=self.trinket_var.get(),
+                party_tie=party_tie_val,
+                narrative_style=style_str,
+                include_headers=True,
+                variation=variation
             )
             self.backstory_text.delete("1.0", tk.END)
             self.backstory_text.insert(tk.END, story)
 
-        btn_compose = ttk.Button(story_top, text="✨ Componi la mia Storia (Automatico)", command=compose_story, style="Gold.TButton")
-        btn_compose.pack(side=tk.RIGHT)
+        btn_compose = ttk.Button(story_top, text="✨ Componi Storia", command=compose_story, style="Gold.TButton")
+        btn_compose.pack(side=tk.RIGHT, padx=2)
 
-        self.backstory_text = tk.Text(story_card, height=6, wrap=tk.WORD, font=self.default_font)
-        self.backstory_text.pack(fill=tk.BOTH, expand=True, pady=(2, 6))
+        def do_variation():
+            var_num = random.randint(1, 9999)
+            compose_story(variation=var_num)
+
+        btn_var = ttk.Button(story_top, text="🎲 Variazione", command=do_variation, style="Dark.TButton")
+        btn_var.pack(side=tk.RIGHT, padx=2)
+
+        def do_clear():
+            self.backstory_text.delete("1.0", tk.END)
+
+        btn_clear = ttk.Button(story_top, text="🧹 Pulisci", command=do_clear, style="Dark.TButton")
+        btn_clear.pack(side=tk.RIGHT, padx=2)
+
+        style_frame = ttk.Frame(story_card)
+        style_frame.pack(fill=tk.X, pady=(2, 4))
+        ttk.Label(style_frame, text="🎨 Stile Narrativo:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 4))
+        self.story_style_var = tk.StringVar(value="Eroico & Epico")
+        style_cb = ttk.Combobox(
+            style_frame,
+            textvariable=self.story_style_var,
+            values=["Eroico & Epico", "Dark Fantasy & Tormentato", "Misterioso & Arcano", "Picaresco & Avventuroso"],
+            state="readonly",
+            width=28
+        )
+        style_cb.pack(side=tk.LEFT, padx=4)
+        style_cb.bind("<<ComboboxSelected>>", lambda e: compose_story())
+
+        txt_frame = ttk.Frame(story_card)
+        txt_frame.pack(fill=tk.BOTH, expand=True, pady=(2, 6))
+
+        scroll_y = ttk.Scrollbar(txt_frame, orient=tk.VERTICAL)
+        self.backstory_text = tk.Text(txt_frame, height=10, wrap=tk.WORD, font=self.default_font, yscrollcommand=scroll_y.set)
+        scroll_y.config(command=self.backstory_text.yview)
+        self.backstory_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll_y.pack(side=tk.RIGHT, fill=tk.Y)
         
         # Se abbiamo già una backstory, la carichiamo, altrimenti componiamo una prima bozza evocativa
         existing_story = self.char_data.get("backstory", "").strip()

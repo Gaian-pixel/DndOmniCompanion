@@ -630,6 +630,250 @@ TRINKETS: List[str] = [
 ]
 
 
+import re
+
+# -----------------------------------------------------------------------------
+# ARCHIVIO DI COERENZA NARRATIVA: RAZZE, CLASSI E BACKGROUND D&D 5e
+# -----------------------------------------------------------------------------
+
+RACE_NARRATIVE_LORE: Dict[str, Dict[str, str]] = {
+    "umano": {
+        "heritage": "figlio di una stirpe tanto effimera quanto audace, desiderosa di lasciare un'impronta duratura in un mondo dominato da forze secolari",
+        "culture": "abituato fin dall'infanzia all'adattabilità e al confronto continuo tra culture, ambizioni e regni in rapida trasformazione",
+        "presence": "uno sguardo fiero e determinato, temprato dalla consapevolezza che ogni giorno va conquistato con le proprie forze"
+    },
+    "elfo": {
+        "heritage": "erede della grazia secolare degli elfi, custode di un legame intimo con la magia arcana e le foreste primordiali",
+        "culture": "cresciuto nel silenzio meditativo del trance e nella contemplazione di architetture e canti tramandati attraverso i secoli",
+        "presence": "movimenti fluidi e silenziosi, con occhi profondi che sembrano riflettere ere dimenticate e segreti arcani"
+    },
+    "mezzelfo": {
+        "heritage": "nato all'incrocio tra la passione febbrile della stirpe umana e la grazia immortale elfica, ponte vivente tra due mondi",
+        "culture": "abituato a navigare tra la diffidenza e l'ammirazione, sviluppando un'empatia straordinaria e una saggezza diplomatica precoce",
+        "presence": "un fascino magnetico e uno sguardo accorto che coglie ogni sfumatura negli animi di chi gli sta intorno"
+    },
+    "nano": {
+        "heritage": "figlio della pietra e del ferro, temprato dall'onore ancestrale dei clan delle fortezze montane",
+        "culture": "allevato tra il rimbombo delle forge ardenti, i canti guerrieri e il rispetto reverenziale per le genealogie scolpite nel granito",
+        "presence": "una complessione massiccia e incrollabile, con mani nodose e callose abituate al peso del martello e della corazza"
+    },
+    "halfling": {
+        "heritage": "discendente di un popolo fiero e conviviale, dotato di una fortuna proverbiale e di un insospettabile coraggio indomito",
+        "culture": "cresciuto tra colline ubertose, focolari caldi e leggende narrate sorseggiando birra scura, dove la generosità è la prima virtù",
+        "presence": "un sorriso disarmante e passi così leggeri da non smuovere una foglia, capaci di svanire tra la folla in un batter d'occhio"
+    },
+    "dragonide": {
+        "heritage": "portatore dell'antico retaggio dei draghi, con scaglie lucenti e la potenza del soffio elementale celata nel petto",
+        "culture": "educato alla rigida condotta marziale del clan, dove l'onore, la lealtà e la rettitudine morale sono più preziosi della vita stessa",
+        "presence": "una statura imponente e maestosa, la cui sola apparizione incute reverenza e rispetto sia tra gli alleati che tra i nemici"
+    },
+    "tiefling": {
+        "heritage": "segnato dal retaggio dei piani inferiori, portatore di corna fiammanti e di una volontà d'acciaio forgiata contro il pregiudizio",
+        "culture": "cresciuto dovendo imparare a difendere la propria dignità dagli sguardi inquisitori, conquistandosi ogni rispetto palmo a palmo",
+        "presence": "occhi senza pupilla che scintillano nell'oscurità e una presenza carismatica che non lascia mai indifferenti"
+    },
+    "gnomo": {
+        "heritage": "portatore della scintilla vivace e inestinguibile degli gnomi, una mente geniale che trova meraviglia in ogni congegno e mistero",
+        "culture": "allevato tra banchi da lavoro colmi di molle, lenti d'ingrandimento, polveri alchemiche e tomi d'illusione",
+        "presence": "un entusiasmo contagioso, occhi vispi che analizzano ogni dettaglio e mani che non restano mai con le dita ferme"
+    },
+    "mezzorco": {
+        "heritage": "nato con la possanza titanica della stirpe orchesca unita alla tenacia umana, con un cuore in cui divampa una fiamma indomabile",
+        "culture": "costretto fin da giovane a dimostrare il proprio valore in terre di confine spietate, dove la debolezza è una condanna a morte",
+        "presence": "una corporatura muscolosa segnata da cicatrici onorevoli e zanne pronunciate che testimoniano un retaggio di fiera resistenza"
+    },
+    "tabaxi": {
+        "heritage": "agile viandante felino giunto da terre lontane ed esotiche, spinto da un'insaziabile fame di scoperte, tesori e leggende",
+        "culture": "cresciuto tra carovane nomadi e giungle fitte, ascoltando racconti attorno al fuoco e collezionando cimeli stravaganti",
+        "presence": "artigli affilati come rasoi, passi felpati e una curiosità vivida che lo spinge a esplorare ogni anfratto sconosciuto"
+    },
+    "aasimar": {
+        "heritage": "prescelto dai piani superiori, toccato dalla luce celestiale e guidato da una voce angelica verso un destino superiore",
+        "culture": "accompagnato fin dall'infanzia da sogni premonitori e dalla solenne consapevolezza del peso morale affidatogli dalle divinità",
+        "presence": "un'aura di calma sovrannaturale, pelle che emana un tenue riflesso dorato o argenteo quando la concentrazione si fa intensa"
+    },
+    "golia": {
+        "heritage": "figlio dei picchi tempestosi e delle vette perennemente innevate, dove la vita è una competizione costante contro gli elementi",
+        "culture": "educato all'autonomia spartana e alla meritocrazia assoluta, dove ciascuno è valutato unicamente per le proprie azioni concrete",
+        "presence": "una sagoma ciclopica incisa da tatuaggi tribali che narrano le più grandi prove fisiche e sopravvivenze della sua vita"
+    }
+}
+
+CLASS_NARRATIVE_LORE: Dict[str, Dict[str, str]] = {
+    "guerriero": {
+        "vocation": "la maestria tattica e la disciplina assoluta del combattimento",
+        "training": "Anni di marce forzate, duelli alla prima goccia di sangue e studio delle formazioni belliche hanno trasformato ogni arma in un'estensione naturale della sua mente e del suo corpo.",
+        "battle_style": "Sul campo di battaglia non si lascia guidare dal panico: analizza i varchi nella difesa nemica con lucidità strategica e colpisce con precisione inesorabile."
+    },
+    "mago": {
+        "vocation": "la decifrazione delle leggi universali e la tessitura della trama arcana",
+        "training": "Notti insonni trascorse su pergamene ingiallite, formule matematico-geometriche e diagrammi d'evocazione hanno svelato alla sua mente la sintassi segreta che governa la realtà.",
+        "battle_style": "Affronta le minacce con intelletto calcolatore, attingendo al proprio grimorio per piegare gli elementi, creare barriere impenetrabili e dominare il flusso dello scontro."
+    },
+    "chierico": {
+        "vocation": "il sacro sacerdozio e l'incarnazione vivente della volontà divina",
+        "training": "La sua investitura non è nata dalla teoria dottrinale, ma da una profonda epifania spirituale in cui la divinità ha toccato il suo spirito, conferendogli il dono dei miracoli.",
+        "battle_style": "Brandisce il simbolo sacro come faro di speranza per gli alleati feriti e punizione folgorante contro le forze sacrileghe che minacciano gli innocenti."
+    },
+    "ladro": {
+        "vocation": "l'arte dell'invisibilità, dell'infiltrazione e dell'opportunismo letale",
+        "training": "I vicoli bui, i tetti scivolosi e le serrature più complesse sono stati la sua accademia; ha imparato che un passo silenzioso vale più di dieci corazze a piastre.",
+        "battle_style": "Danza tra le ombre attendendo il momento perfetto per colpire dove l'armatura non protegge, dileguandosi prima ancora che il nemico comprenda da dove sia giunto l'affondo."
+    },
+    "stregone": {
+        "vocation": "la magia primordiale e innata che pulsa direttamente nelle vene",
+        "training": "Non ha mai dovuto studiare formule né pregare entità celesti: il potere magico è scaturito dalla sua carne per diritto di nascita, divampando come fiamma indomita.",
+        "battle_style": "Modella l'energia arcana per puro istinto e carisma, plasmando incantesimi potenti con la metamagia per adattarli istantaneamente a ogni situazione."
+    },
+    "paladino": {
+        "vocation": "il sacro Giuramento d'onore e la crociata contro l'oscurità",
+        "training": "Ha piegato il ginocchio dinanzi all'altare e ha pronunciato parole eterne che hanno fatto vibrare la sua anima, consacrando ogni respiro alla giustizia e alla protezione.",
+        "battle_style": "In combattimento è un baluardo inscalfibile; i suoi colpi sono infusi dal sacro castigo radioso e la sua sola presenza ispira coraggio a chiunque combatta al suo fianco."
+    },
+    "barbaro": {
+        "vocation": "la furia primigenia e la comunione con gli spiriti ancestrali",
+        "training": "Nelle terre selvagge e tra le prove più cruente ha scoperto che nel petto cova una tempesta che non conosce catene, pronta a scatenarsi quando il sangue chiama la battaglia.",
+        "battle_style": "Quando entra nell'Ira ancestrale ignora il dolore e la stanchezza, abbattendosi sulle schiere avversarie con la forza inarrestabile di una frana alpina."
+    },
+    "bardo": {
+        "vocation": "la musica della creazione e la custodia delle grandi leggende",
+        "training": "Ha appreso che i primi suoni del multiverso erano accordi e parole di potere; attraverso strumenti e versi poetici è in grado di toccare l'essenza stessa della realtà.",
+        "battle_style": "Tesse incantesimi tra una melodia e una battuta di spirito, rinvigorendo gli alleati demoralizzati e confondendo le menti dei nemici con illusioni e fascinazioni."
+    },
+    "druido": {
+        "vocation": "la sacra custodia degli equilibri naturali e delle terre incontaminate",
+        "training": "Ha bevuto alle sorgenti antiche nei circoli di pietre e ha compreso il linguaggio segreto delle bestie e delle fronde, consacrandosi alla difesa della vita contro la corruzione.",
+        "battle_style": "Invoca il furore delle tempeste, fa germogliare rovi soffocanti e muta la propria forma nelle più letali creature della foresta per sbranare chi devasta il mondo naturale."
+    },
+    "monaco": {
+        "vocation": "l'armonia ascetica tra spirito, mente e corpo attraverso il Ki",
+        "training": "Anni di meditazione sul respiro, isolamento nei monasteri e ripetizione metodica dei kata hanno temprato il suo corpo fino a renderlo duro come l'ebano e agile come il vento.",
+        "battle_style": "Schiva i colpi con movimenti impercettibili e colpisce con raffiche micidiali a mani nude, incanalando l'energia vitale per stordire e disarmare gli avversari."
+    },
+    "ranger": {
+        "vocation": "la caccia, la sopravvivenza estrema e la vigilanza delle terre di confine",
+        "training": "Ha fatto dei boschi ostili e delle brughiere desolate la propria dimora, imparando a interpretare ogni filo d'erba piegato e a seguire le tracce delle creature più infide.",
+        "battle_style": "Mantiene il controllo dello spazio con frecce infallibili o rapide lame gemelle, abbattendo le mostruosità prima ancora che possano scorgere la sua posizione."
+    },
+    "warlock": {
+        "vocation": "il patto occulto stretto con un'entità patrona ultraterrena",
+        "training": "Spinto da una disperata necessità o da un'incontrollabile ambizione, ha osato guardare oltre il velo della realtà mortale, stringendo un legame indissolubile con un patrono arcano.",
+        "battle_style": "Scatena deflagrazioni mistiche cariche di energia crepuscolare e invoca maledizioni ataviche con la sicurezza di chi comanda poteri che sfidano la comprensione umana."
+    },
+    "artefice": {
+        "vocation": "la fusione innovativa tra artigianato metallurgico e magia applicata",
+        "training": "Tra il fumo delle sostanze alchemiche e il tintinnio di ingranaggi di precisione, ha scoperto come infondere frammenti di potere arcano in metalli, gemme e congegni.",
+        "battle_style": "Interviene sul campo schierando prototipi prodigiosi, potenziando gli equipaggiamenti dei compagni e scatenando alchimie tattiche inaspettate."
+    }
+}
+
+BACKGROUND_NARRATIVE_LORE: Dict[str, Dict[str, str]] = {
+    "accolito": {
+        "past": "ha trascorso gli anni formativi all'interno di un santuario, officiando liturgie sacre, meditando sulle antiche scritture e offrendo conforto ai pellegrini",
+        "expertise": "la conoscenza profonda delle gerarchie religiose e la capacità di trovare rifugio e assistenza presso i templi devoti",
+        "memory": "il profumo acre dell'incenso che bruciava durante le lunghe veglie notturne ai piedi delle statue dorate"
+    },
+    "soldato": {
+        "past": "ha servito nei ranghi di un reggimento militare, conoscendo la rigida gerarchia, le fatiche dei turni di guardia e il sangue versato sulla linea del fronte",
+        "expertise": "la ferrea disciplina bellica, il rispetto per i ranghi di comando e l'istinto immediato di fare quadrato con i propri compagni",
+        "memory": "il clangore assordante dei gladi che sbattevano sugli scudi prima dell'impatto con la fanteria nemica"
+    },
+    "criminale / spia": {
+        "past": "ha mosso i primi passi nelle viscere umide della città, guadagnandosi da vivere grazie a colpi furtivi, ricettazione e commercio di informazioni riservate",
+        "expertise": "una fitta rete di contatti fidati nel sottobosco criminale e la capacità di scovare vie di fuga e trappole prima di chiunque altro",
+        "memory": "la sensazione della pietra umida sotto le dita durante le fughe precipitose sui tetti al chiaro di luna"
+    },
+    "nobile": {
+        "past": "è cresciuto tra arazzi sontuosi, banchetti cerimoniali e i sussurri velenosi dell'alta aristocrazia, educato al comando e al galateo delle corti",
+        "expertise": "l'autorevolezza innata nel farsi ascoltare dalle autorità e la padronanza delle sottili trame del potere politico",
+        "memory": "il sigillo in ceralacca del proprio stemma nobiliare impresso su documenti che decidevano le sorti di intere contee"
+    },
+    "saggio": {
+        "past": "ha consumato la propria giovinezza nelle biblioteche labirintiche e negli scriptoria accademici, dedicandosi alla ricerca di verità dimenticate",
+        "expertise": "la capacità di rintracciare qualsiasi frammento di sapere storico o cosmologico consultando archivi e cerchie di studiosi",
+        "memory": "la polvere sottile dei manoscritti millenari che volteggiava nel fascio di luce di una finestra a sesto acuto"
+    },
+    "marinaio": {
+        "past": "ha solcato le acque tumultuose a bordo di galeoni e velieri mercantili, affrontando tempeste furiose, mostri abissali e la vita spartana di bordo",
+        "expertise": "la confidenza naturale con le rotte nautiche, i nodi marinari e la solidarietà spontanea che unisce ogni lupo di mare nei porti",
+        "memory": "il sale che bruciava sulla pelle e il richiamo solitario dei gabbiani al levare del sole sull'oceano sconfinato"
+    },
+    "forestiero (outlander)": {
+        "past": "è cresciuto lontano dalla civiltà urbana, tra valli incontaminate e picchi montuosi dove ogni errore si paga con la vita",
+        "expertise": "un senso dell'orientamento impeccabile e la prodigiosa capacità di procacciare cibo e acqua pulita per sé e per il gruppo",
+        "memory": "il cielo notturno terso e privo di fumi cittadini, costellato da una miriade di stelle che fungevano da bussola eterna"
+    },
+    "monello (urchin)": {
+        "past": "è cresciuto da orfano nei quartieri più poveri e degradati, dovendo fare affidamento solo sulla propria furbizia e agilità per sfamarsi",
+        "expertise": "la conoscenza viscerale delle scorciatoie urbane, delle fogne e dei segreti sussurrati nei vicoli dove la guardia cittadina non osa entrare",
+        "memory": "il gelo pungente dell'inverno affrontato rannicchiato sotto una tettoia di legno fradicio stringendo un tozzo di pane"
+    },
+    "eroe popolare": {
+        "past": "viveva come semplice cittadino o contadino fino al giorno in cui ha trovato il coraggio di opporsi a un tiranno locale o a una bestia predone",
+        "expertise": "l'affetto incondizionato della gente umile, disposta a offrire asilo, cibo caldo e nascondigli sicuri senza chiedere nulla in cambio",
+        "memory": "gli sguardi riconoscenti dei vicini radunati nella piazza del villaggio quando la minaccia fu sventata"
+    },
+    "artigiano della gilda": {
+        "past": "ha imparato i segreti della maestria manuale all'interno di una prestigiosa gilda cittadina, perfezionando la lavorazione di materiali preziosi",
+        "expertise": "il supporto logistico e legale della corporazione degli artigiani e l'occhio clinico per valutare manufatti ed equipaggiamenti",
+        "memory": "il calore rassicurante della bottega e la soddisfazione tangibile nel vedere nascere un'opera d'arte dalla materia grezza"
+    },
+    "intrattenitore": {
+        "past": "ha calcato i palcoscenici di fiere paesane e teatri nobiliari, facendo della recitazione, del canto e dell'acrobazia il proprio sostentamento",
+        "expertise": "la facilità nell'ottenere ospitalità gratuita in cambio di esibizioni artistiche e la capacità di ammaliare e distrarre le folle",
+        "memory": "il brusio che si spegneva di colpo quando saliva sulla scena, prima dell'esplosione di applausi e monete sul tavolaccio"
+    },
+    "eremita": {
+        "past": "si è ritirato per lunghi anni dal consorzio umano in una grotta remota o in un monastero isolato, in cerca di contemplazione e verità interiore",
+        "expertise": "la rivelazione di una grande scoperta spirituale o cosmologica che ha cambiato per sempre il suo modo di concepire il mondo",
+        "memory": "il silenzio assoluto dell'alba sulle cime solitarie, rotto soltanto dal proprio respiro regolare in meditazione"
+    },
+    "ciarlatano": {
+        "past": "ha fatto della truffa elegante e della manipolazione il proprio pane quotidiano, vendendo illusioni, falsi elisir e identità fittizie ai creduloni",
+        "expertise": "la maestria nel falsificare documenti ufficiali, travestirsi e inventare al volo scuse e storie credibili per uscire dai guai",
+        "memory": "il ghigno soddisfatto nel contare le monete d'oro mentre il carro si allontanava dalla città prima che la farsa venisse scoperta"
+    },
+    "personalizzato": {
+        "past": "ha vissuto un percorso unico e fuori dagli schemi convenzionali, combinando esperienze diverse che ne hanno forgiato l'identità",
+        "expertise": "una versatilità singolare nell'affrontare sfide pratiche e sociali attingendo a un bagaglio personale irripetibile",
+        "memory": "il ricordo indelebile di una scelta radicale compiuta quando decise di non conformarsi al volere altrui"
+    }
+}
+
+NARRATIVE_STYLES: Dict[str, Dict[str, str]] = {
+    "heroic": {
+        "name": "Eroico & Epico",
+        "tone_p1": "Nelle vene di {hero_name} scorre la tempra e la fierezza di un destino che non ammette mediocrità.",
+        "tone_closure": "Con lo sguardo fiero rivolto alle sfide dell'orizzonte e il cuore colmo di coraggio, {hero_name} avanza a testa alta: la sua leggenda è solo all'inizio."
+    },
+    "dark": {
+        "name": "Dark Fantasy & Tormentato",
+        "tone_p1": "Il mondo non ha mai fatto sconti a {hero_name}: ogni cicatrice impressa sulla sua carne e nel suo spirito racconta di prove spietate e perdite dolorose.",
+        "tone_closure": "Tra ombre che allungano le loro mani sul suo cammino e un passato che non concede tregua, {hero_name} impugna le proprie armi: non cerca la gloria, ma la sopravvivenza o una faticosa redenzione."
+    },
+    "mystery": {
+        "name": "Misterioso & Arcano",
+        "tone_p1": "Fin dal primo vagito, la nascita di {hero_name} è stata accompagnata da presagi indecifrabili e coincidenze che sfidano le leggi del caso.",
+        "tone_closure": "Guidato da intuizioni sussurrate nel vento e da enigmi che attendono di essere svelati, {hero_name} cammina sui confini tra il visibile e l'arcano: il suo destino nasconde segreti che potrebbero scuotere il mondo."
+    },
+    "picaresque": {
+        "name": "Picaresco & Avventuroso",
+        "tone_p1": "Se c'è una cosa che {hero_name} ha imparato presto, è che la vita è un gioco d'azzardo e che la fortuna bacia solo chi ha il coraggio di osare.",
+        "tone_closure": "Con un sorriso beffardo, la lama ben affilata e la prontezza di chi sa cogliere al volo ogni occasione favorevole, {hero_name} è pronto a gettarsi nella mischia: l'avventura è appena cominciata."
+    }
+}
+
+
+def _clean_rp_item(text: str) -> str:
+    """Pulisce elementi ruolistici rimuovendo etichette come (Buono), (Legale), ecc."""
+    if not text:
+        return ""
+    t = str(text).strip()
+    t = re.sub(r"\s*\((?:Buono|Legale|Caotico|Malvagio|Neutrale|Qualsiasi|Buona|Legale/Buono|Buono/Neutrale)\)", "", t, flags=re.IGNORECASE)
+    # Rimuovi etichette prima del trattino lungo se presente (es. 'Vendetta — Insegui...')
+    return t.strip().rstrip(".")
+
+
 def generate_backstory(
     name: str,
     race: str,
@@ -642,40 +886,147 @@ def generate_backstory(
     flaw: str = "",
     quest: str = "",
     secret: str = "",
-    trinket: str = ""
+    trinket: str = "",
+    party_tie: str = "",
+    narrative_style: str = "heroic",
+    include_headers: bool = True,
+    seed: Optional[int] = None,
+    variation: int = 0
 ) -> str:
-    """Genera una biografia narrativa (2-3 paragrafi) fluida ed evocativa basata sulle scelte del giocatore."""
+    """
+    Generatore Narrativo Avanzato per D&D 5e:
+    Compone una biografia ricca, articolata e coerente intrecciando le origini razziali,
+    la formazione di background, la chiamata di classe, i pilastri ruolistici (Tratti, Ideali, Legami, Difetti),
+    l'evento scatenante con il proprio cimelio e il legame con il gruppo d'avventura.
+    """
+    if seed is not None:
+        random.seed(seed)
+
     hero_name = name.strip() if name and name.strip() else "L'eroe"
     place = origin_place.strip() if origin_place and origin_place.strip() else "terre lontane segnate da antiche leggende"
-    bg_clean = background.split("(")[0].strip() if background else "un passato avvolto nel mistero"
     
-    # Paragrafo 1: Origini e indole
-    p1 = f"Nato e cresciuto tra {place}, {hero_name} ha conosciuto presto le sfide e le asperità del mondo come {bg_clean}."
-    if trait:
-        p1 += f" Chi lo ha incontrato sul suo cammino ha imparato a conoscerne l'indole caratteristica: {trait.rstrip('.')}."
-    if ideal:
-        p1 += f" Nel proprio cuore custodisce una salda bussola morale: '{ideal.rstrip('.')}."
-    if flaw:
-        p1 += f" Tuttavia, anche l'animo più saldo nasconde una debolezza: {flaw.rstrip('.')}."
+    # Risoluzione chiavi normalizzate
+    r_key = str(race).strip().lower()
+    for k in RACE_NARRATIVE_LORE:
+        if k in r_key:
+            r_key = k
+            break
+    race_info = RACE_NARRATIVE_LORE.get(r_key, RACE_NARRATIVE_LORE["umano"])
 
-    # Paragrafo 2: Vocazione, Legame e Cimelio
-    p2 = f"La sua dedizione all'arte di {char_class} unita alla tempra di {race} ne hanno forgiato il destino."
-    if quest:
-        p2 += f" Ciò che lo ha spinto ad abbandonare la quiete per affrontare i pericoli delle terre selvagge è un obiettivo chiaro: {quest.rstrip('.')}."
-    if bond:
-        p2 += f" Nelle notti più buie, la memoria resta legata a un voto incrollabile: '{bond.rstrip('.')}."
-    if trinket:
-        p2 += f" Tra i suoi averi più cari conserva con gelosa cura {trinket.rstrip('.')}."
+    c_key = str(char_class).strip().lower()
+    for k in CLASS_NARRATIVE_LORE:
+        if k in c_key:
+            c_key = k
+            break
+    class_info = CLASS_NARRATIVE_LORE.get(c_key, CLASS_NARRATIVE_LORE["guerriero"])
 
-    # Paragrafo 3: L'Ombra e il Futuro
-    p3 = ""
-    if secret and "Nessun" not in secret:
-        p3 = f"Mentre cammina al fianco dei propri compagni d'arme, un'ombra silenziosa accompagna i suoi passi: {secret.rstrip('.')}."
-        p3 += f" Solo il corso della campagna svelerà se {hero_name} saprà superare le ombre del proprio passato o se ne verrà consumato."
+    bg_raw = str(background).strip()
+    bg_clean = bg_raw.split("(")[0].strip() if bg_raw else "Accolito"
+    bg_key = bg_raw.lower()
+    for k in BACKGROUND_NARRATIVE_LORE:
+        if k in bg_key:
+            bg_key = k
+            break
+    bg_info = BACKGROUND_NARRATIVE_LORE.get(bg_key, BACKGROUND_NARRATIVE_LORE["accolito"])
+
+    style_key = narrative_style.lower() if narrative_style else "heroic"
+    if "dark" in style_key or "cupo" in style_key or "tormentato" in style_key:
+        style_key = "dark"
+    elif "myster" in style_key or "arcano" in style_key:
+        style_key = "mystery"
+    elif "picar" in style_key or "avventur" in style_key:
+        style_key = "picaresque"
     else:
-        p3 = f"Con lo sguardo rivolto verso l'orizzonte e la spada o il tomo al proprio fianco, {hero_name} è pronto a scrivere il proprio capitolo nella storia di questa terra."
+        style_key = "heroic"
+    style_info = NARRATIVE_STYLES.get(style_key, NARRATIVE_STYLES["heroic"])
 
-    paragraphs = [p1, p2]
-    if p3:
-        paragraphs.append(p3)
-    return "\n\n".join(paragraphs)
+    # Pulizia input ruolistici
+    clean_trait = _clean_rp_item(trait)
+    clean_ideal = _clean_rp_item(ideal)
+    clean_bond = _clean_rp_item(bond)
+    clean_flaw = _clean_rp_item(flaw)
+    clean_quest = _clean_rp_item(quest)
+    clean_secret = _clean_rp_item(secret)
+    clean_trinket = _clean_rp_item(trinket)
+    clean_party = _clean_rp_item(party_tie)
+
+    # -------------------------------------------------------------------------
+    # PARAGRAFO 1: ORIGINI E RETAGGIO
+    # -------------------------------------------------------------------------
+    p1_lines = []
+    p1_open = style_info["tone_p1"].format(hero_name=hero_name)
+    p1_lines.append(f"{p1_open} Nato e cresciuto tra {place}, {hero_name} è {race_info['heritage']}.")
+    p1_lines.append(f"I suoi primi anni sono stati segnati dalla cultura di {race}: {race_info['culture']}.")
+    if race_info.get("presence"):
+        p1_lines.append(f"Chiunque lo incontri per la prima volta nota subito la sua presenza distintiva: {race_info['presence']}.")
+    p1 = " ".join(p1_lines)
+
+    # -------------------------------------------------------------------------
+    # PARAGRAFO 2: GLI ANNI DELLA FORMAZIONE (BACKGROUND)
+    # -------------------------------------------------------------------------
+    p2_lines = []
+    p2_lines.append(f"Prima di rispondere alla chiamata dell'avventura, la sua vita ha conosciuto le sfide e le fatiche del mondo come {bg_clean}.")
+    p2_lines.append(f"In quel periodo formativo {bg_info['past']}, maturando {bg_info['expertise']}.")
+    if bg_info.get("memory"):
+        p2_lines.append(f"Tra i ricordi più vividi di quel capitolo di vita riaffiora ancora {bg_info['memory']}.")
+    if clean_trait:
+        p2_lines.append(f"Chi ha condiviso con lui la quotidianità ha imparato a conoscerne l'indole caratteristica: {clean_trait}.")
+    p2 = " ".join(p2_lines)
+
+    # -------------------------------------------------------------------------
+    # PARAGRAFO 3: LA CHIAMATA DELLA CLASSE
+    # -------------------------------------------------------------------------
+    p3_lines = []
+    p3_lines.append(f"Tuttavia, il corso della sua esistenza era destinato a una vocazione superiore: {class_info['vocation']}.")
+    p3_lines.append(f"La sua dedizione all'arte di {char_class} unita alla tempra di {race} ne hanno forgiato il destino. {class_info['training']}")
+    p3_lines.append(f"{class_info['battle_style']}")
+    p3 = " ".join(p3_lines)
+
+    # -------------------------------------------------------------------------
+    # PARAGRAFO 4: L'EVENTO SCATENANTE, L'OBIETTIVO E IL CIMELIO
+    # -------------------------------------------------------------------------
+    p4_lines = []
+    if clean_quest:
+        p4_lines.append(f"A strapparlo dalla quiete del passato per spingerlo sui sentieri perigliosi dell'ignoto è stato un richiamo ineludibile: {clean_quest}.")
+    else:
+        p4_lines.append(f"Il desiderio insopprimibile di scoprire cosa si celi oltre i confini del mondo conosciuto lo ha infine spinto a imbracciare armi e bagagli.")
+
+    if clean_trinket:
+        p4_lines.append(f"Tra i suoi averi più cari conserva con gelosa cura {clean_trinket}, un cimelio a cui la sua memoria e il suo cuore sono indissolubilmente legati.")
+    p4 = " ".join(p4_lines)
+
+    # -------------------------------------------------------------------------
+    # PARAGRAFO 5: L'ANIMA DELL'EROE, IL SEGRETO E IL GRUPPO
+    # -------------------------------------------------------------------------
+    p5_lines = []
+    if clean_ideal:
+        p5_lines.append(f"Nel proprio cuore custodisce una salda bussola morale: {clean_ideal}.")
+    if clean_bond:
+        p5_lines.append(f"Nelle notti più buie, la memoria e l'onore restano saldati a un voto incrollabile: {clean_bond}.")
+    if clean_flaw:
+        p5_lines.append(f"Eppure, anche l'animo più saldo nasconde una vulnerabilità: {clean_flaw}.")
+
+    # Segreto del Personaggio (per il DM)
+    if clean_secret and "nessun segreto" not in clean_secret.lower() and "nessuno" not in clean_secret.lower():
+        p5_lines.append(f"Dietro la fermezza del suo sguardo si cela inoltre un'ombra silenziosa che non confida a nessuno: {clean_secret}.")
+
+    # Legame con il gruppo
+    if clean_party:
+        p5_lines.append(f"Con i propri compagni d'arme condivide un vincolo speciale: {clean_party}.")
+
+    p5_lines.append(style_info["tone_closure"].format(hero_name=hero_name))
+    p5 = " ".join(p5_lines)
+
+    # Assemblaggio finale
+    if include_headers:
+        chapters = [
+            f"### I. Origini e Retaggio\n{p1}",
+            f"### II. Gli Anni della Formazione come {bg_clean}\n{p2}",
+            f"### III. La Chiamata del Destino: {char_class}\n{p3}",
+            f"### IV. L'Evento Scatenante & Il Cimelio\n{p4}",
+            f"### V. L'Anima dell'Eroe & L'Ombra del Segreto\n{p5}"
+        ]
+        return "\n\n".join(chapters)
+    else:
+        return "\n\n".join([p1, p2, p3, p4, p5])
+
