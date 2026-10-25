@@ -39,7 +39,11 @@ from common.srd_offline import (
     get_all_equipment_offline,
     get_all_rules_offline,
     get_all_classes_offline,
+    get_all_subclasses_offline,
+    get_all_races_offline,
     get_all_traits_offline,
+    get_all_feats_offline,
+    get_all_backgrounds_offline,
     get_bilingual_label,
     match_bilingual_search,
     parse_cr_to_float,
@@ -241,7 +245,7 @@ class CompendiumDialog(tk.Toplevel):
                 all_cats = [c for c in all_cats if any(a in c.lower() for a in allowed_low)]
             return all_cats or ["Mostri"]
 
-        base_cats = ["Incantesimi", "Regole", "Classi", "Tratti", "Equipaggiamento", "Armi", "Pozioni", "Oggetti Magici"]
+        base_cats = ["Incantesimi", "Talenti", "Background", "Regole", "Classi", "Sottoclassi", "Razze", "Tratti", "Equipaggiamento", "Armi", "Pozioni", "Oggetti Magici"]
         if self.is_dm:
             base_cats = ["Mostri", "PNG"] + base_cats
 
@@ -572,6 +576,16 @@ class CompendiumDialog(tk.Toplevel):
                 merged.append(r)
             for cl in get_all_classes_offline():
                 merged.append(cl)
+            for sub in get_all_subclasses_offline():
+                merged.append(sub)
+            for rc in get_all_races_offline():
+                merged.append(rc)
+            for ft in get_all_feats_offline():
+                merged.append(ft)
+            for bg in get_all_backgrounds_offline():
+                merged.append(bg)
+            for tr in get_all_traits_offline():
+                merged.append(tr)
             return merged
 
         if cat == "Mostri":
@@ -580,6 +594,10 @@ class CompendiumDialog(tk.Toplevel):
         if cat == "Incantesimi":
             items = get_all_spells_offline()
             return items if items else None
+        if cat == "Talenti":
+            return get_all_feats_offline()
+        if cat == "Background":
+            return get_all_backgrounds_offline()
         if cat == "Oggetti Magici":
             items = get_all_magic_items_offline()
             return items if items else None
@@ -590,6 +608,10 @@ class CompendiumDialog(tk.Toplevel):
             return get_all_rules_offline()
         if cat == "Classi":
             return get_all_classes_offline()
+        if cat == "Sottoclassi":
+            return get_all_subclasses_offline()
+        if cat == "Razze":
+            return get_all_races_offline()
         if cat == "Tratti":
             return get_all_traits_offline()
         return None
@@ -821,6 +843,18 @@ class CompendiumDialog(tk.Toplevel):
             sort_val = float(rar_ranks.get(rar.lower(), 1))
             itype = item.get("type") or (item.get("equipment_category", {}).get("name") if isinstance(item.get("equipment_category"), dict) else item.get("equipment_category", "Oggetto"))
             type_str = str(itype)
+        elif "sottoclass" in item_cat:
+            detail_str = str(item.get("class_name") or "Sottoclasse")
+            type_str = "Sottoclasse"
+        elif "razz" in item_cat:
+            detail_str = f"Vel. {item.get('speed', 9)}m"
+            type_str = str(item.get("size", "Media"))
+        elif "talent" in item_cat:
+            detail_str = str(item.get("prerequisite") or "Nessun prerequisito")
+            type_str = str(item.get("type", "Talento"))
+        elif "background" in item_cat:
+            detail_str = str(item.get("feature_name") or item.get("skills") or "Background")
+            type_str = "Background"
         else:
             detail_str = str(item.get("page_ref") or item.get("category") or "")
             type_str = str(item.get("type") or item.get("category") or "Regola")

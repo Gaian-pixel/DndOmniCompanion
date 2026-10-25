@@ -15,7 +15,11 @@ class CompendiumManager:
             "Incantesimi": [],
             "Regole": [],
             "Classi": [],
-            "Tratti": []
+            "Sottoclassi": [],
+            "Razze": [],
+            "Tratti": [],
+            "Talenti": [],
+            "Background": []
         }
         self.favorites: List[Dict[str, Any]] = []
         self.recent: List[Dict[str, Any]] = []

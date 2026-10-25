@@ -309,5 +309,183 @@ class TestCampaignCompendiumIntegration(unittest.TestCase):
         self.assertEqual(len(imported_calls), 3)
         dlg.destroy()
 
+    def test_compendium_expanded_classes_and_progression_1_to_20(self):
+        """Verifica che tutte le 13 classi abbiano progressione 1-20, sottoclassi e slot incantesimi."""
+        from common.srd_offline import (
+            get_all_classes_offline,
+            get_class_level_features_offline,
+            get_all_traits_offline,
+        )
+        classes = get_all_classes_offline()
+        self.assertEqual(len(classes), 13)
+        class_names = [c["name"].lower() for c in classes]
+        for expected in ["guerriero", "barbaro", "ladro", "mago", "chierico", "paladino", "bardo", "druido", "monaco", "ranger", "stregone", "warlock", "artefice"]:
+            self.assertTrue(any(expected in cn for cn in class_names), f"Classe mancante: {expected}")
+
+        # Verifica progressione 1-20 e sottoclassi
+        warlock_feats = get_class_level_features_offline("warlock", 5)
+        self.assertEqual(warlock_feats["level"], 5)
+        self.assertIn("3", warlock_feats["spell_slots"])  # Slot di 3° livello su riposo breve
+        self.assertGreater(len(warlock_feats["subclasses"]), 3)
+
+        paladin_feats = get_class_level_features_offline("paladino", 5)
+        self.assertEqual(paladin_feats["hit_die"], 10)
+        self.assertIn("2", paladin_feats["spell_slots"])  # Half-caster slot 2° liv
+
+        artificer_feats = get_class_level_features_offline("artefice", 3)
+        self.assertEqual(artificer_feats["hit_die"], 8)
+        self.assertGreater(len(artificer_feats["subclasses"]), 2)
+
+        # Tratti di classe + raziali
+        traits = get_all_traits_offline()
+        self.assertGreater(len(traits), 150)
+
+    def test_compendium_feats_and_backgrounds(self):
+        """Verifica cataloghi di Talenti (Feats) e Backgrounds 5e."""
+        from common.srd_offline import (
+            get_all_feats_offline,
+            get_all_backgrounds_offline,
+        )
+        feats = get_all_feats_offline()
+        self.assertGreaterEqual(len(feats), 40)
+        feat_names = [f["name"].lower() for f in feats]
+        self.assertTrue(any("great weapon master" in fn or "armi possenti" in fn for fn in feat_names))
+        self.assertTrue(any("sharpshooter" in fn or "tiratore scelto" in fn for fn in feat_names))
+        self.assertTrue(any("sentinel" in fn or "sentinella" in fn for fn in feat_names))
+        self.assertTrue(any("war caster" in fn or "incantatore da guerra" in fn for fn in feat_names))
+        self.assertTrue(any("fey touched" in fn or "toccato dalle fate" in fn for fn in feat_names))
+
+        backgrounds = get_all_backgrounds_offline()
+        self.assertGreaterEqual(len(backgrounds), 18)
+        bg_names = [b["name"].lower() for b in backgrounds]
+        self.assertTrue(any("accolito" in bn or "acolyte" in bn for bn in bg_names))
+        self.assertTrue(any("nobile" in bn or "noble" in bn for bn in bg_names))
+        self.assertTrue(any("soldato" in bn or "soldier" in bn for bn in bg_names))
+        self.assertTrue(any("pirata" in bn or "pirate" in bn for bn in bg_names))
+
+        # CompendiumDialog categorie
+        dlg = CompendiumDialog(self.root, is_dm=True, initial_category="Talenti")
+        self.assertIn("Talenti", dlg.category_cb["values"])
+        self.assertIn("Background", dlg.category_cb["values"])
+        self.assertGreaterEqual(len(dlg.displayed_items), 40)
+        dlg.category_var.set("Background")
+        dlg._on_category_changed()
+        self.assertGreaterEqual(len(dlg.displayed_items), 18)
+        dlg.destroy()
+
+    def test_compendium_iconic_non_srd_monsters_and_spells(self):
+        """Verifica mostri iconici non-SRD (Beholder, Mind Flayer, etc.) e magie iconiche (Hex, Booming Blade, etc.)."""
+        from common.srd_offline import (
+            get_monster_offline,
+            search_monsters_offline,
+            search_spells_offline,
+            get_all_monsters_offline,
+            get_all_spells_offline,
+        )
+        # Mostri non-SRD
+        beholder = get_monster_offline("beholder")
+        self.assertIsNotNone(beholder)
+        self.assertEqual(int(beholder.get("armor_class", 0)), 18)
+        self.assertEqual(int(beholder.get("hit_points", 0)), 180)
+
+        beholder_it = get_monster_offline("osservatore")
+        self.assertIsNotNone(beholder_it)
+        self.assertEqual(beholder_it.get("name"), "Beholder")
+
+        mind_flayer = get_monster_offline("mind flayer")
+        self.assertIsNotNone(mind_flayer)
+        self.assertEqual(mind_flayer.get("challenge_rating"), "7")
+
+        displacer = get_monster_offline("belva distorcente")
+        self.assertIsNotNone(displacer)
+
+        death_knight = get_monster_offline("cavaliere della morte")
+        self.assertIsNotNone(death_knight)
+
+        # Magie non-SRD
+        hex_spells = search_spells_offline("hex")
+        self.assertTrue(any(s["name"] == "Hex" for s in hex_spells))
+
+        sortilegio_spells = search_spells_offline("sortilegio")
+        self.assertTrue(any(s["name"] == "Hex" for s in sortilegio_spells))
+
+        booming_blade = search_spells_offline("booming blade")
+        self.assertTrue(any("booming blade" in s["name"].lower() for s in booming_blade))
+
+        silvery_barbs = search_spells_offline("stoccata argentea")
+        self.assertTrue(any("silvery barbs" in s["name"].lower() for s in silvery_barbs))
+
+    def test_compendium_expanded_rules_and_dm_tables(self):
+        """Verifica le tabelle e regole avanzate del DM (veleni, trappole, alloggi, follia, CR/XP)."""
+        from common.srd_offline import get_all_rules_offline
+        rules = get_all_rules_offline()
+        self.assertGreaterEqual(len(rules), 14)
+        rule_names = [r["name"].lower() for r in rules]
+        self.assertTrue(any("veleni" in rn for rn in rule_names))
+        self.assertTrue(any("trappole" in rn for rn in rule_names))
+        self.assertTrue(any("alloggio" in rn or "vitto" in rn for rn in rule_names))
+        self.assertTrue(any("grado di sfida" in rn or "xp" in rn for rn in rule_names))
+        self.assertTrue(any("follia" in rn for rn in rule_names))
+        self.assertTrue(any("oggetti" in rn and "ca" in rn for rn in rule_names))
+        self.assertTrue(any("indebolimento" in rn or "exhaustion" in rn for rn in rule_names))
+
+    def test_compendium_100_percent_official_coverage(self):
+        """Verifica la copertura al 100% di tutti i manuali ufficiali D&D 5e: 500+ incantesimi, 1120+ mostri, 117 sottoclassi, 37 razze, 800+ tratti."""
+        from common.srd_offline import (
+            get_all_spells_offline,
+            get_all_monsters_offline,
+            get_all_magic_items_offline,
+            get_all_subclasses_offline,
+            get_all_races_offline,
+            get_all_traits_offline,
+            get_all_rules_offline,
+            get_magic_item_offline,
+            get_monster_offline,
+        )
+        # 1. 500+ Incantesimi
+        spells = get_all_spells_offline()
+        self.assertGreaterEqual(len(spells), 500)
+
+        # 2. 1,120+ Mostri (inclusi WotC copyright monsters)
+        monsters = get_all_monsters_offline()
+        self.assertGreaterEqual(len(monsters), 1120)
+        spectator = get_monster_offline("spectator")
+        self.assertIsNotNone(spectator)
+        elder_brain = get_monster_offline("elder brain")
+        self.assertIsNotNone(elder_brain)
+
+        # 3. 250+ Oggetti Magici & Artefatti DMG
+        items = get_all_magic_items_offline()
+        self.assertGreaterEqual(len(items), 250)
+        vecna_eye = get_magic_item_offline("eye of vecna")
+        self.assertIsNotNone(vecna_eye)
+        bandore = get_magic_item_offline("fochlucan bandore")
+        self.assertIsNotNone(bandore)
+
+        # 4. Tutte le 117 Sottoclassi ufficiali per tutte le 13 classi
+        subclasses = get_all_subclasses_offline()
+        self.assertEqual(len(subclasses), 117)
+        classes_represented = {s.get("class_name") for s in subclasses}
+        self.assertEqual(len(classes_represented), 13)
+
+        # 5. Tutte le 37+ Razze giocabili (9 PHB + 28+ Esotiche)
+        races = get_all_races_offline()
+        self.assertGreaterEqual(len(races), 37)
+        race_names = [r["name"].lower() for r in races]
+        self.assertIn("aasimar", race_names)
+        self.assertIn("goliath", race_names)
+        self.assertIn("tabaxi", race_names)
+        self.assertIn("forgiato", race_names)
+
+        # 6. 800+ Tratti con descrizioni complete
+        traits = get_all_traits_offline()
+        self.assertGreaterEqual(len(traits), 800)
+
+        # 7. Tabelle di Bottino DMG A-I nelle regole
+        rules = get_all_rules_offline()
+        rule_names = [r["name"].lower() for r in rules]
+        self.assertTrue(any("tabella bottino dmg: table a" in rn for rn in rule_names))
+        self.assertTrue(any("tabella bottino dmg: table i" in rn for rn in rule_names))
+
 if __name__ == '__main__':
     unittest.main()
