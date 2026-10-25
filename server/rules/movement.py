@@ -70,7 +70,6 @@ def handle_move_request(data, player, game_state):
         if not is_dm and getattr(game_state, "current_map", None):
             hex_size = game_state.current_map.get("hex_size", 60)
             if hex_size < 40:
-                from common.network_utils import send_message
                 from common.protocol import make_error_reply
                 if player.conn:
                     send_message(player.conn, make_error_reply("Mappa di esplorazione: movimento libero disabilitato. Usa il Viaggio o aspetta il DM."))
@@ -89,7 +88,6 @@ def handle_move_request(data, player, game_state):
 
             for step in steps_to_check:
                 if [step.q, step.r] in walls_list_pos:
-                    from common.network_utils import send_message
                     from common.protocol import make_error_reply
                     door_blocked = None
                     if getattr(game_state, "current_map", None):
@@ -190,7 +188,6 @@ def handle_move_request(data, player, game_state):
 
             if (spent + req_hexes) > max_hexes:
                 if strict_move:
-                    from common.network_utils import send_message
                     from common.protocol import make_error_reply
                     if getattr(player, "conn", None):
                         rem = max(0, max_hexes - spent)

@@ -509,7 +509,7 @@ class GameState:
                 "travel_hours_today": getattr(self, 'travel_hours_today', 0),
                 "travel_pace": getattr(self, 'travel_pace', "Normale"),
                 "travel_terrain": getattr(self, 'travel_terrain', "Foresta"),
-                "active_campaign_folder": self.active_campaign.folder_path if getattr(self, 'active_campaign', None) else None,
+                "active_campaign_folder": getattr(self.active_campaign, 'folder_path', None) if getattr(self, 'active_campaign', None) else None,
                 "automation_mode": getattr(self, "automation_mode", "hybrid"),
                 "automation_settings": getattr(self, "automation_settings", {}),
                 "pending_damages": getattr(self, "pending_damages", {}),
