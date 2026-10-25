@@ -1381,6 +1381,7 @@ class DM_GUI:
         from common.protocol import make_player_stats_update, make_chat_broadcast, make_game_state
         import random
         rolled_count = 0
+        updates_to_broadcast = []
         with self.server.game_state.lock:
             for p in self.server.game_state.players:
                 # Mostri/PNG non hanno una connessione client attiva
@@ -1396,9 +1397,12 @@ class DM_GUI:
                     d20 = random.randint(1, 20)
                     p.initiative = d20 + dex_mod
                     rolled_count += 1
-                    broadcast(self.server.game_state, make_player_stats_update(p.name, p.hp, p.max_hp, p.initiative, getattr(p, "conditions", []), getattr(p, "temp_hp", 0)))
+                    updates_to_broadcast.append(make_player_stats_update(p.name, p.hp, p.max_hp, p.initiative, getattr(p, "conditions", []), getattr(p, "temp_hp", 0)))
             if self.server.game_state.combat_active:
                 self.server.game_state.players.sort(key=lambda p: (getattr(p, 'in_combat', True), p.initiative), reverse=True)
+
+        for u_msg in updates_to_broadcast:
+            broadcast(self.server.game_state, u_msg)
                 
         if rolled_count > 0:
             self.server.game_state._trigger_gui_update()
@@ -2314,7 +2318,7 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         file_path=filedialog.askopenfilename(initialdir=maps_dir, filetypes=[("Mappe D&D", "*.json")])
         if not file_path: return
         try:
-            with open(file_path, 'r') as f: map_data=json.load(f)
+            with open(file_path, 'r', encoding='utf-8') as f: map_data=json.load(f)
             if 'base_image_path' in map_data and map_data['base_image_path']:
                 with open(map_data['base_image_path'], "rb") as image_file:
                     encoded_string=base64.b64encode(image_file.read()).decode('utf-8')
@@ -2798,9 +2802,9 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                 elif msg_type == "JOURNAL_APPROVAL_REQUEST":
                     self.prompt_journal_approval(msg.get("player"), msg.get("field_name"), msg.get("content"), msg.get("title"))
                 elif msg_type == "CURRENCY_REQUEST":
-                    self.prompt_currency_approval(msg.get("player"), msg.get("coin"), msg.get("amount"), msg.get("reason"))
+                    self.master.after(10, self.prompt_currency_approval, msg.get("player"), msg.get("coin"), msg.get("amount"), msg.get("reason"))
                 elif msg_type == "ITEM_APPROVAL_REQUEST":
-                    self.prompt_item_approval(msg.get("player"), msg.get("item"), msg.get("slot_idx"))
+                    self.master.after(10, self.prompt_item_approval, msg.get("player"), msg.get("item"), msg.get("slot_idx"))
         except queue.Empty: pass
         self.master.after(100, self.process_queue)
 

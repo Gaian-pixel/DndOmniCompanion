@@ -56,7 +56,7 @@ def auto_explore_fow(player, game_state):
 
 def handle_move_request(data, player, game_state):
     conds = getattr(player, "conditions", [])
-    blocking = ["Afferrato", "Privo di Sensi", "Incapacitato", "Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto"]
+    blocking = ["Afferrato", "Grappled", "Trattenuto", "Restrained", "Privo di Sensi", "Incapacitato", "Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto"]
     if any(is_condition_active(conds, c) for c in blocking) or getattr(player, "exhaustion_level", 0) >= 5 or getattr(player, "hp", 1) <= 0:
         from common.protocol import make_error_reply
         if player.conn:
@@ -64,9 +64,18 @@ def handle_move_request(data, player, game_state):
         return
 
     to_pos = data.get("to")
-    is_dm = data.get("is_dm_force", False)
+    is_dm_caller = getattr(player, "is_dm", False) or getattr(player, "role", "") == "DM"
+    if getattr(player, "is_party_member", False) and getattr(player, "conn", None) is not None:
+        is_dm = is_dm_caller
+    else:
+        is_dm = is_dm_caller or data.get("is_dm_force", False)
     
     if to_pos:
+        if not isinstance(to_pos, (list, tuple)) or len(to_pos) < 2 or not all(isinstance(v, int) for v in to_pos[:2]):
+            from common.protocol import make_error_reply
+            if player.conn:
+                send_message(player.conn, make_error_reply("Coordinate di destinazione non valide."))
+            return
         if not is_dm and getattr(game_state, "current_map", None):
             hex_size = game_state.current_map.get("hex_size", 60)
             if hex_size < 40:
@@ -265,7 +274,7 @@ def handle_move_request(data, player, game_state):
                     game_state.log_dm_message(f"[TERRENO] {alert}")
                     from common.protocol import make_chat_broadcast, make_player_stats_update
                     broadcast(game_state, make_chat_broadcast("Sistema", alert))
-                    broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.conditions))
+                    broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, getattr(player, 'initiative', 0), player.conditions, getattr(player, 'temp_hp', 0)))
                 else:
                     from common.protocol import make_chat_broadcast
                     broadcast(game_state, make_chat_broadcast("Sistema", f"🧊 {player.name} attraversa il ghiaccio mantenendo l'equilibrio (TS Des {dex_roll} vs CD 10)."))
@@ -277,7 +286,7 @@ def handle_move_request(data, player, game_state):
                 game_state.log_dm_message(f"[TERRENO] {alert}")
                 from common.protocol import make_chat_broadcast, make_player_stats_update
                 broadcast(game_state, make_chat_broadcast("Sistema", alert))
-                broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.conditions))
+                broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, getattr(player, 'initiative', 0), player.conditions, getattr(player, 'temp_hp', 0)))
         
         # Gestione Trappole D&D 5e sulla mappa
         if getattr(game_state, "current_map", None):

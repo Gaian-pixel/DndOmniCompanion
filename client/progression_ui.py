@@ -832,6 +832,15 @@ class LevelUpDialog(tk.Toplevel):
                 self.character.features += f"\n\n--- Livello {self.character.level} ---\n{feats_str}"
             else:
                 self.character.features = f"--- Livello {self.character.level} ---\n{feats_str}"
+            if not hasattr(self.character, "features_list") or not isinstance(self.character.features_list, list):
+                self.character.features_list = []
+            for feat_name in self.new_features:
+                desc = self.new_feature_details.get(feat_name, "")
+                self.character.features_list.append({
+                    "name": feat_name,
+                    "category": f"Privilegio (Lv {self.character.level})",
+                    "desc": desc
+                })
 
         # 4. Aumento Caratteristiche (ASI / Talento)
         if getattr(self, "has_asi", False):
@@ -840,22 +849,32 @@ class LevelUpDialog(tk.Toplevel):
             if mode_val == "single" and hasattr(self, "asi_single_stat"):
                 raw_stat = self.asi_single_stat.get().split()[0].upper()
                 if raw_stat in self.character.attributes:
-                    self.character.attributes[raw_stat] += 2
+                    old_val = self.character.attributes[raw_stat]
+                    new_val = min(20, old_val + 2)
+                    self.character.attributes[raw_stat] = new_val
                     # Se aumentata Costituzione, retroattivamente aggiunge 1 PF per livello
-                    if raw_stat == "COS":
-                        extra_hp = self.character.level
+                    if raw_stat == "COS" and (new_val // 2 > old_val // 2):
+                        extra_hp = self.character.level * ((new_val - 10) // 2 - (old_val - 10) // 2)
                         self.character.hp_max += extra_hp
                         self.character.hp_current += extra_hp
             elif mode_val == "dual" and hasattr(self, "asi_dual_stat1") and hasattr(self, "asi_dual_stat2"):
                 s1 = self.asi_dual_stat1.get().split()[0].upper()
                 s2 = self.asi_dual_stat2.get().split()[0].upper()
+                if s1 == s2:
+                    s2 = None
                 if s1 in self.character.attributes:
-                    self.character.attributes[s1] += 1
-                if s2 in self.character.attributes:
-                    self.character.attributes[s2] += 1
-                # Se aumentata COS e il modificatore aumenta
-                for stat in [s1, s2]:
-                    if stat == "COS" and (self.character.attributes["COS"] % 2 == 0):
+                    old_val = self.character.attributes[s1]
+                    new_val = min(20, old_val + 1)
+                    self.character.attributes[s1] = new_val
+                    if s1 == "COS" and (new_val // 2 > old_val // 2):
+                        extra_hp = self.character.level
+                        self.character.hp_max += extra_hp
+                        self.character.hp_current += extra_hp
+                if s2 and s2 in self.character.attributes:
+                    old_val = self.character.attributes[s2]
+                    new_val = min(20, old_val + 1)
+                    self.character.attributes[s2] = new_val
+                    if s2 == "COS" and (new_val // 2 > old_val // 2):
                         extra_hp = self.character.level
                         self.character.hp_max += extra_hp
                         self.character.hp_current += extra_hp
@@ -868,6 +887,15 @@ class LevelUpDialog(tk.Toplevel):
                     self.character.features += f"\n\n--- Talento (Livello {self.character.level}) ---\n{feat_entry}"
                 else:
                     self.character.features = f"--- Talento (Livello {self.character.level}) ---\n{feat_entry}"
+                if not hasattr(self.character, "features_list") or not isinstance(self.character.features_list, list):
+                    self.character.features_list = []
+                self.character.features_list.append({
+                    "name": feat_name,
+                    "category": f"Talento (Lv {self.character.level})",
+                    "desc": feat_desc
+                })
+
+        self.character.proficiency_bonus = 2 + (self.character.level - 1) // 4
 
         # 5. Slot Incantesimo
         if self.api_data and isinstance(self.api_data.get("spellcasting"), dict):

@@ -1184,6 +1184,41 @@ WARLOCK_PACT_SLOTS = {
     20: {"5": 4},
 }
 
+# Slot incantesimo per Artefice (arrotonda per eccesso, sblocca al 1° livello)
+ARTIFICER_SLOTS = {
+    1: {"1": 2},
+    2: {"1": 2},
+    3: {"1": 3},
+    4: {"1": 3},
+    5: {"1": 4, "2": 2},
+    6: {"1": 4, "2": 2},
+    7: {"1": 4, "2": 3},
+    8: {"1": 4, "2": 3},
+    9: {"1": 4, "2": 3, "3": 2},
+    10: {"1": 4, "2": 3, "3": 2},
+    11: {"1": 4, "2": 3, "3": 3},
+    12: {"1": 4, "2": 3, "3": 3},
+    13: {"1": 4, "2": 3, "3": 3, "4": 1},
+    14: {"1": 4, "2": 3, "3": 3, "4": 1},
+    15: {"1": 4, "2": 3, "3": 3, "4": 2},
+    16: {"1": 4, "2": 3, "3": 3, "4": 2},
+    17: {"1": 4, "2": 3, "3": 3, "4": 3, "5": 1},
+    18: {"1": 4, "2": 3, "3": 3, "4": 3, "5": 1},
+    19: {"1": 4, "2": 3, "3": 3, "4": 3, "5": 2},
+    20: {"1": 4, "2": 3, "3": 3, "4": 3, "5": 2},
+}
+
+# Slot incantesimo per terzi-incantatori (Eldritch Knight, Arcane Trickster)
+THIRD_CASTER_SLOTS = {
+    1: {}, 2: {},
+    3: {"1": 2}, 4: {"1": 3}, 5: {"1": 3}, 6: {"1": 3},
+    7: {"1": 4, "2": 2}, 8: {"1": 4, "2": 2}, 9: {"1": 4, "2": 2},
+    10: {"1": 4, "2": 3}, 11: {"1": 4, "2": 3}, 12: {"1": 4, "2": 3},
+    13: {"1": 4, "2": 3, "3": 2}, 14: {"1": 4, "2": 3, "3": 2}, 15: {"1": 4, "2": 3, "3": 2},
+    16: {"1": 4, "2": 3, "3": 3}, 17: {"1": 4, "2": 3, "3": 3}, 18: {"1": 4, "2": 3, "3": 3},
+    19: {"1": 4, "2": 3, "3": 3, "4": 1}, 20: {"1": 4, "2": 3, "3": 3, "4": 1}
+}
+
 
 
 # Catalogo mostri iconici D&D 5e non inclusi in SRD 5.1 (Monster Manual / Guide ufficiali)
@@ -2179,7 +2214,7 @@ class OfflineSRD:
 
         return best_match
 
-    def get_class_level_features(self, char_class: str, level: int) -> Dict[str, Any]:
+    def get_class_level_features(self, char_class: str, level: int, subclass: str = "") -> Dict[str, Any]:
         """Restituisce privilegi, sottoclassi e slot per il livello di qualsiasi delle 13 classi D&D 5e."""
         c_low = str(char_class).strip().lower()
         # Normalizza nome classe italiano/inglese
@@ -2197,12 +2232,17 @@ class OfflineSRD:
         hit_die = prog.get("hit_die", 8)
 
         slots = {}
+        sub_low = str(subclass).lower() if subclass else ""
         if c_low in ["wizard", "cleric", "druid", "bard", "sorcerer"]:
             slots = FULL_CASTER_SLOTS.get(level, {})
-        elif c_low in ["paladin", "ranger", "artificer"]:
+        elif c_low == "artificer":
+            slots = ARTIFICER_SLOTS.get(level, {})
+        elif c_low in ["paladin", "ranger"]:
             slots = HALF_CASTER_SLOTS.get(level, {})
         elif c_low == "warlock":
             slots = WARLOCK_PACT_SLOTS.get(level, {})
+        elif any(k in sub_low for k in ["cavaliere mistico", "eldritch knight", "mistificatore arcano", "arcane trickster"]):
+            slots = THIRD_CASTER_SLOTS.get(level, {})
 
         return {
             "class": c_low,

@@ -75,19 +75,19 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
     
     # Mappatura bilingue per tipi di danno 5e
     damage_map = {
-        "tagliente": ["tagliente", "slashing"],
-        "perforante": ["perforante", "piercing"],
-        "contundente": ["contundente", "bludgeoning"],
-        "fuoco": ["fuoco", "fire"],
-        "freddo": ["freddo", "cold"],
-        "fulmine": ["fulmine", "lightning"],
-        "veleno": ["veleno", "poison"],
-        "acido": ["acido", "acid"],
-        "psichico": ["psichico", "psychic"],
-        "necrotico": ["necrotico", "necrotic"],
-        "radioso": ["radioso", "radiant"],
-        "forza": ["forza", "force"],
-        "tuono": ["tuono", "thunder"]
+        "tagliente": ["tagliente", "slashing"], "slashing": ["tagliente", "slashing"],
+        "perforante": ["perforante", "piercing"], "piercing": ["perforante", "piercing"],
+        "contundente": ["contundente", "bludgeoning"], "bludgeoning": ["contundente", "bludgeoning"],
+        "fuoco": ["fuoco", "fire"], "fire": ["fuoco", "fire"],
+        "freddo": ["freddo", "cold"], "cold": ["freddo", "cold"],
+        "fulmine": ["fulmine", "lightning"], "lightning": ["fulmine", "lightning"],
+        "veleno": ["veleno", "poison"], "poison": ["veleno", "poison"],
+        "acido": ["acido", "acid"], "acid": ["acido", "acid"],
+        "psichico": ["psichico", "psychic"], "psychic": ["psichico", "psychic"],
+        "necrotico": ["necrotico", "necrotic"], "necrotic": ["necrotico", "necrotic"],
+        "radioso": ["radioso", "radiant"], "radiant": ["radioso", "radiant"],
+        "forza": ["forza", "force"], "force": ["forza", "force"],
+        "tuono": ["tuono", "thunder"], "thunder": ["tuono", "thunder"]
     }
     
     all_target_imm = [str(x).strip().lower() for x in getattr(target_player, "damage_immunities", [])]
@@ -166,13 +166,28 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
                 if "Prono" not in target_player.conditions:
                     target_player.conditions.append("Prono")
                 if old_hp == 0 and dmg_to_hp > 0:
-                    msg = f"{target_player.name} subisce danni mentre è a 0 HP! Segna un fallimento nel Tiro Salvezza contro la morte!"
+                    if not hasattr(target_player, "death_saves") or not isinstance(target_player.death_saves, dict):
+                        target_player.death_saves = {"successes": 0, "failures": 0}
+                    fail_add = 1
+                    target_player.death_saves["failures"] += fail_add
+                    msg = f"💀 {target_player.name} subisce danni mentre è a 0 HP! Segna {fail_add} fallimento/i nel TS contro la morte (Totale: {target_player.death_saves['failures']}/3)!"
+                    if target_player.death_saves["failures"] >= 3:
+                        if not hasattr(target_player, "conditions"): target_player.conditions = []
+                        if "Morto" not in target_player.conditions:
+                            target_player.conditions.append("Morto")
+                        msg += f" ⚰️ {target_player.name} ha accumulato 3 fallimenti ed è MORTO!"
+                        _spawn_corpse_loot(target_player, game_state)
                     if game_state:
                         broadcast(game_state, make_chat_broadcast("Sistema", msg))
                         game_state.log_dm_message(msg)
     elif target_player.hp > 0:
-        if old_hp == 0 and "Incosciente" in getattr(target_player, "conditions", []):
-            target_player.conditions.remove("Incosciente")
+        if old_hp == 0:
+            if "Incosciente" in getattr(target_player, "conditions", []):
+                target_player.conditions.remove("Incosciente")
+            if "Stabilizzato" in getattr(target_player, "conditions", []):
+                target_player.conditions.remove("Stabilizzato")
+            if hasattr(target_player, "death_saves") and isinstance(target_player.death_saves, dict):
+                target_player.death_saves = {"successes": 0, "failures": 0}
             
     # Concentrazione 5e (si attiva quando si subiscono danni)
     if final_dmg > 0 and game_state:
@@ -213,13 +228,27 @@ def _apply_hp_change(target_player, new_hp_unbounded, game_state):
                 if "Prono" not in target_player.conditions:
                     target_player.conditions.append("Prono")
                 if old_hp == 0 and new_hp_unbounded < 0:
-                    msg = f"{target_player.name} subisce danni mentre è a 0 HP! Segna un fallimento nel Tiro Salvezza contro la morte!"
+                    if not hasattr(target_player, "death_saves") or not isinstance(target_player.death_saves, dict):
+                        target_player.death_saves = {"successes": 0, "failures": 0}
+                    target_player.death_saves["failures"] += 1
+                    msg = f"💀 {target_player.name} subisce danni mentre è a 0 HP! Segna 1 fallimento nel TS contro la morte (Totale: {target_player.death_saves['failures']}/3)!"
+                    if target_player.death_saves["failures"] >= 3:
+                        if not hasattr(target_player, "conditions"): target_player.conditions = []
+                        if "Morto" not in target_player.conditions:
+                            target_player.conditions.append("Morto")
+                        msg += f" ⚰️ {target_player.name} ha accumulato 3 fallimenti ed è MORTO!"
+                        _spawn_corpse_loot(target_player, game_state)
                     if game_state:
                         broadcast(game_state, make_chat_broadcast("Sistema", msg))
                         game_state.log_dm_message(msg)
     elif target_player.hp > 0:
-        if old_hp == 0 and "Incosciente" in getattr(target_player, "conditions", []):
-            target_player.conditions.remove("Incosciente")
+        if old_hp == 0:
+            if "Incosciente" in getattr(target_player, "conditions", []):
+                target_player.conditions.remove("Incosciente")
+            if "Stabilizzato" in getattr(target_player, "conditions", []):
+                target_player.conditions.remove("Stabilizzato")
+            if hasattr(target_player, "death_saves") and isinstance(target_player.death_saves, dict):
+                target_player.death_saves = {"successes": 0, "failures": 0}
         
         dmg_val = old_hp - new_hp_unbounded
         if dmg_val > 0 and game_state:
@@ -398,7 +427,8 @@ def handle_attack_request(data, player, game_state):
     else:
         strict_lock = getattr(game_state, "strict_turn_lock", False)
 
-    if getattr(game_state, "combat_active", False) and strict_lock:
+    is_reaction = data.get("is_reaction", False)
+    if getattr(game_state, "combat_active", False) and strict_lock and not is_reaction:
         curr_turn = game_state.get_current_turn_player()
         if curr_turn and curr_turn.name != player.name:
             if player and getattr(player, "conn", None):
@@ -653,7 +683,8 @@ def handle_attack_request(data, player, game_state):
             line = hex_linedraw(p_hex, t_hex)
             
             if getattr(game_state, "current_map", None):
-                walls = game_state.current_map.get("walls", [])
+                from server.rules.movement import get_effective_map_walls
+                walls = get_effective_map_walls(game_state.current_map)
                 for step in line[1:]:
                     if [step.q, step.r] in walls:
                         blocked_by_wall = True
@@ -665,6 +696,8 @@ def handle_attack_request(data, player, game_state):
                     other_creatures = [
                         p for p in game_state.players 
                         if p.name != player.name and p.name != target_player.name and getattr(p, "position", None)
+                        and getattr(p, "hp", 1) > 0 and "Morto" not in getattr(p, "conditions", [])
+                        and getattr(p, "layer", "token") != "gm"
                     ]
                     cover_bonus, cover_name = get_cover_between(p_hex, t_hex, half_cover, three_quarters, other_creatures)
 
@@ -712,7 +745,11 @@ def handle_attack_request(data, player, game_state):
         elif hits:
 
             log_msg += " COLPITO!"
-            if is_crit:
+            # Regola D&D 5e RAW: Qualsiasi attacco a segno entro 1.5m su bersaglio Incosciente o Paralizzato e' un critico automatico!
+            if not is_crit and dist <= 1 and any(is_condition_active(t_cond, c) for c in ["Incosciente", "Paralizzato", "Unconscious", "Paralyzed"]):
+                is_crit = True
+                log_msg += " 🌟 (CRITICO AUTOMATICO: Bersaglio Incosciente/Paralizzato entro 1.5m!)"
+            elif is_crit:
                 log_msg += " 🌟 (CRITICO! 20 Naturale - Dadi danno raddoppiati!)"
             if damage_formula:
                 dmg_result = roll_dice(damage_formula, is_crit=is_crit)
@@ -1139,7 +1176,8 @@ def handle_reaction_response(data, player, game_state):
             "weapon_name": w_name,
             "hit_bonus": hit_bonus,
             "damage_formula": damage_formula,
-            "damage_type": damage_type
+            "damage_type": damage_type,
+            "is_reaction": True
         }, player, game_state)
         
     elif reaction_type == "SHIELD_SPELL":

@@ -8,6 +8,11 @@ class VoiceServer:
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         # Allows reusing address if restarted quickly
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if hasattr(socket, "SIO_UDP_CONNRESET"):
+            try:
+                self.sock.ioctl(socket.SIO_UDP_CONNRESET, False)
+            except Exception:
+                pass
         self.clients = set()
         self.running = False
 
@@ -54,8 +59,13 @@ class VoiceServer:
                             self.sock.sendto(data, c)
                         except Exception:
                             pass
+            except ConnectionResetError:
+                # Disconnessione ICMP su Windows: non interrompere il loop
+                continue
             except OSError:
-                break
+                if not self.running:
+                    break
+                continue
             except Exception as e:
                 if self.running:
                     print(f"[VoiceServer] Errore recv: {e}")

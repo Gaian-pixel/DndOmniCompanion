@@ -55,7 +55,7 @@ class Player:
         sheet = getattr(self, "full_sheet", None)
         if isinstance(sheet, dict):
             race = str(sheet.get("race", "")).lower()
-            dv_races = ("elfo", "elf", "nano", "dwarf", "mezzelfo", "half-elf", "mezzorco", "half-orc", "gnomo", "gnome", "tiefling", "drow", "duergar", "dragonide")
+            dv_races = ("elfo", "elf", "nano", "dwarf", "mezzelfo", "half-elf", "mezzorco", "half-orc", "gnomo", "gnome", "tiefling", "drow", "duergar")
             if any(r in race for r in dv_races):
                 return True
             senses = str(sheet.get("senses", "")).lower()
@@ -292,7 +292,7 @@ class GameState:
         self._trigger_gui_update()
 
     def end_combat(self):
-        temp_combat_conds = {"Scatto", "Disimpegno", "Schivata", "Aiutato", "Dash", "Disengage", "Dodge", "Helped"}
+        temp_combat_conds = {"Scatto", "Disimpegno", "Schivata", "Aiutato", "Dash", "Disengage", "Dodge", "Helped", "Scudo"}
         with self.lock:
             self.combat_active = False
             for p in self.players:

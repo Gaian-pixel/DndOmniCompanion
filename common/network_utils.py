@@ -42,9 +42,15 @@ def send_message(sock, message_data):
         header = struct.pack('!I', len(message_bytes))
         with _get_send_lock(sock):
             sock.sendall(header + message_bytes)
-    except (BrokenPipeError, ConnectionResetError):
-        # Questi errori sono normali se un client si disconnette, non stampiamo nulla
+    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+        # Errori normali di disconnessione client
         pass
+    except OSError as e:
+        # Codici normali di socket chiuso/reimpostato su Windows (10038, 10054, 10053, 10058) o POSIX
+        if getattr(e, 'winerror', None) in (10038, 10054, 10053, 10058) or e.errno in (9, 104, 32):
+            pass
+        else:
+            print(f"Errore socket durante l'invio: {e}")
     except Exception as e:
         print(f"Errore imprevisto durante l'invio: {e}")
 

@@ -2020,9 +2020,13 @@ class CharacterSheetFrame(ttk.Frame):
                     self.character.conditions.append("Concentrazione")
                     conc_info = " [🧠 Concentrazione Attiva]"
                 self.manager.update_character(self.character)
-                if hasattr(self, "on_save_callback") and self.on_save_callback:
-                    try: self.on_save_callback(self.character)
-                    except Exception: pass
+
+            self.manager.update_character(self.character)
+            if hasattr(self.manager, 'save_characters'):
+                self.manager.save_characters()
+            if hasattr(self, "on_save_callback") and self.on_save_callback:
+                try: self.on_save_callback(self.character)
+                except Exception: pass
 
             if self.roll_callback:
                 upcast_info = f" (Potenziato al Livello {cast_level}!)" if cast_level > lvl else ""
@@ -2635,9 +2639,11 @@ class CharacterSheetFrame(ttk.Frame):
             heal_roll = random.randint(1, 4) + random.randint(1, 4) + 2
             old_hp = self.character.hp_current
             self.character.hp_current = min(self.character.hp_max, self.character.hp_current + heal_roll)
-            if hasattr(self, "hp_current_entry") and self.hp_current_entry.winfo_exists():
-                self.hp_current_entry.delete(0, tk.END)
-                self.hp_current_entry.insert(0, str(self.character.hp_current))
+            if hasattr(self, "hp_cur_var"):
+                self.hp_cur_var.set(self.character.hp_current)
+            if hasattr(self, "hp_cur_entry") and self.hp_cur_entry.winfo_exists():
+                self.hp_cur_entry.delete(0, tk.END)
+                self.hp_cur_entry.insert(0, str(self.character.hp_current))
             if hasattr(self, "update_hp_bar"):
                 self.update_hp_bar()
             heal_msg = f"\n🧪 Hai bevuto la pozione e recuperato +{heal_roll} PF (ora {self.character.hp_current}/{self.character.hp_max})!"
@@ -2667,7 +2673,8 @@ class CharacterSheetFrame(ttk.Frame):
         self.refresh_weapons_list()
         
         if self.is_connected and getattr(self, "network", None):
-            from common.protocol import make_update_full_sheet_request, make_chat_message
+            from common.protocol import make_update_full_sheet_request, make_update_stats_request, make_chat_message
+            self.network.send(make_update_stats_request(self.character.hp_current, self.character.hp_max, self.character.initiative, getattr(self.character, "conditions", [])))
             self.network.send(make_update_full_sheet_request(self.character.to_dict()))
             self.network.send(make_chat_message(f"[CONSUMO] {self.character.name} ha consumato {amount}x {it_name} (Rimanenti: {new_qty})"))
             
@@ -3213,12 +3220,12 @@ class CharacterSheetFrame(ttk.Frame):
                 return
             target = simpledialog.askstring("Dona Oggetto", "A chi vuoi donare l'oggetto?\nScegli tra: " + ", ".join(players), parent=win)
             if target and target in players:
-                self.trade_callback(item, target)
                 self.character.inventory_grid[idx] = None
                 self.refresh_inventory_grid()
                 self.manager.update_character(self.character)
                 if hasattr(self.manager, 'save_characters'):
                     self.manager.save_characters()
+                self.trade_callback(item, target)
                 win.destroy()
             elif target:
                 messagebox.showerror("Errore", "Giocatore non trovato.", parent=win)
@@ -3555,7 +3562,7 @@ class CharacterSheetFrame(ttk.Frame):
                 level = int(self.level_var.get())
             except (ValueError, AttributeError, tk.TclError):
                 level = getattr(self.character, "level", 1) or 1
-            prof_bonus = getattr(self.character, "proficiency_bonus", ((max(1, level) - 1) // 4) + 2)
+            prof_bonus = ((max(1, int(level)) - 1) // 4) + 2
             
             total_mod = stat_mod + (prof_bonus * prof_level)
             mod_str = f"+{total_mod}" if total_mod >= 0 else str(total_mod)
@@ -3690,6 +3697,8 @@ class CharacterSheetFrame(ttk.Frame):
                 for lvl, slot in getattr(self.character, "spell_slots", {}).items():
                     if isinstance(slot, dict) and "current" in slot:
                         slot["current"] = slot.get("max", 0)
+                        if hasattr(self, "slot_vars") and str(lvl) in self.slot_vars:
+                            self.slot_vars[str(lvl)].set(slot["current"])
             
             self.manager.update_character(self.character)
             if hasattr(self, "on_save_callback") and self.on_save_callback:
@@ -3828,6 +3837,14 @@ class CharacterSheetFrame(ttk.Frame):
         if hasattr(self.manager, 'save_characters'):
             self.manager.save_characters()
         self.load_data()
+        if hasattr(self, "on_save_callback") and self.on_save_callback:
+            try: self.on_save_callback(self.character)
+            except Exception: pass
+        if self.is_connected and getattr(self, "network", None):
+            from common.protocol import make_update_stats_request, make_update_full_sheet_request, make_chat_message
+            self.network.send(make_update_stats_request(self.character.hp_current, self.character.hp_max, self.character.initiative, getattr(self.character, "conditions", [])))
+            self.network.send(make_update_full_sheet_request(self.character.to_dict()))
+            self.network.send(make_chat_message(f"🎉 [PROGRESSIONE] {self.character.name} è salito al Livello {self.character.level}! (PF Max: {self.character.hp_max})"))
 
 
 
@@ -3900,7 +3917,9 @@ class CharacterSheetFrame(ttk.Frame):
             stat_key = w.get("ability", "FOR")
             stat_val = self.character.attributes.get(stat_key, 10)
             mod = (stat_val - 10) // 2
-            prof_bonus = getattr(self.character, "proficiency_bonus", 2) if w.get("proficient", True) else 0
+            char_lvl = getattr(self.character, "level", 1) or 1
+            calc_pb = ((max(1, int(char_lvl)) - 1) // 4) + 2
+            prof_bonus = calc_pb if w.get("proficient", True) else 0
             w_bonus = w.get("bonus", 0)
             total_txc = mod + prof_bonus + w_bonus
             txc_str = f"+{total_txc}" if total_txc >= 0 else str(total_txc)

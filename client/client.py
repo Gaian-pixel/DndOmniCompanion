@@ -66,7 +66,11 @@ class ClientGUI:
         self.bonus_spent = False
         self.reaction_spent = False
         self.movement_spent_ft = 0
-        self.network = ClientNetwork(self.gui_queue, lambda: self.master.after(0, self.handle_disconnection))
+        def _safe_disconnect_notify():
+            if hasattr(self, 'master') and self.master.winfo_exists():
+                try: self.master.after(0, self.handle_disconnection)
+                except Exception: pass
+        self.network = ClientNetwork(self.gui_queue, _safe_disconnect_notify)
         register_language_listener(self.on_language_changed)
         register_unit_listener(self.on_unit_changed)
         self.setup_gui()
@@ -980,8 +984,20 @@ class ClientGUI:
         lvl = int(getattr(char, "level", 1) or 1)
         if cls_name in ("ladro", "rogue") and lvl >= 2:
             return True
-        feats = [str(f).lower() for f in getattr(char, "features", []) if f]
-        return any("azione scaltra" in f or "cunning action" in f for f in feats)
+        features_val = getattr(char, "features", "")
+        if isinstance(features_val, list):
+            features_text = " ".join(str(f) for f in features_val).lower()
+        else:
+            features_text = str(features_val or "").lower()
+        if "azione scaltra" in features_text or "cunning action" in features_text:
+            return True
+        feat_list = getattr(char, "features_list", [])
+        if isinstance(feat_list, list):
+            for f in feat_list:
+                name_f = str(f.get("name", "")).lower() if isinstance(f, dict) else str(f).lower()
+                if "azione scaltra" in name_f or "cunning action" in name_f:
+                    return True
+        return False
 
     def update_action_economy_ui(self):
         if not hasattr(self, 'btn_act_tracker'):
@@ -1446,18 +1462,19 @@ class ClientGUI:
             self.character_manager.save_characters()
 
     def on_hotbar_click(self, idx):
-        if not self.active_character: return
-        cmd = self.active_character.hotbar[idx]
+        if not self.active_character or not hasattr(self.active_character, "hotbar"): return
+        if not isinstance(self.active_character.hotbar, list) or idx >= len(self.active_character.hotbar): return
+        cmd = str(self.active_character.hotbar[idx] or "").strip()
         if not cmd:
             self.show_toast(f"Lo slot Hotbar #{idx+1} è vuoto. Usa il click destro per configurare una macro!", title="Hotbar", toast_type="info")
             return
-        if "d" in cmd and cmd[0].isdigit(): # basic check for roll
-            self.do_roll(cmd, f"Hotbar {idx+1}")
+        import re
+        clean = cmd.lower()
+        if re.match(r"^(\d+)?d\d+", clean) or clean.startswith("/r ") or clean.startswith("/roll "):
+            formula = re.sub(r"^/(?:roll|r)\s+", "", cmd).strip()
+            self.do_roll(formula, f"Hotbar {idx+1}")
         else:
-            # Set the entry text and call send_chat_message to respect the active tab
-            self.entry.delete(0, tk.END)
-            self.entry.insert(0, cmd)
-            self.send_chat_message()
+            self.send_chat_message(cmd)
 
 
     def on_ping_callback(self, clicked_hex):
@@ -2304,11 +2321,17 @@ class ClientGUI:
     def process_queue(self):
         try:
             while True:
-                msg = self.gui_queue.get_nowait()
-                self.handle_server_message(msg)
-        except queue.Empty:
-            pass
-        self.master.after(100, self.process_queue)
+                try:
+                    msg = self.gui_queue.get_nowait()
+                except queue.Empty:
+                    break
+                try:
+                    self.handle_server_message(msg)
+                except Exception as e:
+                    print(f"[CLIENT] Errore elaborazione messaggio: {e}")
+        finally:
+            if hasattr(self, "master") and self.master.winfo_exists():
+                self.master.after(100, self.process_queue)
 
     def redraw_map_and_players(self):
         # Pass the full players_data so UI components can access position, conditions, etc.
@@ -2529,11 +2552,15 @@ class ClientGUI:
                 self.players_data[name]['conditions'] = data.get('conditions')
             
         if name == self.name and self.active_character:
-            self.active_character.hp_current = data.get('hp')
-            self.active_character.hp_max = data.get('max_hp')
-            self.active_character.initiative = data.get('initiative')
-            self.active_character.temp_hp = data.get('temp_hp', 0)
-            if 'conditions' in data:
+            if data.get('hp') is not None:
+                self.active_character.hp_current = data.get('hp')
+            if data.get('max_hp') is not None:
+                self.active_character.hp_max = data.get('max_hp')
+            if data.get('initiative') is not None:
+                self.active_character.initiative = data.get('initiative')
+            if 'temp_hp' in data and data.get('temp_hp') is not None:
+                self.active_character.temp_hp = data.get('temp_hp', 0)
+            if 'conditions' in data and data.get('conditions') is not None:
                 self.active_character.conditions = data.get('conditions')
             self.character_manager.save_characters()
             self.update_hero_summary_card()
@@ -3539,6 +3566,13 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             self.show_toast("Non sei connesso al server.", toast_type="warning")
             return
 
+        if text.lower().startswith("/roll ") or text.lower().startswith("/r "):
+            formula = text.split(" ", 1)[1].strip()
+            self.do_roll(formula, "Tiro Personalizzato")
+            if not isinstance(message_or_event, str):
+                self.entry.delete(0, tk.END)
+            return
+
         if text.lower() in ["/tsmorte", "/deathsave", "/morte", "/ds"]:
             self.roll_death_save()
             if not isinstance(message_or_event, str):
@@ -3765,6 +3799,7 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         damage_formula = data.get("damage_formula")
         half_on_success = data.get("half_on_success")
         source_name = data.get("source_name")
+        damage_type = data.get("damage_type", "Fuoco")
         
         win = tk.Toplevel(self.master)
         win.transient(self.master)
@@ -3783,9 +3818,12 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             from common.dice import roll_dice
             mod = 0
             if self.active_character:
-                attr = self.active_character.attributes
-                if stat in attr:
-                    mod = (int(attr[stat]) - 10) // 2
+                if hasattr(self.active_character, "get_effective_save_bonus"):
+                    mod = self.active_character.get_effective_save_bonus(stat)
+                else:
+                    attr = self.active_character.attributes
+                    if stat in attr:
+                        mod = (int(attr[stat]) - 10) // 2
                     
             mod_str = f"+{mod}" if mod >= 0 else str(mod)
             res = roll_dice(f"1d20{mod_str}")
@@ -3807,7 +3845,7 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                 )
             
             from common.protocol import make_save_result
-            self.network.send(make_save_result(stat, res["total"], is_crit, is_fail, dc, damage_formula, half_on_success, source_name))
+            self.network.send(make_save_result(stat, res["total"], is_crit, is_fail, dc, damage_formula, half_on_success, source_name, damage_type=damage_type))
             win.destroy()
             
         ttk.Button(win, text=f"Tira Salvezza ({stat})", command=do_roll, style="Danger.TButton").pack(pady=20)

@@ -175,6 +175,11 @@ class Character:
         }
         self.travel_role = "Nessuna"
         self.marching_order = "Centro"
+        self.features_list = []
+        self.conditions = []
+        self.starting_kit_applied = False
+        self.campaign_starter_received = False
+        self.saving_throw_proficiencies = []
 
     def short_rest(self, hd_to_spend=1):
         """Spende Dadi Vita (XdY + Mod COS) per recuperare HP e ricarica i privilegi da riposo breve."""
@@ -369,7 +374,14 @@ class Character:
         stat_val = self.get_effective_attribute(stat_name)
         mod = (stat_val - 10) // 2
         bonuses = self.get_attunement_bonuses()
-        return mod + bonuses["bonus_saves"]
+        save_bonus = mod + bonuses.get("bonus_saves", 0)
+        stat_upper = str(stat_name).upper()
+        prof_saves = [str(s).upper() for s in getattr(self, "saving_throw_proficiencies", [])]
+        if stat_upper in prof_saves:
+            lvl = getattr(self, "level", 1) or 1
+            pb = 2 + (max(1, int(lvl)) - 1) // 4
+            save_bonus += pb
+        return save_bonus
 
     def get_carried_weight(self) -> float:
         """
@@ -636,7 +648,8 @@ class Character:
 
 
     def to_dict(self):
-        return self.__dict__
+        import copy
+        return copy.deepcopy(self.__dict__)
     
     @staticmethod
     def from_dict(data):
