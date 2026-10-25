@@ -7,6 +7,7 @@ from typing import Dict, Any, List
 from .character_manager import Character
 from common.theme import (
     apply_modern_window_style,
+    BG_COLOR,
     ACCENT_GOLD,
     ACCENT_GOLD_LIGHT,
     SURFACE_COLOR,
@@ -60,6 +61,8 @@ class CharacterCreationWizardFrame(ttk.Frame):
         # Dati in costruzione
         self.char_data: Dict[str, Any] = {
             "race": "Umano",
+            "subrace": "",
+            "half_elf_bonuses": ["DES", "COS"],
             "char_class": "Guerriero",
             "attributes": {"FOR": 15, "DES": 14, "COS": 13, "INT": 12, "SAG": 10, "CAR": 8},
             "name": "",
@@ -93,28 +96,56 @@ class CharacterCreationWizardFrame(ttk.Frame):
             self.build_step_narrative
         ]
         
-        self.container = ttk.Frame(self, padding=16)
-        self.container.pack(fill=tk.BOTH, expand=True)
-        
-        self.btn_frame = ttk.Frame(self, style="Surface.TFrame", padding=10)
-        self.btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
+        # Barra Superiore Stepper Visuale (5 Passi Guidati)
+        self.stepper_bar = tk.Frame(self, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=12, pady=8)
+        self.stepper_bar.pack(fill=tk.X, side=tk.TOP, padx=12, pady=(10, 0))
 
         if self.on_close_callback:
-            self.cancel_btn = ttk.Button(self.btn_frame, text="← Torna al Menu", command=self.close_wizard, style="Tool.TButton")
+            self.cancel_btn = ttk.Button(self.stepper_bar, text="← Menu", command=self.close_wizard, style="Dark.TButton")
             self.cancel_btn.pack(side=tk.LEFT, padx=(0, 10))
+            tk.Frame(self.stepper_bar, bg=BORDER_COLOR, width=1).pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10), pady=2)
+
+        self.step_pills_frame = tk.Frame(self.stepper_bar, bg=SURFACE_COLOR)
+        self.step_pills_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.step_pill_labels = []
+        step_titles = ["① Razza", "② Classe", "③ Caratteristiche", "④ Background", "⑤ Identità & Storia"]
+        for idx, s_title in enumerate(step_titles):
+            lbl = tk.Label(
+                self.step_pills_frame,
+                text=s_title,
+                font=FONT_BADGE,
+                bg=SURFACE_COLOR_ALT,
+                fg=TEXT_MUTED,
+                padx=8,
+                pady=4,
+                highlightbackground=BORDER_COLOR,
+                highlightthickness=1
+            )
+            lbl.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+            self.step_pill_labels.append(lbl)
+
+        self.container = ttk.Frame(self, padding=14)
+        self.container.pack(fill=tk.BOTH, expand=True)
         
-        self.prev_btn = ttk.Button(self.btn_frame, text="< Indietro", command=self.prev_step)
+        self.btn_frame = tk.Frame(self, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=14, pady=8)
+        self.btn_frame.pack(fill=tk.X, side=tk.BOTTOM, padx=12, pady=(0, 10))
+        
+        self.prev_btn = ttk.Button(self.btn_frame, text="← Passo Precedente", command=self.prev_step, style="Dark.TButton")
         self.prev_btn.pack(side=tk.LEFT)
         
-        self.step_indicator_lbl = ttk.Label(self.btn_frame, text="", style="Muted.TLabel")
+        self.step_indicator_lbl = tk.Label(self.btn_frame, text="", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD)
         self.step_indicator_lbl.pack(side=tk.LEFT, padx=20)
 
-        self.next_btn = ttk.Button(self.btn_frame, text="Avanti >", command=self.next_step, style="Primary.TButton")
+        self.next_btn = ttk.Button(self.btn_frame, text="Passo Successivo →", command=self.next_step, style="Gold.TButton")
         self.next_btn.pack(side=tk.RIGHT)
         
         self.show_step()
 
     def close_wizard(self):
+        try:
+            self.clear_container()
+        except Exception:
+            pass
         if self.on_close_callback:
             self.on_close_callback()
         else:
@@ -125,28 +156,42 @@ class CharacterCreationWizardFrame(ttk.Frame):
             self.unbind_all("<MouseWheel>")
         except Exception:
             pass
-        for widget in self.container.winfo_children():
-            widget.destroy()
+        if hasattr(self, "container") and self.container.winfo_exists():
+            for widget in self.container.winfo_children():
+                widget.destroy()
 
     def show_step(self):
         self.clear_container()
         step_idx = self.current_step
         self.step_indicator_lbl.config(text=f"Passo {step_idx + 1} di {len(self.steps)}")
+        if hasattr(self, "step_pill_labels"):
+            for i, pill in enumerate(self.step_pill_labels):
+                if i < step_idx:
+                    pill.config(bg="#132B1B", fg="#51CF66", highlightbackground="#2B8A3E")
+                elif i == step_idx:
+                    pill.config(bg=ACCENT_GOLD, fg="#121316", highlightbackground=ACCENT_GOLD)
+                else:
+                    pill.config(bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, highlightbackground=BORDER_COLOR)
 
         # I passi 1, 3 e 4 hanno molti elementi o descrizioni ricche: usiamo una Canvas scorrevole fluida
         if step_idx in (0, 1, 3, 4):
-            canvas = tk.Canvas(self.container, highlightthickness=0, borderwidth=0)
+            canvas = tk.Canvas(self.container, bg=BG_COLOR, highlightthickness=0, borderwidth=0)
             scrollbar = ttk.Scrollbar(self.container, orient="vertical", command=canvas.yview)
             scroll_frame = ttk.Frame(canvas)
-            scroll_frame.bind(
-                "<Configure>",
-                lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-            )
             canvas_window = canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
-            
-            def _on_canvas_configure(event):
-                canvas.itemconfig(canvas_window, width=event.width)
-            canvas.bind("<Configure>", _on_canvas_configure)
+
+            def _sync_scroll_geometry(event=None):
+                if not canvas.winfo_exists() or not scroll_frame.winfo_exists():
+                    return
+                c_w = canvas.winfo_width()
+                c_h = canvas.winfo_height()
+                req_h = scroll_frame.winfo_reqheight()
+                if c_w > 1:
+                    canvas.itemconfig(canvas_window, width=c_w, height=max(c_h, req_h))
+                canvas.configure(scrollregion=canvas.bbox("all"))
+
+            scroll_frame.bind("<Configure>", _sync_scroll_geometry)
+            canvas.bind("<Configure>", _sync_scroll_geometry)
             
             def _on_mousewheel(event):
                 if canvas.winfo_exists():
@@ -173,24 +218,15 @@ class CharacterCreationWizardFrame(ttk.Frame):
         else:
             self.next_btn.config(text="Avanti >")
 
-    def prev_step(self):
-        if self.current_step > 0:
-            self.current_step -= 1
-            self.show_step()
-
-    def next_step(self):
-        # Validazione Passo 3: Caratteristiche
-        if self.current_step == 2:
-            if hasattr(self, "attr_vars"):
-                vals = [var.get() for var in self.attr_vars.values()]
-                if len(set(vals)) != len(STANDARD_ARRAY) or sorted(vals, reverse=True) != STANDARD_ARRAY:
-                    messagebox.showerror("Errore", "Devi assegnare ogni valore della Array Standard (15,14,13,12,10,8) esattamente una volta.")
-                    return
-                for k in ATTRIBUTES:
-                    self.char_data["attributes"][k] = self.attr_vars[k].get()
-
-        # Salvataggio Passo 4: Background & Competenze
-        if self.current_step == 3:
+    def _save_current_step_data(self):
+        if self.current_step == 2 and hasattr(self, "attr_vars"):
+            for k in ATTRIBUTES:
+                if k in self.attr_vars:
+                    try:
+                        self.char_data["attributes"][k] = int(self.attr_vars[k].get())
+                    except (ValueError, tk.TclError):
+                        pass
+        elif self.current_step == 3:
             if hasattr(self, "bg_name_var"):
                 self.char_data["background"] = self.bg_name_var.get().strip()
             if hasattr(self, "trait_var"):
@@ -201,17 +237,11 @@ class CharacterCreationWizardFrame(ttk.Frame):
                 self.char_data["bond"] = self.bond_var.get().strip()
             if hasattr(self, "flaw_var"):
                 self.char_data["flaw"] = self.flaw_var.get().strip()
-            if hasattr(self, "custom_skill1_var") and self.char_data["background"] == "Personalizzato":
+            if hasattr(self, "custom_skill1_var") and self.char_data.get("background") == "Personalizzato":
                 self.char_data["background_skills"] = [self.custom_skill1_var.get(), self.custom_skill2_var.get()]
-
-        # Validazione & Creazione Passo 5: Dettagli Finali & Narrativa
-        if self.current_step == 4:
+        elif self.current_step == 4:
             if hasattr(self, "name_var"):
-                name = self.name_var.get().strip()
-                if not name:
-                    messagebox.showerror("Errore", "Il nome del personaggio è obbligatorio.")
-                    return
-                self.char_data["name"] = name
+                self.char_data["name"] = self.name_var.get().strip()
             if hasattr(self, "camp_var"):
                 self.char_data["campaign"] = self.camp_var.get().strip()
             if hasattr(self, "origin_var"):
@@ -231,8 +261,37 @@ class CharacterCreationWizardFrame(ttk.Frame):
             if hasattr(self, "trinket_var"):
                 self.char_data["trinket"] = self.trinket_var.get().strip()
             if hasattr(self, "backstory_text"):
-                self.char_data["backstory"] = self.backstory_text.get("1.0", tk.END).strip()
-            
+                try:
+                    self.char_data["backstory"] = self.backstory_text.get("1.0", tk.END).strip()
+                except tk.TclError:
+                    pass
+
+    def prev_step(self):
+        if self.current_step > 0:
+            self._save_current_step_data()
+            self.current_step -= 1
+            self.show_step()
+
+    def next_step(self):
+        # Validazione Passo 3: Caratteristiche
+        if self.current_step == 2:
+            if hasattr(self, "attr_vars"):
+                vals = [var.get() for var in self.attr_vars.values()]
+                if len(set(vals)) != len(STANDARD_ARRAY) or sorted(vals, reverse=True) != STANDARD_ARRAY:
+                    messagebox.showerror("Errore", "Devi assegnare ogni valore della Array Standard (15,14,13,12,10,8) esattamente una volta.")
+                    return
+                self._save_current_step_data()
+
+        # Salvataggio Passo 4: Background & Competenze
+        if self.current_step == 3:
+            self._save_current_step_data()
+
+        # Validazione & Creazione Passo 5: Dettagli Finali & Narrativa
+        if self.current_step == 4:
+            self._save_current_step_data()
+            if not self.char_data.get("name"):
+                messagebox.showerror("Errore", "Il nome del personaggio è obbligatorio.")
+                return
             self.finish_creation()
             return
 
@@ -679,6 +738,38 @@ class CharacterCreationWizardFrame(ttk.Frame):
         size_badge_lbl = ttk.Label(sel_frame, text="", style="BadgeBlue.TLabel")
         size_badge_lbl.pack(side=tk.RIGHT, padx=8)
 
+        # Barra Opzioni Sottorazza / Bonus Mezzelfo
+        sub_sel_frame = ttk.Frame(parent, style="Surface.TFrame", padding=(10, 6))
+        self.subrace_var = tk.StringVar(value=self.char_data.get("subrace", ""))
+        sub_lbl = ttk.Label(sub_sel_frame, text="🌿 Sottorazza:", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel")
+        sub_cb = ttk.Combobox(sub_sel_frame, textvariable=self.subrace_var, state="readonly", font=("Segoe UI", 10), width=24)
+
+        he_stats = ["FOR", "DES", "COS", "INT", "SAG"]
+        cur_he = self.char_data.get("half_elf_bonuses", ["DES", "COS"])
+        if isinstance(cur_he, dict):
+            cur_he = list(cur_he.keys())
+        self.he_bon1_var = tk.StringVar(value=cur_he[0] if len(cur_he) > 0 else "DES")
+        self.he_bon2_var = tk.StringVar(value=cur_he[1] if len(cur_he) > 1 else "COS")
+        he_lbl = ttk.Label(sub_sel_frame, text="✨ Bonus +1 Mezzelfo (2 Caratteristiche):", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel")
+        he_cb1 = ttk.Combobox(sub_sel_frame, textvariable=self.he_bon1_var, values=he_stats, state="readonly", width=6)
+        he_cb2 = ttk.Combobox(sub_sel_frame, textvariable=self.he_bon2_var, values=he_stats, state="readonly", width=6)
+
+        def _on_subrace_or_he_change(*_a):
+            self.char_data["subrace"] = self.subrace_var.get()
+            b1 = self.he_bon1_var.get()
+            b2 = self.he_bon2_var.get()
+            if b1 == b2:
+                for alt in he_stats:
+                    if alt != b1:
+                        b2 = alt
+                        self.he_bon2_var.set(b2)
+                        break
+            self.char_data["half_elf_bonuses"] = [b1, b2]
+
+        self.subrace_var.trace_add("write", _on_subrace_or_he_change)
+        self.he_bon1_var.trace_add("write", _on_subrace_or_he_change)
+        self.he_bon2_var.trace_add("write", _on_subrace_or_he_change)
+
         # Scheda Dettagli Razza (Card)
         card = ttk.Frame(parent, style="Card.TFrame", padding=14)
         card.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
@@ -778,6 +869,26 @@ class CharacterCreationWizardFrame(ttk.Frame):
             self.char_data["race"] = r
             if r in RACES:
                 info = RACES[r]
+                sub_dict = info.get("subraces", {})
+                for w in sub_sel_frame.winfo_children():
+                    w.pack_forget()
+                if sub_dict:
+                    sub_names = list(sub_dict.keys())
+                    if self.subrace_var.get() not in sub_names:
+                        self.subrace_var.set(sub_names[0])
+                    sub_cb.config(values=sub_names)
+                    sub_lbl.pack(side=tk.LEFT, padx=(5, 8))
+                    sub_cb.pack(side=tk.LEFT, padx=4)
+                    sub_sel_frame.pack(fill=tk.X, pady=(0, 8), before=card)
+                elif r == "Mezzelfo":
+                    self.subrace_var.set("")
+                    he_lbl.pack(side=tk.LEFT, padx=(5, 8))
+                    he_cb1.pack(side=tk.LEFT, padx=4)
+                    he_cb2.pack(side=tk.LEFT, padx=4)
+                    sub_sel_frame.pack(fill=tk.X, pady=(0, 8), before=card)
+                else:
+                    self.subrace_var.set("")
+                    sub_sel_frame.pack_forget()
                 name_lbl.config(text=f"Razza: {r}")
                 size_badge_lbl.config(text=f"🏃 {info.get('speed', 30)} ft | {info.get('size', 'Media').split()[0]}")
                 tagline_lbl.config(text=f'"{info.get("tagline", "")}"')
@@ -1442,7 +1553,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
             def roll_val():
                 if options_list:
                     pick = random.choice(options_list)
-                    var.set(pick if isinstance(pick, str) else pick.get("title", ""))
+                    var.set(pick if isinstance(pick, str) else f"{pick.get('title', '')} — {pick.get('desc', '')}")
             
             ttk.Button(top_line, text="🎲", width=3, command=roll_val).pack(side=tk.RIGHT)
 
@@ -1528,11 +1639,25 @@ class CharacterCreationWizardFrame(ttk.Frame):
         c.avatar_path = self.char_data.get("avatar_path", "")
         c.level = 1
         
-        # Calcolo attributi = array + bonus razza
+        # Calcolo attributi = array + bonus razza (+ eventuale sottorazza o scelta Mezzelfo)
         race_info = RACES.get(c.race, RACES["Umano"])
+        effective_bonuses = dict(race_info.get("bonuses", {}))
+        if c.race == "Mezzelfo" and isinstance(self.char_data.get("half_elf_bonuses"), dict):
+            effective_bonuses = {"CAR": 2}
+            for he_k, he_v in self.char_data["half_elf_bonuses"].items():
+                if he_k != "CAR" and he_k in ATTRIBUTES:
+                    effective_bonuses[he_k] = effective_bonuses.get(he_k, 0) + int(he_v)
+
+        chosen_subrace = self.char_data.get("subrace", "")
+        subraces_dict = race_info.get("subraces", {})
+        subrace_info = subraces_dict.get(chosen_subrace, {}) if chosen_subrace else {}
+        for sub_k, sub_v in subrace_info.get("bonuses", {}).items():
+            if sub_k not in race_info.get("bonuses", {}):
+                effective_bonuses[sub_k] = effective_bonuses.get(sub_k, 0) + int(sub_v)
+
         for attr in ATTRIBUTES:
             base = self.char_data["attributes"][attr]
-            bonus = race_info["bonuses"].get(attr, 0)
+            bonus = effective_bonuses.get(attr, 0)
             c.attributes[attr] = base + bonus
             
         def get_mod(val):
@@ -1541,24 +1666,31 @@ class CharacterCreationWizardFrame(ttk.Frame):
         con_mod = get_mod(c.attributes["COS"])
         dex_mod = get_mod(c.attributes["DES"])
         
-        # Calcolo HP
+        # Calcolo HP (incluso eventuale bonus sottorazza es. Nano delle Colline +1 PF)
         class_info = CLASSES.get(c.char_class, CLASSES["Guerriero"])
-        c.hp_max = class_info["hd"] + con_mod
+        hp_sub_bonus = int(subrace_info.get("hp_bonus", 0))
+        c.hp_max = class_info["hd"] + con_mod + hp_sub_bonus
         c.hp_current = c.hp_max
         
-        # Calcolo AC base (10 + Dex)
+        # Calcolo AC base (10 + Dex) e Velocità
         c.ac = 10 + dex_mod
         c.initiative = dex_mod
-        c.speed = race_info.get("speed", 30)
+        c.speed = subrace_info.get("speed", race_info.get("speed", 30))
         
         # Equipaggiamento iniziale di classe (armi, armature, scudi) e incantesimi
         from common.starter_equipment import apply_class_and_race_starter_kit
         apply_class_and_race_starter_kit(c)
         
-        # Aggiungi oro iniziale del background
+        # Aggiungi oro iniziale del background e allinea lo slot monete
         bg_gold = int(self.char_data.get("background_gold", 10))
         if hasattr(c, "currency") and isinstance(c.currency, dict):
             c.currency["MO"] = c.currency.get("MO", 0) + bg_gold
+            for it in getattr(c, "inventory_grid", []):
+                if isinstance(it, dict) and (it.get("type") == "Valuta" or "monet" in str(it.get("name", "")).lower()):
+                    it["qty"] = c.currency["MO"]
+                    it["desc"] = f"Monete iniziali ({c.currency['MO']} MO)."
+                    it["_coins_synced"] = True
+                    break
 
         # Aggiungi cimelio all'inventario
         if c.trinket:
@@ -1577,12 +1709,18 @@ class CharacterCreationWizardFrame(ttk.Frame):
                         c.inventory_grid[idx] = trinket_item
                         break
 
-        # Competenze nelle abilità conferite dal background
-        bg_skills = self.char_data.get("background_skills", [])
-        for sk in bg_skills:
-            if hasattr(c, "skills") and isinstance(c.skills, dict):
-                if sk in c.skills and c.skills[sk] == 0:
-                    c.skills[sk] = 1
+        # Competenze nelle abilità conferite dalla razza e dal background (con sostituzione automatica in caso di sovrapposizione PHB p. 125)
+        extra_skills = list(race_info.get("racial_skills", [])) + list(self.char_data.get("background_skills", []))
+        if hasattr(c, "skills") and isinstance(c.skills, dict):
+            for sk in extra_skills:
+                if sk in c.skills:
+                    if c.skills[sk] == 0:
+                        c.skills[sk] = 1
+                    else:
+                        for fallback_sk in ALL_SKILLS_5E:
+                            if c.skills.get(fallback_sk, 0) == 0:
+                                c.skills[fallback_sk] = 1
+                                break
 
         # Privilegi del personaggio (Razza + Classe + Privilegio di Background)
         bg_feat_txt = ""
@@ -1632,50 +1770,57 @@ class CharacterCreationWizardFrame(ttk.Frame):
         notes_lines.append("*Spazio per appunti, indizi, promesse e scoperte durante le sessioni di gioco.*")
         c.journal_notes = "\n".join(notes_lines)
 
-        # Async fetch for Level 1 features (prima offline SRD istantaneo, poi fallback online se necessario)
-        def _fetch_level_1():
+        # Fetch for Level 1 features (prima offline SRD istantaneo sul main thread, poi eventuale fallback online)
+        off_data = None
+        try:
+            from common.srd_offline import get_class_level_features_offline
+            off_data = get_class_level_features_offline(c.char_class, 1)
+        except Exception:
+            off_data = None
+
+        if off_data and off_data.get("features"):
+            c.features += "\n\n--- Privilegi di Livello 1 ---\n" + "\n".join(f"- {ft}" for ft in off_data["features"])
+            if off_data.get("spell_slots"):
+                for lvl_str, cnt in off_data["spell_slots"].items():
+                    c.spell_slots[str(lvl_str)] = {"max": cnt, "current": cnt}
+            self._on_creation_done(c)
+            return
+
+        def _fetch_level_1_online():
             try:
-                from common.srd_offline import get_class_level_features_offline
-                off_data = get_class_level_features_offline(c.char_class, 1)
-                if off_data and off_data.get("features"):
-                    c.features += "\n\n--- Privilegi di Livello 1 ---\n" + "\n".join(f"- {ft}" for ft in off_data["features"])
-                    if off_data.get("spell_slots"):
-                        for lvl_str, cnt in off_data["spell_slots"].items():
-                            c.spell_slots[lvl_str] = [0, cnt]
-                else:
-                    import urllib.request
-                    import json
-                    from .progression_ui import CLASS_MAP
-                    class_en = CLASS_MAP.get(c.char_class.lower())
-                    if class_en:
-                        req = urllib.request.Request(
-                            f"https://www.dnd5eapi.co/api/classes/{class_en}/levels/1",
-                            headers={'User-Agent': 'Mozilla/5.0'}
-                        )
-                        with urllib.request.urlopen(req, timeout=1.5) as resp:
-                            data = json.loads(resp.read().decode('utf-8'))
-                        feats = [f["name"] for f in data.get("features", [])]
-                        if feats:
-                            c.features += "\n\n--- Privilegi di Livello 1 (API) ---\n" + "\n".join(f"- {ft}" for ft in feats)
-                        sc = data.get("spellcasting")
-                        if sc:
-                            for i in range(1, 10):
-                                key = f"spell_slots_level_{i}"
-                                if key in sc:
-                                    c.spell_slots[str(i)] = [0, sc[key]]
+                import urllib.request
+                import json
+                from .progression_ui import CLASS_MAP
+                class_en = CLASS_MAP.get(c.char_class.lower())
+                if class_en:
+                    req = urllib.request.Request(
+                        f"https://www.dnd5eapi.co/api/classes/{class_en}/levels/1",
+                        headers={'User-Agent': 'Mozilla/5.0'}
+                    )
+                    with urllib.request.urlopen(req, timeout=1.5) as resp:
+                        data = json.loads(resp.read().decode('utf-8'))
+                    feats = [f["name"] for f in data.get("features", [])]
+                    if feats:
+                        c.features += "\n\n--- Privilegi di Livello 1 (API) ---\n" + "\n".join(f"- {ft}" for ft in feats)
+                    sc = data.get("spellcasting")
+                    if sc:
+                        for i in range(1, 10):
+                            key = f"spell_slots_level_{i}"
+                            if key in sc:
+                                c.spell_slots[str(i)] = {"max": sc[key], "current": sc[key]}
             except Exception:
                 pass
             
             try:
                 self.master.after(0, self._on_creation_done, c)
-            except RuntimeError:
+            except Exception:
                 try:
                     self._on_creation_done(c)
                 except Exception:
                     pass
             
         import threading
-        threading.Thread(target=_fetch_level_1, daemon=True).start()
+        threading.Thread(target=_fetch_level_1_online, daemon=True).start()
 
     def _on_creation_done(self, c):
         self.manager.add_character(c)
@@ -1683,15 +1828,20 @@ class CharacterCreationWizardFrame(ttk.Frame):
             messagebox.showinfo("Successo", f"Personaggio '{c.name}' creato con successo!", parent=self)
         except Exception:
             pass
+        try:
+            self.clear_container()
+        except Exception:
+            pass
         if self.on_complete_callback:
             try:
                 self.on_complete_callback(c)
             except Exception:
                 pass
-        try:
-            self.close_wizard()
-        except Exception:
-            pass
+        if not self.is_embedded or not self.on_complete_callback:
+            try:
+                self.close_wizard()
+            except Exception:
+                pass
 
 
 class CharacterCreationWizard(tk.Toplevel):

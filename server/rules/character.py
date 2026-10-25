@@ -37,7 +37,7 @@ def handle_update_stats_request(data, player, game_state):
 
 
 def handle_update_full_sheet_request(data, player, game_state):
-    char_data = data.get("character")
+    char_data = data.get("character") or data.get("sheet")
     if char_data:
         from common.starter_equipment import apply_class_and_race_starter_kit, apply_campaign_starter_kit
         # Se il personaggio non ha ancora ricevuto il kit iniziale di classe/razza, assegnalo
@@ -48,7 +48,7 @@ def handle_update_full_sheet_request(data, player, game_state):
         if not char_data.get("campaign_starter_received"):
             campaign_kit = getattr(game_state, "campaign_starter_kit", None)
             apply_campaign_starter_kit(char_data, campaign_kit)
-            if player.conn:
+            if getattr(player, "conn", None):
                 from common.protocol import make_campaign_starter_granted, make_chat_broadcast
                 from common.network_utils import send_message
                 send_message(player.conn, make_campaign_starter_granted(char_data.get("inventory_grid", []), full_sheet=char_data))
@@ -56,16 +56,28 @@ def handle_update_full_sheet_request(data, player, game_state):
 
         # Protezione e vincoli di gioco: se il PG ha già un full_sheet registrato sul server,
         # impedisci aumenti unilaterali di valuta, attributi o spawn abusivo di oggetti senza approvazione del DM
-        if getattr(player, "full_sheet", None):
-            char_data["hp_current"] = getattr(player, "hp", char_data.get("hp_current", 10))
-            char_data["hp_max"] = getattr(player, "max_hp", char_data.get("hp_max", 10))
+        if isinstance(getattr(player, "full_sheet", None), dict) and player.full_sheet:
+            if hasattr(player, "hp") and isinstance(player.hp, (int, float)):
+                char_data["hp_current"] = player.hp
+            elif "hp_current" in player.full_sheet:
+                char_data["hp_current"] = player.full_sheet["hp_current"]
+            if hasattr(player, "max_hp") and isinstance(player.max_hp, (int, float)):
+                char_data["hp_max"] = player.max_hp
+            elif "hp_max" in player.full_sheet:
+                char_data["hp_max"] = player.full_sheet["hp_max"]
+
             server_currency = player.full_sheet.get("currency", {})
             client_currency = char_data.get("currency", {})
             if isinstance(server_currency, dict) and isinstance(client_currency, dict):
-                for c_k in ["MR", "MA", "ME", "MO", "MP", "cp", "sp", "ep", "gp", "pp"]:
-                    if c_k in client_currency and c_k in server_currency:
-                        if client_currency[c_k] > server_currency[c_k]:
-                            client_currency[c_k] = server_currency[c_k]
+                all_coin_keys = set(list(client_currency.keys()) + list(server_currency.keys()) + ["MR", "MA", "ME", "MO", "MP", "cp", "sp", "ep", "gp", "pp"])
+                for c_k in all_coin_keys:
+                    if c_k in client_currency:
+                        s_val = server_currency.get(c_k, 0)
+                        try:
+                            if int(client_currency[c_k]) > int(s_val):
+                                client_currency[c_k] = int(s_val)
+                        except (ValueError, TypeError):
+                            client_currency[c_k] = s_val
                 char_data["currency"] = client_currency
 
             server_attrs = player.full_sheet.get("attributes", {})
@@ -82,6 +94,17 @@ def handle_update_full_sheet_request(data, player, game_state):
             if isinstance(server_inv, list) and isinstance(client_inv, list):
                 allowed_counts = {}
                 from common.starter_equipment import get_pack_contents
+                client_pack_counts = {}
+                for c_it in client_inv:
+                    if isinstance(c_it, dict) and c_it.get("name"):
+                        ck = str(c_it.get("name", "")).strip().lower()
+                        if get_pack_contents(ck):
+                            try:
+                                cq = max(1, int(c_it.get("qty", 1) or 1))
+                            except (ValueError, TypeError):
+                                cq = 1
+                            client_pack_counts[ck] = client_pack_counts.get(ck, 0) + cq
+
                 for s_it in server_inv:
                     if isinstance(s_it, dict) and s_it.get("name"):
                         k = str(s_it.get("name", "")).strip().lower()
@@ -89,13 +112,20 @@ def handle_update_full_sheet_request(data, player, game_state):
                             q = max(1, int(s_it.get("qty", 1) or 1))
                         except (ValueError, TypeError):
                             q = 1
-                        allowed_counts[k] = allowed_counts.get(k, 0) + q
                         pack_subs = get_pack_contents(k)
                         if pack_subs:
-                            for p_sub in pack_subs:
-                                sub_k = str(p_sub.get("name", "")).strip().lower()
-                                sub_q = int(p_sub.get("qty", 1) or 1) * q
-                                allowed_counts[sub_k] = allowed_counts.get(sub_k, 0) + sub_q
+                            still_closed = min(q, client_pack_counts.get(k, 0))
+                            unpacked_q = max(0, q - still_closed)
+                            client_pack_counts[k] = max(0, client_pack_counts.get(k, 0) - still_closed)
+                            allowed_counts[k] = allowed_counts.get(k, 0) + still_closed
+                            if unpacked_q > 0:
+                                for p_sub in pack_subs:
+                                    sub_k = str(p_sub.get("name", "")).strip().lower()
+                                    sub_q = int(p_sub.get("qty", 1) or 1) * unpacked_q
+                                    allowed_counts[sub_k] = allowed_counts.get(sub_k, 0) + sub_q
+                        else:
+                            allowed_counts[k] = allowed_counts.get(k, 0) + q
+
                 for s_i in range(len(client_inv)):
                     c_it = client_inv[s_i]
                     if isinstance(c_it, dict) and c_it.get("name"):
@@ -113,12 +143,29 @@ def handle_update_full_sheet_request(data, player, game_state):
                             allowed_counts[k] = rem_allowed - actual_q
                 char_data["inventory_grid"] = client_inv
 
+            # Valida weapons e spellbook contro aggiunte non autorizzate a parità di livello
+            if "weapons" in player.full_sheet and isinstance(player.full_sheet["weapons"], list) and isinstance(char_data.get("weapons"), list):
+                if char_data.get("level", 1) <= player.full_sheet.get("level", 1):
+                    allowed_weapons = {str(w.get("name", "")).strip().lower() for w in player.full_sheet["weapons"] if isinstance(w, dict)}
+                    char_data["weapons"] = [
+                        w for w in char_data["weapons"]
+                        if isinstance(w, dict) and str(w.get("name", "")).strip().lower() in allowed_weapons
+                    ]
+
+            if "spellbook" in player.full_sheet and isinstance(player.full_sheet["spellbook"], list) and isinstance(char_data.get("spellbook"), list):
+                if char_data.get("level", 1) <= player.full_sheet.get("level", 1):
+                    allowed_spells = {str(sp.get("name", "")).strip().lower() for sp in player.full_sheet["spellbook"] if isinstance(sp, dict)}
+                    char_data["spellbook"] = [
+                        sp for sp in char_data["spellbook"]
+                        if isinstance(sp, dict) and str(sp.get("name", "")).strip().lower() in allowed_spells
+                    ]
+
             # Proteggi diario, note e privilegi registrati sul server da modifiche non approvate
-            if "journal_notes" in player.full_sheet and player.full_sheet["journal_notes"]:
+            if "journal_notes" in player.full_sheet and player.full_sheet["journal_notes"] is not None:
                 char_data["journal_notes"] = player.full_sheet["journal_notes"]
-            if "notes" in player.full_sheet and player.full_sheet["notes"]:
+            if "notes" in player.full_sheet and player.full_sheet["notes"] is not None:
                 char_data["notes"] = player.full_sheet["notes"]
-            if "features" in player.full_sheet and player.full_sheet["features"]:
+            if "features" in player.full_sheet and player.full_sheet["features"] is not None:
                 if char_data.get("level", 1) <= player.full_sheet.get("level", 1):
                     char_data["features"] = player.full_sheet["features"]
 

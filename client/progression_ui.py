@@ -301,7 +301,7 @@ class LevelUpDialog(tk.Toplevel):
                             self.character.spell_slots[str(i)]["max"] = max_slots
                             self.character.spell_slots[str(i)]["current"] = max_slots
                         else:
-                            self.character.spell_slots[str(i)][1] = max_slots
+                            self.character.spell_slots[str(i)] = [max_slots, max_slots]
                     else:
                         self.character.spell_slots[str(i)] = {"max": max_slots, "current": max_slots}
                         

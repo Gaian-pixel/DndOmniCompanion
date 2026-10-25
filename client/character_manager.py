@@ -394,6 +394,8 @@ class Character:
         for item in getattr(self, "inventory_grid", []):
             if not item or not isinstance(item, dict):
                 continue
+            if item.get("_coins_synced") and hasattr(self, "currency") and isinstance(self.currency, dict) and sum(max(0, int(v)) for v in self.currency.values() if isinstance(v, (int, float, str)) and str(v).isdigit()) > 0:
+                continue
             try:
                 w = float(item.get("weight", 0.0) or 0.0)
                 if w <= 0.0 and item.get("name"):
@@ -422,7 +424,7 @@ class Character:
                     
         return round(total, 2)
 
-    def find_ammunition(self, weapon_name: str):
+    def find_ammunition(self, weapon_name: str, include_empty: bool = False):
         """Trova le munizioni corrispondenti a un'arma (es. frecce per archi, dardi per balestre)."""
         w_lower = str(weapon_name).lower()
         target_ammo = None
@@ -436,6 +438,7 @@ class Character:
         if not target_ammo:
             return None, None
             
+        empty_match = (None, None)
         for idx, it in enumerate(getattr(self, "inventory_grid", [])):
             if not it or not isinstance(it, dict):
                 continue
@@ -444,8 +447,13 @@ class Character:
                 qty = int(it.get("qty", 0))
             except (ValueError, TypeError):
                 qty = 0
-            if qty > 0 and any(t in nm for t in target_ammo):
-                return it, idx
+            if any(t in nm for t in target_ammo):
+                if qty > 0:
+                    return it, idx
+                elif empty_match[0] is None:
+                    empty_match = (it, idx)
+        if include_empty and empty_match[0] is not None:
+            return empty_match
         return None, None
 
     def get_container_contents_weight(self, container_key: str) -> float:

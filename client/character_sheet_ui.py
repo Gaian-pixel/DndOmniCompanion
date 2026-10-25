@@ -296,7 +296,7 @@ class FeatureEditorDialog(tk.Toplevel):
 
 
 class CharacterSheetFrame(ttk.Frame):
-    def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, give_gold_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None, custom_spell_request_callback=None, request_currency_callback=None, request_item_callback=None, is_connected=False, request_journal_approval_callback=None, on_close_callback=None, on_detach_callback=None, on_dock_callback=None, is_overlay=False, **kwargs):
+    def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, give_gold_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None, custom_spell_request_callback=None, request_currency_callback=None, request_item_callback=None, is_connected=False, request_journal_approval_callback=None, on_close_callback=None, on_detach_callback=None, on_dock_callback=None, is_overlay=False, network=None, **kwargs):
         super().__init__(master, **kwargs)
         self.character = character
         self.manager = manager
@@ -311,11 +311,13 @@ class CharacterSheetFrame(ttk.Frame):
         self.request_currency_callback = request_currency_callback
         self.request_item_callback = request_item_callback
         self.is_connected = is_connected
+        self.network = network
         self.default_font = ("Georgia", 10)
         self.initial_currency = {}
         self.request_journal_approval_callback = request_journal_approval_callback
         self._suppress_weight_sync = True
         self._initial_text_fields = {}
+        self._initial_state_snapshot = None
         self._markdown_widgets = {}
         self.current_container_filter = "all"
         self.inventory_row_frames = []
@@ -329,6 +331,36 @@ class CharacterSheetFrame(ttk.Frame):
         
         self.setup_ui()
         self.load_data()
+
+    def _capture_initial_state(self):
+        import copy
+        self._initial_state_snapshot = {
+            "name": getattr(self.character, "name", ""),
+            "campaign": getattr(self.character, "campaign", ""),
+            "char_class": getattr(self.character, "char_class", ""),
+            "level": getattr(self.character, "level", 1),
+            "race": getattr(self.character, "race", ""),
+            "subclass": getattr(self.character, "subclass", ""),
+            "background": getattr(self.character, "background", ""),
+            "alignment": getattr(self.character, "alignment", ""),
+            "attributes": copy.deepcopy(getattr(self.character, "attributes", {})),
+            "skills": copy.deepcopy(getattr(self.character, "skills", {})),
+            "hp_current": getattr(self.character, "hp_current", 10),
+            "hp_max": getattr(self.character, "hp_max", 10),
+            "ac": getattr(self.character, "ac", 10),
+            "initiative": getattr(self.character, "initiative", 0),
+            "speed": getattr(self.character, "speed", 30),
+            "speed_unit": getattr(self.character, "speed_unit", "ft"),
+            "currency": copy.deepcopy(getattr(self.character, "currency", {})),
+            "spell_slots": copy.deepcopy(getattr(self.character, "spell_slots", {})),
+        }
+
+    def cancel_sheet(self):
+        import copy
+        if self._initial_state_snapshot and hasattr(self, "character") and self.character:
+            for k, v in self._initial_state_snapshot.items():
+                setattr(self.character, k, copy.deepcopy(v))
+        self.close_sheet()
 
     def close_sheet(self):
         if self.on_close_callback:
@@ -351,7 +383,7 @@ class CharacterSheetFrame(ttk.Frame):
             ).pack(side=tk.LEFT)
 
             if self.on_close_callback:
-                btn_close = ttk.Button(overlay_header, text="✕ Chiudi (Esc)", command=self.close_sheet, style="Danger.TButton")
+                btn_close = ttk.Button(overlay_header, text="✕ Chiudi (Esc)", command=self.cancel_sheet, style="Danger.TButton")
                 btn_close.pack(side=tk.RIGHT, padx=(4, 0))
                 ToolTip(btn_close, "Chiudi la vista scheda e torna alla mappa (Esc)")
 
@@ -365,12 +397,19 @@ class CharacterSheetFrame(ttk.Frame):
                 btn_dock.pack(side=tk.RIGHT, padx=(4, 0))
                 ToolTip(btn_dock, "Riaggancia la scheda all'interno della finestra principale del VTT")
 
-        main_frame = ttk.Frame(self, padding=10)
+            btn_quick_save = ttk.Button(overlay_header, text="💾 Salva (Ctrl+S)", command=self.save_character, style="Success.TButton")
+            btn_quick_save.pack(side=tk.RIGHT, padx=(4, 0))
+            ToolTip(btn_quick_save, "Salva le modifiche e chiudi la vista (Ctrl+S)")
+
+        main_frame = ttk.Frame(self, padding=8)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Intestazione (Dark Fantasy Card)
+        # Intestazione (Dark Fantasy Card Responsiva)
         header_frame = tk.Frame(main_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
-        header_frame.pack(fill=tk.X, pady=(0, 10))
+        header_frame.pack(fill=tk.X, pady=(0, 8))
+        header_frame.columnconfigure(2, weight=1)
+        header_frame.columnconfigure(4, weight=1)
+        header_frame.columnconfigure(7, weight=1)
 
         # Riquadro Avatar / Token Personaggio
         avatar_frame = tk.Frame(header_frame, bg=SURFACE_COLOR)
@@ -734,17 +773,26 @@ class CharacterSheetFrame(ttk.Frame):
         if "FOR" in self.attr_vars:
             self.attr_vars["FOR"].trace_add("write", lambda *args: self.calculate_total_weight())
 
-        # Pulsanti (in fondo alla scheda)
-        btn_frame = ttk.Frame(main_frame, padding=(0, 10))
-        btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
+        # Barra Azioni Inferiore Strutturata
+        btn_frame = tk.Frame(main_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=6)
+        btn_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(6, 0))
         
-        ttk.Button(btn_frame, text="📥 Esporta Scheda...", command=self.export_character_dialog).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="📥 Esporta PDF / JSON...", command=self.export_character_dialog, style="Info.TButton").pack(side=tk.LEFT)
         
-        save_btn = ttk.Button(btn_frame, text=f"{_t('save')} (Ctrl+S)", command=self.save_character, style="Primary.TButton")
-        save_btn.pack(side=tk.RIGHT, padx=5)
-        ttk.Button(btn_frame, text=_t("cancel"), command=self.close_sheet).pack(side=tk.RIGHT, padx=5)
+        save_btn = ttk.Button(btn_frame, text=f"💾 {_t('save')} (Ctrl+S)", command=self.save_character, style="Gold.TButton")
+        save_btn.pack(side=tk.RIGHT, padx=(6, 0))
+        ttk.Button(btn_frame, text=f"✕ {_t('cancel')}", command=self.cancel_sheet, style="Dark.TButton").pack(side=tk.RIGHT)
         self.bind("<Control-s>", self.save_character)
         self.bind("<Control-S>", self.save_character)
+        try:
+            top_win = self.winfo_toplevel()
+            def _on_ctrl_s(event=None):
+                if self.winfo_exists() and self.winfo_viewable():
+                    self.save_character()
+            top_win.bind("<Control-s>", _on_ctrl_s, add="+")
+            top_win.bind("<Control-S>", _on_ctrl_s, add="+")
+        except Exception:
+            pass
 
     def create_features_tab(self, parent_frame):
         # 1. Box Risorse Speciali di Classe (Punti Ki, Furore, Ispirazione, ecc.)
@@ -1531,11 +1579,19 @@ class CharacterSheetFrame(ttk.Frame):
         for it in grid:
             if not it or not isinstance(it, dict):
                 continue
+            if it.get("_coins_synced"):
+                continue
             nm = it.get("name", "").strip().lower()
             itype = str(it.get("type", "")).strip().lower()
             desc = str(it.get("desc", "")).strip().lower()
             
-            is_coin = (itype in ["valuta", "currency", "moneta", "monete"]) or ("monet" in nm) or ("borsa" in nm) or ("borsello" in nm)
+            is_coin = (
+                (itype in ["valuta", "currency", "moneta", "monete"])
+                or ("monet" in nm)
+                or ("borsello" in nm)
+                or ("borsa di monete" in nm)
+                or ("borsa con monete" in nm)
+            )
             if not is_coin:
                 continue
                 
@@ -1560,15 +1616,16 @@ class CharacterSheetFrame(ttk.Frame):
             if not found_any_explicit:
                 qty = it.get("qty", 1)
                 coin_type = "MO"
-                if re.search(r"\b(?:platino|pp)\b|\bmp\b", full_text, re.IGNORECASE):
+                if re.search(r"\b(?:platino|pp)\b", full_text, re.IGNORECASE) or re.search(r"\bmp\b", nm, re.IGNORECASE):
                     coin_type = "MP"
-                elif re.search(r"\b(?:electrum|electro|ep)\b|\bme\b", full_text, re.IGNORECASE):
+                elif re.search(r"\b(?:electrum|electro|ep)\b", full_text, re.IGNORECASE) or re.search(r"\bme\b", nm, re.IGNORECASE):
                     coin_type = "ME"
-                elif re.search(r"\b(?:argento|sp)\b|\bma\b", full_text, re.IGNORECASE):
+                elif re.search(r"\b(?:argento|sp)\b", full_text, re.IGNORECASE) or re.search(r"\bma\b", nm, re.IGNORECASE):
                     coin_type = "MA"
-                elif re.search(r"\b(?:rame|cp)\b|\bmr\b", full_text, re.IGNORECASE):
+                elif re.search(r"\b(?:rame|cp)\b", full_text, re.IGNORECASE) or re.search(r"\bmr\b", nm, re.IGNORECASE):
                     coin_type = "MR"
                 inv_coins[coin_type] += qty
+            it["_coins_synced"] = True
 
         if has_coin_items:
             for c_code, c_amount in inv_coins.items():
@@ -2263,6 +2320,7 @@ class CharacterSheetFrame(ttk.Frame):
             "notes": getattr(self.character, "notes", ""),
             "features": getattr(self.character, "features", "")
         }
+        self._capture_initial_state()
 
     def update_skill_modifiers(self):
         """Calcola e aggiorna dinamicamente i bonus calcolati (+X / -X) per tutte le abilità."""
@@ -2419,14 +2477,6 @@ class CharacterSheetFrame(ttk.Frame):
                     itype = str(item.get("type", "")).strip().lower()
                     item_c = "equipped" if itype in ("arma", "armatura", "scudo", "weapon", "armor", "shield") else "backpack"
             
-            should_show = (active_filter == "all") or (item and item_c == active_filter)
-            if row_frame:
-                if should_show:
-                    row_frame.pack(fill=tk.X, padx=2, pady=1)
-                else:
-                    row_frame.pack_forget()
-                    continue
-
             if item:
                 name = item.get("name", _t("sheet_item"))
                 item_w = item.get("weight", 0.0)
@@ -2439,6 +2489,25 @@ class CharacterSheetFrame(ttk.Frame):
                     if std_w > 0:
                         item["weight"] = std_w
                         item_w = std_w
+                if hasattr(self, 'weight_vars') and i < len(self.weight_vars):
+                    self.weight_vars[i].set(item.get("weight", item_w))
+                if hasattr(self, 'attuned_vars') and i < len(self.attuned_vars):
+                    self.attuned_vars[i].set(item.get("attuned", False))
+            else:
+                if hasattr(self, 'weight_vars') and i < len(self.weight_vars):
+                    self.weight_vars[i].set(0.0)
+                if hasattr(self, 'attuned_vars') and i < len(self.attuned_vars):
+                    self.attuned_vars[i].set(False)
+
+            should_show = (active_filter == "all") or (item and item_c == active_filter)
+            if row_frame:
+                if should_show:
+                    row_frame.pack(fill=tk.X, padx=2, pady=1)
+                else:
+                    row_frame.pack_forget()
+                    continue
+
+            if item:
                 qty = item.get("qty", 1)
                 icon = get_item_icon(item)
                 item_type = item.get("type", "")
@@ -2598,9 +2667,9 @@ class CharacterSheetFrame(ttk.Frame):
         self.refresh_weapons_list()
         
         if self.is_connected and getattr(self, "network", None):
-            from common.protocol import make_update_full_sheet_request, make_chat_broadcast
+            from common.protocol import make_update_full_sheet_request, make_chat_message
             self.network.send(make_update_full_sheet_request(self.character.to_dict()))
-            self.network.send(make_chat_broadcast(self.character.name, f"[CONSUMO] {self.character.name} ha consumato {amount}x {it_name} (Rimanenti: {new_qty})"))
+            self.network.send(make_chat_message(f"[CONSUMO] {self.character.name} ha consumato {amount}x {it_name} (Rimanenti: {new_qty})"))
             
         if hasattr(self, "show_toast"):
             self.show_toast(status_text, title="Oggetto Consumato", toast_type="info")
@@ -2675,9 +2744,9 @@ class CharacterSheetFrame(ttk.Frame):
         self.refresh_weapons_list()
         
         if self.is_connected and getattr(self, "network", None):
-            from common.protocol import make_update_full_sheet_request, make_chat_broadcast
+            from common.protocol import make_update_full_sheet_request, make_chat_message
             self.network.send(make_update_full_sheet_request(self.character.to_dict()))
-            self.network.send(make_chat_broadcast(self.character.name, f"[INVENTARIO] {self.character.name} ha spacchettato '{pack_name}' estraendo i contenuti nello zaino."))
+            self.network.send(make_chat_message(f"[INVENTARIO] {self.character.name} ha spacchettato '{pack_name}' estraendo i contenuti nello zaino."))
             
         messagebox.showinfo(
             "Contenuto Estratto",
@@ -3010,10 +3079,11 @@ class CharacterSheetFrame(ttk.Frame):
         tk.Label(body, text="Nome:", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(anchor="w", pady=(2, 1))
         name_entry = ttk.Entry(body)
         name_entry.insert(0, name)
+        name_entry.config(state="readonly")
         name_entry.pack(fill=tk.X, pady=(0, 4))
         
         tk.Label(body, text="Tipo / Categoria:", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(anchor="w", pady=(2, 1))
-        type_combo = ttk.Combobox(body, values=["Arma", "Armatura", "Scudo", "Pozione", "Pergamena", "Attrezzi", "Equipaggiamento", "Altro"])
+        type_combo = ttk.Combobox(body, values=["Arma", "Armatura", "Scudo", "Pozione", "Pergamena", "Attrezzi", "Equipaggiamento", "Altro"], state="disabled")
         type_combo.set(item.get("type", "Equipaggiamento"))
         type_combo.pack(fill=tk.X, pady=(0, 4))
         
@@ -3056,10 +3126,11 @@ class CharacterSheetFrame(ttk.Frame):
         qp_frame.pack(fill=tk.X, pady=4)
         
         tk.Label(qp_frame, text="Quantità:", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(side=tk.LEFT, padx=(0, 4))
-        qty_var = tk.IntVar(value=item.get("qty", 1))
+        initial_qty = max(1, int(item.get("qty", 1) or 1))
+        qty_var = tk.IntVar(value=initial_qty)
         ttk.Button(qp_frame, text="-", width=2, command=lambda: qty_var.set(max(1, qty_var.get() - 1))).pack(side=tk.LEFT)
-        ttk.Entry(qp_frame, textvariable=qty_var, width=4, justify="center").pack(side=tk.LEFT, padx=2)
-        ttk.Button(qp_frame, text="+", width=2, command=lambda: qty_var.set(qty_var.get() + 1)).pack(side=tk.LEFT, padx=(0, 14))
+        ttk.Entry(qp_frame, textvariable=qty_var, width=4, justify="center", state="readonly").pack(side=tk.LEFT, padx=2)
+        ttk.Button(qp_frame, text="+", width=2, command=lambda: qty_var.set(min(initial_qty, qty_var.get() + 1))).pack(side=tk.LEFT, padx=(0, 14))
         
         tk.Label(qp_frame, text="Peso Unitario (lbs):", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(side=tk.LEFT, padx=(0, 4))
         w_var = tk.DoubleVar(value=item.get("weight", 0.0))
@@ -3078,9 +3149,15 @@ class CharacterSheetFrame(ttk.Frame):
         btn_frame.pack(fill=tk.X, pady=4)
         
         def save_item():
-            item["name"] = name_entry.get().strip() or name
-            item["type"] = type_combo.get().strip() or "Equipaggiamento"
-            item["qty"] = max(1, qty_var.get())
+            if attune_var.get() and not item.get("attuned", False):
+                current_attuned = sum(
+                    1 for idx_i, it_i in enumerate(self.character.inventory_grid)
+                    if it_i and idx_i != idx and it_i.get("attuned", False)
+                )
+                if current_attuned >= 3:
+                    messagebox.showwarning("Limite Sintonia", "Non puoi sintonizzarti con più di 3 oggetti magici contemporaneamente!", parent=win)
+                    return
+            item["qty"] = max(1, min(initial_qty, qty_var.get()))
             item["weight"] = max(0.0, w_var.get())
             item["attuned"] = attune_var.get()
             item["desc"] = desc_text.get("1.0", tk.END).strip()
@@ -3311,7 +3388,7 @@ class CharacterSheetFrame(ttk.Frame):
         except (ValueError, tk.TclError):
             pass
 
-    def save_character(self, event=None):
+    def save_character(self, event=None, close_after=True):
         try:
             self.character.name = self.name_var.get()
             self.character.campaign = self.campaign_var.get()
@@ -3423,11 +3500,13 @@ class CharacterSheetFrame(ttk.Frame):
                         item["attuned"] = self.attuned_vars[i].get()
                 
             self.manager.update_character(self.character)
+            self._capture_initial_state()
             
             if self.on_save_callback:
                 self.on_save_callback(self.character)
                 
-            self.close_sheet()
+            if close_after:
+                self.close_sheet()
         except ValueError:
             messagebox.showerror("Errore", "Assicurati di inserire valori numerici validi nei campi numerici.")
 
@@ -3967,7 +4046,7 @@ class CharacterSheetFrame(ttk.Frame):
         is_fail = (base_roll == 1)
         weapon["_last_crit"] = is_crit
         
-        ammo_item, ammo_idx = self.character.find_ammunition(weapon.get("name", ""))
+        ammo_item, ammo_idx = self.character.find_ammunition(weapon.get("name", ""), include_empty=True)
         ammo_note = ""
         if ammo_item:
             a_name = ammo_item.get("name", "Munizione")
@@ -3982,11 +4061,12 @@ class CharacterSheetFrame(ttk.Frame):
                 self.refresh_inventory_grid()
                 self.refresh_weapons_list()
                 if self.is_connected and getattr(self, "network", None):
-                    from common.protocol import make_update_full_sheet_request, make_chat_broadcast
+                    from common.protocol import make_update_full_sheet_request, make_chat_message
                     self.network.send(make_update_full_sheet_request(self.character.to_dict()))
-                    self.network.send(make_chat_broadcast(self.character.name, f"[MUNIZIONI] {self.character.name} ha consumato 1x {a_name} per l'attacco (Rimanenti: {ammo_item['qty']})."))
+                    self.network.send(make_chat_message(f"[MUNIZIONI] {self.character.name} ha consumato 1x {a_name} per l'attacco (Rimanenti: {ammo_item['qty']})."))
             else:
                 messagebox.showwarning("Munizioni Esaurite", f"⚠️ Non hai più {a_name} nello zaino per attaccare con {w_name}!", parent=self)
+                return
 
         adv_text = f" ({adv_state})" if adv_state not in ("Normale", _t("adv_normal"), "") else ""
         
@@ -4188,13 +4268,15 @@ class CharacterSheetUI(tk.Toplevel):
         request_item_callback=None, 
         is_connected=False, 
         request_journal_approval_callback=None,
-        on_dock_callback=None
+        on_dock_callback=None,
+        network=None
     ):
         super().__init__(master)
         self.title(f"{_t('sheet_title')} - {character.name}")
         self.minsize(700, 700)
         apply_modern_window_style(self)
         self.on_dock_callback = on_dock_callback
+        self.network = network
 
         self._sheet_frame_internal = CharacterSheetFrame(
             self,
@@ -4214,11 +4296,14 @@ class CharacterSheetUI(tk.Toplevel):
             request_journal_approval_callback=request_journal_approval_callback,
             on_close_callback=self.destroy,
             on_dock_callback=self._handle_dock if on_dock_callback else None,
-            is_overlay=False
+            is_overlay=False,
+            network=network
         )
         self._sheet_frame_internal.pack(fill=tk.BOTH, expand=True)
 
     def _handle_dock(self):
+        if hasattr(self, "_sheet_frame_internal") and self._sheet_frame_internal.winfo_exists():
+            self._sheet_frame_internal.save_character(close_after=False)
         cb = self.on_dock_callback
         self.destroy()
         if cb:

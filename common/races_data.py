@@ -54,6 +54,12 @@ RACES: Dict[str, Dict[str, Any]] = {
     "Elfo": {
         "icon": "🧝",
         "bonuses": {"DES": 2},
+        "racial_skills": ["Percezione"],
+        "subraces": {
+            "Alto Elfo": {"bonuses": {"INT": 1}},
+            "Elfo dei Boschi": {"bonuses": {"SAG": 1}, "speed": 35},
+            "Elfo Oscuro (Drow)": {"bonuses": {"CAR": 1}}
+        },
         "bonuses_display": "+2 Destrezza",
         "speed": 30,
         "size": "Media",
@@ -98,6 +104,11 @@ RACES: Dict[str, Dict[str, Any]] = {
     "Nano": {
         "icon": "🧔",
         "bonuses": {"COS": 2},
+        "subraces": {
+            "Nano delle Colline": {"bonuses": {"SAG": 1}, "hp_bonus": 1},
+            "Nano delle Montagne": {"bonuses": {"FOR": 2}},
+            "Nano Grigio (Duergar)": {"bonuses": {"FOR": 1}}
+        },
         "bonuses_display": "+2 Costituzione",
         "speed": 25,
         "size": "Media (bassi ma massicci e pesanti quanto un umano adulto)",
@@ -141,6 +152,11 @@ RACES: Dict[str, Dict[str, Any]] = {
     "Halfling": {
         "icon": "🍀",
         "bonuses": {"DES": 2},
+        "subraces": {
+            "Halfling Piedelesto": {"bonuses": {"CAR": 1}},
+            "Halfling Tozzo": {"bonuses": {"COS": 1}},
+            "Halfling Spettrale": {"bonuses": {"SAG": 1}}
+        },
         "bonuses_display": "+2 Destrezza",
         "speed": 25,
         "size": "Piccola (alti circa 90 cm)",
@@ -224,6 +240,11 @@ RACES: Dict[str, Dict[str, Any]] = {
     "Gnomo": {
         "icon": "⚙️",
         "bonuses": {"INT": 2},
+        "subraces": {
+            "Gnomo delle Rocce": {"bonuses": {"COS": 1}},
+            "Gnomo delle Foreste": {"bonuses": {"DES": 1}},
+            "Gnomo del Profondo (Svirfneblin)": {"bonuses": {"DES": 1}}
+        },
         "bonuses_display": "+2 Intelligenza",
         "speed": 25,
         "size": "Piccola (alti circa 90 cm-1 m)",
@@ -259,6 +280,8 @@ RACES: Dict[str, Dict[str, Any]] = {
     "Mezzelfo": {
         "icon": "✨",
         "bonuses": {"CAR": 2, "DES": 1, "COS": 1},
+        "bonus_choices": 2,
+        "skill_choices": 2,
         "bonuses_display": "+2 Carisma, +1 a due altre caratteristiche a scelta",
         "speed": 30,
         "size": "Media",
@@ -296,6 +319,7 @@ RACES: Dict[str, Dict[str, Any]] = {
     "Mezzorco": {
         "icon": "🪓",
         "bonuses": {"FOR": 2, "COS": 1},
+        "racial_skills": ["Intimidire"],
         "bonuses_display": "+2 Forza, +1 Costituzione",
         "speed": 30,
         "size": "Media (alti, possenti e minacciosi, tra 1,80 m e 2,10 m)",

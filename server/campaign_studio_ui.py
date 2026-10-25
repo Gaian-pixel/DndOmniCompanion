@@ -105,28 +105,40 @@ class CampaignStudioFrame(tk.Frame):
         self.after(100, self._bind_fullscreen_shortcuts)
 
     def _build_ui(self):
-        # 1. Top Control Bar
-        top_bar = tk.Frame(self, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=6)
-        top_bar.pack(fill=tk.X, side=tk.TOP)
+        # Main PanedWindow (Split-Screen: Sinistra = DndScript + Toolbar Blocchi, Destra = Flow Canvas + Controlli Grafo)
+        paned = tk.PanedWindow(self, orient=tk.HORIZONTAL, bg=BG_COLOR, sashrelief="flat", sashwidth=6)
+        paned.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
-        tk.Label(
-            top_bar, text="🧭 Campaign Studio", 
-            font=("Georgia", 12, "bold"), bg=SURFACE_COLOR, fg=ACCENT_GOLD
-        ).pack(side=tk.LEFT, padx=(4, 12))
+        # ===================================================================
+        # COLONNA SINISTRA: Editor DndScript & Barra Inserimento Rapido
+        # ===================================================================
+        left_frame = tk.Frame(paned, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        paned.add(left_frame, minsize=380, width=480)
 
-        # Pulsanti rapidi inserimento blocchi nel testo
-        btn_box = tk.Frame(top_bar, bg=SURFACE_COLOR)
-        btn_box.pack(side=tk.LEFT)
+        hdr_left = tk.Frame(left_frame, bg=SURFACE_COLOR_ALT, padx=10, pady=6)
+        hdr_left.pack(fill=tk.X)
+        tk.Label(hdr_left, text="📝 DndScript • Campaign-as-Code", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(side=tk.LEFT)
+        tk.Label(hdr_left, text="Sincronizzazione istantanea col grafo", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED).pack(side=tk.RIGHT)
 
-        ttk.Button(btn_box, text="+ Scena", command=lambda: self.insert_template("scene")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_box, text="+ Incontro", command=lambda: self.insert_template("encounter")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_box, text="+ Prova", command=lambda: self.insert_template("check")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_box, text="+ Trappola", command=lambda: self.insert_template("trap")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_box, text="+ Tesoro", command=lambda: self.insert_template("loot")).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_box, text="+ Bivio ->", command=lambda: self.insert_template("branch")).pack(side=tk.LEFT, padx=2)
+        # Barra strumenti inserimento blocchi (2 righe compatte, zero overflow)
+        script_toolbar = tk.Frame(left_frame, bg=SURFACE_COLOR, padx=6, pady=5, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        script_toolbar.pack(fill=tk.X)
+
+        row_blocks = tk.Frame(script_toolbar, bg=SURFACE_COLOR)
+        row_blocks.pack(fill=tk.X, pady=(0, 3))
+        ttk.Button(row_blocks, text="🗺️ + Scena", style="Dark.TButton", command=lambda: self.insert_template("scene")).pack(side=tk.LEFT, padx=(0, 3), fill=tk.X, expand=True)
+        ttk.Button(row_blocks, text="⚔️ + Incontro", style="Dark.TButton", command=lambda: self.insert_template("encounter")).pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
+        ttk.Button(row_blocks, text="🎲 + Prova", style="Dark.TButton", command=lambda: self.insert_template("check")).pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
+        ttk.Button(row_blocks, text="⚠️ + Trappola", style="Dark.TButton", command=lambda: self.insert_template("trap")).pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
+        ttk.Button(row_blocks, text="💎 + Tesoro", style="Dark.TButton", command=lambda: self.insert_template("loot")).pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
+
+        row_flow = tk.Frame(script_toolbar, bg=SURFACE_COLOR)
+        row_flow.pack(fill=tk.X)
+        ttk.Button(row_flow, text="📖 + Loot Compendio", command=self.open_compendium_loot_picker, style="Gold.TButton").pack(side=tk.LEFT, padx=(0, 3), fill=tk.X, expand=True)
+        ttk.Button(row_flow, text="🔀 + Bivio ->", style="Dark.TButton", command=lambda: self.insert_template("branch")).pack(side=tk.LEFT, padx=2)
 
         # Menubutton Condizioni
-        mb_cond = ttk.Menubutton(btn_box, text="Condizioni ▾")
+        mb_cond = ttk.Menubutton(row_flow, text="Condizioni ▾")
         menu_cond = tk.Menu(mb_cond, tearoff=0, bg=SURFACE_COLOR, fg=TEXT_COLOR)
         menu_cond.add_command(label="✅ -> SUCCESSO ->", command=lambda: self.insert_template("cond_success"))
         menu_cond.add_command(label="❌ -> FALLIMENTO ->", command=lambda: self.insert_template("cond_failure"))
@@ -137,7 +149,7 @@ class CampaignStudioFrame(tk.Frame):
         mb_cond.pack(side=tk.LEFT, padx=2)
 
         # Menubutton Altri Blocchi
-        mb_blocks = ttk.Menubutton(btn_box, text="Altri Blocchi ▾")
+        mb_blocks = ttk.Menubutton(row_flow, text="Altri Blocchi ▾")
         menu_blocks = tk.Menu(mb_blocks, tearoff=0, bg=SURFACE_COLOR, fg=TEXT_COLOR)
         menu_blocks.add_command(label="🏬 Emporio", command=lambda: self.insert_template("shop"))
         menu_blocks.add_command(label="🧩 Enigma", command=lambda: self.insert_template("puzzle"))
@@ -150,37 +162,12 @@ class CampaignStudioFrame(tk.Frame):
         menu_blocks.add_command(label="⚡ Fuori Pista", command=lambda: self.insert_template("off_track"))
         menu_blocks.add_command(label="📝 Nota Narrativa", command=lambda: self.insert_template("note"))
         mb_blocks["menu"] = menu_blocks
-        mb_blocks.pack(side=tk.LEFT, padx=2)
-
-        # Azioni e Sincronizzazione
-        sync_box = tk.Frame(top_bar, bg=SURFACE_COLOR)
-        sync_box.pack(side=tk.RIGHT)
-
-        self.btn_fs = ttk.Button(sync_box, text="⛶ Schermo Intero", command=self.toggle_fullscreen)
-        self.btn_fs.pack(side=tk.RIGHT, padx=4)
-        ttk.Button(sync_box, text="🔍 Centra Flusso", command=self.center_canvas).pack(side=tk.RIGHT, padx=4)
-        ttk.Button(sync_box, text="⟳ Aggiorna Flusso", command=self.sync_text_to_canvas, style="Gold.TButton").pack(side=tk.RIGHT, padx=4)
-
-        self.lbl_stats = tk.Label(top_bar, text="", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
-        self.lbl_stats.pack(side=tk.RIGHT, padx=12)
-
-        # 2. Main PanedWindow (Split-Screen)
-        paned = tk.PanedWindow(self, orient=tk.HORIZONTAL, bg=BG_COLOR, sashrelief="flat", sashwidth=4)
-        paned.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
-
-        # Sinistra: Editor DndScript
-        left_frame = tk.Frame(paned, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
-        paned.add(left_frame, minsize=320, width=440)
-
-        hdr_left = tk.Frame(left_frame, bg=SURFACE_COLOR_ALT, padx=8, pady=4)
-        hdr_left.pack(fill=tk.X)
-        tk.Label(hdr_left, text="📝 DndScript • Campaign-as-Code", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(side=tk.LEFT)
-        tk.Label(hdr_left, text="(Scrivi liberamente qui)", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED).pack(side=tk.RIGHT)
+        mb_blocks.pack(side=tk.LEFT, padx=(2, 0))
 
         self.txt_script = scrolledtext.ScrolledText(
             left_frame, wrap=tk.WORD, bg="#16181C", fg=TEXT_COLOR,
             insertbackground=ACCENT_GOLD, font=("Consolas", 10),
-            relief="flat", highlightthickness=0
+            relief="flat", highlightthickness=0, padx=8, pady=6
         )
         self.txt_script.pack(fill=tk.BOTH, expand=True)
 
@@ -193,14 +180,21 @@ class CampaignStudioFrame(tk.Frame):
         # Binding per auto-sync debounced mentre si scrive
         self.txt_script.bind("<KeyRelease>", self._on_script_key_release)
 
-        # Destra: Flow Canvas
+        # ===================================================================
+        # COLONNA DESTRA: Flow Canvas & Barra Controlli Visuali
+        # ===================================================================
         right_frame = tk.Frame(paned, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
-        paned.add(right_frame, minsize=400)
+        paned.add(right_frame, minsize=420)
 
-        hdr_right = tk.Frame(right_frame, bg=SURFACE_COLOR_ALT, padx=8, pady=4)
+        hdr_right = tk.Frame(right_frame, bg=SURFACE_COLOR_ALT, padx=10, pady=5)
         hdr_right.pack(fill=tk.X)
-        tk.Label(hdr_right, text="🧭 Flow Canvas • Visual Graph", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(side=tk.LEFT)
-        tk.Label(hdr_right, text="Trascina i nodi o connetti le porte cerchiate", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED).pack(side=tk.RIGHT)
+        tk.Label(hdr_right, text="🧭 Flow Canvas • Grafo Visuale", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(side=tk.LEFT)
+
+        self.lbl_stats = tk.Label(hdr_right, text="", font=FONT_BADGE, bg=SURFACE_COLOR, fg=ACCENT_GOLD, padx=8, pady=2)
+        self.lbl_stats.pack(side=tk.LEFT, padx=10)
+
+        ttk.Button(hdr_right, text="⟳ Aggiorna Flusso", command=self.sync_text_to_canvas, style="Gold.TButton").pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(hdr_right, text="🔍 Centra Vista", command=self.center_canvas, style="Dark.TButton").pack(side=tk.RIGHT, padx=4)
 
         self.flow_canvas = FlowCanvas(
             right_frame, graph=self.graph,
@@ -211,6 +205,39 @@ class CampaignStudioFrame(tk.Frame):
     # -----------------------------------------------------------------------
     # SINCRONIZZAZIONE TESTO <-> GRAFO
     # -----------------------------------------------------------------------
+
+    def set_campaign(self, campaign: Any):
+        """Sostituisce la campagna corrente nello Studio, ricaricando DndScript e FlowGraph."""
+        self.campaign = campaign
+        flow_data = getattr(self.campaign, "flow_graph", None)
+        flow_script = getattr(self.campaign, "flow_script", "")
+
+        if flow_script and flow_script.strip():
+            self.graph = self.parser.parse(flow_script)
+        elif flow_data and isinstance(flow_data, dict) and flow_data.get("nodes"):
+            self.graph = FlowGraph.from_dict(flow_data)
+        else:
+            if getattr(self.campaign, "scenes", None) or getattr(self.campaign, "encounters", None):
+                self.graph = generate_flow_from_campaign(self.campaign)
+            else:
+                self.graph = self.parser.parse(SAMPLE_TEMPLATE)
+
+        initial_text = getattr(self.campaign, "flow_script", "")
+        if not initial_text or not initial_text.strip():
+            initial_text = self.serializer.serialize(self.graph)
+
+        self._is_internal_update = True
+        try:
+            self.txt_script.delete("1.0", tk.END)
+            self.txt_script.insert("1.0", initial_text)
+        finally:
+            self._is_internal_update = False
+
+        self.flow_canvas.set_graph(self.graph)
+        n_count = len(self.graph.nodes)
+        e_count = len(self.graph.edges)
+        self.lbl_stats.config(text=f"Nodi: {n_count} | Connessioni: {e_count}")
+        self._save_to_campaign()
 
     def _on_script_key_release(self, event=None):
         if self._is_internal_update:
@@ -274,6 +301,48 @@ class CampaignStudioFrame(tk.Frame):
     # -----------------------------------------------------------------------
     # TEMPLATE RAPIDI DI INSERIMENTO
     # -----------------------------------------------------------------------
+
+    def open_compendium_loot_picker(self):
+        """Apre il Compendio 5e filtrato sugli oggetti/tesori e inserisce l'oggetto scelto nello script DndScript."""
+        try:
+            from server.compendium_ui import CompendiumDialog
+            def _on_item_picked(item_data, category):
+                name = (item_data.get("name") or item_data.get("title") or "").strip()
+                if not name:
+                    return
+                self._insert_compendium_item_into_script(name)
+
+            dlg = CompendiumDialog(
+                self.winfo_toplevel(),
+                on_import_callback=_on_item_picked,
+                is_dm=True,
+                initial_category="Oggetti Magici",
+                action_label="💎 Inserisci nel Loot / Tesoro",
+                allowed_categories=["Equipaggiamento", "Armi", "Pozioni", "Oggetti Magici", "Equipaggiamento & Tesori"]
+            )
+            dlg.grab_set()
+        except Exception as e:
+            from common.messagebox import messagebox
+            messagebox.showerror("Errore", f"Impossibile aprire il compendio: {e}", parent=self)
+
+    def _insert_compendium_item_into_script(self, item_name: str):
+        """Inserisce il nome dell'oggetto del Compendio nella riga corrente loot:/oggetti: o nel punto del cursore."""
+        try:
+            cur_idx = self.txt_script.index(tk.INSERT)
+            line_num = int(str(cur_idx).split(".")[0])
+            line_text = self.txt_script.get(f"{line_num}.0", f"{line_num}.end")
+            low_line = line_text.strip().lower()
+            if low_line.startswith(("loot:", "bottino:", "ricompensa:")) and line_text.rstrip().endswith('"'):
+                col_pos = line_text.rfind('"')
+                self.txt_script.insert(f"{line_num}.{col_pos}", f", {item_name}")
+            elif low_line.startswith(("oggetti:", "items:", "magici:")):
+                self.txt_script.insert(f"{line_num}.end", f', "{item_name}"')
+            else:
+                self.txt_script.insert(tk.INSERT, f'"{item_name}"')
+            self.sync_text_to_canvas()
+        except Exception:
+            self.txt_script.insert(tk.INSERT, f'"{item_name}"')
+            self.sync_text_to_canvas()
 
     def insert_template(self, block_type: str):
         snippet = ""

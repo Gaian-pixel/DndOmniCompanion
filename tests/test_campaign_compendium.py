@@ -255,5 +255,59 @@ class TestCampaignCompendiumIntegration(unittest.TestCase):
         captured_cb(npc_data, "Mostri")
         self.assertTrue(any(n["name"] == "Guardia Cittadina" for n in self.camp.npcs))
 
+    def test_compendium_bilingual_offline_sorting_favorites_and_dice(self):
+        """Verifica ricerca bilingue IT/EN, caricamento offline 0ms, ordinamento colonne, preferiti, tiri di dado e quantità."""
+        imported_calls = []
+        dlg = CompendiumDialog(
+            self.root,
+            on_import_callback=lambda item, cat: imported_calls.append((item.get("name"), cat)),
+            is_dm=True,
+            initial_category="Incantesimi",
+        )
+
+        # 1. Ricerca bilingue Italiano -> Inglese su Incantesimi (es. 'palla di fuoco' -> 'Fireball')
+        dlg.search_var.set("palla di fuoco")
+        names_found = [it.get("name", "").lower() for it in dlg.displayed_items]
+        self.assertIn("fireball", names_found)
+
+        # 2. Ricerca bilingue su Oggetti Magici ('borsa conservante' -> 'Bag of Holding')
+        dlg.search_var.set("")
+        dlg.category_var.set("Oggetti Magici")
+        dlg._on_category_changed()
+        dlg.search_var.set("borsa conservante")
+        item_names = [it.get("name", "").lower() for it in dlg.displayed_items]
+        self.assertIn("bag of holding", item_names)
+
+        # 3. Ordinamento per colonna Dettaglio (CR) su Mostri
+        dlg.search_var.set("")
+        dlg.category_var.set("Mostri")
+        dlg._on_category_changed()
+        self.assertGreater(len(dlg.displayed_items), 50)
+        dlg._on_sort_column("detail")  # Crescente
+        dlg._on_sort_column("detail")  # Decrescente (CR più alti in cima)
+        first_cr = dlg.displayed_items[0].get("challenge_rating", dlg.displayed_items[0].get("cr", 0))
+        self.assertGreaterEqual(float(str(first_cr).split("/")[0]), 20.0)
+
+        # 4. Preferiti & Recenti
+        sample_monster = dlg.displayed_items[0]
+        now_fav = dlg._on_toggle_favorite(sample_monster, "Mostri")
+        self.assertTrue(now_fav)
+        self.assertTrue(dlg.compendium_manager.is_favorite(sample_monster))
+        # Rimuoviamo il preferito di test per lasciare pulito il file
+        dlg._on_toggle_favorite(sample_monster, "Mostri")
+        self.assertFalse(dlg.compendium_manager.is_favorite(sample_monster))
+
+        # 5. Lancio dadi interattivo nello Statblock & Selettore Quantità
+        roll_res = dlg.statblock_view.roll_dice_formula("8d6+4", "Soffio di Fuoco")
+        self.assertGreaterEqual(roll_res["total"], 12)
+        self.assertLessEqual(roll_res["total"], 52)
+        self.assertEqual(len(roll_res["rolls"]), 8)
+
+        with patch("server.compendium_ui.messagebox.showinfo"):
+            dlg.statblock_view.quantity_var.set(3)
+            dlg.statblock_view._trigger_primary_action({"name": "Goblin Arciere", "hp": 7, "ac": 15}, "Mostri")
+        self.assertEqual(len(imported_calls), 3)
+        dlg.destroy()
+
 if __name__ == '__main__':
     unittest.main()

@@ -501,6 +501,83 @@ class TestCharacterSheetEnhancements(unittest.TestCase):
             self.assertEqual(c.inventory_grid[0]["qty"], 19)
             ui.destroy()
 
+    def test_starter_kit_unit_weights_and_no_double_coin_weight(self):
+        """Verifica che gli stack dei kit iniziali abbiano pesi unitari corretti e le monete non vengano contate due volte."""
+        from common.starter_equipment import apply_class_and_race_starter_kit
+        c = Character("PaladinoTest")
+        c.char_class = "Paladino"
+        c.race = "Elfo"
+        apply_class_and_race_starter_kit(c)
+        # 5 giavellotti hanno peso unitario 2.0 lbs (totale 10.0 lbs, non 50 lbs)
+        javelins = [it for it in c.inventory_grid if it and "Giavellotti" in it.get("name", "")]
+        self.assertTrue(len(javelins) > 0)
+        self.assertAlmostEqual(javelins[0]["weight"], 2.0)
+        # Competenze razziali applicate automaticamente (Percezione per Elfo)
+        self.assertEqual(c.skills.get("Percezione"), 1)
+        # Il carico trasportato non deve sommare due volte le 10 MO del kit iniziale
+        w_before = c.get_carried_weight()
+        c.currency["MO"] = 10
+        w_after = c.get_carried_weight()
+        self.assertAlmostEqual(w_before, w_after)
+
+    def test_filtered_inventory_preserves_hidden_weights_on_save(self):
+        """Verifica che salvare la scheda con un filtro contenitore attivo non azzeri il peso degli oggetti nascosti."""
+        if not self.root:
+            self.skipTest("Tkinter non disponibile in ambiente headless")
+        from client.character_sheet_ui import CharacterSheetUI
+        c = Character("FilterSaveHero")
+        c.inventory_grid = [None] * 25
+        c.inventory_grid[0] = {"name": "Corda di Canapa", "type": "Equipaggiamento", "qty": 1, "weight": 10.0, "container": "backpack"}
+        c.inventory_grid[1] = {"name": "Spada Lunga", "type": "Arma", "qty": 1, "weight": 3.0, "container": "equipped"}
+        cm = MagicMock()
+        ui = CharacterSheetUI(self.root, c, cm, is_connected=False)
+        # Filtra solo gli oggetti equipaggiati (nascondendo lo zaino)
+        ui.set_container_filter("equipped")
+        ui.save_character(close_after=False)
+        self.assertAlmostEqual(c.inventory_grid[0]["weight"], 10.0)
+        self.assertAlmostEqual(c.inventory_grid[1]["weight"], 3.0)
+        ui.destroy()
+
+    def test_depleted_ammunition_blocks_ranged_attack(self):
+        """Verifica che attaccare con munizioni a quantità 0 mostri un avviso e blocchi il tiro d'attacco."""
+        if not self.root:
+            self.skipTest("Tkinter non disponibile in ambiente headless")
+        from client.character_sheet_ui import CharacterSheetUI
+        c = Character("EmptyQuiverArcher")
+        c.inventory_grid = [None] * 25
+        c.inventory_grid[0] = {"name": "Frecce", "type": "Munizioni", "qty": 0, "weight": 0.05, "container": "backpack"}
+        c.weapons = [{"name": "Arco Lungo", "damage_dice": "1d8", "type": "A Distanza", "proficient": True, "ability": "DES"}]
+        cm = MagicMock()
+        rolls = []
+        with patch("common.messagebox.messagebox.showwarning") as mock_warn:
+            ui = CharacterSheetUI(self.root, c, cm, roll_callback=lambda d, m: rolls.append(m), is_connected=False)
+            ui.execute_weapon_attack(c.weapons[0], 5)
+            mock_warn.assert_called_once()
+            self.assertEqual(len(rolls), 0)
+            ui.destroy()
+
+    def test_bag_of_holding_not_parsed_as_currency(self):
+        """Verifica che 'Borsa Conservante' non venga scambiata per una borsa di monete d'argento."""
+        if not self.root:
+            self.skipTest("Tkinter non disponibile in ambiente headless")
+        from client.character_sheet_ui import CharacterSheetUI
+        c = Character("BagHolder")
+        c.currency = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
+        c.inventory_grid = [None] * 25
+        c.inventory_grid[0] = {
+            "name": "Borsa Conservante",
+            "type": "Oggetto Magico",
+            "qty": 1,
+            "weight": 15.0,
+            "desc": "Questa borsa ha uno spazio interno più grande, ma pesa sempre 15 libbre.",
+            "container": "backpack"
+        }
+        cm = MagicMock()
+        ui = CharacterSheetUI(self.root, c, cm, is_connected=False)
+        self.assertEqual(c.currency["MA"], 0)
+        self.assertEqual(c.currency["MO"], 0)
+        ui.destroy()
+
 if __name__ == "__main__":
     unittest.main()
 

@@ -19,13 +19,13 @@ def start_app():
     setup_theme(root)
     apply_modern_window_style(root)
     root.configure(bg=BG_COLOR)
-    root.minsize(640, 500)
-    root.resizable(False, False)
+    root.minsize(760, 540)
+    root.resizable(True, True)
     
     # Centra la finestra del launcher direttamente sullo schermo senza finestre fantasma
     root.update_idletasks()
-    win_w = 640
-    win_h = 500
+    win_w = 780
+    win_h = 550
     pos_x = max(0, (root.winfo_screenwidth() // 2) - (win_w // 2))
     pos_y = max(0, (root.winfo_screenheight() // 2) - (win_h // 2))
     root.geometry(f"{win_w}x{win_h}+{pos_x}+{pos_y}")
@@ -131,14 +131,14 @@ def start_app():
         for w in content_container.winfo_children():
             w.destroy()
 
-        root.resizable(False, False)
-        root.minsize(640, 500)
-        root.geometry("640x500")
+        root.resizable(True, True)
+        root.minsize(760, 540)
+        root.geometry("780x550")
         root.title(f"{_t('app_title')} • Launcher")
 
         # --- HEADER SECTION ---
         header_frame = tk.Frame(content_container, bg=BG_COLOR)
-        header_frame.pack(fill=tk.X, padx=25, pady=(15, 8))
+        header_frame.pack(fill=tk.X, padx=28, pady=(18, 8))
 
         top_bar = tk.Frame(header_frame, bg=BG_COLOR)
         top_bar.pack(fill=tk.X)
@@ -146,7 +146,7 @@ def start_app():
         tk.Label(
             top_bar, 
             text="⚔ D&D OmniCompanion ⚔", 
-            font=("Georgia", 18, "bold"), 
+            font=("Georgia", 20, "bold"), 
             bg=BG_COLOR, 
             fg=ACCENT_GOLD
         ).pack(side=tk.LEFT)
@@ -158,7 +158,7 @@ def start_app():
             top_bar, 
             text=lang_btn_text, 
             command=on_toggle_lang, 
-            style="Tool.TButton"
+            style="Dark.TButton"
         )
         btn_lang.pack(side=tk.RIGHT, pady=2)
 
@@ -168,59 +168,93 @@ def start_app():
             font=("Segoe UI", 10, "italic"), 
             bg=BG_COLOR, 
             fg=TEXT_MUTED
-        ).pack(anchor="w", pady=(2, 8))
+        ).pack(anchor="w", pady=(3, 10))
 
         # Linea divisoria dorata sottile
-        tk.Frame(header_frame, bg="#A37F2C", height=1).pack(fill=tk.X, pady=(0, 6))
+        tk.Frame(header_frame, bg="#A37F2C", height=1).pack(fill=tk.X, pady=(0, 8))
 
         # --- SELECTION CARDS CONTAINER ---
         cards_frame = tk.Frame(content_container, bg=BG_COLOR)
-        cards_frame.pack(fill=tk.BOTH, expand=True, padx=25, pady=4)
-        cards_frame.columnconfigure(0, weight=1)
-        cards_frame.columnconfigure(1, weight=1)
+        cards_frame.pack(fill=tk.BOTH, expand=True, padx=28, pady=6)
+        cards_frame.columnconfigure(0, weight=1, uniform="launcher_col")
+        cards_frame.columnconfigure(1, weight=1, uniform="launcher_col")
+        cards_frame.rowconfigure(0, weight=1)
 
         # CARD 1: DUNGEON MASTER
-        dm_card = tk.Frame(cards_frame, bg=SURFACE_COLOR, highlightbackground="#373A40", highlightthickness=1, padx=15, pady=12)
-        dm_card.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        dm_card = tk.Frame(cards_frame, bg=SURFACE_COLOR, highlightbackground="#A37F2C", highlightthickness=1, padx=20, pady=16)
+        dm_card.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
 
-        tk.Label(dm_card, text="👑", font=("Segoe UI", 26), bg=SURFACE_COLOR, fg=ACCENT_GOLD, anchor="center").pack(pady=(2, 4))
-        tk.Label(dm_card, text=_t("launcher_dm_title"), font=FONT_HEADER, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack()
+        dm_hdr = tk.Frame(dm_card, bg=SURFACE_COLOR)
+        dm_hdr.pack(fill=tk.X, pady=(2, 6))
+        dm_icon_cv = tk.Canvas(dm_hdr, width=56, height=46, bg=SURFACE_COLOR, highlightthickness=0, bd=0)
+        dm_icon_cv.pack(anchor="center", pady=(0, 4))
+        # Corona Araldica Vettoriale centrata al pixel (x=28)
+        dm_icon_cv.create_polygon(
+            10, 36, 6, 14, 18, 24, 28, 8, 38, 24, 50, 14, 46, 36,
+            fill=ACCENT_GOLD, outline="#F59E0B", width=1.5
+        )
+        dm_icon_cv.create_rectangle(10, 37, 46, 42, fill="#B89628", outline=ACCENT_GOLD, width=1)
+        for cx, cy in ((6, 12), (28, 6), (50, 12)):
+            dm_icon_cv.create_oval(cx - 2.5, cy - 2.5, cx + 2.5, cy + 2.5, fill="#FFF3BF", outline=ACCENT_GOLD)
+        tk.Label(dm_hdr, text=_t("launcher_dm_title"), font=("Georgia", 14, "bold"), bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack()
+        tk.Label(dm_hdr, text="MASTER & REGIA CAMPAGNA", font=("Segoe UI", 8, "bold"), bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(pady=(2, 0))
+
+        tk.Frame(dm_card, bg=BORDER_COLOR, height=1).pack(fill=tk.X, pady=8)
+
         tk.Label(
             dm_card, 
             text=_t("launcher_dm_desc"),
-            font=FONT_SMALL, 
+            font=FONT_MAIN, 
             bg=SURFACE_COLOR, 
             fg=TEXT_MUTED, 
-            wraplength=220, 
+            wraplength=280, 
             justify="center"
         ).pack(fill=tk.BOTH, expand=True, pady=6)
 
         btn_dm_box = tk.Frame(dm_card, bg=SURFACE_COLOR)
-        btn_dm_box.pack(fill=tk.X, side=tk.BOTTOM)
-        ttk.Button(btn_dm_box, text=_t("launcher_dm_btn_camp"), command=show_campaign_selector_view, style="Gold.TButton").pack(fill=tk.X, pady=(0, 4))
-        ttk.Button(btn_dm_box, text=_t("launcher_dm_btn_edit"), command=lambda: show_campaign_editor_view(None)).pack(fill=tk.X, pady=(0, 4))
-        ttk.Button(btn_dm_box, text=_t("launcher_dm_btn_quick"), command=lambda: launch_dm(None)).pack(fill=tk.X)
+        btn_dm_box.pack(fill=tk.X, side=tk.BOTTOM, pady=(8, 0))
+        ttk.Button(btn_dm_box, text=_t("launcher_dm_btn_camp"), command=show_campaign_selector_view, style="Gold.TButton").pack(fill=tk.X, pady=(0, 6))
+        ttk.Button(btn_dm_box, text=_t("launcher_dm_btn_edit"), command=lambda: show_campaign_editor_view(None), style="Info.TButton").pack(fill=tk.X, pady=(0, 6))
+        ttk.Button(btn_dm_box, text=_t("launcher_dm_btn_quick"), command=lambda: launch_dm(None), style="Dark.TButton").pack(fill=tk.X)
 
         # CARD 2: GIOCATORE
-        player_card = tk.Frame(cards_frame, bg=SURFACE_COLOR, highlightbackground="#373A40", highlightthickness=1, padx=15, pady=12)
-        player_card.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+        player_card = tk.Frame(cards_frame, bg=SURFACE_COLOR, highlightbackground="#373A40", highlightthickness=1, padx=20, pady=16)
+        player_card.grid(row=0, column=1, sticky="nsew", padx=(12, 0))
 
-        tk.Label(player_card, text="🛡", font=("Segoe UI", 26), bg=SURFACE_COLOR, fg="#5C7CFA", anchor="center").pack(pady=(2, 4))
-        tk.Label(player_card, text=_t("launcher_player_title"), font=FONT_HEADER, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack()
+        pl_hdr = tk.Frame(player_card, bg=SURFACE_COLOR)
+        pl_hdr.pack(fill=tk.X, pady=(2, 6))
+        pl_icon_cv = tk.Canvas(pl_hdr, width=56, height=46, bg=SURFACE_COLOR, highlightthickness=0, bd=0)
+        pl_icon_cv.pack(anchor="center", pady=(0, 4))
+        # Scudo Araldico Vettoriale centrato al pixel (x=28)
+        pl_icon_cv.create_polygon(
+            12, 6, 28, 4, 44, 6, 44, 22, 39, 34, 28, 43, 17, 34, 12, 22,
+            fill="#3B5BDB", outline="#748FFC", width=2
+        )
+        pl_icon_cv.create_polygon(
+            16, 10, 28, 8, 40, 10, 40, 21, 36, 31, 28, 38, 20, 31, 16, 21,
+            fill="#4C6EF5", outline="#91A7FF", width=1
+        )
+        pl_icon_cv.create_line(28, 8, 28, 38, fill="#DBE4FF", width=1.5)
+        pl_icon_cv.create_line(16, 20, 40, 20, fill="#DBE4FF", width=1.5)
+        tk.Label(pl_hdr, text=_t("launcher_player_title"), font=("Georgia", 14, "bold"), bg=SURFACE_COLOR, fg=TEXT_COLOR).pack()
+        tk.Label(pl_hdr, text="EROI, SCHEDE 5E & TAVOLO VIRTUALE", font=("Segoe UI", 8, "bold"), bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(pady=(2, 0))
+
+        tk.Frame(player_card, bg=BORDER_COLOR, height=1).pack(fill=tk.X, pady=8)
+
         tk.Label(
             player_card, 
             text=_t("launcher_player_desc"),
-            font=FONT_SMALL, 
+            font=FONT_MAIN, 
             bg=SURFACE_COLOR, 
             fg=TEXT_MUTED, 
-            wraplength=220, 
+            wraplength=280, 
             justify="center"
         ).pack(fill=tk.BOTH, expand=True, pady=6)
 
         btn_pl_box = tk.Frame(player_card, bg=SURFACE_COLOR)
-        btn_pl_box.pack(fill=tk.X, side=tk.BOTTOM)
-        ttk.Button(btn_pl_box, text=_t("launcher_player_btn_manage_chars"), command=show_character_manager_view, style="Gold.TButton").pack(fill=tk.X, pady=(0, 4))
-        ttk.Button(btn_pl_box, text=_t("launcher_player_btn_create_char"), command=show_character_wizard_view).pack(fill=tk.X, pady=(0, 4))
+        btn_pl_box.pack(fill=tk.X, side=tk.BOTTOM, pady=(8, 0))
+        ttk.Button(btn_pl_box, text=_t("launcher_player_btn_manage_chars"), command=show_character_manager_view, style="Gold.TButton").pack(fill=tk.X, pady=(0, 6))
+        ttk.Button(btn_pl_box, text=_t("launcher_player_btn_create_char"), command=show_character_wizard_view, style="Info.TButton").pack(fill=tk.X, pady=(0, 6))
         ttk.Button(btn_pl_box, text=_t("launcher_player_btn_join"), command=lambda: launch_player(None), style="Primary.TButton").pack(fill=tk.X)
 
         # --- FOOTER ---

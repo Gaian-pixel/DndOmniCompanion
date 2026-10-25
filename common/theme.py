@@ -162,6 +162,8 @@ def setup_theme(root):
               bordercolor=[('focus', ACCENT_GOLD)])
 
     # --- CONFIGURAZIONI GLOBALI PER WIDGET TK CLASSICI ---
+    root.option_add('*Canvas.background', BG_COLOR)
+    root.option_add('*Canvas.highlightThickness', 0)
     root.option_add('*Listbox.background', SURFACE_COLOR)
     root.option_add('*Listbox.foreground', TEXT_COLOR)
     root.option_add('*Listbox.selectBackground', ACCENT_GOLD)

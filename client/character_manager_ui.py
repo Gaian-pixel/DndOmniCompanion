@@ -81,29 +81,34 @@ class CharacterManagerFrame(tk.Frame):
         container = tk.Frame(self, bg=BG_COLOR, padx=16, pady=12)
         container.pack(fill=tk.BOTH, expand=True)
 
-        # --- HEADER ---
-        hdr_frame = tk.Frame(container, bg=BG_COLOR)
+        # --- HEADER SURFACE BAR ---
+        hdr_frame = tk.Frame(container, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=12, pady=8)
         hdr_frame.pack(fill=tk.X, pady=(0, 10))
 
-        top_row = tk.Frame(hdr_frame, bg=BG_COLOR)
-        top_row.pack(fill=tk.X)
+        ttk.Button(
+            hdr_frame,
+            text="← Menu" if self.on_close_callback else f"✕ {_t('ok')}",
+            command=self.close_view,
+            style="Dark.TButton"
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        tk.Frame(hdr_frame, bg=BORDER_COLOR, width=1).pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10), pady=2)
 
         tk.Label(
-            top_row,
+            hdr_frame,
             text="👤",
-            font=("Segoe UI", 20),
-            bg=BG_COLOR,
+            font=("Segoe UI", 18),
+            bg=SURFACE_COLOR,
             fg=ACCENT_GOLD
         ).pack(side=tk.LEFT, padx=(0, 8))
 
-        title_box = tk.Frame(top_row, bg=BG_COLOR)
+        title_box = tk.Frame(hdr_frame, bg=SURFACE_COLOR)
         title_box.pack(side=tk.LEFT, fill=tk.X)
 
         tk.Label(
             title_box,
             text=_t("char_manager_header"),
             font=FONT_TITLE,
-            bg=BG_COLOR,
+            bg=SURFACE_COLOR,
             fg=ACCENT_GOLD
         ).pack(anchor="w")
 
@@ -111,21 +116,9 @@ class CharacterManagerFrame(tk.Frame):
             title_box,
             text=_t("char_manager_desc"),
             font=FONT_SMALL,
-            bg=BG_COLOR,
+            bg=SURFACE_COLOR,
             fg=TEXT_MUTED
         ).pack(anchor="w")
-
-        if self.on_close_callback:
-            btn_back = ttk.Button(
-                top_row,
-                text="← Torna al Menu",
-                command=self.close_view,
-                style="Tool.TButton"
-            )
-            btn_back.pack(side=tk.RIGHT, padx=4)
-
-        # Linea divisoria dorata sottile
-        tk.Frame(hdr_frame, bg="#A37F2C", height=1).pack(fill=tk.X, pady=(8, 0))
 
         # --- SEARCH & FILTER BAR ---
         filter_frame = tk.Frame(container, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=6)
@@ -179,35 +172,39 @@ class CharacterManagerFrame(tk.Frame):
         self.tree.bind("<<TreeviewSelect>>", self.on_selection_changed)
         self.tree.bind("<Double-1>", lambda _: self.open_selected_sheet())
 
-        # Barra pulsanti azione sotto la lista
-        btn_bar = tk.Frame(left_col, bg=BG_COLOR)
+        # Griglia 2x2 pulsanti azione sotto la lista (nessun testo troncato)
+        btn_bar = tk.Frame(left_col, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=6)
         btn_bar.pack(fill=tk.X)
+        btn_bar.columnconfigure(0, weight=1)
+        btn_bar.columnconfigure(1, weight=1)
 
         ttk.Button(
             btn_bar, 
             text=_t("char_manager_btn_wizard"), 
-            style="Primary.TButton", 
+            style="Gold.TButton", 
             command=self.create_wizard_character
-        ).pack(side=tk.LEFT, padx=(0, 4), fill=tk.X, expand=True)
+        ).grid(row=0, column=0, sticky="ew", padx=(0, 3), pady=(0, 4))
 
         ttk.Button(
             btn_bar, 
             text=_t("char_manager_btn_manual"), 
+            style="Info.TButton",
             command=self.create_manual_character
-        ).pack(side=tk.LEFT, padx=(0, 4), fill=tk.X, expand=True)
+        ).grid(row=0, column=1, sticky="ew", padx=(3, 0), pady=(0, 4))
 
         ttk.Button(
             btn_bar, 
             text=_t("char_manager_btn_duplicate"), 
+            style="Dark.TButton",
             command=self.duplicate_selected_character
-        ).pack(side=tk.LEFT, padx=(0, 4), fill=tk.X, expand=True)
+        ).grid(row=1, column=0, sticky="ew", padx=(0, 3))
 
         ttk.Button(
             btn_bar, 
             text=_t("char_manager_btn_delete"), 
             style="Danger.TButton", 
             command=self.delete_selected_character
-        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ).grid(row=1, column=1, sticky="ew", padx=(3, 0))
 
         # === COLONNA DESTRA: DETTAGLI & ANTEPRIMA ===
         self.right_col = tk.Frame(split_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=14, pady=12)
@@ -215,14 +212,12 @@ class CharacterManagerFrame(tk.Frame):
 
         self.render_empty_details()
 
-        # --- BOTTOM BAR ---
+        # --- BOTTOM STATUS BAR ---
         bottom_bar = tk.Frame(container, bg=BG_COLOR)
         bottom_bar.pack(fill=tk.X)
 
         self.count_lbl = tk.Label(bottom_bar, text="", font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED)
         self.count_lbl.pack(side=tk.LEFT)
-
-        ttk.Button(bottom_bar, text="← Torna al Menu" if self.on_close_callback else _t("ok"), width=16, command=self.close_view).pack(side=tk.RIGHT)
 
     def refresh_list(self):
         """Ricarica tutti i personaggi dal manager e aggiorna la visualizzazione."""
@@ -476,7 +471,7 @@ class CharacterManagerFrame(tk.Frame):
             messagebox.showwarning("Attenzione", "Seleziona un personaggio dall'elenco prima di aprire la scheda.", parent=self)
             return
 
-        def on_sheet_saved():
+        def on_sheet_saved(*_args):
             self.refresh_list()
 
         sheet = CharacterSheetUI(

@@ -233,39 +233,61 @@ class ClientGUI:
         main_frame.columnconfigure(2, weight=0) # Pannello destro per i Tab
         main_frame.rowconfigure(0, weight=1)
         
-        # --- COLONNA 0: LEFT TOOLBAR (Strumenti Mappa Eleganti) ---
+        # --- COLONNA 0: LEFT TOOLBAR (Strumenti Mappa & Eroe Raggruppati) ---
         left_panel = tk.Frame(main_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=6)
         left_panel.grid(row=0, column=0, sticky="ns", padx=(0, 6))
         
-        self.center_map_btn = None
         self.zoom_in_btn = None
         self.zoom_out_btn = None
-        self.measure_btn = None
-        self.pan_btn = None
 
+        # Gruppo 1: Scheda Eroe & Navigazione Mappa
+        self.quick_sheet_btn = ttk.Button(left_panel, text="📜", width=3, style="ToolActive.TButton", command=self.open_stats_dialog)
+        self.quick_sheet_btn.pack(pady=2)
+        ToolTip(self.quick_sheet_btn, "Apri / Chiudi Scheda Personaggio (Scorciatoia: C)")
+
+        tk.Frame(left_panel, bg=BORDER_COLOR, height=1).pack(fill=tk.X, pady=4)
+
+        self.pan_btn = ttk.Button(left_panel, text="✋", width=3, style="Tool.TButton", command=self.toggle_pan_mode)
+        self.pan_btn.pack(pady=2)
+        ToolTip(self.pan_btn, "Sposta Mappa (Pan - Scorciatoia: Spazio / H)")
+
+        self.measure_btn = ttk.Button(left_panel, text="📏", width=3, style="Tool.TButton", command=self.toggle_ruler_mode)
+        self.measure_btn.pack(pady=2)
+        ToolTip(self.measure_btn, "Righello Distanze 5e (Misura in ft/m)")
+
+        self.center_map_btn = ttk.Button(left_panel, text="🎯", width=3, style="Tool.TButton", command=lambda: self.map_canvas and self.map_canvas.center_view())
+        self.center_map_btn.pack(pady=2)
+        ToolTip(self.center_map_btn, "Centra Mappa")
+
+        tk.Frame(left_panel, bg=BORDER_COLOR, height=1).pack(fill=tk.X, pady=4)
+
+        # Gruppo 2: Area d'Effetto & Lavagna Tattica
         self.aoe_button = ttk.Button(left_panel, text="💥", width=3, style="Tool.TButton", command=self.open_aoe_dialog)
-        self.aoe_button.pack(pady=3)
+        self.aoe_button.pack(pady=2)
         ToolTip(self.aoe_button, lambda: _t("tool_aoe"))
 
         self.pen_btn = ttk.Button(left_panel, text="✏️", width=3, style="Tool.TButton", command=self.toggle_whiteboard_pen)
-        self.pen_btn.pack(pady=3)
+        self.pen_btn.pack(pady=2)
         ToolTip(self.pen_btn, lambda: _t("tool_pen"))
 
         self.clear_drawings_btn = ttk.Button(left_panel, text="🧹", width=3, style="Tool.TButton", command=self.clear_whiteboard_drawings)
-        self.clear_drawings_btn.pack(pady=3)
+        self.clear_drawings_btn.pack(pady=2)
         ToolTip(self.clear_drawings_btn, lambda: _t("tool_clear_drawings"))
 
+        tk.Frame(left_panel, bg=BORDER_COLOR, height=1).pack(fill=tk.X, pady=4)
+
+        # Gruppo 3: Consultazione & Ricerca Rapida
         self.manuals_btn = ttk.Button(left_panel, text="📖", width=3, style="Tool.TButton", command=self.open_manuals_dialog)
-        self.manuals_btn.pack(pady=3)
+        self.manuals_btn.pack(pady=2)
         ToolTip(self.manuals_btn, lambda: _t("tool_manuals"))
 
         self.cmd_palette_btn = ttk.Button(left_panel, text="🔍", width=3, style="Tool.TButton", command=self.open_command_palette)
-        self.cmd_palette_btn.pack(pady=3)
+        self.cmd_palette_btn.pack(pady=2)
         ToolTip(self.cmd_palette_btn, lambda: _t("tool_command_palette"))
 
         # Pulsante rapido Schermo Intero in fondo alla barra
         self.btn_fullscreen = ttk.Button(left_panel, text="⛶", width=3, style="Tool.TButton", command=self.toggle_fullscreen)
-        self.btn_fullscreen.pack(side=tk.BOTTOM, pady=(0, 4))
+        self.btn_fullscreen.pack(side=tk.BOTTOM, pady=(0, 2))
         ToolTip(self.btn_fullscreen, lambda: _t("menu_fullscreen"))
         
         # --- COLONNA 1: MAPPA ---
@@ -545,33 +567,31 @@ class ClientGUI:
         self.manuals_button = ttk.Button(actions_grid, text=_t("btn_manuals"), command=self.open_manuals_dialog)
         self.manuals_button.grid(row=2, column=1, sticky="ew", padx=(2, 0), pady=2)
 
-        # Privilegi di Classe (Guerriero / Barbaro / ecc.)
+        # Privilegi di Classe (Guerriero / Barbaro / ecc. - Riga Compatta 3 Colonne)
         self.class_features_frame = ttk.LabelFrame(controls_tab, text=_t("lbl_class_features"))
-        self.class_features_frame.pack(fill=tk.X, pady=(4, 4))
+        self.class_features_frame.pack(fill=tk.X, pady=(2, 4))
 
-        cf_row = tk.Frame(self.class_features_frame, bg=SURFACE_COLOR)
-        cf_row.pack(fill=tk.X, pady=2)
+        cf_row = tk.Frame(self.class_features_frame, bg=SURFACE_COLOR, padx=2, pady=2)
+        cf_row.pack(fill=tk.X)
         self.btn_second_wind = tk.Button(
-            cf_row, text=_t("btn_second_wind"), font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            cf_row, text=_t("btn_second_wind"), font=FONT_SMALL, relief=tk.FLAT, bd=0, pady=3,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.use_second_wind
         )
         self.btn_second_wind.pack(side=tk.LEFT, padx=(0, 2), fill=tk.X, expand=True)
         ToolTip(self.btn_second_wind, lambda: _t("tooltip_second_wind"))
 
         self.btn_action_surge = tk.Button(
-            cf_row, text=_t("btn_action_surge"), font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            cf_row, text=_t("btn_action_surge"), font=FONT_SMALL, relief=tk.FLAT, bd=0, pady=3,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.use_action_surge
         )
-        self.btn_action_surge.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
+        self.btn_action_surge.pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
         ToolTip(self.btn_action_surge, lambda: _t("tooltip_action_surge"))
 
-        cf_row_2 = tk.Frame(self.class_features_frame, bg=SURFACE_COLOR)
-        cf_row_2.pack(fill=tk.X, pady=(2, 0))
         self.btn_rage = tk.Button(
-            cf_row_2, text=_t("btn_rage"), font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            cf_row, text=_t("btn_rage"), font=FONT_SMALL, relief=tk.FLAT, bd=0, pady=3,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.use_rage
         )
-        self.btn_rage.pack(fill=tk.X, expand=True)
+        self.btn_rage.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
         ToolTip(self.btn_rage, lambda: _t("tooltip_rage"))
         
         self.combat_btn = ttk.Button(controls_tab, text=_t("btn_request_combat"), command=lambda: getattr(self, "network", None) and self.network.send({"type": "COMBAT_TOGGLE_REQUEST", "data": {}}))
@@ -673,6 +693,8 @@ class ClientGUI:
     def toggle_pan_mode(self):
         if self.map_canvas and hasattr(self.map_canvas, "toggle_pan_mode"):
             is_active = self.map_canvas.toggle_pan_mode()
+            if hasattr(self, "pan_btn") and self.pan_btn:
+                self.pan_btn.configure(style="ToolActive.TButton" if is_active else "Tool.TButton")
             if hasattr(self, "show_toast"):
                 if is_active:
                     self.show_toast("Modalità Navigazione Mappa attiva (Trascina con Tasto Sinistro)", title="✋ Pan Mappa", toast_type="info")
@@ -3667,7 +3689,8 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             request_journal_approval_callback=self.request_journal_approval,
             on_close_callback=self.hide_stats_overlay,
             on_detach_callback=self.detach_character_sheet,
-            is_overlay=True
+            is_overlay=True,
+            network=getattr(self, "network", None)
         )
         self.stats_sheet_frame.pack(fill=tk.BOTH, expand=True)
         self.stats_window = self.stats_sheet_frame
@@ -3676,17 +3699,24 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         self.center_overlay_frame.lift()
         self.stats_overlay_visible = True
 
-    def hide_stats_overlay(self):
-        self.center_overlay_frame.place_forget()
-        self.stats_overlay_visible = False
-        if hasattr(self, 'stats_sheet_frame') and self.stats_sheet_frame:
-            try:
-                self.stats_sheet_frame.save_character()
-            except Exception:
-                pass
+    def hide_stats_overlay(self, save=False):
+        if getattr(self, "_hiding_stats_overlay", False):
+            return
+        self._hiding_stats_overlay = True
+        try:
+            if save and hasattr(self, 'stats_sheet_frame') and self.stats_sheet_frame:
+                try:
+                    if self.stats_sheet_frame.winfo_exists():
+                        self.stats_sheet_frame.save_character(close_after=False)
+                except Exception:
+                    pass
+            self.center_overlay_frame.place_forget()
+            self.stats_overlay_visible = False
+        finally:
+            self._hiding_stats_overlay = False
 
     def detach_character_sheet(self):
-        self.hide_stats_overlay()
+        self.hide_stats_overlay(save=True)
         from client.character_sheet_ui import CharacterSheetUI
         self.stats_detached_window = CharacterSheetUI(
             self.master,
@@ -3703,7 +3733,8 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             request_item_callback=self.request_item_approval,
             is_connected=self.is_connected,
             request_journal_approval_callback=self.request_journal_approval,
-            on_dock_callback=self.dock_character_sheet
+            on_dock_callback=self.dock_character_sheet,
+            network=getattr(self, "network", None)
         )
         self.stats_window = self.stats_detached_window
 

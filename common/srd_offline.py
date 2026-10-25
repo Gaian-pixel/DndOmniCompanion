@@ -159,6 +159,75 @@ MONSTER_IT_TO_EN = {
     "mind flayer": "mind flayer",
 }
 
+# Dizionario traduzione oggetti magici ed equipaggiamento più comuni Italiano -> Inglese
+ITEM_IT_TO_EN = {
+    "pozione di guarigione": "potion of healing",
+    "pozione di cura": "potion of healing",
+    "pozione di guarigione maggiore": "potion of greater healing",
+    "pozione di guarigione superiore": "potion of greater healing",
+    "pozione di guarigione suprema": "potion of supreme healing",
+    "pozione di volo": "potion of flying",
+    "pozione di invisibilità": "potion of invisibility",
+    "pozione di invisibilita": "potion of invisibility",
+    "pozione di velocità": "potion of speed",
+    "pozione di velocita": "potion of speed",
+    "pozione di eroismo": "potion of heroism",
+    "pozione di forza del gigante": "potion of giant strength",
+    "pozione di resistenza": "potion of resistance",
+    "borsa conservante": "bag of holding",
+    "zaino pratico di heward": "handy haversack",
+    "zaino pratico": "handy haversack",
+    "mantello della protezione": "cloak of protection",
+    "mantello elfico": "cloak of elvenkind",
+    "mantello dello spostamento": "cloak of displacement",
+    "stivali elfici": "boots of elvenkind",
+    "stivali della velocità": "boots of speed",
+    "stivali della levitazione": "boots of levitation",
+    "stivali alati": "winged boots",
+    "anello di protezione": "ring of protection",
+    "anello dell'invisibilità": "ring of invisibility",
+    "anello di accumulo degli incantesimi": "ring of spell storing",
+    "anello della rigenerazione": "ring of regeneration",
+    "amuleto della salute": "amulet of health",
+    "fascia dell'intelletto": "headband of intellect",
+    "guanti del potere orchesco": "gauntlets of ogre power",
+    "cintura della forza dei giganti": "belt of giant strength",
+    "bacchetta dei dardi incantati": "wand of magic missiles",
+    "bacchetta delle palle di fuoco": "wand of fireballs",
+    "bacchetta dell'individuazione del magico": "wand of magic detection",
+    "bastone del potere": "staff of power",
+    "bastone dei maghi": "staff of the magi",
+    "bastone della guarigione": "staff of healing",
+    "spada vorpal": "vorpal sword",
+    "spada fiammeggiante": "flame tongue",
+    "lingua di fuoco": "flame tongue",
+    "lama del gelo": "frost brand",
+    "vendicatore sacro": "holy avenger",
+    "lama della fortuna": "luck blade",
+    "pugnale del veleno": "dagger of venom",
+    "giavellotto del fulmine": "javelin of lightning",
+    "scudo di mithral": "mithral armor",
+    "armatura di mithral": "mithral armor",
+    "armatura di adamantio": "adamantine armor",
+    "pergamena magica": "spell scroll",
+    "pergamena di incantesimo": "spell scroll",
+    "pergamena di volo": "spell scroll",
+    "scopa volante": "broom of flying",
+    "tappeto volante": "carpet of flying",
+    "sfera di annientamento": "sphere of annihilation",
+    "mazzo delle molte cose": "deck of many things",
+    "pietra di ioun": "ioun stone",
+    "occhiali della notte": "goggles of night",
+    "corda dell'intreccio": "rope of entanglement",
+    "corda della scalata": "rope of climbing",
+    "decanter dell'acqua infinita": "decanter of endless water",
+    "collana delle palle di fuoco": "necklace of fireballs",
+    "perla del potere": "pearl of power",
+    "bracciali della difesa": "bracers of defense",
+    "elmo della telepatia": "helm of telepathy",
+    "elmo del teletrasporto": "helm of teleportation",
+}
+
 # Tabella progressione privilegi e slot incantesimo 5e offline
 CLASS_PROGRESSION_TABLE = {
     "fighter": {
@@ -349,6 +418,60 @@ class OfflineSRD:
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
+
+    def _load_magic_items(self) -> List[Dict[str, Any]]:
+        if self._magic_items is None:
+            path = os.path.join(SRD_DIR, "open5e_magicitems.json")
+            if os.path.isfile(path):
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        self._magic_items = json.load(f)
+                except Exception as e:
+                    print(f"[SRD_OFFLINE] Errore caricamento open5e_magicitems.json: {e}")
+                    self._magic_items = []
+            else:
+                self._magic_items = []
+        return self._magic_items
+
+    def get_magic_item(self, name_or_query: str) -> Optional[Dict[str, Any]]:
+        """Cerca un oggetto magico nel database SRD offline supportando nomi in italiano o inglese."""
+        if not name_or_query or not str(name_or_query).strip():
+            return None
+        q = str(name_or_query).strip().lower()
+        # Rimuovi eventuale bonus finale generico per lookup (es. "Spada Lunga +1" -> "weapon, +1")
+        target_en = ITEM_IT_TO_EN.get(q, q)
+        if target_en == q:
+            for k_it, k_en in ITEM_IT_TO_EN.items():
+                if k_it in q:
+                    target_en = k_en
+                    break
+            if re.search(r'\+[123]\b', q):
+                num_m = re.search(r'\+([123])\b', q)
+                b_num = num_m.group(1) if num_m else "1"
+                if any(w in q for w in ["spada", "ascia", "arco", "pugnale", "martello", "mazza", "lancia", "balestra", "arma"]):
+                    target_en = f"weapon, +{b_num}"
+                elif any(w in q for w in ["armatura", "corazza", "cotta"]):
+                    target_en = f"armor, +{b_num}"
+                elif "scudo" in q:
+                    target_en = f"shield, +{b_num}"
+
+        items = self._load_magic_items()
+        for it in items:
+            it_name = str(it.get("name", "")).strip().lower()
+            if it_name == q or it_name == target_en:
+                return it
+
+        best_match = None
+        best_len = 999
+        for it in items:
+            it_name = str(it.get("name", "")).strip().lower()
+            if it_name.startswith(target_en) or it_name.startswith(q):
+                if len(it_name) < best_len:
+                    best_len = len(it_name)
+                    best_match = it
+            elif (target_en in it_name or q in it_name) and best_match is None:
+                best_match = it
+        return best_match
 
     def _load_spells(self) -> List[Dict[str, Any]]:
         if self._spells is None:
@@ -667,8 +790,446 @@ def get_monster_offline(name: str) -> Optional[Dict[str, Any]]:
 def get_all_monsters_offline() -> List[Dict[str, Any]]:
     return list(OfflineSRD.get_instance()._load_monsters())
 
+def get_all_spells_offline() -> List[Dict[str, Any]]:
+    return list(OfflineSRD.get_instance()._load_spells())
+
+def get_all_magic_items_offline() -> List[Dict[str, Any]]:
+    return list(OfflineSRD.get_instance()._load_magic_items())
+
 def get_class_level_features_offline(char_class: str, level: int) -> Dict[str, Any]:
     return OfflineSRD.get_instance().get_class_level_features(char_class, level)
+
+
+# Mappe inverse Inglese -> Italiano per visualizzazione e ricerca bilingue
+SPELL_EN_TO_IT: Dict[str, str] = {}
+for _it_k, _en_v in SPELL_IT_TO_EN.items():
+    if _en_v not in SPELL_EN_TO_IT:
+        SPELL_EN_TO_IT[_en_v] = _it_k.title()
+
+MONSTER_EN_TO_IT: Dict[str, str] = {}
+for _it_k, _en_v in MONSTER_IT_TO_EN.items():
+    if _en_v not in MONSTER_EN_TO_IT:
+        MONSTER_EN_TO_IT[_en_v] = _it_k.title()
+
+ITEM_EN_TO_IT: Dict[str, str] = {}
+for _it_k, _en_v in ITEM_IT_TO_EN.items():
+    if _en_v not in ITEM_EN_TO_IT:
+        ITEM_EN_TO_IT[_en_v] = _it_k.title()
+
+
+def get_italian_translation(name_en: str, category: str = "") -> Optional[str]:
+    """Restituisce la traduzione italiana di un nome inglese SRD se presente nei dizionari."""
+    if not name_en:
+        return None
+    low = str(name_en).strip().lower()
+    cat_l = str(category).lower()
+    if "incantesim" in cat_l or "spell" in cat_l:
+        if low in SPELL_EN_TO_IT:
+            return SPELL_EN_TO_IT[low]
+    if "mostr" in cat_l or "png" in cat_l or "npc" in cat_l:
+        if low in MONSTER_EN_TO_IT:
+            return MONSTER_EN_TO_IT[low]
+    if any(k in cat_l for k in ("oggett", "equip", "arm", "pozion")):
+        if low in ITEM_EN_TO_IT:
+            return ITEM_EN_TO_IT[low]
+    return SPELL_EN_TO_IT.get(low) or ITEM_EN_TO_IT.get(low) or MONSTER_EN_TO_IT.get(low)
+
+
+def get_bilingual_label(name: str, category: str = "") -> str:
+    """Restituisce l'etichetta bilingue es. 'Fireball (Palla Di Fuoco)' se esiste traduzione."""
+    if not name:
+        return ""
+    it_name = get_italian_translation(name, category)
+    if it_name and it_name.lower() != name.strip().lower() and it_name.lower() not in name.strip().lower():
+        return f"{name} ({it_name})"
+    return name
+
+
+def match_bilingual_search(item: Dict[str, Any], search_text: str, category: str = "") -> bool:
+    """
+    Verifica se `item` corrisponde a `search_text` cercando in:
+    - nome originale (EN o IT)
+    - traduzione italiana/inglese dai dizionari SRD
+    - tipo, scuola, rarità, parole chiave, sommario
+    """
+    if not search_text:
+        return True
+    q = search_text.strip().lower()
+    if not q:
+        return True
+
+    name = str(item.get("name") or item.get("title") or "").strip()
+    name_l = name.lower()
+    if q in name_l:
+        return True
+
+    # Traduzione diretta della query IT -> EN
+    q_en_candidates = set()
+    for d in (SPELL_IT_TO_EN, MONSTER_IT_TO_EN, ITEM_IT_TO_EN):
+        if q in d:
+            q_en_candidates.add(d[q])
+        for k_it, v_en in d.items():
+            if q in k_it:
+                q_en_candidates.add(v_en)
+    for q_en in q_en_candidates:
+        if q_en in name_l:
+            return True
+
+    # Traduzione del nome dell'elemento EN -> IT
+    it_trans = get_italian_translation(name, category)
+    if it_trans and q in it_trans.lower():
+        return True
+
+    # Campi secondari (keywords, summary, type, school, rarity, category)
+    kws = [str(k).lower() for k in item.get("keywords", [])]
+    if any(q in k for k in kws):
+        return True
+    for field in ("summary", "type", "school", "rarity", "category", "manual_name"):
+        val = item.get(field)
+        if isinstance(val, dict):
+            val = val.get("name", "")
+        if val and q in str(val).lower():
+            return True
+    return False
+
+
+# Catalogo standard 5e SRD Offline per Armi, Armature, Pozioni, Regole e Classi
+STANDARD_5E_EQUIPMENT_CATALOG: List[Dict[str, Any]] = [
+    # Armi da Mischia e a Distanza
+    {"name": "Spada Lunga (Longsword)", "type": "Arma da Mischia Marziale", "rarity": "Comune", "cost": "15 mo", "weight": 3.0, "damage": {"damage_dice": "1d8", "damage_type": {"name": "Tagliente"}}, "desc": "Arma marziale da mischia. Danno: 1d8 tagliente (Versatile 1d10). Peso: 3 lbs."},
+    {"name": "Spadone (Greatsword)", "type": "Arma da Mischia Marziale", "rarity": "Comune", "cost": "50 mo", "weight": 6.0, "damage": {"damage_dice": "2d6", "damage_type": {"name": "Tagliente"}}, "desc": "Arma marziale da mischia. Danno: 2d6 tagliente (Pesante, Due Mani). Peso: 6 lbs."},
+    {"name": "Spada Corta (Shortsword)", "type": "Arma da Mischia Marziale", "rarity": "Comune", "cost": "10 mo", "weight": 2.0, "damage": {"damage_dice": "1d6", "damage_type": {"name": "Perforante"}}, "desc": "Arma marziale da mischia. Danno: 1d6 perforante (Accurata, Leggera). Peso: 2 lbs."},
+    {"name": "Stocco (Rapier)", "type": "Arma da Mischia Marziale", "rarity": "Comune", "cost": "25 mo", "weight": 2.0, "damage": {"damage_dice": "1d8", "damage_type": {"name": "Perforante"}}, "desc": "Arma marziale da mischia. Danno: 1d8 perforante (Accurata). Peso: 2 lbs."},
+    {"name": "Scimitarra (Scimitar)", "type": "Arma da Mischia Marziale", "rarity": "Comune", "cost": "25 mo", "weight": 3.0, "damage": {"damage_dice": "1d6", "damage_type": {"name": "Tagliente"}}, "desc": "Arma marziale da mischia. Danno: 1d6 tagliente (Accurata, Leggera). Peso: 3 lbs."},
+    {"name": "Ascia Bipenne (Greataxe)", "type": "Arma da Mischia Marziale", "rarity": "Comune", "cost": "30 mo", "weight": 7.0, "damage": {"damage_dice": "1d12", "damage_type": {"name": "Tagliente"}}, "desc": "Arma marziale da mischia. Danno: 1d12 tagliente (Pesante, Due Mani). Peso: 7 lbs."},
+    {"name": "Ascia da Battaglia (Battleaxe)", "type": "Arma da Mischia Marziale", "rarity": "Comune", "cost": "10 mo", "weight": 4.0, "damage": {"damage_dice": "1d8", "damage_type": {"name": "Tagliente"}}, "desc": "Arma marziale da mischia. Danno: 1d8 tagliente (Versatile 1d10). Peso: 4 lbs."},
+    {"name": "Martello da Guerra (Warhammer)", "type": "Arma da Mischia Marziale", "rarity": "Comune", "cost": "15 mo", "weight": 2.0, "damage": {"damage_dice": "1d8", "damage_type": {"name": "Contundente"}}, "desc": "Arma marziale da mischia. Danno: 1d8 contundente (Versatile 1d10). Peso: 2 lbs."},
+    {"name": "Maglio (Maul)", "type": "Arma da Mischia Marziale", "rarity": "Comune", "cost": "10 mo", "weight": 10.0, "damage": {"damage_dice": "2d6", "damage_type": {"name": "Contundente"}}, "desc": "Arma marziale da mischia. Danno: 2d6 contundente (Pesante, Due Mani). Peso: 10 lbs."},
+    {"name": "Alabarda (Halberd)", "type": "Arma da Mischia Marziale", "rarity": "Comune", "cost": "20 mo", "weight": 6.0, "damage": {"damage_dice": "1d10", "damage_type": {"name": "Tagliente"}}, "desc": "Arma marziale da mischia. Danno: 1d10 tagliente (Pesante, Portata, Due Mani). Peso: 6 lbs."},
+    {"name": "Pugnale (Dagger)", "type": "Arma da Mischia Semplice", "rarity": "Comune", "cost": "2 mo", "weight": 1.0, "damage": {"damage_dice": "1d4", "damage_type": {"name": "Perforante"}}, "desc": "Arma semplice da mischia. Danno: 1d4 perforante (Accurata, Leggera, Lancio 6/18m). Peso: 1 lb."},
+    {"name": "Mazza (Mace)", "type": "Arma da Mischia Semplice", "rarity": "Comune", "cost": "5 mo", "weight": 4.0, "damage": {"damage_dice": "1d6", "damage_type": {"name": "Contundente"}}, "desc": "Arma semplice da mischia. Danno: 1d6 contundente. Peso: 4 lbs."},
+    {"name": "Bastone Ferrato (Quarterstaff)", "type": "Arma da Mischia Semplice", "rarity": "Comune", "cost": "2 ma", "weight": 4.0, "damage": {"damage_dice": "1d6", "damage_type": {"name": "Contundente"}}, "desc": "Arma semplice da mischia. Danno: 1d6 contundente (Versatile 1d8). Peso: 4 lbs."},
+    {"name": "Lancia (Spear)", "type": "Arma da Mischia Semplice", "rarity": "Comune", "cost": "1 mo", "weight": 3.0, "damage": {"damage_dice": "1d6", "damage_type": {"name": "Perforante"}}, "desc": "Arma semplice da mischia. Danno: 1d6 perforante (Lancio 6/18m, Versatile 1d8). Peso: 3 lbs."},
+    {"name": "Giavellotto (Javelin)", "type": "Arma da Mischia Semplice", "rarity": "Comune", "cost": "5 ma", "weight": 2.0, "damage": {"damage_dice": "1d6", "damage_type": {"name": "Perforante"}}, "desc": "Arma semplice da mischia/lancio. Danno: 1d6 perforante (Lancio 9/36m). Peso: 2 lbs."},
+    {"name": "Arco Lungo (Longbow)", "type": "Arma a Distanza Marziale", "rarity": "Comune", "cost": "50 mo", "weight": 2.0, "damage": {"damage_dice": "1d8", "damage_type": {"name": "Perforante"}}, "desc": "Arma marziale a distanza. Danno: 1d8 perforante (Munizioni 45/180m, Pesante, Due Mani). Peso: 2 lbs."},
+    {"name": "Arco Corto (Shortbow)", "type": "Arma a Distanza Semplice", "rarity": "Comune", "cost": "25 mo", "weight": 2.0, "damage": {"damage_dice": "1d6", "damage_type": {"name": "Perforante"}}, "desc": "Arma semplice a distanza. Danno: 1d6 perforante (Munizioni 24/96m, Due Mani). Peso: 2 lbs."},
+    {"name": "Balestra Leggera (Light Crossbow)", "type": "Arma a Distanza Semplice", "rarity": "Comune", "cost": "25 mo", "weight": 5.0, "damage": {"damage_dice": "1d8", "damage_type": {"name": "Perforante"}}, "desc": "Arma semplice a distanza. Danno: 1d8 perforante (Munizioni 24/96m, Ricarica, Due Mani). Peso: 5 lbs."},
+    {"name": "Balestra Pesante (Heavy Crossbow)", "type": "Arma a Distanza Marziale", "rarity": "Comune", "cost": "50 mo", "weight": 18.0, "damage": {"damage_dice": "1d10", "damage_type": {"name": "Perforante"}}, "desc": "Arma marziale a distanza. Danno: 1d10 perforante (Munizioni 30/120m, Pesante, Ricarica, Due Mani). Peso: 18 lbs."},
+    {"name": "Balestra a Mano (Hand Crossbow)", "type": "Arma a Distanza Marziale", "rarity": "Comune", "cost": "75 mo", "weight": 3.0, "damage": {"damage_dice": "1d6", "damage_type": {"name": "Perforante"}}, "desc": "Arma marziale a distanza. Danno: 1d6 perforante (Munizioni 9/36m, Leggera, Ricarica). Peso: 3 lbs."},
+    # Armature e Scudi
+    {"name": "Armatura di Cuoio (Leather Armor)", "type": "Armatura Leggera", "rarity": "Comune", "cost": "10 mo", "weight": 10.0, "desc": "Armatura leggera. CA: 11 + modificatore di Destrezza."},
+    {"name": "Armatura di Cuoio Borchiato (Studded Leather)", "type": "Armatura Leggera", "rarity": "Comune", "cost": "45 mo", "weight": 13.0, "desc": "Armatura leggera. CA: 12 + modificatore di Destrezza."},
+    {"name": "Giaco di Maglia (Chain Shirt)", "type": "Armatura Media", "rarity": "Comune", "cost": "50 mo", "weight": 20.0, "desc": "Armatura media. CA: 13 + modificatore di Destrezza (max +2)."},
+    {"name": "Cotta a Scaglie (Scale Mail)", "type": "Armatura Media", "rarity": "Comune", "cost": "50 mo", "weight": 45.0, "desc": "Armatura media. CA: 14 + modificatore di Destrezza (max +2). Svantaggio a Furtività."},
+    {"name": "Mezza Armatura (Half Plate)", "type": "Armatura Media", "rarity": "Comune", "cost": "750 mo", "weight": 40.0, "desc": "Armatura media. CA: 15 + modificatore di Destrezza (max +2). Svantaggio a Furtività."},
+    {"name": "Cotta di Maglia (Chain Mail)", "type": "Armatura Pesante", "rarity": "Comune", "cost": "75 mo", "weight": 55.0, "desc": "Armatura pesante. CA: 16 (Richiede FOR 13, Svantaggio a Furtività)."},
+    {"name": "Armatura a Piastre (Plate Armor)", "type": "Armatura Pesante", "rarity": "Comune", "cost": "1500 mo", "weight": 65.0, "desc": "Armatura pesante. CA: 18 (Richiede FOR 15, Svantaggio a Furtività)."},
+    {"name": "Scudo (Shield)", "type": "Armatura (Scudo)", "rarity": "Comune", "cost": "10 mo", "weight": 6.0, "desc": "Scudo in legno o metallo. Conferisce +2 alla Classe Armatura quando impugnato."},
+    # Pozioni
+    {"name": "Pozione di Guarigione (Potion of Healing)", "type": "Pozione", "rarity": "Comune", "cost": "50 mo", "weight": 0.5, "desc": "Bevi questa fiala di liquido rosso per recuperare 2d4 + 2 Punti Ferita (1 Azione)."},
+    {"name": "Pozione di Guarigione Maggiore (Potion of Greater Healing)", "type": "Pozione", "rarity": "Non Comune", "cost": "150 mo", "weight": 0.5, "desc": "Recuperi 4d4 + 4 Punti Ferita quando bevi questa pozione."},
+    {"name": "Pozione di Guarigione Superiore (Potion of Superior Healing)", "type": "Pozione", "rarity": "Raro", "cost": "500 mo", "weight": 0.5, "desc": "Recuperi 8d4 + 8 Punti Ferita quando bevi questa pozione."},
+    {"name": "Pozione di Guarigione Suprema (Potion of Supreme Healing)", "type": "Pozione", "rarity": "Molto Raro", "cost": "1350 mo", "weight": 0.5, "desc": "Recuperi 10d4 + 20 Punti Ferita quando bevi questa pozione."},
+    {"name": "Antidoto (Antitoxin)", "type": "Pozione", "rarity": "Comune", "cost": "50 mo", "weight": 0.1, "desc": "Chi beve questa fiala ottiene vantaggio ai tiri salvezza contro il veleno per 1 ora."},
+    # Attrezzi ed Equipaggiamento d'Avventura
+    {"name": "Zaino da Esploratore (Explorer's Pack)", "type": "Equipaggiamento (Zaino)", "rarity": "Comune", "cost": "10 mo", "weight": 10.0, "desc": "Contiene sacco a pelo, acciarino, 10 torce, 10 razioni, borraccia e 15m di corda di canapa."},
+    {"name": "Zaino da Scassinatore (Burglar's Pack)", "type": "Equipaggiamento (Zaino)", "rarity": "Comune", "cost": "16 mo", "weight": 12.0, "desc": "Contiene piede di porco, martello, 10 chiodi, 5 candele, acciarino, 5 razioni, borraccia e 15m di corda."},
+    {"name": "Zaino da Studioso (Scholar's Pack)", "type": "Equipaggiamento (Zaino)", "rarity": "Comune", "cost": "40 mo", "weight": 10.0, "desc": "Contiene libro di nozioni, inchiostro, penna d'oca, 10 fogli di pergamena, razioni e borraccia."},
+    {"name": "Zaino da Sacerdote (Priest's Pack)", "type": "Equipaggiamento (Zaino)", "rarity": "Comune", "cost": "19 mo", "weight": 10.0, "desc": "Contiene coperta, 10 candele, acciarino, incensiere, vesti da cerimonia, 2 razioni e borraccia."},
+    {"name": "Strumenti da Scasso (Thieves' Tools)", "type": "Strumenti", "rarity": "Comune", "cost": "25 mo", "weight": 1.0, "desc": "Include lima, grimaldelli, specchietto, pinze. Necessario per scassinare serrature e disattivare trappole."},
+    {"name": "Borsa da Guaritore (Healer's Kit)", "type": "Equipaggiamento", "rarity": "Comune", "cost": "5 mo", "weight": 3.0, "desc": "10 usi. Spendendo 1 uso ed 1 Azione puoi stabilizzare una creatura a 0 PF senza prova di Medicina."},
+    {"name": "Corda di Canapa 15m (Hempen Rope)", "type": "Equipaggiamento", "rarity": "Comune", "cost": "1 mo", "weight": 10.0, "desc": "Corda da 15 metri (50 ft), 2 PF, può essere spezzata con una prova di Forza CD 17."},
+    {"name": "Torcia (Torch)", "type": "Equipaggiamento", "rarity": "Comune", "cost": "1 mr", "weight": 1.0, "desc": "Brucia per 1 ora proiettando luce intensa nel raggio di 6m e luce fioca per altri 6m."},
+    {"name": "Lanterna Schermabile (Hooded Lantern)", "type": "Equipaggiamento", "rarity": "Comune", "cost": "5 mo", "weight": 2.0, "desc": "Proietta luce intensa per 9m e luce fioca per altri 9m per 6 ore con una fiaschetta d'olio."},
+]
+
+
+STANDARD_5E_RULES_CATALOG: List[Dict[str, Any]] = [
+    {"name": "Azioni in Combattimento (Actions in Combat)", "category": "Regole", "type": "Combattimento", "desc": "Durante il tuo turno puoi muoverti e compiere un'Azione:\n• Attacco: effettua un attacco in mischia o a distanza.\n• Lanciare un Incantesimo: tempo di lancio 1 azione.\n• Scatto (Dash): raddoppia il movimento per il turno.\n• Disimpegno (Disengage): il tuo movimento non provoca attacchi d'opportunità.\n• Schivata (Dodge): gli attacchi contro di te hanno svantaggio e hai vantaggio ai TS su Destrezza.\n• Aiuto (Help): dai vantaggio alla prossima prova o attacco di un alleato.\n• Nascondersi (Hide): effettua una prova di Furtività.\n• Preparare (Ready): prepara un'azione in risposta a un innesco usando la Reazione."},
+    {"name": "Condizioni D&D 5e (Conditions)", "category": "Regole", "type": "Condizioni", "desc": "Riepilogo rapido delle condizioni:\n• Accecato (Blinded): fallisce prove basate sulla vista, attacchi con svantaggio, attacchi subiti con vantaggio.\n• Affascinato (Charmed): non può attaccare chi l'ha affascinato; questi ha vantaggio alle prove sociali.\n• Afferrato (Grappled): velocità 0.\n• Avvelenato (Poisoned): svantaggio ai tiri per colpire e alle prove di caratteristica.\n• Incosciente (Unconscious): incapacitato, prono, fallisce TS FOR/DES, attacchi subiti con vantaggio e critico automatico entro 1.5m.\n• Invisibile (Invisible): attacchi con vantaggio, attacchi subiti con svantaggio.\n• Paralizzato (Paralyzed): incapacitato, fallisce TS FOR/DES, critico automatico entro 1.5m.\n• Prono (Prone): svantaggio agli attacchi; attacchi subiti entro 1.5m hanno vantaggio, oltre 1.5m svantaggio.\n• Stordito (Stunned): incapacitato, fallisce TS FOR/DES, attacchi subiti con vantaggio.\n• Trattenuto (Restrained): velocità 0, attacchi con svantaggio, attacchi subiti con vantaggio, svantaggio ai TS DES."},
+    {"name": "Riposo Breve e Riposo Lungo (Resting)", "category": "Regole", "type": "Avventura", "desc": "• Riposo Breve (Short Rest): almeno 1 ora di inattività leggera. Puoi spendere Dadi Vita (fino al tuo livello) aggiungendo il modificatore di Costituzione per recuperare Punti Ferita.\n• Riposo Lungo (Long Rest): almeno 8 ore. Recuperi tutti i Punti Ferita perduti, tutti gli slot incantesimo e fino a metà dei tuoi Dadi Vita totali (minimo 1), oltre a ridurre l'Indebolimento di 1 livello."},
+    {"name": "Tiri Salvezza contro Morte (Death Saving Throws)", "category": "Regole", "type": "Combattimento", "desc": "Quando inizi il turno a 0 PF, tiri 1d20 senza modificatori:\n• 10 o più: 1 Successo (al 3° successo sei stabile a 0 PF).\n• 9 o meno: 1 Fallimento (al 3° fallimento il personaggio muore).\n• 1 Naturale: conta come 2 fallimenti.\n• 20 Naturale: recuperi immediatamente 1 Punto Ferita e torni cosciente!"},
+    {"name": "Copertura e Terreno Difficile (Cover & Terrain)", "category": "Regole", "type": "Combattimento", "desc": "• Mezza Copertura (Half Cover): +2 a CA e ai Tiri Salvezza su Destrezza.\n• Tre Quarti di Copertura (Three-Quarters Cover): +5 a CA e ai Tiri Salvezza su Destrezza.\n• Copertura Totale (Total Cover): non può essere bersagliato direttamente da un attacco o incantesimo.\n• Terreno Difficile: ogni metro di movimento costa 1 metro extra (2x costo movimento)."},
+    {"name": "Vantaggio e Svantaggio (Advantage & Disadvantage)", "category": "Regole", "type": "Meccaniche Base", "desc": "• Vantaggio: tiri 2d20 e usi il risultato più alto.\n• Svantaggio: tiri 2d20 e usi il risultato più basso.\n• Se hai sia vantaggio che svantaggio (indipendentemente da quanti), si annullano a vicenda e tiri 1d20 normale."},
+    {"name": "Concentrazione sugli Incantesimi (Concentration)", "category": "Regole", "type": "Magia", "desc": "Se subisci danni mentre mantieni la concentrazione su un incantesimo, devi superare un Tiro Salvezza su Costituzione con CD pari a 10 o alla metà del danno subito (qualunque sia più alta). Puoi concentrarti su un solo incantesimo alla volta."},
+]
+
+
+def get_all_equipment_offline(category: str = "Equipaggiamento") -> List[Dict[str, Any]]:
+    """Restituisce il catalogo offline per Equipaggiamento, Armi o Pozioni combinato con SRD Magic Items."""
+    cat_l = str(category).lower()
+    results = []
+    seen = set()
+
+    for it in STANDARD_5E_EQUIPMENT_CATALOG:
+        t_low = str(it.get("type", "")).lower()
+        if "armi" in cat_l and "arma" not in t_low and "weapon" not in t_low:
+            continue
+        if "pozion" in cat_l and "pozion" not in t_low and "potion" not in t_low:
+            continue
+        copy_it = dict(it)
+        copy_it["source"] = "SRD 5e"
+        results.append(copy_it)
+        seen.add(copy_it["name"].lower())
+
+    for mit in get_all_magic_items_offline():
+        m_type = str(mit.get("type", "")).lower()
+        m_name = str(mit.get("name", ""))
+        if "armi" in cat_l and "weapon" not in m_type:
+            continue
+        if "pozion" in cat_l and "potion" not in m_type:
+            continue
+        if m_name.lower() not in seen:
+            seen.add(m_name.lower())
+            results.append(mit)
+
+    return results
+
+
+def get_all_rules_offline() -> List[Dict[str, Any]]:
+    """Restituisce le voci del compendio per le Regole D&D 5e offline."""
+    return [dict(r) for r in STANDARD_5E_RULES_CATALOG]
+
+
+def get_all_classes_offline() -> List[Dict[str, Any]]:
+    """Restituisce le schede di progressione 1-20 delle classi D&D 5e."""
+    class_names_it = {
+        "fighter": "Guerriero (Fighter)",
+        "barbarian": "Barbaro (Barbarian)",
+        "rogue": "Ladro (Rogue)",
+        "wizard": "Mago (Wizard)",
+        "cleric": "Chierico (Cleric)",
+        "paladin": "Paladino (Paladin)",
+        "ranger": "Ranger",
+        "bard": "Bardo (Bard)",
+        "druid": "Druido (Druid)",
+        "monk": "Monaco (Monk)",
+        "sorcerer": "Stregone (Sorcerer)",
+        "warlock": "Warlock",
+    }
+    out = []
+    for c_key, c_data in CLASS_PROGRESSION_TABLE.items():
+        title = class_names_it.get(c_key, c_key.title())
+        hd = c_data.get("hit_die", 8)
+        feats_map = c_data.get("features", {})
+        lines = [f"🎲 Dado Vita: d{hd} per livello", ""]
+        for lvl in sorted(feats_map.keys()):
+            f_list = ", ".join(feats_map[lvl])
+            lines.append(f"• Livello {lvl}: {f_list}")
+        out.append({
+            "name": title,
+            "category": "Classi",
+            "type": f"Dado Vita d{hd}",
+            "desc": "\n".join(lines),
+            "source": "SRD 5e",
+        })
+    return out
+
+
+def get_all_traits_offline() -> List[Dict[str, Any]]:
+    """Restituisce l'elenco dei privilegi di classe e tratti razziali 5e offline."""
+    traits = []
+    seen = set()
+    for c_key, c_data in CLASS_PROGRESSION_TABLE.items():
+        for lvl, f_list in c_data.get("features", {}).items():
+            for feat in f_list:
+                if feat.lower() in seen or "asi" in feat.lower():
+                    continue
+                seen.add(feat.lower())
+                traits.append({
+                    "name": feat,
+                    "category": "Tratti",
+                    "type": f"{c_key.title()} (Liv. {lvl})",
+                    "desc": f"Privilegio di classe {c_key.title()} sbloccato al Livello {lvl}.",
+                    "source": "SRD 5e",
+                })
+    return traits
+
+
+def resolve_compendium_item(raw_entry: str, default_qty: int = 1) -> Dict[str, Any]:
+    """
+    Risolve una stringa di oggetto (es. '2x Pozione di Guarigione', 'Spada Lunga +1', 'Corda di Canapa')
+    interrogando nell'ordine:
+    1. Compendio Custom (srd_data/custom_compendium.json)
+    2. Compendio SRD Offline (srd_data/open5e_magicitems.json)
+    3. Catalogo Equipaggiamento Standard 5e (common/starter_equipment.py)
+    Restituisce un dizionario strutturato pronto per l'inventario VTT e la distribuzione del loot.
+    """
+    from common.starter_equipment import (
+        lookup_standard_weight,
+        DEFAULT_CAMPAIGN_STARTER_KIT,
+        STARTER_PACK_CONTENTS,
+        CLASS_STARTING_KITS,
+    )
+
+    s = str(raw_entry or "").strip().strip('"\'')
+    qty = default_qty
+    # Estrai prefisso o suffisso quantità: "2x Pozione", "3 Pozioni", "Pozione (x2)"
+    m_pre = re.match(r'^(\d+)\s*[xX]\s*(.+)$', s)
+    m_suf = re.match(r'^(.+?)\s*\(\s*[xX]?(\d+)\s*\)$', s)
+    if m_pre:
+        qty = max(1, int(m_pre.group(1)))
+        s = m_pre.group(2).strip().strip('"\'')
+    elif m_suf:
+        qty = max(1, int(m_suf.group(2)))
+        s = m_suf.group(1).strip().strip('"\'')
+
+    clean_low = s.lower()
+
+    # 1. Cerca nel Compendio Custom (custom_compendium.json)
+    custom_path = os.path.join(SRD_DIR, "custom_compendium.json")
+    if os.path.isfile(custom_path):
+        try:
+            with open(custom_path, "r", encoding="utf-8") as f:
+                cdata = json.load(f)
+            for cat in ("Oggetti Magici", "Equipaggiamento", "Armi", "Pozioni"):
+                for cit in cdata.get(cat, []):
+                    cname = str(cit.get("name") or cit.get("title") or "").strip()
+                    if cname.lower() == clean_low:
+                        w = cit.get("weight")
+                        try:
+                            w = float(w) if w is not None else lookup_standard_weight(cname)
+                        except (ValueError, TypeError):
+                            w = lookup_standard_weight(cname)
+                        return {
+                            "name": cname,
+                            "qty": qty,
+                            "type": cit.get("type") or cat,
+                            "weight": w,
+                            "rarity": cit.get("rarity", "Comune"),
+                            "desc": cit.get("desc", ""),
+                            "attuned": False,
+                            "from_compendium": True,
+                            "compendium_source": "Compendio Custom",
+                        }
+        except Exception:
+            pass
+
+    # 2. Cerca nel Compendio SRD Offline (open5e_magicitems.json)
+    srd_it = OfflineSRD.get_instance().get_magic_item(s)
+    if srd_it:
+        raw_type = str(srd_it.get("type", "Oggetto Magico"))
+        type_it = "Oggetto Magico"
+        rt_low = raw_type.lower()
+        if "potion" in rt_low or "pozion" in clean_low:
+            type_it = "Pozione"
+        elif "scroll" in rt_low or "pergamen" in clean_low:
+            type_it = "Pergamena"
+        elif "weapon" in rt_low or any(w in clean_low for w in ["spada", "ascia", "arco", "pugnale", "martello", "lancia"]):
+            type_it = "Arma"
+        elif "armor" in rt_low or "armatura" in clean_low or "corazza" in clean_low:
+            type_it = "Armatura"
+        elif "shield" in rt_low or "scudo" in clean_low:
+            type_it = "Scudo"
+
+        w = lookup_standard_weight(s)
+        if w <= 0.0:
+            w = 0.5 if type_it in ("Pozione", "Pergamena") else 1.0
+
+        return {
+            "name": s,
+            "srd_name": srd_it.get("name", s),
+            "qty": qty,
+            "type": type_it,
+            "weight": w,
+            "rarity": srd_it.get("rarity", "Non Comune"),
+            "desc": srd_it.get("desc", ""),
+            "requires_attunement": bool(srd_it.get("requires_attunement")),
+            "attuned": False,
+            "from_compendium": True,
+            "compendium_source": "SRD 5.1",
+        }
+
+    # 3. Cerca nel Catalogo Equipaggiamento Standard 5e (starter_equipment.py)
+    std_catalog: List[Dict[str, Any]] = []
+    std_catalog.extend(DEFAULT_CAMPAIGN_STARTER_KIT)
+    for p_list in STARTER_PACK_CONTENTS.values():
+        std_catalog.extend(p_list)
+    for k_data in CLASS_STARTING_KITS.values():
+        std_catalog.extend(k_data.get("inventory", []))
+
+    for std_it in std_catalog:
+        std_name = str(std_it.get("name", "")).strip()
+        if std_name.lower() == clean_low or clean_low in std_name.lower():
+            w = std_it.get("weight", 0.0) or lookup_standard_weight(std_name)
+            return {
+                "name": s if std_name.lower() != clean_low else std_name,
+                "qty": qty,
+                "type": std_it.get("type", "Equipaggiamento"),
+                "weight": float(w),
+                "rarity": "Comune",
+                "desc": std_it.get("desc", ""),
+                "attuned": False,
+                "from_compendium": True,
+                "compendium_source": "Equipaggiamento 5e",
+            }
+
+    # 4. Fallback se il nome corrisponde a un peso standard 5e (es. "Spada Lunga", "Corda di Seta", "Torcia")
+    std_w = lookup_standard_weight(s)
+    inferred_type = "Equipaggiamento"
+    if any(k in clean_low for k in ["spada", "ascia", "pugnale", "arco", "balestra", "martello", "mazza", "lancia", "giavellotto", "stocco", "scimitarra", "alabarda"]):
+        inferred_type = "Arma"
+    elif any(k in clean_low for k in ["armatura", "corazza", "cotta", "giaco"]):
+        inferred_type = "Armatura"
+    elif "scudo" in clean_low:
+        inferred_type = "Scudo"
+    elif "pozion" in clean_low or "elisir" in clean_low or "antidoto" in clean_low:
+        inferred_type = "Pozione"
+    elif "pergamen" in clean_low:
+        inferred_type = "Pergamena"
+
+    return {
+        "name": s,
+        "qty": qty,
+        "type": inferred_type,
+        "weight": std_w,
+        "rarity": "Comune",
+        "desc": "Oggetto standard D&D 5e." if std_w > 0 else "",
+        "attuned": False,
+        "from_compendium": bool(std_w > 0),
+        "compendium_source": "Equipaggiamento 5e" if std_w > 0 else "Personalizzato",
+    }
+
+
+def parse_loot_specification(raw_loot: Any) -> Dict[str, Any]:
+    """
+    Analizza una specifica di loot DndScript (es. '100 mo, 50 ma, 2x Pozione di Cura, Spada Lunga +1')
+    separando le valute (MR, MA, ME, MO, MP) e risolvendo ciascun oggetto nel Compendio.
+    """
+    currency = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
+    resolved_items: List[Dict[str, Any]] = []
+
+    if not raw_loot:
+        return {"currency": currency, "items": resolved_items}
+
+    if isinstance(raw_loot, list):
+        tokens = [str(x).strip() for x in raw_loot if str(x).strip()]
+    else:
+        tokens = [t.strip() for t in str(raw_loot).split(",") if t.strip()]
+
+    coin_patterns = [
+        ("MP", r"^(\d+)\s*(?:mp|pp|monete\s+d['i]\s*platino|platino)$"),
+        ("ME", r"^(\d+)\s*(?:me|ep|monete\s+d['i]\s*electrum|electrum|electro)$"),
+        ("MA", r"^(\d+)\s*(?:ma|sp|monete\s+d['i]\s*argento|argento)$"),
+        ("MR", r"^(\d+)\s*(?:mr|cp|monete\s+di\s*rame|rame)$"),
+        ("MO", r"^(\d+)\s*(?:mo|gp|monete\s+d['i]\s*oro|oro)$"),
+    ]
+
+    for tok in tokens:
+        clean_tok = tok.strip().strip('"\'')
+        if not clean_tok:
+            continue
+        matched_coin = False
+        for c_code, pat in coin_patterns:
+            m = re.match(pat, clean_tok, re.IGNORECASE)
+            if m:
+                currency[c_code] += int(m.group(1))
+                matched_coin = True
+                break
+        if not matched_coin:
+            resolved_items.append(resolve_compendium_item(clean_tok))
+
+    return {"currency": currency, "items": resolved_items}
 
 
 def format_monster_action_tooltip(action: Any, monster_name: str = "") -> str:

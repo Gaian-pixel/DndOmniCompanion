@@ -385,8 +385,11 @@ class FlowCanvas(tk.Frame):
             return f"CD {cd}{dmg_str}"[:26]
         elif t == "loot":
             g = d.get("gold", "0")
+            res = d.get("resolved_items", [])
+            comp_cnt = sum(1 for r in res if isinstance(r, dict) and r.get("from_compendium"))
             itms = len(d.get("items", []))
-            return f"{g} • {itms} oggetti"
+            comp_tag = f" ({comp_cnt} SRD)" if comp_cnt > 0 else ""
+            return f"{g} • {itms} oggetti{comp_tag}"
         elif t == "shop":
             merch = d.get("merchant", "Mercante")
             stype = d.get("shop_type", "Emporio")
@@ -637,15 +640,63 @@ class FlowCanvas(tk.Frame):
         combo_type.set(node.node_type)
         combo_type.pack(fill=tk.X, pady=(2, 10))
 
+        dlg.geometry("500x480")
+        tk.Label(container, text="Loot / Oggetti (separati da virgola, collegati al Compendio):", font=FONT_BOLD, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w")
+        loot_row = tk.Frame(container, bg=BG_COLOR)
+        loot_row.pack(fill=tk.X, pady=(2, 8))
+        ent_loot = ttk.Entry(loot_row, font=FONT_MAIN)
+        existing_loot_str = ""
+        if node.node_type in ("loot", "shop") and node.data.get("items"):
+            existing_loot_str = ", ".join(node.data["items"]) if isinstance(node.data["items"], list) else str(node.data["items"])
+        else:
+            existing_loot_str = str(node.data.get("loot", ""))
+        ent_loot.insert(0, existing_loot_str)
+        ent_loot.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+
+        def _pick_from_compendium():
+            try:
+                from server.compendium_ui import CompendiumDialog
+                def _on_imp(item_data, cat):
+                    nm = (item_data.get("name") or item_data.get("title") or "").strip()
+                    if not nm:
+                        return
+                    cur = ent_loot.get().strip()
+                    ent_loot.delete(0, tk.END)
+                    ent_loot.insert(0, f"{cur}, {nm}" if cur else nm)
+                c_dlg = CompendiumDialog(
+                    dlg,
+                    on_import_callback=_on_imp,
+                    is_dm=True,
+                    initial_category="Oggetti Magici",
+                    action_label="💎 Aggiungi al Nodo",
+                    allowed_categories=["Equipaggiamento", "Armi", "Pozioni", "Oggetti Magici", "Equipaggiamento & Tesori"]
+                )
+                c_dlg.grab_set()
+            except Exception:
+                pass
+
+        ttk.Button(loot_row, text="📖 Compendio...", command=_pick_from_compendium, style="Primary.TButton").pack(side=tk.RIGHT)
+
         tk.Label(container, text="Descrizione / Narrazione:", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
-        txt_desc = tk.Text(container, height=6, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_MAIN, relief="flat", highlightbackground=BORDER_COLOR, highlightthickness=1)
+        txt_desc = tk.Text(container, height=5, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_MAIN, relief="flat", highlightbackground=BORDER_COLOR, highlightthickness=1)
         txt_desc.insert("1.0", node.data.get("read_aloud", "") or node.data.get("notes", ""))
         txt_desc.pack(fill=tk.BOTH, expand=True, pady=(2, 12))
 
         def save_and_close():
+            from common.srd_offline import resolve_compendium_item, parse_loot_specification
             node.title = ent_title.get().strip() or "Senza Titolo"
             node.node_type = combo_type.get()
             node.data["read_aloud"] = txt_desc.get("1.0", tk.END).strip()
+            loot_val = ent_loot.get().strip()
+            if node.node_type in ("loot", "shop"):
+                raw_items = [i.strip().strip('"\'') for i in loot_val.split(",") if i.strip()]
+                node.data["items"] = raw_items
+                node.data["resolved_items"] = [resolve_compendium_item(it) for it in raw_items]
+            elif loot_val or "loot" in node.data:
+                node.data["loot"] = loot_val
+                parsed = parse_loot_specification(loot_val)
+                node.data["loot_currency"] = parsed["currency"]
+                node.data["loot_items"] = parsed["items"]
             dlg.destroy()
             if self.on_change_callback:
                 self.on_change_callback()

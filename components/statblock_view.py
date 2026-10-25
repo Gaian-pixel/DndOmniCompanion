@@ -11,7 +11,8 @@ Supporta rendering avanzato per:
 import tkinter as tk
 from tkinter import ttk
 import re
-from typing import Dict, Any, Optional, Callable
+import random
+from typing import Dict, Any, Optional, Callable, List
 
 from common.theme import (
     BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT,
@@ -23,6 +24,7 @@ from common.theme import (
 from common.srd_offline import (
     normalize_ac_value,
     normalize_speed_value,
+    get_bilingual_label,
 )
 
 # Mappatura colori per la rarità degli oggetti D&D 5e
@@ -44,16 +46,31 @@ RARITY_COLORS = {
 
 class StatblockCardView(ttk.Frame):
     """
-    Card Statblock Dark Fantasy 5e con scrollbar integrata.
+    Card Statblock Dark Fantasy 5e con scrollbar integrata e dadi interattivi.
     Si aggiorna all'istante alla selezione di un elemento.
     """
 
-    def __init__(self, parent, on_primary_action: Optional[Callable[[Dict[str, Any], str], None]] = None, action_label: str = "Importa nella Sessione"):
+    def __init__(
+        self,
+        parent,
+        on_primary_action: Optional[Callable[[Dict[str, Any], str], None]] = None,
+        action_label: str = "Importa nella Sessione",
+        on_toggle_favorite: Optional[Callable[[Dict[str, Any], str], bool]] = None,
+        is_favorite_fn: Optional[Callable[[Dict[str, Any]], bool]] = None,
+        on_edit_custom: Optional[Callable[[Dict[str, Any], str], None]] = None,
+        on_delete_custom: Optional[Callable[[Dict[str, Any], str], None]] = None,
+    ):
         super().__init__(parent)
         self.on_primary_action = on_primary_action
         self.action_label = action_label
+        self.on_toggle_favorite = on_toggle_favorite
+        self.is_favorite_fn = is_favorite_fn
+        self.on_edit_custom = on_edit_custom
+        self.on_delete_custom = on_delete_custom
         self.current_data = None
         self.current_category = "Mostri"
+        self.quantity_var = tk.IntVar(value=1)
+        self.last_roll_result: Optional[Dict[str, Any]] = None
 
         self._setup_layout()
         self.show_placeholder()
@@ -64,6 +81,36 @@ class StatblockCardView(ttk.Frame):
         return f"{icon} {cleaned}" if cleaned else f"{icon} {raw}"
 
     def _setup_layout(self):
+        # Banner superiore per i risultati dei tiri di dado interattivi (nascosto finché non si tira)
+        self.dice_banner = tk.Frame(
+            self,
+            bg=SURFACE_COLOR_ALT,
+            highlightbackground=BORDER_GOLD,
+            highlightthickness=1,
+            padx=10,
+            pady=5,
+        )
+        self.dice_banner_lbl = tk.Label(
+            self.dice_banner,
+            text="",
+            font=("Segoe UI", 10, "bold"),
+            bg=SURFACE_COLOR_ALT,
+            fg=ACCENT_GOLD_LIGHT,
+            anchor="w",
+        )
+        self.dice_banner_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        btn_close_roll = tk.Button(
+            self.dice_banner,
+            text="✕",
+            command=lambda: self.dice_banner.pack_forget(),
+            bg=SURFACE_COLOR_ALT,
+            fg=TEXT_MUTED,
+            bd=0,
+            font=("Segoe UI", 8, "bold"),
+            cursor="hand2",
+        )
+        btn_close_roll.pack(side=tk.RIGHT)
+
         # Canvas scorrevole per ospitare schede di qualsiasi altezza
         self.canvas = tk.Canvas(self, bg=BG_COLOR, highlightthickness=0, borderwidth=0)
         self.scrollbar = ttk.Scrollbar(self, orient=tk.VERTICAL, command=self.canvas.yview)
@@ -88,9 +135,169 @@ class StatblockCardView(ttk.Frame):
         self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
+    # -------------------------------------------------------------------------
+    # MOTORE TIRI DI DADO INTERATTIVI NELLO STATBLOCK
+    # -------------------------------------------------------------------------
+    def roll_dice_formula(self, formula: str, label: str = "Tiro") -> Dict[str, Any]:
+        """Esegue un tiro di dado (es. '2d6+3', '8d6', '1d20+5') e mostra il risultato nel banner."""
+        clean = str(formula).replace(" ", "")
+        m = re.search(r'(\d+)d(\d+)([+-]\d+)?', clean, re.IGNORECASE)
+        if not m:
+            return {"total": 0, "formula": formula, "rolls": [], "mod": 0}
+        count = max(1, min(100, int(m.group(1))))
+        sides = max(2, int(m.group(2)))
+        mod = int(m.group(3)) if m.group(3) else 0
+        rolls = [random.randint(1, sides) for _ in range(count)]
+        total = sum(rolls) + mod
+
+        rolls_str = "+".join(str(r) for r in rolls)
+        mod_str = f" {'+' if mod > 0 else '-'} {abs(mod)}" if mod != 0 else ""
+        crit_note = ""
+        fg_color = ACCENT_GOLD_LIGHT
+        if count == 1 and sides == 20:
+            if rolls[0] == 20:
+                crit_note = " 🌟 CRITICO NATURALE (20)!"
+                fg_color = ACCENT_GREEN
+            elif rolls[0] == 1:
+                crit_note = " 💀 FALLIMENTO CRITICO (1)!"
+                fg_color = ACCENT_RED
+
+        msg = f"🎲 {label}: {total}   [{count}d{sides}: ({rolls_str}){mod_str}]{crit_note}"
+        self.last_roll_result = {
+            "label": label,
+            "formula": f"{count}d{sides}{f'{mod:+d}' if mod else ''}",
+            "rolls": rolls,
+            "mod": mod,
+            "total": total,
+            "text": msg,
+        }
+        try:
+            self.dice_banner_lbl.config(text=msg, fg=fg_color)
+            if not self.dice_banner.winfo_ismapped():
+                self.dice_banner.pack(side=tk.TOP, fill=tk.X, padx=8, pady=(6, 0), before=self.canvas)
+        except Exception:
+            pass
+        return self.last_roll_result
+
+    def _trigger_primary_action(self, data_dict: Dict[str, Any], category: str):
+        if not self.on_primary_action:
+            return
+        try:
+            qty = max(1, int(self.quantity_var.get()))
+        except (ValueError, TypeError, tk.TclError):
+            qty = 1
+        data_dict["import_quantity"] = qty
+        for _ in range(qty):
+            self.on_primary_action(data_dict, category)
+
+    def _build_header_controls(self, parent: tk.Widget, data_dict: Dict[str, Any], category: str, icon: str):
+        """Costruisce la barra di controllo nell'header dello Statblock: Preferito, Edit/Delete Custom, Qtà e Importa."""
+        ctrl_box = tk.Frame(parent, bg=SURFACE_COLOR)
+        ctrl_box.pack(side=tk.RIGHT, padx=(6, 0))
+
+        # 1. Pulsante Preferito (⭐)
+        if self.on_toggle_favorite:
+            is_fav = bool(self.is_favorite_fn(data_dict)) if self.is_favorite_fn else False
+            fav_btn = tk.Button(
+                ctrl_box,
+                text="⭐" if is_fav else "☆",
+                font=("Segoe UI", 11, "bold"),
+                bg=SURFACE_COLOR_ALT,
+                fg=ACCENT_GOLD if is_fav else TEXT_MUTED,
+                activebackground=BORDER_GOLD,
+                bd=1,
+                relief=tk.SOLID,
+                padx=6,
+                pady=1,
+                cursor="hand2",
+            )
+            def _toggle_fav():
+                now_fav = self.on_toggle_favorite(data_dict, category)
+                fav_btn.config(text="⭐" if now_fav else "☆", fg=ACCENT_GOLD if now_fav else TEXT_MUTED)
+            fav_btn.config(command=_toggle_fav)
+            fav_btn.pack(side=tk.LEFT, padx=(0, 4))
+
+        # 2. Pulsanti Modifica / Elimina per voci [Custom]
+        if data_dict.get("is_custom"):
+            if self.on_edit_custom:
+                ttk.Button(
+                    ctrl_box,
+                    text="✏️",
+                    width=3,
+                    command=lambda: self.on_edit_custom(data_dict, category),
+                ).pack(side=tk.LEFT, padx=(0, 3))
+            if self.on_delete_custom:
+                ttk.Button(
+                    ctrl_box,
+                    text="🗑️",
+                    width=3,
+                    command=lambda: self.on_delete_custom(data_dict, category),
+                    style="Danger.TButton",
+                ).pack(side=tk.LEFT, padx=(0, 4))
+
+        # 3. Selettore Quantità + Pulsante Primario d'Importazione/Spawn
+        if self.on_primary_action:
+            if category in ("Mostri", "Oggetti", "Equipaggiamento"):
+                self.quantity_var.set(1)
+                qty_lbl = tk.Label(ctrl_box, text="Qtà:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
+                qty_lbl.pack(side=tk.LEFT, padx=(2, 2))
+                qty_spin = ttk.Spinbox(
+                    ctrl_box,
+                    from_=1,
+                    to=20,
+                    textvariable=self.quantity_var,
+                    width=3,
+                    justify="center",
+                )
+                qty_spin.pack(side=tk.LEFT, padx=(0, 5))
+
+            btn_act = ttk.Button(
+                ctrl_box,
+                text=self._format_action_label(icon),
+                command=lambda: self._trigger_primary_action(data_dict, category),
+                style="Gold.TButton",
+            )
+            btn_act.pack(side=tk.LEFT)
+
+    def _add_quick_dice_bar(self, parent: tk.Widget, text_to_scan: str, source_name: str):
+        """Estrae formule di dado (es. '8d6', '2d4 + 2') dal testo e crea pulsanti rapidi di lancio."""
+        if not text_to_scan:
+            return
+        matches = re.findall(r'\b\d+d\d+(?:\s*[+-]\s*\d+)?\b', str(text_to_scan), re.IGNORECASE)
+        unique_formulas: List[str] = []
+        for m in matches:
+            norm = m.replace(" ", "").lower()
+            if norm not in unique_formulas:
+                unique_formulas.append(norm)
+        if not unique_formulas:
+            return
+
+        bar = tk.Frame(parent, bg=SURFACE_COLOR, pady=4)
+        bar.pack(fill=tk.X)
+        tk.Label(bar, text="🎲 Tiri Rapidi:", font=("Segoe UI", 8, "bold"), bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(side=tk.LEFT, padx=(0, 6))
+        for f_str in unique_formulas[:5]:
+            btn = tk.Button(
+                bar,
+                text=f"🎲 {f_str}",
+                font=("Segoe UI", 8, "bold"),
+                bg=SURFACE_COLOR_ALT,
+                fg=ACCENT_GOLD_LIGHT,
+                activebackground=BORDER_GOLD,
+                bd=1,
+                relief=tk.SOLID,
+                padx=6,
+                pady=1,
+                cursor="hand2",
+                command=lambda fs=f_str: self.roll_dice_formula(fs, f"{source_name} ({fs})"),
+            )
+            btn.pack(side=tk.LEFT, padx=2)
+
+
     def _on_mousewheel(self, event):
         # Solo se il cursore è sopra il nostro widget o figli
         try:
+            if not self.winfo_exists() or not self.canvas.winfo_exists():
+                return
             widget_under_mouse = self.winfo_containing(event.x_root, event.y_root)
             if widget_under_mouse and (widget_under_mouse == self.canvas or str(widget_under_mouse).startswith(str(self))):
                 self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
@@ -131,29 +338,23 @@ class StatblockCardView(ttk.Frame):
         container.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
         name = mdata.get("name") or mdata.get("title", "Creatura")
+        disp_name = get_bilingual_label(name, "Mostri")
         size = mdata.get("size", "Media")
         m_type = mdata.get("type", "mostro")
         align = mdata.get("alignment", "qualsiasi allineamento")
         cr = str(mdata.get("challenge_rating", mdata.get("cr", "1")))
 
-        # 1. Header con pulsante d'azione rapido
+        # 1. Header con pulsante d'azione rapido, quantità e preferiti
         top_row = tk.Frame(container, bg=SURFACE_COLOR)
         top_row.pack(fill=tk.X, pady=(0, 4))
 
         title_box = tk.Frame(top_row, bg=SURFACE_COLOR)
         title_box.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        tk.Label(title_box, text=f"🐉 {name}", font=FONT_TITLE, bg=SURFACE_COLOR, fg=ACCENT_GOLD_LIGHT, anchor="w").pack(anchor="w")
+        tk.Label(title_box, text=f"🐉 {disp_name}", font=FONT_TITLE, bg=SURFACE_COLOR, fg=ACCENT_GOLD_LIGHT, anchor="w").pack(anchor="w")
         tk.Label(title_box, text=f"{size} {m_type}, {align}", font=("Segoe UI", 9, "italic"), bg=SURFACE_COLOR, fg=TEXT_MUTED, anchor="w").pack(anchor="w")
 
-        if self.on_primary_action:
-            btn_act = ttk.Button(
-                top_row,
-                text=self._format_action_label("⚔️"),
-                command=lambda: self.on_primary_action(mdata, "Mostri"),
-                style="Gold.TButton"
-            )
-            btn_act.pack(side=tk.RIGHT, padx=(6, 0))
+        self._build_header_controls(top_row, mdata, "Mostri", "⚔️")
 
         # Divisore dorato
         self._add_divider(container)
@@ -177,7 +378,7 @@ class StatblockCardView(ttk.Frame):
 
         self._add_divider(container)
 
-        # 3. Ability Scores Table (FOR, DES, COS, INT, SAG, CAR)
+        # 3. Ability Scores Table (FOR, DES, COS, INT, SAG, CAR) — cliccabili per tirare 1d20+mod
         from common.srd_offline import extract_and_normalize_attributes
         attrs = mdata.get("attributes") or extract_and_normalize_attributes(mdata, name)
 
@@ -186,15 +387,25 @@ class StatblockCardView(ttk.Frame):
 
         stat_order = [("FOR", "FOR"), ("DES", "DES"), ("COS", "COS"), ("INT", "INT"), ("SAG", "SAG"), ("CAR", "CAR")]
         for idx, (code, label) in enumerate(stat_order):
-            col = tk.Frame(attr_frame, bg=SURFACE_COLOR_ALT)
+            col = tk.Frame(attr_frame, bg=SURFACE_COLOR_ALT, cursor="hand2")
             col.pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=3)
             val = attrs.get(code, 10)
             mod = (val - 10) // 2
             mod_str = f"+{mod}" if mod >= 0 else str(mod)
+            formula_stat = f"1d20{mod:+d}" if mod != 0 else "1d20"
 
-            tk.Label(col, text=label, font=("Segoe UI", 8, "bold"), bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack()
-            tk.Label(col, text=f"{val}", font=("Segoe UI", 11, "bold"), bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).pack()
-            tk.Label(col, text=f"({mod_str})", font=("Segoe UI", 8), bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED).pack()
+            l1 = tk.Label(col, text=f"🎲 {label}", font=("Segoe UI", 8, "bold"), bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD, cursor="hand2")
+            l1.pack()
+            l2 = tk.Label(col, text=f"{val}", font=("Segoe UI", 11, "bold"), bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, cursor="hand2")
+            l2.pack()
+            l3 = tk.Label(col, text=f"({mod_str})", font=("Segoe UI", 8), bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, cursor="hand2")
+            l3.pack()
+
+            for w in (col, l1, l2, l3):
+                w.bind(
+                    "<Button-1>",
+                    lambda e, fs=formula_stat, sc=label, mn=name: self.roll_dice_formula(fs, f"{mn} • Prova {sc}"),
+                )
 
         # 4. Tratti Ausiliari (Sensi, Linguaggi, TS, Resistenze)
         aux_lines = []
@@ -246,6 +457,12 @@ class StatblockCardView(ttk.Frame):
                 l_desc = leg.get("desc", "") if isinstance(leg, dict) else str(leg)
                 self._add_feature_block(container, l_name, l_desc)
 
+        # 8. Descrizione testuale custom (se presente)
+        if mdata.get("desc") and not actions and not traits:
+            self._add_section_header(container, "DESCRIZIONE & NOTE")
+            tk.Label(container, text=str(mdata.get("desc")), font=FONT_MAIN, bg=SURFACE_COLOR, fg=TEXT_COLOR, justify="left", wraplength=480, anchor="w").pack(anchor="w")
+            self._add_quick_dice_bar(container, str(mdata.get("desc")), name)
+
     # -------------------------------------------------------------------------
     # STATBLOCK OGGETTI MAGICI ED EQUIPAGGIAMENTO
     # -------------------------------------------------------------------------
@@ -258,6 +475,7 @@ class StatblockCardView(ttk.Frame):
         container.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
         name = item_data.get("name") or item_data.get("title", "Oggetto")
+        disp_name = get_bilingual_label(name, "Oggetti")
         rarity_raw = str(item_data.get("rarity", "Comune")).lower()
         i_type = item_data.get("type") or item_data.get("equipment_category", {}).get("name") if isinstance(item_data.get("equipment_category"), dict) else item_data.get("equipment_category", "Oggetto")
 
@@ -271,18 +489,11 @@ class StatblockCardView(ttk.Frame):
         title_box = tk.Frame(top_row, bg=SURFACE_COLOR)
         title_box.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        icon = "🔮" if "wondrous" in str(i_type).lower() or "mag" in str(i_type).lower() else ("⚔️" if "weapon" in str(i_type).lower() else ("🛡️" if "armor" in str(i_type).lower() else "🎒"))
-        tk.Label(title_box, text=f"{icon} {name}", font=FONT_TITLE, bg=SURFACE_COLOR, fg=ACCENT_GOLD_LIGHT, anchor="w").pack(anchor="w")
+        icon = "🔮" if "wondrous" in str(i_type).lower() or "mag" in str(i_type).lower() else ("⚔️" if "weapon" in str(i_type).lower() or "arma" in str(i_type).lower() else ("🛡️" if "armor" in str(i_type).lower() or "armatura" in str(i_type).lower() else "🎒"))
+        tk.Label(title_box, text=f"{icon} {disp_name}", font=FONT_TITLE, bg=SURFACE_COLOR, fg=ACCENT_GOLD_LIGHT, anchor="w").pack(anchor="w")
         tk.Label(title_box, text=f"{i_type}", font=("Segoe UI", 9, "italic"), bg=SURFACE_COLOR, fg=TEXT_MUTED, anchor="w").pack(anchor="w")
 
-        if self.on_primary_action:
-            btn_act = ttk.Button(
-                top_row,
-                text=self._format_action_label("🎁"),
-                command=lambda: self.on_primary_action(item_data, "Oggetti"),
-                style="Gold.TButton"
-            )
-            btn_act.pack(side=tk.RIGHT, padx=(6, 0))
+        self._build_header_controls(top_row, item_data, "Oggetti", "🎁")
 
         self._add_divider(container)
 
@@ -305,6 +516,11 @@ class StatblockCardView(ttk.Frame):
         if weight:
             self._create_stat_badge(b_row, "Peso", f"{weight} lbs", TEXT_MUTED)
 
+        dmg_info = item_data.get("damage")
+        if isinstance(dmg_info, dict) and dmg_info.get("damage_dice"):
+            d_type = dmg_info.get("damage_type", {}).get("name", "") if isinstance(dmg_info.get("damage_type"), dict) else ""
+            self._create_stat_badge(b_row, "Danno", f"{dmg_info['damage_dice']} {d_type}".strip(), ACCENT_RED)
+
         self._add_divider(container)
 
         # Descrizione & Proprietà
@@ -313,6 +529,12 @@ class StatblockCardView(ttk.Frame):
             desc = "\n\n".join(desc)
         elif not desc and "description" in item_data:
             desc = item_data.get("description", "")
+
+        # Barra tiri rapidi per eventuali dadi nell'oggetto (es. Pozioni 2d4+2, Armi 1d8, Bacchette 8d6)
+        scan_txt = str(desc)
+        if isinstance(dmg_info, dict) and dmg_info.get("damage_dice"):
+            scan_txt = f"{dmg_info['damage_dice']} " + scan_txt
+        self._add_quick_dice_bar(container, scan_txt, name)
 
         txt_frame = tk.Frame(container, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=10)
         txt_frame.pack(fill=tk.BOTH, expand=True, pady=6)
@@ -331,6 +553,7 @@ class StatblockCardView(ttk.Frame):
         container.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
 
         name = sdata.get("name") or sdata.get("title", "Incantesimo")
+        disp_name = get_bilingual_label(name, "Incantesimi")
         lvl = sdata.get("level", 0)
         lvl_str = "Trucchetto" if lvl == 0 or str(lvl).lower() == "cantrip" else f"Livello {lvl}"
         school = sdata.get("school", {}).get("name") if isinstance(sdata.get("school"), dict) else sdata.get("school", "")
@@ -341,17 +564,10 @@ class StatblockCardView(ttk.Frame):
         title_box = tk.Frame(top_row, bg=SURFACE_COLOR)
         title_box.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-        tk.Label(title_box, text=f"✨ {name}", font=FONT_TITLE, bg=SURFACE_COLOR, fg=ACCENT_GOLD_LIGHT, anchor="w").pack(anchor="w")
+        tk.Label(title_box, text=f"✨ {disp_name}", font=FONT_TITLE, bg=SURFACE_COLOR, fg=ACCENT_GOLD_LIGHT, anchor="w").pack(anchor="w")
         tk.Label(title_box, text=f"{lvl_str} • {school}", font=("Segoe UI", 9, "italic"), bg=SURFACE_COLOR, fg=TEXT_MUTED, anchor="w").pack(anchor="w")
 
-        if self.on_primary_action:
-            btn_act = ttk.Button(
-                top_row,
-                text=f"📖 {self.action_label}",
-                command=lambda: self.on_primary_action(sdata, "Incantesimi"),
-                style="Gold.TButton"
-            )
-            btn_act.pack(side=tk.RIGHT, padx=(6, 0))
+        self._build_header_controls(top_row, sdata, "Incantesimi", "📖")
 
         self._add_divider(container)
 
@@ -359,7 +575,7 @@ class StatblockCardView(ttk.Frame):
         b_row = tk.Frame(container, bg=SURFACE_COLOR)
         b_row.pack(fill=tk.X, pady=(4, 8))
 
-        self._create_stat_badge(b_row, "⏱️ Tempo di Lancio", str(sdata.get("casting_time", "1 Azione")), ACCENT_BLUE)
+        self._create_stat_badge(b_row, "⏱️ Tempo di Lancio", str(sdata.get("casting_time") or sdata.get("time") or "1 Azione"), ACCENT_BLUE)
         self._create_stat_badge(b_row, "📏 Gittata", str(sdata.get("range", "A contatto")), ACCENT_GREEN)
         self._create_stat_badge(b_row, "📜 Componenti", str(sdata.get("components", "V, S")), ACCENT_GOLD)
         self._create_stat_badge(b_row, "⏳ Durata", str(sdata.get("duration", "Istantanea")), ACCENT_PURPLE)
@@ -370,6 +586,8 @@ class StatblockCardView(ttk.Frame):
         desc = sdata.get("desc", "")
         if isinstance(desc, list):
             desc = "\n\n".join(desc)
+
+        self._add_quick_dice_bar(container, str(desc), name)
 
         txt_frame = tk.Frame(container, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=10)
         txt_frame.pack(fill=tk.BOTH, expand=True, pady=6)
@@ -416,14 +634,7 @@ class StatblockCardView(ttk.Frame):
         if meta_parts:
             tk.Label(title_box, text=" • ".join(meta_parts), font=("Segoe UI", 9, "italic"), bg=SURFACE_COLOR, fg=ACCENT_GOLD, anchor="w").pack(anchor="w")
 
-        if self.on_primary_action:
-            btn_act = ttk.Button(
-                top_row,
-                text=self._format_action_label("➕"),
-                command=lambda: self.on_primary_action(data_dict, cat_badge or "Generico"),
-                style="Gold.TButton"
-            )
-            btn_act.pack(side=tk.RIGHT, padx=(6, 0))
+        self._build_header_controls(top_row, data_dict, cat_badge or "Generico", "➕")
 
         self._add_divider(container)
 
@@ -448,6 +659,7 @@ class StatblockCardView(ttk.Frame):
 
             content_str = "\n".join(lines) if lines else "Nessun dettaglio aggiuntivo disponibile."
 
+        self._add_quick_dice_bar(container, content_str, real_title)
         tk.Label(txt_frame, text=content_str, font=FONT_MAIN, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, justify="left", wraplength=480, anchor="w").pack(anchor="w")
 
     # -------------------------------------------------------------------------
@@ -483,23 +695,76 @@ class StatblockCardView(ttk.Frame):
         box = tk.Frame(parent, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=5)
         box.pack(fill=tk.X, pady=3)
 
-        # Riga Titolo Azione & Tag di Combattimento
+        # Riga Titolo Azione & Bottoni Interattivi di Combattimento
         top = tk.Frame(box, bg=SURFACE_COLOR_ALT)
         top.pack(fill=tk.X)
 
         tk.Label(top, text=f"⚔️ {name}", font=("Segoe UI", 10, "bold"), bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD_LIGHT).pack(side=tk.LEFT)
 
-        tags = []
+        atk_bonus = None
+        dmg_formula = None
         if isinstance(act_dict, dict):
-            if act_dict.get("attack_bonus"):
-                tags.append(f"🎯 TxC: +{act_dict.get('attack_bonus')}")
-            m_hit = re.search(r'Hit:\s*([0-9]+\s*\([^)]+\))', desc)
-            if m_hit:
-                tags.append(f"💥 Danno: {m_hit.group(1)}")
-            elif act_dict.get("damage_dice"):
-                tags.append(f"💥 Danno: {act_dict.get('damage_dice')}")
-        if tags:
-            tk.Label(top, text="  •  ".join(tags), font=("Segoe UI", 8, "bold"), bg=SURFACE_COLOR_ALT, fg=TEXT_GOLD).pack(side=tk.RIGHT)
+            if act_dict.get("attack_bonus") is not None:
+                atk_bonus = act_dict.get("attack_bonus")
+            if act_dict.get("damage_dice"):
+                dmg_formula = str(act_dict.get("damage_dice")).strip()
+                if act_dict.get("damage_bonus"):
+                    db = int(act_dict.get("damage_bonus"))
+                    dmg_formula = f"{dmg_formula}{db:+d}"
+
+        if atk_bonus is None:
+            m_atk = re.search(r'([+-]\d+)\s*(?:to hit|a colpire)', desc, re.IGNORECASE)
+            if m_atk:
+                atk_bonus = int(m_atk.group(1))
+
+        if not dmg_formula:
+            m_dmg = re.search(r'\((\d+d\d+(?:\s*[+-]\s*\d+)?)\)', desc)
+            if not m_dmg:
+                m_dmg = re.search(r'\b(\d+d\d+(?:\s*[+-]\s*\d+)?)\b', desc)
+            if m_dmg:
+                dmg_formula = m_dmg.group(1).replace(" ", "")
+
+        btn_bar = tk.Frame(top, bg=SURFACE_COLOR_ALT)
+        btn_bar.pack(side=tk.RIGHT)
+
+        if atk_bonus is not None:
+            try:
+                b_int = int(atk_bonus)
+                atk_str = f"+{b_int}" if b_int >= 0 else str(b_int)
+                f_atk = f"1d20{b_int:+d}" if b_int != 0 else "1d20"
+                tk.Button(
+                    btn_bar,
+                    text=f"🎯 TxC {atk_str}",
+                    font=("Segoe UI", 8, "bold"),
+                    bg=SURFACE_COLOR,
+                    fg=ACCENT_GOLD,
+                    activebackground=BORDER_GOLD,
+                    bd=1,
+                    relief=tk.SOLID,
+                    padx=5,
+                    pady=1,
+                    cursor="hand2",
+                    command=lambda fa=f_atk, an=name: self.roll_dice_formula(fa, f"{an} • Tiro per Colpire"),
+                ).pack(side=tk.LEFT, padx=(0, 4))
+            except (ValueError, TypeError):
+                pass
+
+        if dmg_formula:
+            tk.Button(
+                btn_bar,
+                text=f"💥 Danno {dmg_formula}",
+                font=("Segoe UI", 8, "bold"),
+                bg=SURFACE_COLOR,
+                fg=ACCENT_RED,
+                activebackground=BORDER_GOLD,
+                bd=1,
+                relief=tk.SOLID,
+                padx=5,
+                pady=1,
+                cursor="hand2",
+                command=lambda fd=dmg_formula, an=name: self.roll_dice_formula(fd, f"{an} • Danno"),
+            ).pack(side=tk.LEFT)
 
         tk.Label(box, text=desc, font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, justify="left", wraplength=470, anchor="w").pack(anchor="w", pady=(3, 0))
+
 

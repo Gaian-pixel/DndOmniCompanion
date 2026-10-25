@@ -420,96 +420,110 @@ class DM_GUI:
         main_frame.columnconfigure(2, weight=0, minsize=360)
         main_frame.rowconfigure(0, weight=1)
         
-        # --- COLONNA 0: LEFT TOOLBAR (Strumenti Mappa Eleganti) ---
+        # --- COLONNA 0: LEFT TOOLBAR (Strumenti Mappa & Regia Raggruppati) ---
         left_toolbar = tk.Frame(main_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=6)
         left_toolbar.grid(row=0, column=0, sticky="ns", padx=(0, 6))
         
-        self.btn_ruler = None
-        self.btn_pan = None
+        # Gruppo 1: Navigazione & Misura
+        self.btn_pan = ttk.Button(left_toolbar, text="✋", width=3, style="Tool.TButton", command=self.toggle_pan_mode)
+        self.btn_pan.pack(pady=2)
+        ToolTip(self.btn_pan, "Sposta Mappa (Pan - Scorciatoia: Spazio / H)")
 
+        self.btn_ruler = ttk.Button(left_toolbar, text="📏", width=3, style="Tool.TButton", command=self.toggle_ruler_mode)
+        self.btn_ruler.pack(pady=2)
+        ToolTip(self.btn_ruler, "Righello Distanze 5e (Misura in ft/m)")
+
+        self.btn_center_map = ttk.Button(left_toolbar, text="🎯", width=3, style="Tool.TButton", command=lambda: self.map_canvas and self.map_canvas.center_view())
+        self.btn_center_map.pack(pady=2)
+        ToolTip(self.btn_center_map, "Centra Mappa")
+
+        tk.Frame(left_toolbar, bg=BORDER_COLOR, height=1).pack(fill=tk.X, pady=4)
+
+        # Gruppo 2: Nebbia, AoE & Lavagna Tattica
         self.btn_fow_tool = ttk.Button(left_toolbar, text="☁️", width=3, style="Tool.TButton", command=self.toggle_fow_quick_tool)
-        self.btn_fow_tool.pack(pady=3)
+        self.btn_fow_tool.pack(pady=2)
         ToolTip(self.btn_fow_tool, lambda: _t("tool_fog_of_war"))
         
         self.btn_aoe = ttk.Button(left_toolbar, text="💥", width=3, style="Tool.TButton", command=self.open_aoe_dialog)
-        self.btn_aoe.pack(pady=3)
+        self.btn_aoe.pack(pady=2)
         ToolTip(self.btn_aoe, lambda: _t("tool_aoe"))
         
         self.btn_clear_aoe = ttk.Button(left_toolbar, text="🧹", width=3, style="Tool.TButton", command=self.clear_aoes)
-        self.btn_clear_aoe.pack(pady=3)
+        self.btn_clear_aoe.pack(pady=2)
         ToolTip(self.btn_clear_aoe, lambda: _t("tool_clear_aoe"))
 
         self.btn_pen = ttk.Button(left_toolbar, text="✏️", width=3, style="Tool.TButton", command=self.toggle_whiteboard_pen)
-        self.btn_pen.pack(pady=3)
+        self.btn_pen.pack(pady=2)
         ToolTip(self.btn_pen, lambda: _t("tool_pen"))
 
         self.btn_clear_drawings = ttk.Button(left_toolbar, text="🗑️", width=3, style="Tool.TButton", command=self.clear_whiteboard_drawings)
-        self.btn_clear_drawings.pack(pady=3)
+        self.btn_clear_drawings.pack(pady=2)
         ToolTip(self.btn_clear_drawings, lambda: _t("tool_clear_drawings"))
         
-        # Separatore sottile
-        tk.Frame(left_toolbar, bg=BORDER_COLOR, height=1).pack(fill=tk.X, pady=6)
+        tk.Frame(left_toolbar, bg=BORDER_COLOR, height=1).pack(fill=tk.X, pady=4)
         
+        # Gruppo 3: Elementi Interattivi Mappa & Ambiente
         self.teleport_mode_var = tk.BooleanVar(value=False)
         btn_teleport = ttk.Checkbutton(left_toolbar, text="🌀", width=3, style="Toolbutton", variable=self.teleport_mode_var)
-        btn_teleport.pack(pady=3)
+        btn_teleport.pack(pady=2)
         ToolTip(btn_teleport, "Teletrasporto / Transizione Mappa (Click su esagono per impostare teleport)")
 
         self.door_mode_var = tk.BooleanVar(value=False)
         self.btn_door = ttk.Checkbutton(left_toolbar, text="🚪", width=3, style="Toolbutton", variable=self.door_mode_var)
-        self.btn_door.pack(pady=3)
+        self.btn_door.pack(pady=2)
         ToolTip(self.btn_door, "Porte Interattive 5e (Click per aggiungere o gestire porte: aperta, chiusa, serrata, segreta)")
 
         self.room_pin_mode_var = tk.BooleanVar(value=False)
         self.btn_room_pin = ttk.Checkbutton(left_toolbar, text="📌", width=3, style="Toolbutton", variable=self.room_pin_mode_var)
-        self.btn_room_pin.pack(pady=3)
+        self.btn_room_pin.pack(pady=2)
         ToolTip(self.btn_room_pin, "Spille Stanza DM (Note segrete e testo da leggere al gruppo)")
 
         self.terrain_paint_mode = False
         self.active_terrain_brush = "fango"
         self.btn_terrain = ttk.Button(left_toolbar, text="🪨", width=3, style="Tool.TButton", command=self.toggle_terrain_paint_tool)
-        self.btn_terrain.pack(pady=3)
+        self.btn_terrain.pack(pady=2)
         ToolTip(self.btn_terrain, "Pennello Terreno Difficile (Click per dipingere Fango/Ghiaccio/Rovi/Macerie/Palude)")
 
         self.btn_darkness = ttk.Button(left_toolbar, text="🌑", width=3, style="Tool.TButton", command=self.toggle_darkness_filter)
-        self.btn_darkness.pack(pady=3)
+        self.btn_darkness.pack(pady=2)
         ToolTip(self.btn_darkness, "Filtro Oscurità D&D 5e (Click per attivare/disattivare l'oscurità sulla mappa)")
 
+        tk.Frame(left_toolbar, bg=BORDER_COLOR, height=1).pack(fill=tk.X, pady=4)
+
+        # Gruppo 4: Consultazione & Ricerca Rapida
         btn_manuals = ttk.Button(left_toolbar, text="📖", width=3, style="Tool.TButton", command=self.open_manuals_dialog)
-        btn_manuals.pack(pady=3)
+        btn_manuals.pack(pady=2)
         ToolTip(btn_manuals, lambda: _t("tool_manuals"))
 
         btn_palette = ttk.Button(left_toolbar, text="🔍", width=3, style="Tool.TButton", command=self.open_command_palette)
-        btn_palette.pack(pady=3)
+        btn_palette.pack(pady=2)
         ToolTip(btn_palette, lambda: _t("tool_command_palette"))
 
         # Pulsante rapido Schermo Intero in fondo alla barra
         self.btn_fullscreen = ttk.Button(left_toolbar, text="⛶", width=3, style="Tool.TButton", command=self.toggle_fullscreen)
-        self.btn_fullscreen.pack(side=tk.BOTTOM, pady=(0, 4))
+        self.btn_fullscreen.pack(side=tk.BOTTOM, pady=(0, 2))
         ToolTip(self.btn_fullscreen, lambda: _t("menu_fullscreen"))
         
-        # --- COLONNA 1: MAPPA (Viewport & Status Header) ---
+        # --- COLONNA 1: MAPPA (Viewport & Header a 2 Livelli Anti-Overflow) ---
         map_outer_frame = ttk.Frame(main_frame)
         map_outer_frame.grid(row=0, column=1, sticky="nsew", padx=4)
         
-        # Header Mappa con Pillole di Stato & Controlli Nebbia
-        map_top_bar = tk.Frame(map_outer_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=5)
-        map_top_bar.pack(fill=tk.X, pady=(0, 6))
+        # LIVELLO 1: Barra Stato Mondo & Mappa (Pillole Interattive)
+        map_top_bar = tk.Frame(map_outer_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=4)
+        map_top_bar.pack(fill=tk.X, pady=(0, 3))
         
-        # Titolo mappa / VTT
         self.lbl_map_title = tk.Label(map_top_bar, text=_t("dm_tactical_map"), font=FONT_HEADER, bg=SURFACE_COLOR, fg=ACCENT_GOLD)
-        self.lbl_map_title.pack(side=tk.LEFT, padx=(2, 10))
+        self.lbl_map_title.pack(side=tk.LEFT, padx=(2, 8))
         
-        # Status Pills (Orario, Meteo, Combattimento)
         pills_frame = tk.Frame(map_top_bar, bg=SURFACE_COLOR)
-        pills_frame.pack(side=tk.LEFT, padx=5)
+        pills_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
         
         self.top_status_time_lbl = tk.Label(
             pills_frame, text=f"☀️ 08:00 ({_t('period_morning')})", font=FONT_SMALL, 
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, padx=6, pady=2,
             highlightbackground=BORDER_COLOR, highlightthickness=1, cursor="hand2"
         )
-        self.top_status_time_lbl.pack(side=tk.LEFT, padx=3)
+        self.top_status_time_lbl.pack(side=tk.LEFT, padx=2)
         self.top_status_time_lbl.bind("<Button-1>", self._show_time_fast_menu)
         ToolTip(self.top_status_time_lbl, "Orologio Campagna (Clicca per avanzare il tempo o aprire il calendario)")
         
@@ -518,21 +532,21 @@ class DM_GUI:
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, padx=6, pady=2,
             highlightbackground=BORDER_COLOR, highlightthickness=1
         )
-        self.top_status_weather_lbl.pack(side=tk.LEFT, padx=3)
+        self.top_status_weather_lbl.pack(side=tk.LEFT, padx=2)
         
         self.top_status_combat_lbl = tk.Label(
             pills_frame, text=_t("status_exploration"), font=FONT_SMALL, 
             bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, padx=6, pady=2,
             highlightbackground=BORDER_COLOR, highlightthickness=1
         )
-        self.top_status_combat_lbl.pack(side=tk.LEFT, padx=3)
+        self.top_status_combat_lbl.pack(side=tk.LEFT, padx=2)
 
         self.top_status_scale_lbl = tk.Label(
             pills_frame, text="🗺️ 1 hex = 5 ft", font=FONT_SMALL,
             bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD, padx=6, pady=2,
             highlightbackground=BORDER_COLOR, highlightthickness=1, cursor="hand2"
         )
-        self.top_status_scale_lbl.pack(side=tk.LEFT, padx=3)
+        self.top_status_scale_lbl.pack(side=tk.LEFT, padx=2)
         self.top_status_scale_lbl.bind("<Button-1>", self._show_map_scale_menu)
         ToolTip(self.top_status_scale_lbl, "Scala Mappa Attiva (Clicca per cambiare scala del righello)")
 
@@ -541,7 +555,7 @@ class DM_GUI:
             bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD, padx=6, pady=2,
             highlightbackground=BORDER_COLOR, highlightthickness=1, cursor="hand2"
         )
-        self.top_status_grid_lbl.pack(side=tk.LEFT, padx=3)
+        self.top_status_grid_lbl.pack(side=tk.LEFT, padx=2)
         self.top_status_grid_lbl.bind("<Button-1>", self._show_grid_type_menu)
         ToolTip(self.top_status_grid_lbl, lambda: _t("grid_type_menu"))
         
@@ -550,7 +564,7 @@ class DM_GUI:
             bg=SURFACE_COLOR_ALT, fg=ACCENT_GREEN, padx=6, pady=2,
             highlightbackground=BORDER_COLOR, highlightthickness=1, cursor="hand2"
         )
-        self.top_status_env_lbl.pack(side=tk.LEFT, padx=3)
+        self.top_status_env_lbl.pack(side=tk.LEFT, padx=2)
         self.top_status_env_lbl.bind("<Button-1>", lambda e: self.toggle_map_outdoor())
         ToolTip(self.top_status_env_lbl, lambda: _t("map_env_tooltip"))
         
@@ -559,17 +573,18 @@ class DM_GUI:
             bg=SURFACE_COLOR_ALT, fg=ACCENT_GREEN, padx=6, pady=2,
             highlightbackground=BORDER_COLOR, highlightthickness=1, cursor="hand2"
         )
-        self.top_status_automation_lbl.pack(side=tk.LEFT, padx=3)
+        self.top_status_automation_lbl.pack(side=tk.RIGHT, padx=2)
         self.top_status_automation_lbl.bind("<Button-1>", lambda e: self.open_automation_settings_dialog())
         ToolTip(self.top_status_automation_lbl, "Stile Gestione Campagna (Clicca per configurare)")
         
-        # Toolbar Fog of War a destra
-        fow_toolbar = tk.Frame(map_top_bar, bg=SURFACE_COLOR)
-        fow_toolbar.pack(side=tk.RIGHT, padx=2)
+        # LIVELLO 2: Barra Dedicata Controlli Nebbia di Guerra (FoW) & Visione
+        fow_toolbar = tk.Frame(map_outer_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=3)
+        fow_toolbar.pack(fill=tk.X, pady=(0, 5))
         
         self.fow_enabled_var = tk.BooleanVar(value=False)
         self.fow_mode_var = tk.StringVar(value=_t("fow_mode_move"))
         
+        tk.Label(fow_toolbar, text="☁️ Nebbia:", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(side=tk.LEFT, padx=(0, 6))
         self.lbl_fow_tool = tk.Label(fow_toolbar, text=_t("fow_tool_label"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
         self.lbl_fow_tool.pack(side=tk.LEFT, padx=(0, 4))
         
@@ -579,21 +594,21 @@ class DM_GUI:
 
         self.fow_brush_radius_var = tk.IntVar(value=0)
         self.lbl_fow_brush = tk.Label(fow_toolbar, text=_t("fow_brush_radius"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
-        self.lbl_fow_brush.pack(side=tk.LEFT, padx=(4, 2))
+        self.lbl_fow_brush.pack(side=tk.LEFT, padx=(6, 2))
         self.fow_brush_combo = ttk.Combobox(fow_toolbar, textvariable=self.fow_brush_radius_var, values=[0, 1, 2, 3], state="readonly", width=3)
-        self.fow_brush_combo.pack(side=tk.LEFT, padx=(0, 4))
+        self.fow_brush_combo.pack(side=tk.LEFT, padx=(0, 6))
         ToolTip(self.fow_brush_combo, "Raggio del Pennello Nebbia (0 = singolo esagono, 1-3 = area)")
         
         self.dm_player_view_var = tk.BooleanVar(value=False)
         self.chk_player_view = ttk.Checkbutton(fow_toolbar, text=_t("fow_player_view"), variable=self.dm_player_view_var, command=self.redraw_map_and_players)
         self.chk_player_view.pack(side=tk.LEFT, padx=4)
 
-        self.btn_send_fow = ttk.Button(fow_toolbar, text=_t("fow_send_btn"), command=self._broadcast_fow_update, style="Success.TButton")
-        self.btn_send_fow.pack(side=tk.LEFT, padx=4)
-        
         self.fow_options_btn = ttk.Menubutton(fow_toolbar, text=_t("fow_options_btn"))
         self.setup_fow_options_menu()
-        self.fow_options_btn.pack(side=tk.LEFT, padx=3)
+        self.fow_options_btn.pack(side=tk.RIGHT, padx=(3, 0))
+
+        self.btn_send_fow = ttk.Button(fow_toolbar, text=_t("fow_send_btn"), command=self._broadcast_fow_update, style="Success.TButton")
+        self.btn_send_fow.pack(side=tk.RIGHT, padx=4)
         
         self.map_canvas = HexMapCanvas(map_outer_frame, bg="#121316")
         self.map_canvas.pack(fill=tk.BOTH, expand=True)
@@ -674,18 +689,20 @@ class DM_GUI:
         self.btn_mute.pack(side=tk.RIGHT, padx=2)
         ToolTip(self.btn_mute, _t("tooltip_mute_mic"))
         
-        # Tab 2 ("Iniziativa & PG")
-        tab_combat = ttk.Frame(self.right_notebook)
+        # Tab 2 ("Iniziativa & PG" - Layout Compatto a Griglie)
+        tab_combat = ttk.Frame(self.right_notebook, padding=6)
         self.right_notebook.add(tab_combat, text=_t("tab_party_initiative"))
         
-        self.lbl_combatants_hdr = tk.Label(tab_combat, text=_t("dm_combatants_header"), font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD)
-        self.lbl_combatants_hdr.pack(anchor="w", pady=(0, 6))
+        combat_hdr_row = tk.Frame(tab_combat, bg=BG_COLOR)
+        combat_hdr_row.pack(fill=tk.X, pady=(0, 4))
+        self.lbl_combatants_hdr = tk.Label(combat_hdr_row, text=_t("dm_combatants_header"), font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD)
+        self.lbl_combatants_hdr.pack(side=tk.LEFT)
         
-        # Combat Banner Card (Iniziativa)
-        self.combat_controls_frame = tk.Frame(tab_combat, bg=SURFACE_COLOR, highlightbackground=ACCENT_GOLD, highlightthickness=1, padx=8, pady=6)
+        # Combat Banner Card (Iniziativa - visibile a combattimento attivo)
+        self.combat_controls_frame = tk.Frame(tab_combat, bg=SURFACE_COLOR, highlightbackground=ACCENT_GOLD, highlightthickness=1, padx=8, pady=5)
         
         combat_top_row = tk.Frame(self.combat_controls_frame, bg=SURFACE_COLOR)
-        combat_top_row.pack(fill=tk.X, pady=(0, 4))
+        combat_top_row.pack(fill=tk.X, pady=(0, 3))
         curr_rnd = getattr(self.server.game_state, 'round_number', 1) if hasattr(self, 'server') and hasattr(self.server, 'game_state') else 1
         self.lbl_round = tk.Label(combat_top_row, text=_t("lbl_round_num", round=curr_rnd), font=("Georgia", 11, "bold"), bg=SURFACE_COLOR, fg=ACCENT_GOLD)
         self.lbl_round.pack(side=tk.LEFT)
@@ -697,9 +714,10 @@ class DM_GUI:
         self.btn_next_turn = ttk.Button(turn_nav_frame, text=_t("btn_next_turn"), command=self.next_turn_gui, state=tk.DISABLED, style="Primary.TButton")
         self.btn_next_turn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
         
-        # Container Player Listbox
+        # Container Player Listbox (espandibile verticalmente)
         list_frame = tk.Frame(tab_combat, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
-        list_frame.pack(fill=tk.BOTH, expand=True, side=tk.TOP, pady=(0, 6))
+        self.combat_list_frame = list_frame
+        list_frame.pack(fill=tk.BOTH, expand=True, side=tk.TOP, pady=(0, 4))
 
         scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -715,90 +733,120 @@ class DM_GUI:
         self.player_listbox.bind("<Button-3>", self.show_player_context_menu)
         self.player_listbox.bind("<<ListboxSelect>>", self.on_player_selected)
 
-        self.btn_hide_reveal = ttk.Button(tab_combat, text=_t("btn_hide_reveal"), command=self.toggle_hide_reveal)
-        self.btn_hide_reveal.pack(fill=tk.X, side=tk.TOP, pady=(0, 4))
+        # Badge Bilanciamento 5e
+        self.lbl_encounter_diff = tk.Label(tab_combat, text=_t("lbl_balance_waiting"), font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, padx=6, pady=3, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        self.lbl_encounter_diff.pack(fill=tk.X, side=tk.TOP, pady=(0, 4))
 
+        # Azioni Rapide PNG Selezionato
         self.npc_actions_frame = ttk.LabelFrame(tab_combat, text=_t("npc_actions_header"))
         self.npc_actions_frame.pack(fill=tk.X, side=tk.TOP, pady=(0, 4))
         
-        self.btn_combat = ttk.Button(tab_combat, text=_t("btn_start_combat"), command=self.toggle_combat, style='Gold.TButton')
-        self.btn_combat.pack(fill=tk.X, side=tk.TOP, pady=(0, 4))
-        
-        self.btn_campaign_encounter = ttk.Button(tab_combat, text=_t("btn_deploy_prepared"), command=self.deploy_campaign_encounter_dialog, style='Gold.TButton')
-        self.btn_campaign_encounter.pack(fill=tk.X, side=tk.TOP, pady=(0, 4))
-        
-        self.btn_mass_npc_initiative = ttk.Button(tab_combat, text=_t("btn_roll_all_npcs"), command=self.roll_all_npcs_initiative, style='Primary.TButton')
-        self.btn_mass_npc_initiative.pack(fill=tk.X, side=tk.TOP, pady=(0, 4))
-        
-        self.lbl_encounter_diff = tk.Label(tab_combat, text=_t("lbl_balance_waiting"), font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, padx=6, pady=4, highlightbackground=BORDER_COLOR, highlightthickness=1)
-        self.lbl_encounter_diff.pack(fill=tk.X, side=tk.TOP, pady=(0, 6))
-        
-        # Pulsanti Bottom Tab 2
-        btn_frame_bottom = ttk.Frame(tab_combat)
-        btn_frame_bottom.pack(fill=tk.X, side=tk.BOTTOM, pady=(6, 0))
-        self.btn_spawn_png = ttk.Button(btn_frame_bottom, text=_t("btn_spawn_png"), command=self.spawn_png_dialog, style="Primary.TButton")
-        self.btn_spawn_png.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
-        self.btn_encounter_builder = ttk.Button(btn_frame_bottom, text=_t("btn_encounter_builder", default="⚔️ Encounter Builder"), command=self.open_encounter_builder, style="Primary.TButton")
-        self.btn_encounter_builder.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
-        
-        self.btn_add_npc = ttk.Button(tab_combat, text=_t("btn_add_manual_npc"), command=self.add_npc)
-        self.btn_add_npc.pack(fill=tk.X, side=tk.BOTTOM, pady=(4, 0))
-        self.btn_split_loot = ttk.Button(tab_combat, text=_t("btn_split_loot"), command=self.split_loot_dialog, style="Gold.TButton")
-        self.btn_split_loot.pack(fill=tk.X, side=tk.BOTTOM, pady=(4, 0))
+        # Griglia 1: Regia Combattimento & Visibilità (2x2 compatta)
+        combat_grid = tk.Frame(tab_combat, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=5)
+        combat_grid.pack(fill=tk.X, side=tk.TOP, pady=(0, 4))
+        combat_grid.columnconfigure(0, weight=1)
+        combat_grid.columnconfigure(1, weight=1)
 
-        # Tab 3 ("Mondo")
-        tab_world = ttk.Frame(self.right_notebook)
+        self.btn_combat = ttk.Button(combat_grid, text=_t("btn_start_combat"), command=self.toggle_combat, style='Gold.TButton')
+        self.btn_combat.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 3))
+
+        self.btn_mass_npc_initiative = ttk.Button(combat_grid, text=_t("btn_roll_all_npcs"), command=self.roll_all_npcs_initiative, style='Primary.TButton')
+        self.btn_mass_npc_initiative.grid(row=1, column=0, sticky="ew", padx=(0, 2), pady=(0, 3))
+
+        self.btn_hide_reveal = ttk.Button(combat_grid, text=_t("btn_hide_reveal"), command=self.toggle_hide_reveal, style='Dark.TButton')
+        self.btn_hide_reveal.grid(row=1, column=1, sticky="ew", padx=(2, 0), pady=(0, 3))
+
+        self.btn_split_loot = ttk.Button(combat_grid, text=_t("btn_split_loot"), command=self.split_loot_dialog, style="Gold.TButton")
+        self.btn_split_loot.grid(row=2, column=0, columnspan=2, sticky="ew")
+        
+        # Griglia 2: Schieramento Incontri & Creazione PNG (2x2 in basso)
+        spawn_grid = tk.Frame(tab_combat, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=5)
+        spawn_grid.pack(fill=tk.X, side=tk.BOTTOM)
+        spawn_grid.columnconfigure(0, weight=1)
+        spawn_grid.columnconfigure(1, weight=1)
+
+        self.btn_campaign_encounter = ttk.Button(spawn_grid, text=_t("btn_deploy_prepared"), command=self.deploy_campaign_encounter_dialog, style='Gold.TButton')
+        self.btn_campaign_encounter.grid(row=0, column=0, sticky="ew", padx=(0, 2), pady=(0, 3))
+
+        self.btn_encounter_builder = ttk.Button(spawn_grid, text=_t("btn_encounter_builder", default="⚔️ Encounter Builder"), command=self.open_encounter_builder, style="Primary.TButton")
+        self.btn_encounter_builder.grid(row=0, column=1, sticky="ew", padx=(2, 0), pady=(0, 3))
+
+        self.btn_spawn_png = ttk.Button(spawn_grid, text=_t("btn_spawn_png"), command=self.spawn_png_dialog, style="Info.TButton")
+        self.btn_spawn_png.grid(row=1, column=0, sticky="ew", padx=(0, 2))
+
+        self.btn_add_npc = ttk.Button(spawn_grid, text=_t("btn_add_manual_npc"), command=self.add_npc, style="Dark.TButton")
+        self.btn_add_npc.grid(row=1, column=1, sticky="ew", padx=(2, 0))
+
+        # Tab 3 ("Mondo" - Organizzato in 3 Card Tematiche)
+        tab_world = ttk.Frame(self.right_notebook, padding=6)
         self.right_notebook.add(tab_world, text=_t("tab_world"))
         
-        self.lbl_campaign_name = tk.Label(tab_world, text=_t("campaign_none"), font=FONT_BOLD, 
+        # CARD 1: Campagna Attiva & Narrazione Live
+        camp_card = tk.Frame(tab_world, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
+        camp_card.pack(fill=tk.X, pady=(0, 8))
+
+        self.lbl_campaign_name = tk.Label(camp_card, text=_t("campaign_none"), font=FONT_BOLD, 
                                           bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD, padx=8, pady=4, 
                                           highlightbackground=BORDER_COLOR, highlightthickness=1)
-        self.lbl_campaign_name.pack(fill=tk.X, pady=(4, 6))
+        self.lbl_campaign_name.pack(fill=tk.X, pady=(0, 6))
 
-        flow_btn_box = tk.Frame(tab_world, bg=BG_COLOR)
-        flow_btn_box.pack(fill=tk.X, pady=(0, 6))
+        flow_btn_box = tk.Frame(camp_card, bg=SURFACE_COLOR)
+        flow_btn_box.pack(fill=tk.X, pady=(0, 4))
         self.btn_live_flow = ttk.Button(flow_btn_box, text="🧭 Flusso Live", command=self.open_live_flow_controller, style='Gold.TButton')
         self.btn_live_flow.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
         self.btn_chronicle = ttk.Button(flow_btn_box, text="📜 Cronistoria", command=self.open_session_chronicle_dialog, style='Info.TButton')
         self.btn_chronicle.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
         
-        self.btn_switch_scene = ttk.Button(tab_world, text=_t("btn_switch_scene"), command=self.switch_campaign_scene_dialog, style='Info.TButton')
-        self.btn_switch_scene.pack(fill=tk.X, pady=(0, 8))
+        self.btn_switch_scene = ttk.Button(camp_card, text=_t("btn_switch_scene"), command=self.switch_campaign_scene_dialog, style='Dark.TButton')
+        self.btn_switch_scene.pack(fill=tk.X)
         
-        self.lbl_time_mgmt = tk.Label(tab_world, text=_t("time_mgmt_header"), font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD)
-        self.lbl_time_mgmt.pack(anchor="w", pady=(4, 4))
-        self.lbl_time = ttk.Label(tab_world, text="")
-        self.lbl_time.pack(anchor="w", pady=(0, 8))
+        # CARD 2: Tempo, Calendario & Meteo
+        time_card = tk.Frame(tab_world, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
+        time_card.pack(fill=tk.X, pady=(0, 8))
+
+        self.lbl_time_mgmt = tk.Label(time_card, text=_t("time_mgmt_header"), font=FONT_HEADER, bg=SURFACE_COLOR, fg=ACCENT_GOLD)
+        self.lbl_time_mgmt.pack(anchor="w", pady=(0, 2))
+        self.lbl_time = tk.Label(time_card, text="", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR)
+        self.lbl_time.pack(anchor="w", pady=(0, 6))
         
-        time_btn_frame = ttk.Frame(tab_world)
-        time_btn_frame.pack(fill=tk.X, pady=4)
-        self.btn_add_1h = ttk.Button(time_btn_frame, text=_t("time_add_1h"), command=lambda: self.advance_time(1))
+        time_btn_frame = tk.Frame(time_card, bg=SURFACE_COLOR)
+        time_btn_frame.pack(fill=tk.X, pady=(0, 6))
+        self.btn_add_1h = ttk.Button(time_btn_frame, text=_t("time_add_1h"), command=lambda: self.advance_time(1), style="Dark.TButton")
         self.btn_add_1h.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
-        self.btn_add_8h = ttk.Button(time_btn_frame, text=_t("time_add_8h"), command=lambda: self.advance_time(8, is_rest=True))
-        self.btn_add_8h.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 2))
-        self.btn_add_1d = ttk.Button(time_btn_frame, text=_t("time_add_1d"), command=lambda: self.advance_time(24, is_rest=True))
+        self.btn_add_8h = ttk.Button(time_btn_frame, text=_t("time_add_8h"), command=lambda: self.advance_time(8, is_rest=True), style="Dark.TButton")
+        self.btn_add_8h.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        self.btn_add_1d = ttk.Button(time_btn_frame, text=_t("time_add_1d"), command=lambda: self.advance_time(24, is_rest=True), style="Dark.TButton")
         self.btn_add_1d.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
         
-        self.btn_calendar = ttk.Button(tab_world, text=_t("btn_open_calendar"), command=self.open_calendar_dialog, style='Info.TButton')
-        self.btn_calendar.pack(fill=tk.X, pady=(8, 4))
-        
-        self.btn_quests = ttk.Button(tab_world, text=_t("btn_open_quests"), command=self.open_quest_dialog, style='Info.TButton')
-        self.btn_quests.pack(fill=tk.X, pady=4)
-        
-        self.btn_shops = ttk.Button(tab_world, text=_t("btn_open_shops"), command=self.open_shop_dialog, style='Info.TButton')
-        self.btn_shops.pack(fill=tk.X, pady=4)
-        
-        self.btn_travel = ttk.Button(tab_world, text=_t("btn_travel_panel"), command=self.open_travel_panel, style='Primary.TButton')
-        self.btn_travel.pack(fill=tk.X, pady=(8, 4))
-        self.btn_world_manuals = ttk.Button(tab_world, text=_t("btn_manuals"), command=self.open_manuals_dialog, style='Info.TButton')
-        self.btn_world_manuals.pack(fill=tk.X, pady=(0, 4))
-        
-        self.lbl_weather_hdr = tk.Label(tab_world, text=_t("weather_header"), font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD)
-        self.lbl_weather_hdr.pack(anchor="w", pady=(12, 4))
+        self.btn_calendar = ttk.Button(time_card, text=_t("btn_open_calendar"), command=self.open_calendar_dialog, style='Info.TButton')
+        self.btn_calendar.pack(fill=tk.X, pady=(0, 8))
+
+        self.lbl_weather_hdr = tk.Label(time_card, text=_t("weather_header"), font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD)
+        self.lbl_weather_hdr.pack(anchor="w", pady=(0, 3))
         self.weather_var = tk.StringVar(value=_t("weather_clear"))
-        self.weather_combo = ttk.Combobox(tab_world, textvariable=self.weather_var, values=[_t("weather_clear"), _t("weather_rain"), _t("weather_storm"), _t("weather_snow"), _t("weather_fog"), _t("weather_darkness")], state="readonly")
+        self.weather_combo = ttk.Combobox(time_card, textvariable=self.weather_var, values=[_t("weather_clear"), _t("weather_rain"), _t("weather_storm"), _t("weather_snow"), _t("weather_fog"), _t("weather_darkness")], state="readonly")
         self.weather_combo.pack(fill=tk.X)
         self.weather_combo.bind("<<ComboboxSelected>>", self.on_weather_changed)
+        
+        # CARD 3: Luoghi, Viaggio & Manuali (Griglia 2x2)
+        world_grid_card = tk.Frame(tab_world, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
+        world_grid_card.pack(fill=tk.X)
+        world_grid_card.columnconfigure(0, weight=1)
+        world_grid_card.columnconfigure(1, weight=1)
+
+        tk.Label(world_grid_card, text="🌍 Luoghi, Viaggio & Regole", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
+
+        self.btn_quests = ttk.Button(world_grid_card, text=_t("btn_open_quests"), command=self.open_quest_dialog, style='Info.TButton')
+        self.btn_quests.grid(row=1, column=0, sticky="ew", padx=(0, 3), pady=(0, 4))
+        
+        self.btn_shops = ttk.Button(world_grid_card, text=_t("btn_open_shops"), command=self.open_shop_dialog, style='Info.TButton')
+        self.btn_shops.grid(row=1, column=1, sticky="ew", padx=(3, 0), pady=(0, 4))
+        
+        self.btn_travel = ttk.Button(world_grid_card, text=_t("btn_travel_panel"), command=self.open_travel_panel, style='Primary.TButton')
+        self.btn_travel.grid(row=2, column=0, sticky="ew", padx=(0, 3))
+
+        self.btn_world_manuals = ttk.Button(world_grid_card, text=_t("btn_manuals"), command=self.open_manuals_dialog, style='Dark.TButton')
+        self.btn_world_manuals.grid(row=2, column=1, sticky="ew", padx=(3, 0))
         
         # Tab 4 ("Audio/Sfx")
         tab_audio = ttk.Frame(self.right_notebook, padding=5)
@@ -859,6 +907,8 @@ class DM_GUI:
     def toggle_pan_mode(self):
         if self.map_canvas and hasattr(self.map_canvas, "toggle_pan_mode"):
             is_active = self.map_canvas.toggle_pan_mode()
+            if hasattr(self, "btn_pan") and self.btn_pan:
+                self.btn_pan.configure(style="ToolActive.TButton" if is_active else "Tool.TButton")
             if hasattr(self, "show_toast"):
                 if is_active:
                     self.show_toast("Modalità Navigazione Mappa attiva (Trascina con Tasto Sinistro)", title="✋ Pan Mappa", toast_type="info")
@@ -2603,7 +2653,7 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             
         if self.server.game_state.combat_active:
             # Mostra banner combattimento
-            self.combat_controls_frame.pack(fill=tk.X, side=tk.TOP, pady=5, before=self.btn_hide_reveal)
+            self.combat_controls_frame.pack(fill=tk.X, side=tk.TOP, pady=(0, 5), before=self.combat_list_frame)
             self.btn_combat.config(text=_t("btn_end_combat"), style='Danger.TButton')
             self.lbl_round.config(text=_t("lbl_round_num", round=self.server.game_state.round_number))
             self.btn_prev_turn.config(state=tk.NORMAL)

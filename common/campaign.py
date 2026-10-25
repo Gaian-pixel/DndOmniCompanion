@@ -57,6 +57,9 @@ class Campaign:
         # Negozi preparati
         self.shops: Dict[str, Any] = {}
         
+        # Tesori / Loot strutturati
+        self.treasures: List[Dict[str, Any]] = []
+        
         # Handouts (lettere, indizi, mappe segrete)
         self.handouts: List[Dict[str, Any]] = []
 
@@ -79,6 +82,7 @@ class Campaign:
             "quests": self.quests,
             "npcs": self.npcs,
             "shops": self.shops,
+            "treasures": self.treasures,
             "handouts": self.handouts,
             "flow_script": self.flow_script,
             "flow_graph": self.flow_graph,
@@ -99,6 +103,7 @@ class Campaign:
         c.quests = data.get("quests", [])
         c.npcs = data.get("npcs", [])
         c.shops = data.get("shops", {})
+        c.treasures = data.get("treasures", [])
         c.handouts = data.get("handouts", [])
         c.flow_script = data.get("flow_script", "")
         c.flow_graph = data.get("flow_graph", {})

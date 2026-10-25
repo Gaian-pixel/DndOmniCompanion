@@ -298,30 +298,57 @@ class CampaignEditorFrame(tk.Frame):
         container = tk.Frame(self, bg=BG_COLOR, padx=16, pady=14)
         container.pack(fill=tk.BOTH, expand=True)
         
-        # --- TOP HEADER & ACTIONS BAR ---
-        top_bar = tk.Frame(container, bg=BG_COLOR)
+        # --- TOP HEADER & ACTIONS BAR (Barra Strutturata con Gruppi Logici) ---
+        top_bar = tk.Frame(container, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=12, pady=8)
         top_bar.pack(fill=tk.X, pady=(0, 10))
         
-        title_box = tk.Frame(top_bar, bg=BG_COLOR)
+        # Navigazione a sinistra
+        ttk.Button(
+            top_bar,
+            text="← Menu" if self.on_close_callback else "✕ Chiudi",
+            command=self.close_editor,
+            style="Dark.TButton"
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        tk.Frame(top_bar, bg=BORDER_COLOR, width=1).pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10), pady=2)
+
+        title_box = tk.Frame(top_bar, bg=SURFACE_COLOR)
         title_box.pack(side=tk.LEFT)
-        tk.Label(title_box, text="🏰 Gestione & Preparazione Campagna", font=("Georgia", 15, "bold"), bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w")
-        tk.Label(title_box, text="Prepara in anticipo scene, incontri tattici, quest, PNG chiave, loot e segreti", 
-                 font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+        title_row = tk.Frame(title_box, bg=SURFACE_COLOR)
+        title_row.pack(anchor="w")
+        tk.Label(title_row, text="🏰 Editor Campagna", font=("Georgia", 14, "bold"), bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(side=tk.LEFT)
+        self.lbl_active_camp_badge = tk.Label(
+            title_row,
+            text=f"📜 {self.campaign.name}",
+            font=FONT_BADGE,
+            bg=SURFACE_COLOR_ALT,
+            fg=TEXT_COLOR,
+            padx=8,
+            pady=2,
+            highlightbackground=BORDER_GOLD,
+            highlightthickness=1
+        )
+        self.lbl_active_camp_badge.pack(side=tk.LEFT, padx=(10, 0))
+        tk.Label(title_box, text="Flusso DndScript, scene, incontri tattici, missioni, PNG e segreti", 
+                 font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(1, 0))
         
-        actions_box = tk.Frame(top_bar, bg=BG_COLOR)
+        actions_box = tk.Frame(top_bar, bg=SURFACE_COLOR)
         actions_box.pack(side=tk.RIGHT)
         
-        ttk.Button(actions_box, text="📖 Compendio 5e", command=self.open_global_compendium, style="Primary.TButton").pack(side=tk.LEFT, padx=4)
-        
-        self.btn_fs = ttk.Button(actions_box, text="⛶ Schermo Intero", command=self.toggle_fullscreen)
-        self.btn_fs.pack(side=tk.LEFT, padx=4)
+        # Gruppo 1: Operazioni File Campagna
+        ttk.Button(actions_box, text="📂 Carica...", command=self.load_campaign_dialog, style="Gold.TButton").pack(side=tk.LEFT, padx=3)
+        ttk.Button(actions_box, text="💾 Salva", command=self.save_campaign, style="Success.TButton").pack(side=tk.LEFT, padx=3)
+        ttk.Button(actions_box, text="📁 Salva con Nome...", command=self.save_campaign_as, style="Dark.TButton").pack(side=tk.LEFT, padx=3)
+
+        tk.Frame(actions_box, bg=BORDER_COLOR, width=1).pack(side=tk.LEFT, fill=tk.Y, padx=6, pady=2)
+
+        # Gruppo 2: Strumenti, Compendio & Sessione Live
+        ttk.Button(actions_box, text="📖 Compendio 5e", command=self.open_global_compendium, style="Info.TButton").pack(side=tk.LEFT, padx=3)
         
         if self.game_state:
-            ttk.Button(actions_box, text="⚡ Applica Subito al Gioco", command=self.apply_to_running_game, style="Gold.TButton").pack(side=tk.LEFT, padx=4)
+            ttk.Button(actions_box, text="⚡ Applica al Gioco", command=self.apply_to_running_game, style="Primary.TButton").pack(side=tk.LEFT, padx=3)
         
-        ttk.Button(actions_box, text="💾 Salva Campagna", command=self.save_campaign, style="Success.TButton").pack(side=tk.LEFT, padx=4)
-        ttk.Button(actions_box, text="📂 Salva con Nome...", command=self.save_campaign_as, style="Primary.TButton").pack(side=tk.LEFT, padx=4)
-        ttk.Button(actions_box, text="← Torna al Menu" if self.on_close_callback else "Chiudi", command=self.close_editor).pack(side=tk.LEFT, padx=4)
+        self.btn_fs = ttk.Button(actions_box, text="⛶", width=3, command=self.toggle_fullscreen, style="Tool.TButton")
+        self.btn_fs.pack(side=tk.LEFT, padx=(4, 0))
         
         # --- NOTEBOOK TABS ---
         self.notebook = ttk.Notebook(container)
@@ -370,13 +397,15 @@ class CampaignEditorFrame(tk.Frame):
     def _on_studio_changed(self):
         try:
             if hasattr(self, "tree_scenes"):
-                self.refresh_scenes_tree()
-            if hasattr(self, "tree_encounters"):
-                self.refresh_encounters_tree()
+                self.refresh_scenes()
+            if hasattr(self, "tree_enc"):
+                self.refresh_encounters()
             if hasattr(self, "tree_quests"):
-                self.refresh_quests_tree()
+                self.refresh_quests()
             if hasattr(self, "tree_npcs"):
-                self.refresh_npcs_tree()
+                self.refresh_npcs()
+            if hasattr(self, "tree_handouts"):
+                self.refresh_handouts()
         except Exception:
             pass
 
@@ -598,13 +627,14 @@ class CampaignEditorFrame(tk.Frame):
         self.tree_scenes.configure(yscrollcommand=sb.set)
         self.tree_scenes.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree_scenes.bind("<Double-Button-1>", lambda e: self.edit_scene_dialog())
         
         ctrl_row = tk.Frame(parent, bg=BG_COLOR)
         ctrl_row.pack(fill=tk.X)
-        ttk.Button(ctrl_row, text="★ Imposta come Mappa Iniziale", command=self.set_starting_map).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(ctrl_row, text="✏️ Modifica Scena", command=self.edit_scene_dialog).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(ctrl_row, text="🗑️ Rimuovi Scena", command=self.remove_scene).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(ctrl_row, text="🗺️ Apri Editor Mappe", command=self.open_map_editor).pack(side=tk.RIGHT)
+        ttk.Button(ctrl_row, text="★ Imposta come Mappa Iniziale", command=self.set_starting_map, style="Gold.TButton").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(ctrl_row, text="✏️ Modifica Scena", command=self.edit_scene_dialog, style="Dark.TButton").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(ctrl_row, text="🗑️ Rimuovi Scena", command=self.remove_scene, style="Danger.TButton").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(ctrl_row, text="🗺️ Apri Editor Mappe", command=self.open_map_editor, style="Info.TButton").pack(side=tk.RIGHT)
         
         self.refresh_scenes()
 
@@ -709,11 +739,12 @@ class CampaignEditorFrame(tk.Frame):
         self.tree_enc.configure(yscrollcommand=sb.set)
         self.tree_enc.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree_enc.bind("<Double-Button-1>", lambda e: self.edit_encounter_dialog())
         
         ctrl_row = tk.Frame(parent, bg=BG_COLOR)
         ctrl_row.pack(fill=tk.X)
-        ttk.Button(ctrl_row, text="✏️ Modifica Incontro", command=self.edit_encounter_dialog).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(ctrl_row, text="🗑️ Rimuovi Incontro", command=self.remove_encounter).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(ctrl_row, text="✏️ Modifica Incontro", command=self.edit_encounter_dialog, style="Dark.TButton").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(ctrl_row, text="🗑️ Rimuovi Incontro", command=self.remove_encounter, style="Danger.TButton").pack(side=tk.LEFT, padx=(0, 6))
         
         if self.game_state:
             ttk.Button(ctrl_row, text="⚡ Schiera Subito sulla Mappa", command=self.deploy_selected_encounter, style="Gold.TButton").pack(side=tk.RIGHT)
@@ -847,11 +878,12 @@ class CampaignEditorFrame(tk.Frame):
         self.tree_quests.configure(yscrollcommand=sb.set)
         self.tree_quests.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree_quests.bind("<Double-Button-1>", lambda e: self.edit_quest_dialog())
         
         ctrl_row = tk.Frame(parent, bg=BG_COLOR)
         ctrl_row.pack(fill=tk.X)
-        ttk.Button(ctrl_row, text="✏️ Modifica Missione", command=self.edit_quest_dialog).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(ctrl_row, text="🗑️ Rimuovi Missione", command=self.remove_quest).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(ctrl_row, text="✏️ Modifica Missione", command=self.edit_quest_dialog, style="Dark.TButton").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(ctrl_row, text="🗑️ Rimuovi Missione", command=self.remove_quest, style="Danger.TButton").pack(side=tk.LEFT, padx=(0, 6))
         
         self.refresh_quests()
 
@@ -943,8 +975,8 @@ class CampaignEditorFrame(tk.Frame):
         
         ctrl_row = tk.Frame(parent, bg=BG_COLOR)
         ctrl_row.pack(fill=tk.X)
-        ttk.Button(ctrl_row, text="✏️ Modifica PNG", command=self.edit_npc_dialog).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(ctrl_row, text="🗑️ Rimuovi PNG", command=self.remove_npc).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(ctrl_row, text="✏️ Modifica PNG", command=self.edit_npc_dialog, style="Dark.TButton").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(ctrl_row, text="🗑️ Rimuovi PNG", command=self.remove_npc, style="Danger.TButton").pack(side=tk.LEFT, padx=(0, 6))
         
         if self.game_state:
             ttk.Button(ctrl_row, text="⚡ Spawna Token sulla Mappa", command=self.spawn_selected_npc, style="Gold.TButton").pack(side=tk.RIGHT)
@@ -1122,11 +1154,12 @@ class CampaignEditorFrame(tk.Frame):
         self.tree_handouts.configure(yscrollcommand=sb.set)
         self.tree_handouts.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree_handouts.bind("<Double-Button-1>", lambda e: self.view_handout())
         
         ctrl_row = tk.Frame(parent, bg=BG_COLOR)
         ctrl_row.pack(fill=tk.X)
-        ttk.Button(ctrl_row, text="👁 Visualizza / Modifica", command=self.view_handout).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(ctrl_row, text="🗑️ Rimuovi Handout", command=self.remove_handout).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(ctrl_row, text="👁 Visualizza / Modifica", command=self.view_handout, style="Dark.TButton").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(ctrl_row, text="🗑️ Rimuovi Handout", command=self.remove_handout, style="Danger.TButton").pack(side=tk.LEFT, padx=(0, 6))
         
         if self.game_state:
             ttk.Button(ctrl_row, text="📢 Rivela ai Giocatori Connessi", command=self.broadcast_selected_handout, style="Gold.TButton").pack(side=tk.RIGHT)
@@ -1245,6 +1278,9 @@ class CampaignEditorFrame(tk.Frame):
     # -------------------------------------------------------------
     def _on_title_changed(self, event=None):
         self._update_date_preview()
+        if hasattr(self, "lbl_active_camp_badge") and self.lbl_active_camp_badge:
+            t_val = self.ent_title.get().strip() or "Campagna Senza Nome"
+            self.lbl_active_camp_badge.config(text=f"📜 {t_val}")
         if not getattr(self, "is_custom_folder_path", False):
             from common.campaign import DEFAULT_CAMPAIGNS_DIR, slugify
             title = self.ent_title.get().strip()
@@ -1306,7 +1342,7 @@ class CampaignEditorFrame(tk.Frame):
             top = self.winfo_toplevel()
             top.attributes("-fullscreen", self.is_fullscreen)
             if hasattr(self, "btn_fs"):
-                self.btn_fs.config(text="🗗 Finestra" if self.is_fullscreen else "⛶ Schermo Intero")
+                self.btn_fs.config(text="🗗" if self.is_fullscreen else "⛶")
         except Exception:
             pass
 
@@ -1317,9 +1353,98 @@ class CampaignEditorFrame(tk.Frame):
                 top = self.winfo_toplevel()
                 top.attributes("-fullscreen", False)
                 if hasattr(self, "btn_fs"):
-                    self.btn_fs.config(text="⛶ Schermo Intero")
+                    self.btn_fs.config(text="⛶")
             except Exception:
                 pass
+
+    def load_campaign_into_editor(self, camp: Campaign):
+        """Carica un oggetto Campaign esistente nell'editor aggiornando tutte le schede e il Flow Studio."""
+        if not camp:
+            return
+        self.campaign = camp
+        if not self.campaign.starter_kit:
+            from common.starter_equipment import DEFAULT_CAMPAIGN_STARTER_KIT
+            self.campaign.starter_kit = [item.copy() for item in DEFAULT_CAMPAIGN_STARTER_KIT]
+
+        self.title(f"D&D OmniCompanion • Preparazione Campagna: {self.campaign.name}")
+        if hasattr(self, "lbl_active_camp_badge") and self.lbl_active_camp_badge:
+            self.lbl_active_camp_badge.config(text=f"📜 {self.campaign.name}")
+
+        from common.campaign import DEFAULT_CAMPAIGNS_DIR, slugify
+        if hasattr(self, "ent_title"):
+            self.ent_title.delete(0, tk.END)
+            self.ent_title.insert(0, self.campaign.name)
+
+        init_folder = self.campaign.folder_path or os.path.join(DEFAULT_CAMPAIGNS_DIR, slugify(self.campaign.name))
+        if hasattr(self, "ent_folder_path"):
+            self.ent_folder_path.delete(0, tk.END)
+            self.ent_folder_path.insert(0, os.path.abspath(init_folder))
+        self.is_custom_folder_path = bool(
+            self.campaign.folder_path
+            and not os.path.abspath(self.campaign.folder_path).startswith(os.path.abspath(DEFAULT_CAMPAIGNS_DIR))
+        )
+
+        if hasattr(self, "ent_level"):
+            self.ent_level.delete(0, tk.END)
+            self.ent_level.insert(0, self.campaign.level_range or "1-3")
+
+        if hasattr(self, "combo_weather"):
+            self.combo_weather.set(self.campaign.start_weather or "Sereno")
+
+        sdate = self.campaign.start_date or {}
+        if hasattr(self, "sp_year"):
+            self.sp_year.set(sdate.get("year", 1492))
+        if hasattr(self, "sp_month"):
+            self.sp_month.set(sdate.get("month", 1))
+        if hasattr(self, "sp_day"):
+            self.sp_day.set(sdate.get("day", 1))
+        if hasattr(self, "sp_hour"):
+            self.sp_hour.set(sdate.get("hour", 8))
+        self._update_date_preview()
+
+        if hasattr(self, "lbl_kit_count") and self.lbl_kit_count:
+            self.lbl_kit_count.config(text=self._get_kit_summary_text())
+
+        if hasattr(self, "txt_synopsis"):
+            self.txt_synopsis.delete("1.0", tk.END)
+            self.txt_synopsis.insert("1.0", self.campaign.description or "")
+
+        if hasattr(self, "txt_dm_notes"):
+            self.txt_dm_notes.delete("1.0", tk.END)
+            self.txt_dm_notes.insert("1.0", self.campaign.dm_notes or "")
+
+        if hasattr(self, "studio_frame") and self.studio_frame:
+            self.studio_frame.set_campaign(self.campaign)
+
+        self.refresh_scenes()
+        self.refresh_encounters()
+        self.refresh_quests()
+        self.refresh_npcs()
+        self.refresh_handouts()
+
+    def load_campaign_dialog(self):
+        """Apre il selettore campagne per caricare una campagna esistente (dalla libreria o da disco) nell'editor."""
+        dlg_ref = {}
+        def _on_picked(loaded_camp: Campaign):
+            dlg = dlg_ref.get("dlg")
+            if dlg:
+                try:
+                    dlg.grab_release()
+                except Exception:
+                    pass
+                try:
+                    dlg.destroy()
+                except Exception:
+                    pass
+            self.load_campaign_into_editor(loaded_camp)
+
+        dlg = CampaignSelectorDialog(
+            self.winfo_toplevel(),
+            on_select_callback=_on_picked,
+            on_edit_callback=_on_picked,
+            action_label="📂 Carica nell'Editor"
+        )
+        dlg_ref["dlg"] = dlg
 
     def save_campaign(self):
         self.sync_campaign_data()
@@ -1690,11 +1815,12 @@ class CampaignEditorDialog(tk.Toplevel):
 
 class CampaignSelectorFrame(tk.Frame):
     """Frame autonomo per la selezione e gestione delle campagne preparate."""
-    def __init__(self, master, on_select_callback: Callable[[Campaign], None], on_edit_callback: Optional[Callable[[Campaign], None]] = None, on_close_callback: Optional[Callable[[], None]] = None, **kwargs):
+    def __init__(self, master, on_select_callback: Callable[[Campaign], None], on_edit_callback: Optional[Callable[[Campaign], None]] = None, on_close_callback: Optional[Callable[[], None]] = None, action_label: Optional[str] = None, **kwargs):
         super().__init__(master, bg=BG_COLOR, **kwargs)
         self.on_select_callback = on_select_callback
         self.on_edit_callback = on_edit_callback
         self.on_close_callback = on_close_callback
+        self.action_label = action_label or "🚀 Avvia Partita con Questa Campagna"
         
         self.available_campaigns: List[Dict[str, Any]] = []
         self.selected_campaign: Optional[Campaign] = None
@@ -1712,16 +1838,23 @@ class CampaignSelectorFrame(tk.Frame):
         container = tk.Frame(self, bg=BG_COLOR, padx=16, pady=14)
         container.pack(fill=tk.BOTH, expand=True)
         
-        # Header
-        hdr = tk.Frame(container, bg=BG_COLOR)
+        # Header Surface Bar
+        hdr = tk.Frame(container, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=12, pady=8)
         hdr.pack(fill=tk.X, pady=(0, 10))
-        tk.Label(hdr, text="📚 Libreria Campagne Preparate", font=("Georgia", 16, "bold"), bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w")
-        tk.Label(hdr, text="Seleziona una campagna esistente, preparane una nuova offline oppure modifica i contenuti",
-                 font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w")
 
-        if self.on_close_callback:
-            btn_back = ttk.Button(hdr, text="← Torna al Menu", command=self.close_selector, style="Tool.TButton")
-            btn_back.place(relx=1.0, rely=0.0, anchor="ne")
+        ttk.Button(
+            hdr,
+            text="← Menu" if self.on_close_callback else "✕ Chiudi",
+            command=self.close_selector,
+            style="Dark.TButton"
+        ).pack(side=tk.LEFT, padx=(0, 10))
+        tk.Frame(hdr, bg=BORDER_COLOR, width=1).pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10), pady=2)
+
+        hdr_titles = tk.Frame(hdr, bg=SURFACE_COLOR)
+        hdr_titles.pack(side=tk.LEFT)
+        tk.Label(hdr_titles, text="📚 Libreria Campagne Preparate", font=("Georgia", 15, "bold"), bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(anchor="w")
+        tk.Label(hdr_titles, text="Seleziona una campagna esistente, preparane una nuova offline oppure modifica i contenuti",
+                 font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w")
         
         # Main Split Frame
         main_split = tk.Frame(container, bg=BG_COLOR)
@@ -1759,13 +1892,16 @@ class CampaignSelectorFrame(tk.Frame):
         sb.pack(side=tk.RIGHT, fill=tk.Y)
         
         self.tree_camps.bind("<<TreeviewSelect>>", self.on_campaign_selected)
+        self.tree_camps.bind("<Double-Button-1>", lambda e: self.confirm_and_play())
         
         l_btn_box = tk.Frame(left_card, bg=SURFACE_COLOR)
         l_btn_box.pack(fill=tk.X, pady=(8, 0))
-        ttk.Button(l_btn_box, text="+ Nuova Campagna", command=self.create_new_campaign, style="Primary.TButton").pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(l_btn_box, text="📂 Apri da Percorso...", command=self.load_from_custom_path).pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(l_btn_box, text="🗑️ Elimina", command=self.delete_campaign).pack(side=tk.LEFT)
-        ttk.Button(l_btn_box, text="🔄 Ricarica", command=self.refresh_campaigns).pack(side=tk.RIGHT)
+        l_btn_box.columnconfigure(0, weight=1)
+        l_btn_box.columnconfigure(1, weight=1)
+        ttk.Button(l_btn_box, text="✨ + Nuova Campagna", command=self.create_new_campaign, style="Primary.TButton").grid(row=0, column=0, sticky="ew", padx=(0, 3), pady=(0, 4))
+        ttk.Button(l_btn_box, text="📂 Apri da Percorso...", command=self.load_from_custom_path, style="Dark.TButton").grid(row=0, column=1, sticky="ew", padx=(3, 0), pady=(0, 4))
+        ttk.Button(l_btn_box, text="🔄 Ricarica Elenco", command=self.refresh_campaigns, style="Dark.TButton").grid(row=1, column=0, sticky="ew", padx=(0, 3))
+        ttk.Button(l_btn_box, text="🗑️ Elimina Selezionata", command=self.delete_campaign, style="Danger.TButton").grid(row=1, column=1, sticky="ew", padx=(3, 0))
         
         # Right: Dettaglio / Anteprima
         right_card = tk.Frame(main_split, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=14, pady=12)
@@ -1774,7 +1910,7 @@ class CampaignSelectorFrame(tk.Frame):
         self.lbl_det_title = tk.Label(right_card, text="Nessuna campagna selezionata", font=("Georgia", 13, "bold"), bg=SURFACE_COLOR, fg=ACCENT_GOLD)
         self.lbl_det_title.pack(anchor="w", pady=(0, 2))
         
-        self.lbl_det_meta = tk.Label(right_card, text="", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
+        self.lbl_det_meta = tk.Label(right_card, text="", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED, justify="left")
         self.lbl_det_meta.pack(anchor="w", pady=(0, 8))
         
         tk.Label(right_card, text="Sinossi & Ambientazione:", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(anchor="w")
@@ -1783,15 +1919,11 @@ class CampaignSelectorFrame(tk.Frame):
         self.txt_det_desc.pack(fill=tk.BOTH, expand=True, pady=(4, 10))
         self.txt_det_desc.configure(state=tk.DISABLED)
         
-        ttk.Button(right_card, text="✏️ Modifica Contenuti Campagna", command=self.edit_selected_campaign).pack(fill=tk.X)
-        
-        # Bottom Actions Bar
-        bottom_row = tk.Frame(container, bg=BG_COLOR)
-        bottom_row.pack(fill=tk.X)
-        
-        self.btn_play = ttk.Button(bottom_row, text="🚀 Avvia Partita con Questa Campagna", command=self.confirm_and_play, style="Gold.TButton")
-        self.btn_play.pack(side=tk.RIGHT, padx=(6, 0))
-        ttk.Button(bottom_row, text="← Torna al Menu" if self.on_close_callback else "Annulla", command=self.close_selector).pack(side=tk.RIGHT)
+        r_act_box = tk.Frame(right_card, bg=SURFACE_COLOR)
+        r_act_box.pack(fill=tk.X)
+        ttk.Button(r_act_box, text="✏️ Modifica nell'Editor Campagna", command=self.edit_selected_campaign, style="Info.TButton").pack(fill=tk.X, pady=(0, 6))
+        self.btn_play = ttk.Button(r_act_box, text=self.action_label, command=self.confirm_and_play, style="Gold.TButton")
+        self.btn_play.pack(fill=tk.X)
 
     def refresh_campaigns(self):
         for it in self.tree_camps.get_children():
@@ -1933,7 +2065,7 @@ class CampaignSelectorDialog(tk.Toplevel):
     Finestra modale per la selezione della campagna (retrocompatibile al 100%).
     Incapsula CampaignSelectorFrame delegando metodi ed attributi.
     """
-    def __init__(self, master, on_select_callback: Callable[[Campaign], None], on_edit_callback: Optional[Callable[[Campaign], None]] = None):
+    def __init__(self, master, on_select_callback: Callable[[Campaign], None], on_edit_callback: Optional[Callable[[Campaign], None]] = None, action_label: Optional[str] = None):
         super().__init__(master)
         self.title("D&D OmniCompanion • Seleziona Campagna")
         self.minsize(820, 520)
@@ -1946,7 +2078,8 @@ class CampaignSelectorDialog(tk.Toplevel):
             self,
             on_select_callback=on_select_callback,
             on_edit_callback=on_edit_callback,
-            on_close_callback=self.destroy
+            on_close_callback=self.destroy,
+            action_label=action_label
         )
         self._frame_internal.pack(fill=tk.BOTH, expand=True)
 

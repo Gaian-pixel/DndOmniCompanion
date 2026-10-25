@@ -424,6 +424,10 @@ class DndScriptParser:
                     current_node.data["cr"] = val
                 elif key in ("loot", "bottino", "ricompensa", "reward"):
                     current_node.data["loot"] = val
+                    from common.srd_offline import parse_loot_specification
+                    parsed_loot = parse_loot_specification(val)
+                    current_node.data["loot_currency"] = parsed_loot["currency"]
+                    current_node.data["loot_items"] = parsed_loot["items"]
                 # Proprietà PNG
                 elif key in ("ruolo", "role"):
                     current_node.data["role"] = val
@@ -456,13 +460,22 @@ class DndScriptParser:
                 # Proprietà Tesoro
                 elif key in ("oro", "gold", "monete"):
                     current_node.data["gold"] = val
+                    from common.srd_offline import parse_loot_specification
+                    parsed_gold = parse_loot_specification(val)
+                    current_node.data["loot_currency"] = parsed_gold["currency"]
                 elif key in ("oggetti", "items"):
                     if "," in val:
-                        current_node.data["items"] = [i.strip().strip('"\'') for i in val.split(",") if i.strip()]
+                        raw_items = [i.strip().strip('"\'') for i in val.split(",") if i.strip()]
                     else:
-                        current_node.data["items"] = [val.strip().strip('"\'')] if val else []
+                        raw_items = [val.strip().strip('"\'')] if val else []
+                    current_node.data["items"] = raw_items
+                    from common.srd_offline import resolve_compendium_item
+                    current_node.data["resolved_items"] = [resolve_compendium_item(it) for it in raw_items]
                 elif key in ("magici", "magic_items"):
                     current_node.data["magic_items"] = val
+                    from common.srd_offline import resolve_compendium_item
+                    raw_m = [i.strip().strip('"\'') for i in val.split(",") if i.strip()]
+                    current_node.data["resolved_magic_items"] = [resolve_compendium_item(it) for it in raw_m]
                 # Proprietà Emporio / Negozi
                 elif key in ("mercante", "merchant"):
                     current_node.data["merchant"] = val
@@ -766,11 +779,18 @@ def sync_flow_graph_to_campaign(graph: FlowGraph, campaign: Any):
                 "name": node.title,
                 "act": "Atto 1",
                 "description": d.get("read_aloud", ""),
-                "monsters": []
+                "monsters": [],
+                "loot": d.get("loot", ""),
+                "loot_items": d.get("loot_items", []),
+                "loot_currency": d.get("loot_currency", {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}),
             })
             enc_entry["description"] = d.get("read_aloud", enc_entry.get("description", ""))
             if "monsters" in d:
                 enc_entry["monsters"] = d["monsters"]
+            if "loot" in d:
+                enc_entry["loot"] = d["loot"]
+                enc_entry["loot_items"] = d.get("loot_items", [])
+                enc_entry["loot_currency"] = d.get("loot_currency", {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0})
             encounters_map[node.title] = enc_entry
 
         elif node.node_type == "quest":
@@ -780,6 +800,8 @@ def sync_flow_graph_to_campaign(graph: FlowGraph, campaign: Any):
                 "description": d.get("read_aloud", ""),
                 "objectives": d.get("objectives", []),
                 "rewards": d.get("loot", ""),
+                "reward_items": d.get("loot_items", []),
+                "reward_currency": d.get("loot_currency", {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}),
                 "status": "Attiva"
             })
             quest_entry["description"] = d.get("read_aloud", quest_entry.get("description", ""))
@@ -787,7 +809,28 @@ def sync_flow_graph_to_campaign(graph: FlowGraph, campaign: Any):
                 quest_entry["objectives"] = d["objectives"]
             if "loot" in d:
                 quest_entry["rewards"] = d["loot"]
+                quest_entry["reward_items"] = d.get("loot_items", [])
+                quest_entry["reward_currency"] = d.get("loot_currency", {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0})
             quests_map[node.title] = quest_entry
+
+        elif node.node_type == "loot":
+            from common.srd_offline import resolve_compendium_item, parse_loot_specification
+            resolved = d.get("resolved_items")
+            if resolved is None and d.get("items"):
+                resolved = [resolve_compendium_item(it) for it in d["items"]]
+            gold_spec = d.get("loot_currency")
+            if gold_spec is None and d.get("gold"):
+                gold_spec = parse_loot_specification(d["gold"])["currency"]
+            treasures_list = getattr(campaign, "treasures", [])
+            treasures_map = {t.get("title", ""): t for t in treasures_list if isinstance(t, dict)}
+            treasures_map[node.title] = {
+                "title": node.title,
+                "gold": d.get("gold", ""),
+                "currency": gold_spec or {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0},
+                "items": d.get("items", []),
+                "resolved_items": resolved or [],
+            }
+            campaign.treasures = list(treasures_map.values())
 
         elif node.node_type == "npc":
             npc_entry = npcs_map.get(node.title, {
@@ -801,16 +844,20 @@ def sync_flow_graph_to_campaign(graph: FlowGraph, campaign: Any):
             npcs_map[node.title] = npc_entry
 
         elif node.node_type == "shop":
+            from common.srd_offline import resolve_compendium_item
             items = d.get("items", [])
             wares = d.get("wares", "")
             if items and not wares:
                 wares = ", ".join(items) if isinstance(items, list) else str(items)
+            inv_list = items if isinstance(items, list) else ([wares] if wares else [])
+            resolved_inv = d.get("resolved_items") or [resolve_compendium_item(it) for it in inv_list]
             shops_map[node.title] = {
                 "name": node.title,
                 "merchant": d.get("merchant", "Mercante"),
                 "shop_type": d.get("shop_type", "Beni Generali"),
                 "wares": wares,
-                "inventory": items if isinstance(items, list) else ([wares] if wares else [])
+                "inventory": inv_list,
+                "resolved_inventory": resolved_inv,
             }
 
         elif node.node_type == "lore":

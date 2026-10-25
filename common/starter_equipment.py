@@ -16,9 +16,9 @@ CLASS_STARTING_KITS = {
             {"name": "Spada Lunga", "type": "Arma", "qty": 1, "desc": "1d8 (versatile 1d10) danni taglienti.", "weight": 3.0},
             {"name": "Scudo", "type": "Scudo", "qty": 1, "desc": "+2 CA quando impugnato.", "weight": 6.0},
             {"name": "Balestra Leggera", "type": "Arma", "qty": 1, "desc": "1d8 danni perforanti, gittata 24/96m.", "weight": 5.0},
-            {"name": "Dardi da Balestra", "type": "Munizioni", "qty": 20, "desc": "Munizioni per balestra.", "weight": 1.5},
+            {"name": "Dardi da Balestra", "type": "Munizioni", "qty": 20, "desc": "Munizioni per balestra.", "weight": 0.075},
             {"name": "Zaino da Esploratore", "type": "Equipaggiamento", "qty": 1, "desc": "Sacco a pelo, acciarino, 10 torce, 10 razioni e corda 15m.", "weight": 10.0},
-            {"name": "Monete d'Oro", "type": "Valuta", "qty": 10, "desc": "Monete iniziali (10 MO).", "weight": 0.2}
+            {"name": "Monete d'Oro", "type": "Valuta", "qty": 10, "desc": "Monete iniziali (10 MO).", "weight": 0.02, "_coins_synced": True}
         ]
     },
     "Mago": {
@@ -30,7 +30,7 @@ CLASS_STARTING_KITS = {
             {"name": "Grimorio del Mago", "type": "Oggetto", "qty": 1, "desc": "Tomo contenente tutti gli incantesimi trascritti dal mago.", "weight": 3.0},
             {"name": "Borsa dei Componenti", "type": "Equipaggiamento", "qty": 1, "desc": "Borsello con componenti materiali per incantesimi.", "weight": 2.0},
             {"name": "Zaino da Studioso", "type": "Equipaggiamento", "qty": 1, "desc": "Libro di nozioni, inchiostro, penna d'oca, pergamene, razioni.", "weight": 10.0},
-            {"name": "Monete d'Oro", "type": "Valuta", "qty": 10, "desc": "Monete iniziali (10 MO).", "weight": 0.2}
+            {"name": "Monete d'Oro", "type": "Valuta", "qty": 10, "desc": "Monete iniziali (10 MO).", "weight": 0.02, "_coins_synced": True}
         ]
     },
     "Ladro": {
@@ -40,11 +40,11 @@ CLASS_STARTING_KITS = {
             {"name": "Corazza di Cuoio", "type": "Armatura", "qty": 1, "desc": "Armatura leggera. CA 11 + mod Destrezza.", "weight": 10.0},
             {"name": "Stocco", "type": "Arma", "qty": 1, "desc": "1d8 danni perforanti, accurata.", "weight": 2.0},
             {"name": "Arco Corto", "type": "Arma", "qty": 1, "desc": "1d6 danni perforanti, gittata 24/96m.", "weight": 2.0},
-            {"name": "Frecce", "type": "Munizioni", "qty": 20, "desc": "Frecce per arco corto o lungo.", "weight": 1.0},
-            {"name": "Due Pugnali", "type": "Arma", "qty": 2, "desc": "1d4 danni perforanti ciascuno.", "weight": 2.0},
+            {"name": "Frecce", "type": "Munizioni", "qty": 20, "desc": "Frecce per arco corto o lungo.", "weight": 0.05},
+            {"name": "Due Pugnali", "type": "Arma", "qty": 2, "desc": "1d4 danni perforanti ciascuno.", "weight": 1.0},
             {"name": "Strumenti da Scasso", "type": "Strumenti", "qty": 1, "desc": "Grimaldelli per forzare serrature e disinnescare trappole.", "weight": 1.0},
             {"name": "Zaino da Scassinatore", "type": "Equipaggiamento", "qty": 1, "desc": "Piede di porco, martello, 10 chiodi, corda 15m, razioni.", "weight": 12.0},
-            {"name": "Monete d'Oro", "type": "Valuta", "qty": 15, "desc": "Monete iniziali (15 MO).", "weight": 0.3}
+            {"name": "Monete d'Oro", "type": "Valuta", "qty": 15, "desc": "Monete iniziali (15 MO).", "weight": 0.02, "_coins_synced": True}
         ]
     },
     "Chierico": {
@@ -55,10 +55,10 @@ CLASS_STARTING_KITS = {
             {"name": "Mazza da Guerra", "type": "Arma", "qty": 1, "desc": "1d6 danni schiaccianti.", "weight": 4.0},
             {"name": "Scudo con Emblema", "type": "Scudo", "qty": 1, "desc": "+2 CA quando impugnato.", "weight": 6.0},
             {"name": "Balestra Leggera", "type": "Arma", "qty": 1, "desc": "1d8 danni perforanti, gittata 24/96m.", "weight": 5.0},
-            {"name": "Dardi da Balestra", "type": "Munizioni", "qty": 20, "desc": "Munizioni per balestra.", "weight": 1.5},
+            {"name": "Dardi da Balestra", "type": "Munizioni", "qty": 20, "desc": "Munizioni per balestra.", "weight": 0.075},
             {"name": "Simbolo Sacro", "type": "Focus", "qty": 1, "desc": "Amuleto consacrato della divinità.", "weight": 1.0},
             {"name": "Zaino da Sacerdote", "type": "Equipaggiamento", "qty": 1, "desc": "Coperta, candele, incensiere, vesti, razioni, borraccia.", "weight": 10.0},
-            {"name": "Monete d'Oro", "type": "Valuta", "qty": 10, "desc": "Monete iniziali (10 MO).", "weight": 0.2}
+            {"name": "Monete d'Oro", "type": "Valuta", "qty": 10, "desc": "Monete iniziali (10 MO).", "weight": 0.02, "_coins_synced": True}
         ]
     },
     "Barbaro": {
@@ -66,10 +66,10 @@ CLASS_STARTING_KITS = {
         "ac_shield": 0,
         "items": [
             {"name": "Ascia Bipenne", "type": "Arma", "qty": 1, "desc": "1d12 danni taglienti, pesante, due mani.", "weight": 7.0},
-            {"name": "Due Asce da Lancio", "type": "Arma", "qty": 2, "desc": "1d6 danni taglienti ciascuna, gittata 6/18m.", "weight": 4.0},
-            {"name": "Quattro Giavellotti", "type": "Arma", "qty": 4, "desc": "1d6 danni perforanti ciascuno, gittata 9/36m.", "weight": 8.0},
+            {"name": "Due Asce da Lancio", "type": "Arma", "qty": 2, "desc": "1d6 danni taglienti ciascuna, gittata 6/18m.", "weight": 2.0},
+            {"name": "Quattro Giavellotti", "type": "Arma", "qty": 4, "desc": "1d6 danni perforanti ciascuno, gittata 9/36m.", "weight": 2.0},
             {"name": "Zaino da Esploratore", "type": "Equipaggiamento", "qty": 1, "desc": "Sacco a pelo, torce, razioni, acciarino, corda 15m.", "weight": 10.0},
-            {"name": "Monete d'Oro", "type": "Valuta", "qty": 10, "desc": "Monete iniziali (10 MO).", "weight": 0.2}
+            {"name": "Monete d'Oro", "type": "Valuta", "qty": 10, "desc": "Monete iniziali (10 MO).", "weight": 0.02, "_coins_synced": True}
         ]
     },
     "Bardo": {
@@ -81,7 +81,7 @@ CLASS_STARTING_KITS = {
             {"name": "Pugnale", "type": "Arma", "qty": 1, "desc": "1d4 danni perforanti.", "weight": 1.0},
             {"name": "Liuto", "type": "Strumento", "qty": 1, "desc": "Strumento musicale e focus per incantesimi del bardo.", "weight": 2.0},
             {"name": "Zaino da Intrattenitore", "type": "Equipaggiamento", "qty": 1, "desc": "Costume, candele, razioni, borraccia.", "weight": 10.0},
-            {"name": "Monete d'Oro", "type": "Valuta", "qty": 15, "desc": "Monete iniziali (15 MO).", "weight": 0.3}
+            {"name": "Monete d'Oro", "type": "Valuta", "qty": 15, "desc": "Monete iniziali (15 MO).", "weight": 0.02, "_coins_synced": True}
         ]
     },
     "Druido": {
@@ -93,7 +93,7 @@ CLASS_STARTING_KITS = {
             {"name": "Scimitarra", "type": "Arma", "qty": 1, "desc": "1d6 danni taglienti, accurata, leggera.", "weight": 3.0},
             {"name": "Focus Druidico", "type": "Focus", "qty": 1, "desc": "Bastone di tasso o ramoscello di vischio.", "weight": 1.0},
             {"name": "Zaino da Esploratore", "type": "Equipaggiamento", "qty": 1, "desc": "Sacco a pelo, razioni, borraccia, corda 15m.", "weight": 10.0},
-            {"name": "Monete d'Oro", "type": "Valuta", "qty": 10, "desc": "Monete iniziali (10 MO).", "weight": 0.2}
+            {"name": "Monete d'Oro", "type": "Valuta", "qty": 10, "desc": "Monete iniziali (10 MO).", "weight": 0.02, "_coins_synced": True}
         ]
     },
     "Monaco": {
@@ -101,9 +101,9 @@ CLASS_STARTING_KITS = {
         "ac_shield": 0,
         "items": [
             {"name": "Spada Corta", "type": "Arma", "qty": 1, "desc": "1d6 danni perforanti, accurata, leggera.", "weight": 2.0},
-            {"name": "Dieci Dardi", "type": "Arma", "qty": 10, "desc": "1d4 danni perforanti ciascuno, gittata 6/18m.", "weight": 2.5},
+            {"name": "Dieci Dardi", "type": "Arma", "qty": 10, "desc": "1d4 danni perforanti ciascuno, gittata 6/18m.", "weight": 0.25},
             {"name": "Zaino da Esploratore", "type": "Equipaggiamento", "qty": 1, "desc": "Sacco a pelo, razioni, borraccia, acciarino.", "weight": 10.0},
-            {"name": "Monete d'Oro", "type": "Valuta", "qty": 5, "desc": "Monete iniziali (5 MO).", "weight": 0.1}
+            {"name": "Monete d'Oro", "type": "Valuta", "qty": 5, "desc": "Monete iniziali (5 MO).", "weight": 0.02, "_coins_synced": True}
         ]
     },
     "Paladino": {
@@ -113,10 +113,10 @@ CLASS_STARTING_KITS = {
             {"name": "Cotta di Maglia", "type": "Armatura", "qty": 1, "desc": "Armatura pesante. CA 16.", "weight": 55.0},
             {"name": "Spada Lunga", "type": "Arma", "qty": 1, "desc": "1d8 (versatile 1d10) danni taglienti.", "weight": 3.0},
             {"name": "Scudo con Emblema", "type": "Scudo", "qty": 1, "desc": "+2 CA quando impugnato.", "weight": 6.0},
-            {"name": "Cinque Giavellotti", "type": "Arma", "qty": 5, "desc": "1d6 danni perforanti ciascuno, gittata 9/36m.", "weight": 10.0},
+            {"name": "Cinque Giavellotti", "type": "Arma", "qty": 5, "desc": "1d6 danni perforanti ciascuno, gittata 9/36m.", "weight": 2.0},
             {"name": "Simbolo Sacro", "type": "Focus", "qty": 1, "desc": "Emblema consacrato.", "weight": 1.0},
             {"name": "Zaino da Sacerdote", "type": "Equipaggiamento", "qty": 1, "desc": "Coperta, candele, incensiere, vesti, razioni.", "weight": 10.0},
-            {"name": "Monete d'Oro", "type": "Valuta", "qty": 10, "desc": "Monete iniziali (10 MO).", "weight": 0.2}
+            {"name": "Monete d'Oro", "type": "Valuta", "qty": 10, "desc": "Monete iniziali (10 MO).", "weight": 0.02, "_coins_synced": True}
         ]
     },
     "Ranger": {
@@ -124,11 +124,11 @@ CLASS_STARTING_KITS = {
         "ac_shield": 0,
         "items": [
             {"name": "Cotta a Scaglie", "type": "Armatura", "qty": 1, "desc": "Armatura media. CA 14 + mod Destrezza (max +2).", "weight": 45.0},
-            {"name": "Due Spade Corte", "type": "Arma", "qty": 2, "desc": "1d6 danni perforanti ciascuna, accurate, leggere.", "weight": 4.0},
+            {"name": "Due Spade Corte", "type": "Arma", "qty": 2, "desc": "1d6 danni perforanti ciascuna, accurate, leggere.", "weight": 2.0},
             {"name": "Arco Lungo", "type": "Arma", "qty": 1, "desc": "1d8 danni perforanti, gittata 45/180m, pesante, due mani.", "weight": 2.0},
-            {"name": "Frecce", "type": "Munizioni", "qty": 20, "desc": "Faretra con 20 frecce.", "weight": 1.0},
+            {"name": "Frecce", "type": "Munizioni", "qty": 20, "desc": "Faretra con 20 frecce.", "weight": 0.05},
             {"name": "Zaino da Esploratore", "type": "Equipaggiamento", "qty": 1, "desc": "Sacco a pelo, corda 15m, torce, razioni, borraccia.", "weight": 10.0},
-            {"name": "Monete d'Oro", "type": "Valuta", "qty": 10, "desc": "Monete iniziali (10 MO).", "weight": 0.2}
+            {"name": "Monete d'Oro", "type": "Valuta", "qty": 10, "desc": "Monete iniziali (10 MO).", "weight": 0.02, "_coins_synced": True}
         ]
     },
     "Stregone": {
@@ -136,11 +136,11 @@ CLASS_STARTING_KITS = {
         "ac_shield": 0,
         "items": [
             {"name": "Balestra Leggera", "type": "Arma", "qty": 1, "desc": "1d8 danni perforanti, gittata 24/96m.", "weight": 5.0},
-            {"name": "Dardi da Balestra", "type": "Munizioni", "qty": 20, "desc": "Munizioni per balestra.", "weight": 1.5},
-            {"name": "Due Pugnali", "type": "Arma", "qty": 2, "desc": "1d4 danni perforanti ciascuno.", "weight": 2.0},
+            {"name": "Dardi da Balestra", "type": "Munizioni", "qty": 20, "desc": "Munizioni per balestra.", "weight": 0.075},
+            {"name": "Due Pugnali", "type": "Arma", "qty": 2, "desc": "1d4 danni perforanti ciascuno.", "weight": 1.0},
             {"name": "Focus Arcano (Cristallo)", "type": "Focus", "qty": 1, "desc": "Focus arcano per incanalare la magia innata.", "weight": 1.0},
             {"name": "Zaino da Esploratore Sotterraneo", "type": "Equipaggiamento", "qty": 1, "desc": "Torce, acciarino, razioni, corda 15m.", "weight": 12.0},
-            {"name": "Monete d'Oro", "type": "Valuta", "qty": 10, "desc": "Monete iniziali (10 MO).", "weight": 0.2}
+            {"name": "Monete d'Oro", "type": "Valuta", "qty": 10, "desc": "Monete iniziali (10 MO).", "weight": 0.02, "_coins_synced": True}
         ]
     },
     "Warlock": {
@@ -149,11 +149,11 @@ CLASS_STARTING_KITS = {
         "items": [
             {"name": "Corazza di Cuoio", "type": "Armatura", "qty": 1, "desc": "Armatura leggera. CA 11 + mod Destrezza.", "weight": 10.0},
             {"name": "Balestra Leggera", "type": "Arma", "qty": 1, "desc": "1d8 danni perforanti, gittata 24/96m.", "weight": 5.0},
-            {"name": "Dardi da Balestra", "type": "Munizioni", "qty": 20, "desc": "Munizioni per balestra.", "weight": 1.5},
-            {"name": "Due Pugnali", "type": "Arma", "qty": 2, "desc": "1d4 danni perforanti ciascuno.", "weight": 2.0},
+            {"name": "Dardi da Balestra", "type": "Munizioni", "qty": 20, "desc": "Munizioni per balestra.", "weight": 0.075},
+            {"name": "Due Pugnali", "type": "Arma", "qty": 2, "desc": "1d4 danni perforanti ciascuno.", "weight": 1.0},
             {"name": "Focus Arcano (Verga)", "type": "Focus", "qty": 1, "desc": "Canale del patto con l'entità ultraterrena.", "weight": 2.0},
             {"name": "Zaino da Studioso", "type": "Equipaggiamento", "qty": 1, "desc": "Libro, inchiostro, penna, pergamene, razioni.", "weight": 10.0},
-            {"name": "Monete d'Oro", "type": "Valuta", "qty": 10, "desc": "Monete iniziali (10 MO).", "weight": 0.2}
+            {"name": "Monete d'Oro", "type": "Valuta", "qty": 10, "desc": "Monete iniziali (10 MO).", "weight": 0.02, "_coins_synced": True}
         ]
     }
 }
@@ -235,14 +235,21 @@ RACE_STARTING_SPELLS = {
         {"name": "Taumaturgia (Razza)", "level": 0, "time": "1 Azione", "range": "9m", "desc": "Tratto Eredità Infernale: manifesta prodigi soprannaturali e amplifica la voce."}
     ],
     "Elfo": [
-        {"name": "Luce (Razza)", "level": 0, "time": "1 Azione", "range": "Contatto", "desc": "Tratto Retaggio Fatato: un oggetto toccato emette luce per 1 ora."}
+        {"name": "Luce (Razza)", "level": 0, "time": "1 Azione", "range": "Contatto", "desc": "Tratto Trucchetto Elfico (Alto Elfo): un oggetto toccato emette luce intensa per 6m e fioca per altri 6m per 1 ora."}
     ],
     "Gnomo": [
-        {"name": "Illusione Minore (Razza)", "level": 0, "time": "1 Azione", "range": "9m", "desc": "Tratto Astuzia Gnomesca: crea un suono o un'immagine illusoria."}
+        {"name": "Illusione Minore (Razza)", "level": 0, "time": "1 Azione", "range": "9m", "desc": "Tratto Illusione Naturale (Gnomo delle Foreste): crea un suono o un'immagine illusoria."}
     ],
     "Draconide": [
         {"name": "Arma a Soffio (Razza)", "level": 0, "time": "1 Azione", "range": "Cono 4.5m / Linea 9m", "desc": "Tratto Ascendenza Draconica: esala energia distruttiva infliggendo 2d6 danni (TS dimezza)."}
     ]
+}
+
+RACE_DEFAULT_SKILLS = {
+    "Elfo": ["Percezione"],
+    "Elf": ["Percezione"],
+    "Mezzorco": ["Intimidire"],
+    "Half-Orc": ["Intimidire"]
 }
 
 # Competenze nelle Abilità (Skills) standard 5e per ogni classe
@@ -406,6 +413,7 @@ def apply_class_and_race_starter_kit(char_obj_or_dict):
         for itm in items:
             if itm.get("type") == "Valuta" or "monet" in itm.get("name", "").lower():
                 cur["MO"] = cur.get("MO", 0) + itm.get("qty", 10)
+                itm["_coins_synced"] = True
         set_attr("currency", cur)
         
         # Calcola e imposta la Classe Armatura (CA)
@@ -456,7 +464,11 @@ def apply_class_and_race_starter_kit(char_obj_or_dict):
             for sk in CLASS_DEFAULT_SKILLS[char_class]:
                 if sk in skills:
                     skills[sk] = 2 if char_class in ["Ladro", "Rogue"] and sk in ["Furtività", "Prestidigitazione"] else 1
-            set_attr("skills", skills)
+        if race in RACE_DEFAULT_SKILLS:
+            for r_sk in RACE_DEFAULT_SKILLS[race]:
+                if r_sk in skills and skills[r_sk] == 0:
+                    skills[r_sk] = 1
+        set_attr("skills", skills)
 
     set_attr("spellbook", spellbook)
     set_attr("starting_kit_applied", True)
@@ -505,8 +517,8 @@ def apply_campaign_starter_kit(char_obj_or_dict, campaign_items=None):
 # Pesi standard D&D 5e (RAW) per oggetti ed equipaggiamento comune (in lbs)
 STANDARD_ITEM_WEIGHTS = {
     # Armature & Scudi
-    "imbottita": 8.0, "cuoio": 10.0, "corazza di cuoio": 10.0, "cuoio borchiato": 13.0,
-    "pelle": 12.0, "giaco di maglia": 20.0, "cotta a scaglie": 45.0, "corazza di piastre": 65.0,
+    "imbottita": 8.0, "cuoio": 10.0, "corazza di cuoio": 10.0, "armatura di cuoio": 10.0, "cuoio borchiato": 13.0,
+    "armatura di pelle": 12.0, "corazza di pelle": 12.0, "giaco di maglia": 20.0, "cotta a scaglie": 45.0, "corazza di piastre": 65.0,
     "cotta di maglia": 55.0, "corazza a strisce": 60.0, "armatura di piastre": 65.0,
     "armatura a piastre": 65.0, "scudo": 6.0, "scudo con emblema": 6.0,
     # Armi
@@ -541,10 +553,11 @@ def lookup_standard_weight(item_name: str) -> float:
     if name_clean in STANDARD_ITEM_WEIGHTS:
         return STANDARD_ITEM_WEIGHTS[name_clean]
         
-    # Ricerca parziale
-    for k, w in STANDARD_ITEM_WEIGHTS.items():
-        if k in name_clean or name_clean in k:
-            return w
+    # Ricerca parziale ordinata per lunghezza chiave decrescente e confini di parola
+    import re
+    for k in sorted(STANDARD_ITEM_WEIGHTS.keys(), key=len, reverse=True):
+        if re.search(r"(?<!\w)" + re.escape(k) + r"(?!\w)", name_clean):
+            return STANDARD_ITEM_WEIGHTS[k]
             
     return 1.0  # Peso simbolico di default se oggetto comune non censito
 
