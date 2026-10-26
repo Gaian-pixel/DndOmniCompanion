@@ -224,6 +224,11 @@ class ClientGUI:
 
         self.update_action_economy_ui()
         self.update_hero_summary_card()
+        if hasattr(self, 'sheet_ui') and self.sheet_ui and getattr(self.sheet_ui, 'winfo_exists', lambda: False)():
+            try:
+                self.sheet_ui.refresh_ui_language()
+            except Exception:
+                pass
 
     def setup_gui(self):
         # 1. MENU BAR GLOBALE

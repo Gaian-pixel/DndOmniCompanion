@@ -309,8 +309,6 @@ class DM_GUI:
             self.setup_fow_options_menu()
 
         # Aggiorna Tab Mondo
-        if hasattr(self, 'btn_encounter_builder'):
-            self.btn_encounter_builder.config(text="Encounter Builder")
         if hasattr(self, 'btn_switch_scene'):
             self.btn_switch_scene.config(text=_t("btn_switch_scene"))
         if hasattr(self, 'lbl_time_mgmt'):

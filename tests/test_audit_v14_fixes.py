@@ -98,6 +98,7 @@ class TestAuditV14Fixes(unittest.TestCase):
         target.position = [1, 0]
         target.hp = 50
         target.max_hp = 50
+        target.ac = 1
         target.is_party_member = False
 
         ally = Player("Guerriero")
@@ -125,7 +126,7 @@ class TestAuditV14Fixes(unittest.TestCase):
         data_finesse = {
             "target_name": "Bersaglio",
             "weapon_name": "Stocco",
-            "hit_bonus": 5,
+            "hit_bonus": 50,
             "damage_formula": "1d8",
             "damage_type": "Perforante"
         }

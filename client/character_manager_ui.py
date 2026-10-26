@@ -17,7 +17,7 @@ from common.theme import (
     FONT_TITLE, FONT_HEADER, FONT_MAIN, FONT_BOLD, FONT_SMALL
 )
 from common.messagebox import messagebox
-from common.i18n import _t
+from common.i18n import _t, get_language, register_language_listener, unregister_language_listener, translate_ability
 from client.character_manager import CharacterManager, Character
 from client.character_creation_wizard import CharacterCreationWizard
 from client.character_sheet_ui import CharacterSheetUI, open_export_character_dialog
@@ -70,6 +70,27 @@ class CharacterManagerFrame(tk.Frame):
 
         self.setup_ui()
         self.refresh_list()
+        try:
+            register_language_listener(self._on_language_changed)
+        except Exception:
+            pass
+
+    def _on_language_changed(self, lang_code):
+        try:
+            self.refresh_list()
+            if self.selected_character:
+                self.show_character_details(self.selected_character)
+            else:
+                self.show_empty_details()
+        except Exception:
+            pass
+
+    def destroy(self):
+        try:
+            unregister_language_listener(self._on_language_changed)
+        except Exception:
+            pass
+        super().destroy()
 
     def close_view(self):
         if self.on_close_callback:
@@ -154,7 +175,7 @@ class CharacterManagerFrame(tk.Frame):
         columns = ("name", "class_lvl", "race", "campaign")
         self.tree = ttk.Treeview(tree_container, columns=columns, show="headings", selectmode="browse")
         self.tree.heading("name", text="Nome")
-        self.tree.heading("class_lvl", text="Classe & Livello")
+        self.tree.heading("class_lvl", text=f"{_t('sheet_char_class').replace(':', '')} & {_t('sheet_char_level').replace(':', '')}")
         self.tree.heading("race", text="Razza")
         self.tree.heading("campaign", text="Campagna")
 
@@ -400,7 +421,7 @@ class CharacterManagerFrame(tk.Frame):
             ).pack(side=tk.LEFT, padx=(0, 4), expand=True, fill=tk.X)
 
         # Griglia 6 Caratteristiche
-        attr_container = tk.LabelFrame(scroll_frame, text="Caratteristiche Base", bg=SURFACE_COLOR, fg=TEXT_MUTED, font=FONT_SMALL, padx=8, pady=6)
+        attr_container = tk.LabelFrame(scroll_frame, text=_t("sheet_attributes"), bg=SURFACE_COLOR, fg=TEXT_MUTED, font=FONT_SMALL, padx=8, pady=6)
         attr_container.pack(fill=tk.X, pady=(0, 8))
 
         attr_keys = ["FOR", "DES", "COS", "INT", "SAG", "CAR"]
@@ -473,6 +494,10 @@ class CharacterManagerFrame(tk.Frame):
 
         def on_sheet_saved(*_args):
             self.refresh_list()
+        try:
+            register_language_listener(self._on_language_changed)
+        except Exception:
+            pass
 
         sheet = CharacterSheetUI(
             self,
@@ -483,11 +508,15 @@ class CharacterManagerFrame(tk.Frame):
         )
         self.wait_window(sheet)
         self.refresh_list()
+        try:
+            register_language_listener(self._on_language_changed)
+        except Exception:
+            pass
 
     def export_selected_character(self):
         """Esporta direttamente il personaggio in formato PDF ufficiale D&D o backup JSON."""
         if not self.selected_character:
-            messagebox.showwarning("Attenzione", "Seleziona un personaggio da esportare.", parent=self)
+            messagebox.showwarning(_t("warning"), "Seleziona un personaggio da esportare." if get_language() == "it" else "Select a character to export.", parent=self)
             return
         open_export_character_dialog(self, self.selected_character)
 
@@ -499,6 +528,10 @@ class CharacterManagerFrame(tk.Frame):
 
         def on_created(new_char):
             self.refresh_list()
+        try:
+            register_language_listener(self._on_language_changed)
+        except Exception:
+            pass
             if new_char and hasattr(new_char, "id"):
                 self.selected_character = new_char
                 if self.tree.exists(new_char.id):
@@ -514,6 +547,10 @@ class CharacterManagerFrame(tk.Frame):
         c = Character(name="Nuovo Eroe")
         self.manager.add_character(c)
         self.refresh_list()
+        try:
+            register_language_listener(self._on_language_changed)
+        except Exception:
+            pass
         self.selected_character = c
         if self.tree.exists(c.id):
             self.tree.selection_set(c.id)
@@ -523,7 +560,7 @@ class CharacterManagerFrame(tk.Frame):
     def duplicate_selected_character(self):
         """Duplica il personaggio selezionato creando una copia indipendente."""
         if not self.selected_character:
-            messagebox.showwarning("Attenzione", "Seleziona un personaggio da duplicare.", parent=self)
+            messagebox.showwarning(_t("warning"), "Seleziona un personaggio da duplicare." if get_language() == "it" else "Select a character to duplicate.", parent=self)
             return
 
         char_dict = self.selected_character.to_dict()
@@ -533,6 +570,10 @@ class CharacterManagerFrame(tk.Frame):
         copy_char = Character.from_dict(char_dict)
         self.manager.add_character(copy_char)
         self.refresh_list()
+        try:
+            register_language_listener(self._on_language_changed)
+        except Exception:
+            pass
 
         if self.tree.exists(copy_char.id):
             self.tree.selection_set(copy_char.id)
@@ -545,7 +586,7 @@ class CharacterManagerFrame(tk.Frame):
     def delete_selected_character(self):
         """Elimina il personaggio selezionato previa conferma dell'utente."""
         if not self.selected_character:
-            messagebox.showwarning("Attenzione", "Seleziona un personaggio da eliminare.", parent=self)
+            messagebox.showwarning(_t("warning"), "Seleziona un personaggio da eliminare." if get_language() == "it" else "Select a character to delete.", parent=self)
             return
 
         confirm_msg = _t("char_manager_delete_confirm", name=self.selected_character.name)
@@ -554,6 +595,10 @@ class CharacterManagerFrame(tk.Frame):
             self.manager.delete_character(self.selected_character)
             self.selected_character = None
             self.refresh_list()
+        try:
+            register_language_listener(self._on_language_changed)
+        except Exception:
+            pass
             messagebox.showinfo("Eliminato", f"Il personaggio '{deleted_name}' è stato eliminato.", parent=self)
 
     def confirm_selection(self):

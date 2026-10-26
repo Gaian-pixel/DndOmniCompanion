@@ -22,6 +22,7 @@ from common.theme import (
     FONT_SMALL,
     FONT_BADGE
 )
+from common.i18n import _t, get_language, translate_ability, translate_skill
 from common.classes_data import CLASSES, get_class_info, get_class_names, CLASS_CATEGORIES, get_classes_by_category
 from common.races_data import RACES, get_race_info, get_race_names
 from common.backgrounds_data import (
@@ -101,14 +102,14 @@ class CharacterCreationWizardFrame(ttk.Frame):
         self.stepper_bar.pack(fill=tk.X, side=tk.TOP, padx=12, pady=(10, 0))
 
         if self.on_close_callback:
-            self.cancel_btn = ttk.Button(self.stepper_bar, text="← Menu", command=self.close_wizard, style="Dark.TButton")
+            self.cancel_btn = ttk.Button(self.stepper_bar, text=_t("btn_back_to_menu", default="← Menu"), command=self.close_wizard, style="Dark.TButton")
             self.cancel_btn.pack(side=tk.LEFT, padx=(0, 10))
             tk.Frame(self.stepper_bar, bg=BORDER_COLOR, width=1).pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10), pady=2)
 
         self.step_pills_frame = tk.Frame(self.stepper_bar, bg=SURFACE_COLOR)
         self.step_pills_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.step_pill_labels = []
-        step_titles = ["① Razza", "② Classe", "③ Caratteristiche", "④ Background", "⑤ Identità & Storia"]
+        step_titles = [f"① {_t('wizard_step1_title').split(': ')[-1]}", f"② {_t('wizard_step2_title').split(': ')[-1]}", f"③ {_t('wizard_step3_title').split(': ')[-1]}", f"④ {_t('wizard_step4_title').split(': ')[-1]}", f"⑤ {_t('wizard_step5_title').split(': ')[-1]}"]
         for idx, s_title in enumerate(step_titles):
             lbl = tk.Label(
                 self.step_pills_frame,
@@ -130,18 +131,53 @@ class CharacterCreationWizardFrame(ttk.Frame):
         self.btn_frame = tk.Frame(self, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=14, pady=8)
         self.btn_frame.pack(fill=tk.X, side=tk.BOTTOM, padx=12, pady=(0, 10))
         
-        self.prev_btn = ttk.Button(self.btn_frame, text="← Passo Precedente", command=self.prev_step, style="Dark.TButton")
+        self.prev_btn = ttk.Button(self.btn_frame, text=_t("wizard_btn_prev"), command=self.prev_step, style="Dark.TButton")
         self.prev_btn.pack(side=tk.LEFT)
         
         self.step_indicator_lbl = tk.Label(self.btn_frame, text="", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD)
         self.step_indicator_lbl.pack(side=tk.LEFT, padx=20)
 
-        self.next_btn = ttk.Button(self.btn_frame, text="Passo Successivo →", command=self.next_step, style="Gold.TButton")
+        self.next_btn = ttk.Button(self.btn_frame, text=_t("wizard_btn_next"), command=self.next_step, style="Gold.TButton")
         self.next_btn.pack(side=tk.RIGHT)
+
+        try:
+            register_language_listener(self._on_language_changed)
+        except Exception:
+            pass
         
         self.show_step()
 
+    def _on_language_changed(self, lang_code):
+        try:
+            if hasattr(self, "step_pill_labels"):
+                step_titles = [
+                    f"① {_t('wizard_step1_title').split(': ')[-1]}",
+                    f"② {_t('wizard_step2_title').split(': ')[-1]}",
+                    f"③ {_t('wizard_step3_title').split(': ')[-1]}",
+                    f"④ {_t('wizard_step4_title').split(': ')[-1]}",
+                    f"⑤ {_t('wizard_step5_title').split(': ')[-1]}"
+                ]
+                for idx, s_title in enumerate(step_titles):
+                    if idx < len(self.step_pill_labels):
+                        self.step_pill_labels[idx].config(text=s_title)
+            if hasattr(self, "cancel_btn"):
+                self.cancel_btn.config(text=_t("btn_back_to_menu", default="← Menu"))
+            if hasattr(self, "prev_btn"):
+                self.prev_btn.config(text=_t("wizard_btn_prev"))
+            if hasattr(self, "next_btn"):
+                if self.current_step == len(self.steps) - 1:
+                    self.next_btn.config(text=_t("wizard_btn_finish"))
+                else:
+                    self.next_btn.config(text=_t("wizard_btn_next"))
+            self.show_step()
+        except Exception:
+            pass
+
     def close_wizard(self):
+        try:
+            unregister_language_listener(self._on_language_changed)
+        except Exception:
+            pass
         try:
             self.clear_container()
         except Exception:
@@ -150,6 +186,13 @@ class CharacterCreationWizardFrame(ttk.Frame):
             self.on_close_callback()
         else:
             self.destroy()
+
+    def destroy(self):
+        try:
+            unregister_language_listener(self._on_language_changed)
+        except Exception:
+            pass
+        super().destroy()
 
     def clear_container(self):
         try:
@@ -163,7 +206,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
     def show_step(self):
         self.clear_container()
         step_idx = self.current_step
-        self.step_indicator_lbl.config(text=f"Passo {step_idx + 1} di {len(self.steps)}")
+        self.step_indicator_lbl.config(text=f"Passo {step_idx + 1} di {len(self.steps)}" if get_language() == "it" else f"Step {step_idx + 1} of {len(self.steps)}")
         if hasattr(self, "step_pill_labels"):
             for i, pill in enumerate(self.step_pill_labels):
                 if i < step_idx:
@@ -214,9 +257,9 @@ class CharacterCreationWizardFrame(ttk.Frame):
             self.prev_btn.config(state=tk.NORMAL)
             
         if self.current_step == len(self.steps) - 1:
-            self.next_btn.config(text="Fine e Crea Personaggio")
+            self.next_btn.config(text=_t("wizard_btn_finish"))
         else:
-            self.next_btn.config(text="Avanti >")
+            self.next_btn.config(text=_t("wizard_btn_next"))
 
     def _save_current_step_data(self):
         if self.current_step == 2 and hasattr(self, "attr_vars"):
@@ -290,7 +333,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         if self.current_step == 4:
             self._save_current_step_data()
             if not self.char_data.get("name"):
-                messagebox.showerror("Errore", "Il nome del personaggio è obbligatorio.")
+                messagebox.showerror(_t("error"), _t("wizard_msg_name_required"))
                 return
             self.finish_creation()
             return
@@ -318,7 +361,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         ttk.Label(header_frame, text="📊 Compendio e Confronto Comparativo delle Razze (D&D 5e)", style="Title.TLabel").pack(anchor="w")
         ttk.Label(
             header_frame,
-            text="Filtra e confronta le 9 razze canoniche: bonus, resistenze e sinergie. Clicca su una riga per l'anteprima istantanea a destra o fai doppio clic per selezionare.",
+            text=_t("wizard_step1_filter_hint"),
             style="Muted.TLabel"
         ).pack(anchor="w", pady=(2, 0))
 
@@ -326,7 +369,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         filter_bar = ttk.Frame(top, padding=(14, 2, 14, 8))
         filter_bar.pack(fill=tk.X)
 
-        ttk.Label(filter_bar, text="🔍 Cerca:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Label(filter_bar, text=_t("wizard_search_label"), font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD).pack(side=tk.LEFT, padx=(0, 6))
         search_var = tk.StringVar()
         search_entry = ttk.Entry(filter_bar, textvariable=search_var, width=22)
         search_entry.pack(side=tk.LEFT, padx=(0, 10))
@@ -375,12 +418,12 @@ class CharacterCreationWizardFrame(ttk.Frame):
         # Table Treeview
         columns = ("razza", "bonus", "tratti", "resistenze", "taglia_vel", "classi")
         tree = ttk.Treeview(table_frame, columns=columns, show="headings", selectmode="browse")
-        tree.heading("razza", text="Razza")
-        tree.heading("bonus", text="Bonus Caratteristiche")
-        tree.heading("tratti", text="Tratti Razziali Chiave")
-        tree.heading("resistenze", text="Resistenze & Difese")
-        tree.heading("taglia_vel", text="Taglia / Vel.")
-        tree.heading("classi", text="Classi Consigliate")
+        tree.heading("razza", text=_t("wizard_lbl_race").replace("🧬 ", "").replace(":", ""))
+        tree.heading("bonus", text=_t("wizard_stat_bonus"))
+        tree.heading("tratti", text=_t("wizard_traits_key"))
+        tree.heading("resistenze", text=_t("wizard_traits_key") if get_language() == "it" else "Resistances & Defenses")
+        tree.heading("taglia_vel", text="Taglia / Vel." if get_language() == "it" else "Size / Spd")
+        tree.heading("classi", text="Classi Consigliate" if get_language() == "it" else "Recommended Classes")
 
         tree.column("razza", width=105, anchor="w")
         tree.column("bonus", width=155, anchor="w")
@@ -682,7 +725,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
             text="💡 Suggerimento: Seleziona una razza per visualizzarne i dettagli o premi 'Scegli Questa Razza'.",
             style="Muted.TLabel"
         ).pack(side=tk.LEFT, padx=16)
-        ttk.Button(btn_bar, text="✓ Scegli Questa Razza", command=_select_and_close, style="Primary.TButton").pack(side=tk.RIGHT)
+        ttk.Button(btn_bar, text=_t("wizard_btn_choose_race"), command=_select_and_close, style="Primary.TButton").pack(side=tk.RIGHT)
 
     def build_step_race(self, parent=None):
         parent = parent or self.container
@@ -691,10 +734,10 @@ class CharacterCreationWizardFrame(ttk.Frame):
         header_frame = ttk.Frame(parent)
         header_frame.pack(fill=tk.X, pady=(0, 6))
         
-        ttk.Label(header_frame, text="Passo 1: Scegli la Razza", style="Title.TLabel").pack(anchor="center")
+        ttk.Label(header_frame, text=_t("wizard_step1_title"), style="Title.TLabel").pack(anchor="center")
         ttk.Label(
             header_frame,
-            text="La razza definisce la tua discendenza biologica e culturale, i bonus alle caratteristiche, la taglia, la velocità e i talenti innati.",
+            text=_t("wizard_step1_desc"),
             style="Muted.TLabel",
             justify=tk.CENTER,
             wraplength=640
@@ -704,7 +747,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         sel_frame = ttk.Frame(parent, style="Surface.TFrame", padding=(10, 8))
         sel_frame.pack(fill=tk.X, pady=(0, 10))
         
-        ttk.Label(sel_frame, text="🧬 Razza:", font=("Segoe UI", 11, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT, padx=(5, 10))
+        ttk.Label(sel_frame, text=_t("wizard_lbl_race"), font=("Segoe UI", 11, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT, padx=(5, 10))
         
         race_list = list(RACES.keys())
         current_race = self.char_data.get("race", "Umano")
@@ -741,7 +784,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         # Barra Opzioni Sottorazza / Bonus Mezzelfo
         sub_sel_frame = ttk.Frame(parent, style="Surface.TFrame", padding=(10, 6))
         self.subrace_var = tk.StringVar(value=self.char_data.get("subrace", ""))
-        sub_lbl = ttk.Label(sub_sel_frame, text="🌿 Sottorazza:", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel")
+        sub_lbl = ttk.Label(sub_sel_frame, text=_t("wizard_lbl_subrace"), font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel")
         sub_cb = ttk.Combobox(sub_sel_frame, textvariable=self.subrace_var, state="readonly", font=("Segoe UI", 10), width=24)
 
         he_stats = ["FOR", "DES", "COS", "INT", "SAG"]
@@ -846,7 +889,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
         
         # Sezione 2: Tratti Razziali Innati
-        ttk.Label(card, text="🧬 Tratti Razziali Innati", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
+        ttk.Label(card, text=_t("wizard_lbl_traits"), font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
         traits_container = ttk.Frame(card, style="Surface.TFrame")
         traits_container.pack(fill=tk.X, pady=(2, 8))
         
@@ -951,7 +994,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         # Tabella Treeview
         columns = ("classe", "categoria", "ruolo", "hd", "primaria", "tiri_salvezza", "complessita")
         tree = ttk.Treeview(top, columns=columns, show="headings", height=13)
-        tree.heading("classe", text="Classe")
+        tree.heading("classe", text=_t("wizard_lbl_class").replace("⚔️ ", "").replace(":", ""))
         tree.heading("categoria", text="Categoria")
         tree.heading("ruolo", text="Ruolo nel Party")
         tree.heading("hd", text="Dado Vita")
@@ -1001,7 +1044,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         btn_bar.pack(fill=tk.X, side=tk.BOTTOM)
         
         ttk.Button(btn_bar, text="Annulla", command=top.destroy, style="Dark.TButton").pack(side=tk.LEFT)
-        ttk.Button(btn_bar, text="✓ Scegli Questa Classe", command=_select_and_close, style="Primary.TButton").pack(side=tk.RIGHT)
+        ttk.Button(btn_bar, text=_t("wizard_btn_choose_class"), command=_select_and_close, style="Primary.TButton").pack(side=tk.RIGHT)
 
     def build_step_class(self, parent=None):
         parent = parent or self.container
@@ -1010,10 +1053,10 @@ class CharacterCreationWizardFrame(ttk.Frame):
         header_frame = ttk.Frame(parent)
         header_frame.pack(fill=tk.X, pady=(0, 6))
         
-        ttk.Label(header_frame, text="Passo 2: Scegli la Classe", style="Title.TLabel").pack(anchor="center")
+        ttk.Label(header_frame, text=_t("wizard_step2_title"), style="Title.TLabel").pack(anchor="center")
         ttk.Label(
             header_frame,
-            text="La classe definisce la vocazione, le abilità marziali o magiche, i privilegi speciali e il ruolo tattico del tuo avventuriero.",
+            text=_t("wizard_step2_desc"),
             style="Muted.TLabel",
             justify=tk.CENTER,
             wraplength=640
@@ -1058,7 +1101,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         sel_frame = ttk.Frame(parent, style="Surface.TFrame", padding=(10, 8))
         sel_frame.pack(fill=tk.X, pady=(0, 10))
         
-        ttk.Label(sel_frame, text="⚔️ Classe:", font=("Segoe UI", 11, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT, padx=(5, 10))
+        ttk.Label(sel_frame, text=_t("wizard_lbl_class"), font=("Segoe UI", 11, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT, padx=(5, 10))
         
         class_list = list(CLASSES.keys())
         current_class = self.char_data.get("char_class", "Guerriero")
@@ -1251,7 +1294,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
     # -------------------------------------------------------------------------
     def build_step_attributes(self, parent=None):
         parent = parent or self.container
-        ttk.Label(parent, text="Passo 3: Caratteristiche (Standard Array)", style="Title.TLabel").pack(pady=(0, 10))
+        ttk.Label(parent, text=_t("wizard_step3_title"), style="Title.TLabel").pack(pady=(0, 10))
         ttk.Label(parent, text="Assegna i valori: 15, 14, 13, 12, 10, 8\nI valori si scambieranno automaticamente per non avere duplicati.", justify=tk.CENTER).pack(pady=(0, 15))
         
         self.attr_vars = {}
@@ -1299,8 +1342,8 @@ class CharacterCreationWizardFrame(ttk.Frame):
     # PASSO 4: BACKGROUND & COMPETENZE
     # -------------------------------------------------------------------------
     def build_step_background(self, parent):
-        ttk.Label(parent, text="Passo 4: Scegli il Background & le Competenze", style="Title.TLabel").pack(pady=(0, 4))
-        ttk.Label(parent, text="Il tuo passato plasma le tue competenze nelle abilità, i privilegi sociali e l'indole morale.", style="Muted.TLabel").pack(pady=(0, 12))
+        ttk.Label(parent, text=_t("wizard_step4_title"), style="Title.TLabel").pack(pady=(0, 4))
+        ttk.Label(parent, text=_t("wizard_step4_desc"), style="Muted.TLabel").pack(pady=(0, 12))
         
         # 1. Selezione del Background
         top_bar = ttk.Frame(parent)
@@ -1349,7 +1392,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         roleplay_header.pack(fill=tk.X, pady=(10, 6))
         ttk.Label(roleplay_header, text="🎭 Le 4 Colonne Ruolistiche (D&D 5e)", font=("Segoe UI", 11, "bold")).pack(side=tk.LEFT)
         
-        btn_roll_all = ttk.Button(roleplay_header, text="🎲 Tira Tutti i Tratti Casuali", command=lambda: self._roll_all_roleplay_traits(), style="Gold.TButton")
+        btn_roll_all = ttk.Button(roleplay_header, text=_t("wizard_btn_roll_random"), command=lambda: self._roll_all_roleplay_traits(), style="Gold.TButton")
         btn_roll_all.pack(side=tk.RIGHT)
 
         rp_grid = ttk.Frame(parent)
@@ -1438,8 +1481,8 @@ class CharacterCreationWizardFrame(ttk.Frame):
     # PASSO 5: NARRATIVA, OBIETTIVI & DETTAGLI FINALI
     # -------------------------------------------------------------------------
     def build_step_narrative(self, parent):
-        ttk.Label(parent, text="Passo 5: Narrativa, Obiettivi & Dettagli Finali", style="Title.TLabel").pack(pady=(0, 4))
-        ttk.Label(parent, text="Definisci gli obiettivi della tua avventura, i tuoi segreti e componi la tua storia.", style="Muted.TLabel").pack(pady=(0, 10))
+        ttk.Label(parent, text=_t("wizard_step5_title"), style="Title.TLabel").pack(pady=(0, 4))
+        ttk.Label(parent, text=_t("wizard_step5_desc"), style="Muted.TLabel").pack(pady=(0, 10))
 
         # 1. Sezione Anagrafica Base (Nome, Campagna, Origine)
         ana_frame = ttk.Frame(parent)
@@ -1486,7 +1529,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         token_info = ttk.Frame(token_row)
         token_info.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        ttk.Label(token_info, text="Aspetto del Personaggio & Token di Gioco:", font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        ttk.Label(token_info, text=_t("wizard_aspect_token"), font=("Segoe UI", 9, "bold")).pack(anchor="w")
         ttk.Label(token_info, text="L'immagine scelta verrà ritagliata in forma circolare e utilizzata come token interattivo sulla mappa.", style="Muted.TLabel", wraplength=420, justify=tk.LEFT).pack(anchor="w", pady=(1, 4))
 
         token_btn_row = ttk.Frame(token_info)
@@ -1925,7 +1968,7 @@ class CharacterCreationWizard(tk.Toplevel):
     """
     def __init__(self, master, manager, on_complete_callback):
         super().__init__(master)
-        self.title("Creazione Guidata Personaggio & Background (D&D 5e)")
+        self.title(f"{_t('app_title')} • {_t('wizard_window_title')}")
         self.minsize(700, 720)
         self.geometry("760x780")
         apply_modern_window_style(self)

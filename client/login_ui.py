@@ -1,6 +1,7 @@
 import tkinter as tk
 from common.messagebox import messagebox
 from tkinter import ttk
+from common.i18n import _t, get_language
 from common.theme import TEXT_COLOR, ACCENT_RED, SURFACE_COLOR, BORDER_COLOR, apply_modern_window_style
 from .character_sheet_ui import CharacterSheetUI
 from .character_creation_wizard import CharacterCreationWizard
@@ -8,7 +9,7 @@ from .character_creation_wizard import CharacterCreationWizard
 class LoginDialog(tk.Toplevel):
     def __init__(self, master, character_manager):
         super().__init__(master)
-        self.title("Accesso alla Sessione D&D")
+        self.title(_t("menu_connect"))
         self.minsize(400, 350)
         apply_modern_window_style(self)
         self.transient(master)
@@ -29,7 +30,7 @@ class LoginDialog(tk.Toplevel):
         self.ip_var = tk.StringVar(value="127.0.0.1")
         ttk.Entry(main_frame, textvariable=self.ip_var).pack(fill=tk.X, pady=(0, 15))
         
-        ttk.Label(main_frame, text="Seleziona Personaggio:").pack(anchor="w")
+        ttk.Label(main_frame, text=_t("login_select_char")).pack(anchor="w")
         
         list_frame = ttk.Frame(main_frame)
         list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
@@ -46,11 +47,11 @@ class LoginDialog(tk.Toplevel):
         btn_frame = ttk.Frame(main_frame)
         btn_frame.pack(fill=tk.X, pady=10)
         
-        ttk.Button(btn_frame, text="Crea Nuovo", command=self.create_character).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-        ttk.Button(btn_frame, text="Modifica", command=self.edit_character).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-        ttk.Button(btn_frame, text="Elimina", command=self.delete_character, style="Danger.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ttk.Button(btn_frame, text=_t("login_btn_create"), command=self.create_character).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ttk.Button(btn_frame, text=_t("login_btn_edit"), command=self.edit_character).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        ttk.Button(btn_frame, text=_t("login_btn_delete"), command=self.delete_character, style="Danger.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
         
-        ttk.Button(main_frame, text="Connetti al Server", command=self.connect).pack(fill=tk.X, pady=(10, 0))
+        ttk.Button(main_frame, text=_t("login_btn_connect"), command=self.connect).pack(fill=tk.X, pady=(10, 0))
 
     def refresh_listbox(self):
         self.char_listbox.delete(0, tk.END)
@@ -65,7 +66,7 @@ class LoginDialog(tk.Toplevel):
     def edit_character(self):
         sel = self.char_listbox.curselection()
         if not sel:
-            messagebox.showwarning("Attenzione", "Seleziona un personaggio da modificare.")
+            messagebox.showwarning(_t("warning"), "Seleziona un personaggio da modificare." if get_language() == "it" else "Select a character to edit.")
             return
         char = self.manager.characters[sel[0]]
         ui = CharacterSheetUI(self, char, self.manager, on_save_callback=self.refresh_listbox, is_connected=False)
@@ -75,7 +76,7 @@ class LoginDialog(tk.Toplevel):
     def delete_character(self):
         sel = self.char_listbox.curselection()
         if not sel:
-            messagebox.showwarning("Attenzione", "Seleziona un personaggio da eliminare.")
+            messagebox.showwarning(_t("warning"), "Seleziona un personaggio da eliminare." if get_language() == "it" else "Select a character to delete.")
             return
         char = self.manager.characters[sel[0]]
         if messagebox.askyesno("Conferma", f"Sei sicuro di voler eliminare il personaggio '{char.name}'?"):
@@ -90,7 +91,7 @@ class LoginDialog(tk.Toplevel):
             
         sel = self.char_listbox.curselection()
         if not sel:
-            messagebox.showerror("Errore", "Seleziona o crea un personaggio per connetterti.")
+            messagebox.showerror(_t("error"), _t("login_no_char_selected"))
             return
             
         char = self.manager.characters[sel[0]]

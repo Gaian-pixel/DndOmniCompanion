@@ -55,7 +55,7 @@ def start_app():
         root.resizable(True, True)
         root.minsize(820, 520)
         root.geometry("880x580")
-        root.title(f"{_t('app_title')} • Libreria Campagne Preparate")
+        root.title(f"{_t('app_title')} • {_t('campaign_lib_title')}")
         
         from server.campaign_editor_ui import CampaignSelectorFrame
         selector = CampaignSelectorFrame(
@@ -72,8 +72,8 @@ def start_app():
         root.resizable(True, True)
         root.minsize(980, 680)
         root.geometry("1150x760")
-        c_title = campaign.name if campaign else "Nuova Campagna"
-        root.title(f"{_t('app_title')} • Editor Campagna: {c_title}")
+        c_title = campaign.name if campaign else ("Nuova Campagna" if get_language() == "it" else "New Campaign")
+        root.title(f"{_t('app_title')} • {_t('campaign_editor_title', title=c_title)}")
         
         from server.campaign_editor_ui import CampaignEditorFrame
         editor = CampaignEditorFrame(
@@ -110,7 +110,7 @@ def start_app():
         root.resizable(True, True)
         root.minsize(760, 700)
         root.geometry("820x760")
-        root.title(f"{_t('app_title')} • Creazione Guidata Personaggio")
+        root.title(f"{_t('app_title')} • {_t('wizard_window_title')}")
         
         from client.character_manager import CharacterManager
         from client.character_creation_wizard import CharacterCreationWizardFrame
@@ -197,7 +197,7 @@ def start_app():
         for cx, cy in ((6, 12), (28, 6), (50, 12)):
             dm_icon_cv.create_oval(cx - 2.5, cy - 2.5, cx + 2.5, cy + 2.5, fill="#FFF3BF", outline=ACCENT_GOLD)
         tk.Label(dm_hdr, text=_t("launcher_dm_title"), font=("Georgia", 14, "bold"), bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack()
-        tk.Label(dm_hdr, text="MASTER & REGIA CAMPAGNA", font=("Segoe UI", 8, "bold"), bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(pady=(2, 0))
+        tk.Label(dm_hdr, text=_t("launcher_dm_sub"), font=("Segoe UI", 8, "bold"), bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(pady=(2, 0))
 
         tk.Frame(dm_card, bg=BORDER_COLOR, height=1).pack(fill=tk.X, pady=8)
 
@@ -237,7 +237,7 @@ def start_app():
         pl_icon_cv.create_line(28, 8, 28, 38, fill="#DBE4FF", width=1.5)
         pl_icon_cv.create_line(16, 20, 40, 20, fill="#DBE4FF", width=1.5)
         tk.Label(pl_hdr, text=_t("launcher_player_title"), font=("Georgia", 14, "bold"), bg=SURFACE_COLOR, fg=TEXT_COLOR).pack()
-        tk.Label(pl_hdr, text="EROI, SCHEDE 5E & TAVOLO VIRTUALE", font=("Segoe UI", 8, "bold"), bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(pady=(2, 0))
+        tk.Label(pl_hdr, text=_t("launcher_player_sub"), font=("Segoe UI", 8, "bold"), bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(pady=(2, 0))
 
         tk.Frame(player_card, bg=BORDER_COLOR, height=1).pack(fill=tk.X, pady=8)
 

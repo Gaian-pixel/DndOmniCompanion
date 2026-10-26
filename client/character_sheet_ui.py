@@ -15,7 +15,8 @@ from common.theme import (
 )
 from common.i18n import (
     _t, get_language, translate_ability, translate_skill,
-    get_distance_unit, set_distance_unit, convert_speed_value
+    get_distance_unit, set_distance_unit, convert_speed_value,
+    register_language_listener, unregister_language_listener
 )
 from components.ui_components import ToolTip
 
@@ -331,6 +332,10 @@ class CharacterSheetFrame(ttk.Frame):
         
         self.setup_ui()
         self.load_data()
+        try:
+            register_language_listener(self.on_language_changed)
+        except Exception:
+            pass
 
     def _capture_initial_state(self):
         import copy
@@ -354,6 +359,140 @@ class CharacterSheetFrame(ttk.Frame):
             "currency": copy.deepcopy(getattr(self.character, "currency", {})),
             "spell_slots": copy.deepcopy(getattr(self.character, "spell_slots", {})),
         }
+
+    def on_language_changed(self, lang_code):
+        try:
+            self.after(0, self.refresh_ui_language)
+        except Exception:
+            pass
+
+    def refresh_ui_language(self):
+        try:
+            # 1. Overlay Header
+            if hasattr(self, "btn_close_overlay"):
+                self.btn_close_overlay.config(text=_t("sheet_btn_close_esc"))
+            if hasattr(self, "btn_detach"):
+                self.btn_detach.config(text=_t("sheet_btn_detach"))
+            if hasattr(self, "btn_dock"):
+                self.btn_dock.config(text=_t("sheet_btn_dock"))
+            if hasattr(self, "btn_quick_save"):
+                self.btn_quick_save.config(text=_t("sheet_btn_quick_save"))
+
+            # 2. Header Bar
+            if hasattr(self, "lbl_subclass_title"):
+                self.lbl_subclass_title.config(text=_t("sheet_header_subclass"))
+            if hasattr(self, "lbl_bg_title"):
+                self.lbl_bg_title.config(text=_t("sheet_header_background"))
+            if hasattr(self, "lbl_align_title"):
+                self.lbl_align_title.config(text=_t("sheet_header_alignment"))
+            if hasattr(self, "btn_edit_avatar"):
+                self.btn_edit_avatar.config(text=_t("sheet_btn_token"))
+            if hasattr(self, "update_inspiration_ui"):
+                self.update_inspiration_ui()
+
+            # 3. Ability Boxes & Saves & Skills
+            if hasattr(self, "attr_name_labels"):
+                for a, lbl in self.attr_name_labels.items():
+                    lbl.config(text=translate_ability(a))
+            if hasattr(self, "lbl_saves_header"):
+                self.lbl_saves_header.config(text=_t("sheet_saves_header"))
+            if hasattr(self, "save_name_labels"):
+                for a, lbl in self.save_name_labels.items():
+                    lbl.config(text=translate_ability(a))
+            if hasattr(self, "skill_name_labels") and hasattr(self, "skill_map"):
+                for sk, lbl in self.skill_name_labels.items():
+                    st = self.skill_map.get(sk, "FOR")
+                    lbl.config(text=f"{translate_skill(sk)} ({translate_ability(st)})")
+
+            # 4. Notebook Tabs
+            if hasattr(self, "notebook"):
+                try:
+                    self.notebook.tab(0, text=_t("sheet_tab_weapons"))
+                    self.notebook.tab(1, text=_t("sheet_tab_inventory"))
+                    self.notebook.tab(2, text=_t("sheet_tab_features"))
+                    self.notebook.tab(3, text=_t("sheet_tab_spellbook"))
+                    self.notebook.tab(4, text=_t("sheet_tab_journal"))
+                    self.notebook.tab(5, text=_t("sheet_tab_quick_notes"))
+                except Exception:
+                    pass
+
+            # 5. Weapons Tab
+            if hasattr(self, "lbl_weapons_hdr"):
+                self.lbl_weapons_hdr.config(text=_t("sheet_weapons_header"))
+            if hasattr(self, "btn_add_weapon"):
+                add_w_txt = (_t("btn_request_item", default="+ Richiedi Arma") if get_language() == "it" else "+ Request Weapon") if self.is_connected else _t("sheet_weapons_add")
+                self.btn_add_weapon.config(text=add_w_txt)
+            if hasattr(self, "refresh_weapons_list"):
+                self.refresh_weapons_list()
+
+            # 6. Features Tab
+            if hasattr(self, "lbl_resources_hdr"):
+                self.lbl_resources_hdr.config(text=_t("sheet_features_resources"))
+            if hasattr(self, "btn_add_resource"):
+                self.btn_add_resource.config(text=_t("sheet_features_new_resource"))
+            if hasattr(self, "lbl_features_hdr"):
+                self.lbl_features_hdr.config(text=_t("sheet_features_header"))
+            if hasattr(self, "btn_prop_features"):
+                self.btn_prop_features.config(text=_t("sheet_features_propose"))
+            if hasattr(self, "btn_del_feature"):
+                self.btn_del_feature.config(text=_t("sheet_features_delete"))
+            if hasattr(self, "btn_edit_feature"):
+                self.btn_edit_feature.config(text=_t("sheet_features_edit"))
+            if hasattr(self, "btn_add_feature"):
+                self.btn_add_feature.config(text=_t("sheet_features_add"))
+            if hasattr(self, "feat_detail_title"):
+                self.feat_detail_title.config(text=_t("sheet_features_placeholder"))
+            if hasattr(self, "refresh_custom_resources_ui"):
+                self.refresh_custom_resources_ui()
+
+            # 7. Inventory Tab
+            if hasattr(self, "lbl_container_filter"):
+                self.lbl_container_filter.config(text=_t("container_filter_label"))
+            if hasattr(self, "container_filter_btns"):
+                labels = {
+                    "all": _t("container_filter_all") if get_language() == "it" else "📦 All",
+                    "backpack": _t("container_backpack"),
+                    "equipped": _t("container_equipped"),
+                    "bag_of_holding": _t("container_bag_of_holding"),
+                    "haversack": _t("container_haversack"),
+                    "mount": _t("container_mount"),
+                }
+                for k, btn in self.container_filter_btns.items():
+                    if k in labels:
+                        btn.config(text=labels[k])
+            if hasattr(self, "update_encumbrance_display"):
+                self.update_encumbrance_display()
+
+            # 8. Spellbook Tab
+            if hasattr(self, "spell_tree"):
+                try:
+                    self.spell_tree.heading("Nome", text=_t("col_spell_name"))
+                    self.spell_tree.heading("Tempo", text=_t("col_casting_time"))
+                    self.spell_tree.heading("Raggio", text=_t("col_range"))
+                except Exception:
+                    pass
+            if hasattr(self, "btn_remove_spell"):
+                self.btn_remove_spell.config(text=_t("remove"))
+            if hasattr(self, "btn_cast_spell"):
+                self.btn_cast_spell.config(text=_t("sheet_spellbook_cast_btn"))
+            if hasattr(self, "refresh_spell_list"):
+                self.refresh_spell_list()
+
+            # 9. Footer
+            if hasattr(self, "btn_export"):
+                self.btn_export.config(text=_t("sheet_btn_export_dialog"))
+            if hasattr(self, "levelup_btn"):
+                self.levelup_btn.config(text=_t("sheet_levelup_btn"))
+
+        except Exception as e:
+            print(f"[character_sheet_ui] Error refreshing UI language: {e}")
+
+    def destroy(self):
+        try:
+            unregister_language_listener(self.on_language_changed)
+        except Exception:
+            pass
+        super().destroy()
 
     def cancel_sheet(self):
         import copy
@@ -383,23 +522,23 @@ class CharacterSheetFrame(ttk.Frame):
             ).pack(side=tk.LEFT)
 
             if self.on_close_callback:
-                btn_close = ttk.Button(overlay_header, text="✕ Chiudi (Esc)", command=self.cancel_sheet, style="Danger.TButton")
-                btn_close.pack(side=tk.RIGHT, padx=(4, 0))
-                ToolTip(btn_close, "Chiudi la vista scheda e torna alla mappa (Esc)")
+                self.btn_close_overlay = ttk.Button(overlay_header, text=_t("sheet_btn_close_esc"), command=self.cancel_sheet, style="Danger.TButton")
+                self.btn_close_overlay.pack(side=tk.RIGHT, padx=(4, 0))
+                ToolTip(self.btn_close_overlay, "Chiudi la vista scheda e torna alla mappa (Esc)")
 
             if self.on_detach_callback:
-                btn_detach = ttk.Button(overlay_header, text="◱ Stacca Finestra", command=self.on_detach_callback, style="Tool.TButton")
-                btn_detach.pack(side=tk.RIGHT, padx=(4, 0))
-                ToolTip(btn_detach, "Apri la scheda in una finestra separata indipendente")
+                self.btn_detach = ttk.Button(overlay_header, text=_t("sheet_btn_detach"), command=self.on_detach_callback, style="Tool.TButton")
+                self.btn_detach.pack(side=tk.RIGHT, padx=(4, 0))
+                ToolTip(self.btn_detach, "Apri la scheda in una finestra separata indipendente")
 
             if self.on_dock_callback:
-                btn_dock = ttk.Button(overlay_header, text="◰ Riaggancia alla Mappa", command=self.on_dock_callback, style="Gold.TButton")
-                btn_dock.pack(side=tk.RIGHT, padx=(4, 0))
-                ToolTip(btn_dock, "Riaggancia la scheda all'interno della finestra principale del VTT")
+                self.btn_dock = ttk.Button(overlay_header, text=_t("sheet_btn_dock"), command=self.on_dock_callback, style="Gold.TButton")
+                self.btn_dock.pack(side=tk.RIGHT, padx=(4, 0))
+                ToolTip(self.btn_dock, "Riaggancia la scheda all'interno della finestra principale del VTT")
 
-            btn_quick_save = ttk.Button(overlay_header, text="💾 Salva (Ctrl+S)", command=self.save_character, style="Success.TButton")
-            btn_quick_save.pack(side=tk.RIGHT, padx=(4, 0))
-            ToolTip(btn_quick_save, "Salva le modifiche e chiudi la vista (Ctrl+S)")
+            self.btn_quick_save = ttk.Button(overlay_header, text=_t("sheet_btn_quick_save"), command=self.save_character, style="Success.TButton")
+            self.btn_quick_save.pack(side=tk.RIGHT, padx=(4, 0))
+            ToolTip(self.btn_quick_save, "Salva le modifiche e chiudi la vista (Ctrl+S)")
 
         main_frame = ttk.Frame(self, padding=8)
         main_frame.pack(fill=tk.BOTH, expand=True)
@@ -458,7 +597,8 @@ class CharacterSheetFrame(ttk.Frame):
         self.race_var = tk.StringVar()
         ttk.Entry(header_frame, textvariable=self.race_var, width=16).grid(row=2, column=2, padx=4, pady=3, sticky="ew")
 
-        tk.Label(header_frame, text="Sottoclasse:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=2, column=3, sticky="e", padx=(8, 4))
+        self.lbl_subclass_title = tk.Label(header_frame, text=_t("sheet_header_subclass"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
+        self.lbl_subclass_title.grid(row=2, column=3, sticky="e", padx=(8, 4))
         self.subclass_var = tk.StringVar()
         self.subclass_combo = ttk.Combobox(header_frame, textvariable=self.subclass_var, width=14)
         self.subclass_combo.grid(row=2, column=4, padx=4, pady=3, sticky="ew")
@@ -471,11 +611,13 @@ class CharacterSheetFrame(ttk.Frame):
         )
         self.btn_inspiration.grid(row=2, column=5, columnspan=3, padx=(8, 0), pady=3, sticky="ew")
 
-        tk.Label(header_frame, text="Background:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=3, column=1, sticky="e", padx=(0, 4))
+        self.lbl_bg_title = tk.Label(header_frame, text=_t("sheet_header_background"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
+        self.lbl_bg_title.grid(row=3, column=1, sticky="e", padx=(0, 4))
         self.background_var = tk.StringVar()
         ttk.Entry(header_frame, textvariable=self.background_var, width=16).grid(row=3, column=2, padx=4, pady=3, sticky="ew")
 
-        tk.Label(header_frame, text="Allineamento:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=3, column=3, sticky="e", padx=(8, 4))
+        self.lbl_align_title = tk.Label(header_frame, text=_t("sheet_header_alignment"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
+        self.lbl_align_title.grid(row=3, column=3, sticky="e", padx=(8, 4))
         self.alignment_var = tk.StringVar()
         ttk.Entry(header_frame, textvariable=self.alignment_var, width=14).grid(row=3, column=4, padx=4, pady=3, sticky="ew")
 
@@ -490,12 +632,15 @@ class CharacterSheetFrame(ttk.Frame):
 
         self.attr_vars = {}
         self.attr_mod_labels = {}
+        self.attr_name_labels = {}
         for attr in ["FOR", "DES", "COS", "INT", "SAG", "CAR"]:
             box = tk.Frame(stats_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=3)
             box.pack(fill=tk.X, pady=3)
             
             attr_text = translate_ability(attr)
-            tk.Label(box, text=attr_text, font=("Segoe UI", 9, "bold"), bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack()
+            _lbl = tk.Label(box, text=attr_text, font=("Segoe UI", 9, "bold"), bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD)
+            _lbl.pack()
+            self.attr_name_labels[attr] = _lbl
             
             var = tk.IntVar(value=10)
             self.attr_vars[attr] = var
@@ -534,10 +679,12 @@ class CharacterSheetFrame(ttk.Frame):
         # Tiri Salvezza (Saving Throws)
         saves_frame = tk.Frame(body_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=6)
         saves_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
-        tk.Label(saves_frame, text="Tiri Salvezza", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(pady=(2, 6))
+        self.lbl_saves_header = tk.Label(saves_frame, text=_t("sheet_saves_header"), font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD)
+        self.lbl_saves_header.pack(pady=(2, 6))
 
         self.save_prof_vars = {}
         self.save_mod_labels = {}
+        self.save_name_labels = {}
         for attr in ["FOR", "DES", "COS", "INT", "SAG", "CAR"]:
             row = tk.Frame(saves_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=2)
             row.pack(fill=tk.X, pady=2)
@@ -552,7 +699,9 @@ class CharacterSheetFrame(ttk.Frame):
             )
             cb.pack(side=tk.LEFT)
 
-            tk.Label(row, text=attr, width=4, font=("Segoe UI", 9, "bold"), bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).pack(side=tk.LEFT, padx=2)
+            _s_lbl = tk.Label(row, text=translate_ability(attr), width=4, font=("Segoe UI", 9, "bold"), bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR)
+            _s_lbl.pack(side=tk.LEFT, padx=2)
+            self.save_name_labels[attr] = _s_lbl
 
             mod_lbl = tk.Label(row, text="+0", width=4, font=("Georgia", 10, "bold"), bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD)
             mod_lbl.pack(side=tk.LEFT, padx=2)
@@ -626,10 +775,13 @@ class CharacterSheetFrame(ttk.Frame):
             combo.grid(row=i, column=0, padx=2, pady=2, sticky="w")
             ToolTip(combo, _t("tooltip_skill_combo"))
 
+            if not hasattr(self, "skill_name_labels"):
+                self.skill_name_labels = {}
             skill_text = translate_skill(skill)
             stat_text = translate_ability(stat)
             name_lbl = tk.Label(skills_inner_frame, text=f"{skill_text} ({stat_text})", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_COLOR)
             name_lbl.grid(row=i, column=1, sticky="w", padx=4, pady=2)
+            self.skill_name_labels[skill] = name_lbl
             
             mod_lbl = tk.Label(skills_inner_frame, text="+0", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR, width=4, anchor="e")
             mod_lbl.grid(row=i, column=2, padx=4, pady=2, sticky="e")
@@ -809,7 +961,8 @@ class CharacterSheetFrame(ttk.Frame):
         btn_frame = tk.Frame(main_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=6)
         btn_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(6, 0))
         
-        ttk.Button(btn_frame, text="📥 Esporta PDF / JSON...", command=self.export_character_dialog, style="Info.TButton").pack(side=tk.LEFT)
+        self.btn_export = ttk.Button(btn_frame, text=_t("sheet_btn_export_dialog"), command=self.export_character_dialog, style="Info.TButton")
+        self.btn_export.pack(side=tk.LEFT)
         
         save_btn = ttk.Button(btn_frame, text=f"💾 {_t('save')} (Ctrl+S)", command=self.save_character, style="Gold.TButton")
         save_btn.pack(side=tk.RIGHT, padx=(6, 0))
@@ -833,8 +986,10 @@ class CharacterSheetFrame(ttk.Frame):
         
         hdr_row = tk.Frame(res_card, bg=SURFACE_COLOR_ALT)
         hdr_row.pack(fill=tk.X, pady=(0, 4))
-        tk.Label(hdr_row, text="⚡ Risorse di Classe Speciali (Ki, Furore, Ispirazione, ecc.)", font=FONT_BOLD, fg=ACCENT_GOLD, bg=SURFACE_COLOR_ALT).pack(side=tk.LEFT)
-        ttk.Button(hdr_row, text="+ Nuova Risorsa", command=self.add_custom_resource_dialog, style="Success.TButton").pack(side=tk.RIGHT)
+        self.lbl_resources_hdr = tk.Label(hdr_row, text=_t("sheet_features_resources"), font=FONT_BOLD, fg=ACCENT_GOLD, bg=SURFACE_COLOR_ALT)
+        self.lbl_resources_hdr.pack(side=tk.LEFT)
+        self.btn_add_resource = ttk.Button(hdr_row, text=_t("sheet_features_new_resource"), command=self.add_custom_resource_dialog, style="Success.TButton")
+        self.btn_add_resource.pack(side=tk.RIGHT)
         
         self.resources_container = tk.Frame(res_card, bg=SURFACE_COLOR_ALT)
         self.resources_container.pack(fill=tk.X, pady=2)
@@ -847,25 +1002,26 @@ class CharacterSheetFrame(ttk.Frame):
         ft_toolbar = tk.Frame(ft_card, bg=SURFACE_COLOR)
         ft_toolbar.pack(fill=tk.X, pady=(0, 6))
         
-        tk.Label(ft_toolbar, text="📜 Privilegi di Classe, Tratti Razziali e Talenti", font=FONT_BOLD, fg=ACCENT_GOLD, bg=SURFACE_COLOR).pack(side=tk.LEFT)
+        self.lbl_features_hdr = tk.Label(ft_toolbar, text=_t("sheet_features_header"), font=FONT_BOLD, fg=ACCENT_GOLD, bg=SURFACE_COLOR)
+        self.lbl_features_hdr.pack(side=tk.LEFT)
         
         btn_box = tk.Frame(ft_toolbar, bg=SURFACE_COLOR)
         btn_box.pack(side=tk.RIGHT)
         
         if self.is_connected:
-            self.btn_prop_features = ttk.Button(btn_box, text="📤 Proponi al Master", command=self.propose_features_approval, style="Gold.TButton")
+            self.btn_prop_features = ttk.Button(btn_box, text=_t("sheet_features_propose"), command=self.propose_features_approval, style="Gold.TButton")
             self.btn_prop_features.pack(side=tk.RIGHT, padx=3)
             
         self.btn_view_features = ttk.Button(btn_box, text="👁️ Vista Testo", command=self.toggle_features_view_mode)
         self.btn_view_features.pack(side=tk.RIGHT, padx=3)
         
-        self.btn_del_feature = ttk.Button(btn_box, text="🗑️ Elimina", command=self.delete_selected_feature, style="Danger.TButton")
+        self.btn_del_feature = ttk.Button(btn_box, text=_t("sheet_features_delete"), command=self.delete_selected_feature, style="Danger.TButton")
         self.btn_del_feature.pack(side=tk.RIGHT, padx=3)
         
-        self.btn_edit_feature = ttk.Button(btn_box, text="✏️ Modifica", command=self.open_edit_feature_dialog)
+        self.btn_edit_feature = ttk.Button(btn_box, text=_t("sheet_features_edit"), command=self.open_edit_feature_dialog)
         self.btn_edit_feature.pack(side=tk.RIGHT, padx=3)
         
-        self.btn_add_feature = ttk.Button(btn_box, text="➕ Aggiungi Tratto", command=self.open_add_feature_dialog, style="Success.TButton")
+        self.btn_add_feature = ttk.Button(btn_box, text=_t("sheet_features_add"), command=self.open_add_feature_dialog, style="Success.TButton")
         self.btn_add_feature.pack(side=tk.RIGHT, padx=3)
         
         self.features_main_container = tk.Frame(ft_card, bg=SURFACE_COLOR)
@@ -889,7 +1045,7 @@ class CharacterSheetFrame(ttk.Frame):
         detail_frame = tk.Frame(self.features_paned, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
         self.features_paned.add(detail_frame, weight=2)
         
-        self.feat_detail_title = tk.Label(detail_frame, text="Seleziona un tratto o privilegio", font=("Segoe UI", 11, "bold"), fg=ACCENT_GOLD, bg=SURFACE_COLOR_ALT, anchor="w")
+        self.feat_detail_title = tk.Label(detail_frame, text=_t("sheet_features_placeholder"), font=("Segoe UI", 11, "bold"), fg=ACCENT_GOLD, bg=SURFACE_COLOR_ALT, anchor="w")
         self.feat_detail_title.pack(fill=tk.X, pady=(0, 2))
         
         self.feat_detail_badge = tk.Label(detail_frame, text="", font=FONT_SMALL, fg="#5DADE2", bg=SURFACE_COLOR_ALT, anchor="w")
@@ -1054,7 +1210,7 @@ class CharacterSheetFrame(ttk.Frame):
         
         resources = getattr(self.character, "custom_resources", [])
         if not resources:
-            tk.Label(self.resources_container, text="Nessuna risorsa speciale registrata. Clicca '+ Nuova Risorsa' per tracciare Ki, Furore, Ispirazione Bardica, ecc.",
+            tk.Label(self.resources_container, text=_t("sheet_features_no_resources"),
                      font=FONT_SMALL, fg=TEXT_MUTED, bg=SURFACE_COLOR_ALT).pack(anchor="w", pady=4)
             return
             
@@ -1138,7 +1294,7 @@ class CharacterSheetFrame(ttk.Frame):
 
         tk.Label(
             container,
-            text="Esportazione Personaggio",
+            text=_t("sheet_export_dialog_title"),
             font=FONT_HEADER,
             bg=SURFACE_COLOR,
             fg=ACCENT_GOLD
@@ -1146,7 +1302,7 @@ class CharacterSheetFrame(ttk.Frame):
 
         tk.Label(
             container,
-            text="Scegli il formato desiderato per l'esportazione:",
+            text=_t("sheet_export_dialog_sub"),
             font=FONT_MAIN,
             bg=SURFACE_COLOR,
             fg=TEXT_MUTED
@@ -1223,13 +1379,13 @@ class CharacterSheetFrame(ttk.Frame):
         pdf_top = tk.Frame(pdf_card, bg=SURFACE_COLOR_ALT)
         pdf_top.pack(fill=tk.X)
 
-        tk.Label(pdf_top, text="📄 Scheda Ufficiale D&D 5e (PDF)", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).pack(side=tk.LEFT)
-        btn_pdf = ttk.Button(pdf_top, text="Esporta PDF", style="Primary.TButton", command=export_pdf)
+        tk.Label(pdf_top, text=_t("sheet_export_pdf_card"), font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).pack(side=tk.LEFT)
+        btn_pdf = ttk.Button(pdf_top, text=_t("sheet_export_pdf_btn"), style="Primary.TButton", command=export_pdf)
         btn_pdf.pack(side=tk.RIGHT)
 
         tk.Label(
             pdf_card,
-            text="Seleziona il modello PDF vuoto (es. dnd_blankcharactersheet_it.pdf) per compilare automaticamente la scheda a 3 pagine.",
+            text=_t("sheet_export_pdf_desc"),
             font=FONT_SMALL,
             bg=SURFACE_COLOR_ALT,
             fg=TEXT_MUTED,
@@ -1244,13 +1400,13 @@ class CharacterSheetFrame(ttk.Frame):
         json_top = tk.Frame(json_card, bg=SURFACE_COLOR_ALT)
         json_top.pack(fill=tk.X)
 
-        tk.Label(json_top, text="💾 File Dati Personaggio (JSON)", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).pack(side=tk.LEFT)
-        btn_json = ttk.Button(json_top, text="Esporta JSON", command=export_json)
+        tk.Label(json_top, text=_t("sheet_export_json_card"), font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).pack(side=tk.LEFT)
+        btn_json = ttk.Button(json_top, text=_t("sheet_export_json_btn"), command=export_json)
         btn_json.pack(side=tk.RIGHT)
 
         tk.Label(
             json_card,
-            text="Salva i dati grezzi del personaggio per backup, modifiche manuali o re-importazione.",
+            text=_t("sheet_export_json_desc"),
             font=FONT_SMALL,
             bg=SURFACE_COLOR_ALT,
             fg=TEXT_MUTED,
@@ -1261,7 +1417,7 @@ class CharacterSheetFrame(ttk.Frame):
         # Barra inferiore con tasto Annulla
         bottom_frame = tk.Frame(container, bg=SURFACE_COLOR)
         bottom_frame.pack(fill=tk.X)
-        ttk.Button(bottom_frame, text="Annulla", command=dialog.destroy).pack(side=tk.RIGHT)
+        ttk.Button(bottom_frame, text=_t("cancel"), command=dialog.destroy).pack(side=tk.RIGHT)
 
         dialog.grab_set()
 
@@ -1437,16 +1593,17 @@ class CharacterSheetFrame(ttk.Frame):
         c_filter_top = tk.Frame(self.container_filter_bar, bg=SURFACE_COLOR_ALT)
         c_filter_top.pack(fill=tk.X, pady=(0, 2))
         
-        tk.Label(c_filter_top, text="Contenitore:", font=FONT_SMALL, fg=TEXT_MUTED, bg=SURFACE_COLOR_ALT).pack(side=tk.LEFT, padx=(2, 6))
+        self.lbl_container_filter = tk.Label(c_filter_top, text=_t("container_filter_label"), font=FONT_SMALL, fg=TEXT_MUTED, bg=SURFACE_COLOR_ALT)
+        self.lbl_container_filter.pack(side=tk.LEFT, padx=(2, 6))
         
         self.container_filter_btns = {}
         filters_def = [
-            ("all", "📦 Tutti"),
-            ("backpack", "🎒 Zaino"),
-            ("equipped", "⚔️ Addosso"),
-            ("bag_of_holding", "🔮 Borsa"),
-            ("haversack", "✨ Zaino Pratico"),
-            ("mount", "🐴 Cavalcatura"),
+            ("all", _t("container_filter_all") if get_language() == "it" else "📦 All"),
+            ("backpack", _t("container_backpack")),
+            ("equipped", _t("container_equipped")),
+            ("bag_of_holding", _t("container_bag_of_holding")),
+            ("haversack", _t("container_haversack")),
+            ("mount", _t("container_mount")),
         ]
         for f_key, f_label in filters_def:
             b = ttk.Button(c_filter_top, text=f_label, command=lambda k=f_key: self.set_container_filter(k), style="Slot.TButton")
@@ -1885,9 +2042,9 @@ class CharacterSheetFrame(ttk.Frame):
         list_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.spell_tree = ttk.Treeview(list_frame, columns=("Lvl", "Nome", "Tempo", "Raggio"), show="headings", height=8)
         self.spell_tree.heading("Lvl", text="Lvl", command=lambda: self.sort_spells("Lvl"))
-        self.spell_tree.heading("Nome", text="Nome")
-        self.spell_tree.heading("Tempo", text="Lancio")
-        self.spell_tree.heading("Raggio", text="Raggio")
+        self.spell_tree.heading("Nome", text=_t("col_spell_name"))
+        self.spell_tree.heading("Tempo", text=_t("col_casting_time"))
+        self.spell_tree.heading("Raggio", text=_t("col_range"))
         self.spell_tree.column("Lvl", width=30, anchor="center")
         self.spell_tree.column("Nome", width=150)
         self.spell_tree.column("Tempo", width=80)
@@ -1909,8 +2066,10 @@ class CharacterSheetFrame(ttk.Frame):
         srd_btn.pack(side=tk.LEFT, padx=5)
         tip_msg = "Cerca un incantesimo da SRD/Manuali e invialo al DM per approvazione" if self.is_connected else "Cerca e aggiungi un incantesimo dall'SRD o dai manuali al Grimorio"
         ToolTip(srd_btn, tip_msg)
-        ttk.Button(btn_frame, text="Rimuovi", command=self.remove_spell).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="Dettagli / Lancia", command=self.cast_spell).pack(side=tk.RIGHT, padx=5)
+        self.btn_remove_spell = ttk.Button(btn_frame, text=_t("remove"), command=self.remove_spell)
+        self.btn_remove_spell.pack(side=tk.LEFT, padx=5)
+        self.btn_cast_spell = ttk.Button(btn_frame, text=_t("sheet_spellbook_cast_btn"), command=self.cast_spell)
+        self.btn_cast_spell.pack(side=tk.RIGHT, padx=5)
 
     def sort_spells(self, col):
         if not hasattr(self.character, "spellbook"): return
@@ -1922,7 +2081,7 @@ class CharacterSheetFrame(ttk.Frame):
         for item in self.spell_tree.get_children(): self.spell_tree.delete(item)
         for i, s in enumerate(getattr(self.character, "spellbook", [])):
             lvl = s.get("level", 0)
-            lvl_str = "Trucchetto" if lvl == 0 else str(lvl)
+            lvl_str = _t("cantrip") if lvl == 0 else str(lvl)
             self.spell_tree.insert("", tk.END, iid=str(i), values=(lvl_str, s.get("name", ""), s.get("time", ""), s.get("range", "")))
 
     def add_spell(self):
@@ -3701,8 +3860,8 @@ class CharacterSheetFrame(ttk.Frame):
         container = tk.Frame(win, bg=BG_COLOR, padx=16, pady=12)
         container.pack(fill=tk.BOTH, expand=True)
 
-        tk.Label(container, text="❤️ Riposo Breve (Short Rest D&D 5e)", font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w")
-        tk.Label(container, text="Spendi Dadi Vita per recuperare PF e ripristinare i privilegi di classe.", font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 10))
+        tk.Label(container, text=f"❤️ {_t('sheet_short_rest')} (5e)", font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w")
+        tk.Label(container, text=_t("sheet_short_rest_subtitle"), font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 10))
 
         # Status frame
         st_frame = tk.Frame(container, bg=SURFACE_COLOR, padx=12, pady=10, highlightbackground=BORDER_COLOR, highlightthickness=1)
@@ -3724,7 +3883,7 @@ class CharacterSheetFrame(ttk.Frame):
         lbl_hd.pack(anchor="w")
 
         # Roll Log
-        tk.Label(container, text="Registro Tiri del Riposo:", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w", pady=(4, 2))
+        tk.Label(container, text=_t("sheet_short_rest_log"), font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w", pady=(4, 2))
         log_box = tk.Text(container, height=8, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=("Consolas", 9), relief=tk.FLAT, padx=8, pady=6)
         log_box.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
         log_box.insert(tk.END, "Inizio riposo breve. Clicca su 'Tira 1 Dado Vita' per curarti.\n")
@@ -3805,13 +3964,13 @@ class CharacterSheetFrame(ttk.Frame):
         btn_row = tk.Frame(container, bg=BG_COLOR)
         btn_row.pack(fill=tk.X, pady=(4, 0))
 
-        btn_roll_one = ttk.Button(btn_row, text="🎲 Tira 1 Dado Vita", command=roll_one, style="Gold.TButton")
+        btn_roll_one = ttk.Button(btn_row, text=_t("sheet_short_rest_roll_hd"), command=roll_one, style="Gold.TButton")
         btn_roll_one.pack(side=tk.LEFT, padx=(0, 6))
 
-        btn_roll_all = ttk.Button(btn_row, text="⚡ Spendi Tutti", command=roll_all)
+        btn_roll_all = ttk.Button(btn_row, text=_t("sheet_short_rest_spend_all"), command=roll_all)
         btn_roll_all.pack(side=tk.LEFT, padx=(0, 6))
 
-        btn_finish = ttk.Button(btn_row, text="✅ Concludi Riposo", command=finish_rest)
+        btn_finish = ttk.Button(btn_row, text=_t("sheet_short_rest_finish"), command=finish_rest)
         btn_finish.pack(side=tk.RIGHT)
         win.protocol("WM_DELETE_WINDOW", finish_rest)
 
@@ -3968,9 +4127,11 @@ class CharacterSheetFrame(ttk.Frame):
         bar = tk.Frame(parent_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=6)
         bar.pack(fill=tk.X, pady=(0, 6))
         
-        tk.Label(bar, text="⚔️ Armi & Attacchi Rapidi 5e", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(side=tk.LEFT)
-        add_w_txt = "+ Richiedi Arma" if self.is_connected else "+ Aggiungi Arma 🔒"
-        btn_add_w = ttk.Button(bar, text=add_w_txt, command=self.open_add_weapon_dialog, style="Gold.TButton")
+        self.lbl_weapons_hdr = tk.Label(bar, text=_t("sheet_weapons_header"), font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD)
+        self.lbl_weapons_hdr.pack(side=tk.LEFT)
+        add_w_txt = (_t("btn_request_item", default="+ Richiedi Arma") if get_language() == "it" else "+ Request Weapon") if self.is_connected else _t("sheet_weapons_add")
+        self.btn_add_weapon = ttk.Button(bar, text=add_w_txt, command=self.open_add_weapon_dialog, style="Gold.TButton")
+        btn_add_w = self.btn_add_weapon
         btn_add_w.pack(side=tk.RIGHT)
         ToolTip(btn_add_w, "Invia richiesta al Master per una nuova arma" if self.is_connected else "L'aggiunta di armi richiede l'approvazione del Master in sessione")
         
@@ -3997,7 +4158,7 @@ class CharacterSheetFrame(ttk.Frame):
             
         weapons = getattr(self.character, "weapons", [])
         if not weapons:
-            empty_lbl = tk.Label(self.weapons_cards_frame, text="Nessuna arma equipaggiata.\nClicca '+ Aggiungi Arma' per registrare un'arma o attacco!", font=FONT_MAIN, bg=BG_COLOR, fg=TEXT_MUTED, pady=25)
+            empty_lbl = tk.Label(self.weapons_cards_frame, text=_t("sheet_weapons_empty"), font=FONT_MAIN, bg=BG_COLOR, fg=TEXT_MUTED, pady=25)
             empty_lbl.pack(fill=tk.X)
             return
             
@@ -4248,20 +4409,20 @@ class CharacterSheetFrame(ttk.Frame):
         btn_box.pack(side=tk.RIGHT)
         
         if self.is_connected:
-            badge = tk.Label(btn_box, text="🔒 Approvazione DM Attiva", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD, padx=6, pady=2)
+            badge = tk.Label(btn_box, text=_t("sheet_badge_dm_approval"), font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD, padx=6, pady=2)
             badge.pack(side=tk.LEFT, padx=4)
             
-            btn_prop = ttk.Button(btn_box, text="📤 Proponi al Master", command=lambda f=field_name, t=title: self.propose_text_field_approval(f, t), style="Gold.TButton")
+            btn_prop = ttk.Button(btn_box, text=_t("sheet_features_propose"), command=lambda f=field_name, t=title: self.propose_text_field_approval(f, t), style="Gold.TButton")
             btn_prop.pack(side=tk.LEFT, padx=3)
         else:
-            btn_save = ttk.Button(btn_box, text="💾 Salva Modifiche", command=lambda f=field_name: self.save_text_field_offline(f), style="Success.TButton")
+            btn_save = ttk.Button(btn_box, text=_t("sheet_btn_save_changes"), command=lambda f=field_name: self.save_text_field_offline(f), style="Success.TButton")
             btn_save.pack(side=tk.LEFT, padx=3)
             
-        btn_toggle = ttk.Button(btn_box, text="✏️ Modifica Testo")
+        btn_toggle = ttk.Button(btn_box, text=_t("sheet_btn_edit_text"))
         btn_toggle.pack(side=tk.LEFT, padx=3)
 
         if field_name == "journal_notes":
-            btn_gen = ttk.Button(btn_box, text="✨ Genera Storia", command=self._generate_character_backstory, style="Gold.TButton")
+            btn_gen = ttk.Button(btn_box, text=_t("sheet_btn_generate_story"), command=self._generate_character_backstory, style="Gold.TButton")
             btn_gen.pack(side=tk.LEFT, padx=3)
         
         body_container = tk.Frame(parent_frame, bg=SURFACE_COLOR)
@@ -4306,8 +4467,8 @@ class CharacterSheetFrame(ttk.Frame):
         self.create_markdown_journal_tab(
             parent_frame, 
             field_name="journal_notes",
-            title="📖 Biografia & Diario del Personaggio",
-            subtitle="Storia, legami, ideali, segreti e cronaca di viaggio (supporta Markdown #, ##, **, *, •)"
+            title=_t("sheet_journal_title"),
+            subtitle=_t("sheet_journal_sub")
         )
 
     def _generate_character_backstory(self):
@@ -4344,8 +4505,8 @@ class CharacterSheetFrame(ttk.Frame):
         self.create_markdown_journal_tab(
             parent_frame, 
             field_name="notes",
-            title="📝 Appunti di Sessione & Note Rapide",
-            subtitle="Indizi, promesse, PNG incontrati, mappe e appunti tattici (supporta Markdown #, ##, **, *)"
+            title=_t("sheet_notes_title"),
+            subtitle=_t("sheet_notes_sub")
         )
 
     def propose_text_field_approval(self, field_name, field_title):

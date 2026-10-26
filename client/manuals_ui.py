@@ -21,7 +21,7 @@ from common.theme import (
     TEXT_COLOR, TEXT_MUTED, FONT_TITLE, FONT_SMALL
 )
 from common.manuals_manager import ManualsManager, MANUALS_DIR
-from common.i18n import _t
+from common.i18n import _t, get_language
 from common.messagebox import messagebox
 
 
@@ -53,7 +53,7 @@ class ManualsDialog(tk.Toplevel):
         header = tk.Frame(self, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
         header.pack(fill=tk.X, padx=12, pady=(10, 6))
 
-        tk.Label(header, text="📖 CONSULTA I MANUALI DI GIOCO", font=FONT_TITLE, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(anchor="w", padx=12, pady=(8, 2))
+        tk.Label(header, text="📖 " + (_t("manuals_title") if get_language() == "en" else "CONSULTA I MANUALI DI GIOCO"), font=FONT_TITLE, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(anchor="w", padx=12, pady=(8, 2))
         
         total_rules = len(self.manager.rules)
         tk.Label(header, text=f"Knowledge Base 5e Integrata: {total_rules} voci (PHB 2024, DMG 2024, MM 2025, XGtE, TCoE, Custom) ricercabili offline in tempo reale.",
@@ -74,21 +74,21 @@ class ManualsDialog(tk.Toplevel):
         filters_f = tk.Frame(left_panel, bg=SURFACE_COLOR)
         filters_f.pack(fill=tk.X, padx=10, pady=(8, 4))
 
-        tk.Label(filters_f, text="Manuale:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+        tk.Label(filters_f, text=_t("manuals_source"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w")
         manual_names = [f"{code} - {name}" if code != "Tutti" else "Tutti i Manuali" for code, name in self.manager.get_available_manuals()]
         self.manual_cb = ttk.Combobox(filters_f, state="readonly", values=manual_names)
         self.manual_cb.current(0)
         self.manual_cb.pack(fill=tk.X, pady=(2, 6))
         self.manual_cb.bind("<<ComboboxSelected>>", self.on_manual_changed)
 
-        tk.Label(filters_f, text="Categoria:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+        tk.Label(filters_f, text="Categoria:" if get_language() == "it" else "Category:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w")
         self.cat_cb = ttk.Combobox(filters_f, textvariable=self.selected_category, state="readonly", values=["Tutte"])
         self.cat_cb.current(0)
         self.cat_cb.pack(fill=tk.X, pady=(2, 6))
         self.cat_cb.bind("<<ComboboxSelected>>", lambda e: self.refresh_list())
 
         # Campo di Ricerca con icona
-        tk.Label(filters_f, text="Cerca per termine o CD (es. Fireball, Scatto):", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+        tk.Label(filters_f, text=_t("manuals_search_placeholder"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w")
         search_entry = ttk.Entry(filters_f, textvariable=self.search_var)
         search_entry.pack(fill=tk.X, pady=(2, 8))
         search_entry.bind("<KeyRelease>", lambda e: self.refresh_list())
@@ -98,8 +98,8 @@ class ManualsDialog(tk.Toplevel):
         list_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 6))
 
         self.tree = ttk.Treeview(list_container, columns=("Titolo", "Manuale"), show="headings", selectmode="browse")
-        self.tree.heading("Titolo", text="Regola / Argomento")
-        self.tree.heading("Manuale", text="Manuale")
+        self.tree.heading("Titolo", text="Regola / Argomento" if get_language() == "it" else "Rule / Topic")
+        self.tree.heading("Manuale", text="Manuale" if get_language() == "it" else "Book")
         self.tree.column("Titolo", width=215)
         self.tree.column("Manuale", width=70, anchor="center")
         
@@ -112,12 +112,12 @@ class ManualsDialog(tk.Toplevel):
         # Pulsanti gestione manuali custom e PDF in basso a sinistra
         b_left_top = tk.Frame(left_panel, bg=SURFACE_COLOR)
         b_left_top.pack(fill=tk.X, padx=10, pady=(4, 2))
-        ttk.Button(b_left_top, text="➕ Importa Regola...", command=self.import_custom_file, style="Info.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-        ttk.Button(b_left_top, text="📁 Cartella PDF", command=self.open_pdf_folder, style="Secondary.TButton").pack(side=tk.LEFT, padx=1)
+        ttk.Button(b_left_top, text="➕ Importa Regola..." if get_language() == "it" else "➕ Import Rule...", command=self.import_custom_file, style="Info.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
+        ttk.Button(b_left_top, text="📁 Cartella PDF" if get_language() == "it" else "📁 PDF Folder", command=self.open_pdf_folder, style="Secondary.TButton").pack(side=tk.LEFT, padx=1)
 
         b_left_bot = tk.Frame(left_panel, bg=SURFACE_COLOR)
         b_left_bot.pack(fill=tk.X, padx=10, pady=(2, 8))
-        ttk.Button(b_left_bot, text="🔄 Reindicizza Manuali PDF", command=self.trigger_reindex, style="Secondary.TButton").pack(fill=tk.X)
+        ttk.Button(b_left_bot, text="🔄 Reindicizza Manuali PDF" if get_language() == "it" else "🔄 Reindex PDF Manuals", command=self.trigger_reindex, style="Secondary.TButton").pack(fill=tk.X)
 
         # -------------------------------------------------------------
         # PANNELLO DESTRO (Lettura Regola e Azioni)

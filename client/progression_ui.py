@@ -10,6 +10,7 @@ import urllib.request
 import json
 
 from common.theme import apply_modern_window_style
+from common.i18n import _t, get_language, translate_ability
 from server.compendium_ui import CompendiumDialog
 from common.srd_offline import (
     OfflineSRD,
@@ -80,7 +81,7 @@ ASI_LEVELS = {
 class LevelUpDialog(tk.Toplevel):
     def __init__(self, master, character, update_callback):
         super().__init__(master)
-        self.title("Sali di Livello - Guida Ufficiale D&D 5e")
+        self.title(f"{_t('app_title')} • {_t('prog_title')}")
         self.geometry("740x700")
         self.minsize(660, 620)
         apply_modern_window_style(self)
@@ -146,37 +147,37 @@ class LevelUpDialog(tk.Toplevel):
 
         # TAB 2: Sottoclasse / Archetipo (se applicabile o presente)
         self.tab_subclass = ttk.Frame(self.notebook, padding=10)
-        self.notebook.add(self.tab_subclass, text="🌟 Sottoclasse")
+        self.notebook.add(self.tab_subclass, text=_t("prog_tab_subclass"))
         self._build_tab_subclass()
 
         # TAB 3: Nuovi Privilegi
         self.tab_features = ttk.Frame(self.notebook, padding=10)
-        self.notebook.add(self.tab_features, text="⚔️ Nuovi Privilegi")
+        self.notebook.add(self.tab_features, text=_t("prog_tab_features"))
         self._build_tab_features()
 
         # TAB 4: Incantesimi & Slot (se classe con magia)
         self.tab_magic = ttk.Frame(self.notebook, padding=10)
-        self.notebook.add(self.tab_magic, text="✨ Incantesimi")
+        self.notebook.add(self.tab_magic, text=_t("prog_tab_spells"))
         self._build_tab_magic()
 
         # TAB 5: Caratteristiche / Talenti (ASI)
         self.tab_asi = ttk.Frame(self.notebook, padding=10)
-        self.notebook.add(self.tab_asi, text="💪 Caratteristiche (ASI)")
+        self.notebook.add(self.tab_asi, text=_t("prog_tab_asi"))
         self._build_tab_asi()
 
         # Barra inferiore pulsanti
         bottom_bar = ttk.Frame(self, padding=(10, 8))
         bottom_bar.pack(fill=tk.X, side=tk.BOTTOM)
 
-        self.lbl_loading = ttk.Label(bottom_bar, text="Caricamento progressione D&D 5e...", font=("Segoe UI", 9, "italic"))
+        self.lbl_loading = ttk.Label(bottom_bar, text=_t("prog_loading"), font=("Segoe UI", 9, "italic"))
         self.lbl_loading.pack(side=tk.LEFT, padx=5)
 
-        self.btn_apply = ttk.Button(bottom_bar, text="✅ Applica e Sali di Livello", command=self.apply, style="Primary.TButton")
+        self.btn_apply = ttk.Button(bottom_bar, text=_t("prog_btn_apply"), command=self.apply, style="Primary.TButton")
         self.btn_apply.pack(side=tk.RIGHT, padx=5)
-        ttk.Button(bottom_bar, text="Annulla", command=self.destroy).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(bottom_bar, text=_t("cancel"), command=self.destroy).pack(side=tk.RIGHT, padx=5)
 
     def _build_tab_health(self):
-        hp_frame = ttk.LabelFrame(self.tab_health, text="Incremento Punti Ferita (HP)", padding=10)
+        hp_frame = ttk.LabelFrame(self.tab_health, text=_t("prog_tab_hp"), padding=10)
         hp_frame.pack(fill=tk.X, pady=6)
 
         cos_val = self.character.attributes.get("COS", 10)
@@ -214,12 +215,12 @@ class LevelUpDialog(tk.Toplevel):
         )
         rb_roll.pack(side=tk.LEFT)
 
-        self.btn_roll_hd = ttk.Button(row_roll, text="🎲 Tira Dado", command=self._roll_hit_die, width=12)
+        self.btn_roll_hd = ttk.Button(row_roll, text=_t("prog_btn_roll"), command=self._roll_hit_die, width=12)
         self.btn_roll_hd.pack(side=tk.LEFT, padx=8)
 
         input_frame = ttk.Frame(hp_frame)
         input_frame.pack(fill=tk.X, pady=(10, 4))
-        ttk.Label(input_frame, text="Risultato Dado (senza Costituzione):").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Label(input_frame, text=_t("prog_die_result")).pack(side=tk.LEFT, padx=(0, 6))
 
         self.hp_add_var = tk.IntVar(value=self.avg_hp)
         self.hp_entry = ttk.Entry(input_frame, textvariable=self.hp_add_var, width=6)
@@ -232,7 +233,7 @@ class LevelUpDialog(tk.Toplevel):
         self._update_hp_preview()
 
         # Box riassuntivo dadi vita totali
-        hd_box = ttk.LabelFrame(self.tab_health, text="Dadi Vita Totali", padding=10)
+        hd_box = ttk.LabelFrame(self.tab_health, text=_t("prog_total_hit_dice"), padding=10)
         hd_box.pack(fill=tk.X, pady=8)
         cur_hd = getattr(self.character, "hit_dice_total", self.character.level)
         ttk.Label(
@@ -267,7 +268,7 @@ class LevelUpDialog(tk.Toplevel):
         self.lbl_hp_preview.config(text=f"➡ Punti Ferita Massimi: {cur_max} ➔ {cur_max + tot} (+{tot} PF a questo livello)")
 
     def _build_tab_subclass(self):
-        sub_frame = ttk.LabelFrame(self.tab_subclass, text="Sottoclasse Ufficiale D&D 5e", padding=10)
+        sub_frame = ttk.LabelFrame(self.tab_subclass, text=_t("prog_subclass_header"), padding=10)
         sub_frame.pack(fill=tk.BOTH, expand=True)
 
         existing_sub = getattr(self.character, "subclass", "").strip()
@@ -471,7 +472,7 @@ class LevelUpDialog(tk.Toplevel):
         action_f = ttk.Frame(right_side)
         action_f.pack(fill=tk.X, pady=4)
 
-        self.btn_toggle_spell = ttk.Button(action_f, text="➕ Aggiungi al Grimorio", command=self._toggle_spell_selection)
+        self.btn_toggle_spell = ttk.Button(action_f, text=_t("prog_btn_add_spell"), command=self._toggle_spell_selection)
         self.btn_toggle_spell.pack(fill=tk.X)
 
         self.lbl_selected_spells_count = ttk.Label(right_side, text="Incantesimi selezionati: 0", font=("Segoe UI", 9, "bold"), foreground="#2B8A3E")
@@ -481,7 +482,7 @@ class LevelUpDialog(tk.Toplevel):
         self.lst_selected_spells.pack(fill=tk.X, pady=(2, 0))
 
     def _build_tab_asi(self):
-        asi_frame = ttk.LabelFrame(self.tab_asi, text="Aumento Punteggi di Caratteristica o Talento", padding=10)
+        asi_frame = ttk.LabelFrame(self.tab_asi, text=_t("prog_asi_header"), padding=10)
         asi_frame.pack(fill=tk.BOTH, expand=True)
 
         allowed_levels = ASI_LEVELS.get(self.char_class_en, ASI_LEVELS["default"])
@@ -541,7 +542,7 @@ class LevelUpDialog(tk.Toplevel):
         self.asi_dual_stat2.pack(side=tk.LEFT, padx=4)
 
         # Opzione 3: Talento
-        rb3 = ttk.Radiobutton(asi_frame, text="Scegli un Talento Ufficiale D&D 5e (Feat):", variable=self.asi_choice_var, value="feat", command=self._on_asi_mode_changed)
+        rb3 = ttk.Radiobutton(asi_frame, text=_t("prog_choose_feat"), variable=self.asi_choice_var, value="feat", command=self._on_asi_mode_changed)
         rb3.pack(anchor="w", pady=(6, 2))
 
         f_feat = ttk.Frame(asi_frame)
@@ -612,7 +613,7 @@ class LevelUpDialog(tk.Toplevel):
 
     def on_api_success(self, data, is_offline=True):
         self.api_data = data
-        self.lbl_loading.config(text="Dati di progressione caricati (SRD 5e Ufficiale)")
+        self.lbl_loading.config(text=_t("prog_loaded_srd"))
         self.btn_apply.state(["!disabled"])
 
         # Popola privilegi di classe base
@@ -656,9 +657,9 @@ class LevelUpDialog(tk.Toplevel):
         ] or is_sub_caster
 
         if not is_magic_class and max_slot_lvl == 0:
-            self.lbl_slots_summary.config(text="Questa classe non utilizza slot incantesimo per lanciare magie.")
+            self.lbl_slots_summary.config(text=_t("prog_no_spell_slots"))
             self.lbl_new_circle.config(text="")
-            self.lbl_class_guidance.config(text="Puoi consultare il compendio incantesimi in qualunque momento con il pulsante sottostante.")
+            self.lbl_class_guidance.config(text=_t("prog_compendium_hint"))
             btn = ttk.Button(self.magic_header_frame, text="📖 Apri Compendio Generale", command=self.open_compendium)
             btn.pack(anchor="w", pady=4)
             return
@@ -773,9 +774,9 @@ class LevelUpDialog(tk.Toplevel):
 
         is_already_selected = any(s["name"] == sp["name"] for s in self.selected_spells)
         if is_already_selected:
-            self.btn_toggle_spell.config(text="➖ Rimuovi Selezione", style="Danger.TButton")
+            self.btn_toggle_spell.config(text=_t("prog_btn_remove_spell"), style="Danger.TButton")
         else:
-            self.btn_toggle_spell.config(text="➕ Aggiungi al Grimorio", style="Primary.TButton")
+            self.btn_toggle_spell.config(text=_t("prog_btn_add_spell"), style="Primary.TButton")
 
         self.txt_spell_desc.configure(state="normal")
         self.txt_spell_desc.delete("1.0", tk.END)
@@ -805,10 +806,10 @@ class LevelUpDialog(tk.Toplevel):
         existing_idx = next((i for i, s in enumerate(self.selected_spells) if s["name"] == sp["name"]), None)
         if existing_idx is not None:
             self.selected_spells.pop(existing_idx)
-            self.btn_toggle_spell.config(text="➕ Aggiungi al Grimorio", style="Primary.TButton")
+            self.btn_toggle_spell.config(text=_t("prog_btn_add_spell"), style="Primary.TButton")
         else:
             self.selected_spells.append(sp)
-            self.btn_toggle_spell.config(text="➖ Rimuovi Selezione", style="Danger.TButton")
+            self.btn_toggle_spell.config(text=_t("prog_btn_remove_spell"), style="Danger.TButton")
 
         self._refresh_selected_spells_ui()
 
@@ -882,7 +883,7 @@ class LevelUpDialog(tk.Toplevel):
                 s1 = self.asi_dual_stat1.get().split()[0].upper()
                 s2 = self.asi_dual_stat2.get().split()[0].upper()
                 if s1 == s2:
-                    messagebox.showwarning("Selezione Non Valida", "In modalità duale (+1 a due caratteristiche), devi selezionare due caratteristiche differenti!", parent=self)
+                    messagebox.showwarning("Selezione Non Valida", _t("prog_asi_dual_error"), parent=self)
                     return
                 if s1 in self.character.attributes:
                     old_val = self.character.attributes[s1]
