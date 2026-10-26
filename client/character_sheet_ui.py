@@ -526,8 +526,40 @@ class CharacterSheetFrame(ttk.Frame):
                         lbl.config(text="+0")
                     if hasattr(self, "update_skill_modifiers"):
                         self.update_skill_modifiers()
+                    if hasattr(self, "update_save_modifiers"):
+                        self.update_save_modifiers()
                 return _update
             var.trace_add("write", make_mod_updater())
+
+        # Tiri Salvezza (Saving Throws)
+        saves_frame = tk.Frame(body_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=6)
+        saves_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
+        tk.Label(saves_frame, text="Tiri Salvezza", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(pady=(2, 6))
+
+        self.save_prof_vars = {}
+        self.save_mod_labels = {}
+        for attr in ["FOR", "DES", "COS", "INT", "SAG", "CAR"]:
+            row = tk.Frame(saves_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=2)
+            row.pack(fill=tk.X, pady=2)
+
+            chk_var = tk.IntVar(value=0)
+            self.save_prof_vars[attr] = chk_var
+
+            cb = tk.Checkbutton(
+                row, variable=chk_var, bg=SURFACE_COLOR_ALT, selectcolor=SURFACE_COLOR,
+                activebackground=SURFACE_COLOR_ALT,
+                command=self._on_save_prof_changed
+            )
+            cb.pack(side=tk.LEFT)
+
+            tk.Label(row, text=attr, width=4, font=("Segoe UI", 9, "bold"), bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).pack(side=tk.LEFT, padx=2)
+
+            mod_lbl = tk.Label(row, text="+0", width=4, font=("Georgia", 10, "bold"), bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD)
+            mod_lbl.pack(side=tk.LEFT, padx=2)
+            self.save_mod_labels[attr] = mod_lbl
+
+            btn = ttk.Button(row, text="🎲", width=2, command=lambda a=attr: self.roll_save(a))
+            btn.pack(side=tk.RIGHT, padx=2)
 
         # Abilità
         skills_frame = tk.Frame(body_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=6)
@@ -1629,8 +1661,9 @@ class CharacterSheetFrame(ttk.Frame):
 
         if has_coin_items:
             for c_code, c_amount in inv_coins.items():
-                if c_amount > 0 and self.character.currency.get(c_code, 0) < c_amount:
-                    self.character.currency[c_code] = c_amount
+                if c_amount > 0:
+                    cur_bal = int(self.character.currency.get(c_code, 0) or 0)
+                    self.character.currency[c_code] = cur_bal + c_amount
                     if hasattr(self, "currency_vars") and c_code in self.currency_vars:
                         self.currency_vars[c_code].set(self.character.currency[c_code])
     def update_currency_total(self, *args):
@@ -1772,7 +1805,7 @@ class CharacterSheetFrame(ttk.Frame):
 
         if hasattr(self, 'weight_details_lbl'):
             details = []
-            coin_count = sum(self.character.currency.values()) if hasattr(self.character, "currency") else 0
+            coin_count = sum(int(v or 0) for v in self.character.currency.values() if str(v).isdigit()) if hasattr(self.character, "currency") and isinstance(self.character.currency, dict) else 0
             coin_lbs = round(coin_count / 50.0, 1)
             if coin_lbs > 0:
                 details.append(_t("lbl_coins_weight", weight=f"{coin_lbs:.1f}"))
@@ -2829,8 +2862,8 @@ class CharacterSheetFrame(ttk.Frame):
         y = button_widget.winfo_rooty() + button_widget.winfo_height()
         try:
             menu.tk_popup(x, y)
-        finally:
-            menu.grab_release()
+        except Exception:
+            pass
 
     def show_container_context_menu(self, event, slot_idx: int):
         if slot_idx < 0 or slot_idx >= len(self.character.inventory_grid):
@@ -2885,8 +2918,8 @@ class CharacterSheetFrame(ttk.Frame):
                 
         try:
             menu.tk_popup(event.x_root, event.y_root)
-        finally:
-            menu.grab_release()
+        except Exception:
+            pass
 
     def prompt_item_removal(self, slot_idx: int, item: dict):
         if not self.is_connected:
@@ -3448,9 +3481,14 @@ class CharacterSheetFrame(ttk.Frame):
             if not self.is_connected:
                 self.character.hp_current = self.hp_cur_var.get()
                 self.character.hp_max = self.hp_max_var.get()
-            self.character.ac = self.ac_var.get()
-            self.character.initiative = self.init_var.get()
-            spd_raw = float(str(self.speed_var.get()).replace(",", "."))
+            try: self.character.ac = int(self.ac_var.get())
+            except (ValueError, tk.TclError): self.character.ac = 10
+            try: self.character.initiative = int(self.init_var.get())
+            except (ValueError, tk.TclError): self.character.initiative = 0
+            try:
+                spd_raw = float(str(self.speed_var.get()).replace(",", "."))
+            except (ValueError, tk.TclError):
+                spd_raw = 30.0
             self.character.speed = int(spd_raw) if spd_raw == int(spd_raw) else round(spd_raw, 1)
             if hasattr(self, "speed_unit_var"):
                 self.character.speed_unit = self.speed_unit_var.get()
@@ -3539,7 +3577,7 @@ class CharacterSheetFrame(ttk.Frame):
                 
             if close_after:
                 self.close_sheet()
-        except ValueError:
+        except (ValueError, tk.TclError):
             messagebox.showerror("Errore", "Assicurati di inserire valori numerici validi nei campi numerici.")
 
     def _on_speed_unit_changed(self, event=None):
@@ -3555,6 +3593,34 @@ class CharacterSheetFrame(ttk.Frame):
             self._last_speed_unit = new_u
             self.character.speed_unit = new_u
             set_distance_unit(new_u)
+
+    def _on_save_prof_changed(self):
+        new_profs = [attr for attr, v in getattr(self, "save_prof_vars", {}).items() if v.get() == 1]
+        self.character.saving_throw_proficiencies = new_profs
+        self.update_save_modifiers()
+
+    def update_save_modifiers(self):
+        if not hasattr(self, "save_mod_labels"):
+            return
+        for attr, lbl in self.save_mod_labels.items():
+            bonus = self.character.get_effective_save_bonus(attr)
+            lbl.config(text=f"+{bonus}" if bonus >= 0 else str(bonus))
+
+    def roll_save(self, stat_name):
+        if not self.roll_callback: return
+        try:
+            save_mod = self.character.get_effective_save_bonus(stat_name)
+            mod_str = f"+{save_mod}" if save_mod >= 0 else str(save_mod)
+            formula = f"1d20{mod_str}"
+            adv_state = self.adv_dis_var.get()
+            if adv_state in ("Vantaggio", _t("adv_advantage")):
+                formula += " adv"
+            elif adv_state in ("Svantaggio", _t("adv_disadvantage")):
+                formula += " dis"
+            self.adv_dis_var.set(_t("adv_normal"))
+            self.roll_callback(formula, f"TS {stat_name}")
+        except Exception:
+            pass
 
     def roll_stat(self, stat_name, stat_val):
         if not self.roll_callback: return

@@ -1405,7 +1405,8 @@ class ClientGUI:
         spin.pack(side=tk.LEFT)
         
         def do_rest():
-            n_dice = spend_var.get()
+            try: n_dice = int(spend_var.get())
+            except (ValueError, tk.TclError): return
             if n_dice <= 0 or n_dice > hd_cur:
                 return
             recovered = char.short_rest(n_dice)
@@ -1501,7 +1502,11 @@ class ClientGUI:
 
 
     def on_token_drop(self, token_name, q, r):
-        if not self.is_connected: return
+        if not self.is_connected:
+            if self.active_character:
+                self.active_character.last_position = (q, r)
+                self.redraw_map_and_players()
+            return
         if token_name == self.name:
             self.network.send({"type": "MOVE_REQUEST", "data": {"to": [q, r]}})
 
@@ -2517,7 +2522,7 @@ class ClientGUI:
         y = self.master.winfo_y() + (self.master.winfo_height() // 2) - (lbl.winfo_reqheight() // 2)
         banner.geometry(f"+{x}+{y}")
         
-        self.master.after(2000, banner.destroy)
+        self.master.after(2000, lambda: banner.destroy() if hasattr(banner, "winfo_exists") and banner.winfo_exists() else None)
 
     def handle_player_joined(self, data):
         self.players_data[data.get('name')] = data
@@ -2828,7 +2833,8 @@ class ClientGUI:
                 from common.protocol import make_reaction_response
                 self.network.send(make_reaction_response("OPPORTUNITY_ATTACK", False, self.name, source_name, details))
                 win.destroy()
-                
+
+            win.protocol("WM_DELETE_WINDOW", decline)
             ttk.Button(btn_frame, text="⚔️ Sferra Attacco (Spendi Reazione)", command=accept, style="Gold.TButton").pack(side=tk.LEFT, padx=6)
             ttk.Button(btn_frame, text="Ignora", command=decline).pack(side=tk.LEFT, padx=6)
             
@@ -2851,25 +2857,38 @@ class ClientGUI:
             btn_frame = tk.Frame(win, bg=BG_COLOR)
             btn_frame.pack(pady=12)
             
+            available_slot_lvl = None
+            if self.active_character and hasattr(self.active_character, "spell_slots"):
+                for s_lvl in range(1, 10):
+                    sl = self.active_character.spell_slots.get(str(s_lvl), {})
+                    cur_val = sl.get("current", 0) if isinstance(sl, dict) else (sl[0] if isinstance(sl, list) and sl else 0)
+                    if cur_val > 0:
+                        available_slot_lvl = str(s_lvl)
+                        break
+
             def accept():
-                if self.active_character and hasattr(self.active_character, "spell_slots"):
-                    slot_1 = self.active_character.spell_slots.get("1", {})
-                    if slot_1 and slot_1.get("current", 0) > 0:
-                        slot_1["current"] -= 1
-                        self.character_manager.save_characters()
-                        from common.protocol import make_update_full_sheet_request
-                        self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
+                if available_slot_lvl and self.active_character and hasattr(self.active_character, "spell_slots"):
+                    sl = self.active_character.spell_slots.get(available_slot_lvl)
+                    if isinstance(sl, dict):
+                        sl["current"] = max(0, sl.get("current", 1) - 1)
+                    elif isinstance(sl, list) and sl:
+                        sl[0] = max(0, sl[0] - 1)
+                    self.character_manager.save_characters()
+                    from common.protocol import make_update_full_sheet_request
+                    self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
                 from common.protocol import make_reaction_response
                 self.network.send(make_reaction_response("SHIELD_SPELL", True, self.name, source_name, details))
                 self.show_toast("Incantesimo Scudo attivato! (+5 CA)", title="🛡️ Scudo", toast_type="success")
                 win.destroy()
-                
+
             def decline():
                 from common.protocol import make_reaction_response
                 self.network.send(make_reaction_response("SHIELD_SPELL", False, self.name, source_name, details))
                 win.destroy()
-                
-            ttk.Button(btn_frame, text="🛡️ Lancia Scudo (+5 CA)", command=accept, style="Primary.TButton").pack(side=tk.LEFT, padx=6)
+
+            win.protocol("WM_DELETE_WINDOW", decline)
+            shield_btn_state = "normal" if available_slot_lvl else "disabled"
+            ttk.Button(btn_frame, text="🛡️ Lancia Scudo (+5 CA)", command=accept, style="Primary.TButton", state=shield_btn_state).pack(side=tk.LEFT, padx=6)
             ttk.Button(btn_frame, text="Subisci Attacco", command=decline).pack(side=tk.LEFT, padx=6)
 
     def handle_handout_broadcast(self, data):
@@ -3203,8 +3222,8 @@ class ClientGUI:
             from common.protocol import make_update_full_sheet_request
             self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
             self.show_toast("Il gruppo ha completato un Riposo Lungo. Hai recuperato le tue statistiche.", title="Riposo Lungo Completato", toast_type="success")
-            if getattr(self, "sheet_ui", None) and self.sheet_ui.winfo_exists():
-                self.sheet_ui.load_data()
+            if hasattr(self, "stats_window") and self.stats_window and self.stats_window.winfo_exists():
+                self.stats_window.load_data()
 
     def handle_draw_broadcast(self, data):
         points = data.get("points", [])
@@ -3402,6 +3421,8 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                 self.show_toast(f"{sender} ti ha assegnato/inviato: {item['name']}", title="Oggetto Ricevuto", toast_type="gold")
                 # Invia l'aggiornamento della scheda al server
                 self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
+                if hasattr(self, "stats_window") and self.stats_window and self.stats_window.winfo_exists():
+                    self.stats_window.load_data()
                 return
         
         self.show_toast(f"{sender} ha provato ad inviarti '{item['name']}' ma non hai spazio nello zaino!", title="Inventario Pieno", toast_type="warning")
@@ -3737,6 +3758,7 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             on_close_callback=self.hide_stats_overlay,
             on_detach_callback=self.detach_character_sheet,
             is_overlay=True,
+            long_rest_callback=self.request_long_rest,
             network=getattr(self, "network", None)
         )
         self.stats_sheet_frame.pack(fill=tk.BOTH, expand=True)
@@ -3781,6 +3803,7 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             is_connected=self.is_connected,
             request_journal_approval_callback=self.request_journal_approval,
             on_dock_callback=self.dock_character_sheet,
+            long_rest_callback=self.request_long_rest,
             network=getattr(self, "network", None)
         )
         self.stats_window = self.stats_detached_window

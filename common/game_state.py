@@ -201,7 +201,8 @@ class GameState:
 
     def set_automation_mode(self, mode: str, custom_settings: dict = None):
         """Imposta il profilo di automazione della campagna (manual, hybrid, full) e aggiorna i flag."""
-        self.automation_mode = mode
+        with self.lock:
+            self.automation_mode = mode
         if mode == "manual":
             self.automation_settings = {
                 "auto_apply_damage": False,
@@ -338,6 +339,8 @@ class GameState:
                 active.has_acted_this_turn = False
                 active.has_reacted_this_turn = False
                 active.sneak_attack_used_this_turn = False
+                for c_p in combatants:
+                    c_p.sneak_attack_used_this_turn = False
                 if hasattr(active, "conditions") and active.conditions:
                     active.conditions = [c for c in active.conditions if c not in start_of_turn_conds and c not in ("Scudo", "Shield")]
                 if getattr(active, "full_sheet", None) and isinstance(active.full_sheet.get("conditions"), list):
@@ -485,14 +488,26 @@ class GameState:
             for p in self.players:
                 if not is_dm and getattr(p, "layer", "token") == "gm":
                     continue
-                players_data.append(p.to_dict())
+                p_dict = p.to_dict()
+                if not is_dm and p_dict.get("full_sheet"):
+                    # Rimuovi segreti confidenziali del PG dai payload inviati ad altri giocatori
+                    p_dict["full_sheet"] = dict(p_dict["full_sheet"])
+                    p_dict["full_sheet"].pop("secret", None)
+                players_data.append(p_dict)
             curr_turn = self.get_current_turn_player()
+            turn_name = curr_turn.name if curr_turn else None
+            if not is_dm and curr_turn and getattr(curr_turn, "layer", "token") == "gm":
+                turn_name = "Sconosciuto"
+
+            from common.network_utils import sanitize_map_for_players
+            export_map = self.current_map if is_dm else (sanitize_map_for_players(self.current_map) if self.current_map else None)
+
             return {
                 "players": players_data,
-                "map": self.current_map,
+                "map": export_map,
                 "combat_active": self.combat_active,
                 "turn_index": self.turn_index,
-                "turn_player_name": curr_turn.name if curr_turn else None,
+                "turn_player_name": turn_name,
                 "round_number": self.round_number,
                 "active_aoes": self.active_aoes,
                 "drawn_lines": getattr(self, "drawn_lines", []),
@@ -503,7 +518,7 @@ class GameState:
                 "time_minute": getattr(self, 'time_minute', 0),
                 "time_second": getattr(self, 'time_second', 0),
                 "weather": getattr(self, 'weather', "Sereno"),
-                "calendar_events": getattr(self, 'calendar_events', {}),
+                "calendar_events": getattr(self, 'calendar_events', {}) if is_dm else {},
                 "quests": getattr(self, 'quests', []),
                 "handouts": getattr(self, 'handouts', []),
                 "shops": getattr(self, 'shops', {}),
@@ -513,8 +528,8 @@ class GameState:
                 "active_campaign_folder": getattr(self.active_campaign, 'folder_path', None) if getattr(self, 'active_campaign', None) else None,
                 "automation_mode": getattr(self, "automation_mode", "hybrid"),
                 "automation_settings": getattr(self, "automation_settings", {}),
-                "pending_damages": getattr(self, "pending_damages", {}),
-                "pending_doors": getattr(self, "pending_doors", {})
+                "pending_damages": getattr(self, "pending_damages", {}) if is_dm else {},
+                "pending_doors": getattr(self, "pending_doors", {}) if is_dm else {}
             }
 
     def move_player(self, name, new_pos):
@@ -640,16 +655,20 @@ class GameState:
 
 
     def switch_map(self, map_name):
-        if map_name in self.maps:
-            self.active_map_id = map_name
-            self.current_map = self.maps[map_name]
-            if "outdoor" not in self.current_map:
-                m_name = str(self.current_map.get("name", "") or map_name).lower()
-                indoor_keywords = ("dungeon", "sotterraneo", "caverna", "cave", "crypt", "cripta", "indoor", "interno", "taverna", "tavern", "catacombe")
-                self.current_map["outdoor"] = not any(kw in m_name for kw in indoor_keywords)
-            self._trigger_gui_update()
-            
-            from common.protocol import make_map_data_update_broadcast, make_chat_broadcast
-            from common.network_utils import broadcast
-            broadcast(self, make_map_data_update_broadcast(self.current_map))
-            broadcast(self, make_chat_broadcast("Sistema", f"Il DM ha cambiato la mappa in: {map_name}"))
+        with self.lock:
+            if map_name in self.maps:
+                self.active_map_id = map_name
+                self.current_map = self.maps[map_name]
+                if "outdoor" not in self.current_map:
+                    m_name = str(self.current_map.get("name", "") or map_name).lower()
+                    indoor_keywords = ("dungeon", "sotterraneo", "caverna", "cave", "crypt", "cripta", "indoor", "interno", "taverna", "tavern", "catacombe")
+                    self.current_map["outdoor"] = not any(kw in m_name for kw in indoor_keywords)
+                cur_m = dict(self.current_map)
+            else:
+                return
+        self._trigger_gui_update()
+        
+        from common.protocol import make_map_data_update_broadcast, make_chat_broadcast
+        from common.network_utils import broadcast
+        broadcast(self, make_map_data_update_broadcast(cur_m))
+        broadcast(self, make_chat_broadcast("Sistema", f"Il DM ha cambiato la mappa in: {map_name}"))

@@ -109,6 +109,12 @@ class LevelUpDialog(tk.Toplevel):
         self.avg_hp = (self.hit_die // 2) + 1
         self.new_level = self.character.level + 1
 
+        try:
+            self.transient(master)
+            self.grab_set()
+        except Exception:
+            pass
+
         self.setup_ui()
         self.fetch_level_data()
 
@@ -339,16 +345,31 @@ class LevelUpDialog(tk.Toplevel):
 
             # Rinfresca i privilegi se questa sottoclasse conferisce privilegi a new_level
             self._refresh_subclass_features(sub)
+            sub_name = str(sub.get("name", "")).lower()
+            if any(k in sub_name for k in ["cavaliere mistico", "eldritch knight", "mistificatore arcano", "arcane trickster"]):
+                self.character.subclass = sub.get("name", "")
+                self.fetch_level_data()
 
     def _refresh_subclass_features(self, sub_obj):
+        if not hasattr(self, "_current_subclass_features"):
+            self._current_subclass_features = []
+        for old_f in self._current_subclass_features:
+            if old_f in self.new_features:
+                self.new_features.remove(old_f)
+            self.new_feature_details.pop(old_f, None)
+        self._current_subclass_features.clear()
+
         sub_feats = [f for f in sub_obj.get("features", []) if f.get("level") == self.new_level]
         for f in sub_feats:
             fname = f.get("name", "")
             fdesc = f.get("desc", "")
-            if fname and fname not in self.new_features:
-                self.new_features.append(fname)
+            if fname:
+                self._current_subclass_features.append(fname)
+                if fname not in self.new_features:
+                    self.new_features.append(fname)
                 self.new_feature_details[fname] = fdesc
-                self.features_listbox.insert(tk.END, f"🌟 [Sottoclasse] {fname}")
+                if hasattr(self, "features_listbox"):
+                    self.features_listbox.insert(tk.END, f"🌟 [Sottoclasse] {fname}")
 
     def _build_tab_features(self):
         feat_paned = ttk.PanedWindow(self.tab_features, orient=tk.VERTICAL)
@@ -861,7 +882,8 @@ class LevelUpDialog(tk.Toplevel):
                 s1 = self.asi_dual_stat1.get().split()[0].upper()
                 s2 = self.asi_dual_stat2.get().split()[0].upper()
                 if s1 == s2:
-                    s2 = None
+                    messagebox.showwarning("Selezione Non Valida", "In modalità duale (+1 a due caratteristiche), devi selezionare due caratteristiche differenti!", parent=self)
+                    return
                 if s1 in self.character.attributes:
                     old_val = self.character.attributes[s1]
                     new_val = min(20, old_val + 1)
@@ -916,10 +938,16 @@ class LevelUpDialog(tk.Toplevel):
                     max_slots = sc[key]
                     if str(i) in self.character.spell_slots:
                         if isinstance(self.character.spell_slots[str(i)], dict):
+                            old_max = int(self.character.spell_slots[str(i)].get("max", 0))
+                            cur = int(self.character.spell_slots[str(i)].get("current", 0))
+                            diff = max(0, max_slots - old_max)
                             self.character.spell_slots[str(i)]["max"] = max_slots
-                            self.character.spell_slots[str(i)]["current"] = max_slots
+                            self.character.spell_slots[str(i)]["current"] = min(max_slots, cur + diff)
                         else:
-                            self.character.spell_slots[str(i)] = [max_slots, max_slots]
+                            old_max = int(self.character.spell_slots[str(i)][1]) if len(self.character.spell_slots[str(i)]) >= 2 else 0
+                            cur = int(self.character.spell_slots[str(i)][0]) if len(self.character.spell_slots[str(i)]) >= 1 else 0
+                            diff = max(0, max_slots - old_max)
+                            self.character.spell_slots[str(i)] = [min(max_slots, cur + diff), max_slots]
                     else:
                         self.character.spell_slots[str(i)] = {"max": max_slots, "current": max_slots}
 
@@ -941,5 +969,9 @@ class LevelUpDialog(tk.Toplevel):
                         "desc": sp.get("desc", "")
                     })
 
+        if hasattr(self.character, "update_class_resources_for_level"):
+            self.character.update_class_resources_for_level(self.new_level)
+        if hasattr(self.character, "recalculate_ac"):
+            self.character.recalculate_ac()
         self.update_callback()
         self.destroy()

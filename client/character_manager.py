@@ -183,10 +183,10 @@ class Character:
 
     def short_rest(self, hd_to_spend=1):
         """Spende Dadi Vita (XdY + Mod COS) per recuperare HP e ricarica i privilegi da riposo breve."""
-        if hd_to_spend <= 0 or self.hit_dice_current <= 0:
-            return 0
-        actual_spend = min(hd_to_spend, self.hit_dice_current)
-        self.hit_dice_current -= actual_spend
+        actual_spend = 0
+        if hd_to_spend > 0 and getattr(self, "hit_dice_current", 0) > 0:
+            actual_spend = min(hd_to_spend, self.hit_dice_current)
+            self.hit_dice_current -= actual_spend
         
         cos_val = self.attributes.get("COS", 10)
         try:
@@ -219,10 +219,13 @@ class Character:
         c_class = str(getattr(self, "char_class", "")).strip().lower()
         if "warlock" in c_class:
             for lvl, slot in getattr(self, "spell_slots", {}).items():
-                if isinstance(slot, dict) and "current" in slot:
-                    slot["current"] = slot.get("max", 0)
-                elif isinstance(slot, list) and len(slot) >= 2:
-                    slot[0] = slot[1]
+                try: slot_lvl = int(lvl)
+                except (ValueError, TypeError): slot_lvl = 1
+                if slot_lvl <= 5:
+                    if isinstance(slot, dict) and "current" in slot:
+                        slot["current"] = slot.get("max", 0)
+                    elif isinstance(slot, list) and len(slot) >= 2:
+                        slot[0] = slot[1]
                     
         return recovered
 
@@ -371,17 +374,124 @@ class Character:
         return self.ac + bonuses["bonus_ac"]
 
     def get_effective_save_bonus(self, stat_name):
-        stat_val = self.get_effective_attribute(stat_name)
+        STAT_MAP = {
+            "STR": "FOR", "STRENGTH": "FOR", "FORZA": "FOR", "FOR": "FOR",
+            "DEX": "DES", "DEXTERITY": "DES", "DESTREZZA": "DES", "DES": "DES",
+            "CON": "COS", "CONSTITUTION": "COS", "COSTITUZIONE": "COS", "COS": "COS",
+            "INT": "INT", "INTELLIGENCE": "INT", "INTELLIGENZA": "INT",
+            "WIS": "SAG", "WISDOM": "SAG", "SAGGEZZA": "SAG", "SAG": "SAG",
+            "CHA": "CAR", "CHARISMA": "CAR", "CARISMA": "CAR", "CAR": "CAR"
+        }
+        canonical = STAT_MAP.get(str(stat_name).strip().upper(), str(stat_name).strip().upper())
+        stat_val = self.get_effective_attribute(canonical)
         mod = (stat_val - 10) // 2
         bonuses = self.get_attunement_bonuses()
         save_bonus = mod + bonuses.get("bonus_saves", 0)
-        stat_upper = str(stat_name).upper()
-        prof_saves = [str(s).upper() for s in getattr(self, "saving_throw_proficiencies", [])]
-        if stat_upper in prof_saves:
+        prof_saves = [STAT_MAP.get(str(s).strip().upper(), str(s).strip().upper()) for s in getattr(self, "saving_throw_proficiencies", [])]
+        if canonical in prof_saves:
             lvl = getattr(self, "level", 1) or 1
             pb = 2 + (max(1, int(lvl)) - 1) // 4
             save_bonus += pb
         return save_bonus
+
+    def recalculate_ac(self):
+        """Ricalcola dinamicamente la CA conforme a D&D 5e RAW."""
+        des_mod = (self.get_effective_attribute("DES") - 10) // 2
+        cos_mod = (self.get_effective_attribute("COS") - 10) // 2
+        sag_mod = (self.get_effective_attribute("SAG") - 10) // 2
+
+        equipped_armor = None
+        has_shield = False
+
+        grid = getattr(self, "inventory_grid", []) or []
+        for it in grid:
+            if not it or not isinstance(it, dict):
+                continue
+            if it.get("container") == "equipped":
+                itype = str(it.get("type", "")).lower()
+                iname = str(it.get("name", "")).lower()
+                if "scudo" in iname or "shield" in iname or itype == "scudo":
+                    has_shield = True
+                elif itype == "armatura" or any(k in iname for k in ["armatura", "cuoio", "corazza", "giaco", "maglia", "piastre", "imbottita"]):
+                    equipped_armor = it
+
+        base_ac = 10
+        char_cls = str(getattr(self, "char_class", "")).lower()
+        subclass = str(getattr(self, "subclass", "")).lower()
+
+        if equipped_armor:
+            aname = str(equipped_armor.get("name", "")).lower()
+            if any(k in aname for k in ["imbottita", "cuoio", "cuoio borchiato", "padded", "leather", "studded"]):
+                armor_base = 12 if ("borchiato" in aname or "studded" in aname) else 11
+                dex_allowed = des_mod
+            elif any(k in aname for k in ["pelle", "giaco", "scaglie", "piastre", "pettorale", "hide", "chain shirt", "scale", "breastplate", "half plate"]):
+                if "half plate" in aname or "mezza armatura" in aname: armor_base = 15
+                elif "breastplate" in aname or "pettorale" in aname: armor_base = 14
+                elif "scale" in aname or "scaglie" in aname: armor_base = 14
+                elif "chain shirt" in aname or "giaco" in aname: armor_base = 13
+                else: armor_base = 12
+                dex_allowed = min(2, des_mod)
+            elif any(k in aname for k in ["anelli", "cotta", "strisce", "completa", "ring mail", "chain mail", "splint", "plate"]):
+                if "completa" in aname or "plate" in aname: armor_base = 18
+                elif "strisce" in aname or "splint" in aname: armor_base = 17
+                elif "cotta" in aname or "chain mail" in aname: armor_base = 16
+                else: armor_base = 14
+                dex_allowed = 0
+            else:
+                armor_base = int(equipped_armor.get("ac_base", 11) or 11)
+                dex_allowed = min(2, des_mod)
+
+            base_ac = armor_base + dex_allowed
+
+            features_list = [str(f).lower() for f in getattr(self, "features", [])]
+            if any("difesa" in f or "defense" in f for f in features_list):
+                base_ac += 1
+        else:
+            if "monaco" in char_cls or "monk" in char_cls:
+                base_ac = 10 + des_mod + (max(0, sag_mod) if not has_shield else 0)
+            elif "barbaro" in char_cls or "barbarian" in char_cls:
+                base_ac = 10 + des_mod + max(0, cos_mod)
+            elif "dracon" in subclass:
+                base_ac = 13 + des_mod
+            else:
+                base_ac = 10 + des_mod
+
+        if has_shield:
+            base_ac += 2
+
+        bonuses = self.get_attunement_bonuses()
+        self.ac = base_ac + bonuses.get("bonus_ac", 0)
+        return self.ac
+
+    def update_class_resources_for_level(self, new_level: int):
+        """Aggiorna le risorse di classe scalabili in base al livello (Ki, Rage, Mani Curative, ecc.)."""
+        cls_name = str(getattr(self, "char_class", "")).lower()
+        if not hasattr(self, "custom_resources") or not isinstance(self.custom_resources, list):
+            self.custom_resources = []
+
+        res_dict = {r.get("name"): r for r in self.custom_resources if isinstance(r, dict)}
+
+        if "monaco" in cls_name or "monk" in cls_name:
+            ki = res_dict.get("Punti Ki") or res_dict.get("Ki")
+            if ki:
+                ki["max"] = new_level
+                ki["current"] = min(ki["max"], ki.get("current", new_level))
+        elif "barbaro" in cls_name or "barbarian" in cls_name:
+            rage = res_dict.get("Ire") or res_dict.get("Ira") or res_dict.get("Rage")
+            if rage:
+                max_r = 2 if new_level < 3 else (3 if new_level < 6 else (4 if new_level < 12 else (5 if new_level < 17 else (6 if new_level < 20 else 99))))
+                rage["max"] = max_r
+                rage["current"] = min(max_r, rage.get("current", max_r))
+        elif "paladino" in cls_name or "paladin" in cls_name:
+            loh = res_dict.get("Imposizione delle Mani") or res_dict.get("Mani Curative")
+            if loh:
+                loh["max"] = new_level * 5
+                loh["current"] = min(loh["max"], loh.get("current", loh["max"]))
+        elif "stregone" in cls_name or "sorcerer" in cls_name:
+            sp = res_dict.get("Punti Stregoneria") or res_dict.get("Sorcery Points")
+            if sp and new_level >= 2:
+                sp["max"] = new_level
+                sp["current"] = min(sp["max"], sp.get("current", sp["max"]))
 
     def get_carried_weight(self) -> float:
         """

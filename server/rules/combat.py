@@ -302,26 +302,6 @@ def _trigger_concentration_check(target_player, dmg_val, game_state):
 def handle_end_turn_request(data, player, game_state):
     current = game_state.get_current_turn_player()
     if current and current.name == player.name:
-        # Durations tracker
-        if hasattr(current, "condition_durations"):
-            expired = []
-            for cond, dur in list(current.condition_durations.items()):
-                current.condition_durations[cond] = dur - 1
-                if current.condition_durations[cond] <= 0:
-                    expired.append(cond)
-            
-            for cond in expired:
-                del current.condition_durations[cond]
-                if cond in current.conditions:
-                    current.conditions.remove(cond)
-                msg = f"L'effetto di '{cond}' su {current.name} è terminato."
-                game_state.log_dm_message(f"[SISTEMA] {msg}")
-                broadcast(game_state, make_chat_broadcast("Sistema", msg))
-                
-            if expired:
-                broadcast(game_state, make_player_stats_update(current.name, current.hp, current.max_hp, current.initiative, current.conditions, getattr(current, "temp_hp", 0)))
-                game_state._trigger_gui_update()
-
         # Rimuovi condizioni temporanee di fine turno (Scatto, Disimpegno). Schivata resta fino all'inizio del prossimo turno!
         changed_temp = False
         for temp_c in ["Scatto", "Disimpegno", "Dash", "Disengage"]:
@@ -468,7 +448,11 @@ def handle_attack_request(data, player, game_state):
         for c in ["Accecato", "Avvelenato", "Trattenuto", "Prono", "Spaventato"]:
             if is_condition_active(p_cond, c): dis_reasons.append(c)
         if is_condition_active(t_cond, "Invisibile"): dis_reasons.append("Bersaglio Invisibile")
-        if is_condition_active(t_cond, "Schivata"): dis_reasons.append("Bersaglio in Schivata")
+        # RAW 5e: Schivata si perde se incapacitato o velocità scende a 0 (PHB p. 192)
+        incaps_dodge = ["Incapacitato", "Incosciente", "Paralizzato", "Stordito", "Pietrificato", "Morto", "Trattenuto", "Afferrato", "Incapacitated"]
+        t_speed = getattr(target_player, "speed", 30)
+        if is_condition_active(t_cond, "Schivata") and not any(is_condition_active(t_cond, c) for c in incaps_dodge) and t_speed > 0:
+            dis_reasons.append("Bersaglio in Schivata")
         
         # Indebolimento (Exhaustion) Lv 3+ impone svantaggio a tiri per colpire
         if getattr(player, "exhaustion_level", 0) >= 3:
@@ -663,11 +647,21 @@ def handle_attack_request(data, player, game_state):
         except ValueError:
             hit_roll = base_roll
             
-        is_crit = (base_roll == 20)
+        crit_thresh = 20
+        if "crit_threshold" in data:
+            try: crit_thresh = int(data["crit_threshold"])
+            except (ValueError, TypeError): crit_thresh = 20
+        elif getattr(player, "full_sheet", None):
+            try: crit_thresh = int(player.full_sheet.get("crit_threshold", 20))
+            except (ValueError, TypeError): crit_thresh = 20
+        elif hasattr(player, "crit_threshold"):
+            try: crit_thresh = int(player.crit_threshold)
+            except (ValueError, TypeError): crit_thresh = 20
+        is_crit = (base_roll >= crit_thresh)
         is_fail = (base_roll == 1)
         
         benedizione_bonus = 0
-        if "Benedizione" in getattr(player, "conditions", []):
+        if is_condition_active(getattr(player, "conditions", []), "Benedizione"):
             benedizione_bonus = random.randint(1, 4)
             hit_roll += benedizione_bonus
         
@@ -680,7 +674,7 @@ def handle_attack_request(data, player, game_state):
                 pass
                 
         scudo_applicato = False
-        if "Scudo" in getattr(target_player, "conditions", []):
+        if is_condition_active(getattr(target_player, "conditions", []), "Scudo"):
             target_ac += 5
             scudo_applicato = True
                 
@@ -767,10 +761,17 @@ def handle_attack_request(data, player, game_state):
                 dmg_result = roll_dice(damage_formula, is_crit=is_crit)
                 dmg_val = max(0, dmg_result["total"])
                 
-                # Bonus danno Ira Barbarica (+2 per attacchi in mischia)
-                if "Ira" in getattr(player, "conditions", []):
-                    dmg_val += 2
-                    log_msg += " (+2 Ira Barbarica)"
+                # Bonus danno Ira Barbarica (RAW 5e: solo attacchi in mischia che usano Forza, scalato col livello)
+                if is_condition_active(getattr(player, "conditions", []), "Ira"):
+                    barb_lvl = 1
+                    if getattr(player, "full_sheet", None):
+                        try: barb_lvl = int(player.full_sheet.get("level", 1))
+                        except (ValueError, TypeError): barb_lvl = 1
+                    rage_bonus = 2 if barb_lvl < 9 else (3 if barb_lvl < 16 else 4)
+                    w_lower = str(weapon_name).lower()
+                    if not (data.get("is_ranged") or any(k in w_lower for k in ["arco", "bow", "balestra", "crossbow", "fionda", "sling"])):
+                        dmg_val += rage_bonus
+                        log_msg += f" (+{rage_bonus} Ira Barbarica)"
 
                 # Regola D&D 5e: Attacco Furtivo del Ladro (Sneak Attack)
                 # Requisiti: classe Ladro, arma accurata/distanza, vantaggio OPPURE alleato entro 1 esagono senza svantaggio, max 1 volta per turno
@@ -788,7 +789,13 @@ def handle_attack_request(data, player, game_state):
                         except (ValueError, TypeError):
                             rogue_lvl = 1
 
-                if is_rogue and not getattr(player, "sneak_attack_used_this_turn", False):
+                w_name_l = str(weapon_name).lower()
+                finesse_kws = ["accurata", "finesse", "stocco", "rapier", "pugnale", "dagger", "spada corta", "shortsword", "scimitarra", "scimitar", "frusta", "whip"]
+                ranged_kws = ["arco", "bow", "balestra", "crossbow", "dardo", "dart", "fionda", "sling", "distanza", "ranged"]
+                w_props = [str(p).lower() for p in data.get("weapon_props", [])]
+                is_finesse_or_ranged = any(k in w_name_l for k in finesse_kws) or any(k in w_name_l for k in ranged_kws) or any(k in w_props for k in ["finesse", "accurata", "ranged", "a distanza"]) or bool(data.get("is_ranged")) or (weapon_name in ("Attacco", "Senz'Armi", "Unarmed Strike") or not weapon_name)
+
+                if is_rogue and is_finesse_or_ranged and not getattr(player, "sneak_attack_used_this_turn", False):
                     has_adjacent_ally = False
                     if hasattr(target_player, "position") and target_player.position:
                         tq, tr = target_player.position[0], target_player.position[1]
@@ -872,14 +879,19 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
         target_player = game_state.find_player(target_name)
     if not target_player: return
     
+    try: roll_total = int(roll_total)
+    except (ValueError, TypeError): roll_total = 0
+    try: dc = int(dc)
+    except (ValueError, TypeError): dc = 10
+
     benedizione_bonus = 0
-    if "Benedizione" in getattr(target_player, "conditions", []):
+    if is_condition_active(getattr(target_player, "conditions", []), "Benedizione"):
         benedizione_bonus = random.randint(1, 4)
         roll_total += benedizione_bonus
         
     extra_adv_note = ""
     if stat in ("DES", "DEX"):
-        if "Schivata" in getattr(target_player, "conditions", []):
+        if is_condition_active(getattr(target_player, "conditions", []), "Schivata"):
             extra_adv_note += " (Vantaggio da Schivata)"
         cover_val = str(cover).lower()
         if cover_val in ("half", "mezza"):
@@ -1039,16 +1051,19 @@ def handle_force_save_request(data, player, game_state):
         else:
             try:
                 mod = 0
+                s_map = {"STR": "FOR", "DEX": "DES", "CON": "COS", "INT": "INT", "WIS": "SAG", "CHA": "CAR"}
+                c_stat = s_map.get(str(stat).upper(), str(stat).upper())
                 if target_player.full_sheet:
                     attr = target_player.full_sheet.get("attributes", {})
-                    if stat in attr:
+                    val = attr.get(c_stat, attr.get(stat))
+                    if val is not None:
                         try:
-                            mod = (int(attr[stat]) - 10) // 2
+                            mod = (int(val) - 10) // 2
                         except (ValueError, TypeError):
                             pass
                 
                 # Vantaggio ai TS su DES per Schivata
-                if stat == "DES" and "Schivata" in getattr(target_player, "conditions", []):
+                if c_stat == "DES" and is_condition_active(getattr(target_player, "conditions", []), "Schivata"):
                     r1 = random.randint(1, 20)
                     r2 = random.randint(1, 20)
                     base_roll = max(r1, r2)
@@ -1065,10 +1080,12 @@ def handle_force_save_request(data, player, game_state):
 
 def handle_save_result_request(data, player, game_state):
     stat = data.get("stat")
-    roll_total = data.get("roll_total")
-    is_crit = data.get("is_crit")
-    is_fail = data.get("is_fail")
-    dc = data.get("dc")
+    try: roll_total = int(data.get("roll_total", 0))
+    except (ValueError, TypeError): roll_total = 0
+    is_crit = bool(data.get("is_crit", False))
+    is_fail = bool(data.get("is_fail", False))
+    try: dc = int(data.get("dc", 10))
+    except (ValueError, TypeError): dc = 10
     damage_formula = data.get("damage_formula")
     half_on_success = data.get("half_on_success")
     source_name = data.get("source_name")
@@ -1159,7 +1176,15 @@ def handle_help_request(data, player, game_state):
 
 def handle_short_rest_request(data, player, game_state):
     hd_spent = data.get("hd_spent", 1)
-    hp_rec = data.get("hp_recovered", 0)
+    try: hp_rec = int(data.get("hp_recovered", 0))
+    except (ValueError, TypeError): hp_rec = 0
+    if player and hp_rec > 0:
+        with game_state.lock:
+            player.hp = min(player.max_hp, player.hp + hp_rec)
+            if getattr(player, "full_sheet", None):
+                player.full_sheet["hp_current"] = player.hp
+        broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, getattr(player, "conditions", []), getattr(player, "temp_hp", 0)))
+        game_state._trigger_gui_update()
     msg = f"☕ {player.name} ha completato un Riposo Breve (ha speso {hd_spent} Dado/i Vita e recuperato {hp_rec} HP)!"
     broadcast(game_state, make_chat_broadcast("Sistema", msg))
     game_state.log_dm_message(f"[RIPOSO] {msg}")

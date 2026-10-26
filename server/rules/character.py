@@ -87,7 +87,7 @@ def handle_update_full_sheet_request(data, player, game_state):
             server_attrs = player.full_sheet.get("attributes", {})
             client_attrs = char_data.get("attributes", {})
             if isinstance(server_attrs, dict) and isinstance(client_attrs, dict):
-                if char_data.get("level", 1) <= player.full_sheet.get("level", 1):
+                if int(char_data.get("level", 1) or 1) <= int(player.full_sheet.get("level", 1) or 1):
                     for a_k, a_val in server_attrs.items():
                         if a_k in client_attrs and client_attrs[a_k] > a_val:
                             client_attrs[a_k] = a_val
@@ -149,7 +149,7 @@ def handle_update_full_sheet_request(data, player, game_state):
 
             # Valida weapons e spellbook contro aggiunte non autorizzate a parità di livello
             if "weapons" in player.full_sheet and isinstance(player.full_sheet["weapons"], list) and isinstance(char_data.get("weapons"), list):
-                if char_data.get("level", 1) <= player.full_sheet.get("level", 1):
+                if int(char_data.get("level", 1) or 1) <= int(player.full_sheet.get("level", 1) or 1):
                     allowed_weapons = {str(w.get("name", "")).strip().lower() for w in player.full_sheet["weapons"] if isinstance(w, dict)}
                     char_data["weapons"] = [
                         w for w in char_data["weapons"]
@@ -157,7 +157,7 @@ def handle_update_full_sheet_request(data, player, game_state):
                     ]
 
             if "spellbook" in player.full_sheet and isinstance(player.full_sheet["spellbook"], list) and isinstance(char_data.get("spellbook"), list):
-                if char_data.get("level", 1) <= player.full_sheet.get("level", 1):
+                if int(char_data.get("level", 1) or 1) <= int(player.full_sheet.get("level", 1) or 1):
                     allowed_spells = {str(sp.get("name", "")).strip().lower() for sp in player.full_sheet["spellbook"] if isinstance(sp, dict)}
                     char_data["spellbook"] = [
                         sp for sp in char_data["spellbook"]
@@ -170,12 +170,23 @@ def handle_update_full_sheet_request(data, player, game_state):
             if "notes" in player.full_sheet and player.full_sheet["notes"] is not None:
                 char_data["notes"] = player.full_sheet["notes"]
             if "features" in player.full_sheet and player.full_sheet["features"] is not None:
-                if char_data.get("level", 1) <= player.full_sheet.get("level", 1):
+                if int(char_data.get("level", 1) or 1) <= int(player.full_sheet.get("level", 1) or 1):
                     char_data["features"] = player.full_sheet["features"]
 
         player.full_sheet = char_data
         player.avatar_b64 = char_data.get("avatar_b64") or getattr(player, "avatar_b64", None)
-        player.hp = char_data.get("hp_current", player.hp)
+        try:
+            player.hp = int(char_data.get("hp_current", player.hp))
+        except (ValueError, TypeError):
+            pass
+        if player.hp <= 0:
+            from server.rules.combat import drop_concentration
+            drop_concentration(player, game_state, reason="HP a 0")
+            conds = getattr(player, "conditions", [])
+            for c in ["Incosciente", "Prono"]:
+                if c not in conds:
+                    conds.append(c)
+            player.conditions = conds
         player.max_hp = char_data.get("hp_max", player.max_hp)
         player.temp_hp = char_data.get("temp_hp", getattr(player, "temp_hp", 0))
         player.initiative = char_data.get("initiative", player.initiative)
@@ -225,7 +236,8 @@ def handle_targeted_action(data, player, game_state):
             target_player.temp_hp = max(getattr(target_player, "temp_hp", 0), val)
             
         temp_disp = f" (+{target_player.temp_hp} Temp)" if getattr(target_player, "temp_hp", 0) > 0 else ""
-        log_msg = f"{player.name} usa {reason or action_type} su {target_name}: {action_type} di {val}{note_str}. HP attuali: {target_player.hp}/{target_player.max_hp}{temp_disp}"
+        p_name = player.name if player else "DM"
+        log_msg = f"{p_name} usa {reason or action_type} su {target_name}: {action_type} di {val}{note_str}. HP attuali: {target_player.hp}/{target_player.max_hp}{temp_disp}"
         game_state.log_dm_message(f"[COMBAT] {log_msg}")
         broadcast(game_state, make_chat_broadcast("Sistema", log_msg))
         
@@ -262,6 +274,15 @@ def trigger_group_long_rest(game_state, reason="Il gruppo si è accampato per un
         game_state._trigger_gui_update()
         return
 
+    with game_state.lock:
+        for p in getattr(game_state, "players", []):
+            p.hp = p.max_hp
+            p.temp_hp = 0
+            p.exhaustion_level = max(0, getattr(p, "exhaustion_level", 0) - 1)
+            if getattr(p, "full_sheet", None):
+                p.full_sheet["hp_current"] = p.hp
+                p.full_sheet["exhaustion_level"] = p.exhaustion_level
+                p.full_sheet["temp_hp"] = 0
     broadcast(game_state, make_chat_broadcast("Sistema", f"{reason} Tutti recuperano HP e Slot."))
     for p in getattr(game_state, "players", []):
         if getattr(p, "conn", None):

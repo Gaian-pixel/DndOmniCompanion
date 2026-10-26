@@ -1888,12 +1888,10 @@ class CharacterCreationWizardFrame(ttk.Frame):
                 pass
             
             try:
-                self.master.after(0, self._on_creation_done, c)
+                if hasattr(self, 'master') and self.master and self.master.winfo_exists():
+                    self.master.after(0, self._on_creation_done, c)
             except Exception:
-                try:
-                    self._on_creation_done(c)
-                except Exception:
-                    pass
+                pass
             
         import threading
         threading.Thread(target=_fetch_level_1_online, daemon=True).start()
@@ -1944,6 +1942,10 @@ class CharacterCreationWizard(tk.Toplevel):
         self._frame_internal.pack(fill=tk.BOTH, expand=True)
 
     def destroy(self):
+        try:
+            self.unbind_all("<MouseWheel>")
+        except Exception:
+            pass
         try:
             super().destroy()
         except (tk.TclError, Exception):

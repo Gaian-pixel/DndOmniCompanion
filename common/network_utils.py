@@ -12,6 +12,8 @@ _send_locks = weakref.WeakKeyDictionary()
 _send_locks_guard = threading.Lock()
 
 def _get_send_lock(sock):
+    if hasattr(sock, "_send_lock"):
+        return sock._send_lock
     with _send_locks_guard:
         try:
             lock = _send_locks.get(sock)
@@ -20,7 +22,11 @@ def _get_send_lock(sock):
                 _send_locks[sock] = lock
             return lock
         except TypeError:
-            return _send_locks_guard
+            try:
+                sock._send_lock = threading.Lock()
+                return sock._send_lock
+            except Exception:
+                return threading.Lock()
 
 def _recv_exact(sock, n):
     """Riceve esattamente n byte (recv può restituirne meno di quelli richiesti)."""
@@ -77,7 +83,7 @@ def sanitize_map_for_players(map_data: dict) -> dict:
     if "traps" in clean and isinstance(clean["traps"], list):
         clean["traps"] = [t for t in clean["traps"] if not t.get("hidden", True) or t.get("triggered", False)]
     if "doors" in clean and isinstance(clean["doors"], list):
-        clean["doors"] = [d for d in clean["doors"] if not (d.get("is_secret") and not d.get("discovered", False))]
+        clean["doors"] = [d for d in clean["doors"] if not ((d.get("is_secret") or d.get("state") == "secret") and not d.get("discovered", False))]
     if "room_pins" in clean and isinstance(clean["room_pins"], list):
         clean_pins = []
         for pin in clean["room_pins"]:
@@ -102,12 +108,16 @@ def broadcast(game_state, message_data, exclude_player=None):
         filtered_players = [pl for pl in raw_players if pl.get("layer", "token") != "gm"]
         copy_data = dict(base_data)
         copy_data["players"] = filtered_players
+        if "map" in copy_data:
+            copy_data["map"] = sanitize_map_for_players(copy_data["map"])
         player_filtered_game_state = {"type": "GAME_STATE", "data": copy_data}
 
     # Pre-filter for MAP_DATA_UPDATE
     player_filtered_map_data = None
     if msg_type == "MAP_DATA_UPDATE" and isinstance(message_data.get("data"), dict):
-        player_filtered_map_data = {"type": "MAP_DATA_UPDATE", "data": sanitize_map_for_players(message_data["data"])}
+        raw_map = message_data["data"].get("map", message_data["data"])
+        clean_map = sanitize_map_for_players(raw_map)
+        player_filtered_map_data = {"type": "MAP_DATA_UPDATE", "data": {"map": clean_map}}
 
     for p in game_state.get_all_players():
         if exclude_player and p.name == exclude_player.name:

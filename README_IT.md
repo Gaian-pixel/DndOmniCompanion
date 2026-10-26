@@ -281,7 +281,7 @@ DndOmniCompanion/
 │   ├── USER_GUIDE.md               # Complete User Guide (English)
 │   ├── GUIDA_OPERATIVA.md          # Manuale operativo e architettura (Italiano)
 │   └── OPERATIONAL_GUIDE.md        # System & Operational Manual (English)
-├── tests/                          # Suite di test automatizzati (283 test superati)
+├── tests/                          # Suite di test automatizzati (296 test superati)
 │   ├── simulate_4player_campaign.py# Simulazione live campagna 4 giocatori + DM (11 fasi)
 │   ├── simulate_game_session.py    # Simulazione multiplayer end-to-end (53 fasi)
 │   ├── test_mono_finestra.py       # Test architettura single-window, overlay e docking
@@ -295,10 +295,10 @@ DndOmniCompanion/
 
 ## 🧪 Test e Verifica Automatica
 
-Tutti i **283 test automatizzati** passano al 100% con 0 errori:
+Tutti i **296 test automatizzati** passano al 100% con 0 errori:
 
 ```powershell
-# 1. Unit Test completi (283 test: righello, critici, mono-finestra, economia turno, unità, inventario, razze/classi)
+# 1. Unit Test completi (296 test: righello, critici, mono-finestra, economia turno, unità, inventario, razze/classi)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 2. Test Meccaniche Autentiche RAW 5e (Porte, Lockpicking, Room Pins, Reazioni, Shield, Evasione, Furtivo, Blind Rolls)

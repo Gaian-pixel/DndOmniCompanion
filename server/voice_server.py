@@ -5,29 +5,32 @@ class VoiceServer:
     def __init__(self, host, port=53912):
         self.host = host
         self.port = port
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # Allows reusing address if restarted quickly
-        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        if hasattr(socket, "SIO_UDP_CONNRESET"):
-            try:
-                self.sock.ioctl(socket.SIO_UDP_CONNRESET, False)
-            except Exception:
-                pass
+        self.sock = None
+        self.lock = threading.Lock()
         self.clients_last_seen = {}
         self.running = False
 
     @property
     def clients(self):
-        return set(self.clients_last_seen.keys())
+        with self.lock:
+            return set(self.clients_last_seen.keys())
 
     @clients.setter
     def clients(self, val):
         import time
         now = time.time()
-        self.clients_last_seen = {addr: now for addr in val}
+        with self.lock:
+            self.clients_last_seen = {addr: now for addr in val}
 
     def start(self):
         try:
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            if hasattr(socket, "SIO_UDP_CONNRESET"):
+                try:
+                    self.sock.ioctl(socket.SIO_UDP_CONNRESET, False)
+                except Exception:
+                    pass
             self.sock.bind((self.host, self.port))
             self.running = True
             threading.Thread(target=self._listen, daemon=True).start()
@@ -37,24 +40,29 @@ class VoiceServer:
 
     def stop(self):
         self.running = False
-        try:
-            self.sock.close()
-        except Exception:
-            pass
+        if self.sock:
+            try:
+                self.sock.close()
+            except Exception:
+                pass
+            self.sock = None
         print("[VoiceServer] Fermato.")
 
     def _listen(self):
         import time
-        self.sock.settimeout(1.0)
-        while self.running:
+        last_prune = 0
+        while self.running and self.sock:
             try:
-                now = time.time()
-                # Prune client inattivi da oltre 10 secondi
-                expired = [c for c, t in list(self.clients_last_seen.items()) if now - t > 10.0]
-                for c in expired:
-                    self.clients_last_seen.pop(c, None)
-
+                self.sock.settimeout(1.0)
                 data, addr = self.sock.recvfrom(4096)
+                now = time.time()
+                with self.lock:
+                    self.clients_last_seen[addr] = now
+                    if now - last_prune > 1.0:
+                        last_prune = now
+                        expired = [c for c, t in list(self.clients_last_seen.items()) if now - t > 10.0]
+                        for c in expired:
+                            self.clients_last_seen.pop(c, None)
                 self.clients_last_seen[addr] = time.time()
                 if data == b'JOIN':
                     print(f"[VoiceServer] Client connesso: {addr}")

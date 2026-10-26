@@ -27,6 +27,8 @@ from server.voice_server import VoiceServer
 class Server:
     def __init__(self, host, port, gui_queue):
         self.host=host; self.port=port; self.server_socket=None; self.running=False
+        self.active_sockets = set()
+        self.active_sockets_lock = threading.Lock()
         self.game_state=GameState(gui_queue)
         from common.starter_equipment import get_campaign_starter_kit
         self.game_state.campaign_starter_kit = get_campaign_starter_kit()
@@ -37,9 +39,10 @@ class Server:
 
     def send_loot_split(self, amount):
         from common.protocol import make_chat_broadcast, make_game_state
-        players = [p for p in self.game_state.players if getattr(p, 'is_party_member', False)]
+        all_p = self.game_state.get_all_players()
+        players = [p for p in all_p if getattr(p, 'is_party_member', False)]
         if not players:
-            players = [p for p in self.game_state.players if getattr(p, 'conn', None) is not None]
+            players = [p for p in all_p if getattr(p, 'conn', None) is not None]
             
         if not players:
             return
@@ -80,12 +83,21 @@ class Server:
         while self.running:
             try:
                 conn, addr=self.server_socket.accept()
+                with self.active_sockets_lock:
+                    self.active_sockets.add(conn)
                 thread=threading.Thread(target=self.handle_client, args=(conn, addr), daemon=True); thread.start()
             except OSError: break
     def stop(self):
         self.running=False
         self.voice_server.stop()
-        if self.server_socket: self.server_socket.close()
+        if self.server_socket:
+            try: self.server_socket.close()
+            except Exception: pass
+        with self.active_sockets_lock:
+            for s in list(self.active_sockets):
+                try: s.close()
+                except Exception: pass
+            self.active_sockets.clear()
     def handle_client(self, conn, addr):
         print(f"[CONNESSIONE] Nuova connessione da {addr}"); player = None
         try:
@@ -104,8 +116,14 @@ class Server:
             
             existing_player = self.game_state.find_player(name)
             if existing_player:
-                if existing_player.conn is None and (getattr(existing_player, "is_party_member", False) or getattr(existing_player, "addr", None) is not None):
-                    # Riconnessione di un giocatore offline (non un PNG del DM)
+                is_human = bool(getattr(existing_player, "is_party_member", False) or getattr(existing_player, "addr", None) is not None)
+                if is_human:
+                    # Riconnessione consentita per membro del party anche in caso di socket zombie
+                    if existing_player.conn is not None and existing_player.conn != conn:
+                        try:
+                            existing_player.conn.close()
+                        except Exception:
+                            pass
                     existing_player.conn = conn
                     existing_player.addr = addr
                     existing_player.is_party_member = True
@@ -114,7 +132,8 @@ class Server:
                     broadcast(self.game_state, make_player_joined(player.to_dict()), exclude_player=player)
                     self.game_state._trigger_gui_update()
                 else:
-                    send_message(conn, make_error_reply(f"Il nome '{name}' è già in uso o appartiene a un PNG.")); return
+                    send_message(conn, make_error_reply(f"Il nome '{name}' è già in uso o appartiene a un PNG."))
+                    return
             else:
                 player = Player(name, addr, conn)
                 player.is_party_member = True
@@ -165,6 +184,8 @@ class Server:
         except Exception as e:
             print(f"[ERRORE] nel thread di {addr}: {e}")
         finally:
+            with self.active_sockets_lock:
+                self.active_sockets.discard(conn)
             if player:
                 curr_sock = getattr(player, "conn", None)
                 self.game_state.disconnect_player(player, conn=conn)

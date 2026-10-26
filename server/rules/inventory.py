@@ -7,6 +7,8 @@ import math
 def handle_give_item_request(data, player, game_state):
     target_name = data.get("target_name")
     item = data.get("item")
+    if not isinstance(item, dict):
+        return
     if not target_name or not item: return
     
     target_player = game_state.find_player(target_name)
@@ -23,30 +25,40 @@ def handle_give_item_request(data, player, game_state):
         if not any(slot is None for slot in recip_sheet["inventory_grid"]):
             if player and getattr(player, "conn", None):
                 send_message(player.conn, make_error_reply(f"Lo zaino di {target_name} è pieno!"))
-                # Restituisci l'oggetto al mittente per evitare la distruzione
-                send_message(player.conn, make_receive_item(item))
             return
 
-    # Verifica possesso e svuota lo slot del mittente sul server nel full_sheet
+    give_qty = int(item.get("qty", 1) or 1)
     sender_sheet = getattr(player, "full_sheet", None)
-    if sender_sheet and isinstance(sender_sheet.get("inventory_grid"), list):
-        found_in_sender = False
-        for s_idx, slot in enumerate(sender_sheet["inventory_grid"]):
-            if slot and isinstance(slot, dict) and slot.get("name") == item.get("name"):
-                sender_sheet["inventory_grid"][s_idx] = None
-                found_in_sender = True
-                break
-        if not found_in_sender:
-            if player and getattr(player, "conn", None):
-                send_message(player.conn, make_error_reply("Non possiedi questo oggetto nello zaino."))
-            return
+    with game_state.lock:
+        if sender_sheet and isinstance(sender_sheet.get("inventory_grid"), list):
+            found_in_sender = False
+            for s_idx, slot in enumerate(sender_sheet["inventory_grid"]):
+                if slot and isinstance(slot, dict) and slot.get("name") == item.get("name"):
+                    curr_q = int(slot.get("qty", 1) or 1)
+                    if curr_q > give_qty:
+                        slot["qty"] = curr_q - give_qty
+                    else:
+                        sender_sheet["inventory_grid"][s_idx] = None
+                    found_in_sender = True
+                    break
+            if not found_in_sender:
+                if player and getattr(player, "conn", None):
+                    send_message(player.conn, make_error_reply("Non possiedi questo oggetto nello zaino."))
+                return
 
-    # Inserisci nel primo slot libero del destinatario sul server
-    if recip_sheet:
-        for s_idx in range(len(recip_sheet["inventory_grid"])):
-            if recip_sheet["inventory_grid"][s_idx] is None:
-                recip_sheet["inventory_grid"][s_idx] = dict(item)
-                break
+        # Inserisci nel primo slot libero o impila nel destinatario
+        if recip_sheet:
+            placed = False
+            for s_idx, slot in enumerate(recip_sheet["inventory_grid"]):
+                if slot and isinstance(slot, dict) and slot.get("name") == item.get("name"):
+                    slot["qty"] = int(slot.get("qty", 1) or 1) + give_qty
+                    placed = True
+                    break
+            if not placed:
+                for s_idx in range(len(recip_sheet["inventory_grid"])):
+                    if recip_sheet["inventory_grid"][s_idx] is None:
+                        recip_sheet["inventory_grid"][s_idx] = dict(item)
+                        break
 
     item["_sender"] = player.name
     send_message(target_player.conn, make_receive_item(item))
@@ -72,6 +84,15 @@ def handle_take_loot_request(data, player, game_state):
                 break
                 
         if found:
+            sheet = getattr(player, "full_sheet", None)
+            if sheet:
+                if not isinstance(sheet.get("inventory_grid"), list):
+                    sheet["inventory_grid"] = [None] * 25
+                has_space = any(s is None for s in sheet["inventory_grid"]) or any(isinstance(s, dict) and s.get("name") == found["item"] for s in sheet["inventory_grid"])
+                if not has_space:
+                    if getattr(player, "conn", None):
+                        send_message(player.conn, make_error_reply("Zaino pieno! Non puoi raccogliere questo oggetto."))
+                    return
             loots.remove(found)
             
             loot_entry = {
@@ -120,6 +141,8 @@ def handle_buy_item_request(data, player, game_state):
         if not item_to_buy: return
         
         price = int(item_to_buy.get("price", 0))
+        if price < 0:
+            return
         sheet = getattr(player, "full_sheet", None)
         if not sheet: return
         
@@ -213,32 +236,31 @@ def handle_give_gold_request(data, player, game_state):
             send_message(player.conn, make_error_reply(f"{target_name} non è online e non può ricevere oro."))
         return
 
-    # Convalida e scala oro dal mittente sul server
-    sender_sheet = getattr(player, "full_sheet", None)
-    if sender_sheet:
-        curr = sender_sheet.setdefault("currency", {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0})
-        s_gold = int(curr.get("MO", 0)) if isinstance(curr, dict) else int(sender_sheet.get("gp", 0))
-        if s_gold < amount:
+    with game_state.lock:
+        sender_sheet = getattr(player, "full_sheet", None)
+        if sender_sheet:
+            curr = sender_sheet.setdefault("currency", {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0})
+            s_gold = int(curr.get("MO", 0)) if isinstance(curr, dict) else int(sender_sheet.get("gp", 0))
+            if s_gold < amount:
+                if player.conn:
+                    send_message(player.conn, make_error_reply(f"Non hai abbastanza monete d'oro. Ne possiedi {s_gold} MO."))
+                return
+            new_sg = s_gold - amount
+            if isinstance(curr, dict):
+                curr["MO"] = new_sg
+            sender_sheet["gp"] = str(new_sg)
             if player.conn:
-                send_message(player.conn, make_error_reply(f"Non hai abbastanza monete d'oro. Ne possiedi {s_gold} MO."))
-            return
-        new_sg = s_gold - amount
-        if isinstance(curr, dict):
-            curr["MO"] = new_sg
-        sender_sheet["gp"] = str(new_sg)
-        if player.conn:
-            send_message(player.conn, make_currency_response(player.name, "MO", -amount, approved=True, reason=f"Donato a {target_name}"))
+                send_message(player.conn, make_currency_response(player.name, "MO", -amount, approved=True, reason=f"Donato a {target_name}"))
 
-    # Accredita sul destinatario sul server
-    recip_sheet = getattr(target_player, "full_sheet", None)
-    if recip_sheet:
-        r_curr = recip_sheet.setdefault("currency", {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0})
-        r_gold = int(r_curr.get("MO", 0)) if isinstance(r_curr, dict) else int(recip_sheet.get("gp", 0))
-        new_rg = r_gold + amount
-        if isinstance(r_curr, dict):
-            r_curr["MO"] = new_rg
-        recip_sheet["gp"] = str(new_rg)
-        send_message(target_player.conn, make_currency_response(target_name, "MO", amount, approved=True, reason=f"Ricevuto da {player.name}"))
+        recip_sheet = getattr(target_player, "full_sheet", None)
+        if recip_sheet:
+            r_curr = recip_sheet.setdefault("currency", {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0})
+            r_gold = int(r_curr.get("MO", 0)) if isinstance(r_curr, dict) else int(recip_sheet.get("gp", 0))
+            new_rg = r_gold + amount
+            if isinstance(r_curr, dict):
+                r_curr["MO"] = new_rg
+            recip_sheet["gp"] = str(new_rg)
+            send_message(target_player.conn, make_currency_response(target_name, "MO", amount, approved=True, reason=f"Ricevuto da {player.name}"))
 
     send_message(target_player.conn, {"type": "RECEIVE_GOLD", "data": {"amount": amount, "sender": player.name}})
     log_msg = f"{player.name} ha donato {amount} Monete d'Oro (MO) a {target_name}."

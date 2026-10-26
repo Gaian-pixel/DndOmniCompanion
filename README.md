@@ -298,7 +298,7 @@ DndOmniCompanion/
 All **273 automated tests** pass with 100% success and 0 failures:
 
 ```powershell
-# 1. Comprehensive Unit Tests (283 tests: ruler, criticals, single-window, turn economy, units, inventory, races/classes)
+# 1. Comprehensive Unit Tests (296 tests: ruler, criticals, single-window, turn economy, units, inventory, races/classes)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 2. Authentic 5e RAW Rules Test Suite (Doors, Lockpicking, Room Pins, Reactions, Shield, Evasion, Sneak Attack, Blind Rolls)

@@ -64,6 +64,7 @@ def handle_move_request(data, player, game_state):
         return
 
     to_pos = data.get("to")
+    move_path = None
     is_dm_caller = getattr(player, "is_dm", False) or getattr(player, "role", "") == "DM"
     if getattr(player, "is_party_member", False) and getattr(player, "conn", None) is not None:
         is_dm = is_dm_caller
@@ -128,7 +129,7 @@ def handle_move_request(data, player, game_state):
                     send_message(player.conn, make_error_reply(f"Non è il tuo turno in combattimento! È il turno di {curr_turn.name}."))
                 return
 
-        if in_combat and hasattr(player, "position") and player.position:
+        if in_combat and hasattr(player, "position") and player.position and len(player.position) >= 2:
             q1, r1 = player.position[0], player.position[1]
             q2, r2 = to_pos[0], to_pos[1]
             speed = getattr(player, "speed", 30)
@@ -139,16 +140,22 @@ def handle_move_request(data, player, game_state):
             from common.i18n import speed_to_hexes, format_distance_hexes
             base_hexes = speed_to_hexes(speed, speed_unit)
 
-            # Regola D&D 5e Ingombro (Encumbrance)
+            # Regola D&D 5e Ingombro (Variant Encumbrance PHB p. 176)
             if sheet and isinstance(sheet.get("attributes"), dict):
                 try:
-                    str_val = int(sheet["attributes"].get("FOR", 10))
+                    str_val = int(sheet["attributes"].get("FOR", sheet["attributes"].get("STR", 10)))
                     inv_grid = sheet.get("inventory_grid", [])
                     tot_w = sum(float(it.get("weight", 0.0) or 0.0) * int(it.get("qty", 1) or 1) for it in inv_grid if it and isinstance(it, dict))
+                    curr = sheet.get("currency", {})
+                    if isinstance(curr, dict):
+                        coin_count = sum(int(v or 0) for v in curr.values() if str(v).isdigit())
+                        tot_w += coin_count * 0.02
                     if tot_w > (str_val * 15):
-                        base_hexes = max(1, base_hexes - 4)
+                        base_hexes = 0  # Sovraccarico: movimento bloccato
                     elif tot_w > (str_val * 10):
-                        base_hexes = max(2, base_hexes - 2)
+                        base_hexes = max(1, base_hexes - 4)  # Gravemente ingombrato (-20 ft)
+                    elif tot_w > (str_val * 5):
+                        base_hexes = max(1, base_hexes - 2)  # Ingombrato (-10 ft)
                 except (ValueError, TypeError):
                     pass
 
@@ -226,10 +233,25 @@ def handle_move_request(data, player, game_state):
                         has_reacted = getattr(other, "has_reacted_this_turn", False)
                         if is_enemy and not has_reacted:
                             qo, ro = other.position[0], other.position[1]
-                            dist_from = max(abs(from_pos[0] - qo), abs(from_pos[0] + from_pos[1] - qo - ro), abs(from_pos[1] - ro))
-                            dist_to = max(abs(to_pos[0] - qo), abs(to_pos[0] + to_pos[1] - qo - ro), abs(to_pos[1] - ro))
                             reach = getattr(other, "reach", 1) or 1
-                            if dist_from <= reach and dist_to > reach:
+                            exited_reach = False
+                            if move_path and len(move_path) > 1:
+                                for p_i in range(len(move_path) - 1):
+                                    s_cur, s_nxt = move_path[p_i], move_path[p_i + 1]
+                                    cq1 = getattr(s_cur, "q", s_cur[0] if isinstance(s_cur, (list, tuple)) else 0)
+                                    cr1 = getattr(s_cur, "r", s_cur[1] if isinstance(s_cur, (list, tuple)) else 0)
+                                    cq2 = getattr(s_nxt, "q", s_nxt[0] if isinstance(s_nxt, (list, tuple)) else 0)
+                                    cr2 = getattr(s_nxt, "r", s_nxt[1] if isinstance(s_nxt, (list, tuple)) else 0)
+                                    d_c = max(abs(cq1 - qo), abs(cq1 + cr1 - qo - ro), abs(cr1 - ro))
+                                    d_n = max(abs(cq2 - qo), abs(cq2 + cr2 - qo - ro), abs(cr2 - ro))
+                                    if d_c <= reach and d_n > reach:
+                                        exited_reach = True
+                                        break
+                            else:
+                                d_f = max(abs(from_pos[0] - qo), abs(from_pos[0] + from_pos[1] - qo - ro), abs(from_pos[1] - ro))
+                                d_t = max(abs(to_pos[0] - qo), abs(to_pos[0] + to_pos[1] - qo - ro), abs(to_pos[1] - ro))
+                                exited_reach = (d_f <= reach and d_t > reach)
+                            if exited_reach:
                                 incaps = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto", "Incapacitato", "Incapacitated"]
                                 o_conds = getattr(other, "conditions", [])
                                 is_blind = any(is_condition_active(o_conds, c) for c in ["Cieco", "Blinded"])
@@ -267,10 +289,17 @@ def handle_move_request(data, player, game_state):
                 dex_mod = 0
                 if getattr(player, "full_sheet", None) and isinstance(player.full_sheet.get("attributes"), dict):
                     try:
-                        dex_val = int(player.full_sheet["attributes"].get("DES", 10))
+                        dex_val = int(player.full_sheet["attributes"].get("DES", player.full_sheet["attributes"].get("DEX", 10)))
                         dex_mod = (dex_val - 10) // 2
                     except Exception:
                         pass
+                    prof_saves = [str(s).upper() for s in player.full_sheet.get("saving_throw_proficiencies", [])]
+                    if "DES" in prof_saves or "DEX" in prof_saves:
+                        try:
+                            lvl = int(player.full_sheet.get("level", 1))
+                            dex_mod += 2 + (lvl - 1) // 4
+                        except (ValueError, TypeError):
+                            dex_mod += 2
                 dex_roll = random.randint(1, 20) + dex_mod
                 if dex_roll < 10:
                     if "Prono" not in player.conditions:
@@ -297,8 +326,10 @@ def handle_move_request(data, player, game_state):
         # Gestione Trappole D&D 5e sulla mappa
         if getattr(game_state, "current_map", None):
             traps = game_state.current_map.get("traps", [])
+            path_coords = {(getattr(step, "q", step[0] if isinstance(step, (list, tuple)) else 0), getattr(step, "r", step[1] if isinstance(step, (list, tuple)) else 0)) for step in move_path} if move_path else {(to_pos[0], to_pos[1])}
             for trap in traps:
-                if trap.get("q") == to_pos[0] and trap.get("r") == to_pos[1] and not trap.get("triggered", False):
+                t_coord = (trap.get("q"), trap.get("r"))
+                if t_coord in path_coords and not trap.get("triggered", False):
                     trap["triggered"] = True
                     trap["hidden"] = False
                     trap_name = trap.get("name", "Trappola a Trabocchetto")
@@ -321,11 +352,18 @@ def handle_move_request(data, player, game_state):
                         mod = 0
                         if getattr(player, "full_sheet", None):
                             attr = player.full_sheet.get("attributes", {})
-                            if "DES" in attr:
+                            d_val = attr.get("DES", attr.get("DEX", 10))
+                            try:
+                                mod = (int(d_val) - 10) // 2
+                            except (ValueError, TypeError):
+                                mod = 0
+                            p_saves = [str(s).upper() for s in player.full_sheet.get("saving_throw_proficiencies", [])]
+                            if "DES" in p_saves or "DEX" in p_saves:
                                 try:
-                                    mod = (int(attr["DES"]) - 10) // 2
+                                    lvl = int(player.full_sheet.get("level", 1))
+                                    mod += 2 + (lvl - 1) // 4
                                 except (ValueError, TypeError):
-                                    mod = 0
+                                    mod += 2
                         mod_str = f"+{mod}" if mod >= 0 else str(mod)
                         res = roll_dice(f"1d20{mod_str}")
                         is_crit = res["rolls"][0] == 20
