@@ -20,9 +20,13 @@ try:
 except ImportError:
     PYPDF_AVAILABLE = False
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PDF_DIR = os.path.join(BASE_DIR, "manuals_pdf")
-CACHE_FILE = os.path.join(BASE_DIR, "manuals", "pdf_index_cache.json")
+from common.file_utils import get_base_dir, get_writable_dir
+
+BASE_DIR = get_base_dir()
+_writable_pdf_dir = os.path.join(get_writable_dir(), "manuals_pdf")
+PDF_DIR = _writable_pdf_dir if os.path.exists(_writable_pdf_dir) else os.path.join(BASE_DIR, "manuals_pdf")
+_writable_cache = os.path.join(get_writable_dir(), "manuals", "pdf_index_cache.json")
+CACHE_FILE = _writable_cache if os.path.exists(_writable_cache) else os.path.join(BASE_DIR, "manuals", "pdf_index_cache.json")
 
 from common.srd_offline import extract_and_normalize_attributes, get_monster_offline
 

@@ -38,7 +38,8 @@ class ClientGUI:
         self.master.title("D&D Client")
         self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.audio_manager = AudioManager()
-        self.audio_cache_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "client_data", "audio_cache")
+        from common.file_utils import get_writable_dir
+        self.audio_cache_dir = os.path.join(get_writable_dir(), "client_data", "audio_cache")
         os.makedirs(self.audio_cache_dir, exist_ok=True)
         self._audio_downloads = {}
         self._pending_play = None

@@ -4,8 +4,31 @@ Utility per la gestione sicura e atomica dei file su disco.
 Previene la corruzione dei file JSON in caso di arresti anomali o crash.
 """
 import os
+import sys
 import json
 import tempfile
+
+
+def get_base_dir() -> str:
+    """
+    Restituisce la directory radice dell'applicazione o del bundle PyInstaller.
+    Utilizzata per caricare asset statici, compendi e template inclusi nella release.
+    """
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return getattr(sys, "_MEIPASS")
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def get_writable_dir() -> str:
+    """
+    Restituisce la directory scrivibile in cui salvare dati persistenti utente
+    (file di configurazione, cartella client_data, personaggi e campagne salvate).
+    In modalità standalone (.exe) coincide con la cartella che ospita l'eseguibile.
+    """
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 
 
 def atomic_save_json(filepath, data, indent=4, ensure_ascii=False):

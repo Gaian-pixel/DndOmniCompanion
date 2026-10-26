@@ -16,8 +16,11 @@ import re
 import ast
 from typing import List, Dict, Any, Optional
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRD_DIR = os.path.join(BASE_DIR, "srd_data")
+from common.file_utils import get_base_dir, get_writable_dir
+
+BASE_DIR = get_base_dir()
+_writable_srd = os.path.join(get_writable_dir(), "srd_data")
+SRD_DIR = _writable_srd if os.path.exists(_writable_srd) else os.path.join(BASE_DIR, "srd_data")
 
 # Dizionario traduzione incantesimi Italiano -> Inglese (SRD + PHB + XGtE + TCoE)
 SPELL_IT_TO_EN = {

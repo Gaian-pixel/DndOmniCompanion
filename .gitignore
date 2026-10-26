@@ -44,3 +44,8 @@ dnd_blankcharactersheet*.pdf
 
 # Code Reviews & AI Artifacts
 *review*.md
+
+# PyInstaller & Releases
+dist/
+build/
+*.spec

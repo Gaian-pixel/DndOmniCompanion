@@ -10,8 +10,11 @@ import json
 import threading
 
 # Directory base del progetto
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SETTINGS_PATH = os.path.join(BASE_DIR, "client_data", "settings.json")
+from common.file_utils import get_base_dir, get_writable_dir
+
+# Directory base del progetto (gestisce sia sviluppo locale che eseguibile standalone PyInstaller)
+BASE_DIR = get_base_dir()
+SETTINGS_PATH = os.path.join(get_writable_dir(), "client_data", "settings.json")
 
 SUPPORTED_LANGUAGES = {
     "it": "Italiano 🇮🇹",

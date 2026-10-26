@@ -1,7 +1,7 @@
 import os
-from common.file_utils import atomic_save_json, load_json
+from common.file_utils import atomic_save_json, load_json, get_writable_dir
 
-CHARACTER_FILE = "client_data/characters.json"
+CHARACTER_FILE = os.path.join(get_writable_dir(), "client_data", "characters.json")
 
 CONTAINERS = {
     "backpack": {
