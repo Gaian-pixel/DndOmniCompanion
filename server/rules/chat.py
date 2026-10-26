@@ -314,6 +314,16 @@ def handle_roll_request(data, player, game_state):
         log_msg = f"{player.name} tira {formula}{reason_part} e ottiene {result['total']} (dadi: {result.get('rolls')}, mod: {result.get('modifier')}){crit_badge}"
         game_state.log_dm_message(f"[ROLL] {log_msg}")
         broadcast(game_state, make_dice_roll_result(player.name, formula, reason, result))
+        if hasattr(game_state, "gui_queue") and game_state.gui_queue:
+            game_state.gui_queue.put({
+                "type": "DICE_ROLL_RESULT",
+                "payload": {
+                    "player": player.name,
+                    "formula": formula,
+                    "reason": reason,
+                    "result": result
+                }
+            })
     except ValueError as e:
         send_message(player.conn, make_error_reply(str(e)))
 
@@ -336,6 +346,15 @@ def handle_blind_roll_request(data, player, game_state):
         dm_msg = f"🙈 [TIRO SEGRETO] {p_name} tira {formula}{reason_part} -> Totale: {result['total']} (dadi: {result.get('rolls')}, mod: {result.get('modifier')}){crit_badge}"
         game_state.log_dm_message(dm_msg)
         game_state.gui_queue.put({"type": "PRIVATE_MESSAGE_RECEIVED", "payload": {"from": "Tiro Segreto", "text": dm_msg}})
+        game_state.gui_queue.put({
+            "type": "BLIND_ROLL_RESULT",
+            "payload": {
+                "player": p_name,
+                "formula": formula,
+                "reason": f"🙈 [Segreto] {reason}" if reason else "🙈 [Tiro Segreto]",
+                "result": result
+            }
+        })
         
         # 2. Conferma per il giocatore che ha tirato (senza rivelare il totale numerico!)
         if getattr(player, "conn", None):

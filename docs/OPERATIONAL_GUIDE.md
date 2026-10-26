@@ -649,13 +649,47 @@ D&D OmniCompanion features full live bilingual localization and dual measurement
 
 ---
 
-## 10. Testing Suite & Quality Assurance
+## 10. Native 3D Polyhedral Dice Engine on Canvas
 
-The codebase includes a consolidated testing suite in the `tests/` directory with **273 automated tests** passing at 100% with 0 failures, covering headless unit tests, GUI smoke tests, single-window architecture, and full multiplayer campaign simulations:
+D&D OmniCompanion features a native polyhedral 3D vector dice renderer ([`components/dice_3d_canvas.py`](file:///c:/Users/gaian/Desktop/Projects/DndOmniCompanion/components/dice_3d_canvas.py)) rendered directly on top of the tactical map canvas with **zero external dependencies** (no GPU/OpenGL requirements, standard Python math and Tkinter canvas):
+
+* **Polyhedral 5e RAW Geometries**:
+  * **d4**: Regular tetrahedron (4 vertices, 4 triangular faces).
+  * **d6**: Regular cube (8 vertices, 6 square faces, opposing faces summing to 7).
+  * **d8**: Regular octahedron (6 vertices, 8 triangular faces, opposing faces summing to 9).
+  * **d10**: Pentagonal trapezohedron (12 vertices, 10 kite faces numbered 0-9).
+  * **d12**: Regular dodecahedron (20 vertices, 12 pentagonal faces, opposing faces summing to 13).
+  * **d20**: Regular icosahedron (12 vertices, 20 triangular faces, opposing faces summing to 21).
+  * **d100**: Double-digit percentile die ('00', '10' ... '90').
+* **Dark Fantasy Lighting & Lambertian Shading**:
+  * Lambertian diffuse shading computing surface normals against a virtual top-left directional light source.
+  * Specular gleams, beveled gold borders (`#D4AF37`), and Z-sorting (*Painter's algorithm*) to prevent occlusion artifacts.
+  * Variable ground contact shadow: expands and softens when the die is high in the air ($Z > 0$) and sharpens at contact ($Z = 0$).
+* **Ballistic Physics & Mathematical Settle Alignment**:
+  * Kinematic simulation with gravity ($980\text{ px/s}^2$), ground/wall restitution bounces, and angular friction damping.
+  * **Quaternion Slerp Alignment**: As the die decelerates, it smoothly interpolates via spherical linear interpolation (quaternions) to align the face matching the rolled result directly towards the viewer (+Z) with the numeral right-side up.
+* **Special Visual & Audio Effects**:
+  * **Natural 20 (Critical Success)**: Luminous divine gold body (`#D97706`), pulsing halo, and celebration sparkles.
+  * **Natural 1 (Critical Failure)**: Cursed abyssal blood body (`#7F1D1D`), crimson glow.
+  * **Advantage & Disadvantage**: Both d20s roll side-by-side in real time; upon settling, the dropped die dims into muted iron grey with a `(discarded)` label.
+  * **Native SFX Audio**: In-memory synthesis and asynchronous non-blocking playback of WAV audio with micro-impact dice roll clicks.
+* **User Controls**:
+  * Quick `🎲` toggle button in the left toolbars of both client and server to toggle 3D dice on the fly.
+  * Click during rolling to instantly skip to the final result; click again to dismiss the result card.
+
+---
+
+## 11. Testing Suite & Quality Assurance
+
+The codebase includes a consolidated testing suite in the `tests/` directory with **341 automated tests** passing at 100% with 0 failures, covering headless unit tests, 3D dice physics and rendering, companions/familiars, travel/camping, GUI smoke tests, single-window architecture, and full multiplayer campaign simulations:
 
 ```powershell
-# 1. Run comprehensive unit tests (296 tests: ruler, criticals, single-window, turn economy, units, inventory, races/classes)
+# 1. Run comprehensive unit tests (341 tests with 0 failures)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
+
+# 2. Run specific 3D polyhedral dice test suite
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_3d_dice.py
+```
 
 # 2. Run authentic 5e RAW rules test suite (Doors, Lockpicking, Room Pins, Reactions, Shield, Evasion, Sneak Attack, Blind Rolls)
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_authentic_5e.py

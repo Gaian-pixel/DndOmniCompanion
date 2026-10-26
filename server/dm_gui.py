@@ -89,6 +89,11 @@ class DM_GUI:
         self.gui_queue=queue.Queue()
         self.server=Server('', 5000, self.gui_queue)
         self.map_canvas = None # Il nostro nuovo componente
+        self.map_outer_frame = None
+        self.enable_3d_dice = True
+        self.dice_sound_enabled = True
+        self.dice_speed = "normal"
+        self.dice_3d_overlay = None
         self.notebook = None
         self.chat_tabs = {}
         self.default_font = ("Georgia", 10)
@@ -497,14 +502,19 @@ class DM_GUI:
         btn_palette.pack(pady=2)
         ToolTip(btn_palette, lambda: _t("tool_command_palette"))
 
-        # Pulsante rapido Schermo Intero in fondo alla barra
+        # Pulsante rapido Schermo Intero e Dadi 3D in fondo alla barra
         self.btn_fullscreen = ttk.Button(left_toolbar, text="⛶", width=3, style="Tool.TButton", command=self.toggle_fullscreen)
         self.btn_fullscreen.pack(side=tk.BOTTOM, pady=(0, 2))
         ToolTip(self.btn_fullscreen, lambda: _t("menu_fullscreen"))
+
+        self.btn_3d_dice = ttk.Button(left_toolbar, text="🎲", width=3, style="Tool.TButton", command=self.toggle_3d_dice)
+        self.btn_3d_dice.pack(side=tk.BOTTOM, pady=(0, 2))
+        ToolTip(self.btn_3d_dice, lambda: _t("tooltip_toggle_3d_dice"))
         
         # --- COLONNA 1: MAPPA (Viewport & Header a 2 Livelli Anti-Overflow) ---
         map_outer_frame = ttk.Frame(main_frame)
         map_outer_frame.grid(row=0, column=1, sticky="nsew", padx=4)
+        self.map_outer_frame = map_outer_frame
         
         # LIVELLO 1: Barra Stato Mondo & Mappa (Pillole Interattive)
         map_top_bar = tk.Frame(map_outer_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=4)
@@ -891,6 +901,30 @@ class DM_GUI:
             self.show_toast(_t("toast_fullscreen_on"), title=_t("menu_fullscreen"), toast_type="info")
         else:
             self.show_toast(_t("toast_fullscreen_off"), title=_t("menu_fullscreen"), toast_type="info")
+
+    def toggle_3d_dice(self):
+        self.enable_3d_dice = not getattr(self, "enable_3d_dice", True)
+        status_msg = _t("dice_3d_enabled_toast") if self.enable_3d_dice else _t("dice_3d_disabled_toast")
+        if hasattr(self, "show_toast"):
+            self.show_toast(status_msg, title="🎲 Dadi 3D", toast_type="gold" if self.enable_3d_dice else "info")
+
+    def trigger_3d_dice_roll(self, formula: str, result: dict, player_name: str = "DM", reason: str = ""):
+        if not getattr(self, "enable_3d_dice", True):
+            return
+        parent = getattr(self, "map_outer_frame", None) or getattr(self, "master", None)
+        if not parent:
+            return
+        try:
+            from components.dice_3d_canvas import Dice3DOverlay
+            if not getattr(self, "dice_3d_overlay", None):
+                self.dice_3d_overlay = Dice3DOverlay(
+                    parent,
+                    sound_enabled=getattr(self, "dice_sound_enabled", True),
+                    speed=getattr(self, "dice_speed", "normal")
+                )
+            self.dice_3d_overlay.roll(formula, result, player_name=player_name, reason=reason)
+        except Exception as e:
+            print(f"[DM_GUI] Errore animazione Dadi 3D: {e}")
 
     def exit_fullscreen(self, event=None):
         if getattr(self, "is_fullscreen", False):
@@ -1446,6 +1480,7 @@ class DM_GUI:
                 log_msg = f"DM tira {formula} {'(' + reason + ')' if reason else ''}: {result['rolls']} + {result['modifier']} = {result['total']}{crit_badge}"
                 self.log_to_chat(f"[ROLL] {log_msg}")
                 broadcast(self.server.game_state, make_dice_roll_result("DM", formula, reason, result))
+                self.trigger_3d_dice_roll(formula, result, "DM", reason)
             except Exception as e:
                 messagebox.showerror("Errore Dadi", str(e))
 
@@ -2803,6 +2838,12 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                     self.master.after(10, self.prompt_currency_approval, msg.get("player"), msg.get("coin"), msg.get("amount"), msg.get("reason"))
                 elif msg_type == "ITEM_APPROVAL_REQUEST":
                     self.master.after(10, self.prompt_item_approval, msg.get("player"), msg.get("item"), msg.get("slot_idx"))
+                elif msg_type == "DICE_ROLL_RESULT":
+                    p = msg.get("payload", {})
+                    self.trigger_3d_dice_roll(p.get("formula", "1d20"), p.get("result", {}), p.get("player", "Qualcuno"), p.get("reason", ""))
+                elif msg_type == "BLIND_ROLL_RESULT":
+                    p = msg.get("payload", {})
+                    self.trigger_3d_dice_roll(p.get("formula", "1d20"), p.get("result", {}), p.get("player", "Giocatore"), p.get("reason", "🙈 Tiro Segreto"))
         except queue.Empty: pass
         self.master.after(100, self.process_queue)
 

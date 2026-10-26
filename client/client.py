@@ -57,6 +57,10 @@ class ClientGUI:
         self.chat_tabs = {}
         self.player_listbox = None
         self.map_canvas = None
+        self.enable_3d_dice = True
+        self.dice_sound_enabled = True
+        self.dice_speed = "normal"
+        self.dice_3d_overlay = None
         self.default_font = ("Georgia", 10)
         self.combat_active = False
         self.turn_index = 0
@@ -295,10 +299,14 @@ class ClientGUI:
         self.cmd_palette_btn.pack(pady=2)
         ToolTip(self.cmd_palette_btn, lambda: _t("tool_command_palette"))
 
-        # Pulsante rapido Schermo Intero in fondo alla barra
+        # Pulsante rapido Schermo Intero e Dadi 3D in fondo alla barra
         self.btn_fullscreen = ttk.Button(left_panel, text="⛶", width=3, style="Tool.TButton", command=self.toggle_fullscreen)
         self.btn_fullscreen.pack(side=tk.BOTTOM, pady=(0, 2))
         ToolTip(self.btn_fullscreen, lambda: _t("menu_fullscreen"))
+
+        self.btn_3d_dice = ttk.Button(left_panel, text="🎲", width=3, style="Tool.TButton", command=self.toggle_3d_dice)
+        self.btn_3d_dice.pack(side=tk.BOTTOM, pady=(0, 2))
+        ToolTip(self.btn_3d_dice, lambda: _t("tooltip_toggle_3d_dice"))
         
         # --- COLONNA 1: MAPPA ---
         self.map_outer_frame = ttk.Frame(main_frame)
@@ -696,6 +704,30 @@ class ClientGUI:
             self.show_toast(_t("toast_fullscreen_on"), title=_t("menu_fullscreen"), toast_type="info")
         else:
             self.show_toast(_t("toast_fullscreen_off"), title=_t("menu_fullscreen"), toast_type="info")
+
+    def toggle_3d_dice(self):
+        self.enable_3d_dice = not getattr(self, "enable_3d_dice", True)
+        status_msg = _t("dice_3d_enabled_toast") if self.enable_3d_dice else _t("dice_3d_disabled_toast")
+        if hasattr(self, "show_toast"):
+            self.show_toast(status_msg, title="🎲 Dadi 3D", toast_type="gold" if self.enable_3d_dice else "info")
+
+    def trigger_3d_dice_roll(self, formula: str, result: dict, player_name: str = "Giocatore", reason: str = ""):
+        if not getattr(self, "enable_3d_dice", True):
+            return
+        parent = getattr(self, "map_outer_frame", None) or getattr(self, "master", None)
+        if not parent:
+            return
+        try:
+            from components.dice_3d_canvas import Dice3DOverlay
+            if not getattr(self, "dice_3d_overlay", None):
+                self.dice_3d_overlay = Dice3DOverlay(
+                    parent,
+                    sound_enabled=getattr(self, "dice_sound_enabled", True),
+                    speed=getattr(self, "dice_speed", "normal")
+                )
+            self.dice_3d_overlay.roll(formula, result, player_name=player_name, reason=reason)
+        except Exception as e:
+            print(f"[Client] Errore animazione Dadi 3D: {e}")
 
     def exit_fullscreen(self, event=None):
         if getattr(self, "is_fullscreen", False):
@@ -3811,6 +3843,7 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
 
         log_text = f"tira {formula}{reason_text}: {rolls_display}{mod_str} = {total}{crit_badge}"
         self.log_to_chat(log_text, "Globale", sender=player_name, color=chat_color)
+        self.trigger_3d_dice_roll(formula, res, player_name=player_name, reason=reason)
     
     def open_private_chat_from_list(self, event):
         selected_indices=self.player_listbox.curselection()
@@ -4026,6 +4059,7 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                     rolls_str = "+".join(map(str, res.get("rolls", [])))
                     total = res.get("total", 0)
                     msg = f"🎲 [Offline] {reason}: [{rolls_str}] -> Totale: {total} ({formula})"
+                    self.trigger_3d_dice_roll(formula, res, player_name="Offline", reason=reason)
                 except Exception:
                     msg = f"🎲 [Offline] {reason}: {formula}"
             else:

@@ -643,13 +643,47 @@ D&D OmniCompanion offre localizzazione bilingue live e doppio sistema di misuraz
 
 ---
 
-## 10. Suite di Test e Quality Assurance
+## 10. Motore di Dadi 3D Poliedrici Nativo su Canvas
 
-Il progetto include una suite consolidata nella cartella `tests/` con **296 test automatizzati** che passano al 100% con 0 errori, coprendo unit test headless, smoke test della GUI, architettura mono-finestra e simulazioni di campagna complete:
+D&D OmniCompanion include un renderer tridimensionale vettoriale poliedrico nativo ([`components/dice_3d_canvas.py`](file:///c:/Users/gaian/Desktop/Projects/DndOmniCompanion/components/dice_3d_canvas.py)) disegnato direttamente sopra il canvas della mappa tattica, **senza dipendenze esterne** (zero GPU/OpenGL richieste, pura matematica standard Python e Tkinter):
+
+* **Geometria Poliedrica RAW 5e**:
+  * **d4**: Tetraedro regolare (4 vertici, 4 facce triangolari).
+  * **d6**: Cubo regolare (8 vertici, 6 facce quadrate, facce opposte che sommano a 7).
+  * **d8**: Ottaedro regolare (6 vertici, 8 facce triangolari, facce opposte che sommano a 9).
+  * **d10**: Trapezoedro pentagonale (12 vertici, 10 facce aquilone numerate 0-9).
+  * **d12**: Dodecaedro regolare (20 vertici, 12 facce pentagonali, facce opposte che sommano a 13).
+  * **d20**: Icosaedro regolare (12 vertici, 20 facce triangolari, facce opposte che sommano a 21).
+  * **d100**: Percentile a doppia cifra ('00', '10' ... '90').
+* **Illuminazione e Shading Dark Fantasy**:
+  * Shading Lambertiano con calcolo dinamico del vettore normale di ogni faccia rispetto a una sorgente di luce direzionale virtuale in alto a sinistra.
+  * Riflessi speculari metallici, beveled edge dorati (`#D4AF37`) e Z-sorting (*Painter's algorithm*) per prevenire artefatti grafici durante le rotazioni complesse.
+  * Ombra proiettata variabile sul tavolo: si espande e si attenua quando il dado rimbalza in alto ($Z > 0$) e si restringe a contatto con la superficie ($Z = 0$).
+* **Fisica Balistica ed Assestamento Matematico**:
+  * Simulazione cinematica con gravità ($980\text{ px/s}^2$), coefficiente di rimbalzo elastico e decelerazione angolare con attrito.
+  * **Slerp di Orientamento**: Al termine del rotolamento balistico, il dado converge via interpolazione sferica (quaternioni) esattamente sull'orientamento in cui la faccia corrispondente al risultato del tiro punta verso la telecamera (+Z) con la numerazione orientata verticalmente.
+* **Effetti Visivi e Audio Speciali**:
+  * **20 Naturale (Successo Critico)**: Aspetto oro luminoso (`#D97706`), scritte dorate, alone pulsante e bagliore trionfale.
+  * **1 Naturale (Fallimento Critico)**: Aspetto ossidiana/sangue cupo (`#7F1D1D`), alone vermiglio cupo.
+  * **Vantaggio e Svantaggio**: Entrambi i d20 rotolano simultaneamente a schermo; all'arresto, il dado scartato si attenua in grigio ferro opaco con etichetta `(scartato)`.
+  * **SFX Audio Nativo**: Generazione autonoma in memoria e riproduzione non bloccante di file audio WAV con tre micro-impatti acustici di rotolamento dadi.
+* **Controlli Utente**:
+  * Pulsante rapido `🎲` nella barra laterale sinistra del client e del server per attivare/disattivare i dadi 3D al volo.
+  * Click durante il lancio per saltare immediatamente all'esito; secondo click per chiudere subito la card dei risultati.
+
+---
+
+## 11. Suite di Test e Quality Assurance
+
+Il progetto include una suite consolidata nella cartella `tests/` con **341 test automatizzati** che passano al 100% con 0 errori, coprendo unit test headless, simulazione fisica dei dadi 3D, compagni/famigli, viaggi e accampamento, smoke test della GUI, architettura mono-finestra e simulazioni di campagna complete:
 
 ```powershell
-# 1. Esegui l'intera suite di unit test (296 test: righello, critici, mono-finestra, economia turno, unità, inventario, razze/classi)
+# 1. Esegui l'intera suite di unit test (341 test con 0 fallimenti)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
+
+# 2. Esegui la suite specifica per il motore di dadi 3D poliedrici
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_3d_dice.py
+```
 
 # 2. Esegui la suite regole autentiche RAW 5e (Porte, Scasso, Spille Stanza, Reazioni, Scudo, Evasione, Furtivo, Blind Rolls)
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_authentic_5e.py
