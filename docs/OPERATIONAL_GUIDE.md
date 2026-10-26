@@ -9,7 +9,7 @@ Welcome to the comprehensive operational manual for **D&D OmniCompanion**, a com
 
 ## Table of Contents
 1. [Architecture & Network Model](#1-architecture--network-model)
-2. [Prerequisites & Quick Start](#2-prerequisites--quick-start)
+2. [Prerequisites, Downloads & Quick Start](#2-prerequisites-downloads--quick-start)
 3. [User Interface & Layout Overview](#3-user-interface--layout-overview)
 4. [Dungeon Master (DM) Operations](#4-dungeon-master-dm-operations)
    - [Campaign Management Styles (DM Agency vs Full Automation) & Pending Actions Dock](#campaign-management-styles-dm-agency-vs-full-automation--pending-actions-dock)
@@ -121,28 +121,65 @@ flowchart TD
   * `audio.py`: synchronized audio broadcasts and soundboard.
 * **`components/statblock_view.py` (`StatblockCardView`)**: Modular UI component for authentic Dark Fantasy D&D 5e statblock rendering. Supports three polymorphic modes: **Monsters/NPCs** (AC/HP/Speed badges, 6-stat table with calculated modifiers, saving throws, skills, damage/condition resistances, traits, actions with highlighted dice formulas, reactions, legendary actions), **Magic Items** (rarity, item type, attunement, properties), and **Spells** (level, school, casting time, range, components, duration, and upcast scaling). Features contextual primary action buttons and responsive canvas scrolling.
 * **`common/srd_offline.py`**: Offline compendium and data normalization layer. Provides `normalize_ac_value` and `normalize_speed_value` to sanitize incoming payloads from raw JSON nested dictionaries (`[{}]`), robust regex parsing for multi-movement modes (fly, swim, burrow, climb), numeric fractional CR conversion (`"1/8"`, `"1/4"`, `"1/2"`), and automated stat enrichment for entries extracted from offline PDF rulebooks.
+* **`common/file_utils.py`**: Cross-platform filesystem path abstraction (`get_base_dir()`, `get_writable_dir()`, `ensure_writable_dir()`). Strictly decouples read-only bundled application assets (SRD dataset, core manuals, maps, campaigns) from user-writable persistent storage (`client_data`, settings, runtime indexed manuals), ensuring full compatibility both when running from source and inside compiled standalone bundles (PyInstaller).
 * **`common/i18n.py`**: Real-time bilingual translation dictionary (`IT`/`EN`), Imperial/Metric unit conversion (`ft`/`mi` $\leftrightarrow$ `m`/`km`), localization of token sizes, GM layer, whiteboard tools, and multi-scale map distance/travel-time calculation.
 
 ---
 
-## 2. Prerequisites & Quick Start
+## 2. Prerequisites, Downloads & Quick Start
 
-### Requirements
+### 📦 Download Pre-Built Standalone Executables (Windows & Linux)
+To run D&D OmniCompanion without needing to install Python or configure virtual environments, standalone release packages can be downloaded directly from the official [GitHub Releases](https://github.com/Gaian-pixel/DndOmniCompanion/releases) page:
+* **Windows (64-bit)**: Download `DndOmniCompanion-v*-win64.zip`, extract anywhere and launch `DndOmniCompanion.exe`.
+* **Linux (x86_64)**: Download `DndOmniCompanion-v*-linux-x64.tar.gz`, extract (`tar -xzf ...`) and run `./run.sh` (or `./DndOmniCompanion`).
+
+---
+
+### 💻 Running from Source (Python)
+
+#### System Requirements
 * **Python 3.9+** (tested and verified up to Python 3.14).
-* Core dependencies:
+* **Linux System Dependencies (Ubuntu/Debian)**:
+  For Tkinter GUI rendering and audio/voice streaming:
   ```bash
-  pip install pillow ttkbootstrap requests sounddevice numpy
+  sudo apt-get update && sudo apt-get install -y python3-tk libportaudio2 libsndfile1
   ```
-  *(Note: `sounddevice` and `numpy` are used for real-time voice streaming. In headless test environments or systems without PortAudio, the environment variable `DND_MOCK_AUDIO=1` is automatically honored).*
+* **Install Python Dependencies**:
+  ```bash
+  pip install -r requirements.txt
+  ```
+  *(Note: `sounddevice` and `numpy` are utilized for real-time voice streaming. In headless environments, containerized servers or machines without physical audio hardware, the application automatically handles missing audio and respects `DND_MOCK_AUDIO=1`).*
 
-### Launching the Application
-Execute the unified launcher from the project root:
-```bash
-python main.py
-```
-A role selector modal appears:
-1. **Dungeon Master**: Launches the DM Host server on default port `53911` (TCP) and `53912` (UDP) and opens the DM workspace (with Campaign, Campaign Editor, or Quick Session).
-2. **Player**: Launches the Player VTT client, allowing character selection/creation and server connection via IP/hostname.
+#### Launching the Application
+* **On Windows**:
+  ```bash
+  python main.py
+  ```
+* **On Linux**:
+  ```bash
+  chmod +x run_linux.sh
+  ./run_linux.sh
+  # or: python3 main.py
+  ```
+
+The **Unified Launcher** will prompt you to select a mode:
+1. **Dungeon Master**: Launches the Host DM server on default ports `53911` (TCP) and `53912` (UDP) and opens the DM Dashboard (with Campaign, Campaign Editor, or Quick Session).
+2. **Player**: Launches the Player VTT client, allowing character selection and connection to the DM server via IP/hostname.
+3. **Offline Character Management & Creation Wizard**: Manage character sheets, export to Official PDF/JSON, or launch the BG3-style Level 1 character creation wizard completely offline.
+
+---
+
+### 🛠️ Multiplatform Build Script & CI/CD Release Pipeline
+
+* **Local Build Script (`build_release.py`)**:
+  Builds standalone distributions using PyInstaller into `dist/DndOmniCompanion`:
+  - **On Windows**: bundles assets (`srd_data`, `manuals`, `campaigns`, `audio_library`, `maps`) and generates `DndOmniCompanion-v*-win64.zip`.
+  - **On Linux**: generates the native ELF binary, sets `0755` execution permissions on `run.sh` and compiles `DndOmniCompanion-v*-linux-x64.tar.gz`.
+* **GitHub Actions Automation (`.github/workflows/release.yml`)**:
+  Triggered automatically on every `v*` tag push or manual workflow dispatch. Runs parallel runners on `windows-latest` and `ubuntu-latest`, compiles standalone binaries, and attaches both `.zip` and `.tar.gz` packages directly to the GitHub Release via `softprops/action-gh-release@v2`.
+* **Read-Only vs. Writable Path Abstraction (`common/file_utils.py`)**:
+  - `get_base_dir()`: locates immutable bundled distribution assets (source directory or PyInstaller `_internal` bundle).
+  - `get_writable_dir()`: returns and ensures writable user directories (`client_data`, settings, databases, runtime manual cache), preventing permission errors when the application is installed in system directories.
 
 ---
 

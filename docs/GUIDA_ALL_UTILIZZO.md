@@ -56,10 +56,26 @@ Questa guida illustra passo dopo passo come avviare una sessione, configurare l'
 
 ## 1. Avvio Rapido e Connessione
 
-1. Apri un terminale nella cartella del progetto ed esegui:
-   ```bash
-   python main.py
-   ```
+### 📦 Download Eseguibili Precompilati (Windows & Linux)
+Se desideri utilizzare D&D OmniCompanion senza installare Python, puoi scaricare l'eseguibile standalone pronto all'uso dalla pagina [GitHub Releases](https://github.com/Gaian-pixel/DndOmniCompanion/releases):
+* **Windows (64-bit)**: Scarica `DndOmniCompanion-v*-win64.zip`, estrai l'archivio in una cartella a tua scelta ed avvia `DndOmniCompanion.exe`.
+* **Linux (x86_64)**: Scarica `DndOmniCompanion-v*-linux-x64.tar.gz`, estrai l'archivio ed esegui `./run.sh` (oppure `./DndOmniCompanion`).
+
+---
+
+### 💻 Avvio da Codice Sorgente (Python)
+
+1. Apri un terminale nella cartella del progetto ed avvia il launcher:
+   * **Su Windows**:
+     ```bash
+     python main.py
+     ```
+   * **Su Linux**:
+     ```bash
+     chmod +x run_linux.sh
+     ./run_linux.sh
+     # oppure: python3 main.py
+     ```
 2. Si aprirà il **Launcher principale** con due sezioni:
    * **Dungeon Master (Host)**:
      * **⚔️ Avvia con Campagna**: carica una campagna esistente (con atti, scene, incontri preparati e mappe).

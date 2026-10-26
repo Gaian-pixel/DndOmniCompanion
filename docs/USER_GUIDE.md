@@ -55,10 +55,26 @@ This manual walks you step by step through starting a session, configuring the i
 
 ## 1. Quick Start & Connection
 
-1. Open a terminal in the project root folder and run:
-   ```bash
-   python main.py
-   ```
+### 📦 Download Pre-Built Executables (Windows & Linux)
+To run D&D OmniCompanion without installing Python or dependencies, download the standalone package directly from [GitHub Releases](https://github.com/Gaian-pixel/DndOmniCompanion/releases):
+* **Windows (64-bit)**: Download `DndOmniCompanion-v*-win64.zip`, extract anywhere and launch `DndOmniCompanion.exe`.
+* **Linux (x86_64)**: Download `DndOmniCompanion-v*-linux-x64.tar.gz`, extract anywhere and run `./run.sh` (or `./DndOmniCompanion`).
+
+---
+
+### 💻 Running from Source (Python)
+
+1. Open a terminal in the project root folder and launch the application:
+   * **On Windows**:
+     ```bash
+     python main.py
+     ```
+   * **On Linux**:
+     ```bash
+     chmod +x run_linux.sh
+     ./run_linux.sh
+     # or: python3 main.py
+     ```
 2. The **Main Launcher** will appear with two role cards:
    * **Dungeon Master (Host)**:
      * **⚔️ Launch with Campaign**: load an existing campaign (with acts, scenes, prepared encounters, and maps).
