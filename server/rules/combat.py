@@ -58,14 +58,14 @@ def drop_concentration(player, game_state, notify=True):
         game_state.log_dm_message(f"[CONCENTRAZIONE] {break_msg}")
 
 
-def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=None):
+def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=None, is_crit=False):
     """
     Applica il danno secondo le regole D&D 5e:
-    1. Resistenze, Immunità e Vulnerabilità (inclusa Ira Barbarica)
+    1. Resistenze, Immunità e Vulnerabilità (inclusa Ira Barbarica e full_sheet)
     2. Assorbimento Punti Ferita Temporanei (Temp HP) prima degli HP effettivi
     3. Morte istantanea (danno residuo >= HP max)
     4. Condizioni Incosciente/Prono o Morto per i mostri + drop spoglie
-    5. Tiro Salvezza Concentrazione
+    5. Tiro Salvezza Concentrazione (e interruzione su condizioni invalidanti)
     Ritorna: (danno_finale, note_moltiplicatore, temp_assorbiti, danno_a_hp)
     """
     if raw_damage <= 0:
@@ -90,9 +90,14 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
         "tuono": ["tuono", "thunder"], "thunder": ["tuono", "thunder"]
     }
     
-    all_target_imm = [str(x).strip().lower() for x in getattr(target_player, "damage_immunities", [])]
-    all_target_res = [str(x).strip().lower() for x in getattr(target_player, "damage_resistances", [])]
-    all_target_vul = [str(x).strip().lower() for x in getattr(target_player, "damage_vulnerabilities", [])]
+    fs = getattr(target_player, "full_sheet", None) or {}
+    fs_imm = fs.get("damage_immunities", []) if isinstance(fs, dict) else []
+    fs_res = fs.get("damage_resistances", []) if isinstance(fs, dict) else []
+    fs_vul = fs.get("damage_vulnerabilities", []) if isinstance(fs, dict) else []
+
+    all_target_imm = [str(x).strip().lower() for x in (list(getattr(target_player, "damage_immunities", [])) + list(fs_imm))]
+    all_target_res = [str(x).strip().lower() for x in (list(getattr(target_player, "damage_resistances", [])) + list(fs_res))]
+    all_target_vul = [str(x).strip().lower() for x in (list(getattr(target_player, "damage_vulnerabilities", [])) + list(fs_vul))]
     
     # Ira Barbarica: resistenza ai danni fisici (tagliente, perforante, contundente)
     if "Ira" in getattr(target_player, "conditions", []):
@@ -132,13 +137,16 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
     excess_damage = abs(new_hp_unbounded) if new_hp_unbounded < 0 else 0
     target_player.hp = max(0, new_hp_unbounded)
     
-    is_npc = not hasattr(target_player, "conn") or target_player.conn is None
+    is_npc = (not hasattr(target_player, "conn") or target_player.conn is None) and not getattr(target_player, "is_party_member", False)
     auto_death = True
     if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
         auto_death = game_state.automation_settings.get("auto_death_saves", True)
     
-    if target_player.hp == 0:
+    incapacitating = ("incapacitato", "incapacitated", "incosciente", "unconscious", "paralizzato", "paralyzed", "stordito", "stunned", "pietrificato", "petrified", "morto", "dead")
+    if target_player.hp == 0 or any(str(c).strip().lower() in incapacitating for c in getattr(target_player, "conditions", [])):
         drop_concentration(target_player, game_state, notify=(not is_npc))
+
+    if target_player.hp == 0:
         if is_npc:
             if auto_death:
                 if "Morto" not in getattr(target_player, "conditions", []):
@@ -168,7 +176,7 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
                 if old_hp == 0 and dmg_to_hp > 0:
                     if not hasattr(target_player, "death_saves") or not isinstance(target_player.death_saves, dict):
                         target_player.death_saves = {"successes": 0, "failures": 0}
-                    fail_add = 1
+                    fail_add = 2 if is_crit else 1
                     target_player.death_saves["failures"] += fail_add
                     msg = f"💀 {target_player.name} subisce danni mentre è a 0 HP! Segna {fail_add} fallimento/i nel TS contro la morte (Totale: {target_player.death_saves['failures']}/3)!"
                     if target_player.death_saves["failures"] >= 3:
@@ -189,8 +197,11 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
             if hasattr(target_player, "death_saves") and isinstance(target_player.death_saves, dict):
                 target_player.death_saves = {"successes": 0, "failures": 0}
             
-    # Concentrazione 5e (si attiva quando si subiscono danni)
-    if final_dmg > 0 and game_state:
+    # Concentrazione 5e (RAW: cade su 0 HP o condizioni invalidanti, o su TS subito per danni)
+    incapacitating = ("incapacitato", "incapacitated", "incosciente", "unconscious", "paralizzato", "paralyzed", "stordito", "stunned", "pietrificato", "petrified", "morto", "dead")
+    if target_player.hp == 0 or any(str(c).strip().lower() in incapacitating for c in getattr(target_player, "conditions", [])):
+        drop_concentration(target_player, game_state, notify=True)
+    elif final_dmg > 0 and game_state:
         _trigger_concentration_check(target_player, final_dmg, game_state)
         
     return final_dmg, note, temp_absorbed, dmg_to_hp
@@ -203,7 +214,7 @@ def _apply_hp_change(target_player, new_hp_unbounded, game_state):
         excess_damage = abs(new_hp_unbounded)
     
     target_player.hp = max(0, min(target_player.max_hp, new_hp_unbounded))
-    is_npc = not hasattr(target_player, "conn") or target_player.conn is None
+    is_npc = (not hasattr(target_player, "conn") or target_player.conn is None) and not getattr(target_player, "is_party_member", False)
     
     if target_player.hp == 0:
         drop_concentration(target_player, game_state, notify=(not is_npc))
@@ -415,7 +426,7 @@ def handle_attack_request(data, player, game_state):
     if not target_player: return
 
     p_cond = getattr(player, "conditions", [])
-    blocking = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto"]
+    blocking = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto", "Incapacitato", "Incapacitated"]
     if any(is_condition_active(p_cond, c) for c in blocking) or getattr(player, "hp", 1) <= 0:
         if player and getattr(player, "conn", None):
             send_message(player.conn, make_error_reply("Non puoi attaccare mentre sei Incosciente, Paralizzato o a 0 HP!"))
@@ -464,6 +475,7 @@ def handle_attack_request(data, player, game_state):
             dis_reasons.append("Indebolimento Lv3+")
         
         # Gestione distanza e Prono / Fiancheggiamento
+        dist = 999
         if hasattr(player, "position") and player.position and hasattr(target_player, "position") and target_player.position:
             q1, r1 = player.position[0], player.position[1]
             q2, r2 = target_player.position[0], target_player.position[1]
@@ -780,14 +792,21 @@ def handle_attack_request(data, player, game_state):
                     has_adjacent_ally = False
                     if hasattr(target_player, "position") and target_player.position:
                         tq, tr = target_player.position[0], target_player.position[1]
+                        attacker_party = bool(getattr(player, "is_party_member", False) or getattr(player, "conn", None))
+                        target_party = bool(getattr(target_player, "is_party_member", False) or getattr(target_player, "conn", None))
                         for other in getattr(game_state, "players", []):
                             if other.name != player.name and other.name != target_player.name and getattr(other, "hp", 0) > 0:
                                 if hasattr(other, "position") and other.position:
                                     oq, or_ = other.position[0], other.position[1]
                                     d_o = max(abs(tq - oq), abs(tq + tr - oq - or_), abs(tr - or_))
-                                    if d_o <= 1 and "Incosciente" not in getattr(other, "conditions", []) and "Morto" not in getattr(other, "conditions", []):
-                                        has_adjacent_ally = True
-                                        break
+                                    if d_o <= 1:
+                                        other_party = bool(getattr(other, "is_party_member", False) or getattr(other, "conn", None))
+                                        is_ally = (other_party == attacker_party) if attacker_party != target_party else True
+                                        o_conds = getattr(other, "conditions", [])
+                                        incap = any(is_condition_active(o_conds, c) for c in ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto", "Incapacitato", "Incapacitated"])
+                                        if is_ally and not incap:
+                                            has_adjacent_ally = True
+                                            break
                     
                     if has_adv or (has_adjacent_ally and not has_dis):
                         sneak_dice_count = max(1, math.ceil(rogue_lvl / 2))
@@ -803,7 +822,7 @@ def handle_attack_request(data, player, game_state):
                     auto_apply = game_state.automation_settings.get("auto_apply_damage", True)
 
                 if auto_apply:
-                    final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(target_player, dmg_val, damage_type, game_state)
+                    final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(target_player, dmg_val, damage_type, game_state, is_crit=is_crit)
                     log_msg += f" Danno: {final_dmg} ({damage_type}){note}."
                     if temp_absorbed > 0:
                         log_msg += f" [{temp_absorbed} assorbiti da Temp HP]."
@@ -883,6 +902,7 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
         success = False
         extra_adv_note += f" (Fallimento automatico per condizione: {auto_fail_cond})"
     else:
+        # D&D 5e: Successo su CD con supporto a Critico (20 Nat) ed Errore Critico (1 Nat)
         success = is_crit or (not is_fail and roll_total >= dc)
     
     # D&D 5e: Resistenze Leggendarie (es. 3/giorno)
@@ -1066,7 +1086,7 @@ def _validate_combat_tactical_action(player, game_state, action_label: str) -> b
         return False
 
     p_cond = getattr(player, "conditions", []) if player else []
-    blocking = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto"]
+    blocking = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto", "Incapacitato", "Incapacitated"]
     if any(is_condition_active(p_cond, c) for c in blocking) or getattr(player, "hp", 1) <= 0:
         if player and getattr(player, "conn", None):
             send_message(player.conn, make_error_reply(f"Non puoi compiere l'azione di {action_label} mentre sei Incosciente, Paralizzato, Stordito o a 0 HP!"))
@@ -1256,7 +1276,8 @@ def handle_apply_pending_damage_request(data, player, game_state):
         calc_dmg = raw_damage
         desc_prefix = f"⚔️ Il DM applica DANNO PIENO ({calc_dmg} {damage_type})"
         
-    final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(target_player, calc_dmg, damage_type, game_state)
+    is_crit = pending.get("is_crit", False)
+    final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(target_player, calc_dmg, damage_type, game_state, is_crit=is_crit)
     log_msg = f"{desc_prefix} a {target_name}{note}."
     if temp_absorbed > 0:
         log_msg += f" [{temp_absorbed} assorbiti da Temp HP]."

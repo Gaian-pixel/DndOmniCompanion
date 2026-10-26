@@ -575,7 +575,7 @@ D&D OmniCompanion features full live bilingual localization and dual measurement
 The codebase includes a consolidated testing suite in the `tests/` directory with **273 automated tests** passing at 100% with 0 failures, covering headless unit tests, GUI smoke tests, single-window architecture, and full multiplayer campaign simulations:
 
 ```powershell
-# 1. Run comprehensive unit tests (273 tests: ruler, criticals, single-window, turn economy, units, inventory, races/classes)
+# 1. Run comprehensive unit tests (283 tests: ruler, criticals, single-window, turn economy, units, inventory, races/classes)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 2. Run authentic 5e RAW rules test suite (Doors, Lockpicking, Room Pins, Reactions, Shield, Evasion, Sneak Attack, Blind Rolls)

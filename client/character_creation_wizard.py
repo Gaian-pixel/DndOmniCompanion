@@ -1706,11 +1706,47 @@ class CharacterCreationWizardFrame(ttk.Frame):
         con_mod = get_mod(c.attributes["COS"])
         dex_mod = get_mod(c.attributes["DES"])
         
-        # Calcolo HP (incluso eventuale bonus sottorazza es. Nano delle Colline +1 PF)
+        # Calcolo HP e Dado Vita (incluso eventuale bonus sottorazza es. Nano delle Colline +1 PF)
         class_info = CLASSES.get(c.char_class, CLASSES["Guerriero"])
         hp_sub_bonus = int(subrace_info.get("hp_bonus", 0))
         c.hp_max = class_info["hd"] + con_mod + hp_sub_bonus
         c.hp_current = c.hp_max
+        c.hit_dice_type = f"d{class_info.get('hd', 8)}"
+        c.hit_dice_total = 1
+        c.hit_dice_current = 1
+        
+        # Competenze nei Tiri Salvezza della classe (D&D 5e RAW)
+        save_map = {
+            "forza": "FOR", "destrezza": "DES", "costituzione": "COS",
+            "intelligenza": "INT", "saggezza": "SAG", "carisma": "CAR",
+            "strength": "FOR", "dexterity": "DES", "constitution": "COS",
+            "intelligence": "INT", "wisdom": "SAG", "charisma": "CAR"
+        }
+        st_text = str(class_info.get("saving_throws", "")).lower()
+        c.saving_throw_proficiencies = [
+            abbr for name, abbr in save_map.items() if name in st_text
+        ]
+        if not c.saving_throw_proficiencies:
+            c_cls_low = c.char_class.lower()
+            default_saves = {
+                "barbaro": ["FOR", "COS"], "bardo": ["DES", "CAR"], "chierico": ["SAG", "CAR"],
+                "druido": ["INT", "SAG"], "guerriero": ["FOR", "COS"], "ladro": ["DES", "INT"],
+                "mago": ["INT", "SAG"], "monaco": ["FOR", "DES"], "paladino": ["SAG", "CAR"],
+                "ranger": ["FOR", "DES"], "stregone": ["COS", "CAR"], "warlock": ["SAG", "CAR"]
+            }
+            for k, v in default_saves.items():
+                if k in c_cls_low:
+                    c.saving_throw_proficiencies = list(v)
+                    break
+        
+        # Competenze nelle Abilità di Classe predefinite (D&D 5e RAW)
+        from common.starter_equipment import CLASS_DEFAULT_SKILLS
+        char_class = c.char_class
+        if char_class in CLASS_DEFAULT_SKILLS:
+            for sk in CLASS_DEFAULT_SKILLS[char_class]:
+                if hasattr(c, "skills") and isinstance(c.skills, dict):
+                    if c.skills.get(sk, 0) == 0:
+                        c.skills[sk] = 2 if char_class in ["Ladro", "Rogue"] and sk in ["Furtività", "Prestidigitazione"] else 1
         
         # Calcolo AC base (10 + Dex) e Velocità
         c.ac = 10 + dex_mod

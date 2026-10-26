@@ -563,10 +563,10 @@ D&D OmniCompanion offre localizzazione bilingue live e doppio sistema di misuraz
 
 ## 10. Suite di Test e Quality Assurance
 
-Il progetto include una suite consolidata nella cartella `tests/` con **273 test automatizzati** che passano al 100% con 0 errori, coprendo unit test headless, smoke test della GUI, architettura mono-finestra e simulazioni di campagna complete:
+Il progetto include una suite consolidata nella cartella `tests/` con **283 test automatizzati** che passano al 100% con 0 errori, coprendo unit test headless, smoke test della GUI, architettura mono-finestra e simulazioni di campagna complete:
 
 ```powershell
-# 1. Esegui l'intera suite di unit test (273 test: righello, critici, mono-finestra, economia turno, unità, inventario, razze/classi)
+# 1. Esegui l'intera suite di unit test (283 test: righello, critici, mono-finestra, economia turno, unità, inventario, razze/classi)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 2. Esegui la suite regole autentiche RAW 5e (Porte, Scasso, Spille Stanza, Reazioni, Scudo, Evasione, Furtivo, Blind Rolls)

@@ -89,7 +89,14 @@ class Server:
     def handle_client(self, conn, addr):
         print(f"[CONNESSIONE] Nuova connessione da {addr}"); player = None
         try:
+            conn.settimeout(15.0)
             join_msg = receive_message(conn)
+            conn.settimeout(None)
+            if hasattr(socket, "SO_KEEPALIVE"):
+                try:
+                    conn.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                except Exception:
+                    pass
             print('RICEVUTO MESSAGGIO INIZIALE:', join_msg)
             if join_msg is None or join_msg.get("type") != "JOIN":
                 return
@@ -159,10 +166,11 @@ class Server:
             print(f"[ERRORE] nel thread di {addr}: {e}")
         finally:
             if player:
-                # Invece di rimuovere il giocatore, lo disconnettiamo per mantenere la sessione
-                self.game_state.disconnect_player(player)
-                # Avvisiamo in chat che si è disconnesso, ma manteniamo il token sulla mappa
-                broadcast(self.game_state, make_chat_broadcast("Sistema", f"{player.name} si è disconnesso."))
+                curr_sock = getattr(player, "conn", None)
+                self.game_state.disconnect_player(player, conn=conn)
+                # Avvisiamo in chat solo se il giocatore non si è già riconnesso con un nuovo socket
+                if curr_sock is conn:
+                    broadcast(self.game_state, make_chat_broadcast("Sistema", f"{player.name} si è disconnesso."))
             try:
                 conn.close()
             except Exception:

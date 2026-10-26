@@ -213,23 +213,28 @@ def handle_move_request(data, player, game_state):
                     game_state.log_dm_message(f"[MOVIMENTO] {player.name} supera la velocità normale del turno ({spent + req_hexes}/{max_hexes} esagoni) - Consentito in modalità tavolo.")
             player.movement_spent_this_turn = spent + req_hexes
 
-        # Rilevamento Attacco d'Opportunità (Opportunity Attack)
+        # Rilevamento Attacco d'Opportunità (Opportunity Attack - D&D 5e RAW PHB p. 195)
         from_pos = list(player.position) if hasattr(player, "position") and player.position else None
-        if in_combat and from_pos and from_pos != to_pos:
+        is_teleport = bool(data.get("is_teleport", False))
+        if in_combat and from_pos and from_pos != to_pos and not is_teleport:
             disengaged = is_condition_active(conds, "Disimpegno")
             if not disengaged:
                 for other in getattr(game_state, "players", []):
                     if other.name != player.name and getattr(other, "hp", 0) > 0 and hasattr(other, "position") and other.position:
                         is_enemy = (getattr(player, "is_party_member", False) != getattr(other, "is_party_member", False))
-                        if is_enemy:
+                        # Non può reagire se ha già speso la reazione questo turno
+                        has_reacted = getattr(other, "has_reacted_this_turn", False)
+                        if is_enemy and not has_reacted:
                             qo, ro = other.position[0], other.position[1]
                             dist_from = max(abs(from_pos[0] - qo), abs(from_pos[0] + from_pos[1] - qo - ro), abs(from_pos[1] - ro))
                             dist_to = max(abs(to_pos[0] - qo), abs(to_pos[0] + to_pos[1] - qo - ro), abs(to_pos[1] - ro))
-                            if dist_from <= 1 and dist_to > 1:
-                                incaps = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto"]
+                            reach = getattr(other, "reach", 1) or 1
+                            if dist_from <= reach and dist_to > reach:
+                                incaps = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto", "Incapacitato", "Incapacitated"]
                                 o_conds = getattr(other, "conditions", [])
-                                if not any(is_condition_active(o_conds, c) for c in incaps):
-                                    opp_alert = f"⚠️ [OPPORTUNITÀ] {player.name} esce dalla portata di mischia di {other.name}! {other.name} può usare la Reazione per un Attacco d'Opportunità!"
+                                is_blind = any(is_condition_active(o_conds, c) for c in ["Cieco", "Blinded"])
+                                if not is_blind and not any(is_condition_active(o_conds, c) for c in incaps):
+                                    opp_alert = f"⚠️ [OPPORTUNITÀ] {player.name} esce dalla portata di mischia ({reach * 1.5}m) di {other.name}! {other.name} può usare la Reazione per un Attacco d'Opportunità!"
                                     game_state.log_dm_message(f"[COMBAT] {opp_alert}")
                                     from common.protocol import make_chat_broadcast, make_opportunity_alert
                                     broadcast(game_state, make_chat_broadcast("Sistema", opp_alert))
@@ -279,10 +284,11 @@ def handle_move_request(data, player, game_state):
                     from common.protocol import make_chat_broadcast
                     broadcast(game_state, make_chat_broadcast("Sistema", f"🧊 {player.name} attraversa il ghiaccio mantenendo l'equilibrio (TS Des {dex_roll} vs CD 10)."))
             elif t_type in ("rovi", "briars", "spine"):
-                # D&D 5e: Rovi acuminati -> 1d4 danni da spine
+                # D&D 5e: Rovi acuminati -> 1d4 danni da spine via apply_damage (Temp HP, resistenze, death saves)
                 thorn_dmg = random.randint(1, 4)
-                player.hp = max(0, player.hp - thorn_dmg)
-                alert = f"🌿 {player.name} attraversa i Rovi acuminati e subisce {thorn_dmg} danni perforanti!"
+                from server.rules.combat import apply_damage
+                final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(player, thorn_dmg, "Perforante", game_state)
+                alert = f"🌿 {player.name} attraversa i Rovi acuminati e subisce {final_dmg} danni perforanti{note}!"
                 game_state.log_dm_message(f"[TERRENO] {alert}")
                 from common.protocol import make_chat_broadcast, make_player_stats_update
                 broadcast(game_state, make_chat_broadcast("Sistema", alert))

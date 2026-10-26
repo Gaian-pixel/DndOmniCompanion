@@ -568,7 +568,7 @@ class LevelUpDialog(tk.Toplevel):
     def fetch_level_data(self):
         """Carica immediatamente i dati dalla progressione locale SRD 5e senza attese di rete."""
         try:
-            off_data = get_class_level_features_offline(self.character.char_class, self.new_level)
+            off_data = get_class_level_features_offline(self.character.char_class, self.new_level, getattr(self.character, "subclass", ""))
             features_list = [{"name": f} if isinstance(f, str) else f for f in off_data.get("features", [])]
             spellcasting = {}
             for lvl_str, count in off_data.get("spell_slots", {}).items():
@@ -897,9 +897,19 @@ class LevelUpDialog(tk.Toplevel):
 
         self.character.proficiency_bonus = 2 + (self.character.level - 1) // 4
 
-        # 5. Slot Incantesimo
+        # 5. Slot Incantesimo (D&D 5e: Warlock sostituisce slot inferiori con slot superiori)
         if self.api_data and isinstance(self.api_data.get("spellcasting"), dict):
             sc = self.api_data["spellcasting"]
+            is_warlock = "warlock" in str(getattr(self.character, "char_class", "")).lower()
+            if is_warlock:
+                for i in range(1, 10):
+                    key = f"spell_slots_level_{i}"
+                    if key not in sc and str(i) in self.character.spell_slots:
+                        if isinstance(self.character.spell_slots[str(i)], dict):
+                            self.character.spell_slots[str(i)]["max"] = 0
+                            self.character.spell_slots[str(i)]["current"] = 0
+                        else:
+                            self.character.spell_slots[str(i)] = [0, 0]
             for i in range(1, 10):
                 key = f"spell_slots_level_{i}"
                 if key in sc:

@@ -339,9 +339,9 @@ class GameState:
                 active.has_reacted_this_turn = False
                 active.sneak_attack_used_this_turn = False
                 if hasattr(active, "conditions") and active.conditions:
-                    active.conditions = [c for c in active.conditions if c not in start_of_turn_conds and c != "Scudo"]
+                    active.conditions = [c for c in active.conditions if c not in start_of_turn_conds and c not in ("Scudo", "Shield")]
                 if getattr(active, "full_sheet", None) and isinstance(active.full_sheet.get("conditions"), list):
-                    active.full_sheet["conditions"] = [c for c in active.full_sheet["conditions"] if c not in start_of_turn_conds and c != "Scudo"]
+                    active.full_sheet["conditions"] = [c for c in active.full_sheet["conditions"] if c not in start_of_turn_conds and c not in ("Scudo", "Shield")]
 
             if round_advanced:
                 for p in self.players:
@@ -458,12 +458,13 @@ class GameState:
                         self.round_number += 1
         self._trigger_gui_update()
 
-    def disconnect_player(self, player_to_disconnect):
+    def disconnect_player(self, player_to_disconnect, conn=None):
         with self.lock:
             for p in self.players:
                 if p.name == player_to_disconnect.name:
-                    p.conn = None
-                    p.addr = None
+                    if conn is None or getattr(p, "conn", None) is conn:
+                        p.conn = None
+                        p.addr = None
         self._trigger_gui_update()
 
     def find_player(self, name):
@@ -538,7 +539,9 @@ class GameState:
     def save_session(self, filepath):
         """Salva lo stato corrente in un file JSON in modo atomico."""
         from common.file_utils import atomic_save_json
-        state = self.get_state_dict()
+        import copy
+        with self.lock:
+            state = copy.deepcopy(self.get_state_dict())
         atomic_save_json(filepath, state, indent=4, ensure_ascii=False)
         self.log_dm_message(f"[SISTEMA] Sessione salvata in {filepath}")
 

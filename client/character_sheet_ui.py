@@ -2634,19 +2634,33 @@ class CharacterSheetFrame(ttk.Frame):
             
         heal_msg = ""
         iname_lower = it_name.lower()
-        if "pozione di guarigione" in iname_lower or "potion of healing" in iname_lower:
+        if "pozione" in iname_lower or "potion" in iname_lower:
             import random
-            heal_roll = random.randint(1, 4) + random.randint(1, 4) + 2
-            old_hp = self.character.hp_current
-            self.character.hp_current = min(self.character.hp_max, self.character.hp_current + heal_roll)
-            if hasattr(self, "hp_cur_var"):
-                self.hp_cur_var.set(self.character.hp_current)
-            if hasattr(self, "hp_cur_entry") and self.hp_cur_entry.winfo_exists():
-                self.hp_cur_entry.delete(0, tk.END)
-                self.hp_cur_entry.insert(0, str(self.character.hp_current))
-            if hasattr(self, "update_hp_bar"):
-                self.update_hp_bar()
-            heal_msg = f"\n🧪 Hai bevuto la pozione e recuperato +{heal_roll} PF (ora {self.character.hp_current}/{self.character.hp_max})!"
+            heal_roll = 0
+            pot_tier = ""
+            if any(k in iname_lower for k in ["suprema", "supreme"]):
+                heal_roll = sum(random.randint(1, 4) for _ in range(10)) + 20
+                pot_tier = "Suprema (10d4+20)"
+            elif any(k in iname_lower for k in ["superiore", "superior"]):
+                heal_roll = sum(random.randint(1, 4) for _ in range(8)) + 8
+                pot_tier = "Superiore (8d4+8)"
+            elif any(k in iname_lower for k in ["maggiore", "greater"]):
+                heal_roll = sum(random.randint(1, 4) for _ in range(4)) + 4
+                pot_tier = "Maggiore (4d4+4)"
+            elif any(k in iname_lower for k in ["guarigione", "healing", "cura"]):
+                heal_roll = sum(random.randint(1, 4) for _ in range(2)) + 2
+                pot_tier = "Comune (2d4+2)"
+            if heal_roll > 0:
+                old_hp = self.character.hp_current
+                self.character.hp_current = min(self.character.hp_max, self.character.hp_current + heal_roll)
+                if hasattr(self, "hp_cur_var"):
+                    self.hp_cur_var.set(self.character.hp_current)
+                if hasattr(self, "hp_cur_entry") and self.hp_cur_entry.winfo_exists():
+                    self.hp_cur_entry.delete(0, tk.END)
+                    self.hp_cur_entry.insert(0, str(self.character.hp_current))
+                if hasattr(self, "update_hp_bar"):
+                    self.update_hp_bar()
+                heal_msg = f"\n🧪 Hai bevuto la Pozione di Guarigione {pot_tier} e recuperato +{heal_roll} PF (ora {self.character.hp_current}/{self.character.hp_max})!"
 
         new_qty = current_qty - amount
         if new_qty > 0:
@@ -3137,7 +3151,7 @@ class CharacterSheetFrame(ttk.Frame):
         qty_var = tk.IntVar(value=initial_qty)
         ttk.Button(qp_frame, text="-", width=2, command=lambda: qty_var.set(max(1, qty_var.get() - 1))).pack(side=tk.LEFT)
         ttk.Entry(qp_frame, textvariable=qty_var, width=4, justify="center", state="readonly").pack(side=tk.LEFT, padx=2)
-        ttk.Button(qp_frame, text="+", width=2, command=lambda: qty_var.set(min(initial_qty, qty_var.get() + 1))).pack(side=tk.LEFT, padx=(0, 14))
+        ttk.Button(qp_frame, text="+", width=2, command=lambda: qty_var.set(min(9999, qty_var.get() + 1))).pack(side=tk.LEFT, padx=(0, 14))
         
         tk.Label(qp_frame, text="Peso Unitario (lbs):", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(side=tk.LEFT, padx=(0, 4))
         w_var = tk.DoubleVar(value=item.get("weight", 0.0))
@@ -3164,7 +3178,7 @@ class CharacterSheetFrame(ttk.Frame):
                 if current_attuned >= 3:
                     messagebox.showwarning("Limite Sintonia", "Non puoi sintonizzarti con più di 3 oggetti magici contemporaneamente!", parent=win)
                     return
-            item["qty"] = max(1, min(initial_qty, qty_var.get()))
+            item["qty"] = max(1, qty_var.get())
             item["weight"] = max(0.0, w_var.get())
             item["attuned"] = attune_var.get()
             item["desc"] = desc_text.get("1.0", tk.END).strip()
@@ -3220,12 +3234,23 @@ class CharacterSheetFrame(ttk.Frame):
                 return
             target = simpledialog.askstring("Dona Oggetto", "A chi vuoi donare l'oggetto?\nScegli tra: " + ", ".join(players), parent=win)
             if target and target in players:
-                self.character.inventory_grid[idx] = None
+                item_qty = int(item.get("qty", 1) or 1)
+                donate_qty = 1
+                if item_qty > 1:
+                    donate_qty = simpledialog.askinteger("Quantità", f"Quante unità di {item.get('name')} vuoi donare? (1-{item_qty}):", parent=win, minvalue=1, maxvalue=item_qty)
+                    if not donate_qty:
+                        return
+                item_to_send = dict(item)
+                item_to_send["qty"] = donate_qty
+                if donate_qty >= item_qty:
+                    self.character.inventory_grid[idx] = None
+                else:
+                    item["qty"] = item_qty - donate_qty
                 self.refresh_inventory_grid()
                 self.manager.update_character(self.character)
                 if hasattr(self.manager, 'save_characters'):
                     self.manager.save_characters()
-                self.trade_callback(item, target)
+                self.trade_callback(item_to_send, target)
                 win.destroy()
             elif target:
                 messagebox.showerror("Errore", "Giocatore non trovato.", parent=win)
@@ -3600,10 +3625,6 @@ class CharacterSheetFrame(ttk.Frame):
 
     def short_rest(self):
         hd_cur = getattr(self.character, "hit_dice_current", 0)
-        if hd_cur <= 0 and getattr(self.character, "hp_current", 0) >= getattr(self.character, "hp_max", 0):
-            messagebox.showinfo("Riposo Breve", "I tuoi PF sono già al massimo e non hai Dadi Vita da spendere.")
-            return
-
         win = tk.Toplevel(self)
         win.transient(self)
         win.grab_set()
@@ -3698,7 +3719,11 @@ class CharacterSheetFrame(ttk.Frame):
                     if isinstance(slot, dict) and "current" in slot:
                         slot["current"] = slot.get("max", 0)
                         if hasattr(self, "slot_vars") and str(lvl) in self.slot_vars:
-                            self.slot_vars[str(lvl)].set(slot["current"])
+                            v = self.slot_vars[str(lvl)]
+                            if isinstance(v, dict) and "current" in v:
+                                v["current"].set(slot["current"])
+                            elif hasattr(v, "set"):
+                                v.set(slot["current"])
             
             self.manager.update_character(self.character)
             if hasattr(self, "on_save_callback") and self.on_save_callback:
@@ -3915,6 +3940,13 @@ class CharacterSheetFrame(ttk.Frame):
             card.pack(fill=tk.X, pady=4, padx=4)
             
             stat_key = w.get("ability", "FOR")
+            prop_str = str(w.get("properties", "")).lower()
+            name_str = str(w.get("name", "")).lower()
+            is_finesse = "accurat" in prop_str or "finesse" in prop_str or any(fn in name_str for fn in ["stocco", "rapier", "pugnale", "dagger", "scimitarra", "scimitar", "frusta", "whip"])
+            if is_finesse and stat_key in ("FOR", "DES"):
+                for_val = self.character.attributes.get("FOR", 10)
+                des_val = self.character.attributes.get("DES", 10)
+                stat_key = "DES" if des_val >= for_val else "FOR"
             stat_val = self.character.attributes.get(stat_key, 10)
             mod = (stat_val - 10) // 2
             char_lvl = getattr(self.character, "level", 1) or 1

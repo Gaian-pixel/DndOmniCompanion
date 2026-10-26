@@ -23,6 +23,8 @@ def handle_give_item_request(data, player, game_state):
         if not any(slot is None for slot in recip_sheet["inventory_grid"]):
             if player and getattr(player, "conn", None):
                 send_message(player.conn, make_error_reply(f"Lo zaino di {target_name} è pieno!"))
+                # Restituisci l'oggetto al mittente per evitare la distruzione
+                send_message(player.conn, make_receive_item(item))
             return
 
     # Verifica possesso e svuota lo slot del mittente sul server nel full_sheet
@@ -60,35 +62,38 @@ def handle_take_loot_request(data, player, game_state):
     if q is None or r is None or not getattr(game_state, 'current_map', None):
         return
         
-    loots = game_state.current_map.get('loots', [])
     found = None
-    for l in loots:
-        if l['q'] == q and l['r'] == r:
-            found = l
-            break
+    loot_entry = None
+    with game_state.lock:
+        loots = game_state.current_map.get('loots', [])
+        for l in loots:
+            if l['q'] == q and l['r'] == r:
+                found = l
+                break
+                
+        if found:
+            loots.remove(found)
             
-    if found:
-        loots.remove(found)
-        
-        loot_entry = {
-            "name": found["item"],
-            "type": "Misto",
-            "qty": found["qty"],
-            "weight": 1.0,
-            "attuned": False,
-            "desc": "Raccolto da forziere/spoglie",
-            "_sender": "Forziere"
-        }
-        # Aggiungi allo zaino del giocatore sul server
-        sheet = getattr(player, "full_sheet", None)
-        if sheet:
-            if not isinstance(sheet.get("inventory_grid"), list):
-                sheet["inventory_grid"] = [None] * 25
-            for s_i in range(len(sheet["inventory_grid"])):
-                if sheet["inventory_grid"][s_i] is None:
-                    sheet["inventory_grid"][s_i] = dict(loot_entry)
-                    break
+            loot_entry = {
+                "name": found["item"],
+                "type": "Misto",
+                "qty": found["qty"],
+                "weight": 1.0,
+                "attuned": False,
+                "desc": "Raccolto da forziere/spoglie",
+                "_sender": "Forziere"
+            }
+            # Aggiungi allo zaino del giocatore sul server
+            sheet = getattr(player, "full_sheet", None)
+            if sheet:
+                if not isinstance(sheet.get("inventory_grid"), list):
+                    sheet["inventory_grid"] = [None] * 25
+                for s_i in range(len(sheet["inventory_grid"])):
+                    if sheet["inventory_grid"][s_i] is None:
+                        sheet["inventory_grid"][s_i] = dict(loot_entry)
+                        break
 
+    if found and loot_entry:
         if getattr(player, 'conn', None):
             send_message(player.conn, make_receive_item(loot_entry))
             
@@ -102,75 +107,76 @@ def handle_buy_item_request(data, player, game_state):
     
     if not shop_name or not item_name: return
     
-    shop = getattr(game_state, "shops", {}).get(shop_name)
-    if not shop: return
-    
-    item_to_buy = None
-    for item in shop.get("items", []):
-        if item.get("name") == item_name:
-            item_to_buy = item
-            break
-            
-    if not item_to_buy: return
-    
-    price = int(item_to_buy.get("price", 0))
-    sheet = getattr(player, "full_sheet", None)
-    if not sheet: return
-    
-    curr = sheet.setdefault("currency", {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0})
-    player_mo = int(curr.get("MO", 0)) if isinstance(curr, dict) else int(sheet.get("gp", 0))
-    if player_mo < price:
-        legacy_gp = int(sheet.get("gp", 0))
-        if legacy_gp < price:
-            if player.conn:
-                send_message(player.conn, make_error_reply("Non hai abbastanza monete d'oro per questo acquisto."))
-            return
-        player_mo = legacy_gp
+    with game_state.lock:
+        shop = getattr(game_state, "shops", {}).get(shop_name)
+        if not shop: return
         
-    # Detrai oro sia dalla borsa moderna che dal campo legacy
-    new_mo = player_mo - price
-    if isinstance(curr, dict):
-        curr["MO"] = new_mo
-    sheet["gp"] = str(new_mo)
-    
-    # Inserisci nella griglia 25 slot
-    if not isinstance(sheet.get("inventory_grid"), list) or len(sheet["inventory_grid"]) != 25:
-        sheet["inventory_grid"] = [None] * 25
+        item_to_buy = None
+        for item in shop.get("items", []):
+            if item.get("name") == item_name:
+                item_to_buy = item
+                break
+                
+        if not item_to_buy: return
         
-    new_entry = {
-        "name": item_name,
-        "type": item_to_buy.get("type", "Equipaggiamento"),
-        "qty": int(item_to_buy.get("qty", 1) or 1),
-        "weight": float(item_to_buy.get("weight", 1.0) or 1.0),
-        "attuned": False,
-        "desc": item_to_buy.get("description", f"Acquistato da {shop_name}")
-    }
-    
-    placed = False
-    placed_slot = None
-    for idx, slot in enumerate(sheet["inventory_grid"]):
-        if slot and isinstance(slot, dict) and slot.get("name") == item_name:
-            slot["qty"] = int(slot.get("qty", 1)) + new_entry["qty"]
-            placed = True
-            placed_slot = idx
-            break
+        price = int(item_to_buy.get("price", 0))
+        sheet = getattr(player, "full_sheet", None)
+        if not sheet: return
+        
+        curr = sheet.setdefault("currency", {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0})
+        player_mo = int(curr.get("MO", 0)) if isinstance(curr, dict) else int(sheet.get("gp", 0))
+        if player_mo < price:
+            legacy_gp = int(sheet.get("gp", 0))
+            if legacy_gp < price:
+                if player.conn:
+                    send_message(player.conn, make_error_reply("Non hai abbastanza monete d'oro per questo acquisto."))
+                return
+            player_mo = legacy_gp
             
-    if not placed:
-        for idx in range(25):
-            if sheet["inventory_grid"][idx] is None:
-                sheet["inventory_grid"][idx] = new_entry
+        # Detrai oro sia dalla borsa moderna che dal campo legacy
+        new_mo = player_mo - price
+        if isinstance(curr, dict):
+            curr["MO"] = new_mo
+        sheet["gp"] = str(new_mo)
+        
+        # Inserisci nella griglia 25 slot
+        if not isinstance(sheet.get("inventory_grid"), list) or len(sheet["inventory_grid"]) != 25:
+            sheet["inventory_grid"] = [None] * 25
+            
+        new_entry = {
+            "name": item_name,
+            "type": item_to_buy.get("type", "Equipaggiamento"),
+            "qty": int(item_to_buy.get("qty", 1) or 1),
+            "weight": float(item_to_buy.get("weight", 1.0) or 1.0),
+            "attuned": False,
+            "desc": item_to_buy.get("description", f"Acquistato da {shop_name}")
+        }
+        
+        placed = False
+        placed_slot = None
+        for idx, slot in enumerate(sheet["inventory_grid"]):
+            if slot and isinstance(slot, dict) and slot.get("name") == item_name:
+                slot["qty"] = int(slot.get("qty", 1)) + new_entry["qty"]
                 placed = True
                 placed_slot = idx
                 break
                 
-    if not placed:
-        # Ripristina oro
-        if isinstance(curr, dict):
-            curr["MO"] = player_mo
-        sheet["gp"] = str(player_mo)
-        if player.conn:
-            send_message(player.conn, make_error_reply("Zaino pieno! Non hai slot liberi."))
-        return
+        if not placed:
+            for idx in range(25):
+                if sheet["inventory_grid"][idx] is None:
+                    sheet["inventory_grid"][idx] = new_entry
+                    placed = True
+                    placed_slot = idx
+                    break
+                    
+        if not placed:
+            # Ripristina oro
+            if isinstance(curr, dict):
+                curr["MO"] = player_mo
+            sheet["gp"] = str(player_mo)
+            if player.conn:
+                send_message(player.conn, make_error_reply("Zaino pieno! Non hai slot liberi."))
+            return
 
     # Mantieni sincronizzato anche l'array legacy per compatibilità
     inv = sheet.setdefault("inventory", [])

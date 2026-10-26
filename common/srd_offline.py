@@ -2395,8 +2395,8 @@ def get_all_magic_items_offline() -> List[Dict[str, Any]]:
 def get_magic_item_offline(name_or_query: str) -> Optional[Dict[str, Any]]:
     return OfflineSRD.get_instance().get_magic_item(name_or_query)
 
-def get_class_level_features_offline(char_class: str, level: int) -> Dict[str, Any]:
-    return OfflineSRD.get_instance().get_class_level_features(char_class, level)
+def get_class_level_features_offline(char_class: str, level: int, subclass: str = "") -> Dict[str, Any]:
+    return OfflineSRD.get_instance().get_class_level_features(char_class, level, subclass)
 
 
 # Mappe inverse Inglese -> Italiano per visualizzazione e ricerca bilingue

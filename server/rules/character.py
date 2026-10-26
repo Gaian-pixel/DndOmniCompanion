@@ -26,6 +26,10 @@ def handle_update_stats_request(data, player, game_state):
             target.light_radius = max(0, int(data["light_radius"]))
         if "light_color" in data:
             target.light_color = str(data["light_color"])
+        incap = ("incapacitato", "incapacitated", "incosciente", "unconscious", "paralizzato", "paralyzed", "stordito", "stunned", "pietrificato", "petrified", "morto", "dead")
+        if any(str(c).strip().lower() in incap for c in conditions) or hp <= 0:
+            from server.rules.combat import drop_concentration
+            drop_concentration(target, game_state, notify=True)
         _apply_hp_change(target, hp, game_state)
         from server.rules.movement import auto_explore_fow
         if auto_explore_fow(target, game_state):
@@ -178,12 +182,15 @@ def handle_update_full_sheet_request(data, player, game_state):
         player.exhaustion_level = char_data.get("exhaustion_level", getattr(player, "exhaustion_level", 0))
         player.speed = char_data.get("speed", getattr(player, "speed", 30))
         player.speed_unit = char_data.get("speed_unit", getattr(player, "speed_unit", None))
+        player.damage_resistances = char_data.get("damage_resistances", getattr(player, "damage_resistances", []))
+        player.damage_immunities = char_data.get("damage_immunities", getattr(player, "damage_immunities", []))
+        player.damage_vulnerabilities = char_data.get("damage_vulnerabilities", getattr(player, "damage_vulnerabilities", []))
         game_state._trigger_gui_update()
         broadcast(game_state, make_game_state(game_state.get_state_dict()))
 
 def handle_targeted_action(data, player, game_state):
     conds = getattr(player, "conditions", [])
-    blocking = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto"]
+    blocking = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto", "Incapacitato", "Incapacitated"]
     if any(is_condition_active(conds, c) for c in blocking) or getattr(player, "hp", 1) <= 0:
         if player and getattr(player, "conn", None):
             send_message(player.conn, make_error_reply("Non puoi eseguire azioni mirate mentre sei Incosciente, Paralizzato o a 0 HP!"))

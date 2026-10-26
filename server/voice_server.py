@@ -13,8 +13,18 @@ class VoiceServer:
                 self.sock.ioctl(socket.SIO_UDP_CONNRESET, False)
             except Exception:
                 pass
-        self.clients = set()
+        self.clients_last_seen = {}
         self.running = False
+
+    @property
+    def clients(self):
+        return set(self.clients_last_seen.keys())
+
+    @clients.setter
+    def clients(self, val):
+        import time
+        now = time.time()
+        self.clients_last_seen = {addr: now for addr in val}
 
     def start(self):
         try:
@@ -34,33 +44,36 @@ class VoiceServer:
         print("[VoiceServer] Fermato.")
 
     def _listen(self):
+        import time
+        self.sock.settimeout(1.0)
         while self.running:
             try:
-                # 2048 buffer should be enough for blocksize=512 (1024 bytes)
+                now = time.time()
+                # Prune client inattivi da oltre 10 secondi
+                expired = [c for c, t in list(self.clients_last_seen.items()) if now - t > 10.0]
+                for c in expired:
+                    self.clients_last_seen.pop(c, None)
+
                 data, addr = self.sock.recvfrom(4096)
+                self.clients_last_seen[addr] = time.time()
                 if data == b'JOIN':
-                    if addr not in self.clients:
-                        print(f"[VoiceServer] Client connesso: {addr}")
-                        self.clients.add(addr)
+                    print(f"[VoiceServer] Client connesso: {addr}")
                     continue
                 elif data == b'LEAVE':
-                    if addr in self.clients:
-                        print(f"[VoiceServer] Client disconnesso: {addr}")
-                        self.clients.remove(addr)
+                    print(f"[VoiceServer] Client disconnesso: {addr}")
+                    self.clients_last_seen.pop(addr, None)
                     continue
-                
-                if addr not in self.clients:
-                    self.clients.add(addr)
 
-                # Broadcast audio to all OTHER clients
-                for c in list(self.clients):
+                # Broadcast audio a tutti gli ALTRI client attivi
+                for c in list(self.clients_last_seen.keys()):
                     if c != addr:
                         try:
                             self.sock.sendto(data, c)
                         except Exception:
                             pass
+            except (socket.timeout, TimeoutError):
+                continue
             except ConnectionResetError:
-                # Disconnessione ICMP su Windows: non interrompere il loop
                 continue
             except OSError:
                 if not self.running:

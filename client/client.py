@@ -1455,7 +1455,12 @@ class ClientGUI:
 
     def on_hotbar_right_click(self, idx):
         if not self.active_character: return
-        cmd = simpledialog.askstring("Hotbar", f"Imposta comando per lo slot {idx+1} (es: 1d20+5, oppure Ciao!)", initialvalue=self.active_character.hotbar[idx])
+        if not hasattr(self.active_character, "hotbar") or not isinstance(self.active_character.hotbar, list):
+            self.active_character.hotbar = [""] * 10
+        while len(self.active_character.hotbar) < 10:
+            self.active_character.hotbar.append("")
+        initial_val = self.active_character.hotbar[idx] if idx < len(self.active_character.hotbar) else ""
+        cmd = simpledialog.askstring("Hotbar", f"Imposta comando per lo slot {idx+1} (es: 1d20+5, oppure Ciao!)", initialvalue=initial_val)
         if cmd is not None:
             self.active_character.hotbar[idx] = cmd
             self.hotbar_buttons[idx].config(text=cmd[:10] if cmd else f"{idx+1}")
@@ -2820,6 +2825,8 @@ class ClientGUI:
                 win.destroy()
                 
             def decline():
+                from common.protocol import make_reaction_response
+                self.network.send(make_reaction_response("OPPORTUNITY_ATTACK", False, self.name, source_name, details))
                 win.destroy()
                 
             ttk.Button(btn_frame, text="⚔️ Sferra Attacco (Spendi Reazione)", command=accept, style="Gold.TButton").pack(side=tk.LEFT, padx=6)
@@ -2858,6 +2865,8 @@ class ClientGUI:
                 win.destroy()
                 
             def decline():
+                from common.protocol import make_reaction_response
+                self.network.send(make_reaction_response("SHIELD_SPELL", False, self.name, source_name, details))
                 win.destroy()
                 
             ttk.Button(btn_frame, text="🛡️ Lancia Scudo (+5 CA)", command=accept, style="Primary.TButton").pack(side=tk.LEFT, padx=6)
@@ -3396,6 +3405,10 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                 return
         
         self.show_toast(f"{sender} ha provato ad inviarti '{item['name']}' ma non hai spazio nello zaino!", title="Inventario Pieno", toast_type="warning")
+        if sender and sender != self.name:
+            # Rimbalza l'oggetto al mittente per evitarne la distruzione
+            from common.protocol import make_give_item_request
+            self.network.send(make_give_item_request(sender, item))
 
     def handle_chat_broadcast(self, data):
         sender, text, is_whisper=data.get('sender'), data.get('text'), data.get('is_whisper')

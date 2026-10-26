@@ -5,7 +5,7 @@ import random
 
 def roll_dice(formula, is_crit=False):
     """
-    Parsing semplice formule tipo '3d6+2', '1d20', '1d20+3 adv'
+    Parsing semplice e composto formule tipo '3d6+2', '1d20', '1d20+3 adv', '2d6+1d8+3', '1d8+4 Tagliente'
     Se is_crit=True (es. danno critico 5e), raddoppia il numero di dadi tirati
     mantenendo invariato il modificatore fisso.
     Per i tiri di 1d20, rileva automaticamente Successo Critico (20 naturale)
@@ -39,53 +39,92 @@ def roll_dice(formula, is_crit=False):
             "is_crit_fail": False,
             "crit_status": "normal"
         }
-        
-    pattern = r'^(\d*)d(\d+)([+-]\d+)?$'
-    match = re.match(pattern, formula)
-    if not match and " " in formula:
-        match = re.match(pattern, formula.split()[0])
-    if not match:
+
+    # Estrai i singoli termini (es. '2d6', '+1d8', '-2', '+5', '+4 tagliente')
+    tokens = re.findall(r'([+-]?[^+-]+)', formula)
+    if not tokens:
         raise ValueError(f"Formula non valida: {formula}")
 
-    # Estrai gruppi
-    count_str, sides_str, modifier_str = match.groups()
-    orig_count = int(count_str) if count_str else 1
-    sides = int(sides_str)
-    modifier = int(modifier_str) if modifier_str else 0
+    dice_groups = []
+    modifier = 0
 
-    if orig_count < 1 or sides < 2:
-        raise ValueError("Il numero di dadi deve essere almeno 1 e i lati almeno 2")
+    for token in tokens:
+        token = token.strip()
+        if not token:
+            continue
+        if 'd' in token:
+            m = re.match(r'^([+-]?\d*d\d+)', token)
+            if not m:
+                continue
+            clean_token = m.group(1)
+            sign = -1 if clean_token.startswith('-') else 1
+            part = clean_token.lstrip('+-')
+            parts = part.split('d')
+            if len(parts) != 2:
+                raise ValueError(f"Termine dado non valido: {token}")
+            cnt_str, sides_str = parts
+            cnt = int(cnt_str) if cnt_str else 1
+            try:
+                sides = int(sides_str)
+            except ValueError:
+                raise ValueError(f"Numero facce non valido: {sides_str}")
+            if cnt < 1 or sides < 2:
+                raise ValueError("Il numero di dadi deve essere almeno 1 e i lati almeno 2")
+            dice_groups.append({
+                "sign": sign,
+                "orig_count": cnt,
+                "count": cnt * 2 if is_crit else cnt,
+                "sides": sides
+            })
+        else:
+            m = re.match(r'^([+-]?\d+)', token)
+            if m:
+                modifier += int(m.group(1))
+            else:
+                # Ignora annotazioni descrittive come 'tagliente', 'fuoco'
+                continue
 
-    count = orig_count * 2 if is_crit else orig_count
-    is_d20_check = (orig_count == 1 and sides == 20 and not is_crit)
+    if not dice_groups:
+        raise ValueError(f"Formula non valida: {formula}")
+
+    is_d20_check = (len(dice_groups) == 1 and dice_groups[0]["orig_count"] == 1 and dice_groups[0]["sides"] == 20 and not is_crit)
 
     if adv or dis:
-        rolls_1 = [random.randint(1, sides) for _ in range(count)]
-        rolls_2 = [random.randint(1, sides) for _ in range(count)]
-        total_1 = sum(rolls_1) + modifier
-        total_2 = sum(rolls_2) + modifier
-        
+        rolls_1 = []
+        tot_1 = modifier
+        for dg in dice_groups:
+            r = [random.randint(1, dg["sides"]) for _ in range(dg["count"])]
+            rolls_1.extend(r)
+            tot_1 += dg["sign"] * sum(r)
+
+        rolls_2 = []
+        tot_2 = modifier
+        for dg in dice_groups:
+            r = [random.randint(1, dg["sides"]) for _ in range(dg["count"])]
+            rolls_2.extend(r)
+            tot_2 += dg["sign"] * sum(r)
+
         if adv:
-            if total_1 >= total_2:
+            if tot_1 >= tot_2:
                 rolls = rolls_1
-                total = total_1
+                total = tot_1
                 other_rolls = rolls_2
             else:
                 rolls = rolls_2
-                total = total_2
+                total = tot_2
                 other_rolls = rolls_1
             roll_type = "Vantaggio"
         else:
-            if total_1 <= total_2:
+            if tot_1 <= tot_2:
                 rolls = rolls_1
-                total = total_1
+                total = tot_1
                 other_rolls = rolls_2
             else:
                 rolls = rolls_2
-                total = total_2
+                total = tot_2
                 other_rolls = rolls_1
             roll_type = "Svantaggio"
-            
+
         nat_roll = rolls[0] if rolls else 0
         crit_succ = is_d20_check and (nat_roll == 20)
         crit_fail = is_d20_check and (nat_roll == 1)
@@ -102,14 +141,19 @@ def roll_dice(formula, is_crit=False):
             "crit_status": "crit_success" if crit_succ else ("crit_fail" if crit_fail else "normal")
         }
     else:
-        rolls = [random.randint(1, sides) for _ in range(count)]
-        total = sum(rolls) + modifier
-        nat_roll = rolls[0] if rolls else 0
+        all_rolls = []
+        total = modifier
+        for dg in dice_groups:
+            r = [random.randint(1, dg["sides"]) for _ in range(dg["count"])]
+            all_rolls.extend(r)
+            total += dg["sign"] * sum(r)
+
+        nat_roll = all_rolls[0] if all_rolls else 0
         crit_succ = is_d20_check and (nat_roll == 20)
         crit_fail = is_d20_check and (nat_roll == 1)
 
         return {
-            "rolls": rolls,
+            "rolls": all_rolls,
             "modifier": modifier,
             "total": total,
             "type": "Critico" if is_crit else "Normale",

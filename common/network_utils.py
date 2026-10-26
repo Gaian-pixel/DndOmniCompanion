@@ -69,8 +69,29 @@ def receive_message(sock):
     except (ConnectionError, struct.error, json.JSONDecodeError, BrokenPipeError, ConnectionResetError, OSError, ValueError):
         return None
 
+def sanitize_map_for_players(map_data: dict) -> dict:
+    """Filtra elementi segreti della mappa (trappole nascoste, porte segrete, note del Master) per i giocatori."""
+    if not isinstance(map_data, dict):
+        return map_data
+    clean = dict(map_data)
+    if "traps" in clean and isinstance(clean["traps"], list):
+        clean["traps"] = [t for t in clean["traps"] if not t.get("hidden", True) or t.get("triggered", False)]
+    if "doors" in clean and isinstance(clean["doors"], list):
+        clean["doors"] = [d for d in clean["doors"] if not (d.get("is_secret") and not d.get("discovered", False))]
+    if "room_pins" in clean and isinstance(clean["room_pins"], list):
+        clean_pins = []
+        for pin in clean["room_pins"]:
+            if isinstance(pin, dict):
+                p_copy = dict(pin)
+                p_copy.pop("dm_notes", None)
+                clean_pins.append(p_copy)
+            else:
+                clean_pins.append(pin)
+        clean["room_pins"] = clean_pins
+    return clean
+
 def broadcast(game_state, message_data, exclude_player=None):
-    """ NUOVO: La funzione broadcast ora vive qui per evitare import circolari. """
+    """ La funzione broadcast invia messaggi filtrando le informazioni riservate del GM layer ai giocatori. """
     msg_type = message_data.get("type") if isinstance(message_data, dict) else None
     
     # Pre-filter for GAME_STATE
@@ -83,13 +104,18 @@ def broadcast(game_state, message_data, exclude_player=None):
         copy_data["players"] = filtered_players
         player_filtered_game_state = {"type": "GAME_STATE", "data": copy_data}
 
+    # Pre-filter for MAP_DATA_UPDATE
+    player_filtered_map_data = None
+    if msg_type == "MAP_DATA_UPDATE" and isinstance(message_data.get("data"), dict):
+        player_filtered_map_data = {"type": "MAP_DATA_UPDATE", "data": sanitize_map_for_players(message_data["data"])}
+
     for p in game_state.get_all_players():
         if exclude_player and p.name == exclude_player.name:
             continue
         if not getattr(p, "conn", None):
             continue
 
-        # If token on GM layer, don't broadcast movements or joins to regular player clients
+        # Non inviare aggiornamenti o stats di entità sul GM layer ai client regolari
         if msg_type == "PLAYER_JOINED" and isinstance(message_data.get("data"), dict):
             if message_data["data"].get("layer", "token") == "gm":
                 continue
@@ -98,8 +124,15 @@ def broadcast(game_state, message_data, exclude_player=None):
             target_p = game_state.find_player(mv_name)
             if target_p and getattr(target_p, "layer", "token") == "gm":
                 continue
+        elif msg_type == "PLAYER_STATS_UPDATE" and isinstance(message_data.get("data"), dict):
+            stat_name = message_data["data"].get("name")
+            target_p = game_state.find_player(stat_name)
+            if target_p and getattr(target_p, "layer", "token") == "gm":
+                continue
 
         if player_filtered_game_state is not None:
             send_message(p.conn, player_filtered_game_state)
+        elif player_filtered_map_data is not None:
+            send_message(p.conn, player_filtered_map_data)
         else:
             send_message(p.conn, message_data)

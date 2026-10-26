@@ -145,6 +145,32 @@ class Campaign:
 
     def apply_to_game_state(self, game_state: Any) -> None:
         """Applica la configurazione della campagna a un GameState di gioco."""
+        # Caricamento e codifica Base64 della mappa iniziale FUORI dal lock per evitare starvation
+        initial_map_data = None
+        if self.starting_map_file:
+            map_path = self.starting_map_file
+            if not os.path.isabs(map_path):
+                if self.folder_path and os.path.exists(os.path.join(self.folder_path, map_path)):
+                    map_path = os.path.join(self.folder_path, map_path)
+                elif os.path.exists(os.path.join(os.path.dirname(os.path.dirname(__file__)), map_path)):
+                    map_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), map_path)
+                elif os.path.exists(os.path.join(os.path.dirname(os.path.dirname(__file__)), "maps", os.path.basename(map_path))):
+                    map_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "maps", os.path.basename(map_path))
+            if os.path.exists(map_path):
+                try:
+                    import base64
+                    with open(map_path, "r", encoding="utf-8") as mf:
+                        initial_map_data = json.load(mf)
+                    if 'base_image_path' in initial_map_data and initial_map_data['base_image_path']:
+                        img_path = initial_map_data['base_image_path']
+                        if not os.path.isabs(img_path):
+                            img_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), img_path)
+                        if os.path.exists(img_path):
+                            with open(img_path, "rb") as image_file:
+                                initial_map_data['bg_image_data'] = base64.b64encode(image_file.read()).decode('utf-8')
+                except Exception as e:
+                    print(f"[CAMPAIGN] Errore caricamento mappa iniziale {map_path}: {e}")
+
         with game_state.lock:
             # Starter kit campagna
             if self.starter_kit:
@@ -168,34 +194,8 @@ class Campaign:
             # Referenza alla campagna attiva
             game_state.active_campaign = self
             
-            # Caricamento eventuale mappa iniziale
-            if self.starting_map_file:
-                map_path = self.starting_map_file
-                if not os.path.isabs(map_path):
-                    # 1. Prova relativo a folder_path della campagna
-                    if self.folder_path and os.path.exists(os.path.join(self.folder_path, map_path)):
-                        map_path = os.path.join(self.folder_path, map_path)
-                    # 2. Prova relativo alla root di progetto
-                    elif os.path.exists(os.path.join(os.path.dirname(os.path.dirname(__file__)), map_path)):
-                        map_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), map_path)
-                    # 3. Prova nella cartella maps/ globale
-                    elif os.path.exists(os.path.join(os.path.dirname(os.path.dirname(__file__)), "maps", os.path.basename(map_path))):
-                        map_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "maps", os.path.basename(map_path))
-                if os.path.exists(map_path):
-                    try:
-                        import base64
-                        with open(map_path, "r", encoding="utf-8") as mf:
-                            map_data = json.load(mf)
-                        if 'base_image_path' in map_data and map_data['base_image_path']:
-                            img_path = map_data['base_image_path']
-                            if not os.path.isabs(img_path):
-                                img_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), img_path)
-                            if os.path.exists(img_path):
-                                with open(img_path, "rb") as image_file:
-                                    map_data['bg_image_data'] = base64.b64encode(image_file.read()).decode('utf-8')
-                        game_state.load_map(map_data)
-                    except Exception as e:
-                        print(f"[CAMPAIGN] Errore caricamento mappa iniziale {map_path}: {e}")
+            if initial_map_data:
+                game_state.load_map(initial_map_data)
                         
         game_state._trigger_gui_update()
 
