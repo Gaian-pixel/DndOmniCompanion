@@ -167,18 +167,38 @@ Il DM può impostare in tempo reale il grado di automazione dell'applicativo da 
 
 ## 🚀 Installazione e Avvio Rapido
 
-### Requisiti
+### 📦 Download Eseguibili Standalone (Windows & Linux)
+Puoi scaricare gli archivi precompilati pronti all'uso direttamente dalla sezione [GitHub Releases](https://github.com/Gaian-pixel/DndOmniCompanion/releases):
+* **Windows (64-bit)**: Scarica `DndOmniCompanion-v*-win64.zip`, estrai ovunque ed avvia `DndOmniCompanion.exe`.
+* **Linux (x86_64)**: Scarica `DndOmniCompanion-v*-linux-x64.tar.gz`, estrai ovunque ed esegui `./run.sh` (oppure `./DndOmniCompanion`).
+
+---
+
+### 💻 Avvio dal Codice Sorgente (Python)
+
+#### Requisiti
 * **Python 3.9 o superiore** (compatibile fino a Python 3.14)
-* Installazione dipendenze:
+* Su Linux (Ubuntu/Debian), assicurati di avere installato Tkinter e i pacchetti audio:
   ```bash
-  pip install pillow ttkbootstrap requests sounddevice numpy
+  sudo apt-get install python3-tk libportaudio2 libsndfile1
+  ```
+* Installazione dipendenze Python:
+  ```bash
+  pip install -r requirements.txt
   ```
 
-### Avvio dell'Applicazione
+#### Avvio dell'Applicazione
 Esegui il launcher unificato dalla cartella principale del progetto:
-```bash
-python main.py
-```
+* **Windows**:
+  ```bash
+  python main.py
+  ```
+* **Linux**:
+  ```bash
+  chmod +x run_linux.sh
+  ./run_linux.sh
+  # oppure: python3 main.py
+  ```
 Dal selettore iniziale potrai scegliere:
 1. **Dungeon Master**: Avvia il server TCP (`53911`) e UDP Voice (`53912`) aprendo la plancia del DM (con campagna, editor campagna o sessione rapida).
 2. **Giocatore (Player)**:

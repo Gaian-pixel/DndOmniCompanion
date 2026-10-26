@@ -167,18 +167,38 @@ The DM can adjust the automation level in real time from **Tools ➔ ⚙️ Camp
 
 ## 🚀 Getting Started
 
-### Prerequisites
+### 📦 Download Pre-Built Executables (Windows & Linux)
+You can download ready-to-run standalone packages directly from the [GitHub Releases](https://github.com/Gaian-pixel/DndOmniCompanion/releases) section:
+* **Windows (64-bit)**: Download `DndOmniCompanion-v*-win64.zip`, extract anywhere and launch `DndOmniCompanion.exe`.
+* **Linux (x86_64)**: Download `DndOmniCompanion-v*-linux-x64.tar.gz`, extract anywhere and run `./run.sh` (or `./DndOmniCompanion`).
+
+---
+
+### 💻 Running from Source
+
+#### Prerequisites
 * **Python 3.9 or higher** (compatible up to Python 3.14)
-* Install dependencies:
+* On Linux, ensure Tkinter and audio development libraries are installed:
   ```bash
-  pip install pillow ttkbootstrap requests sounddevice numpy
+  sudo apt-get install python3-tk libportaudio2 libsndfile1
+  ```
+* Install Python dependencies:
+  ```bash
+  pip install -r requirements.txt
   ```
 
-### Launching the Application
+#### Launching the Application
 Run the unified launcher from the project root:
-```bash
-python main.py
-```
+* **Windows**:
+  ```bash
+  python main.py
+  ```
+* **Linux**:
+  ```bash
+  chmod +x run_linux.sh
+  ./run_linux.sh
+  # or: python3 main.py
+  ```
 From the startup launcher choose:
 1. **Dungeon Master**: Starts the TCP server (`53911`) and UDP Voice server (`53912`) and opens the DM Dashboard (with campaign, campaign editor, or quick session).
 2. **Player**:
