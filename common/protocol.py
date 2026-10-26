@@ -462,6 +462,33 @@ def make_deliver_touch_spell_request(familiar_name: str, target_name: str, spell
         "damage_type": damage_type
     }}
 
+def make_set_travel_params_request(biome: str, danger: str = "moderate", pace: str = "Normale", terrain: str = "Foresta") -> ProtocolMessage:
+    return {"type": "SET_TRAVEL_PARAMS_REQUEST", "data": {
+        "biome": biome,
+        "danger": danger,
+        "pace": pace,
+        "terrain": terrain
+    }}
+
+def make_set_watch_shifts_request(shifts: Dict[Any, str], has_campfire: bool = True) -> ProtocolMessage:
+    return {"type": "SET_WATCH_SHIFTS_REQUEST", "data": {
+        "shifts": shifts,
+        "has_campfire": has_campfire
+    }}
+
+def make_resolve_night_camp_request(consume_rations: bool = True) -> ProtocolMessage:
+    return {"type": "RESOLVE_NIGHT_CAMP_REQUEST", "data": {
+        "consume_rations": consume_rations
+    }}
+
+def make_generate_encounter_request(biome: str, danger: str = "moderate", is_night: bool = False, force_category: Optional[str] = None) -> ProtocolMessage:
+    return {"type": "GENERATE_ENCOUNTER_REQUEST", "data": {
+        "biome": biome,
+        "danger": danger,
+        "is_night": is_night,
+        "force_category": force_category
+    }}
+
 
 
 

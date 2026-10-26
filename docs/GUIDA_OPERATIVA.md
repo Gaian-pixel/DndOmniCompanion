@@ -466,8 +466,28 @@ Accessibile direttamente dal pulsante `🐾` sulla **Hero Summary Card** della V
   * **Legame con la Concentrazione**: Le evocazioni legate alla concentrazione svaniscono istantaneamente dalla mappa non appena l'incantatore perde la concentrazione o scende a 0 HP.
   * **Nessun Cadavere/Loot Residuo**: Alla morte a 0 HP, i famigli e le creature evocate svaniscono in un soffio di spirito o si dissolvono, senza creare forzieri o spoglie sulla mappa.
 
-### Sistema di Viaggio e Ordine di Marcia
-* Imposta l'ordine di marcia del party (**Avanguardia**, **Centro**, **Retroguardia**), assegna i ruoli di viaggio (Navigatore, Esploratore, Foraggiatore), traccia razioni/acqua e calcola i Tiri Salvezza su Costituzione per la Marcia Forzata ($\text{CD} = 10 + 1\text{ per ogni ora oltre le 8}$).
+### Sistema di Viaggio, Hex-Crawl, Accampamento & Incontri per Bioma (5e RAW)
+* **Andature di Marcia e Distanze 5e (PHB p. 182)**:
+  * **Lenta**: $2\text{ miglia/ora}$ ($18\text{ miglia/giorno}$), $+5$ bonus alla Percezione Passiva; consente al gruppo o all'esploratore di avanzare **Furtivamente**.
+  * **Normale**: $3\text{ miglia/ora}$ ($24\text{ miglia/giorno}$).
+  * **Veloce**: $4\text{ miglia/ora}$ ($30\text{ miglia/giorno}$), $-5$ penalità alla Percezione Passiva; caccia e foraggiamento disabilitate; $-5$ alle prove di navigazione del Navigatore.
+* **Biomi & Navigazione Hex-Crawl**:
+  * 8 Biomi integrati: *Foresta*, *Pianura/Strade*, *Palude*, *Montagna*, *Deserto*, *Sottosuolo*, *Costiero*, *Tundra*.
+  * Prove di Saggezza (Sopravvivenza) del Navigatore contro la CD del terreno (da CD 10 per le Pianure a CD 20 per Deserto e Sottosuolo) per evitare lo smarrimento del gruppo.
+  * Caccia e Raccolta cibo (CD 15/20) con incremento razioni trovate in base alla Saggezza.
+  * Marcia Forzata: superate le 8 ore di marcia giornaliera, ogni ora addizionale impone un Tiro Salvezza su Costituzione a tutti i membri del gruppo ($\text{CD} = 10 + \text{ore oltre le 8}$); il fallimento assegna 1 livello di Sfinimento.
+* **Generatore Incontri per Bioma & Livello di Pericolo**:
+  * 4 Gradi di Pericolo: *Basso / Civilizzato* (soglia incontro d20 $\ge 18$), *Medio / Terre Selvagge* ($\ge 15$), *Alto / Terre Ostili* ($\ge 12$), *Estremo / Letale* ($\ge 9$).
+  * Eventi suddivisi in 4 categorie autentiche 5e:
+    * **Combattimento**: Mostri ed imboscate con calcolo del numero, Grado di Sfida (CR), CD Furtività e distanza iniziale in esagoni. Il DM può schierare istantaneamente le creature sulla mappa tattica con 1 click (`on_monster_spawned`).
+    * **Incontri Sociali**: Carovane di mercanti, eremiti, guide locali, pellegrini e pattuglie con dicerie e scambi.
+    * **Scoperte & Punti d'Interesse**: Santuari antichi, sorgenti termali curative, rifugi protetti, casse e relitti abbandonati con bottino.
+    * **Pericoli Ambientali**: Frane, sabbie mobili, miasmi velenosi, ponti crollati e tempeste con Tiri Salvezza 5e associati.
+* **Accampamento & Turni di Guardia Notturna (Night Watch Shifts)**:
+  * 8 ore di Riposo Lungo strutturate in 4 turni da 2 ore (*Prima Notte*, *Mezzanotte*, *Cuore della Notte*, *Alba*).
+  * Rispetto rigoroso dei tempi 5e RAW: i dormienti possono fare al massimo 2 ore di guardia (1 turno); i personaggi con **Trance Elfica** meditano solo 4 ore e possono coprire fino a 4 ore di guardia (2 turni).
+  * Calcolo in tempo reale della **Percezione Passiva Efficace** delle sentinelle al buio: penalità di svantaggio ($-5\text{ PP}$) in assenza di Scurovisione o falò.
+  * Simulazione Notturna: in caso di incontro ostile, la sentinella attiva confronta la propria PP con la Furtività dei nemici. Se la sentinella nota il pericolo, lancia l'allarme e il gruppo si sveglia senza sorpresa; se l'insidia supera la sentinella (o in assenza di guardia), scatta l'**Imboscata Notturna** (il gruppo viene assalito nel sonno con condizioni *Incosciente* e *Prono*). Se la notte scorre tranquilla, il Riposo Lungo cura tutti i PV, ripristina gli slot e riduce lo sfinimento.
 
 ---
 

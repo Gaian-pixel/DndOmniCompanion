@@ -478,11 +478,28 @@ Accessible directly via the `🐾` button on the VTT **Hero Summary Card** for a
   * **Concentration Linkage**: Concentration-dependent summons immediately dissolve and vanish from the map whenever the caster's concentration is broken or drops to 0 HP.
   * **No Corpse/Loot Spawning**: Upon dropping to 0 HP, familiars and summons vanish in a puff of spirit or mystical mist, leaving behind no corpses or map loot chests.
 
-### Travel System & Marching Order
-* Set party marching order: **Avanguardia (Front)**, **Centro (Middle)**, **Retroguardia (Rear)**.
-* Assign travel roles: Navigator, Scout, Forager.
-* Ration and water tracking with automated starvation/exhaustion penalties.
-* Forced March calculation with progressive Constitution saving throw DCs ($10 + 1\text{ per hour past 8}$).
+### Travel System, Hex-Crawl, Camp & Biome Encounters (5e RAW)
+* **5e Travel Paces & Distances (PHB p. 182)**:
+  * **Slow**: $2\text{ mph}$ ($18\text{ miles/day}$), $+5$ bonus to Passive Perception; allows the group or scout to move **Stealthily**.
+  * **Normal**: $3\text{ mph}$ ($24\text{ miles/day}$).
+  * **Fast**: $4\text{ mph}$ ($30\text{ miles/day}$), $-5$ penalty to Passive Perception; foraging/hunting disabled; $-5$ to Navigator Survival checks.
+* **Biomes & Hex-Crawl Navigation**:
+  * 8 integrated biomes: *Forest*, *Plains/Roads*, *Swamp*, *Mountain*, *Desert*, *Underdark*, *Coast*, *Tundra*.
+  * Navigator Wisdom (Survival) checks vs terrain DC (from DC 10 for Plains to DC 20 for Desert and Underdark) to prevent party disorientation.
+  * Foraging & Hunting (DC 15/20) yielding rations scaled by Wisdom modifier.
+  * Forced March: marching beyond 8 hours daily forces progressive Constitution saving throws on all party members ($\text{DC} = 10 + \text{hours past 8}$); failure inflicts 1 level of Exhaustion.
+* **Biome Random Encounter Generator & Danger Rating**:
+  * 4 Danger Tiers: *Low / Safe* (d20 encounter threshold $\ge 18$), *Moderate / Wilderness* ($\ge 15$), *High / Dangerous* ($\ge 12$), *Extreme / Deadly* ($\ge 9$).
+  * Authentic 5e encounter categories:
+    * **Combat Threats**: Monsters with calculated quantities, Challenge Ratings (CR), Stealth DCs, and initial spawn distance. DMs can instantly spawn enemies onto the map canvas with 1 click (`on_monster_spawned`).
+    * **Social Encounters**: Merchant caravans, hermits, local guides, pilgrims, and patrols with rumors and trade.
+    * **Discoveries & Landmarks**: Ancient shrines, mineral healing springs, secure shelters, abandoned caches, and shipwrecks with loot.
+    * **Environmental Hazards**: Rockslides, quicksand, toxic miasmas, ruined bridges, and dust storms with associated 5e saving throws.
+* **Night Watch Shifts & Campsite Management**:
+  * 8-hour Long Rest divided into 4 two-hour shifts (*Early Night*, *Midnight*, *Heart of the Night*, *Dawn*).
+  * Strict 5e RAW compliance: sleeping characters may only stand watch for up to 2 hours (1 shift); **Elf Trance** requires only 4 hours of meditation, allowing up to 4 hours of watch (2 shifts).
+  * Real-time calculation of **Effective Passive Perception** in darkness: disadvantage penalty ($-5\text{ PP}$) without Darkvision or an active campfire.
+  * Nocturnal Resolution: when hostile threats emerge on a shift, active sentinels check their Passive Perception against the threat's Stealth DC. Alerted sentinels wake the party with no surprise; undetected threats trigger a **Night Ambush** (party assaulted in their sleep with *Unconscious* and *Prone* conditions). Peaceful nights restore full HP, refresh spell slots, and heal 1 level of Exhaustion.
 
 ---
 

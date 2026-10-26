@@ -2012,14 +2012,19 @@ class ClientGUI:
                  bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(anchor="w", padx=12, pady=(8, 4))
         
         env_grid = tk.Frame(env_frame, bg=SURFACE_COLOR_ALT)
+        env_grid.pack(fill=tk.X, padx=12, pady=(2, 6))
         from common.i18n import translate_weather
         weather_disp = translate_weather(weather)
+        cur_biome = gs.get("travel_biome", "foresta").capitalize()
+        cur_danger = gs.get("travel_danger", "moderate")
+        miles_today = gs.get("travel_miles_today", 0)
+
         tk.Label(env_grid, text=f"⛅ Clima: {weather_disp}", font=("Segoe UI", 9), bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).grid(row=0, column=0, sticky="w", padx=(0, 15), pady=2)
-        tk.Label(env_grid, text=f"🌲 Terreno: {terrain}", font=("Segoe UI", 9), bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).grid(row=0, column=1, sticky="w", padx=15, pady=2)
+        tk.Label(env_grid, text=f"🌲 Bioma: {terrain} ({cur_biome})", font=("Segoe UI", 9), bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).grid(row=0, column=1, sticky="w", padx=15, pady=2)
         tk.Label(env_grid, text=f"🚶 Andatura: {pace}", font=("Segoe UI", 9, "bold"), bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).grid(row=1, column=0, sticky="w", padx=(0, 15), pady=2)
         
         hours_color = ACCENT_RED if hours_today > 8 else TEXT_COLOR
-        hours_text = f"⏱️ Ore Marcia Oggi: {hours_today} / 8h"
+        hours_text = f"⏱️ Ore Marcia: {hours_today}/8h ({miles_today} mi)"
         if hours_today > 8:
             hours_text += f" (Marcia Forzata: TS COS CD {10 + (hours_today - 8)})"
         tk.Label(env_grid, text=hours_text, font=("Segoe UI", 9, "bold"), bg=SURFACE_COLOR_ALT, fg=hours_color).grid(row=1, column=1, sticky="w", padx=15, pady=2)
@@ -2184,6 +2189,52 @@ class ClientGUI:
 
         btn_consume = ttk.Button(subsist_frame, text="🥖 Consuma Razione e Acqua Giornaliera", command=consume_single_ration, style="Info.TButton")
         btn_consume.pack(anchor="w", padx=12, pady=(4, 10))
+
+        # Sezione 3: Turni di Guardia Notturna (Night Watch Shifts)
+        watch_frame = tk.Frame(scrollable_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        watch_frame.pack(fill=tk.X, padx=14, pady=6)
+        tk.Label(watch_frame, text="🏕️ TURNI DI GUARDIA NOTTURNA (ACCAMPAMENTO 5e)", font=("Segoe UI", 10, "bold"),
+                 bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(anchor="w", padx=12, pady=(8, 2))
+        tk.Label(watch_frame, text="Configura chi veglia sul campo durante le 8 ore di Riposo Lungo:",
+                 font=("Segoe UI", 8), bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", padx=12, pady=(0, 6))
+
+        cur_shifts = dict(gs.get("camp_watch_shifts", {}))
+        shift_descriptions = [
+            (1, "Turno 1 (22:00-00:00: Prima Notte)"),
+            (2, "Turno 2 (00:00-02:00: Mezzanotte)"),
+            (3, "Turno 3 (02:00-04:00: Cuore della Notte)"),
+            (4, "Turno 4 (04:00-06:00: Alba)")
+        ]
+        
+        watch_table = tk.Frame(watch_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        watch_table.pack(fill=tk.X, padx=12, pady=(2, 8))
+
+        my_name = self.active_character.name
+        for s_num, s_desc in shift_descriptions:
+            row_s = tk.Frame(watch_table, bg=SURFACE_COLOR_ALT)
+            row_s.pack(fill=tk.X, padx=8, pady=3)
+            assigned_to = cur_shifts.get(s_num) or cur_shifts.get(str(s_num)) or "Nessuno"
+            tk.Label(row_s, text=f"⏰ {s_desc}:", font=("Segoe UI", 8, "bold"), bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, width=32, anchor="w").pack(side=tk.LEFT)
+            assigned_color = ACCENT_GOLD if assigned_to != "Nessuno" else TEXT_MUTED
+            tk.Label(row_s, text=f"👤 {assigned_to}", font=("Segoe UI", 8), bg=SURFACE_COLOR_ALT, fg=assigned_color, width=16, anchor="w").pack(side=tk.LEFT)
+
+            def make_toggle_watch(sn=s_num, curr=assigned_to):
+                def _toggle():
+                    if curr == my_name:
+                        cur_shifts[str(sn)] = "Nessuno"
+                        self.show_toast(f"Hai abbandonato il Turno {sn} di guardia.", title="🏕️ Turno Rimosso", toast_type="secondary")
+                    else:
+                        cur_shifts[str(sn)] = my_name
+                        self.show_toast(f"Ti sei candidato per il Turno {sn} di guardia notturna!", title="🏕️ Turno Assegnato", toast_type="success")
+                    if hasattr(self, "network") and self.network.connected:
+                        from common.protocol import make_set_watch_shifts_request
+                        self.network.send(make_set_watch_shifts_request(cur_shifts, gs.get("camp_has_campfire", True)))
+                    win.destroy()
+                return _toggle
+
+            btn_txt = "Abbandona" if assigned_to == my_name else "Fai la Guardia"
+            btn_style = "Danger.TButton" if assigned_to == my_name else "Primary.TButton"
+            ttk.Button(row_s, text=btn_txt, command=make_toggle_watch(s_num, assigned_to), style=btn_style).pack(side=tk.RIGHT, padx=4)
 
         # Barra dei Bottoni Inferiore
         btn_bar = tk.Frame(scrollable_frame, bg=BG_COLOR)

@@ -161,7 +161,8 @@
   * **Normalizzazione CA e Velocità (Anti-Raw `[{}]`)**: conversione deterministica di armature complesse e movimenti secondari (volo, nuoto, scavo, scalata), garantendo schede mostro pulite sia per l'SRD ufficiale che per le voci estratte dai manuali PDF.
   * **Mini-Statblock nel Bestiario DM (`server/dm_bestiary_panel.py`)**: filtri rapidi per Grado di Sfida e Tipo con card di anteprima compatta nella sidebar del DM e spawning istantaneo con doppio click.
 * **Manuali PDF Offline & Tavolozza Comandi (`Ctrl+K`)**: Ricerca istantanea su manuali PDF ufficiali indicizzati, regole, mostri, incantesimi e token.
-* **Viaggio, Calendario, Meteo e Negozi**: Ordine di marcia, ruoli di viaggio, razioni/acqua, marcia forzata, calendario fantasy interattivo e negozi mercantili.
+* **Motore di Viaggio Hex-Crawl, Accampamento & Incontri per Bioma (5e RAW)**: 8 biomi 5e (Foresta, Pianura, Palude, Montagna, Deserto, Sottosuolo, Costiero, Tundra) con CD di navigazione Sopravvivenza e caccia, andature di marcia (Lenta con Furtività e +5 PP, Normale, Veloce con -5 PP), tracciamento automatico di miglia percorse e marce forzate con TS su Costituzione. Generatore di incontri per bioma (Combattimento con schieramento mostri a 1 click sulla mappa, Sociale, Scoperte, Pericoli ambientali) e gestione accampamento a 4 turni di guardia con calcolo PP al buio, Trance elfica e simulazione imboscate notturne.
+* **Calendario Fantasy, Meteo e Negozi**: Calendario interattivo, meteo dinamico sincronizzato con la VTT ed empori mercantili con compravendita di equipaggiamento.
 * **Soundboard & Voice Chat UDP Integrata**: Streaming vocale a bassa latenza con controlli Mute/Deafen (`[ 🎤 ]` / `[ 🎧 ]`), gestione resiliente dei socket UDP su Windows (`SIO_UDP_CONNRESET`) prevenendo crash su disconnessioni di singoli client, e soundboard musicale sincronizzata.
 
 ### 🎲 Stili di Gestione Campagna: Controllo DM vs Automazione (RAW 5e)

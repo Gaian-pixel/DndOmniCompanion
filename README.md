@@ -161,7 +161,8 @@
   * **Deterministic AC & Speed Normalization (No raw `[{}]`)**: Robust normalization parsing complex armors (e.g., natural armor, shield) and secondary movement speeds (fly, swim, burrow, climb), guaranteeing clean statblocks across both official SRD and PDF-extracted entries.
   * **Mini-Statblock in DM Bestiary Panel (`server/dm_bestiary_panel.py`)**: CR and creature type fast filters with a compact visual statblock card in the DM sidebar and 2-click instant spawning.
 * **Offline PDF Rulebooks & Command Palette (`Ctrl+K`)**: Instant search across indexed official 5e PDF rulebooks, rules, monsters, spells, and map tokens.
-* **Overland Travel, Calendar, Weather & Shops**: Marching order, travel roles, rations/water, forced march saves, interactive fantasy calendar, and merchant shops.
+* **Hex-Crawl Travel Engine, Campsite & Biome Encounters (5e RAW)**: 8 official 5e biomes (Forest, Plains, Swamp, Mountain, Desert, Underdark, Coast, Tundra) with Survival navigation DCs and foraging, travel paces (Slow with Stealth and +5 PP, Normal, Fast with -5 PP), automated tracking of miles traveled and forced march Constitution saves. Biome encounter generator (Combat with 1-click monster deployment on tactical map, Social, Discoveries, Environmental hazards) and 4-shift night camp management with darkness PP checks, Elf Trance support, and night ambush simulation.
+* **Fantasy Calendar, Weather & Merchant Shops**: Interactive fantasy calendar, dynamic weather synchronized with map VTT canvas, and merchant shop emporiums.
 * **Soundboard & Integrated UDP Voice Chat**: Low-latency voice streaming with Mute/Deafen controls (`[ 🎤 ]` / `[ 🎧 ]`), resilient Windows UDP socket handling (`SIO_UDP_CONNRESET`) preventing ICMP crashes on client disconnects, and synchronized audio soundboard.
 
 ### 🎲 Campaign Management Styles: DM Agency vs Automation (5e RAW)

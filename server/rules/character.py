@@ -248,6 +248,8 @@ def handle_targeted_action(data, player, game_state):
         send_message(player.conn, make_error_reply(f"Errore nella formula: {str(e)}"))
 
 def handle_set_travel_role_request(data, player, game_state):
+    if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
+        data = data["data"]
     role = data.get("role", "Nessuna")
     marching_order = data.get("marching_order", getattr(player, "marching_order", "Centro"))
     player.travel_role = role
@@ -256,6 +258,145 @@ def handle_set_travel_role_request(data, player, game_state):
     game_state._trigger_gui_update()
     broadcast(game_state, make_game_state(game_state.get_state_dict()))
     broadcast(game_state, make_chat_broadcast("Viaggio", f"🏕️ {player.name} si posiziona in [{marching_order}] con ruolo: {role}"))
+
+def handle_set_travel_params_request(data, player, game_state):
+    if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
+        data = data["data"]
+    biome = data.get("biome", getattr(game_state, "travel_biome", "foresta"))
+    danger = data.get("danger", getattr(game_state, "travel_danger", "moderate"))
+    pace = data.get("pace", getattr(game_state, "travel_pace", "Normale"))
+    terrain = data.get("terrain", getattr(game_state, "travel_terrain", "Foresta"))
+
+    game_state.travel_biome = biome
+    game_state.travel_danger = danger
+    game_state.travel_pace = pace
+    game_state.travel_terrain = terrain
+
+    from common.protocol import make_game_state, make_chat_broadcast
+    from common.network_utils import broadcast
+    broadcast(game_state, make_game_state(game_state.get_state_dict()))
+    msg = f"🧭 [VIAGGIO] Parametri aggiornati: Bioma={biome}, Pericolo={danger}, Andatura={pace}, Terreno={terrain}"
+    broadcast(game_state, make_chat_broadcast("Viaggio", msg))
+    game_state.log_dm_message(f"[TRAVEL] {msg}")
+
+def handle_set_watch_shifts_request(data, player, game_state):
+    if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
+        data = data["data"]
+    shifts = data.get("shifts", {})
+    has_campfire = bool(data.get("has_campfire", True))
+
+    game_state.camp_watch_shifts = shifts
+    game_state.camp_has_campfire = has_campfire
+
+    from common.protocol import make_game_state, make_chat_broadcast
+    from common.network_utils import broadcast
+    broadcast(game_state, make_game_state(game_state.get_state_dict()))
+    
+    summary = []
+    for s_idx in range(1, 5):
+        val = shifts.get(s_idx) or shifts.get(str(s_idx)) or "Nessuno"
+        summary.append(f"T{s_idx}: {val}")
+    fire_str = "🔥 Falò acceso" if has_campfire else "🌑 Falò spento"
+    msg = f"🏕️ [ACCAMPAMENTO] Turni di guardia configurati ({', '.join(summary)} | {fire_str})"
+    broadcast(game_state, make_chat_broadcast("Viaggio", msg))
+    game_state.log_dm_message(f"[CAMP] {msg}")
+
+def handle_resolve_night_camp_request(data, player, game_state):
+    if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
+        data = data["data"]
+
+    from common.travel_data import resolve_night_camp_simulation
+    from common.protocol import make_chat_broadcast, make_game_state
+    from common.network_utils import broadcast
+
+    res = resolve_night_camp_simulation(
+        watch_shifts=getattr(game_state, "camp_watch_shifts", {}),
+        players=getattr(game_state, "players", []),
+        biome_key=getattr(game_state, "travel_biome", "foresta"),
+        danger_key=getattr(game_state, "travel_danger", "moderate"),
+        has_campfire=getattr(game_state, "camp_has_campfire", True)
+    )
+
+    # Avanza l'ora sul server di 8 ore
+    game_state.time_hour = getattr(game_state, "time_hour", 8) + 8
+    while game_state.time_hour >= 24:
+        game_state.time_hour -= 24
+        game_state.time_day = getattr(game_state, "time_day", 1) + 1
+        game_state.travel_hours_today = 0
+        game_state.travel_miles_today = 0
+        while game_state.time_day > 30:
+            game_state.time_day -= 30
+            game_state.time_month = getattr(game_state, "time_month", 1) + 1
+            while game_state.time_month > 12:
+                game_state.time_month -= 12
+                game_state.time_year = getattr(game_state, "time_year", 1492) + 1
+
+    header = "========================================\n🏕️ RISOLUZIONE NOTTE & RIPOSO LUNGO (8 ORE)\n========================================"
+    log_text = "\n".join(res["logs"])
+    full_msg = f"{header}\n{log_text}"
+
+    if res["ambush"]:
+        full_msg += "\n\n🚨 IMBOSCATA NOTTURNA! Il gruppo viene assalito durante il riposo! Iniziativa richiesta!"
+        for p in getattr(game_state, "players", []):
+            if p.name != res.get("sentinel_name"):
+                if not hasattr(p, "conditions"): p.conditions = []
+                if "Incosciente" not in p.conditions: p.conditions.append("Incosciente")
+                if "Prono" not in p.conditions: p.conditions.append("Prono")
+        broadcast(game_state, make_chat_broadcast("Sistema", full_msg))
+    else:
+        full_msg += "\n\n✨ Notte serena! Tutti recuperano HP e Slot Incantesimo (Riposo Lungo completato)."
+        for p in getattr(game_state, "players", []):
+            p.hp = p.max_hp
+            p.temp_hp = 0
+            p.exhaustion_level = max(0, getattr(p, "exhaustion_level", 0) - 1)
+            conds = [c for c in getattr(p, "conditions", []) if not c.startswith("Sfinimento") and c not in ("Incosciente", "Prono")]
+            if p.exhaustion_level > 0:
+                conds.append(f"Sfinimento (Liv. {p.exhaustion_level})")
+            p.conditions = conds
+            if getattr(p, "full_sheet", None):
+                p.full_sheet["hp_current"] = p.hp
+                p.full_sheet["exhaustion_level"] = p.exhaustion_level
+                p.full_sheet["conditions"] = conds
+                p.full_sheet["temp_hp"] = 0
+            if getattr(p, "conn", None):
+                from common.network_utils import send_message
+                send_message(p.conn, {"type": "DO_LONG_REST", "data": {}})
+        broadcast(game_state, make_chat_broadcast("Sistema", full_msg))
+
+    game_state.log_dm_message(f"[NIGHT-CAMP] {full_msg}")
+    game_state._trigger_gui_update()
+    broadcast(game_state, make_game_state(game_state.get_state_dict()))
+
+def handle_generate_encounter_request(data, player, game_state):
+    if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
+        data = data["data"]
+    biome = data.get("biome", getattr(game_state, "travel_biome", "foresta"))
+    danger = data.get("danger", getattr(game_state, "travel_danger", "moderate"))
+    is_night = bool(data.get("is_night", False))
+    force_category = data.get("force_category")
+
+    from common.travel_data import generate_biome_encounter
+    res = generate_biome_encounter(biome, danger, is_night, force_category)
+
+    from common.protocol import make_chat_broadcast
+    from common.network_utils import broadcast, send_message
+
+    if res.get("occurred", False):
+        m_names = ", ".join([f"{m['count']}x {m['name']}" for m in res.get("monsters", [])]) if res.get("monsters") else ""
+        msg = f"🎲 [INCONTRO 5e - {res.get('category', '').upper()}] {res.get('title')}\n{res.get('description')}"
+        if m_names:
+            msg += f"\n⚔️ Nemici avvistati: {m_names} (a {res.get('dist_hexes', 6)} esagoni, Furtività CD {res.get('stealth_dc', 12)})"
+        if res.get("reward"):
+            msg += f"\n✨ Scoperta/Ricompensa: {res.get('reward')}"
+        if res.get("save_stat"):
+            msg += f"\n⚠️ Pericolo: Richiesto TS {res.get('save_stat')} CD {res.get('save_dc')} ({res.get('fail_effect')})"
+        broadcast(game_state, make_chat_broadcast("Viaggio", msg))
+        game_state.log_dm_message(f"[ENCOUNTER] {msg}")
+    else:
+        msg = f"🎲 [INCONTRO 5e] {res.get('message', 'Nessun incontro.')}"
+        if player and getattr(player, "conn", None):
+            send_message(player.conn, make_chat_broadcast("Viaggio", msg))
+        game_state.log_dm_message(f"[ENCOUNTER] {msg}")
 
 def trigger_group_long_rest(game_state, reason="Il gruppo si è accampato per un Riposo Lungo."):
     game_state.travel_hours_today = 0

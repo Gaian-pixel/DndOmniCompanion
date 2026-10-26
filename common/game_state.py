@@ -269,6 +269,12 @@ class GameState:
         self.shops = {}  # dict of shop_name: {"type": "blacksmith", "items": [{"name": "Sword", "price": 15, "qty": 1}], "gold": 100}
         self.travel_hours_today = 0
         self.travel_pace = "Normale"
+        self.travel_terrain = "Foresta"
+        self.travel_biome = "foresta"
+        self.travel_danger = "moderate"
+        self.travel_miles_today = 0
+        self.camp_watch_shifts = {}
+        self.camp_has_campfire = True
         self.active_campaign = None
         self.campaign_starter_kit = []
         self.automation_mode = "full" # "manual" | "hybrid" | "full"
@@ -652,6 +658,11 @@ class GameState:
                 "travel_hours_today": getattr(self, 'travel_hours_today', 0),
                 "travel_pace": getattr(self, 'travel_pace', "Normale"),
                 "travel_terrain": getattr(self, 'travel_terrain', "Foresta"),
+                "travel_biome": getattr(self, 'travel_biome', "foresta"),
+                "travel_danger": getattr(self, 'travel_danger', "moderate"),
+                "travel_miles_today": getattr(self, 'travel_miles_today', 0),
+                "camp_watch_shifts": getattr(self, 'camp_watch_shifts', {}),
+                "camp_has_campfire": getattr(self, 'camp_has_campfire', True),
                 "active_campaign_folder": getattr(self.active_campaign, 'folder_path', None) if getattr(self, 'active_campaign', None) else None,
                 "automation_mode": getattr(self, "automation_mode", "hybrid"),
                 "automation_settings": getattr(self, "automation_settings", {}),
@@ -713,6 +724,11 @@ class GameState:
             self.travel_hours_today = state.get("travel_hours_today", 0)
             self.travel_pace = state.get("travel_pace", "Normale")
             self.travel_terrain = state.get("travel_terrain", "Foresta")
+            self.travel_biome = state.get("travel_biome", "foresta")
+            self.travel_danger = state.get("travel_danger", "moderate")
+            self.travel_miles_today = state.get("travel_miles_today", 0)
+            self.camp_watch_shifts = state.get("camp_watch_shifts", {})
+            self.camp_has_campfire = state.get("camp_has_campfire", True)
             if "automation_mode" in state:
                 self.automation_mode = state.get("automation_mode", "hybrid")
             if "automation_settings" in state and isinstance(state["automation_settings"], dict):

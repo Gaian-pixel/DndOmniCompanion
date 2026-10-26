@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from queue import Queue
 from common.dice import roll_dice
 from common.game_state import GameState, Player
@@ -130,7 +130,8 @@ class TestAuditV14Fixes(unittest.TestCase):
             "damage_formula": "1d8",
             "damage_type": "Perforante"
         }
-        handle_attack_request(data_finesse, rogue, self.game_state)
+        with patch("random.randint", return_value=10):
+            handle_attack_request(data_finesse, rogue, self.game_state)
         self.assertTrue(getattr(rogue, "sneak_attack_used_this_turn", False))
 
     def test_sneak_attack_resets_on_turn_change(self):

@@ -615,3 +615,4 @@ def create_companion_player_dict(
         "size": final_data.get("size", 1),
         "full_sheet": full_sheet
     }
+

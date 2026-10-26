@@ -61,6 +61,10 @@ command_handlers = {
     "SUMMON_COMPANION_REQUEST": handle_summon_companion_request,
     "DISMISS_FAMILIAR_REQUEST": handle_dismiss_familiar_request,
     "DELIVER_TOUCH_SPELL_REQUEST": handle_deliver_touch_spell_request,
+    "SET_TRAVEL_PARAMS_REQUEST": handle_set_travel_params_request,
+    "SET_WATCH_SHIFTS_REQUEST": handle_set_watch_shifts_request,
+    "RESOLVE_NIGHT_CAMP_REQUEST": handle_resolve_night_camp_request,
+    "GENERATE_ENCOUNTER_REQUEST": handle_generate_encounter_request,
 }
 
 
