@@ -374,7 +374,7 @@ def open_modify_hp_dialog(dm_gui):
 
 
 def open_conditions_dialog(dm_gui):
-    """Apre la checklist delle condizioni 5e attive per la pedina selezionata."""
+    """Apre la checklist delle condizioni 5e e la gestione effetti a tempo / Save-Ends per la pedina selezionata."""
     sel = dm_gui.player_listbox.curselection()
     if not sel: return
     display_text = dm_gui.player_listbox.get(sel[0])
@@ -383,20 +383,33 @@ def open_conditions_dialog(dm_gui):
     player = dm_gui.server.game_state.find_player(player_name)
     if not player: return
 
+    from common.effects_data import get_effect_presets, create_effect_instance
+    from common.protocol import make_player_stats_update, make_chat_broadcast
+
     win = tk.Toplevel(dm_gui.master)
     win.transient(dm_gui.master)
     win.grab_set()
     apply_modern_window_style(win)
-    win.title(f"Stati di {player_name}")
-    win.minsize(250, 350)
+    win.title(f"{_t('tab_conditions_standard', default='Stati')} - {player_name}")
+    win.minsize(440, 540)
 
-    ttk.Label(win, text="Condizioni Attive:").pack(pady=5)
+    notebook = ttk.Notebook(win)
+    notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+    # --- TAB 1: Condizioni Standard ---
+    tab1 = ttk.Frame(notebook)
+    notebook.add(tab1, text=_t("tab_conditions_standard", default="Condizioni Standard"))
+
+    ttk.Label(tab1, text=f"{_t('active_conditions_label', default='Condizioni Attive per')} {player_name}:").pack(pady=5)
     
-    listbox = tk.Listbox(win, bg=SURFACE_COLOR, fg=TEXT_COLOR, selectmode=tk.MULTIPLE, font=dm_gui.default_font)
+    listbox = tk.Listbox(tab1, bg=SURFACE_COLOR, fg=TEXT_COLOR, selectmode=tk.MULTIPLE, font=dm_gui.default_font)
     listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
     
-    all_conditions = ["Accecato", "Affascinato", "Assordato", "Avvelenato", "In Fiamme", 
-                      "Invisibile", "Prono", "Spaventato", "Stordito", "Svenuto", "Trattenuto", "Pietrificato"]
+    all_conditions = [
+        "Accecato", "Affascinato", "Assordato", "Avvelenato", "In Fiamme", 
+        "Invisibile", "Prono", "Spaventato", "Stordito", "Incosciente", 
+        "Trattenuto", "Pietrificato", "Schivata", "Concentrazione", "Ira"
+    ]
     
     for i, cond in enumerate(all_conditions):
         listbox.insert(tk.END, cond)
@@ -409,12 +422,197 @@ def open_conditions_dialog(dm_gui):
         with dm_gui.server.game_state.lock:
             player.conditions = new_conditions
         dm_gui.server.game_state._trigger_gui_update()
-        from common.protocol import make_player_stats_update
-        broadcast(dm_gui.server.game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, new_conditions))
+        broadcast(dm_gui.server.game_state, make_player_stats_update(
+            player.name, player.hp, player.max_hp, player.initiative, new_conditions,
+            getattr(player, "temp_hp", 0), active_effects=getattr(player, "active_effects", [])
+        ))
         dm_gui.log_to_chat(f"[SISTEMA] Condizioni di {player.name} aggiornate: {', '.join(new_conditions) if new_conditions else 'Nessuna'}")
         win.destroy()
 
-    ttk.Button(win, text="Applica", command=apply_conditions).pack(pady=10)
+    ttk.Button(tab1, text=_t("apply", default="Applica Condizioni"), command=apply_conditions, style="Primary.TButton").pack(pady=10)
+
+    # --- TAB 2: Effetti a Tempo & Save-Ends (5e) ---
+    tab2 = ttk.Frame(notebook)
+    notebook.add(tab2, text=_t("tab_effects_timed", default="Effetti a Tempo & Save-Ends"))
+
+    # Lista Effetti Attivi Correnti
+    lbl_cur = ttk.Label(tab2, text=_t("active_effects_label", default="Effetti Attivi:") + f" ({player_name})", font=FONT_BOLD)
+    lbl_cur.pack(anchor="w", padx=10, pady=(10, 4))
+
+    fx_container = ttk.Frame(tab2)
+    fx_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
+
+    fx_list_canvas = tk.Canvas(fx_container, bg=SURFACE_COLOR, highlightthickness=0, height=120)
+    fx_scroll = ttk.Scrollbar(fx_container, orient="vertical", command=fx_list_canvas.yview)
+    fx_scroll_frame = ttk.Frame(fx_list_canvas)
+
+    fx_scroll_frame.bind(
+        "<Configure>",
+        lambda e: fx_list_canvas.configure(scrollregion=fx_list_canvas.bbox("all"))
+    )
+    fx_list_canvas.create_window((0, 0), window=fx_scroll_frame, anchor="nw")
+    fx_list_canvas.configure(yscrollcommand=fx_scroll.set)
+
+    fx_list_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    fx_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+    def refresh_fx_list():
+        for widget in fx_scroll_frame.winfo_children():
+            widget.destroy()
+
+        active_fxs = getattr(player, "active_effects", [])
+        if not active_fxs:
+            ttk.Label(fx_scroll_frame, text=_t("no_active_effects", default="Nessun effetto a tempo attivo."), foreground=TEXT_MUTED).pack(pady=10, padx=10)
+            return
+
+        for fx in active_fxs:
+            row = ttk.Frame(fx_scroll_frame)
+            row.pack(fill=tk.X, expand=True, pady=2, padx=4)
+
+            icon = fx.get("icon", "✨")
+            name = fx.get("name", "Effetto")
+            dur = fx.get("duration_rounds")
+            dur_str = f"{dur}r" if dur is not None and dur > 0 else "indefinito"
+            save = fx.get("save_ends")
+            save_str = f" [TS {save.get('stat')} CD {save.get('dc')}]" if save else ""
+            desc = f"{icon} {name} ({dur_str}){save_str}"
+
+            ttk.Label(row, text=desc, font=FONT_MAIN).pack(side=tk.LEFT, padx=5)
+
+            eff_id = fx.get("id") or name
+            def make_remove_cmd(eid):
+                return lambda: remove_fx(eid)
+
+            btn_del = ttk.Button(row, text="🗑️", width=3, command=make_remove_cmd(eff_id))
+            btn_del.pack(side=tk.RIGHT, padx=5)
+
+    def remove_fx(eff_id):
+        with dm_gui.server.game_state.lock:
+            player.remove_effect(eff_id)
+        refresh_fx_list()
+        dm_gui.server.game_state._trigger_gui_update()
+        broadcast(dm_gui.server.game_state, make_player_stats_update(
+            player.name, player.hp, player.max_hp, player.initiative, player.conditions,
+            getattr(player, "temp_hp", 0), active_effects=getattr(player, "active_effects", [])
+        ))
+        dm_gui.log_to_chat(f"[EFFETTI] Rimosso effetto da {player.name}.")
+
+    refresh_fx_list()
+
+    # Sezione Aggiungi Preset 5e
+    preset_frame = ttk.LabelFrame(tab2, text=_t("add_preset_effect", default="Applica Preset 5e"))
+    preset_frame.pack(fill=tk.X, padx=10, pady=8)
+
+    presets = get_effect_presets()
+    preset_map = {f"{p['icon']} {p['name']} ({p['duration_rounds']}r)": p for p in presets}
+    preset_combo_vals = list(preset_map.keys())
+
+    preset_var = tk.StringVar(value=preset_combo_vals[0] if preset_combo_vals else "")
+    preset_combo = ttk.Combobox(preset_frame, textvariable=preset_var, values=preset_combo_vals, state="readonly")
+    preset_combo.pack(fill=tk.X, padx=8, pady=5)
+
+    def apply_preset():
+        selected_label = preset_var.get()
+        p_data = preset_map.get(selected_label)
+        if not p_data: return
+        instance = create_effect_instance(
+            p_data["key"],
+            source="DM",
+            dc=p_data["save_ends"]["dc"] if p_data.get("save_ends") else None,
+            stat=p_data["save_ends"]["stat"] if p_data.get("save_ends") else None,
+            duration_rounds=p_data["duration_rounds"],
+            condition=p_data.get("condition"),
+            icon=p_data.get("icon")
+        )
+        with dm_gui.server.game_state.lock:
+            player.add_effect(instance)
+        refresh_fx_list()
+        dm_gui.server.game_state._trigger_gui_update()
+        broadcast(dm_gui.server.game_state, make_player_stats_update(
+            player.name, player.hp, player.max_hp, player.initiative, player.conditions,
+            getattr(player, "temp_hp", 0), active_effects=getattr(player, "active_effects", [])
+        ))
+        broadcast(dm_gui.server.game_state, make_chat_broadcast("Sistema", f"✨ Applicato '{instance['name']}' a {player.name} ({instance['duration_rounds']} round)!"))
+        dm_gui.log_to_chat(f"[EFFETTI] Applicato '{instance['name']}' a {player.name}.")
+
+    ttk.Button(preset_frame, text=_t("btn_add_preset", default="Applica Preset Selezionato"), command=apply_preset, style="Accent.TButton").pack(pady=5)
+
+    # Sezione Effetto Personalizzato
+    cust_frame = ttk.LabelFrame(tab2, text=_t("custom_effect_title", default="Effetto Personalizzato"))
+    cust_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
+
+    row_c1 = ttk.Frame(cust_frame)
+    row_c1.pack(fill=tk.X, padx=8, pady=3)
+    ttk.Label(row_c1, text=_t("lbl_effect_name", default="Nome:")).pack(side=tk.LEFT)
+    ent_cust_name = ttk.Entry(row_c1, width=15)
+    ent_cust_name.pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
+
+    ttk.Label(row_c1, text="Icona:").pack(side=tk.LEFT, padx=(5, 0))
+    icon_var = tk.StringVar(value="✨")
+    icon_combo = ttk.Combobox(row_c1, textvariable=icon_var, values=["✨", "🛡️", "⚡", "🧊", "🔮", "🔥", "🟢", "😱", "🐌", "🙈", "👑"], width=3, state="readonly")
+    icon_combo.pack(side=tk.LEFT, padx=5)
+
+    ttk.Label(row_c1, text=_t("lbl_effect_duration", default="Round:")).pack(side=tk.LEFT, padx=(5, 0))
+    spin_dur = ttk.Spinbox(row_c1, from_=1, to=100, width=4)
+    spin_dur.set(10)
+    spin_dur.pack(side=tk.LEFT, padx=5)
+
+    row_c2 = ttk.Frame(cust_frame)
+    row_c2.pack(fill=tk.X, padx=8, pady=3)
+
+    chk_save_var = tk.BooleanVar(value=False)
+    chk_save = ttk.Checkbutton(row_c2, text="TS Fine Turno (Save-Ends):", variable=chk_save_var)
+    chk_save.pack(side=tk.LEFT)
+
+    save_stat_var = tk.StringVar(value="SAG")
+    stat_combo = ttk.Combobox(row_c2, textvariable=save_stat_var, values=["FOR", "DES", "COS", "INT", "SAG", "CAR"], width=4, state="readonly")
+    stat_combo.pack(side=tk.LEFT, padx=5)
+
+    ttk.Label(row_c2, text="CD:").pack(side=tk.LEFT)
+    spin_dc = ttk.Spinbox(row_c2, from_=1, to=30, width=3)
+    spin_dc.set(14)
+    spin_dc.pack(side=tk.LEFT, padx=5)
+
+    def apply_custom_effect():
+        c_name = ent_cust_name.get().strip()
+        if not c_name:
+            messagebox.showwarning("Attenzione", "Inserisci un nome per l'effetto.")
+            return
+        try:
+            c_dur = int(spin_dur.get().strip())
+        except ValueError:
+            c_dur = 10
+        save_ends = None
+        if chk_save_var.get():
+            try:
+                c_dc = int(spin_dc.get().strip())
+            except ValueError:
+                c_dc = 14
+            save_ends = {"stat": save_stat_var.get(), "dc": c_dc, "timing": "end_of_turn"}
+
+        new_instance = {
+            "name": c_name,
+            "icon": icon_var.get(),
+            "source": "DM",
+            "duration_rounds": c_dur,
+            "decrement_timing": "round_end",
+            "save_ends": save_ends,
+            "condition": None
+        }
+        with dm_gui.server.game_state.lock:
+            player.add_effect(new_instance)
+        ent_cust_name.delete(0, tk.END)
+        refresh_fx_list()
+        dm_gui.server.game_state._trigger_gui_update()
+        broadcast(dm_gui.server.game_state, make_player_stats_update(
+            player.name, player.hp, player.max_hp, player.initiative, player.conditions,
+            getattr(player, "temp_hp", 0), active_effects=getattr(player, "active_effects", [])
+        ))
+        broadcast(dm_gui.server.game_state, make_chat_broadcast("Sistema", f"✨ Applicato '{c_name}' a {player.name} ({c_dur} round)!"))
+        dm_gui.log_to_chat(f"[EFFETTI] Applicato '{c_name}' a {player.name}.")
+
+    ttk.Button(cust_frame, text=_t("btn_add_custom_effect", default="Aggiungi Effetto Personalizzato"), command=apply_custom_effect).pack(pady=5)
+
 
 
 def open_aura_dialog(dm_gui):

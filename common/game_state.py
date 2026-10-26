@@ -20,6 +20,7 @@ class Player:
         self.full_sheet = None
         self.conditions = []
         self.condition_durations = {}
+        self.active_effects = []
         self.travel_role = "Nessuna"
         self.marching_order = "Centro"
         self.is_hidden = False
@@ -69,6 +70,79 @@ class Player:
                 return True
         return getattr(self, "vision_radius", 6) > 6
 
+    def add_effect(self, effect_dict: dict) -> dict:
+        """Aggiunge o aggiorna un effetto attivo (5e RAW) sincronizzando condizioni e durate."""
+        if not hasattr(self, "active_effects") or not isinstance(self.active_effects, list):
+            self.active_effects = []
+        if not hasattr(self, "conditions") or not isinstance(self.conditions, list):
+            self.conditions = []
+        if not hasattr(self, "condition_durations") or not isinstance(self.condition_durations, dict):
+            self.condition_durations = {}
+            
+        import uuid
+        eff = dict(effect_dict)
+        if not eff.get("id"):
+            eff["id"] = f"fx_{uuid.uuid4().hex[:8]}"
+            
+        eff_name = eff.get("name", "")
+        # Rimuovi eventuale effetto duplicato con stesso id o stesso nome dallo stesso incantatore
+        self.active_effects = [
+            e for e in self.active_effects 
+            if e.get("id") != eff["id"] and not (e.get("name") == eff_name and e.get("source") == eff.get("source") and eff_name)
+        ]
+        self.active_effects.append(eff)
+        
+        # Sincronizza condizione associata
+        cond = eff.get("condition")
+        dur = eff.get("duration_rounds")
+        if cond:
+            if cond not in self.conditions:
+                self.conditions.append(cond)
+            if dur is not None and dur > 0:
+                self.condition_durations[cond] = dur
+        if eff_name and dur is not None and dur > 0:
+            self.condition_durations[eff_name] = dur
+            
+        return eff
+
+    def remove_effect(self, effect_id_or_name: str):
+        """Rimuove un effetto attivo per ID o per nome e pulisce la condizione associata se non più applicata da altri effetti."""
+        if not hasattr(self, "active_effects") or not isinstance(self.active_effects, list):
+            return None
+        target_idx = None
+        for i, eff in enumerate(self.active_effects):
+            if eff.get("id") == effect_id_or_name or eff.get("name") == effect_id_or_name:
+                target_idx = i
+                break
+        if target_idx is None:
+            return None
+            
+        removed = self.active_effects.pop(target_idx)
+        cond = removed.get("condition")
+        if cond and hasattr(self, "conditions") and isinstance(self.conditions, list):
+            other_has_cond = any(e.get("condition") == cond for e in self.active_effects)
+            if not other_has_cond and cond in self.conditions:
+                self.conditions.remove(cond)
+            if not other_has_cond and hasattr(self, "condition_durations") and cond in self.condition_durations:
+                del self.condition_durations[cond]
+                
+        rem_name = removed.get("name")
+        if rem_name and hasattr(self, "condition_durations") and rem_name in self.condition_durations:
+            del self.condition_durations[rem_name]
+            
+        return removed
+
+    def get_effect(self, effect_id_or_name: str):
+        if not hasattr(self, "active_effects") or not isinstance(self.active_effects, list):
+            return None
+        for eff in self.active_effects:
+            if eff.get("id") == effect_id_or_name or eff.get("name") == effect_id_or_name:
+                return eff
+        return None
+
+    def get_active_effects(self) -> list:
+        return list(getattr(self, "active_effects", []))
+
     def to_dict(self):
         return {
             "name": self.name, 
@@ -84,6 +158,7 @@ class Player:
             "full_sheet": self.full_sheet,
             "conditions": self.conditions,
             "condition_durations": getattr(self, "condition_durations", {}),
+            "active_effects": [dict(e) for e in getattr(self, "active_effects", [])],
             "travel_role": getattr(self, "travel_role", "Nessuna"),
             "marching_order": getattr(self, "marching_order", "Centro"),
             "is_hidden": getattr(self, "is_hidden", False),
@@ -118,6 +193,7 @@ class Player:
         p.full_sheet = data.get("full_sheet", None)
         p.conditions = data.get("conditions", [])
         p.condition_durations = data.get("condition_durations", {})
+        p.active_effects = data.get("active_effects", [])
         p.damage_resistances = data.get("damage_resistances", [])
         p.damage_immunities = data.get("damage_immunities", [])
         p.damage_vulnerabilities = data.get("damage_vulnerabilities", [])
@@ -321,6 +397,15 @@ class GameState:
                     prev_active.conditions = [c for c in prev_active.conditions if c not in end_of_turn_conds]
                 if getattr(prev_active, "full_sheet", None) and isinstance(prev_active.full_sheet.get("conditions"), list):
                     prev_active.full_sheet["conditions"] = [c for c in prev_active.full_sheet["conditions"] if c not in end_of_turn_conds]
+                if hasattr(prev_active, "active_effects") and isinstance(prev_active.active_effects, list):
+                    expired_fx = []
+                    for fx in prev_active.active_effects:
+                        if fx.get("decrement_timing") == "end_of_turn" and fx.get("duration_rounds") is not None:
+                            fx["duration_rounds"] -= 1
+                            if fx["duration_rounds"] <= 0:
+                                expired_fx.append(fx.get("id") or fx.get("name"))
+                    for fx_id in expired_fx:
+                        prev_active.remove_effect(fx_id)
             self.turn_index += 1
             round_advanced = False
             if self.turn_index >= len(combatants):
@@ -345,6 +430,15 @@ class GameState:
                     active.conditions = [c for c in active.conditions if c not in start_of_turn_conds and c not in ("Scudo", "Shield")]
                 if getattr(active, "full_sheet", None) and isinstance(active.full_sheet.get("conditions"), list):
                     active.full_sheet["conditions"] = [c for c in active.full_sheet["conditions"] if c not in start_of_turn_conds and c not in ("Scudo", "Shield")]
+                if hasattr(active, "active_effects") and isinstance(active.active_effects, list):
+                    expired_start_fx = []
+                    for fx in active.active_effects:
+                        if fx.get("decrement_timing") == "start_of_turn" and fx.get("duration_rounds") is not None:
+                            fx["duration_rounds"] -= 1
+                            if fx["duration_rounds"] <= 0:
+                                expired_start_fx.append(fx.get("id") or fx.get("name"))
+                    for fx_id in expired_start_fx:
+                        active.remove_effect(fx_id)
 
             if round_advanced:
                 for p in self.players:
@@ -358,6 +452,15 @@ class GameState:
                             del p.condition_durations[cond]
                             if hasattr(p, "conditions") and cond in p.conditions:
                                 p.conditions.remove(cond)
+                    if hasattr(p, "active_effects") and isinstance(p.active_effects, list):
+                        exp_round_fx = []
+                        for fx in p.active_effects:
+                            if fx.get("decrement_timing", "round_end") == "round_end" and fx.get("duration_rounds") is not None:
+                                fx["duration_rounds"] -= 1
+                                if fx["duration_rounds"] <= 0:
+                                    exp_round_fx.append(fx.get("id") or fx.get("name"))
+                        for fx_id in exp_round_fx:
+                            p.remove_effect(fx_id)
         self._trigger_gui_update()
 
     def advance_game_time(self, seconds=0, minutes=0, hours=0, days=0):

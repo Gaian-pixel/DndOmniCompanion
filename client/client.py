@@ -2566,6 +2566,10 @@ class ClientGUI:
             self.players_data[name]['temp_hp'] = data.get('temp_hp', 0)
             if 'conditions' in data:
                 self.players_data[name]['conditions'] = data.get('conditions')
+            if 'active_effects' in data:
+                self.players_data[name]['active_effects'] = data.get('active_effects')
+            if 'condition_durations' in data:
+                self.players_data[name]['condition_durations'] = data.get('condition_durations')
             
         if name == self.name and self.active_character:
             if data.get('hp') is not None:
@@ -2578,6 +2582,8 @@ class ClientGUI:
                 self.active_character.temp_hp = data.get('temp_hp', 0)
             if 'conditions' in data and data.get('conditions') is not None:
                 self.active_character.conditions = data.get('conditions')
+            if 'active_effects' in data and data.get('active_effects') is not None:
+                self.active_character.active_effects = data.get('active_effects')
             self.character_manager.save_characters()
             self.update_hero_summary_card()
             self.update_action_economy_ui()

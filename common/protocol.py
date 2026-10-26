@@ -188,11 +188,12 @@ def make_update_stats_request(hp, max_hp, initiative, conditions=None, temp_hp=0
     if name is not None: d["name"] = name
     return {"type": "UPDATE_STATS_REQUEST", "data": d}
 
-def make_player_stats_update(player_name, hp, max_hp, initiative, conditions=None, temp_hp=0, light_radius=None, light_color=None):
+def make_player_stats_update(player_name, hp, max_hp, initiative, conditions=None, temp_hp=0, light_radius=None, light_color=None, active_effects=None):
     if conditions is None: conditions = []
     d = {"name": player_name, "hp": hp, "max_hp": max_hp, "initiative": initiative, "conditions": conditions, "temp_hp": temp_hp}
     if light_radius is not None: d["light_radius"] = light_radius
     if light_color is not None: d["light_color"] = light_color
+    if active_effects is not None: d["active_effects"] = active_effects
     return {"type": "PLAYER_STATS_UPDATE", "data": d}
 
 
@@ -423,5 +424,18 @@ def make_legendary_action_request(boss_name: str, action_name: str = "Azione Leg
         "action_name": action_name,
         "cost": cost
     }}
+
+def make_apply_effect_request(target_name: str, effect: Dict[str, Any]) -> ProtocolMessage:
+    return {"type": "APPLY_EFFECT_REQUEST", "data": {
+        "target_name": target_name,
+        "effect": effect
+    }}
+
+def make_remove_effect_request(target_name: str, effect_id_or_name: str) -> ProtocolMessage:
+    return {"type": "REMOVE_EFFECT_REQUEST", "data": {
+        "target_name": target_name,
+        "effect_id": effect_id_or_name
+    }}
+
 
 

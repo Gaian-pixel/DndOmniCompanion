@@ -52,8 +52,23 @@ def drop_concentration(player, game_state, notify=True):
                 game_state.combat_active, game_state.turn_index, game_state.round_number, game_state.active_aoes
             ))
 
-    if (had_conc or removed_aoes) and notify and game_state:
+    removed_effects = []
+    if game_state and hasattr(game_state, "players"):
+        for p in game_state.players:
+            if hasattr(p, "active_effects") and p.active_effects:
+                for fx in list(p.active_effects):
+                    if fx.get("concentration_caster") == player.name:
+                        p.remove_effect(fx.get("id") or fx.get("name"))
+                        removed_effects.append((p.name, fx.get("name", "Effetto")))
+                        broadcast(game_state, make_player_stats_update(
+                            p.name, p.hp, p.max_hp, p.initiative, p.conditions, getattr(p, "temp_hp", 0), active_effects=getattr(p, "active_effects", [])
+                        ))
+
+    if (had_conc or removed_aoes or removed_effects) and notify and game_state:
         break_msg = f"La concentrazione di {player.name} si spezza! Gli effetti ad essa legati svaniscono."
+        if removed_effects:
+            fx_summary = ", ".join([f"'{fx_name}' su {target}" for target, fx_name in removed_effects])
+            break_msg += f" (Effetti terminati: {fx_summary})"
         broadcast(game_state, make_chat_broadcast("Sistema", break_msg))
         game_state.log_dm_message(f"[CONCENTRAZIONE] {break_msg}")
 
@@ -299,29 +314,130 @@ def _trigger_concentration_check(target_player, dmg_val, game_state):
             is_fail = save_result["rolls"][0] == 1
             threading.Timer(0.1, _process_save_result, args=(target_player.name, "COS", roll_tot, is_crit, is_fail, dc, "", False, "Sistema (Concentrazione)", game_state, "Contundente")).start()
 
-def handle_end_turn_request(data, player, game_state):
-    current = game_state.get_current_turn_player()
-    if current and current.name == player.name:
-        # Rimuovi condizioni temporanee di fine turno (Scatto, Disimpegno). Schivata resta fino all'inizio del prossimo turno!
-        changed_temp = False
-        for temp_c in ["Scatto", "Disimpegno", "Dash", "Disengage"]:
-            if temp_c in getattr(current, "conditions", []):
-                current.conditions.remove(temp_c)
-                changed_temp = True
-                
-        if changed_temp:
-            broadcast(game_state, make_player_stats_update(current.name, current.hp, current.max_hp, current.initiative, current.conditions, getattr(current, "temp_hp", 0)))
-            game_state._trigger_gui_update()
+def advance_combat_turn(game_state, ending_player=None):
+    """
+    Avanza il turno di combattimento (D&D 5e RAW):
+    1. Fine turno creatura uscente:
+       - Risoluzione Save-Ends (TS automatici o prompt) per effetti con timing 'end_of_turn'.
+       - Decremento e scadenza effetti con timing 'end_of_turn'.
+       - Pulizia condizioni temporanee di fine turno (Scatto, Disimpegno).
+    2. Avanzamento turno in GameState:
+       - Se round_advanced: decremento e scadenza effetti a round ('round_end') per tutti i combattenti.
+    3. Inizio turno creatura entrante:
+       - Pulizia condizioni di inizio turno (Schivata, Scudo).
+       - Decremento e scadenza effetti 'start_of_turn'.
+       - Ricarica Azioni Leggendarie per Boss.
+       - Annuncio inizio round e Azioni di Tana (Iniziativa 20) / Boss.
+       - Notifica turno e broadcast aggiornamenti.
+    """
+    with game_state.lock:
+        combatants = game_state._get_combatants() if hasattr(game_state, "_get_combatants") else game_state.players
+        if not game_state.combat_active or not combatants:
+            return
+            
+        prev_p = ending_player or game_state.get_current_turn_player()
+        
+        # 1. Fine Turno per prev_p
+        if prev_p:
+            # Pulizia condizioni temporanee di fine turno
+            changed_temp = False
+            for temp_c in ["Scatto", "Disimpegno", "Dash", "Disengage"]:
+                if temp_c in getattr(prev_p, "conditions", []):
+                    prev_p.conditions.remove(temp_c)
+                    changed_temp = True
+            if getattr(prev_p, "full_sheet", None) and isinstance(prev_p.full_sheet.get("conditions"), list):
+                for temp_c in ["Scatto", "Disimpegno", "Dash", "Disengage"]:
+                    if temp_c in prev_p.full_sheet["conditions"]:
+                        prev_p.full_sheet["conditions"].remove(temp_c)
+                        changed_temp = True
+                        
+            # Controlla effetti attivi con Save-Ends a fine turno
+            if hasattr(prev_p, "active_effects") and prev_p.active_effects:
+                for fx in list(prev_p.active_effects):
+                    save_cfg = fx.get("save_ends")
+                    if save_cfg and save_cfg.get("timing", "end_of_turn") == "end_of_turn":
+                        stat = str(save_cfg.get("stat", "SAG")).upper()
+                        try: dc = int(save_cfg.get("dc", 10))
+                        except (ValueError, TypeError): dc = 10
+                        fx_name = fx.get("name", "Effetto")
+                        
+                        # Se il giocatore è connesso, invia prompt interattivo
+                        if getattr(prev_p, "conn", None):
+                            prompt_msg = f"🎲 {prev_p.name} deve effettuare un Tiro Salvezza su {stat} (CD {dc}) per liberarsi da '{fx_name}'!"
+                            broadcast(game_state, make_chat_broadcast("Sistema", prompt_msg))
+                            game_state.log_dm_message(f"[SAVE-ENDS] {prompt_msg}")
+                            send_message(prev_p.conn, make_prompt_save(stat, dc, "", False, f"Save-Ends: {fx_name}", "Contundente"))
+                        else:
+                            # NPC/Mostro o non connesso: tiro automatico dal server
+                            mod = 0
+                            if getattr(prev_p, "full_sheet", None):
+                                attr = prev_p.full_sheet.get("attributes", {})
+                                stat_aliases = {
+                                    "FOR": "FOR", "STR": "FOR",
+                                    "DES": "DES", "DEX": "DES",
+                                    "COS": "COS", "CON": "COS",
+                                    "INT": "INT",
+                                    "SAG": "SAG", "WIS": "SAG",
+                                    "CAR": "CAR", "CHA": "CAR"
+                                }
+                                standard_stat = stat_aliases.get(stat, stat)
+                                raw_val = 10
+                                for k, v in attr.items():
+                                    if stat_aliases.get(k.upper(), k.upper()) == standard_stat:
+                                        try: raw_val = int(v); break
+                                        except (ValueError, TypeError): pass
+                                mod = (raw_val - 10) // 2
+                                saves = prev_p.full_sheet.get("saving_throw_proficiencies", []) or prev_p.full_sheet.get("saving_throws", [])
+                                if any(stat_aliases.get(str(s).upper(), str(s).upper()) == standard_stat for s in saves):
+                                    prof = prev_p.full_sheet.get("proficiency_bonus", 2)
+                                    try: mod += int(prof)
+                                    except (ValueError, TypeError): mod += 2
+                            mod_str = f"+{mod}" if mod >= 0 else str(mod)
+                            res = roll_dice(f"1d20{mod_str}")
+                            is_crit = res["rolls"][0] == 20
+                            is_fail = res["rolls"][0] == 1
+                            threading.Timer(0.1, _process_save_result, args=(
+                                prev_p.name, stat, res["total"], is_crit, is_fail, dc, "", False, f"Save-Ends: {fx_name}", game_state, "Contundente"
+                            )).start()
 
+            # Decrementa effetti di fine turno
+            if hasattr(prev_p, "active_effects") and prev_p.active_effects:
+                expired_eot = []
+                for fx in list(prev_p.active_effects):
+                    if fx.get("decrement_timing") == "end_of_turn" and fx.get("duration_rounds") is not None:
+                        fx["duration_rounds"] -= 1
+                        if fx["duration_rounds"] <= 0:
+                            expired_eot.append(fx.get("name"))
+                            prev_p.remove_effect(fx.get("id") or fx.get("name"))
+                if expired_eot:
+                    for exp_name in expired_eot:
+                        exp_msg = f"⏳ L'effetto '{exp_name}' su {prev_p.name} è terminato a fine turno."
+                        broadcast(game_state, make_chat_broadcast("Sistema", exp_msg))
+                        game_state.log_dm_message(f"[EFFETTO] {exp_msg}")
+
+            broadcast(game_state, make_player_stats_update(
+                prev_p.name, prev_p.hp, prev_p.max_hp, prev_p.initiative, getattr(prev_p, "conditions", []), 
+                getattr(prev_p, "temp_hp", 0), active_effects=getattr(prev_p, "active_effects", [])
+            ))
+
+        # 2. Avanza l'indice di turno nel GameState
+        old_round = game_state.round_number
         game_state.next_turn()
+        round_advanced = (game_state.round_number > old_round)
+
+        # 3. Inizio Turno per next_p
         next_p = game_state.get_current_turn_player()
         if next_p:
-            # Broadcast delle condizioni aggiornate di next_p (es. rimozione automatica di Schivata a inizio turno)
-            broadcast(game_state, make_player_stats_update(next_p.name, next_p.hp, next_p.max_hp, next_p.initiative, getattr(next_p, "conditions", []), getattr(next_p, "temp_hp", 0)))
+            # Broadcast statistiche aggiornate
+            broadcast(game_state, make_player_stats_update(
+                next_p.name, next_p.hp, next_p.max_hp, next_p.initiative, getattr(next_p, "conditions", []), 
+                getattr(next_p, "temp_hp", 0), active_effects=getattr(next_p, "active_effects", [])
+            ))
+            
             # D&D 5e: Le creature leggendarie recuperano le loro azioni leggendarie all'inizio del proprio turno
             if getattr(next_p, "legendary_actions_max", 0) > 0:
                 next_p.legendary_actions_current = next_p.legendary_actions_max
-                game_state._trigger_gui_update()
+                
             msg = f"Round {game_state.round_number} - Turno di {next_p.name}!"
             game_state.log_dm_message(f"[COMBAT] {msg}")
             broadcast(game_state, make_chat_broadcast("Sistema", msg))
@@ -335,11 +451,19 @@ def handle_end_turn_request(data, player, game_state):
 
             # Notifica al DM per Azioni Leggendarie disponibili a fine turno altrui
             for p in game_state.players:
-                if getattr(p, "legendary_actions_max", 0) > 0 and getattr(p, "legendary_actions_current", 0) > 0 and p.name != (next_p.name if next_p else ""):
+                if getattr(p, "legendary_actions_max", 0) > 0 and getattr(p, "legendary_actions_current", 0) > 0 and p.name != next_p.name:
                     game_state.log_dm_message(f"[BOSS] 👑 {p.name} può usare un'Azione Leggendaria ({p.legendary_actions_current}/{p.legendary_actions_max} disponibili)!")
 
         next_name = next_p.name if next_p else ""
-        broadcast(game_state, make_combat_state_update_broadcast(game_state.combat_active, game_state.turn_index, game_state.round_number, game_state.active_aoes, next_name))
+        broadcast(game_state, make_combat_state_update_broadcast(
+            game_state.combat_active, game_state.turn_index, game_state.round_number, game_state.active_aoes, next_name
+        ))
+        game_state._trigger_gui_update()
+
+def handle_end_turn_request(data, player, game_state):
+    current = game_state.get_current_turn_player()
+    if current and current.name == player.name:
+        advance_combat_turn(game_state, ending_player=current)
 
 
 def handle_spend_legendary_action_request(data, player, game_state):
@@ -375,6 +499,74 @@ def handle_spend_legendary_action_request(data, player, game_state):
     broadcast(game_state, make_chat_broadcast("Sistema", msg))
     game_state.log_dm_message(f"[BOSS] {msg}")
     game_state._trigger_gui_update()
+
+def handle_apply_effect_request(data, player, game_state):
+    target_name = data.get("target_name")
+    effect_data = data.get("effect", {})
+    if not target_name or not effect_data:
+        return
+        
+    target_player = game_state.find_player(target_name)
+    if not target_player:
+        if player and getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply(f"Creatura '{target_name}' non trovata."))
+        return
+        
+    is_dm = (player is None or getattr(player, "role", "") == "DM" or getattr(player, "conn", None) is None)
+    if not is_dm and target_player.name != player.name and getattr(target_player, "owner", None) != player.name:
+        if player and getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Solo il DM o il proprietario della pedina può applicare effetti."))
+        return
+        
+    with game_state.lock:
+        applied_fx = target_player.add_effect(effect_data)
+        
+    dur = applied_fx.get("duration_rounds")
+    dur_str = f"{dur} round" if dur else "permanente"
+    save_ends = applied_fx.get("save_ends")
+    save_str = f" [TS {save_ends.get('stat')} CD {save_ends.get('dc')}]" if save_ends else ""
+    fx_name = applied_fx.get("name", "Effetto")
+    icon = applied_fx.get("icon", "✨")
+    
+    msg = f"{icon} [EFFETTO] Applicato '{fx_name}' a {target_player.name} ({dur_str}{save_str})."
+    broadcast(game_state, make_chat_broadcast("Sistema", msg))
+    game_state.log_dm_message(f"[EFFETTO] {msg}")
+    broadcast(game_state, make_player_stats_update(
+        target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, 
+        target_player.conditions, getattr(target_player, "temp_hp", 0), 
+        active_effects=getattr(target_player, "active_effects", [])
+    ))
+    game_state._trigger_gui_update()
+
+def handle_remove_effect_request(data, player, game_state):
+    target_name = data.get("target_name")
+    effect_id = data.get("effect_id")
+    if not target_name or not effect_id:
+        return
+        
+    target_player = game_state.find_player(target_name)
+    if not target_player:
+        return
+        
+    is_dm = (player is None or getattr(player, "role", "") == "DM" or getattr(player, "conn", None) is None)
+    if not is_dm and target_player.name != player.name and getattr(target_player, "owner", None) != player.name:
+        return
+        
+    with game_state.lock:
+        removed = target_player.remove_effect(effect_id)
+        
+    if removed:
+        fx_name = removed.get("name", "Effetto")
+        msg = f"✨ [EFFETTO] Rimosso '{fx_name}' da {target_player.name}."
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        game_state.log_dm_message(f"[EFFETTO] {msg}")
+        broadcast(game_state, make_player_stats_update(
+            target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, 
+            target_player.conditions, getattr(target_player, "temp_hp", 0), 
+            active_effects=getattr(target_player, "active_effects", [])
+        ))
+        game_state._trigger_gui_update()
+
 
 def handle_submit_initiative(data, player, game_state):
     init = data.get("initiative", 0)
@@ -940,11 +1132,24 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
             log_msg += " 🌟 SUCCESSO CRITICO (20 Naturale)! SUPERATO!"
         else:
             log_msg += " SUPERATO!"
+        if str(source_name).startswith("Save-Ends:"):
+            eff_name = str(source_name).replace("Save-Ends:", "").strip()
+            removed = target_player.remove_effect(eff_name)
+            log_msg += f" ✨ {target_name} supera il TS e si libera dall'effetto '{eff_name}'!"
+            broadcast(game_state, make_player_stats_update(
+                target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, 
+                target_player.conditions, getattr(target_player, "temp_hp", 0), 
+                active_effects=getattr(target_player, "active_effects", [])
+            ))
+            game_state._trigger_gui_update()
     else:
         if is_fail:
             log_msg += " 💀 FALLIMENTO CRITICO (1 Naturale)! FALLITO!"
         else:
             log_msg += " FALLITO!"
+        if str(source_name).startswith("Save-Ends:"):
+            eff_name = str(source_name).replace("Save-Ends:", "").strip()
+            log_msg += f" ❌ L'effetto '{eff_name}' su {target_name} persiste!"
         if source_name == "Sistema (Concentrazione)":
             drop_concentration(target_player, game_state, notify=True)
             broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))

@@ -301,11 +301,16 @@ The server features a granular architecture for balancing 5e automation with hum
 1. **Starting Combat**: Select targets or click **Inizia Combattimento** (Start Combat) in the `Iniziativa & PG` tab.
 2. **Mass NPC Initiative**: The DM can click **Tira Iniziativa Mostri** to instantly roll initiative for all monsters in the encounter simultaneously with Dexterity modifiers applied.
 3. **Turn Cycling**: Use **Prossimo Turno** (Next Turn) or **Precedente** to advance the initiative order. The active token is highlighted with a gold ring on the map, and a non-blocking toast notification announces their turn.
-4. **Live Encounter Difficulty Calculator (DMG p. 82)**:
+4. **Timed Effects Tracker & Save-Ends Mechanics (5e RAW)**:
+   * **Official 5e Presets**: Accessible via the token context menu $\rightarrow$ *Modify Conditions*, supporting round-based durations (*Bless*, *Rage*, *Shield*, *Haste*, *Invisibility*...) and Save-Ends effects (*Hold Person*, *Bane*, *Blindness*, *Tasha's Laughter*, *Slow*, *Fear*, *Poisoned*).
+   * **Automatic End-of-Turn Resolution**: When a creature finishes its turn (`End Turn` or DM advance), the combat engine queries all Save-Ends effects. Connected players receive an interactive prompt modal (`make_prompt_save`) with their character's effective saving throw bonus; for NPCs/monsters the server auto-rolls using sheet stats. Passing the DC immediately ends the effect and removes the linked condition with a chat notification.
+   * **HUD & Token Badges**: Compact pill badges displaying remaining rounds or DC (*✨8r*, *🧊CD14*, *🛡️1r*) are rendered in real time both on the top Initiative Ribbon HUD cards and on map tokens.
+   * **Global Concentration Break Link**: If a caster takes damage and fails their concentration check (or drops it), all linked effects maintained on any allies or enemies on the map dissolve immediately.
+5. **Live Encounter Difficulty Calculator (DMG p. 82)**:
    * The DM panel dynamically tallies total player levels and monster challenge ratings (CR).
    * Calculates adjusted encounter XP using 5e monster count multipliers (from $1.5\times$ to $4\times$).
    * Displays real-time difficulty: **Banale (Trivial)**, **Facile (Easy)**, **Medio (Medium)**, **Difficile (Hard)**, or **Mortale (Deadly)**.
-5. **Boss Mechanics & Legendary Actions**:
+6. **Boss Mechanics & Legendary Actions**:
    * **Legendary Resistances**: Monsters with legendary resistance (e.g., 3/day) can turn a failed saving throw into a success with 1 click.
    * **Legendary Actions**: Spend legendary action points outside the boss's turn, resetting automatically at the start of each round.
 

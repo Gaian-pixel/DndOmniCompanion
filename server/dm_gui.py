@@ -1412,8 +1412,8 @@ class DM_GUI:
             self.log_to_chat("[COMBAT] Nessun Mostro/PNG presente per tirare l'iniziativa.")
 
     def next_turn_gui(self):
-        self.server.game_state.next_turn()
-        self._announce_turn()
+        from server.rules.combat import advance_combat_turn
+        advance_combat_turn(self.server.game_state)
 
     def prev_turn_gui(self):
         self.server.game_state.prev_turn()

@@ -84,6 +84,12 @@
   * **Darkness & Darkvision Rules (PHB p. 194-195)**: Attacking from darkness with Darkvision (or attacking a torch-bearing enemy) grants **Advantage** (*Unseen Attacker*); attacking an unseen target imposes **Disadvantage**; mutual darkness cancels out both to a normal roll. Note: Dragonborn do not possess innate darkvision per 5e RAW.
 * **Automated Opportunity Attacks & Out-of-Turn Reactions**: Detects when a combatant leaves hostile melee reach without having taken the *Disengage* action, bypassing strict turn locks with `is_reaction=True` to seamlessly resolve out-of-turn reactions.
 * **Auto-Critical Hits on Incapacitated / Paralyzed Targets (PHB p. 291-292)**: Any attack roll that hits a creature with the *Unconscious* or *Paralyzed* condition within 5 feet (1 cell) automatically scores a Critical Hit with doubled damage dice.
+* **Timed Effects Tracker & Save-Ends Auto-Resolution (5e RAW)**:
+  * **Presets & Custom Effects**: Full library of 5e presets (*Bless*, *Bane*, *Rage*, *Shield*, *Haste*, *Hold Person*, *Blindness*, *Tasha's Laughter*, *Slow*, *Fear*, *Poisoned*, *Invisibility*...) or customized effects with dedicated durations and saving throw DCs.
+  * **Automatic End-of-Turn Save-Ends Resolution**: Prompts connected players interactively with their character's effective saving throw bonus or auto-rolls for monsters/NPCs. Passing the save immediately cleanses the effect and linked condition.
+  * **Round & Turn Expiration**: Automatically decrements durations and broadcasts expirations on turn or round advance.
+  * **Global Concentration Break Link**: If a caster drops concentration, all linked active effects across the battlemap (*Bless*, *Hold Person*, *Haste*...) dissolve immediately.
+  * **Visual Badges**: Initiative Ribbon HUD cards and canvas tokens display compact pill badges with remaining rounds or save DCs (`✨8r`, `🧊CD14`, `🛡️1r`).
 * **Bilingual Damage Resistances & Vulnerabilities**: Automated two-way mapping between English and Italian damage types (`fire` $\leftrightarrow$ `fuoco`, `radiant` $\leftrightarrow$ `radioso`, `slashing` $\leftrightarrow$ `tagliente`, etc.) applying exact halving or doubling of damage.
 * **Strict Concentration & Upcasting (PHB p. 201-204)**:
   * Casting a new concentration spell from the Spellbook automatically drops and broadcasts the termination of any existing concentration.

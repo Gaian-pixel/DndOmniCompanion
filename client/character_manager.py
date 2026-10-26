@@ -177,6 +177,7 @@ class Character:
         self.marching_order = "Centro"
         self.features_list = []
         self.conditions = []
+        self.active_effects = []
         self.starting_kit_applied = False
         self.campaign_starter_received = False
         self.saving_throw_proficiencies = []
@@ -836,6 +837,8 @@ class Character:
         if not hasattr(c, "custom_resources") or not isinstance(c.custom_resources, list):
             c.custom_resources = []
             c.auto_populate_class_resources()
+        if not hasattr(c, "active_effects") or not isinstance(c.active_effects, list):
+            c.active_effects = []
         if not hasattr(c, "size") or not c.size:
             c.size = "medium"
         if not hasattr(c, "travel_role"):

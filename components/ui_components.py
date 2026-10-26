@@ -1609,6 +1609,8 @@ class HexMapCanvas(tk.Canvas):
                 badge_r = max(6, int(8 * min(self.zoom_level, 1.2)))
                 start_x = sx - radius
                 start_y = sy - radius - badge_r - 2
+                p_fx = pdata.get("active_effects", []) if isinstance(pdata, dict) else []
+                p_cd = pdata.get("condition_durations", {}) if isinstance(pdata, dict) else {}
                 for i, cond in enumerate(conditions[:5]):
                     badge_info = cond_badge_map.get(cond, ("#C92A2A", cond[:2].upper()))
                     bg_color, symbol = badge_info
@@ -1617,6 +1619,22 @@ class HexMapCanvas(tk.Canvas):
                     self.create_oval(b_x - badge_r, b_y - badge_r, b_x + badge_r, b_y + badge_r, fill=bg_color, outline="#FFFFFF", width=1)
                     font_size = max(6, int(badge_r * 1.1))
                     self.create_text(b_x, b_y, text=symbol, font=("Segoe UI Emoji", font_size), fill="white")
+                    
+                    # Pill durata residua / CD Save-Ends per la condizione
+                    rem_info = None
+                    for fx in p_fx:
+                        if fx.get("condition") == cond or fx.get("name") == cond:
+                            if fx.get("save_ends"):
+                                rem_info = f"CD{fx['save_ends'].get('dc')}"
+                            elif fx.get("duration_rounds") is not None:
+                                rem_info = f"{fx['duration_rounds']}r"
+                            break
+                    if not rem_info and cond in p_cd:
+                        rem_info = f"{p_cd[cond]}r"
+                        
+                    if rem_info and badge_r >= 7:
+                        self.create_rectangle(b_x - 3, b_y + badge_r - 4, b_x + badge_r + 6, b_y + badge_r + 5, fill="#111827", outline="#F59E0B", width=0.5)
+                        self.create_text(b_x + 2, b_y + badge_r, text=rem_info, font=("Segoe UI", max(5, int(badge_r * 0.7)), "bold"), fill="#FDE68A")
 
         # --- ENVIRONMENTS & COMBAT OVERLAYS ---
         w = cw
@@ -1688,8 +1706,30 @@ class HexMapCanvas(tk.Canvas):
                     
                     # Nome troncato a 8 caratteri
                     short_name = name[:7] + "…" if len(name) > 8 else name
-                    self.create_text((card_x1 + card_x2)/2, card_y1 + 14, text=short_name, fill=name_color, font=("Segoe UI", 8, "bold" if is_current else "normal"), tags="hud_initiative")
+                    self.create_text((card_x1 + card_x2)/2, card_y1 + 13, text=short_name, fill=name_color, font=("Segoe UI", 8, "bold" if is_current else "normal"), tags="hud_initiative")
                     
+                    # Mini badge effetti attivi / condizioni con durata (e.g. ✨8r, 🧊14, 🔥9r)
+                    effs = pdata.get('active_effects', []) if isinstance(pdata, dict) else []
+                    cond_durs = pdata.get('condition_durations', {}) if isinstance(pdata, dict) else {}
+                    badges_to_show = []
+                    for fx in effs:
+                        icon = fx.get("icon", "✨")
+                        dur = fx.get("duration_rounds")
+                        save = fx.get("save_ends")
+                        if save:
+                            badges_to_show.append(f"{icon}{save.get('dc', '')}")
+                        elif dur is not None and dur > 0:
+                            badges_to_show.append(f"{icon}{dur}r")
+                        else:
+                            badges_to_show.append(f"{icon}")
+                    for c_name, c_dur in cond_durs.items():
+                        if not any(c_name.lower() in str(b).lower() for b in badges_to_show) and c_dur > 0:
+                            c_icon = self.cond_badge_map.get(c_name, ("", c_name[:2]))[1]
+                            badges_to_show.append(f"{c_icon}{c_dur}r")
+                    if badges_to_show:
+                        eff_text = " ".join(badges_to_show[:3])
+                        self.create_text((card_x1 + card_x2)/2, card_y1 + 27, text=eff_text, fill="#6EE7B7", font=("Segoe UI Emoji", 7, "bold"), tags="hud_initiative")
+
                     # Ordine turno
                     self.create_text(card_x1 + 10, card_y2 - 12, text=f"#{idx+1}", fill="#9CA3AF", font=("Segoe UI", 7), tags="hud_initiative")
                     

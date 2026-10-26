@@ -56,6 +56,8 @@ command_handlers = {
     "LEGENDARY_ACTION_REQUEST": handle_spend_legendary_action_request,
     "QUEST_ACTION_REQUEST": handle_quest_action_request,
     "HANDOUT_SHARE_REQUEST": handle_handout_share_request,
+    "APPLY_EFFECT_REQUEST": handle_apply_effect_request,
+    "REMOVE_EFFECT_REQUEST": handle_remove_effect_request,
 }
 
 

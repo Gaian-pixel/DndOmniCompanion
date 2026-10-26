@@ -300,11 +300,16 @@ Il server implementa un'architettura granulare per arbitrare il livello di autom
 1. **Avvio del Combattimento**: Clicca su **Inizia Combattimento** nel tab `Iniziativa & PG`.
 2. **Iniziativa Mostri di Massa**: Il DM può cliccare su **🎲 Tira Iniziativa Mostri** per tirare istantaneamente l'iniziativa di tutti i mostri nello scontro applicando i modificatori di Destrezza.
 3. **Rotazione dei Turni**: Usa **Prossimo Turno ⏩** o **⏪ Turno Precedente** per avanzare nell'ordine d'iniziativa. Il token attivo è evidenziato con un doppio anello dorato sulla mappa e nel **Ribbon HUD** superiore.
-4. **Calcolatore Difficoltà Incontri Live (DMG p. 82)**:
+4. **Tracciatore Durata Effetti & Tiri Salvezza Save-Ends (5e RAW)**:
+   * **Presets Ufficiali 5e**: Accessibili dal dialogo stati/condizioni pedina, con durate in round (*Benedizione*, *Ira*, *Scudo*, *Velocità*, *Invisibilità*...) ed effetti Save-Ends (*Blocca Persone*, *Anatema*, *Cecità*, *Risata di Tasha*, *Lentezza*, *Paura*, *Avvelenato*).
+   * **Risoluzione Automatica a Fine Turno**: Al termine del turno di ciascun combattente, il server interroga gli effetti Save-Ends. Se il giocatore è connesso riceve il prompt interattivo con il modificatore TS corretto; per mostri/PNG il server calcola e tira automaticamente. Il superamento della CD rimuove immediatamente l'effetto e la condizione.
+   * **Badge HUD & Token**: Indicatori pill con round residui o CD (*✨8r*, *🧊CD14*, *🛡️1r*) visualizzati in tempo reale sia sulle card dell'Initiative Ribbon superiore che sui badge token.
+   * **Rottura Concentrazione Globale**: Se l'incantatore perde la concentrazione, tutti gli effetti mantenuti collegati su qualsiasi bersaglio della mappa decadono istantaneamente.
+5. **Calcolatore Difficoltà Incontri Live (DMG p. 82)**:
    * Il pannello DM somma dinamicamente i livelli dei giocatori e i Gradi di Sfida (CR) dei mostri.
    * Calcola gli XP rettificati usando i moltiplicatori 5e per numero di mostri (da $1.5\times$ a $4\times$).
    * Mostra in tempo reale la difficoltà: **Banale**, **Facile**, **Medio**, **Difficile** o **Mortale**.
-5. **Meccaniche Boss e Azioni Leggendarie**:
+6. **Meccaniche Boss e Azioni Leggendarie**:
    * **Resistenze Leggendarie**: I mostri dotati di resistenze leggendarie (es. 3/giorno) possono trasformare un Tiro Salvezza fallito in un successo con 1 click.
    * **Azioni Leggendarie**: Spendi punti azione leggendaria fuori dal turno del boss, con reset automatico all'inizio di ogni round.
 
