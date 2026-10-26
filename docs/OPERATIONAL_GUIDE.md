@@ -35,6 +35,7 @@ Welcome to the comprehensive operational manual for **D&D OmniCompanion**, a com
    - [Spellbook & Spell Slot Management](#spellbook--spell-slot-management)
    - [Peer-to-Peer Player Trading](#peer-to-peer-player-trading)
    - [Hotbar Quick Macros](#hotbar-quick-macros)
+   - [Familiars, Beast Companions & Summoned Creatures (5e RAW)](#familiars-beast-companions--summoned-creatures-5e-raw)
    - [Travel System & Marching Order](#travel-system--marching-order)
 6. [5e Mechanics & Automation Engine](#6-5e-mechanics--automation-engine)
    - [Advantage & Disadvantage Computation](#advantage--disadvantage-computation)
@@ -457,6 +458,25 @@ The Player Action Economy panel automatically adapts to whether combat is active
 * 10 customizable quick slots at the bottom of the player panel.
 * **Right-Click Slot**: Configure macro command (e.g., `/roll 1d20+5 Spada Lunga`, `/ds`, `/tsmorte`).
 * **Left-Click Slot**: Instantly executes the macro in chat.
+
+### Familiars, Beast Companions & Summoned Creatures (5e RAW)
+Accessible directly via the `🐾` button on the VTT **Hero Summary Card** for all players:
+* **Familiars (Find Familiar - PHB p. 240 & Pact of the Chain)**:
+  * **Forms Catalog**: Standard animal forms (*Owl* with Flyby and 120 ft Darkvision, *Bat* with 60 ft Blindsight, *Cat*, *Hawk*, *Raven*, *Poisonous Snake*, *Toad*, *Spider*) and Warlock Chain Pact forms (*Imp*, *Pseudodragon*).
+  * **5e RAW Non-Attack Enforcement**: Standard familiars **cannot make attacks** (attack requests are strictly validated and blocked at the server engine); they may instead take Help, Dodge, Dash actions or deliver spells. Pact of the Chain familiars are permitted to make attacks.
+  * **Pocket Dimension**: Masters can dismiss familiars into an extradimensional space (hiding the token from all players) and recall them at any time to appear within 30 ft (6 hexes).
+  * **Touch Spell Delivery**: Masters can cast touch spells (*Shocking Grasp*, *Cure Wounds*, etc.) through their familiar; if the familiar is within 100 ft (20 hexes) of the master and the target is within touch reach (1 hex) of the familiar, the familiar expends its **Reaction** to deliver the spell.
+  * **Shared Senses**: Switch visual and auditory perception through the familiar's senses up to 100 ft.
+* **Ranger Beast Companions (Beast Master / Tasha's Primal Companion)**:
+  * **Beast Catalog**: *Wolf* (Pack Tactics and DC 11 Strength save to knock Prone), *Panther* (Pounce with bonus action attack), *Boar* (Relentless survival at 0 HP), *Giant Poisonous Snake* (10 ft reach and high poison damage), *Mastiff* (mount for Small characters).
+  * **Automatic 5e RAW Stat Scaling**:
+    * **Armor Class (AC)**: Base AC + Ranger's Proficiency Bonus (PB).
+    * **Max Hit Points**: $\max(\text{Base HP}, 4 \times \text{Ranger Level})$.
+    * **Attack & Damage Rolls**: Scaled upward with the Ranger's PB.
+* **Summoned Creatures (Conjuration & Necromancy)**:
+  * *Skeleton*, *Zombie*, *Conjured Wolf*, *Fey Spirit*.
+  * **Concentration Linkage**: Concentration-dependent summons immediately dissolve and vanish from the map whenever the caster's concentration is broken or drops to 0 HP.
+  * **No Corpse/Loot Spawning**: Upon dropping to 0 HP, familiars and summons vanish in a puff of spirit or mystical mist, leaving behind no corpses or map loot chests.
 
 ### Travel System & Marching Order
 * Set party marching order: **Avanguardia (Front)**, **Centro (Middle)**, **Retroguardia (Rear)**.

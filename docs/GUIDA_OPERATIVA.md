@@ -35,6 +35,7 @@ Benvenuto nel manuale operativo e architetturale di **D&D OmniCompanion**, il Vi
    - [Grimorio e Gestione Slot Incantesimo](#grimorio-e-gestione-slot-incantesimo)
    - [Scambi Peer-to-Peer tra Giocatori](#scambi-peer-to-peer-tra-giocatori)
    - [Macro Hotbar Rapida](#macro-hotbar-rapida)
+   - [Famigli, Compagni Animali e Creature Evocate 5e RAW](#famigli-compagni-animali-e-creature-evocate-5e-raw)
    - [Sistema di Viaggio e Ordine di Marcia](#sistema-di-viaggio-e-ordine-di-marcia)
 6. [Motore delle Meccaniche e Automazioni D&D 5e](#6-motore-delle-meccaniche-e-automazioni-dd-5e)
    - [Successi Critici (20 Naturale) e Fallimenti Critici (1 Naturale)](#successi-critici-20-naturale-e-fallimenti-critici-1-naturale)
@@ -445,6 +446,25 @@ Il pannello **Economia Turno** del Giocatore si adatta automaticamente allo stat
 
 ### Macro Hotbar Rapida
 * 10 slot rapidi personalizzabili nella parte inferiore del pannello giocatore (**Click Destro** per configurare, **Click Sinistro** per eseguire).
+
+### Famigli, Compagni Animali e Creature Evocate 5e RAW
+Accessibile direttamente dal pulsante `🐾` sulla **Hero Summary Card** della VTT per tutti i giocatori:
+* **Famigli (Find Familiar / Trova Famiglio - PHB p. 240 & Patto della Catena)**:
+  * **Catalogo Forme**: Forme standard (*Gufo* con Picchiata/Flyby e Scurovisione 120 ft, *Pipistrello* con Vista Cieca 60 ft, *Gatto*, *Falco*, *Corvo*, *Serpente*, *Rospo*, *Ragno*) e forme speciali Warlock (*Diavoletto / Imp*, *Pseudodrago*).
+  * **Regola 5e RAW sugli Attacchi**: I famigli standard **non possono compiere attacchi** (l'azione di attacco è bloccata a livello server); possono invece compiere l'azione Aiuto, Schivata, Scatto o erogare incantesimi. I famigli del Patto della Catena possono invece attaccare.
+  * **Tasca Dimensionale (Pocket Dimension)**: Il padrone può congedare temporaneamente il famiglio in una tasca extradimensionale (diventa invisibile e scompare dalla mappa per i giocatori) e richiamarlo in qualsiasi momento riapparendo entro 9m (30 ft / 6 esagoni).
+  * **Erogazione Incantesimi a Contatto (Touch Spell Delivery)**: Il padrone può selezionare un incantesimo a contatto (*Stretta Folgorante*, *Cura Ferite*, ecc.) dal menu del famiglio; se il famiglio si trova entro 30m (100 ft / 20 esagoni) dal padrone e il bersaglio è a contatto (1 esagono) dal famiglio, quest'ultimo spende la propria **Reazione** per erogare l'effetto direttamente al bersaglio.
+  * **Sensi Condivisi (Shared Senses)**: Modalità attivabile per vedere e sentire attraverso i sensi del famiglio entro 30m (100 ft).
+* **Compagni Animali del Ranger (Beast Master / Tasha's Primal Companion)**:
+  * **Catalogo Bestie**: *Lupo* (Tattiche di Branco e sbilanciamento Prono con TS Forza CD 11), *Pantera* (Balzo/Pounce e attacco bonus), *Cinghiale* (Tenacia/Relentless a 0 PV), *Serpente Gigante* (Portata 3m / 10 ft e alto danno da veleno), *Mastino* (cavalcatura per Piccola taglia).
+  * **Scaling Statistiche Automatico 5e RAW**:
+    * **Classe Armatura (CA)**: CA base + Bonus di Competenza (PB) del Ranger.
+    * **Punti Ferita Massimi**: $\max(\text{PV base}, 4 \times \text{Livello Ranger})$.
+    * **Tiri per Colpire e Danni**: Aggiungono il PB del Ranger.
+* **Creature Evocate (Conjuration & Necromancy)**:
+  * *Scheletro*, *Zombi*, *Lupo Fatato*, *Spirito Fatato*.
+  * **Legame con la Concentrazione**: Le evocazioni legate alla concentrazione svaniscono istantaneamente dalla mappa non appena l'incantatore perde la concentrazione o scende a 0 HP.
+  * **Nessun Cadavere/Loot Residuo**: Alla morte a 0 HP, i famigli e le creature evocate svaniscono in un soffio di spirito o si dissolvono, senza creare forzieri o spoglie sulla mappa.
 
 ### Sistema di Viaggio e Ordine di Marcia
 * Imposta l'ordine di marcia del party (**Avanguardia**, **Centro**, **Retroguardia**), assegna i ruoli di viaggio (Navigatore, Esploratore, Foraggiatore), traccia razioni/acqua e calcola i Tiri Salvezza su Costituzione per la Marcia Forzata ($\text{CD} = 10 + 1\text{ per ogni ora oltre le 8}$).

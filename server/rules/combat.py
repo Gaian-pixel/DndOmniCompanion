@@ -12,6 +12,17 @@ def _spawn_corpse_loot(target_player, game_state):
     """Spawna automaticamente un forziere con le spoglie sulla mappa quando un mostro o PNG muore a 0 HP."""
     if not game_state or not getattr(game_state, "current_map", None):
         return
+    if getattr(target_player, "is_companion", False) or getattr(target_player, "companion_type", None):
+        c_type = getattr(target_player, "companion_type", "familiar")
+        if c_type == "familiar":
+            msg = f"✨ Il famiglio {target_player.name} svanisce in un soffio di spirito."
+        elif c_type == "summon":
+            msg = f"✨ La creatura evocata {target_player.name} si dissolve."
+        else:
+            msg = f"☠️ Il compagno {target_player.name} è caduto a 0 HP!"
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        game_state.log_dm_message(f"[COMPAGNO] {msg}")
+        return
     pos = getattr(target_player, "position", None)
     if not pos:
         return
@@ -53,8 +64,9 @@ def drop_concentration(player, game_state, notify=True):
             ))
 
     removed_effects = []
+    removed_summons = []
     if game_state and hasattr(game_state, "players"):
-        for p in game_state.players:
+        for p in list(game_state.players):
             if hasattr(p, "active_effects") and p.active_effects:
                 for fx in list(p.active_effects):
                     if fx.get("concentration_caster") == player.name:
@@ -63,12 +75,20 @@ def drop_concentration(player, game_state, notify=True):
                         broadcast(game_state, make_player_stats_update(
                             p.name, p.hp, p.max_hp, p.initiative, p.conditions, getattr(p, "temp_hp", 0), active_effects=getattr(p, "active_effects", [])
                         ))
+            if getattr(p, "companion_type", None) == "summon" and getattr(p, "master_name", None) == player.name:
+                game_state.players.remove(p)
+                removed_summons.append(p.name)
+                from common.protocol import make_player_left
+                broadcast(game_state, make_player_left(p.name))
 
-    if (had_conc or removed_aoes or removed_effects) and notify and game_state:
+    if (had_conc or removed_aoes or removed_effects or removed_summons) and notify and game_state:
         break_msg = f"La concentrazione di {player.name} si spezza! Gli effetti ad essa legati svaniscono."
         if removed_effects:
             fx_summary = ", ".join([f"'{fx_name}' su {target}" for target, fx_name in removed_effects])
             break_msg += f" (Effetti terminati: {fx_summary})"
+        if removed_summons:
+            s_summary = ", ".join(removed_summons)
+            break_msg += f" (Creature evocate dissolte: {s_summary})"
         broadcast(game_state, make_chat_broadcast("Sistema", break_msg))
         game_state.log_dm_message(f"[CONCENTRAZIONE] {break_msg}")
 
@@ -588,6 +608,8 @@ def handle_submit_initiative(data, player, game_state):
     game_state.log_dm_message(f"[COMBAT] {player.name} tira iniziativa: {init}")
 
 def handle_attack_request(data, player, game_state):
+    if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
+        data = data["data"]
     target_name = data.get("target_name")
     weapon_name = data.get("weapon_name", "Attacco")
     hit_bonus = data.get("hit_bonus", 0)
@@ -603,6 +625,13 @@ def handle_attack_request(data, player, game_state):
         if player and getattr(player, "conn", None):
             send_message(player.conn, make_error_reply("Non puoi attaccare mentre sei Incosciente, Paralizzato o a 0 HP!"))
         return
+
+    # D&D 5e RAW: i famigli standard non possono compiere attacchi
+    if getattr(player, "is_companion", False) and getattr(player, "companion_type", None) == "familiar":
+        if not getattr(player, "can_attack", False):
+            if player and getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply("I famigli standard non possono attaccare (D&D 5e PHB p. 240)! Possono compiere l'azione Aiuto, Schivata, Scatto o erogare incantesimi a contatto."))
+            return
 
     strict_lock = False
     if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
@@ -1519,4 +1548,183 @@ def handle_apply_pending_damage_request(data, player, game_state):
     broadcast(game_state, make_chat_broadcast("DM", log_msg))
     broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
     game_state._trigger_gui_update()
+
+def handle_summon_companion_request(data, player, game_state):
+    """
+    Evoca un famiglio (Find Familiar), compagno animale (Ranger) o creatura evocata (5e RAW).
+    """
+    if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
+        data = data["data"]
+    if not player:
+        return
+        
+    comp_type = data.get("companion_type", "familiar")
+    template_key = data.get("template_key", "owl")
+    custom_name = data.get("custom_name", "")
+    ranger_lvl = data.get("ranger_level", 1)
+    ranger_pb = data.get("ranger_pb", 2)
+    
+    from common.companions_data import create_companion_player_dict
+    from common.game_state import Player
+    
+    comp_dict = create_companion_player_dict(
+        companion_type=comp_type,
+        template_key=template_key,
+        master_player=player,
+        custom_name=custom_name,
+        ranger_level=ranger_lvl,
+        ranger_pb=ranger_pb
+    )
+    
+    # Se il giocatore ha già un famiglio attivo dello stesso tipo, rimuovi il vecchio (PHB p. 240)
+    if comp_type == "familiar":
+        old_familiars = [p for p in game_state.players if getattr(p, "companion_type", None) == "familiar" and getattr(p, "master_name", None) == player.name]
+        for old_f in old_familiars:
+            game_state.players.remove(old_f)
+            from common.protocol import make_player_left
+            broadcast(game_state, make_player_left(old_f.name))
+            
+    comp_player = Player.from_dict(comp_dict)
+    
+    with game_state.lock:
+        game_state.players.append(comp_player)
+        
+    from common.protocol import make_player_joined
+    broadcast(game_state, make_player_joined(comp_player.to_dict()))
+    broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
+    game_state._trigger_gui_update()
+    
+    type_labels = {"familiar": "Famiglio", "beast": "Compagno Animale", "summon": "Creatura Evocata"}
+    t_label = type_labels.get(comp_type, "Compagno")
+    msg = f"🐾 [5e {t_label}] {player.name} ha evocato {comp_player.name} al proprio fianco!"
+    broadcast(game_state, make_chat_broadcast("Sistema", msg))
+    game_state.log_dm_message(f"[COMPAGNO] {msg}")
+
+def handle_dismiss_familiar_request(data, player, game_state):
+    """
+    Gestisce il congedo o richiamo del famiglio (tasca dimensionale o congedo definitivo).
+    """
+    if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
+        data = data["data"]
+    comp_name = data.get("companion_name")
+    action = data.get("action", "pocket")
+    
+    comp = game_state.find_player(comp_name)
+    if not comp:
+        return
+        
+    is_dm = (player is None or getattr(player, "role", "") == "DM" or getattr(player, "conn", None) is None)
+    if not is_dm and getattr(comp, "master_name", None) != player.name and getattr(comp, "owner", None) != player.name:
+        if player and getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Non puoi gestire compagni non tuoi."))
+        return
+        
+    if action == "pocket":
+        comp.in_pocket_dimension = True
+        comp.is_hidden = True
+        msg = f"🚪 {comp.name} entra temporaneamente nella tasca dimensionale magica."
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        game_state.log_dm_message(f"[FAMIGLIO] {msg}")
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        game_state._trigger_gui_update()
+    elif action == "recall":
+        comp.in_pocket_dimension = False
+        comp.is_hidden = False
+        if player and hasattr(player, "position") and player.position:
+            comp.position = [player.position[0] + 1, player.position[1]]
+        msg = f"✨ {comp.name} riappare al fianco di {player.name if player else 'padrone'} dalla tasca dimensionale!"
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        game_state.log_dm_message(f"[FAMIGLIO] {msg}")
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        game_state._trigger_gui_update()
+    elif action == "dismiss":
+        with game_state.lock:
+            if comp in game_state.players:
+                game_state.players.remove(comp)
+        msg = f"💀 {comp.name} è stato congedato definitivamente."
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        game_state.log_dm_message(f"[COMPAGNO] {msg}")
+        from common.protocol import make_player_left
+        broadcast(game_state, make_player_left(comp.name))
+        game_state._trigger_gui_update()
+
+def handle_deliver_touch_spell_request(data, player, game_state):
+    """
+    Eroga un incantesimo a contatto attraverso il famiglio (D&D 5e RAW PHB p. 240).
+    - Famiglio entro 100 ft (20 esagoni) dal padrone
+    - Bersaglio entro portata di contatto (1 esagono) dal famiglio
+    - Il famiglio consuma la sua reazione
+    """
+    if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
+        data = data["data"]
+    if not player:
+        return
+        
+    familiar_name = data.get("familiar_name")
+    target_name = data.get("target_name")
+    spell_name = data.get("spell_name", "Incantesimo a Contatto")
+    action_type = data.get("action_type", "damage")
+    formula = data.get("formula", "1d8")
+    damage_type = data.get("damage_type", "Fulmine")
+    
+    familiar = game_state.find_player(familiar_name)
+    if not familiar:
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply(f"Famiglio '{familiar_name}' non trovato sulla mappa."))
+        return
+        
+    if getattr(familiar, "master_name", None) != player.name and getattr(familiar, "owner", None) != player.name:
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Puoi erogare incantesimi solo attraverso il tuo famiglio!"))
+        return
+        
+    if getattr(familiar, "in_pocket_dimension", False):
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Il famiglio è nella tasca dimensionale! Richiamalo prima di lanciare."))
+        return
+        
+    target = game_state.find_player(target_name)
+    if not target:
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply(f"Bersaglio '{target_name}' non trovato."))
+        return
+        
+    # Verifica distanza padrone-famiglio (max 100 ft / 20 esagoni)
+    p_pos = getattr(player, "position", [0, 0])
+    f_pos = getattr(familiar, "position", [0, 0])
+    t_pos = getattr(target, "position", [0, 0])
+    
+    dist_master_fam = hex_distance(Hex(p_pos[0], p_pos[1]), Hex(f_pos[0], f_pos[1]))
+    if dist_master_fam > 20:
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply(f"Il famiglio è troppo lontano dal padrone ({dist_master_fam} esagoni > 20 esagoni / 100 ft)!"))
+        return
+        
+    # Verifica distanza famiglio-bersaglio (portata a contatto: 1 esagono)
+    dist_fam_target = hex_distance(Hex(f_pos[0], f_pos[1]), Hex(t_pos[0], t_pos[1]))
+    if dist_fam_target > 1:
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply(f"Il bersaglio non è a portata di contatto dal famiglio ({dist_fam_target} esagoni > 1 esagono)!"))
+        return
+        
+    # Il famiglio spende la propria reazione (5e RAW)
+    familiar.has_reacted_this_turn = True
+    
+    # Esegui effetto (danno o cura)
+    res = roll_dice(formula)
+    val = res["total"]
+    
+    from server.rules.character import _apply_hp_change
+    if action_type in ["cura", "heal"]:
+        _apply_hp_change(target, target.hp + val, game_state)
+        msg = f"🦉 {player.name} eroga '{spell_name}' a contatto tramite il famiglio {familiar.name}: {target.name} recupera {val} PV! (HP: {target.hp}/{target.max_hp})"
+    else:
+        final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(target, val, damage_type, game_state)
+        msg = f"⚡ {player.name} eroga '{spell_name}' a contatto tramite il famiglio {familiar.name}: {target.name} subisce {final_dmg} danni ({damage_type}){note}!"
+        
+    broadcast(game_state, make_chat_broadcast("Sistema", msg))
+    game_state.log_dm_message(f"[TOUCH-SPELL] {msg}")
+    broadcast(game_state, make_player_stats_update(target.name, target.hp, target.max_hp, target.initiative, target.conditions, getattr(target, "temp_hp", 0)))
+    game_state._trigger_gui_update()
+
 

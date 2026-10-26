@@ -265,3 +265,4 @@ def create_effect_instance(
         "concentration_caster": caster,
         "condition": eff_cond
     }
+

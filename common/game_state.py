@@ -43,6 +43,11 @@ class Player:
         self.layer = "token"
         self.has_darkvision = None
         self.has_lair_actions = False
+        self.companion_type = None
+        self.master_name = None
+        self.in_pocket_dimension = False
+        self.can_attack = True
+        self.is_companion = False
 
 
 
@@ -179,7 +184,12 @@ class Player:
             "speed_unit": getattr(self, "speed_unit", None),
             "layer": getattr(self, "layer", "token"),
             "has_darkvision": getattr(self, "has_darkvision", None),
-            "has_lair_actions": getattr(self, "has_lair_actions", False)
+            "has_lair_actions": getattr(self, "has_lair_actions", False),
+            "companion_type": getattr(self, "companion_type", None),
+            "master_name": getattr(self, "master_name", None),
+            "in_pocket_dimension": getattr(self, "in_pocket_dimension", False),
+            "can_attack": getattr(self, "can_attack", True),
+            "is_companion": getattr(self, "is_companion", False)
         }
 
     @classmethod
@@ -219,6 +229,11 @@ class Player:
         p.has_darkvision = data.get("has_darkvision", None)
         p.has_lair_actions = data.get("has_lair_actions", False)
         p.avatar_b64 = data.get("avatar_b64", None)
+        p.companion_type = data.get("companion_type", None)
+        p.master_name = data.get("master_name", None)
+        p.in_pocket_dimension = data.get("in_pocket_dimension", False)
+        p.can_attack = data.get("can_attack", True)
+        p.is_companion = data.get("is_companion", False)
         return p
 
 
@@ -583,6 +598,15 @@ class GameState:
     def get_all_players(self):
         with self.lock:
             return self.players[:]
+
+    def get_companions_of(self, player_name: str):
+        """Restituisce tutti i famigli, compagni o creature evocate controllate da un giocatore."""
+        with self.lock:
+            return [
+                p for p in self.players 
+                if getattr(p, "master_name", None) == player_name or 
+                (getattr(p, "owner", None) == player_name and getattr(p, "is_companion", False))
+            ]
 
     def get_state_dict(self, is_dm=True):
         """Restituisce una rappresentazione dell'intero stato del gioco come dizionario."""

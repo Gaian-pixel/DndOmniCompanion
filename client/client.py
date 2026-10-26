@@ -451,6 +451,13 @@ class ClientGUI:
         self.hero_light_btn.bind("<Button-3>", self.open_light_presets_menu)
         ToolTip(self.hero_light_btn, lambda: "Accendi/Spegni Torcia o Luce (Click destro per opzioni)")
 
+        self.hero_companion_btn = tk.Button(
+            pill_row, text="🐾", font=FONT_SMALL, relief=tk.FLAT, bd=0, padx=6, pady=2,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, activebackground=BORDER_COLOR, command=self.open_companion_panel
+        )
+        self.hero_companion_btn.pack(side=tk.RIGHT, padx=(0, 4))
+        ToolTip(self.hero_companion_btn, lambda: "Famiglio, Compagno Animale & Evocazioni (D&D 5e)")
+
         
         # --- ACTION ECONOMY TRACKER (D&D 5e) ---
         self.economy_frame = tk.Frame(controls_tab, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=6)
@@ -833,6 +840,22 @@ class ClientGUI:
             else:
                 self.hero_light_btn.config(text="🕯️", bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED)
 
+        if hasattr(self, 'hero_companion_btn'):
+            my_companions = [
+                p for p in getattr(self, "players_data", {}).values() 
+                if (p.get("master_name") == self.name or p.get("owner") == self.name) and p.get("name") != self.name
+            ]
+            if my_companions:
+                first_comp = my_companions[0]
+                c_icon = "🦉" if first_comp.get("companion_type") == "familiar" else ("🐺" if first_comp.get("companion_type") == "beast" else "🐾")
+                in_pocket = first_comp.get("in_pocket_dimension", False)
+                if in_pocket:
+                    self.hero_companion_btn.config(text=f"{c_icon} [Tasca]", bg="#374151", fg="#F59E0B")
+                else:
+                    self.hero_companion_btn.config(text=c_icon, bg="#064E3B", fg="#10B981")
+            else:
+                self.hero_companion_btn.config(text="🐾", bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED)
+
         self.update_action_economy_ui()
 
     def quick_toggle_backpack(self):
@@ -901,6 +924,7 @@ class ClientGUI:
             if hasattr(self, "map_canvas"):
                 self.map_canvas.redraw()
 
+
     def open_light_presets_menu(self, event=None):
         """Menu contestuale per selezionare quale sorgente di luce usare."""
         char = getattr(self, "active_character", None)
@@ -960,6 +984,248 @@ class ClientGUI:
             self.log_to_chat(chat_msg, "Globale", sender="Sistema", color="#FFD700")
             if hasattr(self, "map_canvas"):
                 self.map_canvas.redraw()
+
+    def open_companion_panel(self):
+        """Apre il pannello completo di gestione Famigli, Compagni Animali & Evocazioni (5e RAW)."""
+        char = getattr(self, "active_character", None)
+        if not char:
+            self.show_toast("Seleziona o crea un personaggio prima di gestire i compagni.", title="Attenzione", toast_type="warning")
+            return
+
+        from common.companions_data import get_companion_presets, FAMILIAR_FORMS, BEAST_COMPANIONS, SUMMON_TEMPLATES
+        from common.protocol import make_summon_companion_request, make_dismiss_familiar_request, make_deliver_touch_spell_request
+
+        win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
+        apply_modern_window_style(win)
+        win.title(f"🐾 Famiglio, Compagni & Evocazioni - {char.name}")
+        win.minsize(460, 560)
+
+        my_companions = [
+            p for p in getattr(self, "players_data", {}).values() 
+            if (p.get("master_name") == self.name or p.get("owner") == self.name) and p.get("name") != self.name
+        ]
+
+        notebook = ttk.Notebook(win)
+        notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        tab_fam = ttk.Frame(notebook)
+        notebook.add(tab_fam, text="🦉 Famiglio")
+
+        tab_beast = ttk.Frame(notebook)
+        notebook.add(tab_beast, text="🐺 Compagno Animale")
+
+        tab_summon = ttk.Frame(notebook)
+        notebook.add(tab_summon, text="⚡ Evocazioni")
+
+        def build_companion_tab(parent_frame, comp_type, templates_dict):
+            active = next((p for p in my_companions if p.get("companion_type") == comp_type), None)
+
+            if active:
+                c_name = active.get("name", "Compagno")
+                fs = active.get("full_sheet", {}) or {}
+                hp = active.get("hp", 1)
+                max_hp = active.get("max_hp", 1)
+                ac = fs.get("ac", 12)
+                spd = fs.get("speed", 30)
+                in_pocket = active.get("in_pocket_dimension", False)
+
+                card = ttk.LabelFrame(parent_frame, text=f"🐾 {c_name} (Attivo)")
+                card.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+                status_text = "🚪 Nella Tasca Dimensionale" if in_pocket else "🗺️ Sulla Mappa di Gioco"
+                status_color = "#F59E0B" if in_pocket else "#10B981"
+                ttk.Label(card, text=f"Stato: {status_text}", font=FONT_BOLD, foreground=status_color).pack(anchor="w", padx=10, pady=4)
+
+                stats_txt = f"PV: {hp}/{max_hp} | CA: {ac} | Velocità: {spd} ft"
+                ttk.Label(card, text=stats_txt, font=FONT_MAIN).pack(anchor="w", padx=10, pady=2)
+
+                traits = fs.get("traits", [])
+                if traits:
+                    ttk.Label(card, text="Tratti e Capacità Speciali:", font=FONT_BOLD).pack(anchor="w", padx=10, pady=(6, 2))
+                    for t in traits:
+                        ttk.Label(card, text=f"• {t}", wraplength=380, foreground=TEXT_MUTED).pack(anchor="w", padx=15, pady=1)
+
+                btn_frame = ttk.Frame(card)
+                btn_frame.pack(fill=tk.X, padx=10, pady=10)
+
+                if comp_type == "familiar":
+                    if in_pocket:
+                        def recall_fam():
+                            if getattr(self, "is_connected", False):
+                                self.network.send(make_dismiss_familiar_request(c_name, action="recall"))
+                            win.destroy()
+                        ttk.Button(btn_frame, text="✨ Richiama dalla Tasca Dimensionale", command=recall_fam, style="Accent.TButton").pack(fill=tk.X, pady=3)
+                    else:
+                        def dismiss_pocket():
+                            if getattr(self, "is_connected", False):
+                                self.network.send(make_dismiss_familiar_request(c_name, action="pocket"))
+                            win.destroy()
+                        ttk.Button(btn_frame, text="🚪 Congeda nella Tasca Dimensionale", command=dismiss_pocket).pack(fill=tk.X, pady=3)
+
+                    def toggle_share_senses():
+                        self.toggle_familiar_shared_senses(active)
+                        win.destroy()
+                    ttk.Button(btn_frame, text="👁️ Guarda attraverso i Sensi del Famiglio", command=toggle_share_senses).pack(fill=tk.X, pady=3)
+
+                    def deliver_touch():
+                        self.open_deliver_touch_spell_dialog(active)
+                        win.destroy()
+                    ttk.Button(btn_frame, text="⚡ Eroga Incantesimo a Contatto (Touch)", command=deliver_touch).pack(fill=tk.X, pady=3)
+
+                def dismiss_permanent():
+                    if messagebox.askyesno("Congedo Definitivo", f"Vuoi congedare definitivamente {c_name}? La forma spirituale svanirà."):
+                        if getattr(self, "is_connected", False):
+                            self.network.send(make_dismiss_familiar_request(c_name, action="dismiss"))
+                        win.destroy()
+                ttk.Button(btn_frame, text="💀 Congeda Definitivamente", command=dismiss_permanent, style="Danger.TButton").pack(fill=tk.X, pady=3)
+
+            else:
+                form_frame = ttk.Frame(parent_frame)
+                form_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+                ttk.Label(form_frame, text="Seleziona la forma da evocare:", font=FONT_BOLD).pack(anchor="w", pady=(0, 4))
+
+                combo_vals = list(templates_dict.keys())
+                display_map = {k: f"{v['icon']} {v['name_it']} (CA {v['ac']}, {v['speed']} ft)" for k, v in templates_dict.items()}
+                inv_display_map = {display_map[k]: k for k in combo_vals}
+
+                sel_var = tk.StringVar(value=display_map[combo_vals[0]])
+                combo = ttk.Combobox(form_frame, textvariable=sel_var, values=list(display_map.values()), state="readonly")
+                combo.pack(fill=tk.X, pady=4)
+
+                name_row = ttk.Frame(form_frame)
+                name_row.pack(fill=tk.X, pady=6)
+                ttk.Label(name_row, text="Nome Personalizzato:").pack(side=tk.LEFT)
+                ent_name = ttk.Entry(name_row)
+                ent_name.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
+
+                desc_box = scrolledtext.ScrolledText(form_frame, height=7, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=FONT_SMALL, wrap=tk.WORD)
+                desc_box.pack(fill=tk.BOTH, expand=True, pady=6)
+
+                def update_preview(*args):
+                    key = inv_display_map.get(sel_var.get())
+                    if not key or key not in templates_dict: return
+                    tmpl = templates_dict[key]
+                    desc_box.delete("1.0", tk.END)
+                    desc_box.insert(tk.END, f"{tmpl.get('name_it')} ({tmpl.get('name_en')})\n")
+                    desc_box.insert(tk.END, f"CA: {tmpl.get('ac')} | PV: {tmpl.get('hp')} | Velocità: {tmpl.get('speed')} ft\n")
+                    desc_box.insert(tk.END, f"{tmpl.get('description_it', '')}\n\n")
+                    desc_box.insert(tk.END, "Tratti:\n")
+                    for tr in tmpl.get("traits", []):
+                        desc_box.insert(tk.END, f"• {tr}\n")
+
+                sel_var.trace_add("write", update_preview)
+                update_preview()
+
+                def do_summon():
+                    key = inv_display_map.get(sel_var.get())
+                    if not key: return
+                    custom_n = ent_name.get().strip()
+                    r_lvl = getattr(char, "level", 1)
+                    r_pb = getattr(char, "proficiency_bonus", 2)
+                    if getattr(self, "is_connected", False):
+                        self.network.send(make_summon_companion_request(
+                            companion_type=comp_type,
+                            template_key=key,
+                            custom_name=custom_n,
+                            ranger_level=r_lvl,
+                            ranger_pb=r_pb
+                        ))
+                    self.show_toast(f"Evocazione inviata al server!", title="Evocazione", toast_type="success")
+                    win.destroy()
+
+                type_btn_labels = {"familiar": "🐾 Evoca Famiglio (PHB p. 240)", "beast": "🐺 Evoca Compagno Animale (Ranger)", "summon": "⚡ Evoca Creatura"}
+                ttk.Button(form_frame, text=type_btn_labels.get(comp_type, "Evoca"), command=do_summon, style="Primary.TButton").pack(fill=tk.X, pady=8)
+
+        build_companion_tab(tab_fam, "familiar", FAMILIAR_FORMS)
+        build_companion_tab(tab_beast, "beast", BEAST_COMPANIONS)
+        build_companion_tab(tab_summon, "summon", SUMMON_TEMPLATES)
+
+    def toggle_familiar_shared_senses(self, familiar_data):
+        """Attiva o disattiva la condivisione dei sensi con il famiglio (PHB p. 240)."""
+        f_name = familiar_data.get("name")
+        f_pos = familiar_data.get("position", [0, 0])
+        f_vis = familiar_data.get("vision_radius", 6)
+        
+        if hasattr(self, "canvas") and hasattr(self.canvas, "center_on_hex"):
+            self.canvas.center_on_hex(f_pos[0], f_pos[1])
+        self.show_toast(
+            f"👁️ Stai vedendo attraverso i sensi di {f_name} (Raggio: {f_vis} esagoni)!\nIl tuo corpo fisico è cieco e sordo.",
+            title="Sensi del Famiglio",
+            toast_type="gold"
+        )
+        self.send_chat_message(f"👁️ {self.name} sposta i propri sensi nel famiglio {f_name} entro 100 ft (PHB p. 240).")
+
+    def open_deliver_touch_spell_dialog(self, familiar_data):
+        """Dialogo per erogare un incantesimo a contatto tramite il famiglio (PHB p. 240)."""
+        from common.protocol import make_deliver_touch_spell_request
+        f_name = familiar_data.get("name")
+        
+        targets = [p["name"] for p in getattr(self, "players_data", {}).values() if p["name"] != f_name]
+        if not targets:
+            self.show_toast("Nessun bersaglio valido sulla mappa.", title="Attenzione", toast_type="warning")
+            return
+            
+        win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
+        apply_modern_window_style(win)
+        win.title(f"⚡ Eroga Incantesimo a Contatto tramite {f_name}")
+        win.minsize(360, 260)
+        
+        ttk.Label(win, text=f"Lancia tramite {f_name} (Distanza max padrone: 30m):", font=FONT_BOLD).pack(pady=8)
+        
+        row1 = ttk.Frame(win)
+        row1.pack(fill=tk.X, padx=15, pady=4)
+        ttk.Label(row1, text="Incantesimo:").pack(side=tk.LEFT)
+        spell_var = tk.StringVar(value="Stretta Folgorante (Shocking Grasp)")
+        spell_combo = ttk.Combobox(row1, textvariable=spell_var, values=[
+            "Stretta Folgorante (Shocking Grasp)", "Cura Ferite (Cure Wounds)", "Infliggi Ferite (Inflict Wounds)", "Invisibilità (Invisibility)"
+        ])
+        spell_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        
+        row2 = ttk.Frame(win)
+        row2.pack(fill=tk.X, padx=15, pady=4)
+        ttk.Label(row2, text="Bersaglio:").pack(side=tk.LEFT)
+        target_var = tk.StringVar(value=targets[0])
+        target_combo = ttk.Combobox(row2, textvariable=target_var, values=targets, state="readonly")
+        target_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
+        
+        row3 = ttk.Frame(win)
+        row3.pack(fill=tk.X, padx=15, pady=4)
+        ttk.Label(row3, text="Formula/Danni:").pack(side=tk.LEFT)
+        formula_ent = ttk.Entry(row3, width=10)
+        formula_ent.insert(0, "1d8")
+        formula_ent.pack(side=tk.LEFT, padx=5)
+        
+        act_var = tk.StringVar(value="damage")
+        rb_dmg = ttk.Radiobutton(row3, text="Danno", variable=act_var, value="damage")
+        rb_heal = ttk.Radiobutton(row3, text="Cura", variable=act_var, value="heal")
+        rb_dmg.pack(side=tk.LEFT, padx=2)
+        rb_heal.pack(side=tk.LEFT, padx=2)
+        
+        def execute_deliver():
+            s_name = spell_var.get().strip()
+            t_name = target_var.get().strip()
+            f_val = formula_ent.get().strip() or "1d8"
+            a_type = act_var.get()
+            d_type = "Radioso" if a_type == "heal" else "Fulmine"
+            
+            if getattr(self, "is_connected", False):
+                self.network.send(make_deliver_touch_spell_request(
+                    familiar_name=f_name,
+                    target_name=t_name,
+                    spell_name=s_name,
+                    action_type=a_type,
+                    formula=f_val,
+                    damage_type=d_type
+                ))
+            win.destroy()
+            
+        ttk.Button(win, text="⚡ Eroga Tramite Famiglio", command=execute_deliver, style="Primary.TButton").pack(pady=15)
+
 
 
     def toggle_action(self):

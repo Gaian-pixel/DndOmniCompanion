@@ -132,8 +132,13 @@
   * Long Rest automatically restores full HP and regains half of the character's total Hit Dice ($\max(1, \lfloor\text{Total}/2\rfloor)$).
 * **Special Class Resources System**: Automatic population and tracking of Ki Points, Rage, Bardic Inspiration, Wild Shape, Channel Divinity, Action Surge, Second Wind, Sorcery Points, etc., with automated Short/Long Rest recovery.
 * **Hero Summary Card & Interactive Character Sheet**:
-  * Always-visible sidebar summary card with responsive HP bar, AC, effective Speed (`ft` or `m`), Initiative, light toggle `[ 🕯️ ]`, and quick `[ 🎒 ]` button to drop backpack.
+  * Always-visible sidebar summary card with responsive HP bar, AC, effective Speed (`ft` or `m`), Initiative, light toggle `[ 🕯️ ]`, companion manager `[ 🐾 ]`, and quick `[ 🎒 ]` button to drop backpack.
   * Full tabbed sheet: **Combat**, **Stats & Skills** (with Proficiency & Expertise $2\times\text{PB}$), **Weapons & Attacks**, **Inventory & Encumbrance** ($\text{STR} \times 15\text{ lbs}$), **Spellbook & Spell Slots (1–9)** with **Spell Upcasting** modal, **Features & Journal**.
+* **Familiars, Beast Companions & Summoned Creatures (5e RAW)**:
+  * **1-Click HUD Companion Manager `[ 🐾 ]`**: Dedicated modal dialog on the Hero Summary Card to summon and manage familiars, ranger beast companions, and conjured summons.
+  * **Familiars (Find Familiar & Pact of the Chain)**: 10 official forms (Owl with Flyby and 120 ft Darkvision, Bat with 60 ft Blindsight, Cat, Hawk, Raven, Snake, Toad, Spider, Imp, Pseudodragon). Strict 5e RAW validation: standard familiars cannot make attacks directly; dismiss/recall to a pocket dimension within 30 ft, shared senses up to 100 ft, and Touch Spell delivery using the familiar's Reaction.
+  * **Ranger Beast Companions (Beast Master / Tasha's Primal Companion)**: Automated 5e stat scaling: base AC $+ \text{PB}$, Max HP $\max(\text{Base HP}, 4 \times \text{Ranger Level})$, attack hit bonus and damage increased by Ranger's PB.
+  * **Summoned Creatures**: Skeletons, Zombies, Conjured Wolves, and Fey Spirits linked to caster concentration (dissolving immediately when concentration breaks, leaving behind no corpses or loot chests).
 * **5e Backpacks, Containers & Variant Encumbrance (RAW PHB p. 143, 176, 190)**:
   * **Per-Item Location / Compartment**: Assign items to `🎒 Backpack`, `⚔️ Equipped / On Person`, `🔮 Bag of Holding` (500 lbs capacity, internal weight does not burden character), `✨ Heward's Handy Haversack` (120 lbs capacity, 5 lbs bag weight), or `🐴 Saddlebag / Mount`.
   * **Tactical "Drop Backpack" Action**: 1-click quick toggle (`[ 🎒 Drop Backpack ]` $\leftrightarrow$ `[ 🎒 Pick Up Backpack ]`) as a free Object Interaction; instantly excludes backpack gear weight from carried load, announcing the action to table chat and restoring full combat speed.

@@ -437,5 +437,31 @@ def make_remove_effect_request(target_name: str, effect_id_or_name: str) -> Prot
         "effect_id": effect_id_or_name
     }}
 
+def make_summon_companion_request(companion_type: str, template_key: str, custom_name: str = "", ranger_level: int = 1, ranger_pb: int = 2) -> ProtocolMessage:
+    return {"type": "SUMMON_COMPANION_REQUEST", "data": {
+        "companion_type": companion_type,
+        "template_key": template_key,
+        "custom_name": custom_name,
+        "ranger_level": ranger_level,
+        "ranger_pb": ranger_pb
+    }}
+
+def make_dismiss_familiar_request(companion_name: str, action: str = "pocket") -> ProtocolMessage:
+    return {"type": "DISMISS_FAMILIAR_REQUEST", "data": {
+        "companion_name": companion_name,
+        "action": action
+    }}
+
+def make_deliver_touch_spell_request(familiar_name: str, target_name: str, spell_name: str, action_type: str = "damage", formula: str = "1d8", damage_type: str = "Fulmine") -> ProtocolMessage:
+    return {"type": "DELIVER_TOUCH_SPELL_REQUEST", "data": {
+        "familiar_name": familiar_name,
+        "target_name": target_name,
+        "spell_name": spell_name,
+        "action_type": action_type,
+        "formula": formula,
+        "damage_type": damage_type
+    }}
+
+
 
 

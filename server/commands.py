@@ -58,6 +58,9 @@ command_handlers = {
     "HANDOUT_SHARE_REQUEST": handle_handout_share_request,
     "APPLY_EFFECT_REQUEST": handle_apply_effect_request,
     "REMOVE_EFFECT_REQUEST": handle_remove_effect_request,
+    "SUMMON_COMPANION_REQUEST": handle_summon_companion_request,
+    "DISMISS_FAMILIAR_REQUEST": handle_dismiss_familiar_request,
+    "DELIVER_TOUCH_SPELL_REQUEST": handle_deliver_touch_spell_request,
 }
 
 

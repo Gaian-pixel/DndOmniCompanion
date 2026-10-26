@@ -1461,6 +1461,11 @@ class HexMapCanvas(tk.Canvas):
             if is_gm_layer and not is_dm:
                 continue
 
+            # Tasca dimensionale famiglio / Entità nascosta
+            if isinstance(pdata, dict) and pdata.get("in_pocket_dimension"):
+                if not is_dm:
+                    continue
+
             if isinstance(raw_size, str):
                 size_mult = TOKEN_SIZE_MAP.get(raw_size.lower(), 1.0)
             elif isinstance(raw_size, (int, float)):
@@ -1591,6 +1596,13 @@ class HexMapCanvas(tk.Canvas):
             # Distintivo Boss Leggendario (👑)
             if is_boss:
                 self.create_text(sx - radius, sy - radius, text="👑", font=("Segoe UI Emoji", max(9, int(11 * self.zoom_level))))
+
+            # Distintivo Compagno / Famiglio (🐾 / 🦉 / 🐺)
+            is_comp = pdata.get('is_companion', False) or pdata.get('companion_type')
+            if is_comp:
+                c_type = pdata.get('companion_type', 'familiar')
+                badge_sym = "🦉" if c_type == "familiar" else ("🐺" if c_type == "beast" else "⚡")
+                self.create_text(sx + radius - 2, sy - radius + 2, text=badge_sym, font=("Segoe UI Emoji", max(8, int(10 * self.zoom_level))))
 
             if hp_max > 0:
                 bar_w = radius * 2.2
