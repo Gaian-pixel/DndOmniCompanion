@@ -175,8 +175,10 @@ You do not need to start a session or connect to a DM server to create, view, ed
   5. **Step 5: Details, Portrait & Finalization**: character name, deity, notes, and **Character Avatar Upload**.
 * **Leveling Up (`Level Up (+)`)**: Inside the Character Sheet, click `Level Up (+)`:
   * Choose between the **fixed average** Hit Die value or **rolling**.
-  * The wizard automatically fetches **new class features** and updates **spell slots** for your new level from the 5e SRD.
-  * At ASI levels (e.g., 4, 8, 12, 16, 19), assign your **Ability Score Improvement (+2 / +1+1)** or Feat.
+  * The wizard automatically fetches **new class features** and updates **spell slots** for your new level from the 5e SRD, including dedicated progression tables for **Artificer** (2 slots at 1st level) and **Third-Casters** (*Eldritch Knight* and *Arcane Trickster* starting at 3rd level).
+  * **Feature Persistence & Integrity**: Acquired class features are saved into both `features` and `features_list` and synchronized with the server, ensuring no class traits are lost when saving or reloading the sheet.
+  * **Dynamic Proficiency Bonus**: Recalculated dynamically ($2 + \lfloor(\text{Level}-1)/4\rfloor$) and applied automatically to saving throws, skill checks, and weapon attack rolls.
+  * **Ability Score Improvements (ASI)**: At ASI levels (4, 8, 12, 16, 19), choose an ASI or Feat. The system enforces the **20 ability score maximum cap** and prevents selecting the same attribute twice in +1/+1 mode.
 
 ### Character Avatar & Tactical Map Token
 * **Avatar Upload**: During character creation (Step 5) or directly from the Character Sheet, players can upload a custom character portrait (PNG, JPG, WEBP).
@@ -278,11 +280,15 @@ The **Turn Economy** section in the `Player Controls` tab automatically adapts t
 ### Combat Actions, AoE Spells, Tactical Cover & Upcasting
 * **`⚔️ Action` Button**: opens the 5e Standard Actions dialog:
   * **Weapon / Spell Attack**: choose target, weapon, optional Advantage/Disadvantage, and **5e RAW Tactical Cover**:
-    * `Automatic Cover`: geometric raycasting (`hex_linedraw`) calculating intervening walls, half-cover obstacles, and interposing creatures.
+    * `Automatic Cover`: geometric raycasting (`hex_linedraw`) calculating intervening walls, closed or locked doors (`get_effective_map_walls`), half-cover obstacles, and living creatures (excluding corpses and GM-layer tokens). Closed doors completely obstruct line of sight for ranged attacks.
     * `No Cover`: target's normal AC.
-    * `Half Cover (+2 AC / +2 DEX Save)`: target behind low walls, trees, or creatures.
+    * `Half Cover (+2 AC / +2 DEX Save)`: target behind low walls, trees, or living creatures.
     * `Three-Quarters Cover (+5 AC / +5 DEX Save)`: target behind arrow slits or substantial fortifications.
     * `Total Cover`: target is completely obscured; attack is blocked.
+  * **Auto-Critical Hits on Incapacitated / Paralyzed Targets (PHB p. 291-292)**:
+    * Any attack roll that hits a creature with the *Unconscious* or *Paralyzed* condition within 5 feet (1 cell) automatically scores a **Critical Hit**, doubling all damage dice.
+  * **Bilingual Damage Resistances & Vulnerabilities**:
+    * The engine maps damage types bidirectionally between English and Italian (`fire` $\leftrightarrow$ `fuoco`, `slashing` $\leftrightarrow$ `tagliente`, `radiant` $\leftrightarrow$ `radioso`, etc.), accurately halving (resistance) or doubling (vulnerability) damage.
   * **5e Tactical Actions**: **Dash** (doubles turn movement), **Disengage** (prevents opportunity attacks), **Dodge** (imposes disadvantage on enemy attacks and grants advantage on DEX saves), **Help** (grants an ally advantage).
 * **`[ 💥 ]` Button (Area of Effect)**:
   * Choose the geometric template (**Sphere**, **Cone**, **Line**), size in hexes, color, and optional Saving Throw (e.g., `DEX DC 15` with `8d6` fire damage).
@@ -305,8 +311,9 @@ The **Turn Economy** section in the `Player Controls` tab automatically adapts t
   * When an incoming enemy attack roll hits a character's Armor Class (or when targeted by *Magic Missile*), if the character knows or has prepared the *Shield* spell, holds an unspent `🛡️ Reaction`, and has at least one 1st+ level spell slot available, a countdown reaction prompt pops up:
     * If accepted: spends the round's `🛡️ Reaction`, expends a 1st-level spell slot, and adds **+5 to Armor Class (AC)** until the start of the caster's next turn.
     * **Retroactive Attack Recalculation**: If the improved AC ($AC + 5$) now equals or exceeds the enemy's attack roll, the attack is retroactively converted from a Hit into a Miss, completely sparing the character from damage!
-* **Dynamic Opportunity Attacks**:
+* **Dynamic Opportunity Attacks & Out-of-Turn Reactions**:
   * When an adjacent enemy (within 1 hex / $5\text{ ft}$) attempts to move away from melee range without taking the *Disengage* action, the server triggers an Opportunity Attack alert, allowing the defending player to spend their `🛡️ Reaction` to make an immediate melee attack.
+  * **Turn-Lock Bypass (`is_reaction=True`)**: Legitimate reactions and Opportunity Attacks bypass the strict combat turn lock (`strict_turn_lock`), enabling instant reactions during enemy movement without breaking the initiative queue.
 
 ### Special Traits: Evasion (Rogue/Monk) & Sneak Attack
 * **Evasion (*PHB p. 79/96*)**:
@@ -322,13 +329,17 @@ The **Turn Economy** section in the `Player Controls` tab automatically adapts t
   * When criteria are satisfied, the extra sneak attack dice appropriate for the Rogue's level (from $+1d6$ at 1st level up to $+10d6$ at 19th level) are automatically rolled and combined into the damage report.
 
 ### Hit Points, Rests & Death Saving Throws
-* **Dropping to 0 HP**: your character automatically loses `Concentration` and gains the `Unconscious` and `Prone` conditions. If remaining excess damage is $\ge \text{Max HP}$, **Instant Death** occurs.
-* **Death Saving Throws**:
+* **Dropping to 0 HP, Damage & Instant Death (PHB p. 197)**:
+  * When reduced to 0 HP, your character automatically loses `Concentration` and gains the `Unconscious` and `Prone` conditions. If remaining excess damage is $\ge \text{Max HP}$, **Instant Death** occurs.
+  * **Taking Damage at 0 HP**: Taking damage while at 0 HP immediately records **1 death save failure** (or **2 failures** if the damage is from a Critical Hit).
+  * **Permanent Death & Lootable Corpse**: Upon accumulating 3 failures, the character gains permanent `💀 Dead` status; the server automatically generates an interactive lootable corpse token on the battlemap containing all carried equipment.
+  * **Healing at 0 HP**: Receiving healing while at 0 HP restores health, **completely resets all death save successes and failures back to 0**, and immediately clears the `Unconscious` and `Stabilized` conditions.
+* **Death Saving Throws (At Start of Turn)**:
   * At the start of your turn at 0 HP (or via `/ds` / `/deathsave` in chat, or from the Character Sheet), roll a Death Save:
     * **`Natural 20`**: immediately regain **1 HP** and clear `Unconscious`!
     * **`10–19`**: +1 Success (at 3 successes you become `Stabilized`).
     * **`2–9`**: +1 Failure.
-    * **`Natural 1`**: **+2 Failures** (at 3 failures the character dies).
+    * **`Natural 1`**: **+2 Failures** (at 3 failures the character permanently dies).
 * **Short Rest & Long Rest (RAW PHB p. 186)**:
   * **Short Rest Hit Dice Spending (`ShortRestDialog`)**:
     * Clicking **`Short Rest`** in the Character Sheet opens an interactive modal dialog:
@@ -349,12 +360,15 @@ The **Turn Economy** section in the `Player Controls` tab automatically adapts t
 * **Convenient Container Management & Extradimensional Spaces**:
   * Instant location assignment to `🎒 Backpack`, `⚔️ Equipped`, `🔮 Bag of Holding`, `✨ Handy Haversack`, or `🐴 Mount`.
   * Items placed in extradimensional storage (e.g., *Bag of Holding*, up to 500 lbs) do not burden the character's carried load.
-* **Spendable Consumables (`[-1]` / `[+1]`)**:
+* **Spendable Consumables (`[-1]` / `[+1]`) & Healing Potions**:
   * Inventory rows for consumable items (arrows, bolts, rations, torches, potions) include quick `[-1]` and `[+1]` buttons to spend or restore a single unit with 1 click during combat or exploration.
+  * **Instant Healing Synchronization**: Consuming healing potions or curatives instantly updates both the health progress bar and numerical HP on your sheet as well as the active stats on the game server.
 * **Markdown Journal & Notes with DM Validation**:
   * The campaign journal and personal notes support full visual Markdown rendering (`**bold**`, `*italics*`, bullet lists, headers).
   * Modifying and saving chronicle notes requires Master validation to maintain narrative alignment.
-* **Trading with Allies (`Give` / `🤝 Give Gold to Ally`)**: transfer items or gold pieces directly to another connected party member.
+* **Trading with Allies Safely (`Give` / `🤝 Give Gold to Ally`)**:
+  * Transfer items or gold pieces directly to another connected party member.
+  * **Anti-Duplication**: The item slot in the sender's inventory is cleared prior to transmitting and confirming receipt by the recipient, preventing accidental item duplication across asynchronous network packets.
 
 ### Character Sheet Export (Official D&D 5e PDF & JSON)
 At the bottom of the Character Sheet window, click **`📥 Esporta Scheda...`**: a dedicated modal selection window opens, allowing you to choose between two formats:

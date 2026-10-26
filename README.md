@@ -6,7 +6,7 @@
 [![Ruleset: D&D 5e](https://img.shields.io/badge/ruleset-D%26D%205e-red.svg)](https://dnd.wizards.com/)
 [![UI: ttkbootstrap](https://img.shields.io/badge/ui-ttkbootstrap-orange.svg)](https://ttkbootstrap.readthedocs.io/)
 [![Multiplayer: TCP/UDP](https://img.shields.io/badge/networking-TCP%20%2B%20UDP-green.svg)]()
-[![Tests: Passing](https://img.shields.io/badge/tests-100%25%20passing-brightgreen.svg)]()
+[![Tests: Passing](https://img.shields.io/badge/tests-273%2F273%20passing-brightgreen.svg)]()
 [![Localization: EN / IT](https://img.shields.io/badge/i18n-English%20%7C%20Italiano-blueviolet.svg)]()
 [![Units: Imperial / Metric](https://img.shields.io/badge/units-ft%2Fmi%20%7C%20m%2Fkm-informational.svg)]()
 
@@ -73,7 +73,7 @@
   * **Saving Throws, Ability/Skill Checks & `1d20` Rolls**: Gold/crimson chat banners and broadcast Toast notifications (`CRITICAL_ROLL_BROADCAST`) across all connected clients.
 * **Tactical 5e RAW Cover System (PHB p. 196)**:
   * **Quick Selector in Attack & Save Dialogs**: Choose explicit cover for targeted entities:
-    * `Automatic Cover`: Geometric LoS raycasting (`hex_linedraw`) detecting intervening walls, half cover obstacles, and other creatures.
+    * `Automatic Cover`: Geometric LoS raycasting (`hex_linedraw`) detecting intervening walls, closed or locked doors (`get_effective_map_walls`), half cover obstacles, and living creatures (excluding corpses and GM-layer tokens).
     * `No Cover`: Standard AC.
     * `Half Cover`: $+2$ to target AC and $+2$ to Dexterity saving throws.
     * `Three-Quarters Cover`: $+5$ to target AC and $+5$ to Dexterity saving throws.
@@ -81,13 +81,19 @@
 * **Environmental Combat Modifiers (Weather & Difficult Terrain)**:
   * **Weather (DMG p. 109-110)**: Violent storms and dense fog impose Disadvantage on ranged attacks (> 1 hex); torrential rain and blizzards impose Disadvantage on long-range attacks.
   * **Difficult Terrain**: Attacking from unstable footing (Ice, Rubble, Swamp, Mud) imposes Disadvantage; striking targets entangled in Briars or trapped in Mud grants **Advantage**.
-  * **Darkness & Darkvision Rules (PHB p. 194-195)**: Attacking from darkness with Darkvision (or attacking a torch-bearing enemy) grants **Advantage** (*Unseen Attacker*); attacking an unseen target imposes **Disadvantage**; mutual darkness cancels out both to a normal roll.
-* **Automated Opportunity Attacks**: Detects when a combatant leaves hostile melee reach without having taken the *Disengage* action.
+  * **Darkness & Darkvision Rules (PHB p. 194-195)**: Attacking from darkness with Darkvision (or attacking a torch-bearing enemy) grants **Advantage** (*Unseen Attacker*); attacking an unseen target imposes **Disadvantage**; mutual darkness cancels out both to a normal roll. Note: Dragonborn do not possess innate darkvision per 5e RAW.
+* **Automated Opportunity Attacks & Out-of-Turn Reactions**: Detects when a combatant leaves hostile melee reach without having taken the *Disengage* action, bypassing strict turn locks with `is_reaction=True` to seamlessly resolve out-of-turn reactions.
+* **Auto-Critical Hits on Incapacitated / Paralyzed Targets (PHB p. 291-292)**: Any attack roll that hits a creature with the *Unconscious* or *Paralyzed* condition within 5 feet (1 cell) automatically scores a Critical Hit with doubled damage dice.
+* **Bilingual Damage Resistances & Vulnerabilities**: Automated two-way mapping between English and Italian damage types (`fire` $\leftrightarrow$ `fuoco`, `radiant` $\leftrightarrow$ `radioso`, `slashing` $\leftrightarrow$ `tagliente`, etc.) applying exact halving or doubling of damage.
 * **Strict Concentration & Upcasting (PHB p. 201-204)**:
   * Casting a new concentration spell from the Spellbook automatically drops and broadcasts the termination of any existing concentration.
   * Taking damage while concentrating automatically triggers a Constitution saving throw ($\text{DC} = \max(10, \lfloor\text{Damage}/2\rfloor)$); failure breaks concentration and cleans up linked persistent AoE zones.
   * **Upcasting**: Select higher-level spell slots to empower spells according to 5e scaling rules.
-* **Death Saves & Instant Death**: Complete 0 HP handling (`Natural 20` = revive at 1 HP, `Natural 1` = 2 failures, 3 successes = Stabilized, 3 failures or excess damage $\ge \text{Max HP}$ = Instant Death).
+* **Persistent Death Saves, 0 HP Damage & Instant Death (PHB p. 197)**:
+  * Complete 0 HP handling: taking damage at 0 HP adds 1 death save failure (or 2 failures on a critical hit).
+  * Accumulating 3 failures marks the character with permanent *Dead* (`💀`) status and spawns an interactive lootable corpse on the map canvas.
+  * Receiving healing at 0 HP restores health, completely resets death save successes/failures to 0, and automatically clears the *Unconscious* and *Stabilized* conditions.
+  * Instant Death triggers if excess damage equals or exceeds maximum HP.
 * **Boss Mechanics RAW (MM p. 11)**:
   * **Legendary Actions**: Up to 3 actions per round spendable at the end of another creature's turn, automatic DM reminders, and full pool reset at the start of the boss's turn.
   * **Lair Actions (Initiative 20)**: Automatic round notification and DM prompt at Initiative count 20 for bosses with an active lair.
@@ -100,7 +106,7 @@
     * **Master-Detail Split-View Layout**: Left comparative table (6 columns: Race with icon, Stat Bonuses, Key Traits, Damage Resistances & Defenses, Size/Speed, Recommended Classes) with bidirectional scrolling, and right reactive preview card.
     * **Authentic 5e Rules & Lore**: Comprehensive defensive traits (Hellish Fire Resistance, Dwarven Resilience vs Poison, Fey Ancestry with Sleep Immunity, Gnome Cunning vs Mental Magic, Relentless Endurance at 1 HP, Lucky), Class Synergies, Lifespan, full mechanical trait descriptions, and subraces with double-click selection.
   * **Classes Comparison Compendium (12 Core 5e Classes)**: Accessible in Step 2 with category filters (`[All]`, `[Martial]`, `[Spellcaster]`, `[Hybrid]`, `[Expert]`), Hit Dice (d6–d12), Primary Abilities, Saving Throws, Party Role, Quick Build recommendations, starting equipment preview, and subclasses.
-  * **Assisted Level-Up**: Automatic retrieval of class features, hit dice, and spell slot progression from the 5e SRD compendium.
+  * **Assisted Level-Up**: Automatic retrieval of class features, hit dice, and spell slot progressions from the 5e SRD compendium, including Artificer (slots from 1st level) and 3rd-Casters (Eldritch Knight / Arcane Trickster starting at 3rd level). Enforces strict ASI ability score capping at 20, duplicate ability prevention, and automatic class feature synchronization into `features_list` preserving all traits upon saving.
 * **Character Avatar & Automatic Tactical Map Token**:
   * Players (and DMs for NPCs and monsters) can upload a portrait for their character.
   * The uploaded portrait automatically becomes the **tactical circular token on the map canvas** with high-definition antialiased rendering, faction/class color ring, and dynamic scale based on Creature Size (Tiny to Gargantuan).
@@ -112,7 +118,7 @@
 * **Inventory, Currencies, Containers & Spendable Consumables**:
   * **Currency Sync & Correct Weight**: Dynamic, true-to-life inventory weight calculation including RAW coin weight ($50\text{ coins} = 1\text{ lb}$) with bidirectional synchronization between item lists and the top currency table (`CP`, `SP`, `EP`, `GP`, `PP`).
   * **Convenient Container Management**: Fast assignment to `🎒 Backpack`, `⚔️ Equipped`, `🔮 Bag of Holding`, `✨ Handy Haversack`, or `🐴 Mount`, with tare vs contents weight tracking.
-  * **Spendable Consumables**: Quick `[-1]` / `[+1]` buttons directly on the inventory row for ammunition (arrows, bolts), rations, torches, and potions to spend resources on the fly.
+  * **Spendable Consumables**: Quick `[-1]` / `[+1]` buttons directly on the inventory row for ammunition (arrows, bolts), rations, torches, and potions to spend resources on the fly, with instant HP and server synchronization on healing potion consumption.
 * **Short Rest Hit Dice Spending (RAW PHB p. 186)**:
   * Interactive modal `ShortRestDialog` featuring current/max HP, progress health bar, and remaining Hit Dice count.
   * Single-click button to **spend 1 Hit Die at a time** ($1\text{dY} + \text{CON Mod}$, min 1 healed), instantly updating sheet and chat log.
@@ -127,7 +133,7 @@
   * **Tactical "Drop Backpack" Action**: 1-click quick toggle (`[ 🎒 Drop Backpack ]` $\leftrightarrow$ `[ 🎒 Pick Up Backpack ]`) as a free Object Interaction; instantly excludes backpack gear weight from carried load, announcing the action to table chat and restoring full combat speed.
   * **5e Variant: Encumbrance Rule**: Full Strength-based thresholds ($\text{STR} \times 5$, $\text{STR} \times 10$, $\text{STR} \times 15$), RAW coin weight (50 coins = 1 lb), and dynamic penalties: *Normal*, *Encumbered* (-10 ft / -3 m speed), *Heavily Encumbered* (-20 ft / -6 m speed, Disadvantage on STR/DEX/CON attack rolls, checks, and saves), and *Overloaded* (speed drops to 0).
 * **Character Sheet Export (Official D&D 5e PDF & JSON Data)**: Dedicated modal dialog to choose between **Official PDF** (prompts for the blank 3-page D&D 5e PDF template in input, generating a fully filled sheet ready for print or sharing) and **JSON** (full raw backup for campaign import/export).
-* **Peer-to-Peer Trading & Macro Hotbar**: Direct item/gold transfers between allies and a 10-slot customizable quick macro bar.
+* **Peer-to-Peer Trading & Macro Hotbar**: Secure direct item/gold transfers between allies with atomic slot clearing preventing item duplication, and a 10-slot customizable quick macro bar supporting `/roll` and `/r` dice formulas.
 
 ### 📜 Dungeon Master Operations Suite
 * **Live DMG p. 82 Encounter Balancer**: Real-time evaluation of encounter difficulty (**Trivial**, **Easy**, **Medium**, **Hard**, **Deadly**) with monster count XP multipliers.
@@ -145,7 +151,7 @@
   * **Mini-Statblock in DM Bestiary Panel (`server/dm_bestiary_panel.py`)**: CR and creature type fast filters with a compact visual statblock card in the DM sidebar and 2-click instant spawning.
 * **Offline PDF Rulebooks & Command Palette (`Ctrl+K`)**: Instant search across indexed official 5e PDF rulebooks, rules, monsters, spells, and map tokens.
 * **Overland Travel, Calendar, Weather & Shops**: Marching order, travel roles, rations/water, forced march saves, interactive fantasy calendar, and merchant shops.
-* **Soundboard & Integrated UDP Voice Chat**: Low-latency voice streaming with Mute/Deafen controls (`[ 🎤 ]` / `[ 🎧 ]`) and synchronized audio soundboard.
+* **Soundboard & Integrated UDP Voice Chat**: Low-latency voice streaming with Mute/Deafen controls (`[ 🎤 ]` / `[ 🎧 ]`), resilient Windows UDP socket handling (`SIO_UDP_CONNRESET`) preventing ICMP crashes on client disconnects, and synchronized audio soundboard.
 
 ### 🎲 Campaign Management Styles: DM Agency vs Automation (5e RAW)
 The DM can adjust the automation level in real time from **Tools ➔ ⚙️ Campaign Management Style (Automations)...** or by clicking the status pill on the map header (`🎲 Table`, `⚖️ Hybrid`, `⚡ Full Auto`):
@@ -275,7 +281,8 @@ DndOmniCompanion/
 │   ├── GUIDA_ALL_UTILIZZO.md       # Manuale completo all'utilizzo (Italiano)
 │   ├── OPERATIONAL_GUIDE.md        # System & Operational Manual (English)
 │   └── GUIDA_OPERATIVA.md          # Manuale operativo e architettura (Italiano)
-├── tests/                          # Automated testing suite (254 passing tests)
+├── tests/                          # Automated testing suite (273 passing tests)
+│   ├── simulate_4player_campaign.py# Live 4-player + DM campaign simulation (11 phases)
 │   ├── simulate_game_session.py    # End-to-end multiplayer simulation (53 phases)
 │   ├── test_mono_finestra.py       # Single-window, overlay, and docking architecture tests
 │   ├── test_authentic_5e.py        # Authentic 5e RAW rules test suite
@@ -288,10 +295,10 @@ DndOmniCompanion/
 
 ## 🧪 Automated Testing & Verification
 
-All **254 automated tests** pass with 100% success and 0 failures:
+All **273 automated tests** pass with 100% success and 0 failures:
 
 ```powershell
-# 1. Comprehensive Unit Tests (254 tests: ruler, criticals, single-window, turn economy, units, inventory, races/classes)
+# 1. Comprehensive Unit Tests (273 tests: ruler, criticals, single-window, turn economy, units, inventory, races/classes)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 2. Authentic 5e RAW Rules Test Suite (Doors, Lockpicking, Room Pins, Reactions, Shield, Evasion, Sneak Attack, Blind Rolls)
@@ -308,6 +315,9 @@ $env:DND_MOCK_AUDIO="1"; python tests/simulate_game_session.py
 
 # 6. Campaign & Scene System Tests
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_campaign_system.py
+
+# 7. Live 4-Player + DM Campaign Simulation (11 tactical phases: join, traps, turn combat, opportunity attacks, death saves/loot, P2P trading, level-up, short rest)
+$env:DND_MOCK_AUDIO="1"; python tests/simulate_4player_campaign.py
 ```
 
 ---

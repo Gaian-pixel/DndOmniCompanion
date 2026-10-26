@@ -108,9 +108,11 @@ flowchart TD
   * Sistema di coordinate cubiche ($q, r, s$ con $q + r + s = 0$) con `HexLayout` per griglie esagonali, raycasting Line of Sight (LoS), proiezioni di coni ($60^\circ / 90^\circ$), sfere e linee rette AoE.
   * `SquareLayout` per griglie a scacchiera/quadrate e conversione pixel $\leftrightarrow$ griglia.
   * Funzione polimorfica `grid_distance(a, b, grid_type)` con supporto per metrica di Chebyshev (regola ufficiale D&D 5e per caselle diagonali su griglie quadrate), distanza cubica per esagoni e distanza euclidea per griglie libere (`none`/`gridless`).
+* **`server/voice_server.py` & `client/voice_client.py`**: Server di broadcast e client streaming vocale UDP in tempo reale. Su sistemi Windows, il socket UDP è configurato con `SIO_UDP_CONNRESET` per intercettare gli errori ICMP Port Unreachable ed evitare che la disconnessione anomala di singoli client interrompa il loop `recvfrom` del server.
+* **`client/client.py`**: Interfaccia principale e loop messaggi asincrono protetto da blocco `try...finally` in `process_queue`, garantendo la riprogrammazione ininterrotta a intervalli regolari (`self.master.after(100, ...)`) a fronte di qualsiasi payload imprevisto.
 * **`server/rules/`**: Moduli di regole 5e disaccoppiati:
-  * `combat.py`: iniziativa, attacchi, critici, copertura, vantaggio/svantaggio, economia turno, prompt di reazione (*Shield* spell, attacchi di opportunità), Evasione e Attacco Furtivo.
-  * `movement.py`: movimento esagonale, FoW, trappole, terreni difficili e teletrasporti tra mappe.
+  * `combat.py`: iniziativa, attacchi, critici automatici entro 5ft su bersagli Incoscienti/Paralizzati, copertura e linea di vista con porte chiuse (`get_effective_map_walls`), resistenze e vulnerabilità bilingue, prompt per reazioni (incantesimo *Scudo*, attacchi di opportunità) con bypass blocco turno (`is_reaction=True`), Evasione e Attacco Furtivo.
+  * `movement.py`: movimento esagonale, validazione anti-cheat (verifica privilegi DM con socket di rete attivo), salvaguardia condizioni e PF temporanei sulle trappole, FoW, terreni difficili e teletrasporti tra mappe.
   * `character.py`: assorbimento danni, PV temporanei, prove di concentrazione (TS COS), 0 HP, morte istantanea, TS morte e riposi.
   * `chat.py`: chat Discord-style, formule dadi, critici Nat20/Nat1, sussurri privati e blind rolls (`/broll`, `/gmroll`).
   * `map_interaction.py`: ping, righello, porte interattive, serrature/scasso con arnesi, spille di stanza (*Room Pins*) e narrazione al tavolo.
@@ -316,7 +318,12 @@ Il server implementa un'architettura granulare per arbitrare il livello di autom
   * **Passo 5: Dettagli, Avatar & Token**: Assegnazione nome, divinità, note e caricamento dell'avatar.
 * **Avatar Personaggio & Generazione Automatica Token su Mappa**:
   * L'immagine caricata per il personaggio (o per PNG e mostri dal DM) viene automaticamente trasformata nel **Token Grafico Tattico renderizzato sul Canvas Mappa**, con ritaglio circolare antialiased, anello colorato coordinato alla fazione/classe e scalatura automatica in base alla Taglia della creatura (da *Minuscola* $0.5\times$ a *Mastodontica* $3.5\times$).
-* **Wizard di Level-Up**: Calcola l'aumento dei PV (tiro del Dado Vita o media fissa), recupera automaticamente i privilegi di classe dall'SRD 5e, gestisce gli Aumento dei Punteggi di Caratteristica (ASI) e sblocca i nuovi slot incantesimo.
+* **Wizard di Level-Up**:
+  * Calcola l'aumento dei PV (tiro del Dado Vita o media fissa).
+  * Recupera automaticamente dal compendio SRD i privilegi di classe del nuovo livello e popola sia `features` che `features_list` con sincronizzazione immediata sul modello dati per scongiurare qualsiasi perdita di capacità al salvataggio della scheda.
+  * Gestisce gli Aumenti dei Punteggi di Caratteristica (ASI) o Talenti, imponendo il **tetto massimo di 20** per i punteggi di caratteristica ed escludendo la selezione duplicata nella modalità +1/+1.
+  * Ricalcola istantaneamente il bonus di competenza ($2 + \lfloor(\text{Livello}-1)/4\rfloor$) e aggiorna tiri salvezza, prove di abilità e attacchi.
+  * Sblocca le progressioni di slot incantesimo aggiornate, includendo le tabelle dedicate per **Artefice** (2 slot al 1° livello) e **Terzi Incantatori** (*Cavaliere Mistico* e *Mistificatore Arcano* dal 3° livello).
 
 ### Scheda Personaggio Interattiva
 Organizzata in schede chiare:
@@ -360,7 +367,10 @@ Il pannello **Economia Turno** del Giocatore si adatta automaticamente allo stat
   * **Tiro $\ge 10$**: +1 Successo (a 3 successi ottieni la condizione `Stabilizzato`).
   * **Tiro $< 10$**: +1 Fallimento.
   * **1 Naturale**: Conta come **2 Fallimenti** (a 3 fallimenti ottieni la condizione `Morto`).
-* **Subire Danni a 0 PV**: Segna automaticamente un fallimento. Un danno in eccesso pari o superiore ai PV Massimi causa la morte istantanea.
+* **Subire Danni a 0 PV**: Subire danni a 0 PV assegna automaticamente **1 fallimento** ai tiri contro la morte (o **2 fallimenti** se l'attacco subito è un Colpo Critico).
+  * **Morte Permanente & Spoglie del Cadavere**: Al terzo fallimento accumulato, il personaggio riceve lo status `💀 Morto`; il server genera automaticamente un token cadavere interattivo sul terreno di scontro con bottino ed equipaggiamento recuperabile dal party.
+  * **Cure a 0 PV**: Ricevere una guarigione a 0 PV ripristina i Punti Ferita, azzera completamente i successi e fallimenti dei tiri salvezza contro la morte, e rimuove all'istante le condizioni `Incosciente` e `Stabilizzato`.
+  * **Morte Istantanea**: Un danno in eccesso pari o superiore ai PV Massimi causa la morte istantanea immediata.
 
 ### Inventario, Ingombro e Approvazione DM (Online & Offline)
 * **Regole di Approvazione Master Anti-Cheat (Online & Offline)**:
@@ -371,8 +381,10 @@ Il pannello **Economia Turno** del Giocatore si adatta automaticamente allo stat
   * **Calcolo Dinamico del Peso**: Il peso totale dell'inventario somma fedelmente tutti gli oggetti fisici trasportati e il peso reale delle monete secondo la regola ufficiale 5e ($50\text{ monete} = 1\text{ lb}$).
 * **Gestione Contenitori & Spazi Extradimensionali**:
   * Collocazione immediata a `🎒 Zaino`, `⚔️ Equipaggiato`, `🔮 Borsa Conservante`, `✨ Zaino Pratico`, o `🐴 Cavalcatura`. Il carico all'interno di borse extradimensionali (fino a 500 lbs) non grava sul peso corporeo del personaggio.
-* **Materiali di Consumo Spendibili (`[-1]` / `[+1]`)**:
-  * Pulsanti inline direttamente sulla riga dell'oggetto per munizioni, pozioni, torce e razioni per spendere o reintegrare cariche con 1 click.
+* **Materiali di Consumo Spendibili & Pozioni di Cura (`[-1]` / `[+1]`)**:
+  * Pulsanti inline direttamente sulla riga dell'oggetto per munizioni, pozioni, torce e razioni per spendere o reintegrare cariche con 1 click. L'uso di pozioni o rimedi curativi aggiorna immediatamente i PV numerici e la barra sulla scheda e sincronizza i dati con il server di gioco.
+* **Scambi Peer-to-Peer Sicuri (Anti-Duplicazione)**:
+  * Il trasferimento diretto di oggetti o monete tra giocatori svuota preventivamente lo slot nell'inventario del mittente prima dell'invio del pacchetto di rete, eliminando qualsiasi vulnerabilità di duplicazione di oggetti in condizioni di latenza.
 * **Diario e Note con Markdown & Convalida Master**:
   * Il diario di campagna e le note personali supportano il rendering visivo nativo in Markdown (`**grassetto**`, `*corsivo*`, elenchi, titoli). Le modifiche richiedono la convalida del Master per garantire l'integrità della cronologia di gioco.
 
@@ -404,6 +416,7 @@ Il motore dei dadi (`roll_dice_detailed`) analizza tutti i tiri di `d20` (inclus
 * **Tiri per Colpire (Attacchi)**:
   * **20 Naturale (`🌟 CRITICO NATURALE 20!`)**: Colpisce automaticamente a prescindere dalla CA del bersaglio e raddoppia tutti i dadi di danno sommando una sola volta i modificatori fissi.
   * **1 Naturale (`💀 FALLIMENTO CRITICO!`)**: Manca automaticamente a prescindere dal bonus di attacco.
+  * **Colpi Critici Automatici su Bersagli Incoscienti / Paralizzati (PHB p. 291-292)**: Qualsiasi tiro per colpire a segno entro 5 piedi (1 casella) contro un bersaglio con condizione *Incosciente* o *Paralizzato* diventa automaticamente un Colpo Critico con dadi di danno raddoppiati.
 * **Tiri Salvezza, Prove di Abilità e Tiri `1d20` Generici**:
   * Evidenzia `🌟 20 NATURALE!` (oro) e `💀 1 NATURALE!` (cremisi) nel log di chat e invia una notifica toast `CRITICAL_ROLL_BROADCAST` a tutti i client connessi.
 
@@ -446,8 +459,9 @@ Il motore di combattimento calcola dinamicamente vantaggio e svantaggio in base 
 ### Sistema di Copertura Dinamica
 * Se un'altra creatura o un ostacolo si trova direttamente sul raggio esagonale tra attaccante e bersaglio, il bersaglio ottiene automaticamente **Mezza Copertura (+2 CA)**.
 
-### Attacchi di Opportunità
-* Quando un token esce dalla portata di mischia (1 esagono) di un nemico adiacente senza aver usato l'azione **Disimpegno**, il server rileva l'apertura di un attacco di opportunità e avvisa il DM/attaccante.
+### Attacchi di Opportunità & Reazioni Fuori Turno
+* Quando un token esce dalla portata di mischia (1 esagono) di un nemico adiacente senza aver usato l'azione **Disimpegno**, il server rileva l'apertura di un attacco di opportunità e avvisa il difensore.
+* **Bypass del Blocco Turno (`is_reaction=True`)**: Le reazioni legittime (come Attacchi di Opportunità e incantesimo *Scudo*) scavalcano il blocco rigido del turno (`strict_turn_lock`), consentendo di reagire immediatamente durante lo svolgimento del movimento avversario.
 
 ### Prove di Concentrazione
 * Quando una creatura con la condizione `Concentrazione` subisce danni, il server richiede automaticamente un Tiro Salvezza su Costituzione:
@@ -456,12 +470,12 @@ Il motore di combattimento calcola dinamicamente vantaggio e svantaggio in base 
 
 ### Assorbimento Danni, Resistenze e Ira Barbarica
 * **Punti Ferita Temporanei (Temp HP)**: Assorbono i danni prima che vengano ridotti i PV effettivi.
-* **Tipi di Danno e Resistenze**: Dimezzamento (resistenza) o azzeramento (immunità) calcolati automaticamente.
+* **Tipi di Danno e Resistenze Bilingue**: Dimezzamento (resistenza), azzeramento (immunità) o raddoppio (vulnerabilità) calcolati automaticamente tramite mappatura bidirezionale italiano/inglese (`fuoco` $\leftrightarrow$ `fire`, `tagliente` $\leftrightarrow$ `slashing`, `radioso` $\leftrightarrow$ `radiant`, ecc.).
 * **Ira Barbarica**: Applica resistenza ai danni contundenti, perforanti e taglienti quando l'Ira è attiva.
 
 ### Copertura Tattica 5e RAW (PHB p. 196)
 Il motore di combattimento supporta sia la determinazione geometrica automatica sia l'override esplicito della copertura scelta da attaccante o DM:
-* **Copertura Automatica**: Traccia la linea di vista (`hex_linedraw`) tra attaccante e difensore calcolando muri, ostacoli di mezza copertura e creature interposte.
+* **Copertura Automatica**: Traccia la linea di vista (`hex_linedraw`) tra attaccante e difensore calcolando muri, porte chiuse o serrate (`get_effective_map_walls`), ostacoli di mezza copertura e creature interposte (escludendo dal calcolo i token morti e quelli posizionati sul layer GM). Le porte chiuse bloccano interamente la linea di vista per gli attacchi a distanza.
 * **Mezza Copertura (`half`)**: $+2$ alla CA del bersaglio e $+2$ ai suoi Tiri Salvezza su Destrezza.
 * **Tre Quarti di Copertura (`three_quarters`)**: $+5$ alla CA del bersaglio e $+5$ ai suoi Tiri Salvezza su Destrezza.
 * **Copertura Totale (`total`)**: Il bersaglio non può essere preso di mira direttamente da attacchi o incantesimi; l'attacco viene completamente bloccato.
@@ -549,10 +563,10 @@ D&D OmniCompanion offre localizzazione bilingue live e doppio sistema di misuraz
 
 ## 10. Suite di Test e Quality Assurance
 
-Il progetto include una suite consolidata nella cartella `tests/` con **254 test automatizzati** che passano al 100% con 0 errori, coprendo unit test headless, smoke test della GUI, architettura mono-finestra e simulazione multiplayer completa:
+Il progetto include una suite consolidata nella cartella `tests/` con **273 test automatizzati** che passano al 100% con 0 errori, coprendo unit test headless, smoke test della GUI, architettura mono-finestra e simulazioni di campagna complete:
 
 ```powershell
-# 1. Esegui l'intera suite di unit test (254 test: righello, critici, mono-finestra, economia turno, unità, inventario, razze/classi)
+# 1. Esegui l'intera suite di unit test (273 test: righello, critici, mono-finestra, economia turno, unità, inventario, razze/classi)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 2. Esegui la suite regole autentiche RAW 5e (Porte, Scasso, Spille Stanza, Reazioni, Scudo, Evasione, Furtivo, Blind Rolls)
@@ -569,6 +583,9 @@ $env:DND_MOCK_AUDIO="1"; python tests/simulate_game_session.py
 
 # 6. Esegui i test del sistema campagne
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_campaign_system.py
+
+# 7. Esegui la simulazione live campagna 4 giocatori + DM (11 fasi: join, trappole, combattimento a turni, AdO, morte/spoglie, scambi P2P, level-up, riposo breve)
+$env:DND_MOCK_AUDIO="1"; python tests/simulate_4player_campaign.py
 ```
 
 Tutte le suite di test passano con **0 errori**, garantendo l'affidabilità end-to-end su socket di rete, meccaniche di combattimento e rendering grafico.

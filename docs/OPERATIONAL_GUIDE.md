@@ -109,9 +109,11 @@ flowchart TD
   * Cubic coordinate system ($q, r, s$ where $q + r + s = 0$) with `HexLayout` for hexagonal maps, line of sight (LoS) raycasting, cone projections ($60^\circ / 90^\circ$), spheres, and straight-line AoEs.
   * `SquareLayout` for chess/square dungeon battlemaps and pixel $\leftrightarrow$ cell conversion.
   * Polymorphic `grid_distance(a, b, grid_type)` function supporting Chebyshev distance (standard 5e rule where diagonals cost 5 ft / 1 cell), cubic hex distance, and Euclidean distance for gridless maps (`none`/`gridless`).
+* **`server/voice_server.py` & `client/voice_client.py`**: Real-time UDP audio broadcast and streaming. On Windows systems, the UDP socket is configured with `SIO_UDP_CONNRESET` to intercept ICMP Port Unreachable packets, ensuring client disconnects never crash the server's `recvfrom` loop.
+* **`client/client.py`**: Main graphical client and async message loop protected by a `try...finally` block in `process_queue`, ensuring uninterrupted scheduling at regular intervals (`self.master.after(100, ...)`) regardless of unexpected packet contents.
 * **`server/rules/`**: Decoupled 5e rule modules:
-  * `combat.py`: initiative, attacks, criticals, cover, advantage/disadvantage, turn economy, reaction prompts (*Shield* spell, opportunity attacks), Evasion, and Sneak Attack.
-  * `movement.py`: hex movement, FoW, traps, difficult terrain, and map teleports.
+  * `combat.py`: initiative, attacks, auto-criticals within 5ft on Unconscious/Paralyzed creatures, cover and line of sight accounting for closed doors (`get_effective_map_walls`), bilingual damage resistances/vulnerabilities, reaction prompts (*Shield* spell, opportunity attacks) with turn-lock bypass (`is_reaction=True`), Evasion, and Sneak Attack.
+  * `movement.py`: hex movement, anti-cheat validation (DM privilege verification with active network socket), condition and temporary HP preservation on traps, FoW, difficult terrain, and map teleports.
   * `character.py`: damage absorption, temporary HP, concentration constitution saves, 0 HP, instant death, death saving throws, and rests.
   * `chat.py`: rich chat, dice expressions, Nat20/Nat1 detection, private whispers, and blind rolls (`/broll`, `/gmroll`).
   * `map_interaction.py`: pings, ruler, interactive doors, lockpicking with tools, room pins, and boxed text broadcast.
@@ -321,9 +323,10 @@ The server features a granular architecture for balancing 5e automation with hum
   * Uploaded character portraits (as well as NPC and monster art uploaded by the DM) automatically become the **Tactical Token rendered on the Map Canvas**, featuring antialiased circular framing, faction/class border coloring, condition badges, and dynamic size scaling (Tiny $0.5\times$ to Gargantuan $3.5\times$).
 * **Level-Up Wizard**:
   * Calculates HP gain (Hit Die roll or fixed average).
-  * Automatically fetches class features from the 5e SRD for the new level.
-  * Handles Ability Score Improvements (ASI) or Feats.
-  * Unlocks new spell slots.
+  * Automatically fetches class features from the 5e SRD for the new level and populates both `features` and `features_list` with immediate model synchronization to prevent any class trait loss upon saving the sheet.
+  * Handles Ability Score Improvements (ASI) or Feats, enforcing the **20 ability score maximum cap** and disallowing duplicate attribute selection in +1/+1 mode.
+  * Dynamically recalculates the proficiency bonus ($2 + \lfloor(\text{Level}-1)/4\rfloor$) and updates saving throws, skill checks, and weapon attack bonuses.
+  * Unlocks updated spell slot progression tables, including dedicated support for **Artificer** (2 slots at 1st level) and **Third-Casters** (*Eldritch Knight* and *Arcane Trickster* starting at 3rd level).
 
 ### Interactive Character Sheet
 Organized in clean tabs:
@@ -373,7 +376,10 @@ The Player Action Economy panel automatically adapts to whether combat is active
   * **Roll $\ge 10$**: +1 Success (at 3 successes, you gain the `Stabilizzato` condition).
   * **Roll $< 10$**: +1 Failure.
   * **Natural 1**: Counts as **2 Failures** (at 3 failures, you gain the `Morto` condition).
-* **Taking Damage at 0 HP**: Automatically marks a failure (or 2 if a critical hit). Excessive damage exceeding your Max HP causes instant death.
+* **Taking Damage at 0 HP**: Taking damage while at 0 HP automatically marks **1 death save failure** (or **2 failures** if the damage is from a Critical Hit).
+  * **Permanent Death & Lootable Corpse**: Upon accumulating 3 failures, the character gains permanent `💀 Dead` status; the server automatically spawns an interactive corpse token on the map canvas containing all carried inventory.
+  * **Healing at 0 HP**: Receiving healing while at 0 HP restores health, **completely resets all death save successes and failures back to 0**, and immediately clears the `Unconscious` and `Stabilized` conditions.
+  * **Instant Death**: Excess damage equaling or exceeding Max HP triggers immediate instant death.
 
 ### Inventory, Encumbrance & DM Approval (Online & Offline)
 * **Anti-Cheat DM Approval Rules (Online & Offline)**:
@@ -384,8 +390,10 @@ The Player Action Economy panel automatically adapts to whether combat is active
   * **Dynamic Weight Computation**: Total inventory weight accurately reflects all carried physical items, ammunition, weapons, armor, and RAW coin weight ($50\text{ coins} = 1\text{ lb}$).
 * **Container Management & Extradimensional Storage**:
   * Instant location assignment to `🎒 Backpack`, `⚔️ Equipped`, `🔮 Bag of Holding`, `✨ Handy Haversack`, or `🐴 Mount`. Gear inside extradimensional storage (up to 500 lbs) does not count against carried encumbrance.
-* **Spendable Consumables (`[-1]` / `[+1]`)**:
-  * Inline counter buttons on consumable inventory rows (arrows, bolts, rations, torches, potions) to spend or restore a single unit with 1 click.
+* **Spendable Consumables & Healing Potions (`[-1]` / `[+1]`)**:
+  * Inline counter buttons on consumable inventory rows (arrows, bolts, rations, torches, potions) to spend or restore a single unit with 1 click. Consuming healing potions or curatives instantly updates both the numerical HP and health bar on the sheet, synchronizing stats with the game server.
+* **Safe Peer-to-Peer Trading (Anti-Duplication)**:
+  * Direct item or gold transfers between players clear the inventory slot in the sender's sheet prior to packet transmission, eliminating any item duplication vulnerability across asynchronous network calls.
 * **Markdown Journal & Notes with DM Validation**:
   * Campaign journal and personal notes feature full visual Markdown rendering (`**bold**`, `*italics*`, bullet lists, headers). Modifications require Master validation to preserve campaign chronicle integrity.
 
@@ -423,6 +431,7 @@ The dice engine (`roll_dice_detailed`) inspects all `d20` rolls (including Advan
 * **Attack Rolls**:
   * **Natural 20 (`🌟 CRITICO NATURALE 20!`)**: Automatic hit regardless of target AC, automatically doubling all damage dice while adding flat modifiers once.
   * **Natural 1 (`💀 FALLIMENTO CRITICO!`)**: Automatic miss regardless of attack bonus.
+  * **Auto-Critical Hits on Incapacitated / Paralyzed Targets (PHB p. 291-292)**: Any attack roll that hits a creature with the *Unconscious* or *Paralyzed* condition within 5 feet (1 cell) automatically scores a Critical Hit with doubled damage dice.
 * **Saving Throws, Skill Checks & Generic `1d20` Rolls**:
   * Highlights `🌟 20 NATURALE!` (gold) and `💀 1 NATURALE!` (crimson) in the chat log and dispatches a `CRITICAL_ROLL_BROADCAST` toast notification to all connected clients.
 
@@ -464,7 +473,7 @@ The combat engine calculates advantage and disadvantage dynamically based on tok
 
 ### Tactical 5e RAW Cover System (PHB p. 196)
 The combat engine supports both automated raycast cover calculation and explicit manual overrides selected by players or the DM:
-* **Automatic Cover**: Traces the hex ray (`hex_linedraw`) between attacker and target to detect walls, half-cover obstacles, and interposing creatures.
+* **Automatic Cover**: Traces the hex ray (`hex_linedraw`) between attacker and target to detect walls, closed or locked doors (`get_effective_map_walls`), half-cover obstacles, and living creatures (excluding corpses and GM-layer tokens). Closed doors completely block line of sight for ranged attacks.
 * **Half Cover (`half`)**: $+2$ bonus to target AC and $+2$ to Dexterity saving throws.
 * **Three-Quarters Cover (`three_quarters`)**: $+5$ bonus to target AC and $+5$ to Dexterity saving throws.
 * **Total Cover (`total`)**: Target cannot be targeted directly; attacks are completely blocked.
@@ -482,12 +491,13 @@ The combat engine supports both automated raycast cover calculation and explicit
 * **Synchronized Quest Log**: Managed via `QUEST_ACTION_REQUEST` (actions: `add`, `complete`, `delete`) and broadcast `QUEST_LIST_UPDATE`. Quests, objectives, and rewards remain synchronized across all connected clients.
 * **Parchment Handouts**: The DM can broadcast story documents and illustrations via `HANDOUT_SHARE_REQUEST` with global `HANDOUT_SHARE_BROADCAST`, opening a medieval parchment viewer dialog on all clients.
 
-### Opportunity Attacks
-* When a token moves out of an adjacent enemy's melee reach (1 hex) without having used the **Disengage** action, the server detects an opportunity attack opening and alerts the DM/attacker.
+### Opportunity Attacks & Out-of-Turn Reactions
+* When a token moves out of an adjacent enemy's melee reach (1 hex) without having used the **Disengage** action, the server detects an opportunity attack opening and alerts the defender.
+* **Turn-Lock Bypass (`is_reaction=True`)**: Legitimate reactions (such as Opportunity Attacks and the *Shield* spell) bypass the strict combat turn lock (`strict_turn_lock`), allowing players to react instantly during an enemy's movement.
 
 ### Damage Absorption, Resistances & Rage
 * **Temporary Hit Points (Temp HP)**: Absorbs damage first before real HP is decreased.
-* **Damage Types & Resistances**: Damage reduction (half) or immunity (zero) is automatically calculated if resistance or immunity tags match the damage type.
+* **Bilingual Damage Types & Resistances**: Damage reduction (half), immunity (zero), or vulnerability (double) is automatically calculated via bidirectional English/Italian mapping (`fire` $\leftrightarrow$ `fuoco`, `slashing` $\leftrightarrow$ `tagliente`, `radiant` $\leftrightarrow$ `radioso`, etc.).
 * **Barbarian Rage**: Resistance to bludgeoning, piercing, and slashing damage is applied when in Rage.
 
 ### Interactive Short Rest & Hit Dice Regain (PHB p. 186)
@@ -562,10 +572,10 @@ D&D OmniCompanion features full live bilingual localization and dual measurement
 
 ## 10. Testing Suite & Quality Assurance
 
-The codebase includes a consolidated testing suite in the `tests/` directory with **254 automated tests** passing at 100% with 0 failures, covering headless unit tests, GUI smoke tests, single-window architecture, and full multiplayer simulation:
+The codebase includes a consolidated testing suite in the `tests/` directory with **273 automated tests** passing at 100% with 0 failures, covering headless unit tests, GUI smoke tests, single-window architecture, and full multiplayer campaign simulations:
 
 ```powershell
-# 1. Run comprehensive unit tests (254 tests: ruler, criticals, single-window, turn economy, units, inventory, races/classes)
+# 1. Run comprehensive unit tests (273 tests: ruler, criticals, single-window, turn economy, units, inventory, races/classes)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 2. Run authentic 5e RAW rules test suite (Doors, Lockpicking, Room Pins, Reactions, Shield, Evasion, Sneak Attack, Blind Rolls)
@@ -582,6 +592,9 @@ $env:DND_MOCK_AUDIO="1"; python tests/simulate_game_session.py
 
 # 6. Run campaign system tests
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_campaign_system.py
+
+# 7. Run live 4-player + DM campaign simulation (11 phases: join, traps, turn combat, opportunity attacks, death saves/loot, P2P trading, level-up, short rest)
+$env:DND_MOCK_AUDIO="1"; python tests/simulate_4player_campaign.py
 ```
 
 All test suites pass with **0 failures**, validating end-to-end reliability across network sockets, combat mechanics, and graphical rendering.

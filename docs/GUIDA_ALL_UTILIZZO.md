@@ -176,8 +176,10 @@ Non è necessario avviare una sessione o collegarsi a un server per creare, cons
   5. **Passo 5: Dettagli, Avatar e Finalizzazione**: assegnazione nome, divinità, note e caricamento dell'immagine avatar del personaggio.
 * **Salita di Livello (`Level Up (+)`)**: Nella Scheda PG, clicca su `Level Up (+)`:
   * Scegli se prendere il **valore medio** del Dado Vita o effettuare il **tiro**.
-  * Il sistema scarica automaticamente dal Compendio SRD 5e i **nuovi privilegi di classe** e aggiorna gli **slot incantesimo** del nuovo livello.
-  * Ai livelli previsti (es. 4, 8, 12, 16, 19) puoi assegnare l'**Aumento dei Punteggi di Caratteristica (+2 / +1+1)** o un Talento.
+  * Il sistema scarica automaticamente dal Compendio SRD 5e i **nuovi privilegi di classe** e aggiorna gli **slot incantesimo** del nuovo livello, includendo le tabelle dedicate per **Artefice** (2 slot al 1° livello) e **Terzi Incantatori** (*Cavaliere Mistico* e *Mistificatore Arcano* a partire dal 3° livello).
+  * **Persistenza e Integrità dei Privilegi**: I privilegi selezionati vengono salvati sia in `features` che in `features_list` e sincronizzati con il server, garantendo che nessuna capacità acquisita vada persa salvando o ricaricando la scheda.
+  * **Bonus di Competenza Dinamico**: Il bonus viene ricalcolato all'istante ($2 + \lfloor(\text{Livello}-1)/4\rfloor$) e applicato a tiri salvezza, prove di abilità e tiri per colpire delle armi.
+  * **Aumento Caratteristiche (ASI)**: Ai livelli previsti (4, 8, 12, 16, 19) puoi scegliere tra Talento e Incremento (+2 o +1/+1). Il sistema impone il **tetto massimo di 20** per i punteggi base e impedisce la selezione duplicata della stessa caratteristica in modalità +1/+1.
 
 ### Avatar Personaggio e Generazione Automatica Token su Mappa
 * **Caricamento Avatar**: Sia durante la creazione guidata (Passo 5) sia dalla Scheda Personaggio, il giocatore può caricare un'immagine personalizzata per il proprio eroe (formati PNG, JPG, WEBP).
@@ -280,11 +282,15 @@ La sezione **Economia Turno** nel tab `Controlli PG` si adatta automaticamente a
 ### Azioni in Combattimento, Incantesimi AoE, Copertura e Upcasting
 * **Pulsante `⚔️ Azione`**: apre la finestra Azioni Standard 5e:
   * **Attacco con Arma / Incantesimo**: scegli il bersaglio, l'arma, eventuale Vantaggio/Svantaggio e il livello di **Copertura Tattica 5e RAW**:
-    * `Copertura Automatica`: raycasting geometrico sulla mappa (`hex_linedraw`) per rilevare muri, coperture e token interposti.
+    * `Copertura Automatica`: raycasting geometrico sulla mappa (`hex_linedraw`) per rilevare muri, porte chiuse o bloccate (`get_effective_map_walls`), coperture e creature interposte (escludendo cadaveri e token invisibili sul livello GM). Le porte chiuse bloccano completamente la linea di vista per gli attacchi a distanza.
     * `Nessuna Copertura`: CA normale del bersaglio.
-    * `Mezza Copertura (+2 CA / +2 TS DES)`: bersaglio protetto da un muretto, un albero o un'altra creatura.
+    * `Mezza Copertura (+2 CA / +2 TS DES)`: bersaglio protetto da un muretto, un albero o un'altra creatura vivente.
     * `Tre Quarti di Copertura (+5 CA / +5 TS DES)`: bersaglio dietro a una feritoia o grata pesante.
     * `Copertura Totale`: il bersaglio è completamente celato; l'attacco viene bloccato.
+  * **Colpi Critici Automatici su Bersagli Incoscienti / Paralizzati (PHB p. 291-292)**:
+    * Qualsiasi attacco a segno entro 5 piedi (1 casella) contro un bersaglio con condizione *Incosciente* o *Paralizzato* diventa automaticamente un **Colpo Critico**, raddoppiando tutti i dadi di danno.
+  * **Resistenze e Vulnerabilità ai Danni Bilingue**:
+    * Il motore mappa automaticamente i tipi di danno sia in italiano che in inglese (`fuoco` $\leftrightarrow$ `fire`, `tagliente` $\leftrightarrow$ `slashing`, `radioso` $\leftrightarrow$ `radiant`, ecc.), dimezzando (resistenza) o raddoppiando (vulnerabilità) i danni calcolati.
   * **Azioni Tattiche 5e**: **Scatto (Dash)** (raddoppia il movimento del turno), **Disimpegno (Disengage)** (evita attacchi di opportunità), **Schivata (Dodge)** (infligge svantaggio agli attaccanti e conferisce vantaggio ai propri TS su Destrezza), **Aiuto (Help)** (conferisce vantaggio a un alleato).
 * **Pulsante `[ 💥 ]` (Area d'Effetto)**:
   * Scegli la forma geometrica (**Sfera**, **Cono**, **Linea**), la dimensione in esagoni, il colore e (opzionalmente) il Tiro Salvezza richiesto (es. `DES CD 15` con `8d6` danni da fuoco).
@@ -306,8 +312,9 @@ La sezione **Economia Turno** nel tab `Controlli PG` si adatta automaticamente a
   * Quando un attacco nemico supera la CA di un personaggio (o quando viene bersagliato da *Dardo Incantato*), se l'eroe conosce o ha preparato l'incantesimo *Scudo* e dispone della propria reazione e di almeno uno slot di 1° livello o superiore, il client visualizza un prompt interattivo con conto alla rovescia:
     * Se il giocatore accetta: consuma la `🛡️ Reazione` del round, scala uno slot di 1° livello e aggiunge un bonus invisibile di **+5 alla Classe Armatura (CA)** fino all'inizio del suo prossimo turno.
     * **Risoluzione Retroattiva**: Se il nuovo punteggio di CA ($CA + 5$) è superiore o uguale al tiro per colpire dell'avversario, l'attacco viene retroattivamente convertito da "Colpito" a "Mancato", salvando il personaggio dai danni!
-* **Attacchi di Opportunità Dinamici**:
+* **Attacchi di Opportunità Dinamici & Reazioni Fuori Turno**:
   * Quando un nemico adiacente (a distanza di 1 esagono / $5\text{ ft}$) si allontana uscendo dalla portata di mischia senza aver intrapreso l'azione di *Disimpegno (Disengage)*, il server rileva l'apertura e invia una notifica al difensore permettendogli di spendere la sua `🛡️ Reazione` per sferrare un attacco immediato in mischia.
+  * **Bypass del Blocco Turno (`is_reaction=True`)**: Le reazioni legittime e gli Attacchi di Opportunità aggirano il blocco rigido del turno (`strict_turn_lock`), consentendo di agire istantaneamente durante il movimento del nemico senza interrompere la sequenza dell'iniziativa.
 
 ### Tratti Speciali: Evasione (Ladro/Monaco) e Attacco Furtivo
 * **Evasione (*Evasion*, PHB p. 79/96)**:
@@ -323,13 +330,17 @@ La sezione **Economia Turno** nel tab `Controlli PG` si adatta automaticamente a
   * Al verificarsi delle condizioni, il server calcola e somma automaticamente i dadi di danno extra previsti per il livello del ladro (da $+1d6$ a livello 1 fino a $+10d6$ a livello 19), annunciando l'attacco furtivo nel registro di combattimento.
 
 ### Punti Ferita, Riposi e Tiri Salvezza contro la Morte
-* **Scendere a 0 PV**: il personaggio perde automaticamente la `Concentrazione` e riceve le condizioni `Incosciente` e `Prono`. Se il danno residuo in eccesso è $\ge \text{PV Massimi}$, si verifica la **Morte Istantanea**.
-* **Tiri Salvezza contro la Morte**:
+* **Scendere a 0 PV, Danni e Morte Istantanea (PHB p. 197)**:
+  * Quando i PV scendono a 0, il personaggio perde automaticamente la `Concentrazione` e riceve le condizioni `Incosciente` e `Prono`. Se il danno residuo in eccesso è $\ge \text{PV Massimi}$, si verifica la **Morte Istantanea**.
+  * **Subire Danni a 0 PV**: Ogni volta che un personaggio a 0 PV subisce danni, registra automaticamente **1 fallimento** ai tiri contro la morte (o **2 fallimenti** se il danno deriva da un Colpo Critico).
+  * **Morte Permanente e Cadavere Lootabile**: Al terzo fallimento accumulato, il personaggio riceve lo status permanente di `💀 Morto`; il server genera automaticamente un token cadavere interattivo sul terreno di scontro contenente l'equipaggiamento e il bottino recuperabile dal party.
+  * **Cure a 0 PV**: Ricevere una guarigione a 0 PV ripristina immediatamente la salute, **azzera completamente il conteggio di successi e fallimenti** dei tiri contro la morte, e rimuove all'istante le condizioni `Incosciente` e `Stabilizzato`.
+* **Tiri Salvezza contro la Morte (All'Inizio del Turno)**:
   * All'inizio del tuo turno a 0 PV (o digitando `/ds` / `/tsmorte` in chat, o dalla Scheda PG) esegui il Tiro contro la Morte:
     * **`20 Naturale`**: torni immediatamente a **1 PV** e perdi la condizione `Incosciente`!
     * **`10–19`**: +1 Successo (a 3 successi diventi `Stabilizzato`).
     * **`2–9`**: +1 Fallimento.
-    * **`1 Naturale`**: **+2 Fallimenti** (a 3 fallimenti il personaggio muore).
+    * **`1 Naturale`**: **+2 Fallimenti** (a 3 fallimenti il personaggio muore permanentemente).
 * **Riposo Breve e Riposo Lungo (RAW PHB p. 186)**:
   * **Spesa Dadi Vita nel Riposo Breve (`ShortRestDialog`)**:
     * Cliccando su **`Riposo Breve`** nella Scheda PG si apre la nuova finestra modale interattiva:
@@ -350,12 +361,15 @@ La sezione **Economia Turno** nel tab `Controlli PG` si adatta automaticamente a
 * **Gestione Comoda Contenitori & Spazi Extradimensionali**:
   * Assegnazione immediata a `🎒 Zaino`, `⚔️ Equipaggiato`, `🔮 Borsa Conservante`, `✨ Zaino Pratico`, o `🐴 Cavalcatura`.
   * Il peso degli oggetti contenuti in spazi extradimensionali (es. *Borsa Conservante*, fino a 500 lbs) viene escluso dal carico corporeo del personaggio, preservandone la mobilità.
-* **Materiali di Consumo Spendibili (`[-1]` / `[+1]`)**:
+* **Materiali di Consumo Spendibili (`[-1]` / `[+1]`) & Pozioni di Cura**:
   * Nella riga di ciascun oggetto di consumo (frecce, quadrelli, dardi, razioni, torce, fiale d'olio, pozioni) sono presenti comodi pulsanti rapidi `[-1]` e `[+1]` per spendere o reintegrare una singola unità con 1 click senza dover aprire finestre di modifica.
+  * **Sincronizzazione Cura Istantanea**: L'assunzione di pozioni di cura o consumabili terapeutici aggiorna istantaneamente sia il contatore numerico e la barra dei PV sulla scheda, sia lo stato memorizzato sul server di gioco.
 * **Diario e Note con Markdown & Convalida Master**:
   * Il diario di campagna e le note personali della Scheda PG supportano il rendering visivo completo in Markdown (`**grassetto**`, `*corsivo*`, elenchi puntati, titoli).
   * La modifica del diario e delle cronache richiede l'approvazione del Master per preservare la coerenza della storia.
-* **Scambi con Alleati (`Dai` / `🤝 Dai Oro a Compagno`)**: puoi trasferire oggetti o monete direttamente a un altro giocatore connesso.
+* **Scambi con Alleati Sicuri (`Dai` / `🤝 Dai Oro a Compagno`)**:
+  * Puoi trasferire oggetti o monete direttamente a un altro giocatore connesso.
+  * **Anti-Duplicazione**: Lo slot nell'inventario del mittente viene svuotato preventivamente prima dell'invio e della conferma da parte del destinatario, impedendo qualsiasi duplicazione accidentale di oggetti anche in condizioni di latenza di rete.
 
 ### Esportazione Scheda Personaggio (PDF Ufficiale D&D 5e e JSON)
 In fondo alla finestra della Scheda PG trovi il pulsante **`📥 Esporta Scheda...`**: cliccandolo si apre una finestra modale dedicata che ti permette di scegliere chiaramente tra due formati:

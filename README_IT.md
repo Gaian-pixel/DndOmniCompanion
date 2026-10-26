@@ -6,7 +6,7 @@
 [![Ruleset: D&D 5e](https://img.shields.io/badge/ruleset-D%26D%205e-red.svg)](https://dnd.wizards.com/)
 [![UI: ttkbootstrap](https://img.shields.io/badge/ui-ttkbootstrap-orange.svg)](https://ttkbootstrap.readthedocs.io/)
 [![Multiplayer: TCP/UDP](https://img.shields.io/badge/networking-TCP%20%2B%20UDP-green.svg)]()
-[![Tests: Passing](https://img.shields.io/badge/tests-100%25%20passing-brightgreen.svg)]()
+[![Tests: Passing](https://img.shields.io/badge/tests-273%2F273%20superati-brightgreen.svg)]()
 [![Localization: IT / EN](https://img.shields.io/badge/i18n-Italiano%20%7C%20English-blueviolet.svg)]()
 [![Units: Imperial / Metric](https://img.shields.io/badge/units-ft%2Fmi%20%7C%20m%2Fkm-informational.svg)]()
 
@@ -73,7 +73,7 @@
   * **Tiri Salvezza, Prove di Abilità/Caratteristica e Tiri `1d20`**: Evidenziazione dorata/cremisi in chat e notifiche Toast broadcast (`CRITICAL_ROLL_BROADCAST`) a tutto il tavolo.
 * **Copertura Tattica D&D 5e RAW (PHB p. 196)**:
   * **Selettore Rapido nei Dialoghi di Attacco e TS**: Possibilità di selezionare la copertura del bersaglio tra:
-    * `Copertura Automatica`: Calcolo geometrico tramite algoritmo Bresenham esagonale (`hex_linedraw`) per ostacoli, muri e creature frapposte.
+    * `Copertura Automatica`: Calcolo geometrico tramite algoritmo Bresenham esagonale (`hex_linedraw`) per ostacoli, muri, porte chiuse o serrate (`get_effective_map_walls`) e creature frapposte (escludendo cadaveri e token sul layer GM).
     * `Nessuna Copertura`: CA normale.
     * `Mezza Copertura`: $+2$ alla CA del bersaglio e $+2$ ai suoi Tiri Salvezza su Destrezza.
     * `Tre Quarti di Copertura`: $+5$ alla CA del bersaglio e $+5$ ai suoi Tiri Salvezza su Destrezza.
@@ -81,13 +81,19 @@
 * **Modificatori Ambientali di Combattimento (Meteo & Terreni Difficili)**:
   * **Meteo (DMG p. 109-110)**: Tempesta violenta e Nebbia fitta impongono Svantaggio agli attacchi a distanza (> 1 esagono); pioggia battente e bufere di neve impongono Svantaggio a lunga gittata.
   * **Terreni Difficili**: Attaccare da superfici instabili (Ghiaccio, Macerie, Palude, Fango) impone Svantaggio; attaccare nemici intralciati nei Rovi o bloccati nel Fango conferisce **Vantaggio**.
-  * **Regole Oscurità e Scurovisione (PHB p. 194-195)**: Attaccare dalle tenebre con Scurovisione (o contro un bersaglio che impugna una torcia) conferisce **Vantaggio** (*Attaccante Celato*); attaccare un bersaglio che non si vede impone **Svantaggio**; nell'oscurità totale reciproca vantaggio e svantaggio si annullano.
-* **Attacchi di Opportunità Automatizzati**: Rileva quando un combattente esce dalla portata di mischia ostile senza aver usato *Disimpegno*.
+  * **Regole Oscurità e Scurovisione (PHB p. 194-195)**: Attaccare dalle tenebre con Scurovisione (o contro un bersaglio che impugna una torcia) conferisce **Vantaggio** (*Attaccante Celato*); attaccare un bersaglio che non si vede impone **Svantaggio**; nell'oscurità totale reciproca vantaggio e svantaggio si annullano. Nota: i Dragonidi non possiedono scurovisione innata secondo il RAW 5e.
+* **Attacchi di Opportunità & Reazioni Fuori Turno Automatizzati**: Rileva quando un combattente esce dalla portata di mischia ostile senza aver usato *Disimpegno*, consentendo alle reazioni legittime di scavalcare il blocco turni con `is_reaction=True`.
+* **Colpi Critici Automatici su Bersagli Incoscienti / Paralizzati (PHB p. 291-292)**: Qualsiasi attacco a segno entro 5 piedi (1 casella) contro un bersaglio con condizione *Incosciente* o *Paralizzato* diventa automaticamente un Colpo Critico con raddoppio dei dadi di danno.
+* **Resistenze e Vulnerabilità ai Danni Bilingue**: Mappatura bidirezionale automatica tra tipi di danno in italiano e inglese (`fuoco` $\leftrightarrow$ `fire`, `radioso` $\leftrightarrow$ `radiant`, `tagliente` $\leftrightarrow$ `slashing`, ecc.) applicando fedelmente il dimezzamento o il raddoppio dei danni.
 * **Concentrazione Rigorosa & Upcasting (PHB p. 201-204)**:
   * Lanciando un nuovo incantesimo a concentrazione dal Grimorio, la concentrazione precedente viene interrotta automaticamente e notificata in chat al gruppo.
   * Subire danni mentre si è concentrati innesca automaticamente un Tiro Salvezza su Costituzione ($\text{CD} = \max(10, \lfloor\text{Danni}/2\rfloor)$); se fallisce, l'incantesimo cade e le AoE collegate vengono rimosse.
   * **Upcasting**: Possibilità di lanciare magie con slot di livello superiore scalando la potenza dell'effetto.
-* **Tiri Salvezza contro la Morte e Morte Istantanea**: Gestione completa a 0 PV (`20 Naturale` = risveglio a 1 PV, `1 Naturale` = 2 fallimenti, 3 successi = Stabilizzato, 3 fallimenti o danno eccessivo $\ge \text{PV Max}$ = Morto).
+* **Tiri Salvezza contro la Morte Persistenti, Danni a 0 PV e Morte Istantanea (PHB p. 197)**:
+  * Gestione completa a 0 PV: subire danni a 0 PV assegna 1 fallimento (o 2 fallimenti in caso di colpo critico subito).
+  * L'accumulo di 3 fallimenti assegna lo stato permanente di *Morto* (`💀`) e genera un cadavere interattivo sul terreno di scontro con bottino perquisibile.
+  * Ricevere cure a 0 PV ripristina la salute, azzera immediatamente i successi/fallimenti dei tiri contro la morte e rimuove gli stati *Incosciente* e *Stabilizzato*.
+  * Morte Istantanea automatica se il danno residuo in eccesso è $\ge \text{PV Massimi}$.
 * **Meccaniche Boss RAW (MM p. 11)**:
   * **Azioni Leggendarie**: Fino a 3 azioni a round spendibili al termine del turno di un'altra creatura, promemoria automatici al DM, e ripristino delle cariche all'inizio del turno del boss.
   * **Azioni di Tana (Iniziativa 20)**: Notifica e attivazione automatica all'Iniziativa 20 per i boss con tana attiva.
@@ -100,7 +106,7 @@
     * **Layout Split-View Master-Detail**: Tabella comparativa a sinistra (6 colonne: Razza con icona, Bonus, Tratti Chiave, Resistenze & Difese, Taglia/Vel., Classi Consigliate) e Scheda Anteprima reattiva a destra.
     * **Dati Meccanici & Lore RAW 5e**: Censimento completo delle difese passive (Resistenza Infernale al Fuoco, Resilienza Nanica vs Veleno, Retaggio Fatato con Immunità al Sonno Magico, Astuzia Gnomesca vs Magia, Tenacia Implacabile a 1 PF, Fortunato), Sinergie e Classi ideali, longevità, tutti i tratti con spiegazione delle meccaniche e sottorazze con selezione rapida a doppio click.
   * **Compendio Comparativo Classi (12 Classi Canoniche 5e)**: Accessibile nel Passo 2 con filtri per categoria (`[Tutte]`, `[Marziali]`, `[Incantatori]`, `[Ibridi]`, `[Esperti]`), Dadi Vita (d6–d12), Caratteristiche Primarie, Tiri Salvezza, Ruolo nel party, consigli Quick Build, anteprima equipaggiamento iniziale e sottoclassi.
-  * **Level-Up Assistito**: Recupero automatico di privilegi di classe, dadi vita e slot incantesimo dal Compendio SRD 5e.
+  * **Level-Up Assistito**: Recupero automatico di privilegi di classe, dadi vita e progressioni slot incantesimo dal Compendio SRD 5e, inclusi Artefice (slot dal 1° livello) e Terzi Incantatori (Cavaliere Mistico / Mistificatore Arcano dal 3° livello). Include cap rigido a 20 per i punteggi di caratteristica ASI, controllo anti-duplicazione e sincronizzazione persistente dei privilegi in `features_list` per evitare perdite al salvataggio scheda.
 * **Avatar Personaggio & Generazione Automatica Token sulla Mappa**:
   * Possibilità per i giocatori (e per il DM con PNG e mostri) di caricare un'immagine per il proprio personaggio.
   * L'immagine caricata diventa automaticamente il **Token visivo renderizzato sulla mappa tattica**, con ritaglio circolare ad alta definizione, bordo colorato coordinato e scalatura dinamica in base alla Taglia della creatura (da *Minuscola* a *Mastodontica*).
@@ -112,7 +118,7 @@
 * **Inventario, Monete, Contenitori e Consumabili Spendibili**:
   * **Sincronizzazione Valute & Peso Corretto**: Calcolo dinamico e veritiero del peso reale dell'inventario comprensivo del peso delle monete ($50\text{ monete} = 1\text{ lb}$) con sincronizzazione automatica bidirezionale tra gli oggetti fisici e la tabella superiore delle valute (`MR`, `MA`, `ME`, `MO`, `MP`).
   * **Gestione Contenitori Comoda**: Assegnazione immediata degli oggetti a `🎒 Zaino`, `⚔️ Equipaggiato`, `🔮 Borsa Conservante`, `✨ Zaino Pratico`, o `🐴 Cavalcatura`, con peso proprio vs peso trasportato.
-  * **Materiali di Consumo Spendibili**: Pulsanti rapidi `[-1]` / `[+1]` sulla riga di munizioni (frecce, quadrelli), razioni, torce e pozioni per spendere risorse al volo durante l'avventura.
+  * **Materiali di Consumo Spendibili**: Pulsanti rapidi `[-1]` / `[+1]` sulla riga di munizioni (frecce, quadrelli), razioni, torce e pozioni per spendere risorse al volo durante l'avventura, con sincronizzazione istantanea di PV e server all'uso di pozioni o rimedi curativi.
 * **Spesa Dadi Vita nel Riposo Breve (RAW PHB p. 186)**:
   * Dialogo modale interattivo `ShortRestDialog` con anteprima PV attuali/massimi, barra salute progressiva e dadi vita rimasti.
   * Pulsante per **spendere 1 singolo Dado Vita** alla volta ($1\text{dY} + \text{Mod COS}$, min 1 recuperato), aggiornando istantaneamente la scheda e la chat.
@@ -127,7 +133,7 @@
   * **Tattica "Sfila lo Zaino a Terra" (*Drop Backpack*)**: Azione rapida a 1-click (`[ 🎒 Sfila Zaino a Terra ]` $\leftrightarrow$ `[ 🎒 Raccogli Zaino ]`) come Interazione con Oggetto Gratuita; esclude istantaneamente il peso degli oggetti nello zaino dal carico corporeo del personaggio, annunciando l'azione in chat e ripristinando la velocità piena in combattimento.
   * **Regola Variante di Ingombro (Variant: Encumbrance)**: Riconoscimento scaglioni di peso basati su FOR ($\text{FOR} \times 5$, $\text{FOR} \times 10$, $\text{FOR} \times 15$), peso reale monete (50 monete = 1 lb) e penalità dinamiche: *Normale*, *Ingombrato* (-10 ft / -3 m vel.), *Gravemente Ingombrato* (-20 ft / -6 m vel. e Svantaggio a tiri per colpire, prove e TS FOR/DES/COS) e *Sovraccarico* (movimento 0).
 * **Esportazione Scheda Personaggio (PDF Ufficiale D&D 5e e JSON Dati)**: Finestra modale per scegliere tra **PDF Ufficiale** (richiede in input il modello PDF vuoto D&D 5e e compila automaticamente la scheda a 3 pagine pronta per la stampa o la condivisione) e **JSON** (backup grezzo per import/export tra campagne).
-* **Scambi Peer-to-Peer e Macro Hotbar**: Scambio diretto di oggetti/monete con gli alleati e barra rapida a 10 slot personalizzabili.
+* **Scambi Peer-to-Peer e Macro Hotbar**: Scambio sicuro di oggetti e monete con svuotamento preventivo dello slot anti-duplicazione e barra rapida a 10 slot con supporto completo a formule `/roll` e `/r`.
 
 ### 📜 Suite Operativa per il Dungeon Master
 * **Calcolatore Difficoltà Incontri Live (DMG p. 82)**: Valutazione in tempo reale (**Banale**, **Facile**, **Medio**, **Difficile**, **Mortale**) con moltiplicatori XP per numero di mostri.
@@ -145,7 +151,7 @@
   * **Mini-Statblock nel Bestiario DM (`server/dm_bestiary_panel.py`)**: filtri rapidi per Grado di Sfida e Tipo con card di anteprima compatta nella sidebar del DM e spawning istantaneo con doppio click.
 * **Manuali PDF Offline & Tavolozza Comandi (`Ctrl+K`)**: Ricerca istantanea su manuali PDF ufficiali indicizzati, regole, mostri, incantesimi e token.
 * **Viaggio, Calendario, Meteo e Negozi**: Ordine di marcia, ruoli di viaggio, razioni/acqua, marcia forzata, calendario fantasy interattivo e negozi mercantili.
-* **Soundboard & Voice Chat UDP Integrata**: Streaming vocale a bassa latenza con controlli Mute/Deafen (`[ 🎤 ]` / `[ 🎧 ]`) e soundboard musicale sincronizzata.
+* **Soundboard & Voice Chat UDP Integrata**: Streaming vocale a bassa latenza con controlli Mute/Deafen (`[ 🎤 ]` / `[ 🎧 ]`), gestione resiliente dei socket UDP su Windows (`SIO_UDP_CONNRESET`) prevenendo crash su disconnessioni di singoli client, e soundboard musicale sincronizzata.
 
 ### 🎲 Stili di Gestione Campagna: Controllo DM vs Automazione (RAW 5e)
 Il DM può impostare in tempo reale il grado di automazione dell'applicativo da **Strumenti ➔ ⚙️ Stile Gestione Campagna (Automazioni)...** o cliccando la pillola di stato sull'header della mappa (`🎲 Tavolo`, `⚖️ Ibrido`, `⚡ Full Auto`):
@@ -275,7 +281,8 @@ DndOmniCompanion/
 │   ├── USER_GUIDE.md               # Complete User Guide (English)
 │   ├── GUIDA_OPERATIVA.md          # Manuale operativo e architettura (Italiano)
 │   └── OPERATIONAL_GUIDE.md        # System & Operational Manual (English)
-├── tests/                          # Suite di test automatizzati (254 test)
+├── tests/                          # Suite di test automatizzati (273 test superati)
+│   ├── simulate_4player_campaign.py# Simulazione live campagna 4 giocatori + DM (11 fasi)
 │   ├── simulate_game_session.py    # Simulazione multiplayer end-to-end (53 fasi)
 │   ├── test_mono_finestra.py       # Test architettura single-window, overlay e docking
 │   ├── test_authentic_5e.py        # Test regole autentiche RAW 5e
@@ -288,10 +295,10 @@ DndOmniCompanion/
 
 ## 🧪 Test e Verifica Automatica
 
-Tutti i **254 test automatizzati** passano al 100% con 0 errori:
+Tutti i **273 test automatizzati** passano al 100% con 0 errori:
 
 ```powershell
-# 1. Unit Test completi (254 test: righello, critici, mono-finestra, economia turno, unità, inventario, razze/classi)
+# 1. Unit Test completi (273 test: righello, critici, mono-finestra, economia turno, unità, inventario, razze/classi)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 2. Test Meccaniche Autentiche RAW 5e (Porte, Lockpicking, Room Pins, Reazioni, Shield, Evasione, Furtivo, Blind Rolls)
@@ -308,6 +315,9 @@ $env:DND_MOCK_AUDIO="1"; python tests/simulate_game_session.py
 
 # 6. Test Sistema Campagne e Scene
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_campaign_system.py
+
+# 7. Simulazione Live Campagna 4 Giocatori + DM (11 fasi: join, trappole, combattimento a turni, AdO, morte/spoglie, scambi P2P, level-up, riposo breve)
+$env:DND_MOCK_AUDIO="1"; python tests/simulate_4player_campaign.py
 ```
 
 ---
