@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext
 from typing import Optional, Callable, Any
 
+from common.i18n import _t, get_language
 from common.theme import (
     BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT, SURFACE_LIGHT,
     BORDER_COLOR, BORDER_GOLD, ACCENT_GOLD, ACCENT_GOLD_LIGHT,
@@ -117,8 +118,8 @@ class CampaignStudioFrame(tk.Frame):
 
         hdr_left = tk.Frame(left_frame, bg=SURFACE_COLOR_ALT, padx=10, pady=6)
         hdr_left.pack(fill=tk.X)
-        tk.Label(hdr_left, text="📝 DndScript • Campaign-as-Code", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(side=tk.LEFT)
-        tk.Label(hdr_left, text="Sincronizzazione istantanea col grafo", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED).pack(side=tk.RIGHT)
+        tk.Label(hdr_left, text=_t("camp_studio_script_title", default="📝 DndScript • Campaign-as-Code"), font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(side=tk.LEFT)
+        tk.Label(hdr_left, text=_t("camp_studio_script_sub", default="Sincronizzazione istantanea col grafo"), font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED).pack(side=tk.RIGHT)
 
         # Barra strumenti inserimento blocchi (2 righe compatte, zero overflow)
         script_toolbar = tk.Frame(left_frame, bg=SURFACE_COLOR, padx=6, pady=5, highlightbackground=BORDER_COLOR, highlightthickness=1)
@@ -126,19 +127,19 @@ class CampaignStudioFrame(tk.Frame):
 
         row_blocks = tk.Frame(script_toolbar, bg=SURFACE_COLOR)
         row_blocks.pack(fill=tk.X, pady=(0, 3))
-        ttk.Button(row_blocks, text="🗺️ + Scena", style="Dark.TButton", command=lambda: self.insert_template("scene")).pack(side=tk.LEFT, padx=(0, 3), fill=tk.X, expand=True)
-        ttk.Button(row_blocks, text="⚔️ + Incontro", style="Dark.TButton", command=lambda: self.insert_template("encounter")).pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
-        ttk.Button(row_blocks, text="🎲 + Prova", style="Dark.TButton", command=lambda: self.insert_template("check")).pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
-        ttk.Button(row_blocks, text="⚠️ + Trappola", style="Dark.TButton", command=lambda: self.insert_template("trap")).pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
-        ttk.Button(row_blocks, text="💎 + Tesoro", style="Dark.TButton", command=lambda: self.insert_template("loot")).pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
+        ttk.Button(row_blocks, text=_t("camp_studio_btn_scene", default="🗺️ + Scena"), style="Dark.TButton", command=lambda: self.insert_template("scene")).pack(side=tk.LEFT, padx=(0, 3), fill=tk.X, expand=True)
+        ttk.Button(row_blocks, text=_t("camp_studio_btn_encounter", default="⚔️ + Incontro"), style="Dark.TButton", command=lambda: self.insert_template("encounter")).pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
+        ttk.Button(row_blocks, text=_t("camp_studio_btn_check", default="🎲 + Prova"), style="Dark.TButton", command=lambda: self.insert_template("check")).pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
+        ttk.Button(row_blocks, text=_t("camp_studio_btn_trap", default="⚠️ + Trappola"), style="Dark.TButton", command=lambda: self.insert_template("trap")).pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
+        ttk.Button(row_blocks, text=_t("camp_studio_btn_loot", default="💎 + Tesoro"), style="Dark.TButton", command=lambda: self.insert_template("loot")).pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
 
         row_flow = tk.Frame(script_toolbar, bg=SURFACE_COLOR)
         row_flow.pack(fill=tk.X)
-        ttk.Button(row_flow, text="📖 + Loot Compendio", command=self.open_compendium_loot_picker, style="Gold.TButton").pack(side=tk.LEFT, padx=(0, 3), fill=tk.X, expand=True)
-        ttk.Button(row_flow, text="🔀 + Bivio ->", style="Dark.TButton", command=lambda: self.insert_template("branch")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(row_flow, text=_t("camp_studio_btn_comp_loot", default="📖 + Loot Compendio"), command=self.open_compendium_loot_picker, style="Gold.TButton").pack(side=tk.LEFT, padx=(0, 3), fill=tk.X, expand=True)
+        ttk.Button(row_flow, text=_t("camp_studio_btn_branch", default="🔀 + Bivio ->"), style="Dark.TButton", command=lambda: self.insert_template("branch")).pack(side=tk.LEFT, padx=2)
 
         # Menubutton Condizioni
-        mb_cond = ttk.Menubutton(row_flow, text="Condizioni ▾")
+        mb_cond = ttk.Menubutton(row_flow, text=_t("camp_studio_btn_conds", default="Condizioni ▾"))
         menu_cond = tk.Menu(mb_cond, tearoff=0, bg=SURFACE_COLOR, fg=TEXT_COLOR)
         menu_cond.add_command(label="✅ -> SUCCESSO ->", command=lambda: self.insert_template("cond_success"))
         menu_cond.add_command(label="❌ -> FALLIMENTO ->", command=lambda: self.insert_template("cond_failure"))
@@ -149,7 +150,7 @@ class CampaignStudioFrame(tk.Frame):
         mb_cond.pack(side=tk.LEFT, padx=2)
 
         # Menubutton Altri Blocchi
-        mb_blocks = ttk.Menubutton(row_flow, text="Altri Blocchi ▾")
+        mb_blocks = ttk.Menubutton(row_flow, text=_t("camp_studio_btn_other_blocks", default="Altri Blocchi ▾"))
         menu_blocks = tk.Menu(mb_blocks, tearoff=0, bg=SURFACE_COLOR, fg=TEXT_COLOR)
         menu_blocks.add_command(label="🏬 Emporio", command=lambda: self.insert_template("shop"))
         menu_blocks.add_command(label="🧩 Enigma", command=lambda: self.insert_template("puzzle"))
@@ -188,13 +189,13 @@ class CampaignStudioFrame(tk.Frame):
 
         hdr_right = tk.Frame(right_frame, bg=SURFACE_COLOR_ALT, padx=10, pady=5)
         hdr_right.pack(fill=tk.X)
-        tk.Label(hdr_right, text="🧭 Flow Canvas • Grafo Visuale", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(side=tk.LEFT)
+        tk.Label(hdr_right, text=_t("camp_studio_canvas_title", default="🧭 Flow Canvas • Grafo Visuale"), font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(side=tk.LEFT)
 
         self.lbl_stats = tk.Label(hdr_right, text="", font=FONT_BADGE, bg=SURFACE_COLOR, fg=ACCENT_GOLD, padx=8, pady=2)
         self.lbl_stats.pack(side=tk.LEFT, padx=10)
 
-        ttk.Button(hdr_right, text="⟳ Aggiorna Flusso", command=self.sync_text_to_canvas, style="Gold.TButton").pack(side=tk.RIGHT, padx=(4, 0))
-        ttk.Button(hdr_right, text="🔍 Centra Vista", command=self.center_canvas, style="Dark.TButton").pack(side=tk.RIGHT, padx=4)
+        ttk.Button(hdr_right, text=_t("camp_studio_btn_refresh_flow", default="⟳ Aggiorna Flusso"), command=self.sync_text_to_canvas, style="Gold.TButton").pack(side=tk.RIGHT, padx=(4, 0))
+        ttk.Button(hdr_right, text=_t("camp_studio_btn_center", default="🔍 Centra Vista"), command=self.center_canvas, style="Dark.TButton").pack(side=tk.RIGHT, padx=4)
 
         self.flow_canvas = FlowCanvas(
             right_frame, graph=self.graph,

@@ -423,9 +423,353 @@ for _r_name, _r_info in RACES.items():
     )
 
 
-def get_race_info(race_name: str) -> Dict[str, Any]:
-    """Restituisce le informazioni dettagliate della razza o Umano come fallback."""
-    return RACES.get(race_name, RACES["Umano"])
+
+RACES_EN: Dict[str, Dict[str, Any]] = {
+    "Umano": {
+        "tagline": "The most adaptable, ambitious, and driven among all mortal peoples, builders of empires and tireless innovators.",
+        "bonuses_display": "+1 to All Ability Scores (STR, DEX, CON, INT, WIS, CHA)",
+        "languages": "Common and one additional language of your choice",
+        "vision": "Normal",
+        "lifespan": "Reach adulthood around 18 and rarely live past a century.",
+        "synergies": "Exceptional for any class and multiclass combinations thanks to universal score increases.",
+        "best_classes": "Any Class, Fighter, Wizard, Multiclass",
+        "resistances": "None (balanced by +1 to all ability scores)",
+        "key_traits_summary": "+1 to All Ability Scores, Universal versatility, Pioneering spirit",
+        "category_tags": ["Versatility", "Humanoid", "All Roles"],
+        "overview": (
+            "Across the multiverse, humans are the youngest of the common peoples, yet their ambition knows no bounds. "
+            "Where elves contemplate a forest for centuries and dwarves spend decades perfecting a single forge, humans build cities, "
+            "explore uncharted seas, and confront unimaginable perils driven by a burning desire to leave a lasting mark upon history. "
+            "Bound neither to a single god nor to one terrain, they adapt, survive, and thrive everywhere."
+        ),
+        "traits": [
+            ("Universal Adaptability", (
+                "Human versatility is unmatched: you gain a +1 increase to each of your 6 ability scores "
+                "(Strength, Dexterity, Constitution, Intelligence, Wisdom, Charisma)."
+            )),
+            ("Pioneering Spirit", (
+                "Urged on by lives that are brief compared to thousand-year-old kin, humans swiftly master any craft, "
+                "martial discipline, or arcane art, founding kingdoms and academies that define epochs."
+            ))
+        ],
+        "subraces_preview": [
+            "Standard Human (+1 to all 6 ability scores)",
+            "Variant Human (+1 to two chosen abilities, 1 bonus feat at 1st level, and 1 extra skill proficiency)"
+        ]
+    },
+    "Elfo": {
+        "tagline": "Noble beings of immortal grace and otherworldly beauty, intimately tied to the Feywild and the art of magic.",
+        "bonuses_display": "+2 Dexterity",
+        "languages": "Common, Elvish",
+        "vision": "Darkvision 60 ft (18 m)",
+        "lifespan": "Reach adulthood at around 100 years and can live over 750 years.",
+        "synergies": "Ideal for Rogues, Rangers, Monks, Wizards, and agile skirmishers leveraging high Dexterity and keen reflexes.",
+        "best_classes": "Rogue, Ranger, Monk, Wizard",
+        "resistances": "Immunity to Magical Sleep, Advantage vs Charmed (Fey Ancestry)",
+        "key_traits_summary": "Darkvision 60ft, Keen Senses (+Perception), Fey Ancestry, Trance (4h)",
+        "category_tags": ["Darkvision", "Defenses/Immunities", "Dexterity"],
+        "overview": (
+            "Elves are a magical people of ethereal beauty hailing from the Feywild. Their lithe forms tread silently without "
+            "making a sound, and their faces never wither with age. They view the unfolding of history from the perspective of "
+            "those who watch entire empires rise and crumble across a single lifetime, devoting centuries to fencing, lyric poetry, "
+            "and the arcane arts with timeless mastery."
+        ),
+        "traits": [
+            ("Darkvision", (
+                "Accustomed to twilit forests and the starlit night, you can see in dim light within 60 feet as if it were bright light, "
+                "and in darkness as if it were dim light (discerning shades of gray in darkness)."
+            )),
+            ("Keen Senses", (
+                "You possess heightened senses and gain innate proficiency in the Perception skill."
+            )),
+            ("Fey Ancestry", (
+                "You have advantage on saving throws against being charmed, and magic cannot put you to sleep."
+            )),
+            ("Trance", (
+                "Elves do not sleep: they meditate deeply for 4 hours a day while remaining semiconscious of their surroundings. "
+                "This state provides the same benefits as 8 hours of deep human sleep."
+            ))
+        ],
+        "subraces_preview": [
+            "High Elf (+1 Intelligence, one wizard cantrip of your choice, 1 extra language, and elven weapon training)",
+            "Wood Elf (+1 Wisdom, 35 ft speed, and Mask of the Wild to hide even when lightly obscured by nature)",
+            "Dark Elf / Drow (+1 Charisma, Superior Darkvision 120ft, and innate Drow Magic: Dancing Lights, Faerie Fire, Darkness)"
+        ]
+    },
+    "Nano": {
+        "tagline": "Proud defenders of mountain strongholds, unyielding as bedrock and legendary crafters of steel and gemstones.",
+        "bonuses_display": "+2 Constitution",
+        "languages": "Common, Dwarvish",
+        "vision": "Darkvision 60 ft (18 m)",
+        "lifespan": "Considered youth until age 50, living on average over 350 years.",
+        "synergies": "Perfect for Fighters, Clerics, Barbarians, and Paladins thanks to colossal Constitution and poison resilience.",
+        "best_classes": "Fighter, Cleric, Barbarian, Paladin",
+        "resistances": "Poison Resistance (halve all poison damage), Advantage vs Poison",
+        "key_traits_summary": "Darkvision 60ft, Dwarven Resilience (Poison Resist), Dwarven Combat Training, Speed unhindered by heavy armor",
+        "category_tags": ["Darkvision", "Resistances", "Melee/Strength"],
+        "overview": (
+            "Dwarves are renowned across the cosmos for their unbending sense of honor, fierce clan loyalty, and enduring memory "
+            "for ancient alliances and blood feuds. Carving magnificent halls in the bellies of mountains, they forge indestructible arms "
+            "and armor. Their stride is resolute and their tenacity proverbial: a dwarf never surrenders ground nor bows beneath the burden of heavy plate."
+        ),
+        "traits": [
+            ("Darkvision", (
+                "Accustomed to subterranean shafts and caverns, you can see in darkness within 60 feet as if it were dim light."
+            )),
+            ("Dwarven Resilience", (
+                "You have advantage on saving throws against poison, and you have resistance against poison damage (halving all incoming poison damage)."
+            )),
+            ("Dwarven Combat Training", (
+                "Proficiency with the battleaxe, handaxe, light hammer, and warhammer."
+            )),
+            ("Surefooted Stride", (
+                "Your base walking speed (25 ft) is never reduced by wearing heavy armor, even if you lack the Strength requirement!"
+            )),
+            ("Stonecunning", (
+                "Whenever you make an Intelligence (History) check related to the origin of stonework, you add double your proficiency bonus to the check."
+            ))
+        ],
+        "subraces_preview": [
+            "Hill Dwarf (+1 Wisdom and Dwarven Toughness: gain +1 maximum Hit Point per character level)",
+            "Mountain Dwarf (+2 additional Strength and natural proficiency with light and medium armor)",
+            "Gray Dwarf / Duergar (Superior Darkvision 120ft, innate invisibility, and growth powers in the Underdark)"
+        ]
+    },
+    "Halfling": {
+        "tagline": "A diminutive and gentle folk blessed with uncanny good fortune, navigating every hazard with agility and cheerful resolve.",
+        "bonuses_display": "+2 Dexterity",
+        "languages": "Common, Halfling",
+        "vision": "Normal",
+        "lifespan": "Adults at 20, happily living up to about 150 years.",
+        "synergies": "Superb for Rogues, Bards, Rangers, and Sorcerers: the Lucky trait practically eliminates critical failures on d20s!",
+        "best_classes": "Rogue, Bard, Ranger, Sorcerer",
+        "resistances": "Advantage vs Frightened (Brave), Reroll natural 1s (Lucky)",
+        "key_traits_summary": "Lucky (reroll natural 1s on d20s), Brave, Halfling Nimbleness through larger spaces",
+        "category_tags": ["Small Size", "Defenses/Immunities", "Dexterity"],
+        "overview": (
+            "Halflings cherish peaceful pastoral routines, lush hearths, rich feasts, and good cheer. Yet when fate calls, "
+            "they display startling courage and grit. Small of stature and whisper-quiet in movement, they slip past perils "
+            "and overcome towering adversaries with lighthearted humor and luck that borders on the miraculous."
+        ),
+        "traits": [
+            ("Lucky", (
+                "When you roll a 1 on the d20 for an attack roll, ability check, or saving throw, you can reroll the die and must use the new roll! "
+                "(One of the most potent passive traits in D&D)."
+            )),
+            ("Brave", (
+                "You have advantage on saving throws against being frightened."
+            )),
+            ("Halfling Nimbleness", (
+                "You can move through the space of any creature that is of a size larger than yours (Medium or larger)."
+            ))
+        ],
+        "subraces_preview": [
+            "Lightfoot Halfling (+1 Charisma and Naturally Stealthy: attempt to hide even when obscured only by a Medium creature)",
+            "Stout Halfling (+1 Constitution, advantage on saving throws against poison, and poison damage resistance)",
+            "Ghostwise Halfling (+1 Wisdom and short-range silent telepathy with companions)"
+        ]
+    },
+    "Draconide": {
+        "tagline": "Proud humanoids carrying the blood of ancient dragons, devoted to martial honor, clan glory, and elemental breath weapons.",
+        "bonuses_display": "+2 Strength, +1 Charisma",
+        "languages": "Common, Draconic",
+        "vision": "Normal",
+        "lifespan": "Mature rapidly (adults by 15) and live around 80 years.",
+        "synergies": "Ideal for Paladins, Fighters, Barbarians, and Sorcerers thanks to the synergy of colossal Strength and commanding Charisma.",
+        "best_classes": "Paladin, Fighter, Barbarian, Sorcerer",
+        "resistances": "Elemental Resistance (Fire, Cold, Acid, Lightning, or Poison based on ancestry)",
+        "key_traits_summary": "Draconic Ancestry, Breath Weapon (cone/line 2d6+ resets on rest), Damage Resistance",
+        "category_tags": ["Resistances", "Melee/Strength", "Innate Magic"],
+        "overview": (
+            "Dragonborn carry in their every gesture the poise and legacy of ancient wyrms. Lacking wings or tail but clad in iridescent "
+            "scale armor with imposing draconic silhouettes, they hold personal honor and the renown of their clan above all else. "
+            "In battle they fight with chivalrous fury, unleashing breath weapons of searing fire, crackling lightning, or biting frost that break enemy formations."
+        ),
+        "traits": [
+            ("Draconic Ancestry", (
+                "Choose a dragon progenitor heritage that dictates your elemental breath weapon damage type and matching damage resistance:\n"
+                "• Red / Gold / Brass: Fire\n"
+                "• Blue / Bronze: Lightning\n"
+                "• Black / Copper: Acid\n"
+                "• Silver / White: Cold\n"
+                "• Green: Poison"
+            )),
+            ("Breath Weapon", (
+                "As an action, exhale destructive energy in a 15-ft cone or 30-ft line (based on ancestry).\n"
+                "• Deals 2d6 damage (Dex or Con save DC = 8 + CON mod + prof for half).\n"
+                "• Damage scales to 3d6 at 6th lvl, 4d6 at 11th lvl, 5d6 at 16th lvl.\n"
+                "• Recharges on a short or long rest!"
+            )),
+            ("Damage Resistance", (
+                "You gain permanent resistance to the damage type associated with your draconic ancestry (halving all incoming damage of that element!)."
+            ))
+        ],
+        "subraces_preview": [
+            "Chromatic Dragonborn (Explosive breath cones and temporary elemental immunity at higher levels)",
+            "Metallic Dragonborn (Secondary debilitating breath to push back or incapacitate foes)",
+            "Gem Dragonborn (Force, psychic, or radiant breath with spectral flight at will)"
+        ]
+    },
+    "Gnomo": {
+        "tagline": "Ingenious inventors, scholars, and illusionists, driven by an unquenchable curiosity and sparkling intellect.",
+        "bonuses_display": "+2 Intelligence",
+        "languages": "Common, Gnomish",
+        "vision": "Darkvision 60 ft (18 m)",
+        "lifespan": "Adults at 40, regularly living between 350 and 500 years.",
+        "synergies": "The prime choice for Wizards, Artificers, Rogues, and investigative Clerics thanks to high Intelligence and Gnome Cunning.",
+        "best_classes": "Wizard, Artificer, Rogue, Cleric",
+        "resistances": "Advantage vs Magic (Gnome Cunning: INT, WIS, CHA saves against spells)",
+        "key_traits_summary": "Darkvision 60ft, Gnome Cunning (defensive aegis vs mental magic)",
+        "category_tags": ["Small Size", "Darkvision", "Defenses/Immunities", "Innate Magic"],
+        "overview": (
+            "A gnome's enthusiasm for life, invention, and lore is boundless. Speaking at a rapid clip with eyes alight with curiosity, "
+            "they treat the multiverse as a grand puzzle waiting to be unlocked and perfected. Dwelling in hidden burrow towns or enchanted woodlands, "
+            "they assemble wondrous mechanical gadgets or weave subtle illusions to confound enemies and shield their communities."
+        ),
+        "traits": [
+            ("Darkvision", (
+                "Accustomed to life underground or dimly lit workshops, you can see in darkness within 60 feet as if it were dim light."
+            )),
+            ("Gnome Cunning", (
+                "You have advantage on ALL Intelligence, Wisdom, and Charisma saving throws against magic! "
+                "(One of the most potent passive defenses in D&D against mental domination, illusions, and charms)."
+            ))
+        ],
+        "subraces_preview": [
+            "Rock Gnome (+1 Constitution, double History checks on clockwork/magic items, and Tinker ability to craft music boxes and lighters)",
+            "Forest Gnome (+1 Dexterity, free Minor Illusion cantrip, and the ability to speak with small beasts)",
+            "Deep Gnome / Svirfneblin (Superior Darkvision 120ft, stone camouflage, and Underdark stealth)"
+        ]
+    },
+    "Mezzelfo": {
+        "tagline": "Heirs to two worlds: blending human passion and drive with the timeless elegance and fey senses of the elves.",
+        "bonuses_display": "+2 Charisma, +1 to two other ability scores of your choice",
+        "languages": "Common, Elvish, and one extra language of your choice",
+        "vision": "Darkvision 60 ft (18 m)",
+        "lifespan": "Mature at 20 and can live past 180 years.",
+        "synergies": "Ideal for Bards, Sorcerers, Warlocks, and Paladins: +2 Charisma, versatile ability scores, and extra skills make them unstoppable.",
+        "best_classes": "Bard, Sorcerer, Paladin, Warlock",
+        "resistances": "Immunity to Magical Sleep, Advantage vs Charmed (Fey Ancestry)",
+        "key_traits_summary": "Darkvision 60ft, Fey Ancestry, Skill Versatility (2 free skill proficiencies)",
+        "category_tags": ["Darkvision", "Defenses/Immunities", "Charisma/Versatility"],
+        "overview": (
+            "Half-elves walk the boundary between two worlds, frequently thriving as diplomats, ambassadors, and cosmopolitan wanderers. "
+            "They possess the ethereal charm and longevity of elves matched with the relentless grit and resourcefulness of humans. "
+            "Their knack for mastering diverse proficiencies makes them invaluable and multifaceted in any adventuring party."
+        ),
+        "traits": [
+            ("Darkvision", (
+                "Thanks to your elven blood, you can see in darkness within 60 feet as if it were dim light."
+            )),
+            ("Fey Ancestry", (
+                "You have advantage on saving throws against being charmed, and magic cannot put you to sleep."
+            )),
+            ("Skill Versatility", (
+                "You gain proficiency in two skills of your choice from any available in the game!"
+            ))
+        ],
+        "subraces_preview": [
+            "Traditional Half-Elf (Skill Versatility granting two free skill proficiencies of your choice)",
+            "High Elf Variant (Trades extra skills for a wizard cantrip or elven weapon training)",
+            "Wood Elf Variant (Trades extra skills for 35 ft speed or Mask of the Wild camouflage)"
+        ]
+    },
+    "Mezzorco": {
+        "tagline": "Warriors of inexhaustible stamina and devastating ferocity, enduring mortal blows out of fierce love or boundless fury.",
+        "bonuses_display": "+2 Strength, +1 Constitution",
+        "languages": "Common, Orc",
+        "vision": "Darkvision 60 ft (18 m)",
+        "lifespan": "Mature at 14 and rarely live beyond 75 due to their martial lifestyle.",
+        "synergies": "Supreme front-line powerhouses for Barbarians, Fighters, and Paladins: brutal critical hits and defying 0 HP death.",
+        "best_classes": "Barbarian, Fighter, Paladin",
+        "resistances": "Relentless Endurance (drop to 1 HP instead of falling to 0 HP)",
+        "key_traits_summary": "Darkvision 60ft, Menacing (+Intimidation), Relentless Endurance (survive at 1 HP), Savage Attacks",
+        "category_tags": ["Darkvision", "Melee/Strength", "Defenses/Immunities"],
+        "overview": (
+            "Half-orcs feel passions burning hot in their veins: unbridled joy, savage wrath, and unbreakable loyalty toward those who "
+            "demonstrate true respect. Though often met with wary glances in cities, they forge their place in the world through "
+            "feats of titanic strength and stoic courage, refusing to yield even when struck by the deadliest blow."
+        ),
+        "traits": [
+            ("Darkvision", (
+                "Thanks to your orc heritage, you can see in darkness within 60 feet as if it were dim light."
+            )),
+            ("Menacing", (
+                "Your imposing presence inspires fear: you gain free proficiency in the Intimidation skill."
+            )),
+            ("Relentless Endurance", (
+                "When you are reduced to 0 Hit Points but not killed outright, you can drop to 1 Hit Point instead! "
+                "(Once per long rest; this trait regularly turns the tide of combat in clutch moments)."
+            )),
+            ("Savage Attacks", (
+                "When you score a critical hit with a melee weapon attack, you can roll one of the weapon's damage dice one additional time "
+                "and add it to the extra damage of the critical hit!"
+            ))
+        ],
+        "subraces_preview": [
+            "Wild Clan Half-Orc (Shamanic traditions and hardened resistance to extreme wilderness)",
+            "Urban Half-Orc (Adapted to mercantile guilds, city watch, or underworld enforcers)"
+        ]
+    },
+    "Tiefling": {
+        "tagline": "Bearers of an ancient infernal bloodline, mastering fire and dark magic while defying the prejudices of the world.",
+        "bonuses_display": "+2 Charisma, +1 Intelligence",
+        "languages": "Common, Infernal",
+        "vision": "Darkvision 60 ft (18 m)",
+        "lifespan": "Mature at the same rate as humans and live around 90-100 years.",
+        "synergies": "Sensational for Sorcerers, Warlocks, Bards, and Wizards: commanding Charisma, fire resistance, and free innate spells.",
+        "best_classes": "Sorcerer, Warlock, Bard, Wizard",
+        "resistances": "Fire Resistance (halves all fire damage received - Hellish Resistance)",
+        "key_traits_summary": "Darkvision 60ft, Hellish Resistance (Fire), Infernal Legacy (innate dark spells)",
+        "category_tags": ["Darkvision", "Resistances", "Innate Magic"],
+        "overview": (
+            "Tieflings carry upon their flesh the indelible mark of an ancient pact struck by their ancestors with the lords of the Nine Hells. "
+            "Imposing horns, skin in shades of crimson or bronze, sharp teeth, and a prehensile tail frequently make them targets of superstitious fear. "
+            "Yet their destiny is not dictated by hellfire: many tieflings walk paths of nobility and redemption, wielding their dark gifts to protect the innocent and vanquish true monsters."
+        ),
+        "traits": [
+            ("Darkvision", (
+                "Your infernal eyes pierce darkness up to 60 feet in shades of red and gray."
+            )),
+            ("Hellish Resistance", (
+                "Your infernal heritage shields you from flames: you have permanent resistance to fire damage (halving all fire damage from spells, traps, or dragon breath!)."
+            )),
+            ("Infernal Legacy", (
+                "You manifest innate dark magic using Charisma as your spellcasting ability:\n"
+                "• 1st level: You know the Thaumaturgy cantrip.\n"
+                "• 3rd level: You can cast Hellish Rebuke as a 2nd-level spell once per long rest.\n"
+                "• 5th level: You can cast Darkness once per long rest."
+            ))
+        ],
+        "subraces_preview": [
+            "Bloodline of Asmodeus (Intelligence and Charisma with Thaumaturgy, Hellish Rebuke, and Darkness)",
+            "Bloodline of Mephistopheles (+1 Intelligence, Burning Hands, and Flame Blade)",
+            "Bloodline of Zariel (+1 Strength, Searing Smite, and flame-infused martial prowess)",
+            "Bloodline of Levistus (+1 Constitution, Ray of Frost, and Armor of Agathys)"
+        ]
+    }
+}
+
+
+def get_race_info(race_name: str, lang: Optional[str] = None) -> Dict[str, Any]:
+    """Restituisce le informazioni dettagliate della razza o Umano come fallback, localizzate in lingua."""
+    if lang is None:
+        try:
+            from common.i18n import get_current_language
+            lang = get_current_language()
+        except Exception:
+            lang = "it"
+            
+    from common.i18n import translate_race
+    it_name = translate_race(race_name, "it")
+    base_info = dict(RACES.get(it_name, RACES.get(race_name, RACES["Umano"])))
+    
+    if lang == "en":
+        en_info = RACES_EN.get(it_name, RACES_EN.get(race_name))
+        if en_info:
+            base_info.update(en_info)
+    return base_info
+
 
 
 def get_race_names() -> List[str]:

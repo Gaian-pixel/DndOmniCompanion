@@ -616,9 +616,488 @@ for _c_name, _c_info in CLASSES.items():
     )
 
 
-def get_class_info(class_name: str) -> Dict[str, Any]:
-    """Restituisce le informazioni dettagliate della classe o Guerriero come fallback."""
-    return CLASSES.get(class_name, CLASSES["Guerriero"])
+
+CLASSES_EN: Dict[str, Dict[str, Any]] = {
+    "Barbaro": {
+        "complexity": "⭐ Beginner (Direct action, colossal health pool, intuitive Rage management)",
+        "role": "🛡️ Primary Tank & Melee Damage (Striker)",
+        "tagline": "A fierce primordial warrior fueled by a savage fury that defies death and crushes every obstacle.",
+        "primary_stat": "Strength (Attack & Damage), Constitution (Hit Points & AC)",
+        "saving_throws": "Strength, Constitution",
+        "armor_prof": "Light armor, medium armor, shields",
+        "weapon_prof": "Simple weapons, martial weapons",
+        "tools_prof": "None",
+        "skills_info": "Choose 2 from Animal Handling, Athletics, Intimidation, Nature, Perception, Survival",
+        "quick_build": "Assign your 15 to Strength and 14 to Constitution. Put 13 in Dexterity (for unarmored AC) and leave 8 in Intelligence.",
+        "starter_gear": "Greataxe (1d12), 2 Handaxes, 4 Javelins, Explorer's Pack, 10 Gold Coins (No armor needed)",
+        "starter_spells": None,
+        "overview": (
+            "From the frozen northern tundras to the depths of primordial jungles, barbarians embody the untamed power "
+            "of the earth. In battle, they do not rely on cold academic technique; instead, they awaken an ancestral rage "
+            "that vastly expands their physical strength, sharpens their reflexes, and renders their flesh exceptionally "
+            "resilient to pain. For a barbarian, combat is the ultimate celebration of vitality and primal instinct."
+        ),
+        "features_lvl1": [
+            ("Rage", (
+                "In battle, you can enter a rage as a bonus action (2 times per long rest at 1st level).\n"
+                "While raging and wearing no heavy armor:\n"
+                "• Advantage on all Strength checks and Strength saving throws.\n"
+                "• +2 bonus to melee weapon damage rolls using Strength.\n"
+                "• Resistance to bludgeoning, piercing, and slashing damage (halving incoming physical damage!).\n"
+                "Rage lasts for 1 minute and ends early if you are knocked unconscious or if your turn ends and you haven't attacked a hostile creature or taken damage."
+            )),
+            ("Unarmored Defense", (
+                "While you are not wearing any armor, your Armor Class equals 10 + your Dexterity modifier + "
+                "your Constitution modifier. You can use a shield and still gain this benefit (+2 AC)."
+            ))
+        ],
+        "playstyle": (
+            "You are the immovable rock and the vanguard battering ram of the party. With the highest Hit Die in the game "
+            "(d12) and damage resistance from Rage, you can leap into the thick of enemy lines, absorb devastating blows "
+            "meant for fragile allies, and shatter key targets with greataxe or hammer. Outside battle, your keen senses and "
+            "athletic prowess make you ideal for overcoming physical hazards."
+        ),
+        "subclasses_preview": [
+            "Path of the Berserker (Overwhelming frenzy granting bonus action attacks, plus immunity to charm and fear)",
+            "Path of the Totem Warrior (Bear Spirit for resistance to all damage types except psychic, Eagle, or Wolf)",
+            "Path of the Zealot (Divine fury dealing extra radiant/necrotic damage on every hit, and free resurrection)"
+        ]
+    },
+    "Bardo": {
+        "complexity": "⭐⭐⭐ Advanced (Versatile full spellcaster, Bardic Inspiration economy, and battlefield control)",
+        "role": "🎭 Supreme Support, Buffer/Debuffer, Party Face & Skill Expert",
+        "tagline": "Master of word, song, and subtle magic, weaving spells from the resonant harmonies of the multiverse.",
+        "primary_stat": "Charisma (Spellcasting & Social Skills), Dexterity (AC & Finesse Weapons)",
+        "saving_throws": "Dexterity, Charisma",
+        "armor_prof": "Light armor",
+        "weapon_prof": "Simple weapons, hand crossbows, longswords, rapiers, shortswords",
+        "tools_prof": "Three musical instruments of your choice",
+        "skills_info": "Choose any 3 skills (maximum customization versatility)",
+        "quick_build": "Assign 15 to Charisma and 14 to Dexterity. Put 13 in Constitution (for Concentration saves) and leave 8 in Strength.",
+        "starter_gear": "Leather Armor (AC 11+DEX), Rapier (1d8 finesse), Dagger, Lute (Arcane Focus), Entertainer's Pack, 15 Gold Coins",
+        "starter_spells": "2 Cantrips (Vicious Mockery, Dancing Lights) + 4 1st-level Spells (Cure Wounds, Healing Word, Sleep, Dissonant Whispers) | 2 1st-level Spell Slots",
+        "overview": (
+            "Whether chanting stirring ballads in royal courts or reciting forbidden lore in harbor taverns, bards understand that "
+            "the cosmos sprang from the primordial music of Creation. By learning to pluck and weave these cosmic threads, the bard "
+            "casts spells that confound enemy minds, mend ally wounds, and inspire legendary bravery in the face of dragons and fiends."
+        ),
+        "features_lvl1": [
+            ("Spellcasting", (
+                "You cast spells drawing upon cosmic harmony using Charisma as your spellcasting ability "
+                "(Spell Save DC = 8 + proficiency + CHA mod; Attack = prof + CHA mod)."
+            )),
+            ("Bardic Inspiration", (
+                "As a bonus action, grant an ally within 60 ft an Inspiration Die (1d6). The creature can add it to one ability "
+                "check, attack roll, or saving throw within 10 minutes. Uses equal to your Charisma modifier (minimum 1), resetting on a long rest."
+            ))
+        ],
+        "playstyle": (
+            "You are the tactical conductor of the party. With healing, crowd-control enchantments, and Bardic Inspiration, "
+            "you turn close battles into effortless triumphs. Outside combat, your Charisma and Jack of All Trades allow you "
+            "to talk your way into anywhere and overcome any social obstacle."
+        ),
+        "subclasses_preview": [
+            "College of Lore (Bonus skills, Cutting Words to debuff enemy rolls, and early Magical Secrets)",
+            "College of Valor (Medium armor, shields, martial weapons, and inspiring combat damage)",
+            "College of Glamour (Mantle of Inspiration and mesmerizing fey charm)"
+        ]
+    },
+    "Chierico": {
+        "complexity": "⭐⭐ Intermediate (Full prepared spellcaster, divine domain specialization, and armor proficiency)",
+        "role": "⛪ Healer, Radiant Damage Striker & Divine Support",
+        "tagline": "A devout champion of the divine, channeling holy wrath and miraculous healing power.",
+        "primary_stat": "Wisdom (Spells & Perception), Strength or Constitution (Armor & Concentration)",
+        "saving_throws": "Wisdom, Charisma",
+        "armor_prof": "Light armor, medium armor, shields (plus heavy armor for select domains)",
+        "weapon_prof": "Simple weapons (plus martial weapons for select domains)",
+        "tools_prof": "None",
+        "skills_info": "Choose 2 from History, Insight, Medicine, Persuasion, Religion",
+        "quick_build": "Assign 15 to Wisdom and 14 to Constitution (or Strength for heavy armor). Put 13 in Strength and leave 8 in Dexterity.",
+        "starter_gear": "Mace, Scale Mail (AC 14+DEX) or Chain Mail, Shield (+2 AC), Holy Symbol, Priest's Pack, 15 Gold Coins",
+        "starter_spells": "3 Cantrips (Sacred Flame, Guidance, Thaumaturgy) + Prepared Spells (WIS mod + 1) | 2 1st-level Spell Slots",
+        "overview": (
+            "Clerics are conduits of divine power. Where ordinary mortals offer prayers, clerics invest their very souls "
+            "into serving cosmic deities of Life, Light, War, or the Grave, unleashing miracles that heal lethal injuries or "
+            "smite the unholy with radiant dawn."
+        ),
+        "features_lvl1": [
+            ("Divine Domain", (
+                "Choose your deity's domain at 1st level (Life, Light, War, Tempest, etc.), gaining bonus domain spells "
+                "and signature 1st-level divine powers."
+            )),
+            ("Spellcasting", (
+                "You prepare spells each long rest from the entire Cleric list using Wisdom as your spellcasting ability."
+            ))
+        ],
+        "playstyle": (
+            "A versatile pillar of strength in both front line and back line. You can wear durable armor, wield a shield, "
+            "protect companions with Bless and Healing Word, and blast fiends with Sacred Flame and Guiding Bolt."
+        ),
+        "subclasses_preview": [
+            "Life Domain (Supreme healing output with Disciple of Life and heavy armor)",
+            "Light Domain (Warding Flare defensive reaction and blasting with Fireball)",
+            "War Domain (Bonus melee attacks as bonus action and guided strikes)"
+        ]
+    },
+    "Druido": {
+        "complexity": "⭐⭐⭐ Advanced (Wild Shape mechanics, prepared nature spellcasting, battlefield shaping)",
+        "role": "🌿 Nature Controller, Elemental Blaster, Off-Tank (Wild Shape) & Healer",
+        "tagline": "Keeper of the ancient order of nature, mastering beast transformations and raw elemental magic.",
+        "primary_stat": "Wisdom (Spellcasting & Insight), Constitution (Concentration & Hit Points)",
+        "saving_throws": "Intelligence, Wisdom",
+        "armor_prof": "Light armor, medium armor, shields (druids will not wear armor or use shields made of metal)",
+        "weapon_prof": "Clubs, daggers, darts, javelins, maces, quarterstaffs, scimitars, sickles, slings, spears",
+        "tools_prof": "Herbalism kit",
+        "skills_info": "Choose 2 from Arcana, Animal Handling, Insight, Medicine, Nature, Perception, Religion, Survival",
+        "quick_build": "Assign 15 to Wisdom and 14 to Constitution. Put 13 in Dexterity and leave 8 in Strength.",
+        "starter_gear": "Wooden Shield (+2 AC), Scimitar, Leather Armor, Druidic Focus, Explorer's Pack, Herbalism Kit",
+        "starter_spells": "2 Cantrips (Druidcraft, Produce Flame) + Prepared Spells (WIS mod + 1) | 2 1st-level Spell Slots",
+        "overview": (
+            "Druids revere nature above all, gaining their spells and abilities from the primordial spirits of the wilderness. "
+            "Holding counsel in sacred groves, they guard the balance of life, commanding storms, tangling roots, and "
+            "transforming their bodies into fierce beasts."
+        ),
+        "features_lvl1": [
+            ("Druidic Language", (
+                "You know Druidic, the secret language of druids, leaving hidden messages that only other druids can discern."
+            )),
+            ("Spellcasting", (
+                "You prepare spells each long rest from the entire Druid list using Wisdom as your spellcasting ability."
+            ))
+        ],
+        "playstyle": (
+            "You excel at controlling the battlefield with spells like Entangle and Faerie Fire, supporting allies with healing, "
+            "and transforming into bears, wolves, or scouts with Wild Shape starting at level 2."
+        ),
+        "subclasses_preview": [
+            "Circle of the Moon (Combat Wild Shape as a bonus action into powerful CR 1 beasts like brown bears)",
+            "Circle of the Land (Natural Recovery spell slot restoration and expanded domain spells)",
+            "Circle of the Stars (Starry forms boosting healing, ranged radiant attacks, or concentration)"
+        ]
+    },
+    "Guerriero": {
+        "complexity": "⭐ Beginner (Unmatched weapon mastery, durable defense, tactical versatility)",
+        "role": "⚔️ Primary Martial Striker, Front-Line Guardian & Weapon Master",
+        "tagline": "A master of martial combat, skilled with a variety of weapons and armor to conquer any battle.",
+        "primary_stat": "Strength or Dexterity (Attacks & Damage), Constitution (Health)",
+        "saving_throws": "Strength, Constitution",
+        "armor_prof": "All armor, shields",
+        "weapon_prof": "Simple weapons, martial weapons",
+        "tools_prof": "None",
+        "skills_info": "Choose 2 from Acrobatics, Animal Handling, Athletics, History, Insight, Intimidation, Perception, Survival",
+        "quick_build": "Assign 15 to Strength (or Dexterity for archers) and 14 to Constitution. Put 13 in Dexterity/Strength and leave 8 in Intelligence.",
+        "starter_gear": "Chain Mail (AC 16) or Leather Armor + Longbow, Longsword + Shield or Greatsword (2d6), Light Crossbow, Dungeoneer's Pack",
+        "starter_spells": None,
+        "overview": (
+            "Knights, champions, mercenaries, and veteran guards: fighters master the art of warfare through rigorous training. "
+            "Clad in heavy armor and wielding lethal weaponry with deadly discipline, they stand firm against monstrous hordes and dread warlords."
+        ),
+        "features_lvl1": [
+            ("Fighting Style", (
+                "Adopt a particular fighting style: Archery (+2 attack with ranged weapons), Defense (+1 AC), "
+                "Dueling (+2 damage with 1-handed weapons), or Great Weapon Fighting (reroll 1s and 2s on two-handed damage)."
+            )),
+            ("Second Wind", (
+                "You have a limited well of stamina. On your turn, you can use a bonus action to regain Hit Points "
+                "equal to 1d10 + your fighter level once per short or long rest!"
+            ))
+        ],
+        "playstyle": (
+            "You are the backbone of any martial group. You dish out consistent high damage, lock down foes, and "
+            "shrug off blows with Second Wind and heavy plate."
+        ),
+        "subclasses_preview": [
+            "Champion (Improved Critical on 19-20 and athletic mastery)",
+            "Battle Master (Combat maneuvers and superiority dice: Trip Attack, Riposte, Menacing Attack)",
+            "Eldritch Knight (Blending blade mastery with Abjuration and Evocation wizard magic)"
+        ]
+    },
+    "Monaco": {
+        "complexity": "⭐⭐ Intermediate (Ki point economy, mobility, unarmored martial arts strikes)",
+        "role": "🥋 High-Mobility Skirmisher, Stunner & Flurry Striker",
+        "tagline": "A master of martial arts, harnessing the primordial power of the body in pursuit of spiritual perfection.",
+        "primary_stat": "Dexterity (Martial Arts Attacks & AC), Wisdom (Ki Save DC & Unarmored Defense)",
+        "saving_throws": "Strength, Dexterity",
+        "armor_prof": "None",
+        "weapon_prof": "Simple weapons, shortswords",
+        "tools_prof": "One type of artisan's tools or one musical instrument",
+        "skills_info": "Choose 2 from Acrobatics, Athletics, History, Insight, Religion, Stealth",
+        "quick_build": "Assign 15 to Dexterity and 14 to Wisdom. Put 13 in Constitution and leave 8 in Intelligence.",
+        "starter_gear": "Shortsword (1d6), 10 Darts, Dungeoneer's Pack, Explorer's Pack (No armor needed)",
+        "starter_spells": None,
+        "overview": (
+            "Monks harness the inner energy flowing through all living things: Ki. In secluded monasteries, they train "
+            "mind and body until their fists strike with the force of clubs and their swiftness allows them to deflect arrows out of midair."
+        ),
+        "features_lvl1": [
+            ("Unarmored Defense", (
+                "Beginning at 1st level, while you wear no armor and wield no shield, your AC equals 10 + your Dexterity modifier + your Wisdom modifier."
+            )),
+            ("Martial Arts", (
+                "Mastery of unarmed combat: use Dexterity instead of Strength for monk weapons and unarmed strikes, "
+                "roll a d4 for unarmed damage, and make an unarmed strike as a bonus action after attacking!"
+            ))
+        ],
+        "playstyle": (
+            "Sprint across the battlefield with unparalleled speed, harass enemy spellcasters, and unleash multiple strikes "
+            "per turn before dashing away unhindered."
+        ),
+        "subclasses_preview": [
+            "Way of the Open Hand (Techniques to knock enemies prone, push them 15 ft, or strip reactions)",
+            "Way of Shadow (Shadow teleportation and silent ninja stealth magic)",
+            "Way of the Kensei (Expanding martial arts to swords, longbows, and signature weapons)"
+        ]
+    },
+    "Paladino": {
+        "complexity": "⭐⭐ Intermediate (Martial combat, divine spellcasting, smites, and sacred auras)",
+        "role": "🛡️ Front-Line Tank, Divine Burst Striker & Aura Buffer",
+        "tagline": "A holy warrior bound by a sacred oath, channeling righteous power to vanquish evil and heal the fallen.",
+        "primary_stat": "Strength (Melee Attacks & Armor), Charisma (Spellcasting & Auras)",
+        "saving_throws": "Wisdom, Charisma",
+        "armor_prof": "All armor, shields",
+        "weapon_prof": "Simple weapons, martial weapons",
+        "tools_prof": "None",
+        "skills_info": "Choose 2 from Athletics, Insight, Intimidation, Medicine, Persuasion, Religion",
+        "quick_build": "Assign 15 to Strength and 14 to Charisma. Put 13 in Constitution and leave 8 in Dexterity.",
+        "starter_gear": "Chain Mail (AC 16), Longsword + Shield (+2 AC) or Greatsword, 5 Javelins, Priest's Pack, Holy Symbol",
+        "starter_spells": None,
+        "overview": (
+            "Paladins swear sacred oaths that resonate through the cosmos. Whether devoted to Justice, Devotion, Vengeance, "
+            "or the Ancients, a paladin's conviction is so unyielding that it manifests as radiant divine magic, smiting fiends and curing diseases."
+        ),
+        "features_lvl1": [
+            ("Divine Sense", (
+                "As an action, detect the presence of celestials, fiends, and undead within 60 feet (uses equal to 1 + CHA mod per long rest)."
+            )),
+            ("Lay on Hands", (
+                "You have a pool of healing power equal to your paladin level × 5. As an action, touch a creature to restore "
+                "Hit Points or spend 5 points to cure a disease or neutralize a poison."
+            ))
+        ],
+        "playstyle": (
+            "You lead from the front, absorbing enemy strikes, curing ailments, and delivering massive burst damage with "
+            "Divine Smite when you score critical hits."
+        ),
+        "subclasses_preview": [
+            "Oath of Devotion (Sacred Weapon adding Charisma to attack rolls and Turn the Unholy)",
+            "Oath of Vengeance (Vow of Enmity granting advantage on all attacks against a chosen foe and Hunter's Mark)",
+            "Oath of the Ancients (Aura of Warding granting resistance to all spell damage)"
+        ]
+    },
+    "Ranger": {
+        "complexity": "⭐⭐ Intermediate (Survival tracking, martial archery/melee, nature spells)",
+        "role": "🏹 Ranged Scout, Survivalist & Skirmisher",
+        "tagline": "A warrior of the wild frontier, tracking prey with supernatural precision and lethal archery.",
+        "primary_stat": "Dexterity (Ranged Attacks & AC), Wisdom (Spells & Survival)",
+        "saving_throws": "Strength, Dexterity",
+        "armor_prof": "Light armor, medium armor, shields",
+        "weapon_prof": "Simple weapons, martial weapons",
+        "tools_prof": "None",
+        "skills_info": "Choose 3 from Animal Handling, Athletics, Insight, Investigation, Nature, Perception, Stealth, Survival",
+        "quick_build": "Assign 15 to Dexterity and 14 to Wisdom. Put 13 in Constitution and leave 8 in Intelligence.",
+        "starter_gear": "Scale Mail or Leather Armor, 2 Shortswords, Longbow + 20 Arrows, Dungeoneer's Pack",
+        "starter_spells": None,
+        "overview": (
+            "Rangers stand guard on the fringes of civilization. Tracking monstrosities through trackless wilds, they master "
+            "the terrain, turn the environment against their foes, and weave nature magic to strike unseen."
+        ),
+        "features_lvl1": [
+            ("Favored Enemy", (
+                "Advantage on Wisdom (Survival) checks to track your chosen foes (e.g. Aberrations, Undead, Beasts) "
+                "and Intelligence checks to recall lore about them, plus their language."
+            )),
+            ("Natural Explorer", (
+                "You are adept at traveling through chosen terrain (Forest, Mountain, Swamp, etc.): your group's travel is not "
+                "slowed by difficult terrain, you cannot become lost except by magical means, and you remain alert to danger while foraging."
+            ))
+        ],
+        "playstyle": (
+            "You excel at reconnaissance, ambush tactics, tracking, and rapid ranged attacks with Hunter's Mark."
+        ),
+        "subclasses_preview": [
+            "Hunter (Colossus Slayer dealing extra 1d8 damage on wounded targets, Horde Breaker)",
+            "Gloom Stalker (Dread Ambusher bonus attack, darkvision mastery, invisibility to creatures relying on darkvision)",
+            "Beast Master (Bonding with a loyal animal companion to fight alongside you)"
+        ]
+    },
+    "Ladro": {
+        "complexity": "⭐ Beginner (Sneak Attack tactics, Cunning Action mobility, unmatched skill expertise)",
+        "role": "🗡️ Critical Burst Striker, Infiltrator, Trap Specialist & Skill Master",
+        "tagline": "A master of stealth, precision strikes, and clever tricks, exploiting weaknesses to turn the tide.",
+        "primary_stat": "Dexterity (Finesse Attacks, Stealth & AC), Intelligence or Charisma (Skills)",
+        "saving_throws": "Dexterity, Intelligence",
+        "armor_prof": "Light armor",
+        "weapon_prof": "Simple weapons, hand crossbows, longswords, rapiers, shortswords",
+        "tools_prof": "Thieves' tools",
+        "skills_info": "Choose 4 skills from Acrobatics, Athletics, Deception, Insight, Intimidation, Investigation, Perception, Performance, Persuasion, Sleight of Hand, Stealth",
+        "quick_build": "Assign 15 to Dexterity and 14 to Constitution (or Charisma/Intelligence). Put 13 in Wisdom and leave 8 in Strength.",
+        "starter_gear": "Rapier (1d8 finesse) or Shortsword, Shortbow + 20 Arrows, Leather Armor (AC 11+DEX), Thieves' Tools, Burglar's Pack",
+        "starter_spells": None,
+        "overview": (
+            "Rogues rely on cunning, stealth, and exploiting every opening. In dark alleys, forgotten tombs, or glittering "
+            "ballrooms, they solve puzzles, disarm deadly traps, pick ornate locks, and eliminate priority threats with a single lethal thrust."
+        ),
+        "features_lvl1": [
+            ("Expertise", (
+                "Choose two of your skill proficiencies (or one skill and thieves' tools): your proficiency bonus is DOUBLED "
+                "for any ability check that uses either choice! (e.g. +7 Stealth at level 1)."
+            )),
+            ("Sneak Attack", (
+                "Once per turn, you can deal an extra 1d6 damage to one creature you hit with an attack using a finesse or ranged "
+                "weapon, provided you have advantage on the roll OR an ally is within 5 feet of the target and you don't have disadvantage. "
+                "Damage scales every 2 levels (+1d6)."
+            )),
+            ("Thieves' Cant", (
+                "A secret dialect of jargon, slang, and hidden code symbols that allows you to convey hidden messages to other rogues."
+            ))
+        ],
+        "playstyle": (
+            "Position yourself carefully to trigger Sneak Attack every turn, disarm traps before they wipe the party, "
+            "and use Cunning Action at level 2 to Dash, Disengage, or Hide as a bonus action."
+        ),
+        "subclasses_preview": [
+            "Thief (Fast Hands bonus action lockpicking, Second-Story Work climbing agility)",
+            "Assassin (Assassinate advantage on foes that haven't acted, automatic critical hits on surprised targets)",
+            "Arcane Trickster (Mage Hand Legerdemain and enchantment/illusion wizard spellcasting)"
+        ]
+    },
+    "Stregone": {
+        "complexity": "⭐⭐ Intermediate (Flexible spontaneous spellcaster, Metamagic sorcery points, spell slots)",
+        "role": "🔥 Arcane Blaster, Flexible Twin/Quick Spellcaster & Sorcerous Striker",
+        "tagline": "A spellcaster bearing innate magic bestowed by an exotic bloodline, otherworldly blessing, or cosmic anomaly.",
+        "primary_stat": "Charisma (Spellcasting & Social Influence), Constitution (Concentration & Health)",
+        "saving_throws": "Constitution, Charisma",
+        "armor_prof": "None",
+        "weapon_prof": "Daggers, darts, slings, quarterstaffs, light crossbows",
+        "tools_prof": "None",
+        "skills_info": "Choose 2 from Arcana, Deception, Insight, Intimidation, Persuasion, Religion",
+        "quick_build": "Assign 15 to Charisma and 14 to Constitution. Put 13 in Dexterity (for AC) and leave 8 in Strength.",
+        "starter_gear": "Light Crossbow + 20 Bolts, Arcane Focus (Crystal/Orb), Dungeoneer's Pack or Explorer's Pack, 2 Daggers",
+        "starter_spells": "4 Cantrips (Fire Bolt, Mage Hand, Ray of Frost, Shocking Grasp) + 2 1st-level Spells (Shield, Magic Missile) | 2 1st-level Spell Slots",
+        "overview": (
+            "Sorcerers carry magic in their very veins. Unlike wizards who spend decades studying ancient tomes, sorcerers "
+            "manifest spells through raw will and supernatural heritage—born of dragon blood, wild planar storms, or celestial touched souls."
+        ),
+        "features_lvl1": [
+            ("Sorcerous Origin", (
+                "Choose your origin at 1st level (Draconic Bloodline, Wild Magic, etc.), gaining immediate supernatural resilience or wild surges."
+            )),
+            ("Spellcasting", (
+                "You cast spells from innate power using Charisma as your spellcasting ability "
+                "(Spell Save DC = 8 + prof + CHA mod; Attack = prof + CHA mod)."
+            ))
+        ],
+        "playstyle": (
+            "You unleash devastating area-of-effect and single-target spells, using Metamagic at level 3 (Quickened Spell, "
+            "Twinned Spell) to break the normal rules of magic."
+        ),
+        "subclasses_preview": [
+            "Draconic Bloodline (Dragon Ancestor resilience: +1 HP per level and permanent 13 + DEX unarmored AC)",
+            "Wild Magic (Tides of Chaos advantage on demand, triggering unpredictable Wild Magic Surges)",
+            "Divine Soul (Access to the entire Cleric spell list alongside Sorcerer spells, and Favored by the Gods)"
+        ]
+    },
+    "Warlock": {
+        "complexity": "⭐⭐ Intermediate (Pact Magic short rest spell slots, Invocations, customization)",
+        "role": "👁️ Eldritch Striker, Eldritch Blast Specialist & Dark Controller",
+        "tagline": "A wielder of magic derived from a bargain with an extraordinary otherworldly patron.",
+        "primary_stat": "Charisma (Spells & Eldritch Invocations), Constitution or Dexterity (Survival)",
+        "saving_throws": "Wisdom, Charisma",
+        "armor_prof": "Light armor",
+        "weapon_prof": "Simple weapons",
+        "tools_prof": "None",
+        "skills_info": "Choose 2 from Arcana, Deception, History, Intimidation, Investigation, Nature, Religion",
+        "quick_build": "Assign 15 to Charisma and 14 to Constitution. Put 13 in Dexterity and leave 8 in Strength.",
+        "starter_gear": "Leather Armor (AC 11+DEX), Light Crossbow, Arcane Focus, Scholar's Pack, Dagger",
+        "starter_spells": "2 Cantrips (Eldritch Blast, Minor Illusion) + 2 1st-level Spells (Hex, Armor of Agathys) | 1 Pact Magic Slot (recharges on SHORT rest!)",
+        "overview": (
+            "Warlocks seek knowledge and power beyond mortal reach, forging pacts with ancient entities: archfey, "
+            "fiends from the lower planes, or eldritch horrors from the Great Far Realm. In exchange for service, they receive "
+            "dark secrets and potent magical boons."
+        ),
+        "features_lvl1": [
+            ("Otherworldly Patron", (
+                "Choose your patron at 1st level (The Fiend, The Great Old One, The Archfey, The Hexblade), "
+                "granting unique patron spells and special features."
+            )),
+            ("Pact Magic", (
+                "Unique magic: all your spell slots are always cast at the highest spell level you can cast, and they recharge "
+                "on a SHORT rest as well as a long rest!"
+            ))
+        ],
+        "playstyle": (
+            "You rain down consistent long-range force damage with Eldritch Blast (enhanced by Agonizing Blast and Hex) "
+            "and unleash high-impact patron spells every short rest."
+        ),
+        "subclasses_preview": [
+            "The Fiend (Dark One's Blessing granting temporary HP whenever you reduce a hostile creature to 0 HP)",
+            "The Great Old One (Awakened Mind telepathy and psychic shielding)",
+            "The Hexblade (Wield Charisma for melee attack/damage rolls, medium armor, and Hexblade's Curse)"
+        ]
+    },
+    "Mago": {
+        "complexity": "⭐⭐⭐ Advanced (Massive spellbook, ritual casting without preparing, tactical flexibility)",
+        "role": "📚 Ultimate Utility, Battlefield Controller, Ritualist & High-Tier Blaster",
+        "tagline": "A scholarly magic-user capable of manipulating the fabric of reality through arcane study.",
+        "primary_stat": "Intelligence (Spellcasting & Arcana), Constitution or Dexterity (Concentration & Defense)",
+        "saving_throws": "Intelligence, Wisdom",
+        "armor_prof": "None",
+        "weapon_prof": "Daggers, darts, slings, quarterstaffs, light crossbows",
+        "tools_prof": "None",
+        "skills_info": "Choose 2 from Arcana, History, Insight, Investigation, Medicine, Religion",
+        "quick_build": "Assign 15 to Intelligence and 14 to Constitution. Put 13 in Dexterity (for AC) and leave 8 in Strength.",
+        "starter_gear": "Quarterstaff or Dagger, Arcane Focus (Wand/Orb), Scholar's Pack, Spellbook (with 6 1st-level spells)",
+        "starter_spells": "3 Cantrips (Fire Bolt, Mage Hand, Prestidigitation) + 6 1st-level Spells in Spellbook (e.g. Shield, Mage Armor, Magic Missile, Sleep, Detect Magic, Find Familiar) | 2 1st-level Slots",
+        "overview": (
+            "Wizards are the supreme scholars of the arcane. Through lifetimes of intense study, meticulous calculation, "
+            "and mastering ancient grimoires, they decipher the laws of reality. Where other casters are limited by innate "
+            "blood or divine favor, a wizard can learn and transcribe virtually any arcane spell in existence."
+        ),
+        "features_lvl1": [
+            ("Spellcasting & Spellbook", (
+                "You possess a Spellbook containing 6 1st-level spells. You prepare INT mod + level spells each day and "
+                "can transcribe new spells found on scrolls for 50 gp per level."
+            )),
+            ("Ritual Casting", (
+                "You can cast any wizard spell in your spellbook as a ritual if it has the ritual tag, WITHOUT needing to prepare it!"
+            )),
+            ("Arcane Recovery", (
+                "Once per day during a short rest, you can regain expended spell slots with a combined level equal to "
+                "up to half your wizard level (rounded up)."
+            ))
+        ],
+        "playstyle": (
+            "You have an answer for every tactical situation: crowd control with Sleep or Web, defensive survival with "
+            "Shield and Absorb Elements, and world-shaping utility with ritual spells."
+        ),
+        "subclasses_preview": [
+            "School of Evocation (Sculpt Spells protects allies from your Fireballs)",
+            "School of Abjuration (Arcane Ward absorbs damage directed at you or allies)",
+            "School of Divination (Portent rolls two d20s every morning to replace any roll throughout the day)"
+        ]
+    }
+}
+
+
+def get_class_info(class_name: str, lang: Optional[str] = None) -> Dict[str, Any]:
+    """Restituisce le informazioni dettagliate della classe o Guerriero come fallback, localizzate in lingua."""
+    if lang is None:
+        try:
+            from common.i18n import get_current_language
+            lang = get_current_language()
+        except Exception:
+            lang = "it"
+            
+    from common.i18n import translate_class
+    it_name = translate_class(class_name, "it")
+    base_info = dict(CLASSES.get(it_name, CLASSES.get(class_name, CLASSES["Guerriero"])))
+    
+    if lang == "en":
+        en_info = CLASSES_EN.get(it_name, CLASSES_EN.get(class_name))
+        if en_info:
+            base_info.update(en_info)
+    return base_info
+
 
 
 def get_class_names() -> List[str]:

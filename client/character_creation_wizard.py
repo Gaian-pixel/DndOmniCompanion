@@ -487,7 +487,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
             for widget in preview_inner.winfo_children():
                 widget.destroy()
 
-            r_info = RACES.get(r_name, RACES["Umano"])
+            r_info = get_race_info(r_name)
 
             # Race Header
             hdr = ttk.Frame(preview_inner, style="Surface.TFrame")
@@ -915,7 +915,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
             r = translate_race(raw_r, "it")
             self.char_data["race"] = r
             if r in RACES:
-                info = RACES[r]
+                info = get_race_info(r)
                 sub_dict = info.get("subraces", {})
                 for w in sub_sel_frame.winfo_children():
                     w.pack_forget()
@@ -1260,7 +1260,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
             c = translate_class(raw_c, "it")
             self.char_data["char_class"] = c
             if c in CLASSES:
-                info = CLASSES[c]
+                info = get_class_info(c)
                 name_lbl.config(text=f"{_t('lbl_class', default='Classe')}: {translate_class(c)}")
                 role_badge_lbl.config(text=info.get("role", ""))
                 complexity_lbl.config(text=info.get("complexity", "").split("(")[0].strip())

@@ -184,5 +184,75 @@ class TestI18nLanguageSwitch(unittest.TestCase):
             root.destroy()
 
 
+
+    def test_race_and_class_lore_descriptions_localization(self):
+        """Verifica che le descrizioni narrative, lore, tratti e ruoli di razze e classi siano localizzate in lingua."""
+        from common.races_data import get_race_info
+        from common.classes_data import get_class_info
+
+        # Modalità Inglese
+        set_language("en")
+        elf_en = get_race_info("Elfo")
+        self.assertTrue(elf_en["overview"].startswith("Elves are a magical people"), f"Expected English overview, got: {elf_en['overview'][:50]}")
+        self.assertEqual(elf_en["traits"][0][0], "Darkvision")
+        self.assertIn("immortal grace", elf_en["tagline"])
+
+        barb_en = get_class_info("Barbaro")
+        self.assertTrue(barb_en["overview"].startswith("From the frozen northern tundras"), f"Expected English class overview, got: {barb_en['overview'][:50]}")
+        self.assertEqual(barb_en["features_lvl1"][0][0], "Rage")
+        self.assertIn("Tank", barb_en["role"])
+
+        # Modalità Italiano
+        set_language("it")
+        elf_it = get_race_info("Elfo")
+        self.assertTrue(elf_it["overview"].startswith("Gli elfi sono un popolo"), f"Expected Italian overview, got: {elf_it['overview'][:50]}")
+        self.assertEqual(elf_it["traits"][0][0], "Scurovisione (Darkvision)")
+        self.assertIn("immortale", elf_it["tagline"])
+
+        barb_it = get_class_info("Barbaro")
+        self.assertTrue(barb_it["overview"].startswith("Dalle gelide tundre"), f"Expected Italian class overview, got: {barb_it['overview'][:50]}")
+        self.assertEqual(barb_it["features_lvl1"][0][0], "Ira (Rage)")
+        self.assertIn("Tank", barb_it["role"])
+
+    def test_campaign_editor_and_selector_localization(self):
+        """Verifica la completa internazionalizzazione dell'Editor Campagne e del Selettore Campagne."""
+        from server.campaign_editor_ui import CampaignSelectorFrame, CampaignEditorFrame
+        from common.campaign import Campaign
+
+        set_language("en")
+        self.assertEqual(_t("camp_sel_list_title"), "Available Campaigns")
+        self.assertEqual(_t("camp_tab_studio"), "🧭 Flow & DndScript")
+        self.assertEqual(_t("camp_tab_general"), "📜 General & DM Notes")
+        self.assertEqual(_t("camp_ed_btn_save"), "💾 Save")
+        self.assertEqual(_t("camp_gen_info_title"), "Campaign Information")
+
+        set_language("it")
+        self.assertEqual(_t("camp_sel_list_title"), "Campagne Disponibili")
+        self.assertEqual(_t("camp_tab_studio"), "🧭 Flusso & DndScript")
+        self.assertEqual(_t("camp_tab_general"), "📜 Generale & Note DM")
+        self.assertEqual(_t("camp_ed_btn_save"), "💾 Salva")
+        self.assertEqual(_t("camp_gen_info_title"), "Informazioni Campagna")
+
+        # Verifica istanziazione UI in inglese
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            set_language("en")
+            camp = Campaign(name="Test Adventure")
+            selector = CampaignSelectorFrame(root, on_select_callback=lambda c: None)
+            self.assertEqual(selector.tree_camps.heading("Nome", "text"), "Campaign Name")
+            self.assertEqual(selector.tree_camps.heading("Livello", "text"), "Level")
+            selector.destroy()
+
+            editor = CampaignEditorFrame(root, campaign=camp)
+            self.assertEqual(editor.notebook.tab(0, "text"), "🧭 Flow & DndScript")
+            self.assertEqual(editor.notebook.tab(1, "text"), "📜 General & DM Notes")
+            self.assertEqual(editor.notebook.tab(2, "text"), "🗺️ Scenes & Maps")
+            self.assertEqual(editor.notebook.tab(3, "text"), "⚔️ Tactical Encounters")
+            editor.destroy()
+        finally:
+            root.destroy()
+
+
 if __name__ == "__main__":
     unittest.main()
