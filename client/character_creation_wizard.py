@@ -22,7 +22,7 @@ from common.theme import (
     FONT_SMALL,
     FONT_BADGE
 )
-from common.i18n import _t, get_language, translate_ability, translate_skill
+from common.i18n import _t, get_language, translate_ability, translate_skill, translate_race, translate_class, translate_alignment, translate_background, register_language_listener, unregister_language_listener
 from common.classes_data import CLASSES, get_class_info, get_class_names, CLASS_CATEGORIES, get_classes_by_category
 from common.races_data import RACES, get_race_info, get_race_names
 from common.backgrounds_data import (
@@ -271,7 +271,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
                         pass
         elif self.current_step == 3:
             if hasattr(self, "bg_name_var"):
-                self.char_data["background"] = self.bg_name_var.get().strip()
+                self.char_data["background"] = translate_background(self.bg_name_var.get().strip(), "it")
             if hasattr(self, "trait_var"):
                 self.char_data["personality_trait"] = self.trait_var.get().strip()
             if hasattr(self, "ideal_var"):
@@ -290,8 +290,8 @@ class CharacterCreationWizardFrame(ttk.Frame):
             if hasattr(self, "origin_var"):
                 self.char_data["origin_place"] = self.origin_var.get().strip()
             if hasattr(self, "align_var"):
-                raw_align = self.align_var.get().strip()
-                if not raw_align or raw_align == ALIGNMENT_NONE or raw_align.startswith("Nessun"):
+                raw_align = translate_alignment(self.align_var.get().strip(), "it")
+                if not raw_align or raw_align == ALIGNMENT_NONE or raw_align.startswith("Nessun") or raw_align.startswith("None"):
                     self.char_data["alignment"] = ""
                 else:
                     self.char_data["alignment"] = raw_align.split(" ")[0].strip()
@@ -321,7 +321,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
             if hasattr(self, "attr_vars"):
                 vals = [var.get() for var in self.attr_vars.values()]
                 if len(set(vals)) != len(STANDARD_ARRAY) or sorted(vals, reverse=True) != STANDARD_ARRAY:
-                    messagebox.showerror("Errore", "Devi assegnare ogni valore della Array Standard (15,14,13,12,10,8) esattamente una volta.")
+                    messagebox.showerror(_t("error"), _t("wizard_err_standard_array"))
                     return
                 self._save_current_step_data()
 
@@ -348,7 +348,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         """Apre una finestra modale con il compendio comparativo avanzato Master-Detail di tutte le 9 razze 5e."""
         parent_win = self.winfo_toplevel()
         top = tk.Toplevel(parent_win)
-        top.title("Compendio & Confronto Comparativo Razze (D&D 5e)")
+        top.title(_t("wizard_dlg_races_title"))
         top.geometry("1060x650")
         top.minsize(920, 520)
         apply_modern_window_style(top)
@@ -358,7 +358,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         # Header Frame
         header_frame = ttk.Frame(top, padding=(14, 10, 14, 6))
         header_frame.pack(fill=tk.X)
-        ttk.Label(header_frame, text="📊 Compendio e Confronto Comparativo delle Razze (D&D 5e)", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(header_frame, text=_t("wizard_dlg_races_header"), style="Title.TLabel").pack(anchor="w")
         ttk.Label(
             header_frame,
             text=_t("wizard_step1_filter_hint"),
@@ -377,12 +377,12 @@ class CharacterCreationWizardFrame(ttk.Frame):
         filter_category_var = tk.StringVar(value="Tutte")
 
         filter_chips = [
-            ("Tutte (9)", "Tutte"),
-            ("🛡️ Resistenze", "Resistenze"),
-            ("👁️ Scurovisione", "Scurovisione"),
-            ("🏃 Taglia Piccola", "Piccola"),
-            ("⚔️ Mischia / Forza", "Mischia"),
-            ("✨ Magiche / Carisma", "Magiche"),
+            (_t("wizard_chip_all"), "Tutte"),
+            (_t("wizard_chip_res"), "Resistenze"),
+            (_t("wizard_chip_darkvision"), "Scurovisione"),
+            (_t("wizard_chip_small"), "Piccola"),
+            (_t("wizard_chip_melee"), "Mischia"),
+            (_t("wizard_chip_magic"), "Magiche"),
         ]
 
         def _set_cat_filter(cat_val):
@@ -421,9 +421,9 @@ class CharacterCreationWizardFrame(ttk.Frame):
         tree.heading("razza", text=_t("wizard_lbl_race").replace("🧬 ", "").replace(":", ""))
         tree.heading("bonus", text=_t("wizard_stat_bonus"))
         tree.heading("tratti", text=_t("wizard_traits_key"))
-        tree.heading("resistenze", text=_t("wizard_traits_key") if get_language() == "it" else "Resistances & Defenses")
-        tree.heading("taglia_vel", text="Taglia / Vel." if get_language() == "it" else "Size / Spd")
-        tree.heading("classi", text="Classi Consigliate" if get_language() == "it" else "Recommended Classes")
+        tree.heading("resistenze", text=_t("wizard_resistances_defenses").replace("🛡️ ", "").replace(":", ""))
+        tree.heading("taglia_vel", text=_t("wizard_dlg_races_taglia_vel"))
+        tree.heading("classi", text=_t("wizard_dlg_races_classi"))
 
         tree.column("razza", width=105, anchor="w")
         tree.column("bonus", width=155, anchor="w")
@@ -524,34 +524,34 @@ class CharacterCreationWizardFrame(ttk.Frame):
                 ttk.Label(f, text=f"{icon_char} {label}:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
                 ttk.Label(f, text=f" {value}", font=("Segoe UI", 9), foreground=val_color, wraplength=250, justify=tk.LEFT, style="Surface.TLabel").pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-            _add_spec(specs_frame, "⚡", "Bonus Caratteristiche", r_info.get("bonuses_display", ""), "#51CF66")
-            _add_spec(specs_frame, "🏃", "Velocità & Taglia", f"{r_info.get('speed', 30)} ft  •  {r_info.get('size', 'Media')}")
-            _add_spec(specs_frame, "👁️", "Sensi & Visione", r_info.get("vision", "Normale"))
-            _add_spec(specs_frame, "🗣️", "Linguaggi", r_info.get("languages", "Comune"))
-            _add_spec(specs_frame, "⏳", "Longevità Tipica", r_info.get("lifespan", ""))
+            _add_spec(specs_frame, "⚡", _t("wizard_stat_bonus"), r_info.get("bonuses_display", ""), "#51CF66")
+            _add_spec(specs_frame, "🏃", _t("wizard_lbl_speed_size").replace("🏃 ", "").replace(":", ""), f"{r_info.get('speed', 30)} ft  •  {r_info.get('size', 'Media')}")
+            _add_spec(specs_frame, "👁️", _t("wizard_senses").replace("👁️ ", "").replace(":", ""), r_info.get("vision", _t("wizard_vision_normal")))
+            _add_spec(specs_frame, "🗣️", _t("wizard_languages").replace("🗣️ ", "").replace(":", ""), r_info.get("languages", _t("wizard_languages_common")))
+            _add_spec(specs_frame, "⏳", _t("wizard_lifespan").replace("⏳ ", "").replace(":", ""), r_info.get("lifespan", ""))
 
             # Resistenze & Difese Highlight Box
-            res_val = r_info.get("resistances", "Nessuna")
-            res_box = ttk.LabelFrame(preview_inner, text="🛡️ Resistenze, Immunità & Difese", padding=(8, 6))
+            res_val = r_info.get("resistances", _t("wizard_resistances_none"))
+            res_box = ttk.LabelFrame(preview_inner, text=_t("wizard_dlg_res_box"), padding=(8, 6))
             res_box.pack(fill=tk.X, pady=6)
             ttk.Label(
                 res_box,
                 text=res_val,
-                font=("Segoe UI", 9, "bold" if res_val != "Nessuna" else "normal"),
-                foreground="#4DABF7" if res_val != "Nessuna" else TEXT_MUTED,
+                font=("Segoe UI", 9, "bold" if res_val not in ("Nessuna", "None") else "normal"),
+                foreground="#4DABF7" if res_val not in ("Nessuna", "None") else TEXT_MUTED,
                 wraplength=330,
                 justify=tk.LEFT,
                 style="Surface.TLabel"
             ).pack(anchor="w")
 
             # Sinergie & Classi Ideali Box
-            syn_box = ttk.LabelFrame(preview_inner, text="⭐ Sinergie & Classi Ideali", padding=(8, 6))
+            syn_box = ttk.LabelFrame(preview_inner, text=_t("wizard_dlg_syn_box"), padding=(8, 6))
             syn_box.pack(fill=tk.X, pady=6)
             best_cls = r_info.get("best_classes", "")
             if best_cls:
                 ttk.Label(
                     syn_box,
-                    text=f"🎯 Ottimale per: {best_cls}",
+                    text=f"🎯 {_t('wizard_optimal_for')}: {best_cls}",
                     font=("Segoe UI", 9, "bold"),
                     foreground=ACCENT_GOLD_LIGHT,
                     wraplength=330,
@@ -571,7 +571,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
             # Tratti Razziali Completi
             traits = r_info.get("traits", [])
             if traits:
-                traits_box = ttk.LabelFrame(preview_inner, text=f"🧬 Tratti Razziali ({len(traits)})", padding=(8, 6))
+                traits_box = ttk.LabelFrame(preview_inner, text=f"{_t('wizard_dlg_traits_box')} ({len(traits)})", padding=(8, 6))
                 traits_box.pack(fill=tk.X, pady=6)
                 for t_name, t_desc in traits:
                     t_frame = ttk.Frame(traits_box, style="Surface.TFrame")
@@ -596,7 +596,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
             # Sottorazze & Varianti
             subraces = r_info.get("subraces_preview", [])
             if subraces:
-                sub_box = ttk.LabelFrame(preview_inner, text=f"🌿 Sottorazze & Varianti ({len(subraces)})", padding=(8, 6))
+                sub_box = ttk.LabelFrame(preview_inner, text=f"{_t('wizard_dlg_subraces_box')} ({len(subraces)})", padding=(8, 6))
                 sub_box.pack(fill=tk.X, pady=6)
                 for sub in subraces:
                     ttk.Label(
@@ -612,7 +612,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
             # Action button in preview card
             ttk.Button(
                 preview_inner,
-                text=f"✓ Scegli {r_name}",
+                text=f"✓ {_t('wizard_btn_choose_race').replace('✓ ', '')}",
                 style="Primary.TButton",
                 command=_select_and_close
             ).pack(fill=tk.X, pady=(10, 4))
@@ -719,10 +719,10 @@ class CharacterCreationWizardFrame(ttk.Frame):
         btn_bar = ttk.Frame(top, style="Surface.TFrame", padding=(14, 10))
         btn_bar.pack(fill=tk.X, side=tk.BOTTOM)
 
-        ttk.Button(btn_bar, text="Annulla", command=top.destroy, style="Dark.TButton").pack(side=tk.LEFT)
+        ttk.Button(btn_bar, text=_t("cancel"), command=top.destroy, style="Dark.TButton").pack(side=tk.LEFT)
         ttk.Label(
             btn_bar,
-            text="💡 Suggerimento: Seleziona una razza per visualizzarne i dettagli o premi 'Scegli Questa Razza'.",
+            text=_t("wizard_dlg_race_tip"),
             style="Muted.TLabel"
         ).pack(side=tk.LEFT, padx=16)
         ttk.Button(btn_bar, text=_t("wizard_btn_choose_race"), command=_select_and_close, style="Primary.TButton").pack(side=tk.RIGHT)
@@ -754,28 +754,31 @@ class CharacterCreationWizardFrame(ttk.Frame):
         if current_race not in race_list:
             current_race = race_list[0]
             
-        self.race_var = tk.StringVar(value=current_race)
+        self.race_var = tk.StringVar(value=translate_race(current_race))
         
         def _prev_race():
-            r = self.race_var.get()
+            r = translate_race(self.race_var.get(), "it")
             idx = race_list.index(r) if r in race_list else 0
-            self.race_var.set(race_list[(idx - 1) % len(race_list)])
+            new_r = race_list[(idx - 1) % len(race_list)]
+            self.race_var.set(translate_race(new_r))
             
         def _next_race():
-            r = self.race_var.get()
+            r = translate_race(self.race_var.get(), "it")
             idx = race_list.index(r) if r in race_list else 0
-            self.race_var.set(race_list[(idx + 1) % len(race_list)])
+            new_r = race_list[(idx + 1) % len(race_list)]
+            self.race_var.set(translate_race(new_r))
 
-        btn_prev = ttk.Button(sel_frame, text="◀ Prec.", width=8, command=_prev_race, style="Dark.TButton")
+        btn_prev = ttk.Button(sel_frame, text=_t("btn_prev"), width=8, command=_prev_race, style="Dark.TButton")
         btn_prev.pack(side=tk.LEFT, padx=3)
         
-        cb = ttk.Combobox(sel_frame, textvariable=self.race_var, values=race_list, state="readonly", font=("Georgia", 11, "bold"), width=16)
+        display_race_list = [translate_race(r) for r in race_list]
+        cb = ttk.Combobox(sel_frame, textvariable=self.race_var, values=display_race_list, state="readonly", font=("Georgia", 11, "bold"), width=16)
         cb.pack(side=tk.LEFT, padx=6)
         
-        btn_next = ttk.Button(sel_frame, text="Succ. ▶", width=8, command=_next_race, style="Dark.TButton")
+        btn_next = ttk.Button(sel_frame, text=_t("btn_next_arrow"), width=8, command=_next_race, style="Dark.TButton")
         btn_next.pack(side=tk.LEFT, padx=3)
         
-        btn_compare = ttk.Button(sel_frame, text="📊 Tabella Comparativa", command=self.open_races_comparison_dialog, style="Gold.TButton")
+        btn_compare = ttk.Button(sel_frame, text=_t("wizard_btn_comparison_table"), command=self.open_races_comparison_dialog, style="Gold.TButton")
         btn_compare.pack(side=tk.RIGHT, padx=5)
 
         size_badge_lbl = ttk.Label(sel_frame, text="", style="BadgeBlue.TLabel")
@@ -793,7 +796,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
             cur_he = list(cur_he.keys())
         self.he_bon1_var = tk.StringVar(value=cur_he[0] if len(cur_he) > 0 else "DES")
         self.he_bon2_var = tk.StringVar(value=cur_he[1] if len(cur_he) > 1 else "COS")
-        he_lbl = ttk.Label(sub_sel_frame, text="✨ Bonus +1 Mezzelfo (2 Caratteristiche):", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel")
+        he_lbl = ttk.Label(sub_sel_frame, text=_t("wizard_half_elf_bonus"), font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel")
         he_cb1 = ttk.Combobox(sub_sel_frame, textvariable=self.he_bon1_var, values=he_stats, state="readonly", width=6)
         he_cb2 = ttk.Combobox(sub_sel_frame, textvariable=self.he_bon2_var, values=he_stats, state="readonly", width=6)
 
@@ -838,35 +841,35 @@ class CharacterCreationWizardFrame(ttk.Frame):
         # Cella 1: Bonus Caratteristiche
         cell_bon = ttk.Frame(stats_frame, style="Surface.TFrame")
         cell_bon.grid(row=0, column=0, sticky="w", padx=6, pady=3)
-        ttk.Label(cell_bon, text="⚡ Bonus:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
+        ttk.Label(cell_bon, text=_t("wizard_stat_bonus"), font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
         bon_val_lbl = ttk.Label(cell_bon, text="", font=("Segoe UI", 9, "bold"), foreground="#51CF66", style="Surface.TLabel")
         bon_val_lbl.pack(side=tk.LEFT, padx=4)
         
         # Cella 2: Velocità & Taglia
         cell_speed = ttk.Frame(stats_frame, style="Surface.TFrame")
         cell_speed.grid(row=0, column=1, sticky="w", padx=6, pady=3)
-        ttk.Label(cell_speed, text="🏃 Velocità & Taglia:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
+        ttk.Label(cell_speed, text=_t("wizard_lbl_speed_size"), font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
         speed_val_lbl = ttk.Label(cell_speed, text="", font=("Segoe UI", 9), style="Surface.TLabel")
         speed_val_lbl.pack(side=tk.LEFT, padx=4)
         
         # Cella 3: Sensi Speciali
         cell_vis = ttk.Frame(stats_frame, style="Surface.TFrame")
         cell_vis.grid(row=1, column=0, sticky="w", padx=6, pady=3)
-        ttk.Label(cell_vis, text="👁️ Sensi:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
+        ttk.Label(cell_vis, text=_t("wizard_senses"), font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
         vis_val_lbl = ttk.Label(cell_vis, text="", font=("Segoe UI", 9), style="Surface.TLabel")
         vis_val_lbl.pack(side=tk.LEFT, padx=4)
         
         # Cella 4: Linguaggi
         cell_lang = ttk.Frame(stats_frame, style="Surface.TFrame")
         cell_lang.grid(row=1, column=1, sticky="w", padx=6, pady=3)
-        ttk.Label(cell_lang, text="🗣️ Linguaggi:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
+        ttk.Label(cell_lang, text=_t("wizard_languages"), font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
         lang_val_lbl = ttk.Label(cell_lang, text="", font=("Segoe UI", 9), wraplength=300, justify=tk.LEFT, style="Surface.TLabel")
         lang_val_lbl.pack(side=tk.LEFT, padx=4)
 
         # Cella 5: Resistenze & Difese
         cell_res = ttk.Frame(stats_frame, style="Surface.TFrame")
         cell_res.grid(row=2, column=0, columnspan=2, sticky="w", padx=6, pady=3)
-        ttk.Label(cell_res, text="🛡️ Resistenze & Difese:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
+        ttk.Label(cell_res, text=_t("wizard_resistances_defenses"), font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
         res_val_lbl = ttk.Label(cell_res, text="", font=("Segoe UI", 9, "bold"), foreground="#4DABF7", wraplength=480, justify=tk.LEFT, style="Surface.TLabel")
         res_val_lbl.pack(side=tk.LEFT, padx=4)
 
@@ -875,14 +878,14 @@ class CharacterCreationWizardFrame(ttk.Frame):
         # Sezione: Sinergie di Classe & Consigli
         synergy_box = ttk.Frame(card, style="Surface.TFrame", padding=(8, 6))
         synergy_box.pack(fill=tk.X, pady=(2, 6))
-        ttk.Label(synergy_box, text="⭐ Sinergie di Classe Consigliate:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD_LIGHT, style="Surface.TLabel").pack(anchor="w")
+        ttk.Label(synergy_box, text=_t("wizard_class_synergies"), font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD_LIGHT, style="Surface.TLabel").pack(anchor="w")
         synergy_lbl = ttk.Label(synergy_box, text="", font=("Segoe UI", 9), wraplength=620, justify=tk.LEFT, style="Surface.TLabel")
         synergy_lbl.pack(anchor="w", padx=(10, 0), pady=(1, 2))
 
         ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
         
         # Sezione 1: Panoramica Narrativa
-        ttk.Label(card, text="📖 Panoramica & Lore Narrativa", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
+        ttk.Label(card, text=_t("wizard_overview_lore"), font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
         overview_lbl = ttk.Label(card, text="", font=("Segoe UI", 9), wraplength=640, justify=tk.LEFT, style="Surface.TLabel")
         overview_lbl.pack(anchor="w", pady=(2, 8))
         
@@ -896,19 +899,20 @@ class CharacterCreationWizardFrame(ttk.Frame):
         ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
         
         # Sezione 3: Sottorazze & Varianti
-        ttk.Label(card, text="🌿 Sottorazze e Varianti Famose", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
+        ttk.Label(card, text=_t("wizard_subraces_variants"), font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
         subraces_lbl = ttk.Label(card, text="", font=("Segoe UI", 9), wraplength=640, justify=tk.LEFT, style="Surface.TLabel")
         subraces_lbl.pack(anchor="w", pady=(2, 6))
 
         # Sezione 4: Longevità
         lifespan_box = ttk.Frame(card, style="Surface.TFrame", padding=(8, 4))
         lifespan_box.pack(fill=tk.X, pady=(2, 4))
-        ttk.Label(lifespan_box, text="⏳ Longevità & Maturità:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
+        ttk.Label(lifespan_box, text=_t("wizard_lifespan"), font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
         lifespan_lbl = ttk.Label(lifespan_box, text="", font=("Segoe UI", 9), style="Surface.TLabel")
         lifespan_lbl.pack(side=tk.LEFT, padx=6)
         
         def update_desc(*args):
-            r = self.race_var.get()
+            raw_r = self.race_var.get()
+            r = translate_race(raw_r, "it")
             self.char_data["race"] = r
             if r in RACES:
                 info = RACES[r]
@@ -932,16 +936,16 @@ class CharacterCreationWizardFrame(ttk.Frame):
                 else:
                     self.subrace_var.set("")
                     sub_sel_frame.pack_forget()
-                name_lbl.config(text=f"Razza: {r}")
+                name_lbl.config(text=f"{_t('lbl_race', default='Razza')}: {translate_race(r)}")
                 size_badge_lbl.config(text=f"🏃 {info.get('speed', 30)} ft | {info.get('size', 'Media').split()[0]}")
                 tagline_lbl.config(text=f'"{info.get("tagline", "")}"')
                 bon_val_lbl.config(text=info.get("bonuses_display", ""))
-                speed_val_lbl.config(text=f"{info.get('speed', 30)} ft ({round(info.get('speed', 30)*0.3)} m) | Taglia {info.get('size', 'Media').split()[0]}")
-                vis_val_lbl.config(text=info.get("vision", "Normale"))
-                lang_val_lbl.config(text=info.get("languages", "Comune"))
-                res_val_lbl.config(text=info.get("resistances", "Nessuna"))
+                speed_val_lbl.config(text=f"{info.get('speed', 30)} ft ({round(info.get('speed', 30)*0.3)} m) | {_t('wizard_size')} {info.get('size', 'Media').split()[0]}")
+                vis_val_lbl.config(text=info.get("vision", _t("wizard_vision_normal")))
+                lang_val_lbl.config(text=info.get("languages", _t("wizard_languages_common")))
+                res_val_lbl.config(text=info.get("resistances", _t("wizard_resistances_none")))
                 best_cls = info.get("best_classes", "")
-                best_prefix = f"🎯 Ottimale per: {best_cls}\n" if best_cls else ""
+                best_prefix = f"🎯 {_t('wizard_optimal_for')}: {best_cls}\n" if best_cls else ""
                 synergy_lbl.config(text=f"{best_prefix}{info.get('synergies', '')}")
                 overview_lbl.config(text=info.get("overview", ""))
                 lifespan_lbl.config(text=info.get("lifespan", ""))
@@ -975,7 +979,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         """Apre una finestra modale con la tabella comparativa di tutte le 12 classi 5e."""
         parent_win = self.winfo_toplevel()
         top = tk.Toplevel(parent_win)
-        top.title("Tabella Comparativa delle 12 Classi (D&D 5e)")
+        top.title(_t("wizard_dlg_classes_title"))
         top.geometry("860x520")
         top.minsize(750, 400)
         apply_modern_window_style(top)
@@ -984,10 +988,10 @@ class CharacterCreationWizardFrame(ttk.Frame):
 
         header_frame = ttk.Frame(top, padding=(12, 10))
         header_frame.pack(fill=tk.X)
-        ttk.Label(header_frame, text="📊 Confronto Rapido delle Classi", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(header_frame, text=_t("wizard_dlg_classes_header"), style="Title.TLabel").pack(anchor="w")
         ttk.Label(
             header_frame,
-            text="Confronta Dadi Vita, Ruolo Tattico, Caratteristiche Primarie e Complessità per scegliere l'eroe perfetto. Fai doppio clic su una riga per selezionarla.",
+            text=_t("wizard_dlg_classes_desc"),
             style="Muted.TLabel"
         ).pack(anchor="w", pady=(2, 0))
 
@@ -995,12 +999,12 @@ class CharacterCreationWizardFrame(ttk.Frame):
         columns = ("classe", "categoria", "ruolo", "hd", "primaria", "tiri_salvezza", "complessita")
         tree = ttk.Treeview(top, columns=columns, show="headings", height=13)
         tree.heading("classe", text=_t("wizard_lbl_class").replace("⚔️ ", "").replace(":", ""))
-        tree.heading("categoria", text="Categoria")
-        tree.heading("ruolo", text="Ruolo nel Party")
-        tree.heading("hd", text="Dado Vita")
-        tree.heading("primaria", text="Caratteristica Primaria")
-        tree.heading("tiri_salvezza", text="Tiri Salvezza")
-        tree.heading("complessita", text="Complessità")
+        tree.heading("categoria", text=_t("lbl_category"))
+        tree.heading("ruolo", text=_t("wizard_party_role"))
+        tree.heading("hd", text=_t("wizard_lbl_hit_die").replace("🎲 ", "").replace(":", ""))
+        tree.heading("primaria", text=_t("wizard_primary_stat").replace("⭐ ", "").replace(":", ""))
+        tree.heading("tiri_salvezza", text=_t("wizard_lbl_saving_throws").replace("🛡️ ", "").replace(":", ""))
+        tree.heading("complessita", text=_t("wizard_complexity"))
 
         tree.column("classe", width=95, anchor="center")
         tree.column("categoria", width=90, anchor="center")
@@ -1043,7 +1047,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         btn_bar = ttk.Frame(top, style="Surface.TFrame", padding=(12, 10))
         btn_bar.pack(fill=tk.X, side=tk.BOTTOM)
         
-        ttk.Button(btn_bar, text="Annulla", command=top.destroy, style="Dark.TButton").pack(side=tk.LEFT)
+        ttk.Button(btn_bar, text=_t("cancel"), command=top.destroy, style="Dark.TButton").pack(side=tk.LEFT)
         ttk.Button(btn_bar, text=_t("wizard_btn_choose_class"), command=_select_and_close, style="Primary.TButton").pack(side=tk.RIGHT)
 
     def build_step_class(self, parent=None):
@@ -1066,7 +1070,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         filter_bar = ttk.Frame(parent, style="Surface.TFrame", padding=(8, 5))
         filter_bar.pack(fill=tk.X, pady=(0, 8))
         
-        ttk.Label(filter_bar, text="Filtra:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT, padx=(5, 6))
+        ttk.Label(filter_bar, text=_t("wizard_filter_classes"), font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT, padx=(5, 6))
         
         self.active_category_var = tk.StringVar(value="Tutte")
         cat_buttons = {}
@@ -1074,27 +1078,33 @@ class CharacterCreationWizardFrame(ttk.Frame):
         def _filter_classes(cat):
             self.active_category_var.set(cat)
             filtered_names = get_classes_by_category(cat)
-            cb["values"] = filtered_names
+            cb["values"] = [translate_class(cn) for cn in filtered_names]
             for c_name, btn in cat_buttons.items():
                 if c_name == cat:
                     btn.configure(style="Primary.TButton")
                 else:
                     btn.configure(style="Dark.TButton")
-            # Se la classe corrente non è nel filtro, seleziona la prima
-            if self.class_var.get() not in filtered_names and filtered_names:
-                self.class_var.set(filtered_names[0])
+            cur_canon = translate_class(self.class_var.get(), "it")
+            if cur_canon not in filtered_names and filtered_names:
+                self.class_var.set(translate_class(filtered_names[0]))
 
+        cat_labels = {
+            "Tutte": _t("wizard_cat_all"),
+            "Combattenti": _t("wizard_cat_martial"),
+            "Magiche": _t("wizard_cat_magical"),
+            "Ibride": _t("wizard_cat_hybrid")
+        }
         for cat in CLASS_CATEGORIES:
             btn = ttk.Button(
                 filter_bar,
-                text=cat,
+                text=cat_labels.get(cat, cat),
                 command=lambda c=cat: _filter_classes(c),
                 style="Primary.TButton" if cat == "Tutte" else "Dark.TButton"
             )
             btn.pack(side=tk.LEFT, padx=3)
             cat_buttons[cat] = btn
 
-        btn_compare = ttk.Button(filter_bar, text="📊 Tabella Comparativa", command=self.open_classes_comparison_dialog, style="Gold.TButton")
+        btn_compare = ttk.Button(filter_bar, text=_t("wizard_btn_comparison_table"), command=self.open_classes_comparison_dialog, style="Gold.TButton")
         btn_compare.pack(side=tk.RIGHT, padx=5)
 
         # Barra di selezione classe con pulsanti rapido precedente/successivo e badge ruolo
@@ -1108,27 +1118,30 @@ class CharacterCreationWizardFrame(ttk.Frame):
         if current_class not in class_list:
             current_class = class_list[0]
             
-        self.class_var = tk.StringVar(value=current_class)
+        self.class_var = tk.StringVar(value=translate_class(current_class))
         
         def _prev_class():
-            c = self.class_var.get()
-            cur_values = list(cb["values"]) if cb["values"] else class_list
-            idx = cur_values.index(c) if c in cur_values else 0
-            self.class_var.set(cur_values[(idx - 1) % len(cur_values)])
+            c = translate_class(self.class_var.get(), "it")
+            cur_canon = [translate_class(x, "it") for x in cb["values"]] if cb["values"] else class_list
+            idx = cur_canon.index(c) if c in cur_canon else 0
+            new_c = cur_canon[(idx - 1) % len(cur_canon)]
+            self.class_var.set(translate_class(new_c))
             
         def _next_class():
-            c = self.class_var.get()
-            cur_values = list(cb["values"]) if cb["values"] else class_list
-            idx = cur_values.index(c) if c in cur_values else 0
-            self.class_var.set(cur_values[(idx + 1) % len(cur_values)])
+            c = translate_class(self.class_var.get(), "it")
+            cur_canon = [translate_class(x, "it") for x in cb["values"]] if cb["values"] else class_list
+            idx = cur_canon.index(c) if c in cur_canon else 0
+            new_c = cur_canon[(idx + 1) % len(cur_canon)]
+            self.class_var.set(translate_class(new_c))
 
-        btn_prev = ttk.Button(sel_frame, text="◀ Prec.", width=8, command=_prev_class, style="Dark.TButton")
+        btn_prev = ttk.Button(sel_frame, text=_t("btn_prev"), width=8, command=_prev_class, style="Dark.TButton")
         btn_prev.pack(side=tk.LEFT, padx=3)
         
-        cb = ttk.Combobox(sel_frame, textvariable=self.class_var, values=class_list, state="readonly", font=("Georgia", 11, "bold"), width=16)
+        display_class_list = [translate_class(c) for c in class_list]
+        cb = ttk.Combobox(sel_frame, textvariable=self.class_var, values=display_class_list, state="readonly", font=("Georgia", 11, "bold"), width=16)
         cb.pack(side=tk.LEFT, padx=6)
         
-        btn_next = ttk.Button(sel_frame, text="Succ. ▶", width=8, command=_next_class, style="Dark.TButton")
+        btn_next = ttk.Button(sel_frame, text=_t("btn_next_arrow"), width=8, command=_next_class, style="Dark.TButton")
         btn_next.pack(side=tk.LEFT, padx=3)
         
         role_badge_lbl = ttk.Label(sel_frame, text="", style="BadgeBlue.TLabel")
@@ -1165,28 +1178,28 @@ class CharacterCreationWizardFrame(ttk.Frame):
         # Cella 1: Dado Vita
         cell_hd = ttk.Frame(stats_frame, style="Surface.TFrame")
         cell_hd.grid(row=0, column=0, sticky="w", padx=6, pady=3)
-        ttk.Label(cell_hd, text="🎲 Dado Vita:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
+        ttk.Label(cell_hd, text=_t("wizard_lbl_hit_die"), font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
         hd_val_lbl = ttk.Label(cell_hd, text="", font=("Segoe UI", 9), style="Surface.TLabel")
         hd_val_lbl.pack(side=tk.LEFT, padx=4)
         
         # Cella 2: Caratteristica Primaria
         cell_prim = ttk.Frame(stats_frame, style="Surface.TFrame")
         cell_prim.grid(row=0, column=1, sticky="w", padx=6, pady=3)
-        ttk.Label(cell_prim, text="⭐ Primaria:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
+        ttk.Label(cell_prim, text=_t("wizard_primary_stat"), font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
         prim_val_lbl = ttk.Label(cell_prim, text="", font=("Segoe UI", 9), style="Surface.TLabel")
         prim_val_lbl.pack(side=tk.LEFT, padx=4)
         
         # Cella 3: Tiri Salvezza
         cell_st = ttk.Frame(stats_frame, style="Surface.TFrame")
         cell_st.grid(row=1, column=0, sticky="w", padx=6, pady=3)
-        ttk.Label(cell_st, text="🛡️ Tiri Salvezza:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
+        ttk.Label(cell_st, text=_t("wizard_lbl_saving_throws"), font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
         st_val_lbl = ttk.Label(cell_st, text="", font=("Segoe UI", 9), style="Surface.TLabel")
         st_val_lbl.pack(side=tk.LEFT, padx=4)
         
         # Cella 4: Competenze
         cell_prof = ttk.Frame(stats_frame, style="Surface.TFrame")
         cell_prof.grid(row=1, column=1, sticky="w", padx=6, pady=3)
-        ttk.Label(cell_prof, text="⚔️ Competenze:", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
+        ttk.Label(cell_prof, text=_t("wizard_lbl_proficiencies"), font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(side=tk.LEFT)
         prof_val_lbl = ttk.Label(cell_prof, text="", font=("Segoe UI", 9), wraplength=300, justify=tk.LEFT, style="Surface.TLabel")
         prof_val_lbl.pack(side=tk.LEFT, padx=4)
 
@@ -1195,21 +1208,21 @@ class CharacterCreationWizardFrame(ttk.Frame):
         # Sezione: Creazione Rapida & Priorità Caratteristiche (Quick Build)
         quick_build_box = ttk.Frame(card, style="Surface.TFrame", padding=(8, 6))
         quick_build_box.pack(fill=tk.X, pady=(2, 6))
-        ttk.Label(quick_build_box, text="💡 Consiglio di Creazione Rapida (per il Passo 3):", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD_LIGHT, style="Surface.TLabel").pack(anchor="w")
+        ttk.Label(quick_build_box, text=_t("wizard_quick_build_tip"), font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD_LIGHT, style="Surface.TLabel").pack(anchor="w")
         quick_build_lbl = ttk.Label(quick_build_box, text="", font=("Segoe UI", 9), wraplength=620, justify=tk.LEFT, style="Surface.TLabel")
         quick_build_lbl.pack(anchor="w", padx=(10, 0), pady=(1, 2))
 
         # Sezione: Dotazione & Equipaggiamento Iniziale (Starter Kit)
         gear_box = ttk.Frame(card, style="Surface.TFrame", padding=(8, 6))
         gear_box.pack(fill=tk.X, pady=(2, 6))
-        ttk.Label(gear_box, text="🎒 Dotazione Iniziale di Classe (fornita all'inizio):", font=("Segoe UI", 9, "bold"), foreground="#51CF66", style="Surface.TLabel").pack(anchor="w")
+        ttk.Label(gear_box, text=_t("wizard_starter_gear"), font=("Segoe UI", 9, "bold"), foreground="#51CF66", style="Surface.TLabel").pack(anchor="w")
         gear_lbl = ttk.Label(gear_box, text="", font=("Segoe UI", 9), wraplength=620, justify=tk.LEFT, style="Surface.TLabel")
         gear_lbl.pack(anchor="w", padx=(10, 0), pady=(1, 2))
 
         # Sezione opzionale: Magia & Incantesimi Iniziali
         magic_box = ttk.Frame(card, style="Surface.TFrame", padding=(8, 6))
         magic_box.pack(fill=tk.X, pady=(2, 6))
-        magic_title_lbl = ttk.Label(magic_box, text="✨ Magia & Incantesimi Iniziali (Livello 1):", font=("Segoe UI", 9, "bold"), foreground="#4DABF7", style="Surface.TLabel")
+        magic_title_lbl = ttk.Label(magic_box, text=_t("wizard_starter_spells"), font=("Segoe UI", 9, "bold"), foreground="#4DABF7", style="Surface.TLabel")
         magic_title_lbl.pack(anchor="w")
         magic_lbl = ttk.Label(magic_box, text="", font=("Segoe UI", 9), wraplength=620, justify=tk.LEFT, style="Surface.TLabel")
         magic_lbl.pack(anchor="w", padx=(10, 0), pady=(1, 2))
@@ -1217,41 +1230,42 @@ class CharacterCreationWizardFrame(ttk.Frame):
         ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
         
         # Sezione 1: Panoramica Narrativa
-        ttk.Label(card, text="📖 Panoramica & Identità Narrativa", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
+        ttk.Label(card, text=_t("wizard_class_overview"), font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
         overview_lbl = ttk.Label(card, text="", font=("Segoe UI", 9), wraplength=640, justify=tk.LEFT, style="Surface.TLabel")
         overview_lbl.pack(anchor="w", pady=(2, 8))
         
         ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
         
         # Sezione 2: Privilegi di Livello 1
-        ttk.Label(card, text="⚔️ Privilegi Chiave di Livello 1", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
+        ttk.Label(card, text=_t("wizard_lvl1_features"), font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
         features_container = ttk.Frame(card, style="Surface.TFrame")
         features_container.pack(fill=tk.X, pady=(2, 8))
         
         ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
         
         # Sezione 3: Stile di Gioco & Tattica
-        ttk.Label(card, text="🎯 Stile di Gioco & Ruolo nel Gruppo", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
+        ttk.Label(card, text=_t("wizard_playstyle_role"), font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
         playstyle_lbl = ttk.Label(card, text="", font=("Segoe UI", 9), wraplength=640, justify=tk.LEFT, style="Surface.TLabel")
         playstyle_lbl.pack(anchor="w", pady=(2, 8))
         
         ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
         
         # Sezione 4: Archetipi Futuri
-        ttk.Label(card, text="🔮 Archetipi e Sottoclassi Future", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
+        ttk.Label(card, text=_t("wizard_subclasses_archetypes"), font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
         subclasses_lbl = ttk.Label(card, text="", font=("Segoe UI", 9), wraplength=640, justify=tk.LEFT, style="Surface.TLabel")
         subclasses_lbl.pack(anchor="w", pady=(2, 4))
         
         def update_desc(*args):
-            c = self.class_var.get()
+            raw_c = self.class_var.get()
+            c = translate_class(raw_c, "it")
             self.char_data["char_class"] = c
             if c in CLASSES:
                 info = CLASSES[c]
-                name_lbl.config(text=f"Classe: {c}")
+                name_lbl.config(text=f"{_t('lbl_class', default='Classe')}: {translate_class(c)}")
                 role_badge_lbl.config(text=info.get("role", ""))
                 complexity_lbl.config(text=info.get("complexity", "").split("(")[0].strip())
                 tagline_lbl.config(text=f'"{info.get("tagline", "")}"')
-                hd_val_lbl.config(text=f"d{info['hd']} (PF al 1°: {info['hd']} + mod. COS)")
+                hd_val_lbl.config(text=f"d{info['hd']} ({_t('wizard_hp_at_lvl1')}: {info['hd']} + mod. {translate_ability('COS')})")
                 prim_val_lbl.config(text=info.get("primary_stat", ""))
                 st_val_lbl.config(text=info.get("saving_throws", ""))
                 prof_val_lbl.config(text=f"{info.get('armor_prof', '')}; {info.get('weapon_prof', '')}")
@@ -1295,7 +1309,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
     def build_step_attributes(self, parent=None):
         parent = parent or self.container
         ttk.Label(parent, text=_t("wizard_step3_title"), style="Title.TLabel").pack(pady=(0, 10))
-        ttk.Label(parent, text="Assegna i valori: 15, 14, 13, 12, 10, 8\nI valori si scambieranno automaticamente per non avere duplicati.", justify=tk.CENTER).pack(pady=(0, 15))
+        ttk.Label(parent, text=_t("wizard_step3_instruction"), justify=tk.CENTER).pack(pady=(0, 15))
         
         self.attr_vars = {}
         self.old_attr_values = {}
@@ -1330,7 +1344,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
             self._is_swapping = False
 
         for i, attr in enumerate(ATTRIBUTES):
-            ttk.Label(frame, text=attr, font=("Segoe UI", 10, "bold")).grid(row=i, column=0, sticky="e", padx=8, pady=4)
+            ttk.Label(frame, text=translate_ability(attr), font=("Segoe UI", 10, "bold")).grid(row=i, column=0, sticky="e", padx=8, pady=4)
             
             var = self.attr_vars[attr]
             var.trace_add("write", lambda name, index, mode, a=attr: on_var_change(a))
@@ -1349,11 +1363,12 @@ class CharacterCreationWizardFrame(ttk.Frame):
         top_bar = ttk.Frame(parent)
         top_bar.pack(fill=tk.X, pady=(0, 10))
         
-        ttk.Label(top_bar, text="Background 5e:", font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Label(top_bar, text=_t("wizard_lbl_bg"), font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT, padx=(0, 6))
         
         cur_bg = self.char_data.get("background") or "Accolito"
-        self.bg_name_var = tk.StringVar(value=cur_bg)
-        bg_cb = ttk.Combobox(top_bar, textvariable=self.bg_name_var, values=list(BACKGROUNDS.keys()), state="readonly", width=25, font=self.default_font)
+        self.bg_name_var = tk.StringVar(value=translate_background(cur_bg))
+        bg_display_values = [translate_background(b) for b in BACKGROUNDS.keys()]
+        bg_cb = ttk.Combobox(top_bar, textvariable=self.bg_name_var, values=bg_display_values, state="readonly", width=25, font=self.default_font)
         bg_cb.pack(side=tk.LEFT, padx=4)
         
         # 2. Scheda Descrittiva del Background (Info, Privilegio, Abilità)
@@ -1365,7 +1380,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         
         skills_row = ttk.Frame(card_bg)
         skills_row.pack(fill=tk.X, pady=(2, 6))
-        ttk.Label(skills_row, text="🎯 Competenze Abilità:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Label(skills_row, text=_t("wizard_lbl_skills"), font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
         lbl_skills = ttk.Label(skills_row, text="", style="Primary.TLabel")
         lbl_skills.pack(side=tk.LEFT)
 
@@ -1373,7 +1388,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         self.custom_skills_frame = ttk.Frame(card_bg)
         self.custom_skill1_var = tk.StringVar(value="Intuizione")
         self.custom_skill2_var = tk.StringVar(value="Percezione")
-        ttk.Label(self.custom_skills_frame, text="Scegli 2 Abilità:").pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Label(self.custom_skills_frame, text=_t("wizard_choose_2_skills")).pack(side=tk.LEFT, padx=(0, 4))
         ttk.Combobox(self.custom_skills_frame, textvariable=self.custom_skill1_var, values=ALL_SKILLS_5E, state="readonly", width=14).pack(side=tk.LEFT, padx=3)
         ttk.Combobox(self.custom_skills_frame, textvariable=self.custom_skill2_var, values=ALL_SKILLS_5E, state="readonly", width=14).pack(side=tk.LEFT, padx=3)
 
@@ -1390,7 +1405,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         # 3. Le 4 Colonne Ruolistiche 5e (Tratti, Ideali, Legami, Difetti)
         roleplay_header = ttk.Frame(parent)
         roleplay_header.pack(fill=tk.X, pady=(10, 6))
-        ttk.Label(roleplay_header, text="🎭 Le 4 Colonne Ruolistiche (D&D 5e)", font=("Segoe UI", 11, "bold")).pack(side=tk.LEFT)
+        ttk.Label(roleplay_header, text=_t("wizard_rp_pillars"), font=("Segoe UI", 11, "bold")).pack(side=tk.LEFT)
         
         btn_roll_all = ttk.Button(roleplay_header, text=_t("wizard_btn_roll_random"), command=lambda: self._roll_all_roleplay_traits(), style="Gold.TButton")
         btn_roll_all.pack(side=tk.RIGHT)
@@ -1428,13 +1443,14 @@ class CharacterCreationWizardFrame(ttk.Frame):
             cb.pack(fill=tk.X, pady=(2, 4))
             self.rp_combos[rp_key] = cb
 
-        make_rp_row(0, "Tratto Caratteriale (Abitudini & Modi di fare):", self.trait_var, "traits")
-        make_rp_row(1, "Ideale (Principio etico o morale):", self.ideal_var, "ideals")
-        make_rp_row(2, "Legame (La persona, luogo o memoria per cui moriresti):", self.bond_var, "bonds")
-        make_rp_row(3, "Difetto (Vizio segreto, debolezza o fobia):", self.flaw_var, "flaws")
+        make_rp_row(0, _t("wizard_rp_trait"), self.trait_var, "traits")
+        make_rp_row(1, _t("wizard_rp_ideal"), self.ideal_var, "ideals")
+        make_rp_row(2, _t("wizard_rp_bond"), self.bond_var, "bonds")
+        make_rp_row(3, _t("wizard_rp_flaw"), self.flaw_var, "flaws")
 
         def update_bg_info(*args):
-            bg_name = self.bg_name_var.get()
+            raw_bg = self.bg_name_var.get()
+            bg_name = translate_background(raw_bg, "it")
             info = BACKGROUNDS.get(bg_name, BACKGROUNDS["Accolito"])
             
             self.char_data["background"] = bg_name
@@ -1451,12 +1467,12 @@ class CharacterCreationWizardFrame(ttk.Frame):
             else:
                 self.custom_skills_frame.pack_forget()
                 skills_row.pack(fill=tk.X, pady=(2, 6))
-                lbl_skills.config(text=", ".join(info["skills"]))
+                lbl_skills.config(text=", ".join(translate_skill(s) for s in info["skills"]))
                 self.char_data["background_skills"] = list(info["skills"])
 
-            lbl_feat_title.config(text=f"📜 Privilegio: {info['feature_name']}")
+            lbl_feat_title.config(text=f"📜 {_t('wizard_feat_label')}: {info['feature_name']}")
             lbl_feat_desc.config(text=info["feature_desc"])
-            lbl_equip.config(text=f"🎒 Equipaggiamento & Oro Iniziale: {info['equipment']}")
+            lbl_equip.config(text=f"🎒 {_t('wizard_equip_gold_label')}: {info['equipment']}")
 
             # Aggiorna opzioni delle 4 colonne ruolistiche
             for key, cb in self.rp_combos.items():
@@ -1490,19 +1506,19 @@ class CharacterCreationWizardFrame(ttk.Frame):
         ana_frame.columnconfigure(1, weight=1)
         ana_frame.columnconfigure(3, weight=1)
 
-        ttk.Label(ana_frame, text="Nome:*", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="e", padx=(0, 4), pady=4)
+        ttk.Label(ana_frame, text=f"{_t('sheet_char_name', default='Nome')}:*", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="e", padx=(0, 4), pady=4)
         self.name_var = tk.StringVar(value=self.char_data.get("name", ""))
         ttk.Entry(ana_frame, textvariable=self.name_var).grid(row=0, column=1, sticky="ew", padx=(0, 10), pady=4)
 
-        ttk.Label(ana_frame, text="Campagna:", font=("Segoe UI", 9)).grid(row=0, column=2, sticky="e", padx=(0, 4), pady=4)
+        ttk.Label(ana_frame, text=f"{_t('sheet_char_campaign', default='Campagna')}:", font=("Segoe UI", 9)).grid(row=0, column=2, sticky="e", padx=(0, 4), pady=4)
         self.camp_var = tk.StringVar(value=self.char_data.get("campaign", ""))
         ttk.Entry(ana_frame, textvariable=self.camp_var).grid(row=0, column=3, sticky="ew", pady=4)
 
-        ttk.Label(ana_frame, text="Origine / Città:", font=("Segoe UI", 9)).grid(row=1, column=0, sticky="e", padx=(0, 4), pady=4)
-        self.origin_var = tk.StringVar(value=self.char_data.get("origin_place", "Terre d'origine"))
+        ttk.Label(ana_frame, text=_t("wizard_origin_place"), font=("Segoe UI", 9)).grid(row=1, column=0, sticky="e", padx=(0, 4), pady=4)
+        self.origin_var = tk.StringVar(value=self.char_data.get("origin_place", _t("wizard_origin_default")))
         ttk.Entry(ana_frame, textvariable=self.origin_var).grid(row=1, column=1, sticky="ew", padx=(0, 10), pady=4)
 
-        ttk.Label(ana_frame, text="Allineamento:", font=("Segoe UI", 9)).grid(row=1, column=2, sticky="e", padx=(0, 4), pady=4)
+        ttk.Label(ana_frame, text=f"{_t('sheet_header_alignment', default='Allineamento')}:", font=("Segoe UI", 9)).grid(row=1, column=2, sticky="e", padx=(0, 4), pady=4)
         
         align_keys = list(ALIGNMENTS.keys())
         initial_align = ALIGNMENT_NONE
@@ -1512,12 +1528,13 @@ class CharacterCreationWizardFrame(ttk.Frame):
                 if k != ALIGNMENT_NONE and k.startswith(cur_align):
                     initial_align = k
                     break
-        self.align_var = tk.StringVar(value=initial_align)
-        align_cb = ttk.Combobox(ana_frame, textvariable=self.align_var, values=align_keys, state="readonly", width=18)
+        self.align_var = tk.StringVar(value=translate_alignment(initial_align))
+        align_display_values = [translate_alignment(k) for k in align_keys]
+        align_cb = ttk.Combobox(ana_frame, textvariable=self.align_var, values=align_display_values, state="readonly", width=18)
         align_cb.grid(row=1, column=3, sticky="ew", pady=4)
 
         # 1.1 Sezione Ritratto Personaggio & Token Mappa
-        token_card = ttk.LabelFrame(parent, text="🖼️ Ritratto Personaggio & Token Mappa", padding=8)
+        token_card = ttk.LabelFrame(parent, text=_t("wizard_token_card_title"), padding=8)
         token_card.pack(fill=tk.X, pady=(0, 10))
 
         token_row = ttk.Frame(token_card)
@@ -1530,12 +1547,12 @@ class CharacterCreationWizardFrame(ttk.Frame):
         token_info.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         ttk.Label(token_info, text=_t("wizard_aspect_token"), font=("Segoe UI", 9, "bold")).pack(anchor="w")
-        ttk.Label(token_info, text="L'immagine scelta verrà ritagliata in forma circolare e utilizzata come token interattivo sulla mappa.", style="Muted.TLabel", wraplength=420, justify=tk.LEFT).pack(anchor="w", pady=(1, 4))
+        ttk.Label(token_info, text=_t("wizard_token_desc"), style="Muted.TLabel", wraplength=420, justify=tk.LEFT).pack(anchor="w", pady=(1, 4))
 
         token_btn_row = ttk.Frame(token_info)
         token_btn_row.pack(anchor="w", pady=(2, 0))
 
-        self.token_status_lbl = ttk.Label(token_btn_row, text="Nessuna immagine impostata", style="Muted.TLabel")
+        self.token_status_lbl = ttk.Label(token_btn_row, text=_t("wizard_token_none_set"), style="Muted.TLabel")
 
         def _update_token_preview():
             cur_b64 = self.char_data.get("avatar_b64", "")
@@ -1544,10 +1561,10 @@ class CharacterCreationWizardFrame(ttk.Frame):
             render_avatar_on_canvas(self.token_canvas, cur_b64, cur_name, size=64)
             if cur_b64:
                 path = self.char_data.get("avatar_path", "")
-                fn = os.path.basename(path) if path else "Immagine caricata"
+                fn = os.path.basename(path) if path else _t("wizard_token_loaded")
                 self.token_status_lbl.config(text=f"✅ {fn}")
             else:
-                self.token_status_lbl.config(text="Nessuna immagine (token con iniziali)")
+                self.token_status_lbl.config(text=_t("wizard_token_none_initials"))
 
         def _pick_image():
             from common.image_utils import open_avatar_file_dialog
@@ -1562,8 +1579,8 @@ class CharacterCreationWizardFrame(ttk.Frame):
             self.char_data["avatar_path"] = ""
             _update_token_preview()
 
-        ttk.Button(token_btn_row, text="📁 Scegli Immagine...", command=_pick_image, style="Primary.TButton").pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(token_btn_row, text="❌ Rimuovi", command=_clear_image).pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Button(token_btn_row, text=_t("wizard_choose_image"), command=_pick_image, style="Primary.TButton").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(token_btn_row, text=_t("btn_remove"), command=_clear_image).pack(side=tk.LEFT, padx=(0, 10))
         self.token_status_lbl.pack(side=tk.LEFT, padx=4)
 
         _update_token_preview()
@@ -1571,11 +1588,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         # Suggerimento Allineamento
         tip_frame = ttk.Frame(parent, style="Surface.TFrame", padding=8)
         tip_frame.pack(fill=tk.X, pady=(4, 10))
-        tip_txt = (
-            "💡 Allineamento Opzionale: In D&D 5e l'allineamento è solo una possibile bussola etica e una linea guida. "
-            "Non definisce per forza il giocatore o il personaggio che sarai al tavolo: le tue scelte avranno sempre la precedenza."
-        )
-        ttk.Label(tip_frame, text=tip_txt, style="Muted.TLabel", wraplength=580, justify=tk.LEFT).pack(fill=tk.X)
+        ttk.Label(tip_frame, text=_t("wizard_alignment_tip"), style="Muted.TLabel", wraplength=580, justify=tk.LEFT).pack(fill=tk.X)
 
         # 2. Ganci Narrativi e Dinamiche di Gruppo (Obiettivo, Segreto, Legame, Cimelio)
         narr_card = ttk.Frame(parent, style="Surface.TFrame", padding=10)
@@ -1607,16 +1620,16 @@ class CharacterCreationWizardFrame(ttk.Frame):
             return cb
 
         self.quest_var = tk.StringVar(value=self.char_data.get("personal_quest", f"{PERSONAL_QUESTS[0]['title']} — {PERSONAL_QUESTS[0]['desc']}"))
-        make_narrative_picker("🎯 Obiettivo Personale / Gancio d'Avventura:", self.quest_var, PERSONAL_QUESTS)
+        make_narrative_picker(_t("wizard_personal_quest"), self.quest_var, PERSONAL_QUESTS)
 
         self.secret_var = tk.StringVar(value=self.char_data.get("secret", f"{CHARACTER_SECRETS[0]['title']} — {CHARACTER_SECRETS[0]['desc']}"))
-        make_narrative_picker("🔒 Segreto del Personaggio (per il Master):", self.secret_var, CHARACTER_SECRETS, badge_text="[Visibile solo a te e al DM]")
+        make_narrative_picker(_t("wizard_character_secret"), self.secret_var, CHARACTER_SECRETS, badge_text=_t("wizard_dm_only"))
 
         self.party_tie_var = tk.StringVar(value=self.char_data.get("party_tie", f"{PARTY_TIES[0]['title']} — {PARTY_TIES[0]['desc']}"))
-        make_narrative_picker("🤝 Legame con il Gruppo (Party Tie):", self.party_tie_var, PARTY_TIES)
+        make_narrative_picker(_t("wizard_party_tie"), self.party_tie_var, PARTY_TIES)
 
         self.trinket_var = tk.StringVar(value=self.char_data.get("trinket", TRINKETS[0]))
-        make_narrative_picker("🗝️ Cimelio Personale (Trinket con significato affettivo):", self.trinket_var, TRINKETS)
+        make_narrative_picker(_t("wizard_trinket"), self.trinket_var, TRINKETS)
 
         # 3. Generatore & Editor della Backstory
         story_card = ttk.Frame(parent)
@@ -1625,7 +1638,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         story_top = ttk.Frame(story_card)
         story_top.pack(fill=tk.X, pady=(0, 4))
         
-        ttk.Label(story_top, text="📖 Biografia & Storia dell'Eroe:", font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT)
+        ttk.Label(story_top, text=_t("wizard_bio_story"), font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT)
         
         def compose_story(variation=0):
             style_val = getattr(self, "story_style_var", None)
@@ -1652,30 +1665,30 @@ class CharacterCreationWizardFrame(ttk.Frame):
             self.backstory_text.delete("1.0", tk.END)
             self.backstory_text.insert(tk.END, story)
 
-        btn_compose = ttk.Button(story_top, text="✨ Componi Storia", command=compose_story, style="Gold.TButton")
+        btn_compose = ttk.Button(story_top, text=_t("wizard_btn_compose"), command=compose_story, style="Gold.TButton")
         btn_compose.pack(side=tk.RIGHT, padx=2)
 
         def do_variation():
             var_num = random.randint(1, 9999)
             compose_story(variation=var_num)
 
-        btn_var = ttk.Button(story_top, text="🎲 Variazione", command=do_variation, style="Dark.TButton")
+        btn_var = ttk.Button(story_top, text=_t("wizard_btn_variation"), command=do_variation, style="Dark.TButton")
         btn_var.pack(side=tk.RIGHT, padx=2)
 
         def do_clear():
             self.backstory_text.delete("1.0", tk.END)
 
-        btn_clear = ttk.Button(story_top, text="🧹 Pulisci", command=do_clear, style="Dark.TButton")
+        btn_clear = ttk.Button(story_top, text=_t("clear"), command=do_clear, style="Dark.TButton")
         btn_clear.pack(side=tk.RIGHT, padx=2)
 
         style_frame = ttk.Frame(story_card)
         style_frame.pack(fill=tk.X, pady=(2, 4))
-        ttk.Label(style_frame, text="🎨 Stile Narrativo:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 4))
-        self.story_style_var = tk.StringVar(value="Eroico & Epico")
+        ttk.Label(style_frame, text=_t("wizard_lbl_style"), font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 4))
+        self.story_style_var = tk.StringVar(value=_t("wizard_style_heroic"))
         style_cb = ttk.Combobox(
             style_frame,
             textvariable=self.story_style_var,
-            values=["Eroico & Epico", "Dark Fantasy & Tormentato", "Misterioso & Arcano", "Picaresco & Avventuroso"],
+            values=[_t("wizard_style_heroic"), _t("wizard_style_dark"), _t("wizard_style_mysterious"), _t("wizard_style_picaresque")],
             state="readonly",
             width=28
         )
@@ -1942,7 +1955,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
     def _on_creation_done(self, c):
         self.manager.add_character(c)
         try:
-            messagebox.showinfo("Successo", f"Personaggio '{c.name}' creato con successo!", parent=self)
+            messagebox.showinfo(_t("success"), _t("wizard_msg_char_created").format(name=c.name), parent=self)
         except Exception:
             pass
         try:

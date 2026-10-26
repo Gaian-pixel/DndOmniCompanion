@@ -33,6 +33,7 @@ class TestFullscreen(unittest.TestCase):
         set_language("en")
         self.assertEqual(_t("menu_view"), "View")
         self.assertIn("F11", _t("menu_fullscreen"))
+        set_language("it")
 
     def test_window_fullscreen_toggle(self):
         win = tk.Toplevel(self.root)

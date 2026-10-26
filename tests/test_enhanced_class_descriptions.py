@@ -27,6 +27,7 @@ from common.classes_data import (
 )
 from client.character_manager import CharacterManager, Character
 from client.character_creation_wizard import CharacterCreationWizard, CLASSES as WIZARD_CLASSES
+from common.i18n import translate_class
 
 
 class TestEnhancedClassDescriptions(unittest.TestCase):
@@ -183,8 +184,8 @@ class TestEnhancedClassDescriptions(unittest.TestCase):
         # Verifica che il canvas scorrevole sia attivo per il passo classe
         self.assertIsNotNone(wiz.scroll_canvas)
         
-        # Verifica valore iniziale
-        self.assertIn(wiz.class_var.get(), self.expected_classes)
+        # Verifica valore iniziale (in forma canonica o localizzata)
+        self.assertIn(translate_class(wiz.class_var.get(), "it"), self.expected_classes)
         
         # Selezioniamo "Mago"
         wiz.class_var.set("Mago")

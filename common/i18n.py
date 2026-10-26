@@ -159,6 +159,123 @@ def translate_period(period_name: str, target_lang: str = None) -> str:
 
 
 
+RACES_IT_TO_EN = {
+    "Umano": "Human",
+    "Elfo": "Elf",
+    "Nano": "Dwarf",
+    "Halfling": "Halfling",
+    "Draconide": "Dragonborn",
+    "Dragonide": "Dragonborn",
+    "Gnomo": "Gnome",
+    "Mezzelfo": "Half-Elf",
+    "Mezzorco": "Half-Orc",
+    "Tiefling": "Tiefling"
+}
+RACES_EN_TO_IT = {
+    "Human": "Umano",
+    "Elf": "Elfo",
+    "Dwarf": "Nano",
+    "Halfling": "Halfling",
+    "Dragonborn": "Draconide",
+    "Gnome": "Gnomo",
+    "Half-Elf": "Mezzelfo",
+    "Half-Orc": "Mezzorco",
+    "Tiefling": "Tiefling"
+}
+
+def translate_race(race_name: str, target_lang: str = None) -> str:
+    """Traduce la razza 5e tra IT ed EN."""
+    if not target_lang:
+        target_lang = get_language()
+    clean = (race_name or "").strip()
+    if target_lang == "en":
+        return RACES_IT_TO_EN.get(clean, clean)
+    else:
+        return RACES_EN_TO_IT.get(clean, clean)
+
+
+CLASSES_IT_TO_EN = {
+    "Barbaro": "Barbarian",
+    "Bardo": "Bard",
+    "Chierico": "Cleric",
+    "Druido": "Druid",
+    "Guerriero": "Fighter",
+    "Monaco": "Monk",
+    "Paladino": "Paladin",
+    "Ranger": "Ranger",
+    "Ladro": "Rogue",
+    "Stregone": "Sorcerer",
+    "Warlock": "Warlock",
+    "Mago": "Wizard"
+}
+CLASSES_EN_TO_IT = {v: k for k, v in CLASSES_IT_TO_EN.items()}
+
+def translate_class(class_name: str, target_lang: str = None) -> str:
+    """Traduce la classe 5e tra IT ed EN."""
+    if not target_lang:
+        target_lang = get_language()
+    clean = (class_name or "").strip()
+    if target_lang == "en":
+        return CLASSES_IT_TO_EN.get(clean, clean)
+    else:
+        return CLASSES_EN_TO_IT.get(clean, clean)
+
+
+ALIGNMENTS_IT_TO_EN = {
+    "Nessuno (Non specificato)": "None (Unspecified)",
+    "Legale Buono": "Lawful Good",
+    "Neutrale Buono": "Neutral Good",
+    "Caotico Buono": "Chaotic Good",
+    "Legale Neutrale": "Lawful Neutral",
+    "Neutrale Puro": "True Neutral",
+    "Neutrale": "Neutral",
+    "Caotico Neutrale": "Chaotic Neutral",
+    "Legale Malvagio": "Lawful Evil",
+    "Neutrale Malvagio": "Neutral Evil",
+    "Caotico Malvagio": "Chaotic Evil"
+}
+ALIGNMENTS_EN_TO_IT = {v: k for k, v in ALIGNMENTS_IT_TO_EN.items()}
+
+def translate_alignment(align_name: str, target_lang: str = None) -> str:
+    """Traduce l'allineamento morale 5e tra IT ed EN."""
+    if not target_lang:
+        target_lang = get_language()
+    clean = (align_name or "").strip()
+    if target_lang == "en":
+        return ALIGNMENTS_IT_TO_EN.get(clean, clean)
+    else:
+        return ALIGNMENTS_EN_TO_IT.get(clean, clean)
+
+
+BACKGROUNDS_IT_TO_EN = {
+    "Accolito": "Acolyte",
+    "Ciarlatano": "Charlatan",
+    "Criminale": "Criminal",
+    "Intrattenitore": "Entertainer",
+    "Eroe Popolare": "Folk Hero",
+    "Artigiano di Gilda": "Guild Artisan",
+    "Eremita": "Hermit",
+    "Nobile": "Noble",
+    "Forestiero": "Outlander",
+    "Sapiente": "Sage",
+    "Marinaio": "Sailor",
+    "Soldato": "Soldier",
+    "Monello": "Urchin",
+    "Personalizzato": "Custom"
+}
+BACKGROUNDS_EN_TO_IT = {v: k for k, v in BACKGROUNDS_IT_TO_EN.items()}
+
+def translate_background(bg_name: str, target_lang: str = None) -> str:
+    """Traduce il background 5e tra IT ed EN."""
+    if not target_lang:
+        target_lang = get_language()
+    clean = (bg_name or "").strip()
+    if target_lang == "en":
+        return BACKGROUNDS_IT_TO_EN.get(clean, clean)
+    else:
+        return BACKGROUNDS_EN_TO_IT.get(clean, clean)
+
+
 # Dizionario completo traduzioni UI
 STRINGS = {
     "it": {
@@ -921,6 +1038,91 @@ STRINGS = {
         "wizard_token_no_image": "Nessuna immagine (token con iniziali)",
         "wizard_quick_advice": "💡 Consiglio di Creazione Rapida (per il Passo 3):",
         "wizard_aspect_token": "Aspetto del Personaggio & Token di Gioco:",
+        "btn_prev": "◀ Prec.",
+        "btn_next_arrow": "Succ. ▶",
+        "btn_remove": "❌ Rimuovi",
+        "lbl_size": "Taglia",
+        "lbl_category": "Categoria",
+        "wizard_btn_comparison_table": "📊 Tabella Comparativa",
+        "wizard_senses": "👁️ Sensi:",
+        "wizard_languages": "🗣️ Linguaggi:",
+        "wizard_resistances_defenses": "🛡️ Resistenze & Difese:",
+        "wizard_overview_lore": "📖 Panoramica & Lore Narrativa",
+        "wizard_subraces_variants": "🌿 Sottorazze e Varianti Famose",
+        "wizard_lifespan": "⏳ Longevità & Maturità:",
+        "wizard_optimal_for": "Ottimale per",
+        "wizard_step3_instruction": "Assegna i valori: 15, 14, 13, 12, 10, 8\nI valori si scambieranno automaticamente per non avere duplicati.",
+        "wizard_err_standard_array": "Devi assegnare ogni valore della Array Standard (15,14,13,12,10,8) esattamente una volta.",
+        "wizard_cat_all": "Tutte",
+        "wizard_cat_martial": "Combattenti",
+        "wizard_cat_magical": "Magiche",
+        "wizard_cat_hybrid": "Ibride",
+        "wizard_primary_stat": "⭐ Primaria:",
+        "wizard_quick_build_tip": "💡 Consiglio di Creazione Rapida (per il Passo 3):",
+        "wizard_starter_gear": "🎒 Dotazione Iniziale di Classe (fornita all'inizio):",
+        "wizard_starter_spells": "✨ Magia & Incantesimi Iniziali (Livello 1):",
+        "wizard_class_overview": "📖 Panoramica & Identità Narrativa",
+        "wizard_lvl1_features": "⚔️ Privilegi Chiave di Livello 1",
+        "wizard_playstyle_role": "🎯 Stile di Gioco & Ruolo nel Gruppo",
+        "wizard_subclasses_archetypes": "🔮 Archetipi e Sottoclassi Future",
+        "wizard_hp_at_lvl1": "PF al 1°",
+        "wizard_lbl_bg": "Background 5e:",
+        "wizard_choose_2_skills": "Scegli 2 Abilità:",
+        "wizard_rp_pillars": "🎭 Le 4 Colonne Ruolistiche (D&D 5e)",
+        "wizard_rp_trait": "Tratto Caratteriale (Abitudini & Modi di fare):",
+        "wizard_rp_ideal": "Ideale (Principio etico o morale):",
+        "wizard_rp_bond": "Legame (La persona, luogo o memoria per cui moriresti):",
+        "wizard_rp_flaw": "Difetto (Vizio segreto, debolezza o fobia):",
+        "wizard_feat_label": "Privilegio",
+        "wizard_equip_gold_label": "Equipaggiamento & Oro Iniziale",
+        "wizard_origin_place": "Origine / Città:",
+        "wizard_origin_default": "Terre d'origine",
+        "wizard_token_card_title": "🖼️ Ritratto Personaggio & Token Mappa",
+        "wizard_token_desc": "L'immagine scelta verrà ritagliata in forma circolare e utilizzata come token interattivo sulla mappa.",
+        "wizard_token_none_set": "Nessuna immagine impostata",
+        "wizard_token_none_initials": "Nessuna immagine (token con iniziali)",
+        "wizard_token_loaded": "Immagine caricata",
+        "wizard_choose_image": "📁 Scegli Immagine...",
+        "wizard_alignment_tip": "💡 Allineamento Opzionale: In D&D 5e l'allineamento è solo una possibile bussola etica e una linea guida. Non definisce per forza il giocatore o il personaggio che sarai al tavolo: le tue scelte avranno sempre la precedenza.",
+        "wizard_personal_quest": "🎯 Obiettivo Personale / Gancio d'Avventura:",
+        "wizard_character_secret": "🔒 Segreto del Personaggio (per il Master):",
+        "wizard_dm_only": "[Visibile solo a te e al DM]",
+        "wizard_party_tie": "🤝 Legame con il Gruppo (Party Tie):",
+        "wizard_trinket": "🗝️ Cimelio Personale (Trinket con significato affettivo):",
+        "wizard_bio_story": "📖 Biografia & Storia dell'Eroe:",
+        "wizard_btn_compose": "✨ Componi Storia",
+        "wizard_btn_variation": "🎲 Variazione",
+        "wizard_lbl_style": "🎨 Stile Narrativo:",
+        "wizard_style_heroic": "Eroico & Epico",
+        "wizard_style_dark": "Dark Fantasy & Tormentato",
+        "wizard_style_mysterious": "Misterioso & Arcano",
+        "wizard_style_picaresque": "Picaresco & Avventuroso",
+        "wizard_msg_char_created": "Personaggio '{name}' creato con successo!",
+        "wizard_dlg_classes_title": "Tabella Comparativa delle 12 Classi (D&D 5e)",
+        "wizard_dlg_classes_header": "📊 Confronto Rapido delle Classi",
+        "wizard_dlg_classes_desc": "Confronta Dadi Vita, Ruolo Tattico, Caratteristiche Primarie e Complessità per scegliere l'eroe perfetto. Fai doppio clic su una riga per selezionarla.",
+        "wizard_party_role": "Ruolo nel Party",
+        "wizard_complexity": "Complessità",
+        "wizard_dlg_races_title": "Compendio & Confronto Comparativo Razze (D&D 5e)",
+        "wizard_dlg_races_header": "📊 Compendio e Confronto Comparativo delle Razze (D&D 5e)",
+        "wizard_chip_all": "Tutte (9)",
+        "wizard_chip_res": "🛡️ Resistenze",
+        "wizard_chip_darkvision": "👁️ Scurovisione",
+        "wizard_chip_small": "🏃 Taglia Piccola",
+        "wizard_chip_melee": "⚔️ Mischia / Forza",
+        "wizard_chip_magic": "✨ Magiche / Carisma",
+        "wizard_dlg_choose_race": "✓ Scegli Questa Razza",
+        "wizard_dlg_race_tip": "💡 Suggerimento: Seleziona una razza per visualizzarne i dettagli o premi 'Scegli Questa Razza'.",
+        "wizard_dlg_races_taglia_vel": "Taglia / Vel.",
+        "wizard_dlg_races_classi": "Classi Consigliate",
+        "wizard_dlg_res_box": "🛡️ Resistenze, Immunità & Difese",
+        "wizard_dlg_syn_box": "⭐ Sinergie & Classi Ideali",
+        "wizard_dlg_traits_box": "🧬 Tratti Razziali",
+        "wizard_dlg_subraces_box": "🌿 Sottorazze & Varianti",
+        "wizard_vision_normal": "Normale",
+        "wizard_languages_common": "Comune",
+        "wizard_resistances_none": "Nessuna",
+        "wizard_size": "Taglia",
 
         # --- Progressione Livello ---
         "prog_title": "Avanzamento di Livello (Level Up)",
@@ -1801,6 +2003,91 @@ STRINGS = {
         "wizard_token_no_image": "No image (token with initials)",
         "wizard_quick_advice": "💡 Quick Creation Tip (for Step 3):",
         "wizard_aspect_token": "Character Appearance & Game Token:",
+        "btn_prev": "◀ Prev",
+        "btn_next_arrow": "Next ▶",
+        "btn_remove": "❌ Remove",
+        "lbl_size": "Size",
+        "lbl_category": "Category",
+        "wizard_btn_comparison_table": "📊 Comparison Table",
+        "wizard_senses": "👁️ Senses:",
+        "wizard_languages": "🗣️ Languages:",
+        "wizard_resistances_defenses": "🛡️ Resistances & Defenses:",
+        "wizard_overview_lore": "📖 Overview & Narrative Lore",
+        "wizard_subraces_variants": "🌿 Subraces & Famous Variants",
+        "wizard_lifespan": "⏳ Lifespan & Maturity:",
+        "wizard_optimal_for": "Optimal for",
+        "wizard_step3_instruction": "Assign values: 15, 14, 13, 12, 10, 8\nValues will swap automatically to avoid duplicates.",
+        "wizard_err_standard_array": "You must assign each Standard Array value (15,14,13,12,10,8) exactly once.",
+        "wizard_cat_all": "All",
+        "wizard_cat_martial": "Martial",
+        "wizard_cat_magical": "Spellcasters",
+        "wizard_cat_hybrid": "Hybrid",
+        "wizard_primary_stat": "⭐ Primary Ability:",
+        "wizard_quick_build_tip": "💡 Quick Build Recommendation (for Step 3):",
+        "wizard_starter_gear": "🎒 Starting Equipment (provided at start):",
+        "wizard_starter_spells": "✨ Starting Magic & Spells (Level 1):",
+        "wizard_class_overview": "📖 Narrative Identity & Overview",
+        "wizard_lvl1_features": "⚔️ Key Level 1 Features",
+        "wizard_playstyle_role": "🎯 Playstyle & Party Role",
+        "wizard_subclasses_archetypes": "🔮 Future Archetypes & Subclasses",
+        "wizard_hp_at_lvl1": "HP at 1st",
+        "wizard_lbl_bg": "5e Background:",
+        "wizard_choose_2_skills": "Choose 2 Skills:",
+        "wizard_rp_pillars": "🎭 The 4 Roleplaying Pillars (D&D 5e)",
+        "wizard_rp_trait": "Personality Trait (Habits & Mannerisms):",
+        "wizard_rp_ideal": "Ideal (Ethical or moral principle):",
+        "wizard_rp_bond": "Bond (Person, place or memory you'd die for):",
+        "wizard_rp_flaw": "Flaw (Secret vice, weakness or phobia):",
+        "wizard_feat_label": "Feature",
+        "wizard_equip_gold_label": "Starting Equipment & Gold",
+        "wizard_origin_place": "Origin / City:",
+        "wizard_origin_default": "Homeland",
+        "wizard_token_card_title": "🖼️ Character Portrait & Map Token",
+        "wizard_token_desc": "The selected image will be cropped to a circle and used as an interactive token on the map.",
+        "wizard_token_none_set": "No image set",
+        "wizard_token_none_initials": "No image (initials token)",
+        "wizard_token_loaded": "Image loaded",
+        "wizard_choose_image": "📁 Choose Image...",
+        "wizard_alignment_tip": "💡 Optional Alignment: In D&D 5e, alignment is merely an ethical compass and roleplay guideline. It never forces your decisions: player choices always take precedence.",
+        "wizard_personal_quest": "🎯 Personal Quest / Adventure Hook:",
+        "wizard_character_secret": "🔒 Character Secret (for the DM):",
+        "wizard_dm_only": "[Visible only to you and the DM]",
+        "wizard_party_tie": "🤝 Party Tie (Bond with Party):",
+        "wizard_trinket": "🗝️ Personal Trinket (Sentimental Kept Item):",
+        "wizard_bio_story": "📖 Hero Biography & Backstory:",
+        "wizard_btn_compose": "✨ Compose Backstory",
+        "wizard_btn_variation": "🎲 Variation",
+        "wizard_lbl_style": "🎨 Narrative Style:",
+        "wizard_style_heroic": "Heroic & Epic",
+        "wizard_style_dark": "Dark Fantasy & Gritty",
+        "wizard_style_mysterious": "Mysterious & Arcane",
+        "wizard_style_picaresque": "Picaresque & Adventurous",
+        "wizard_msg_char_created": "Character '{name}' successfully created!",
+        "wizard_dlg_classes_title": "Comparison Table of 12 Classes (D&D 5e)",
+        "wizard_dlg_classes_header": "📊 Quick Classes Comparison",
+        "wizard_dlg_classes_desc": "Compare Hit Dice, Tactical Role, Primary Abilities, and Complexity to choose your ideal hero. Double-click a row to select.",
+        "wizard_party_role": "Party Role",
+        "wizard_complexity": "Complexity",
+        "wizard_dlg_races_title": "Races Compendium & Comparison (D&D 5e)",
+        "wizard_dlg_races_header": "📊 Races Compendium & Comparison (D&D 5e)",
+        "wizard_chip_all": "All (9)",
+        "wizard_chip_res": "🛡️ Resistances",
+        "wizard_chip_darkvision": "👁️ Darkvision",
+        "wizard_chip_small": "🏃 Small Size",
+        "wizard_chip_melee": "⚔️ Melee / Strength",
+        "wizard_chip_magic": "✨ Magic / Charisma",
+        "wizard_dlg_choose_race": "✓ Choose This Race",
+        "wizard_dlg_race_tip": "💡 Tip: Select a race to view details or click 'Choose This Race'.",
+        "wizard_dlg_races_taglia_vel": "Size / Spd",
+        "wizard_dlg_races_classi": "Recommended Classes",
+        "wizard_dlg_res_box": "🛡️ Resistances, Immunities & Defenses",
+        "wizard_dlg_syn_box": "⭐ Synergies & Ideal Classes",
+        "wizard_dlg_traits_box": "🧬 Racial Traits",
+        "wizard_dlg_subraces_box": "🌿 Subraces & Variants",
+        "wizard_vision_normal": "Normal",
+        "wizard_languages_common": "Common",
+        "wizard_resistances_none": "None",
+        "wizard_size": "Size",
 
         # --- Level Up Progression ---
         "prog_title": "Level Up Progression",

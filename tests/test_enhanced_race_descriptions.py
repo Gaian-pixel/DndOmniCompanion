@@ -22,6 +22,7 @@ from common.theme import setup_theme
 from common.races_data import RACES, get_race_info, get_race_names
 from client.character_manager import CharacterManager, Character
 from client.character_creation_wizard import CharacterCreationWizard, RACES as WIZARD_RACES
+from common.i18n import translate_race
 
 
 class TestEnhancedRaceDescriptions(unittest.TestCase):
@@ -148,7 +149,7 @@ class TestEnhancedRaceDescriptions(unittest.TestCase):
         self.assertIsNotNone(wiz.scroll_canvas)
         
         # Verifica valore iniziale
-        self.assertIn(wiz.race_var.get(), self.expected_races)
+        self.assertIn(translate_race(wiz.race_var.get(), "it"), self.expected_races)
         
         # Selezioniamo "Nano"
         wiz.race_var.set("Nano")
