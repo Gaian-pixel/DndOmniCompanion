@@ -72,16 +72,47 @@ class TestDice3DMathAndGeometry(unittest.TestCase):
         self.assertAlmostEqual(abs(q_y90[0] * q_rec[0] + q_y90[2] * q_rec[2]), 1.0, places=4)
 
     def test_face_target_alignment(self):
-        """Verifica che get_face_target_matrix allinei il vettore normale della faccia a (0, 0, 1)."""
+        """Verifica che get_face_target_matrix allinei il vettore normale della faccia a (0, 0, 1) con det=+1."""
         test_normal = vec3_norm((0.577, 0.577, 0.577))
         test_up = vec3_norm((0.0, 1.0, 0.0))
         
         R = get_face_target_matrix(test_normal, test_up)
-        aligned_normal = mat_vec_mul(R, test_normal)
+        # Determinante deve essere +1 (rotazione pura, nessuna riflessione)
+        det_R = (
+            R[0][0]*(R[1][1]*R[2][2] - R[1][2]*R[2][1]) -
+            R[0][1]*(R[1][0]*R[2][2] - R[1][2]*R[2][0]) +
+            R[0][2]*(R[1][0]*R[2][1] - R[1][1]*R[2][0])
+        )
+        self.assertAlmostEqual(det_R, 1.0, places=4)
         
+        aligned_normal = mat_vec_mul(R, test_normal)
         self.assertAlmostEqual(aligned_normal[0], 0.0, places=4)
         self.assertAlmostEqual(aligned_normal[1], 0.0, places=4)
         self.assertAlmostEqual(aligned_normal[2], 1.0, places=4)
+
+    def test_all_faces_align_to_camera(self):
+        """Verifica che per ogni dado e ogni possibile risultato la faccia estratta punti esattamente a (0, 0, 1)."""
+        for dt in ["d4", "d6", "d8", "d10", "d12", "d20"]:
+            poly = get_polyhedron(dt)
+            for target_val in poly.face_numbers:
+                t_idx = poly.face_numbers.index(target_val)
+                n = poly.face_normals[t_idx]
+                u = poly.face_ups[t_idx]
+                R = get_face_target_matrix(n, u)
+                q = matrix_to_quat(R)
+                M = quat_to_matrix(q)
+                
+                # Trova la faccia con normale Z massima
+                best_z = -999.0
+                best_idx = -1
+                for fi, fn in enumerate(poly.face_normals):
+                    rn = mat_vec_mul(M, fn)
+                    if rn[2] > best_z:
+                        best_z = rn[2]
+                        best_idx = fi
+                        
+                self.assertEqual(best_idx, t_idx, f"{dt} tiro={target_val} ha allineato faccia errata {poly.face_numbers[best_idx]}")
+                self.assertAlmostEqual(best_z, 1.0, places=4, msg=f"{dt} tiro={target_val} normale Z non a 1.0")
 
     def test_polyhedron_models_completeness(self):
         """Verifica che tutti i dadi poliedrici 5e abbiano facce, vertici e numeri corretti."""

@@ -147,15 +147,15 @@ def mat_vec_mul(M: List[List[float]], v: Tuple[float, float, float]) -> Tuple[fl
     )
 
 def get_face_target_matrix(face_normal: Tuple[float, float, float], face_up: Tuple[float, float, float]) -> List[List[float]]:
-    """Calcola la matrice di rotazione che orienta face_normal verso la telecamera (+Z) e face_up verso l'alto dello schermo (-Y)."""
+    """Calcola la matrice di rotazione ortogonale che orienta face_normal verso la telecamera (+Z) e face_up verso l'alto dello schermo in 3D (+Y)."""
     n = vec3_norm(face_normal)
     d = vec3_dot(face_up, n)
     u = vec3_norm((face_up[0] - d * n[0], face_up[1] - d * n[1], face_up[2] - d * n[2]))
     r = vec3_norm(vec3_cross(u, n))
     return [
-        [ r[0],  r[1],  r[2]],
-        [-u[0], -u[1], -u[2]],
-        [ n[0],  n[1],  n[2]]
+        [r[0], r[1], r[2]],
+        [u[0], u[1], u[2]],
+        [n[0], n[1], n[2]]
     ]
 
 
@@ -282,10 +282,12 @@ def _build_d8() -> PolyhedronModel:
 
 
 def _build_d10(is_d100: bool = False) -> PolyhedronModel:
-    # Pentagonal Trapezohedron: 12 vertices, 10 faces
-    verts = [(0.0, 1.25, 0.0), (0.0, -1.25, 0.0)]
+    # Pentagonal Trapezohedron: 12 vertices, 10 planar kite faces
+    h = 0.15
+    k = (2.0 * math.sin(math.pi / 5.0) + math.sin(2.0 * math.pi / 5.0)) / (2.0 * math.sin(math.pi / 5.0) - math.sin(2.0 * math.pi / 5.0))
+    H = h * k
     r = 1.0
-    h = 0.25
+    verts = [(0.0, H, 0.0), (0.0, -H, 0.0)]
     for i in range(5):
         ang = 2.0 * math.pi * i / 5.0
         verts.append((r * math.cos(ang), h, r * math.sin(ang)))
@@ -307,8 +309,12 @@ def _build_d10(is_d100: bool = False) -> PolyhedronModel:
     ups = []
     for f in faces:
         p0, p1, p2, p3 = [verts[idx] for idx in f]
+        d1 = vec3_sub(p2, p0)
+        d2 = vec3_sub(p3, p1)
+        n = vec3_norm(vec3_cross(d1, d2))
         c = vec3_scale(vec3_add(vec3_add(p0, p1), vec3_add(p2, p3)), 0.25)
-        n = vec3_norm(c)
+        if vec3_dot(n, c) < 0:
+            n = vec3_scale(n, -1.0)
         normals.append(n)
         ups.append(vec3_norm(vec3_sub(p0, c)))
         
@@ -316,7 +322,7 @@ def _build_d10(is_d100: bool = False) -> PolyhedronModel:
         nums = ["00", "50", "10", "60", "20", "70", "30", "80", "40", "90"]
         return PolyhedronModel("d100", verts, faces, nums, normals, ups, "#78350F", "#D97706", "#FFFFFF")
     else:
-        nums = [0, 5, 1, 6, 2, 7, 3, 8, 4, 9]
+        nums = [1, 6, 2, 7, 3, 8, 4, 9, 5, 10]
         return PolyhedronModel("d10", verts, faces, nums, normals, ups, "#9A3412", "#F97316", "#FEF08A")
 
 
@@ -549,11 +555,32 @@ class Die3DInstance:
         # Calcolo orientamento target per mostrare la faccia corretta verso la telecamera (+Z)
         target_idx = 0
         t_str = str(target_value).strip().lower()
+        found = False
         for idx, val in enumerate(self.model.face_numbers):
             if str(val).strip().lower() == t_str:
                 target_idx = idx
+                found = True
                 break
+        if not found:
+            if self.model.name == "d10" and t_str in ("10", "0"):
+                for idx, val in enumerate(self.model.face_numbers):
+                    if str(val) in ("10", "0"):
+                        target_idx = idx
+                        found = True
+                        break
+            elif self.model.name == "d100":
+                try:
+                    num_int = int(target_value)
+                    tens = f"{((num_int % 100) // 10) * 10:02d}"
+                    for idx, val in enumerate(self.model.face_numbers):
+                        if str(val) == tens:
+                            target_idx = idx
+                            found = True
+                            break
+                except Exception:
+                    pass
         self.target_idx = target_idx
+        self.target_value = self.model.face_numbers[target_idx]
         
         # Matrice di orientamento target
         target_mat = get_face_target_matrix(
@@ -743,7 +770,15 @@ class Die3DInstance:
             b_c = min(255, max(0, int(base_rgb[2] * brightness)))
             fill_hex = f"#{r_c:02x}{g_c:02x}{b_c:02x}"
             
-            canvas.create_polygon(pts, fill=fill_hex, outline=edge_color, width=2, tags="dice_face")
+            # Se il dado è fermo ed è la faccia target vincente, evidenziamo il bordo
+            is_target_face = (f_idx == self.target_idx)
+            is_facing_front = (rn[2] >= 0.88)
+            is_winning_face = self.is_settled and (is_target_face or is_facing_front)
+            
+            f_outline = "#FDE047" if is_winning_face else edge_color
+            f_width = 3 if is_winning_face else 2
+            
+            canvas.create_polygon(pts, fill=fill_hex, outline=f_outline, width=f_width, tags="dice_face")
             
             # Disegno del numero della faccia se rivolta verso la camera
             if rn[2] > 0.40:
@@ -755,21 +790,38 @@ class Die3DInstance:
                 if num_str in ("6", "9"):
                     num_str += "." # Distinzione 6 e 9
                     
-                font_sz = max(9, int(15 * (self.radius / 52.0) * rn[2]))
-                weight = "bold"
-                
-                # Ombra numero
-                canvas.create_text(
-                    cx + 1, cy + 1,
-                    text=num_str, font=("Georgia", font_sz, weight),
-                    fill="#000000", tags="dice_num"
-                )
-                # Testo numero
-                canvas.create_text(
-                    cx, cy,
-                    text=num_str, font=("Georgia", font_sz, weight),
-                    fill=txt_color, tags="dice_num"
-                )
+                if self.is_settled:
+                    if is_winning_face:
+                        font_sz = max(13, int(20 * (self.radius / 52.0)))
+                        canvas.create_text(
+                            cx + 1, cy + 1,
+                            text=num_str, font=("Georgia", font_sz, "bold"),
+                            fill="#000000", tags="dice_num"
+                        )
+                        canvas.create_text(
+                            cx, cy,
+                            text=num_str, font=("Georgia", font_sz, "bold"),
+                            fill=txt_color, tags="dice_num"
+                        )
+                    else:
+                        font_sz = max(8, int(11 * (self.radius / 52.0)))
+                        canvas.create_text(
+                            cx, cy,
+                            text=num_str, font=("Georgia", font_sz, "bold"),
+                            fill="#64748B", tags="dice_num"
+                        )
+                else:
+                    font_sz = max(9, int(15 * (self.radius / 52.0) * rn[2]))
+                    canvas.create_text(
+                        cx + 1, cy + 1,
+                        text=num_str, font=("Georgia", font_sz, "bold"),
+                        fill="#000000", tags="dice_num"
+                    )
+                    canvas.create_text(
+                        cx, cy,
+                        text=num_str, font=("Georgia", font_sz, "bold"),
+                        fill=txt_color, tags="dice_num"
+                    )
 
 
 # ==============================================================================
