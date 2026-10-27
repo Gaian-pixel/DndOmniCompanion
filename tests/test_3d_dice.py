@@ -408,6 +408,85 @@ class TestDice3DInstanceAndOverlay(unittest.TestCase):
         nums = canvas.find_withtag("dice_num")
         self.assertGreaterEqual(len(nums), 1, "Numero vincente deve essere renderizzato")
 
+    def test_embedded_map_canvas_preserves_map_elements_without_obscuring(self):
+        """Verifica che il dado compaia direttamente sopra la mappa tattica senza oscurarla (nessun rettangolo bg opaco)."""
+        # Crea un canvas che simula la mappa tattica con token e griglia
+        map_canvas = tk.Canvas(self.frame, width=800, height=600, bg="#121316")
+        map_canvas.pack()
+        
+        # Elementi mappa
+        hex_item = map_canvas.create_polygon([10, 10, 30, 10, 40, 25, 30, 40, 10, 40, 0, 25], fill="#1E293B", tags="map_hex")
+        token_item = map_canvas.create_oval(100, 100, 140, 140, fill="#EF4444", tags="token")
+        
+        # Inizializza overlay passando il map_canvas
+        overlay = Dice3DOverlay(map_canvas, sound_enabled=False, speed="fast")
+        self.assertTrue(overlay.is_embedded, "L'overlay deve rilevare la modalità embedded")
+        self.assertIs(overlay.canvas, map_canvas, "L'overlay deve operare direttamente sul canvas della mappa")
+        
+        # Avvia tiro dadi
+        res = {"rolls": [19], "total": 19, "is_crit": False, "is_fumble": False}
+        overlay.roll("1d20", res, player_name="Legolas", reason="Tiro con Arco")
+        
+        # Esegui vari passi di animazione
+        for _ in range(5):
+            overlay._animate_step()
+            
+        # 1. Nessun rettangolo opaco di oscuramento a schermo intero (tag 'bg')
+        self.assertEqual(len(map_canvas.find_withtag("bg")), 0, "Non deve essere presente alcun rettangolo opaco oscurante")
+        
+        # 2. Gli elementi della mappa devono essere rimasti intatti al 100%
+        self.assertIn(hex_item, map_canvas.find_all(), "Le celle esagonali della mappa devono essere preservate")
+        self.assertIn(token_item, map_canvas.find_all(), "I token dei personaggi sulla mappa devono essere preservati")
+        
+        # 3. L'ombra del dado deve usare stipple='gray50' per trasparenza
+        shadows = map_canvas.find_withtag("dice_shadow")
+        self.assertGreater(len(shadows), 0, "L'ombra del dado deve essere renderizzata")
+        self.assertEqual(map_canvas.itemcget(shadows[0], "stipple"), "gray50", "L'ombra deve essere stippled per trasparenza")
+        
+        # 4. Completa animazione per mostrare banner
+        overlay.elapsed = overlay.total_duration
+        overlay._animate_step()
+        
+        banner_items = map_canvas.find_withtag("banner")
+        self.assertGreater(len(banner_items), 0, "Il banner dei risultati deve essere renderizzato")
+        close_btn_items = map_canvas.find_withtag("close_btn")
+        self.assertGreater(len(close_btn_items), 0, "Il pulsante di chiusura rapida [ ✕ ] deve essere presente")
+        
+        # 5. Dismiss pulisce solo i dadi 3D e preserva la mappa
+        overlay.dismiss()
+        self.assertEqual(len(map_canvas.find_withtag("dice_3d")), 0, "Tutti gli elementi dei dadi devono essere rimossi")
+        self.assertIn(hex_item, map_canvas.find_all(), "La mappa deve rimanere intatta dopo la chiusura")
+        self.assertIn(token_item, map_canvas.find_all(), "I token devono rimanere intatti dopo la chiusura")
+
+    def test_hex_map_canvas_click_filtering_and_redraw_safety(self):
+        """Verifica che HexMapCanvas ignori click su dadi/banner e preservi i dadi durante redraw()."""
+        from components.ui_components import HexMapCanvas
+        hmc = HexMapCanvas(self.frame, width=800, height=600)
+        hmc.pack()
+        
+        # Simula mappa minima
+        hmc.map_data = {
+            "hex_size": 30,
+            "grid_type": "hex",
+            "cells": {},
+            "tokens": {}
+        }
+        
+        # Crea elemento finto dado 3D
+        dice_rect = hmc.create_rectangle(100, 100, 200, 200, fill="#242832", tags=("dice_3d", "banner"))
+        
+        # Redraw della mappa: i dadi non devono essere eliminati dal redraw
+        hmc.redraw()
+        self.assertIn(dice_rect, hmc.find_all(), "redraw() non deve cancellare gli elementi 'dice_3d'")
+        
+        # Verifica filtro click
+        event_mock = type("MockEvent", (), {"x": 150, "y": 150})()
+        # In tkinter headless o mock, hmc._on_canvas_click con find_withtag('current') ritorna early se sopra dice_3d
+        with patch.object(hmc, "find_withtag", return_value=[dice_rect]):
+            with patch.object(hmc, "_on_draw_start") as mock_draw:
+                hmc._on_canvas_click(event_mock)
+                mock_draw.assert_not_called()
+
 
 class TestDice3DAppIntegration(unittest.TestCase):
     """Test unitari per i metodi di integrazione in Client e DM_GUI."""

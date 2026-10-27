@@ -911,7 +911,7 @@ class DM_GUI:
     def trigger_3d_dice_roll(self, formula: str, result: dict, player_name: str = "DM", reason: str = ""):
         if not getattr(self, "enable_3d_dice", True):
             return
-        parent = getattr(self, "map_outer_frame", None) or getattr(self, "master", None)
+        parent = getattr(self, "map_canvas", None) or getattr(self, "map_outer_frame", None) or getattr(self, "master", None)
         if not parent:
             return
         try:

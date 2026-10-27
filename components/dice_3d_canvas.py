@@ -789,7 +789,7 @@ class Die3DInstance:
         """Proietta e disegna il dado 3D con ombre, facce sfaccettate e numeri in stile Dark Fantasy."""
         M = quat_to_matrix(self.quat)
         
-        # 1. Ombra sotto il dado sul tavolo
+        # 1. Ombra sotto il dado sul tavolo (stipple semi-trasparente sulla mappa tattica)
         shadow_rx = self.radius * (0.85 + self.z * 0.002)
         shadow_ry = shadow_rx * 0.45
         shadow_alpha_tint = max(0.2, 1.0 - (self.z / 180.0))
@@ -799,7 +799,7 @@ class Die3DInstance:
             canvas.create_oval(
                 sh_x - shadow_rx, sh_y - shadow_ry,
                 sh_x + shadow_rx, sh_y + shadow_ry,
-                fill="#0A0B0E", outline="", tags="dice_shadow"
+                fill="#000000", outline="", stipple="gray50", tags=("dice_3d", "dice_shadow")
             )
             
         # 2. Alone / Glow se il dado è fermo ed è Critico
@@ -809,14 +809,14 @@ class Die3DInstance:
             canvas.create_oval(
                 self.x - glow_r, self.y - glow_r,
                 self.x + glow_r, self.y + glow_r,
-                outline="#FDE047", width=3, tags="dice_glow"
+                outline="#FDE047", width=3, tags=("dice_3d", "dice_glow")
             )
         elif self.is_settled and self.is_fumble:
             glow_r = self.radius + 10.0
             canvas.create_oval(
                 self.x - glow_r, self.y - glow_r,
                 self.x + glow_r, self.y + glow_r,
-                outline="#EF4444", width=3, tags="dice_glow"
+                outline="#EF4444", width=3, tags=("dice_3d", "dice_glow")
             )
             
         # 3. Trasformazione dei vertici e facce con prospettiva 3D da tavolo
@@ -899,7 +899,7 @@ class Die3DInstance:
             f_outline = "#FDE047" if is_winning_face else edge_color
             f_width = 3 if is_winning_face else 2
             
-            canvas.create_polygon(pts, fill=fill_hex, outline=f_outline, width=f_width, tags="dice_face")
+            canvas.create_polygon(pts, fill=fill_hex, outline=f_outline, width=f_width, tags=("dice_3d", "dice_face"))
             
             # Disegno del numero della faccia se rivolta verso la camera
             if rn[2] > 0.35:
@@ -923,12 +923,12 @@ class Die3DInstance:
                         canvas.create_text(
                             cx + 1, cy + 1,
                             text=num_str, font=("Georgia", font_sz, "bold"),
-                            fill="#000000", tags="dice_num"
+                            fill="#000000", tags=("dice_3d", "dice_num")
                         )
                         canvas.create_text(
                             cx, cy,
                             text=num_str, font=("Georgia", font_sz, "bold"),
-                            fill=txt_color, tags="dice_num"
+                            fill=txt_color, tags=("dice_3d", "dice_num")
                         )
                     elif rn[2] > 0.45 and self.model.name != "d100":
                         # Facce secondarie adiacenti visibili in 3D: numeri discreti (non su d100 per non sovraffollare)
@@ -936,19 +936,19 @@ class Die3DInstance:
                         canvas.create_text(
                             cx, cy,
                             text=num_str, font=("Georgia", font_sz, "bold"),
-                            fill="#64748B", tags="dice_num"
+                            fill="#64748B", tags=("dice_3d", "dice_num")
                         )
                 else:
                     font_sz = max(9, int(15 * (self.radius / 52.0) * max(0.5, rn[2])))
                     canvas.create_text(
                         cx + 1, cy + 1,
                         text=num_str, font=("Georgia", font_sz, "bold"),
-                        fill="#000000", tags="dice_num"
+                        fill="#000000", tags=("dice_3d", "dice_num")
                     )
                     canvas.create_text(
                         cx, cy,
                         text=num_str, font=("Georgia", font_sz, "bold"),
-                        fill=txt_color, tags="dice_num"
+                        fill=txt_color, tags=("dice_3d", "dice_num")
                     )
 
 
@@ -959,8 +959,9 @@ class Die3DInstance:
 class Dice3DOverlay:
     """
     Overlay animato per il lancio dei dadi 3D poliedrici.
-    Si posiziona sopra il widget genitore (es. map_outer_frame o master)
-    e mostra dadi che rotolano, si assestano e presentano il banner dei risultati.
+    Si posiziona sopra il widget genitore (es. map_canvas, map_outer_frame o master)
+    e mostra dadi che rotolano, si assestano e presentano il banner dei risultati
+    direttamente sopra la mappa tattica senza oscurarla.
     """
 
     def __init__(
@@ -980,21 +981,51 @@ class Dice3DOverlay:
         self.total_duration = speed_map.get(speed, 1.5)
         self.auto_close_delay = 4.5 # secondi dopo l'arresto (tempo abbondante per leggere il risultato)
         
-        self.canvas = tk.Canvas(
-            parent,
-            bg="#0E1015",
-            highlightthickness=0,
-            borderwidth=0
-        )
-        self.canvas.bind("<Button-1>", self._on_canvas_click)
+        target_canvas = self._find_canvas(parent)
+        if target_canvas is not None:
+            self.canvas = target_canvas
+            self.is_embedded = True
+        else:
+            self.canvas = tk.Canvas(
+                parent,
+                bg="#0E1015",
+                highlightthickness=0,
+                borderwidth=0
+            )
+            self.is_embedded = False
+            
+        self._bind_events()
         
         self.dice: List[Die3DInstance] = []
         self.elapsed = 0.0
         self.is_running = False
         self.is_finished = False
         self.timer_id: Optional[str] = None
+        self.finished_time: float = 0.0
         
         self.banner_info: Dict[str, Any] = {}
+
+    def _find_canvas(self, widget: tk.Widget) -> Optional[tk.Canvas]:
+        """Trova il Canvas della mappa (HexMapCanvas o tk.Canvas) nel widget o nei suoi discendenti."""
+        if isinstance(widget, tk.Canvas):
+            return widget
+        if hasattr(widget, "winfo_children"):
+            for child in widget.winfo_children():
+                if isinstance(child, tk.Canvas):
+                    return child
+                sub = self._find_canvas(child)
+                if sub is not None:
+                    return sub
+        return None
+
+    def _bind_events(self):
+        """Associa gli eventi click: se incorporato nella mappa, lega solo ai tag dei dadi/banner."""
+        if self.is_embedded:
+            self.canvas.tag_bind("dice_3d", "<Button-1>", self._on_canvas_click)
+            self.canvas.tag_bind("close_btn", "<Button-1>", lambda e: self.dismiss())
+            self.canvas.tag_bind("banner", "<Button-1>", self._on_canvas_click)
+        else:
+            self.canvas.bind("<Button-1>", self._on_canvas_click)
 
     def roll(
         self,
@@ -1005,6 +1036,14 @@ class Dice3DOverlay:
         on_complete: Optional[Callable[[], None]] = None
     ):
         """Avvia l'animazione del lancio con i dati del risultato del motore roll_dice."""
+        # Se ancora non incorporato in un canvas, cerca se il parent ora ne ha uno disponibile
+        if not self.is_embedded:
+            target_canvas = self._find_canvas(self.parent)
+            if target_canvas is not None:
+                self.canvas = target_canvas
+                self.is_embedded = True
+                self._bind_events()
+
         # Cancella qualsiasi timer pendente da lanci precedenti per evitare che chiudano il nuovo lancio prematuramente
         if self.timer_id:
             try:
@@ -1017,11 +1056,12 @@ class Dice3DOverlay:
             self.on_complete = on_complete
             
         self.parent.update_idletasks()
-        pw = max(400, self.parent.winfo_width())
-        ph = max(300, self.parent.winfo_height())
+        pw = max(400, self.canvas.winfo_width())
+        ph = max(300, self.canvas.winfo_height())
         
-        self.canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
-        tk.Misc.tkraise(self.canvas)
+        if not self.is_embedded:
+            self.canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
+            tk.Misc.tkraise(self.canvas)
         
         # Estrai dadi da animare
         dice_to_roll = self._extract_dice_list(formula, roll_result)
@@ -1165,11 +1205,13 @@ class Dice3DOverlay:
         for d in self.dice:
             d.update(dt, progress, bounds)
             
-        # Pulisci canvas e ridisegna
-        self.canvas.delete("all")
-        
-        # Sfondo semitrasparente scuro con texture a griglia discreta
-        self.canvas.create_rectangle(0, 0, pw, ph, fill="#0B0C0E", outline="", tags="bg")
+        # Pulisci canvas: solo i dadi e il banner se incorporato, preservando al 100% la mappa e i token!
+        if self.is_embedded:
+            self.canvas.delete("dice_3d")
+        else:
+            self.canvas.delete("all")
+            # Sfondo per canvas standalone
+            self.canvas.create_rectangle(0, 0, pw, ph, fill="#0B0C0E", outline="", tags="bg")
         
         # Ridisegna tutti i dadi
         for d in self.dice:
@@ -1178,6 +1220,10 @@ class Dice3DOverlay:
         # Quando i dadi si sono assestati, mostra il banner dei risultati
         if progress >= 0.90:
             self._render_result_banner(pw, ph)
+            
+        # Assicura che i dadi 3D e il banner fluttuino sopra la mappa tattica
+        if self.is_embedded:
+            self.canvas.tag_raise("dice_3d")
             
         if progress >= 1.0 and not self.is_finished:
             self.is_finished = True
@@ -1189,29 +1235,29 @@ class Dice3DOverlay:
             self.timer_id = self.canvas.after(20, self._animate_step)
 
     def _render_result_banner(self, pw: float, ph: float):
-        """Disegna la card scura con cornice dorata, dettagli del tiro e pulsante di chiusura."""
+        """Disegna la card fluttuante con cornice dorata in basso sulla mappa e pulsante di chiusura."""
         bw = min(480.0, pw * 0.9)
         bh = 110.0
         bx = (pw - bw) / 2.0
-        by = ph * 0.68
+        by = max(40.0, ph - bh - 24.0)
         
-        # Pulsante di chiusura rapida [ ✕ ] in alto a destra
-        btn_x = pw - 35.0
-        btn_y = 25.0
+        # Card Background fluttuante (scura con bordo dorato)
         self.canvas.create_rectangle(
-            btn_x - 16, btn_y - 14, btn_x + 16, btn_y + 14,
-            fill="#1E222B", outline="#475569", width=1, tags=("close_btn", "banner")
+            bx, by, bx + bw, by + bh,
+            fill="#181A20", outline="#D4AF37", width=2, tags=("dice_3d", "banner")
+        )
+        
+        # Pulsante di chiusura rapida [ ✕ ] nell'angolo superiore destro della card
+        btn_x = bx + bw - 24.0
+        btn_y = by + 20.0
+        self.canvas.create_rectangle(
+            btn_x - 14, btn_y - 12, btn_x + 14, btn_y + 12,
+            fill="#1E222B", outline="#475569", width=1, tags=("dice_3d", "close_btn", "banner")
         )
         self.canvas.create_text(
             btn_x, btn_y,
-            text="✕", font=("Segoe UI", 12, "bold"),
-            fill="#CBD5E1", tags=("close_btn", "banner")
-        )
-        
-        # Card Background
-        self.canvas.create_rectangle(
-            bx, by, bx + bw, by + bh,
-            fill="#181A20", outline="#D4AF37", width=2, tags="banner"
+            text="✕", font=("Segoe UI", 11, "bold"),
+            fill="#CBD5E1", tags=("dice_3d", "close_btn", "banner")
         )
         
         p_name = self.banner_info.get("player", "Giocatore")
@@ -1228,7 +1274,7 @@ class Dice3DOverlay:
         self.canvas.create_text(
             pw / 2.0, by + 18,
             text=header_text, font=("Georgia", 11, "bold"),
-            fill="#CBD5E1", tags="banner"
+            fill="#CBD5E1", tags=("dice_3d", "banner")
         )
         
         # Stringa formula dettagliata
@@ -1245,7 +1291,7 @@ class Dice3DOverlay:
         self.canvas.create_text(
             pw / 2.0, by + 48,
             text=res_text, font=("Georgia", 16, "bold"),
-            fill=num_color, tags="banner"
+            fill=num_color, tags=("dice_3d", "banner")
         )
         
         # Badge di stato
@@ -1265,10 +1311,10 @@ class Dice3DOverlay:
         self.canvas.create_text(
             pw / 2.0, by + 82,
             text=badge, font=("Segoe UI", 10, "bold" if (is_crit or is_fumble) else "italic"),
-            fill=b_color, tags="banner"
+            fill=b_color, tags=("dice_3d", "banner")
         )
 
-    def _on_canvas_click(self, event):
+    def _on_canvas_click(self, event=None):
         """Un click durante il roll salta subito al termine; un click a dadi fermi chiude l'overlay."""
         import time
         now = time.time()
@@ -1299,8 +1345,10 @@ class Dice3DOverlay:
             self.timer_id = None
             
         self.is_running = False
-        self.canvas.place_forget()
-        self.canvas.delete("all")
+        self.canvas.delete("dice_3d")
+        if not self.is_embedded:
+            self.canvas.place_forget()
+            self.canvas.delete("all")
         
         if self.on_complete:
             cb = self.on_complete

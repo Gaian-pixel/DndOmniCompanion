@@ -460,6 +460,13 @@ class HexMapCanvas(tk.Canvas):
             self.focus_set()
         except Exception:
             pass
+        # Controlla click su elementi 3D dei dadi o relativo banner/pulsante
+        current = self.find_withtag("current")
+        if current:
+            tags = self.gettags(current[0])
+            if any(t in tags for t in ("dice_3d", "banner", "close_btn", "dice_face", "dice_num", "dice_shadow", "dice_glow")):
+                return
+
         if getattr(self, "pen_mode", False):
             self._on_draw_start(event)
             return
@@ -964,7 +971,14 @@ class HexMapCanvas(tk.Canvas):
         if not hasattr(self, '_avatar_cache'):
             self._avatar_cache = {}
 
-        self.delete("all")
+        # Preserva elementi 3D dei dadi se attualmente attivi durante il redraw
+        if self.find_withtag("dice_3d"):
+            for item in self.find_all():
+                if "dice_3d" not in self.gettags(item):
+                    self.delete(item)
+        else:
+            self.delete("all")
+
         if not getattr(self, 'map_data', None):
             self.create_text(self.winfo_width()/2, self.winfo_height()/2, 
                              text="Nessuna mappa caricata.", fill="grey", font=("", 12))
@@ -1813,6 +1827,10 @@ class HexMapCanvas(tk.Canvas):
         r_end = getattr(self, "_ruler_current_hex", None) or getattr(self, "_ruler_pinned_end", None)
         if r_start and r_end:
             self._draw_ruler_between(r_start, r_end)
+
+        # 7. Mantieni i dadi 3D e il banner sopra la mappa
+        if self.find_withtag("dice_3d"):
+            self.tag_raise("dice_3d")
 
     def _update_coord_hud(self, hovered_hex=None):
         self.delete("hud_coords")
