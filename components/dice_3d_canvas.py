@@ -180,7 +180,7 @@ def get_die_view_matrix(die_type: str) -> List[List[float]]:
         "d6":   (math.radians(18.0), math.radians(-14.0)),
         "d8":   (math.radians(15.0), math.radians(-12.0)),
         "d10":  (math.radians(15.0), math.radians(-12.0)),
-        "d100": (math.radians(15.0), math.radians(-12.0)),
+        "d100": (0.0, 0.0), # Sfera Zocchihedron: vista frontale centrale mostra curvatura a 360°
         "d12":  (math.radians(12.0), math.radians(-10.0)),
         "d20":  (math.radians(12.0), math.radians(-8.0)),
     }
@@ -321,7 +321,7 @@ def _build_d8() -> PolyhedronModel:
     return PolyhedronModel("d8", verts, faces, nums, normals, ups, "#065F46", "#10B981", "#FDE047")
 
 
-def _build_d10(is_d100: bool = False) -> PolyhedronModel:
+def _build_d10() -> PolyhedronModel:
     # Pentagonal Trapezohedron: 12 vertices, 10 planar kite faces
     # Proporzioni matematiche autentiche dei dadi D&D (Chessex/standard RPG):
     # H/r ≈ 1.515 con apici affilati e facce aquilone perfettamente complanari.
@@ -360,14 +360,84 @@ def _build_d10(is_d100: bool = False) -> PolyhedronModel:
         normals.append(n)
         ups.append(vec3_norm(vec3_sub(p0, c)))
         
-    if is_d100:
-        # Numerazione decine percentile: coppie opposte sommano a 90 (00-90, 10-80, 20-70, 30-60, 40-50)
-        nums = ["00", "10", "20", "30", "40", "60", "50", "90", "80", "70"]
-        return PolyhedronModel("d100", verts, faces, nums, normals, ups, "#78350F", "#D97706", "#FFFFFF")
-    else:
-        # Numerazione classica d10: coppie opposte sommano a 11 (1-10, 2-9, 3-8, 4-7, 5-6)
-        nums = [1, 2, 3, 4, 5, 7, 6, 10, 9, 8]
-        return PolyhedronModel("d10", verts, faces, nums, normals, ups, "#9A3412", "#F97316", "#FEF08A")
+    # Numerazione classica d10: coppie opposte sommano a 11 (1-10, 2-9, 3-8, 4-7, 5-6)
+    nums = [1, 2, 3, 4, 5, 7, 6, 10, 9, 8]
+    return PolyhedronModel("d10", verts, faces, nums, normals, ups, "#9A3412", "#F97316", "#FEF08A")
+
+
+def _build_d100() -> PolyhedronModel:
+    """
+    Zocchihedron: dado a 100 facce autentico (sfera poliedrica sfaccettata a 100 facce).
+    Modellato con 92 vertici sferici e 100 facce planari numerate da 1 a 100 (le coppie opposte sommano a 101).
+    """
+    n_sectors = 10
+    verts = [(0.0, 1.0, 0.0)]
+    for r in range(1, 10):
+        lat = math.pi / 2.0 - r * (math.pi / 10.0)
+        for s in range(n_sectors):
+            lon = 2.0 * math.pi * s / n_sectors
+            verts.append((math.cos(lat) * math.cos(lon), math.sin(lat), math.cos(lat) * math.sin(lon)))
+    verts.append((0.0, -1.0, 0.0))
+
+    faces = []
+    # Calotta Nord: 10 triangoli
+    for s in range(n_sectors):
+        faces.append([0, 1 + ((s + 1) % n_sectors), 1 + s])
+
+    # 8 anelli intermedi di 10 quadrilateri planari (80 facce)
+    for r in range(8):
+        b_c = 1 + r * n_sectors
+        b_n = 1 + (r + 1) * n_sectors
+        for s in range(n_sectors):
+            faces.append([b_c + s, b_c + ((s + 1) % n_sectors), b_n + ((s + 1) % n_sectors), b_n + s])
+
+    # Calotta Sud: 10 triangoli
+    south_idx = len(verts) - 1
+    b_l = 1 + 8 * n_sectors
+    for s in range(n_sectors):
+        faces.append([south_idx, b_l + s, b_l + ((s + 1) % n_sectors)])
+
+    # Calcolo normali e direzioni Up
+    normals = []
+    ups = []
+    for f in faces:
+        pts = [verts[vi] for vi in f]
+        c = (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts), sum(p[2] for p in pts) / len(pts))
+        n = vec3_norm(c)
+        normals.append(n)
+        
+        north = (0.0, 1.0, 0.0)
+        d = vec3_dot(north, n)
+        u_raw = (north[0] - d * n[0], north[1] - d * n[1], north[2] - d * n[2])
+        l_u = math.sqrt(u_raw[0] * u_raw[0] + u_raw[1] * u_raw[1] + u_raw[2] * u_raw[2])
+        ups.append((u_raw[0] / l_u, u_raw[1] / l_u, u_raw[2] / l_u) if l_u > 1e-6 else (0.0, 0.0, 1.0))
+
+    # Coppie opposte (sommano a 101)
+    paired = set()
+    pairs = []
+    for i in range(100):
+        if i in paired:
+            continue
+        best_j = -1
+        best_dot = 1.0
+        for j in range(100):
+            if i == j:
+                continue
+            dot = vec3_dot(normals[i], normals[j])
+            if dot < best_dot:
+                best_dot = dot
+                best_j = j
+        paired.add(i)
+        paired.add(best_j)
+        pairs.append((i, best_j))
+
+    nums = [0] * 100
+    for idx, (i, j) in enumerate(pairs):
+        v = idx + 1
+        nums[i] = v
+        nums[j] = 101 - v
+
+    return PolyhedronModel("d100", verts, faces, nums, normals, ups, "#78350F", "#D97706", "#FDE047")
 
 
 def _build_d20() -> PolyhedronModel:
@@ -472,9 +542,9 @@ def get_polyhedron(die_type: str) -> PolyhedronModel:
         elif dt == "d8":
             _POLY_REGISTRY[dt] = _build_d8()
         elif dt in ("d10", "1d10"):
-            _POLY_REGISTRY[dt] = _build_d10(is_d100=False)
+            _POLY_REGISTRY[dt] = _build_d10()
         elif dt in ("d100", "1d100", "d%"):
-            _POLY_REGISTRY[dt] = _build_d10(is_d100=True)
+            _POLY_REGISTRY[dt] = _build_d100()
         elif dt == "d12":
             _POLY_REGISTRY[dt] = _build_d12()
         else:
@@ -614,10 +684,12 @@ class Die3DInstance:
                         break
             elif self.model.name == "d100":
                 try:
-                    num_int = int(target_value)
-                    tens = f"{((num_int % 100) // 10) * 10:02d}"
+                    if t_str in ("00", "0"):
+                        target_num = 100
+                    else:
+                        target_num = int(target_value)
                     for idx, val in enumerate(self.model.face_numbers):
-                        if str(val) == tens:
+                        if val == target_num:
                             target_idx = idx
                             found = True
                             break
@@ -845,7 +917,8 @@ class Die3DInstance:
                     
                 if self.is_settled:
                     if is_winning_face:
-                        font_sz = max(14, int(22 * (self.radius / 52.0)))
+                        base_font = 16 if self.model.name == "d100" else 22
+                        font_sz = max(11, int(base_font * (self.radius / 52.0)))
                         # Ombra testo 1px per contrasto perfetto
                         canvas.create_text(
                             cx + 1, cy + 1,
@@ -857,8 +930,8 @@ class Die3DInstance:
                             text=num_str, font=("Georgia", font_sz, "bold"),
                             fill=txt_color, tags="dice_num"
                         )
-                    elif rn[2] > 0.45:
-                        # Facce secondarie adiacenti visibili in 3D: numeri discreti
+                    elif rn[2] > 0.45 and self.model.name != "d100":
+                        # Facce secondarie adiacenti visibili in 3D: numeri discreti (non su d100 per non sovraffollare)
                         font_sz = max(7, int(10 * (self.radius / 52.0)))
                         canvas.create_text(
                             cx, cy,
@@ -905,7 +978,7 @@ class Dice3DOverlay:
         # Durata totale in base alla velocità
         speed_map = {"fast": 0.9, "normal": 1.5, "dramatic": 2.4}
         self.total_duration = speed_map.get(speed, 1.5)
-        self.auto_close_delay = 1.6 # secondi dopo l'arresto
+        self.auto_close_delay = 4.5 # secondi dopo l'arresto (tempo abbondante per leggere il risultato)
         
         self.canvas = tk.Canvas(
             parent,
@@ -932,6 +1005,14 @@ class Dice3DOverlay:
         on_complete: Optional[Callable[[], None]] = None
     ):
         """Avvia l'animazione del lancio con i dati del risultato del motore roll_dice."""
+        # Cancella qualsiasi timer pendente da lanci precedenti per evitare che chiudano il nuovo lancio prematuramente
+        if self.timer_id:
+            try:
+                self.canvas.after_cancel(self.timer_id)
+            except Exception:
+                pass
+            self.timer_id = None
+
         if on_complete:
             self.on_complete = on_complete
             
@@ -1033,39 +1114,15 @@ class Dice3DOverlay:
                     val = rolls[t_idx] if t_idx < len(rolls) else (random.randint(1, sides))
                     t_idx += 1
                     
-                    if sides == 100:
-                        # Risoluzione autentica D&D 5e RAW: coppia di dadi (Decine 00-90 + Unità 0-9)
-                        val_int = int(val)
-                        if val_int == 100:
-                            tens_val = "00"
-                            unit_val = 0
-                        else:
-                            tens_val = f"{((val_int // 10) * 10) % 100:02d}"
-                            unit_val = val_int % 10
-                            
-                        dice_list.append({
-                            "die": "d100",
-                            "val": tens_val,
-                            "is_crit": (val_int == 100),
-                            "is_fumble": (val_int == 1),
-                            "is_discarded": False
-                        })
-                        dice_list.append({
-                            "die": "d10",
-                            "val": unit_val,
-                            "is_crit": (val_int == 100),
-                            "is_fumble": (val_int == 1),
-                            "is_discarded": False
-                        })
-                    else:
-                        die_name = f"d{sides}"
-                        dice_list.append({
-                            "die": die_name,
-                            "val": val,
-                            "is_crit": is_crit if die_name == "d20" and val == 20 else False,
-                            "is_fumble": is_fumble if die_name == "d20" and val == 1 else False,
-                            "is_discarded": False
-                        })
+                    die_name = f"d{sides}"
+                    val_int = int(val)
+                    dice_list.append({
+                        "die": die_name,
+                        "val": val_int,
+                        "is_crit": (die_name == "d20" and val_int == 20) or (die_name == "d100" and val_int == 100),
+                        "is_fumble": (die_name == "d20" and val_int == 1) or (die_name == "d100" and val_int == 1),
+                        "is_discarded": False
+                    })
                     if len(dice_list) >= 8: # Limite a 8 dadi visivi per pulizia a schermo
                         break
                 if len(dice_list) >= 8:
@@ -1124,17 +1181,32 @@ class Dice3DOverlay:
             
         if progress >= 1.0 and not self.is_finished:
             self.is_finished = True
-            # Pianifica chiusura automatica dopo breve attesa
+            import time
+            self.finished_time = time.time()
+            # Pianifica chiusura automatica dopo abbondante attesa (4.5s) per consentire la lettura con calma
             self.timer_id = self.canvas.after(int(self.auto_close_delay * 1000), self.dismiss)
         else:
             self.timer_id = self.canvas.after(20, self._animate_step)
 
     def _render_result_banner(self, pw: float, ph: float):
-        """Disegna la card scura con cornice dorata e dettagli del tiro."""
+        """Disegna la card scura con cornice dorata, dettagli del tiro e pulsante di chiusura."""
         bw = min(480.0, pw * 0.9)
         bh = 110.0
         bx = (pw - bw) / 2.0
         by = ph * 0.68
+        
+        # Pulsante di chiusura rapida [ ✕ ] in alto a destra
+        btn_x = pw - 35.0
+        btn_y = 25.0
+        self.canvas.create_rectangle(
+            btn_x - 16, btn_y - 14, btn_x + 16, btn_y + 14,
+            fill="#1E222B", outline="#475569", width=1, tags=("close_btn", "banner")
+        )
+        self.canvas.create_text(
+            btn_x, btn_y,
+            text="✕", font=("Segoe UI", 12, "bold"),
+            fill="#CBD5E1", tags=("close_btn", "banner")
+        )
         
         # Card Background
         self.canvas.create_rectangle(
@@ -1197,10 +1269,13 @@ class Dice3DOverlay:
         )
 
     def _on_canvas_click(self, event):
-        """Un click durante il roll salta subito al termine; un click al termine chiude immediatamente."""
+        """Un click durante il roll salta subito al termine; un click a dadi fermi chiude l'overlay."""
+        import time
+        now = time.time()
         if not self.is_finished:
             # Salta subito all'arresto
             self.elapsed = self.total_duration
+            self.finished_time = now
             for d in self.dice:
                 d.is_settled = True
                 d.quat = d.target_quat
@@ -1209,6 +1284,9 @@ class Dice3DOverlay:
                 d.z = 0.0
             self._animate_step()
         else:
+            # Protezione anti-doppio-click: ignora click avvenuti entro 0.4s dall'arresto
+            if hasattr(self, "finished_time") and (now - self.finished_time) < 0.40:
+                return
             self.dismiss()
 
     def dismiss(self):
