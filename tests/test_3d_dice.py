@@ -18,8 +18,8 @@ from unittest.mock import patch
 from components.dice_3d_canvas import (
     vec3_norm, vec3_dot, vec3_cross, vec3_add, vec3_sub, vec3_scale,
     quat_from_axis_angle, quat_multiply, quat_to_matrix, quat_slerp,
-    matrix_to_quat, get_face_target_matrix, mat_vec_mul,
-    get_polyhedron, ensure_dice_sound_file, play_dice_bounce_sound,
+    matrix_to_quat, get_face_target_matrix, mat_vec_mul, mat_matrix_mul,
+    get_die_view_matrix, get_polyhedron, ensure_dice_sound_file, play_dice_bounce_sound,
     Die3DInstance, Dice3DOverlay
 )
 
@@ -136,6 +136,73 @@ class TestDice3DMathAndGeometry(unittest.TestCase):
             
             # Tutti i numeri/stringhe delle facce devono essere unici
             self.assertEqual(len(set(poly.face_numbers)), expected_faces, f"{name} duplicate numbers")
+
+    def test_die_view_matrix_and_isometric_camera(self):
+        """Verifica che la rotazione assonometrica da tavolo preservi det=+1.0 e mantenga la faccia target come Z massima."""
+        for dt in ["d4", "d6", "d8", "d10", "d12", "d20", "d100"]:
+            poly = get_polyhedron(dt)
+            view_mat = get_die_view_matrix(dt)
+            
+            # Determinante di view_mat deve essere +1.0 (rotazione pura)
+            det_view = (
+                view_mat[0][0]*(view_mat[1][1]*view_mat[2][2] - view_mat[1][2]*view_mat[2][1]) -
+                view_mat[0][1]*(view_mat[1][0]*view_mat[2][2] - view_mat[1][2]*view_mat[2][0]) +
+                view_mat[0][2]*(view_mat[1][0]*view_mat[2][1] - view_mat[1][1]*view_mat[2][0])
+            )
+            self.assertAlmostEqual(det_view, 1.0, places=4, msg=f"{dt} view_mat det != 1.0")
+            
+            # Verifica per ogni faccia
+            for f_idx in range(len(poly.faces)):
+                base_target = get_face_target_matrix(poly.face_normals[f_idx], poly.face_ups[f_idx])
+                comb_mat = mat_matrix_mul(view_mat, base_target)
+                q = matrix_to_quat(comb_mat)
+                M = quat_to_matrix(q)
+                
+                # Normale Z della faccia target vincente
+                target_rn = mat_vec_mul(M, poly.face_normals[f_idx])
+                self.assertGreaterEqual(target_rn[2], 0.86, f"{dt} face {f_idx} target Z too low: {target_rn[2]}")
+                
+                # Nessuna altra faccia deve superare la faccia target in Z
+                for other_idx in range(len(poly.faces)):
+                    if other_idx == f_idx:
+                        continue
+                    other_rn = mat_vec_mul(M, poly.face_normals[other_idx])
+                    self.assertGreater(target_rn[2], other_rn[2], f"{dt} face {other_idx} exceeds target face {f_idx}")
+
+    def test_d10_and_d100_trapezohedron_planarity_and_aspect_ratio(self):
+        """Verifica che le facce a losanga del d10 e d100 siano matematicamente complanari e non schiacciate sfericamente."""
+        for dt in ["d10", "d100"]:
+            poly = get_polyhedron(dt)
+            # Tutti i 10 aquiloni (facce a 4 vertici) devono essere complanari (determinante volume nullo)
+            for f_idx, face in enumerate(poly.faces):
+                p0, p1, p2, p3 = [poly.vertices[vi] for vi in face]
+                v1 = vec3_sub(p1, p0)
+                v2 = vec3_sub(p2, p0)
+                v3 = vec3_sub(p3, p0)
+                coplanar_det = (
+                    v1[0]*(v2[1]*v3[2] - v2[2]*v3[1]) -
+                    v1[1]*(v2[0]*v3[2] - v2[2]*v3[0]) +
+                    v1[2]*(v2[0]*v3[1] - v2[1]*v3[0])
+                )
+                self.assertAlmostEqual(coplanar_det, 0.0, places=5, msg=f"{dt} face {f_idx} is not planar: det={coplanar_det}")
+                
+            # Vertici apici (indice 0 e 1) devono essere al raggio massimo = 1.0
+            apex_top = poly.vertices[0]
+            apex_bot = poly.vertices[1]
+            self.assertAlmostEqual(apex_top[1], 1.0, places=4)
+            self.assertAlmostEqual(apex_bot[1], -1.0, places=4)
+            
+            # Vertici equatoriali (raggi inferiori a 1.0, preservando l'aspetto allungato autentico)
+            eq_radius = math.sqrt(poly.vertices[2][0]**2 + poly.vertices[2][2]**2)
+            self.assertLess(eq_radius, 0.75, f"{dt} equator radius {eq_radius} was squashed sferically")
+            
+            # Somma opposti
+            pairs = [(0, 7), (1, 8), (2, 9), (3, 5), (4, 6)]
+            for i, j in pairs:
+                if dt == "d10":
+                    self.assertEqual(poly.face_numbers[i] + poly.face_numbers[j], 11)
+                else:
+                    self.assertEqual(int(poly.face_numbers[i]) + int(poly.face_numbers[j]), 90)
 
 
 class TestDice3DSoundAndAudio(unittest.TestCase):
@@ -264,6 +331,62 @@ class TestDice3DInstanceAndOverlay(unittest.TestCase):
         # Subsequent click dismisses overlay
         overlay._on_canvas_click(None)
         self.assertFalse(overlay.is_running)
+
+    def test_d100_dual_dice_resolution(self):
+        """Verifica che il tiro di un d100 istanzi sia il dado decine percentile (d100) sia il dado unità (d10)."""
+        overlay = Dice3DOverlay(self.frame, sound_enabled=False)
+        
+        # Caso 1: Tiro intermedio (47 -> 40 e 7)
+        res_47 = {"rolls": [47], "total": 47, "is_crit": False, "is_fumble": False}
+        dice_47 = overlay._extract_dice_list("1d100", res_47)
+        self.assertEqual(len(dice_47), 2)
+        self.assertEqual(dice_47[0]["die"], "d100")
+        self.assertEqual(dice_47[0]["val"], "40")
+        self.assertEqual(dice_47[1]["die"], "d10")
+        self.assertEqual(dice_47[1]["val"], 7)
+        self.assertFalse(dice_47[0]["is_crit"])
+        
+        # Caso 2: Massimo critico (100 -> '00' e 0 con is_crit=True)
+        res_100 = {"rolls": [100], "total": 100, "is_crit": False, "is_fumble": False}
+        dice_100 = overlay._extract_dice_list("1d100", res_100)
+        self.assertEqual(len(dice_100), 2)
+        self.assertEqual(dice_100[0]["die"], "d100")
+        self.assertEqual(dice_100[0]["val"], "00")
+        self.assertEqual(dice_100[1]["die"], "d10")
+        self.assertEqual(dice_100[1]["val"], 0)
+        self.assertTrue(dice_100[0]["is_crit"])
+        self.assertTrue(dice_100[1]["is_crit"])
+        
+        # Caso 3: Fallimento critico (1 -> '00' e 1 con is_fumble=True)
+        res_1 = {"rolls": [1], "total": 1, "is_crit": False, "is_fumble": False}
+        dice_1 = overlay._extract_dice_list("1d100", res_1)
+        self.assertEqual(len(dice_1), 2)
+        self.assertEqual(dice_1[0]["val"], "00")
+        self.assertEqual(dice_1[1]["val"], 1)
+        self.assertTrue(dice_1[0]["is_fumble"])
+        self.assertTrue(dice_1[1]["is_fumble"])
+        
+        # Caso 4: Decina secca (30 -> '30' e 0)
+        res_30 = {"rolls": [30], "total": 30, "is_crit": False, "is_fumble": False}
+        dice_30 = overlay._extract_dice_list("1d100", res_30)
+        self.assertEqual(len(dice_30), 2)
+        self.assertEqual(dice_30[0]["val"], "30")
+        self.assertEqual(dice_30[1]["val"], 0)
+
+    def test_perspective_depth_foreshortening(self):
+        """Verifica che la proiezione prospettica applichi lo scorcio di profondità correttamente."""
+        die = Die3DInstance("d6", 1, 300, 200, 300, 200, radius=50.0, sound_enabled=False)
+        canvas = tk.Canvas(self.frame, width=600, height=400)
+        canvas.pack()
+        die.is_settled = True
+        die.render(canvas)
+        
+        # Deve aver renderizzato la faccia vincente 1 e le facce adiacenti visibili in 3D
+        faces = canvas.find_withtag("dice_face")
+        self.assertGreaterEqual(len(faces), 3, "Il cubo d6 in prospettiva 3D deve mostrare almeno 3 facce")
+        
+        nums = canvas.find_withtag("dice_num")
+        self.assertGreaterEqual(len(nums), 1, "Numero vincente deve essere renderizzato")
 
 
 class TestDice3DAppIntegration(unittest.TestCase):

@@ -146,6 +146,16 @@ def mat_vec_mul(M: List[List[float]], v: Tuple[float, float, float]) -> Tuple[fl
         M[2][0] * v[0] + M[2][1] * v[1] + M[2][2] * v[2]
     )
 
+def mat_matrix_mul(A: List[List[float]], B: List[List[float]]) -> List[List[float]]:
+    """Prodotto tra matrici 3x3 (A * B)."""
+    return [
+        [
+            A[i][0] * B[0][j] + A[i][1] * B[1][j] + A[i][2] * B[2][j]
+            for j in range(3)
+        ]
+        for i in range(3)
+    ]
+
 def get_face_target_matrix(face_normal: Tuple[float, float, float], face_up: Tuple[float, float, float]) -> List[List[float]]:
     """Calcola la matrice di rotazione ortogonale che orienta face_normal verso la telecamera (+Z) e face_up verso l'alto dello schermo in 3D (+Y)."""
     n = vec3_norm(face_normal)
@@ -156,6 +166,33 @@ def get_face_target_matrix(face_normal: Tuple[float, float, float], face_up: Tup
         [r[0], r[1], r[2]],
         [u[0], u[1], u[2]],
         [n[0], n[1], n[2]]
+    ]
+
+def get_die_view_matrix(die_type: str) -> List[List[float]]:
+    """
+    Restituisce la matrice di vista prospettica da tavolo per mostrare
+    sia la faccia vincente in primo piano, sia la profondità, i volumi
+    e le sfaccettature 3D del poliedro (prospettiva assonometrica naturale 3/4).
+    """
+    dt = str(die_type).lower().strip()
+    angles = {
+        "d4":   (math.radians(16.0), math.radians(-24.0)),
+        "d6":   (math.radians(18.0), math.radians(-14.0)),
+        "d8":   (math.radians(15.0), math.radians(-12.0)),
+        "d10":  (math.radians(15.0), math.radians(-12.0)),
+        "d100": (math.radians(15.0), math.radians(-12.0)),
+        "d12":  (math.radians(12.0), math.radians(-10.0)),
+        "d20":  (math.radians(12.0), math.radians(-8.0)),
+    }
+    pitch, yaw = angles.get(dt, (math.radians(14.0), math.radians(-10.0)))
+    cp, sp = math.cos(pitch), math.sin(pitch)
+    cy, sy = math.cos(yaw), math.sin(yaw)
+    
+    # R_cam = R_y(yaw) * R_x(pitch) con det = +1.0 esatto
+    return [
+        [cy,       sy * sp,  sy * cp],
+        [0.0,      cp,      -sp],
+        [-sy,      cy * sp,  cy * cp]
     ]
 
 
@@ -177,7 +214,10 @@ class PolyhedronModel:
         text_color: str
     ):
         self.name = name
-        self.vertices = [vec3_norm(v) for v in vertices]
+        # Normalizzazione uniforme: preserva proporzioni, altezze apici e planarità delle facce
+        max_r = max(math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]) for v in vertices)
+        scale = 1.0 / max_r if max_r > 1e-9 else 1.0
+        self.vertices = [(v[0] * scale, v[1] * scale, v[2] * scale) for v in vertices]
         self.faces = faces
         self.face_numbers = face_numbers
         self.face_normals = [vec3_norm(n) for n in face_normals]
@@ -283,7 +323,9 @@ def _build_d8() -> PolyhedronModel:
 
 def _build_d10(is_d100: bool = False) -> PolyhedronModel:
     # Pentagonal Trapezohedron: 12 vertices, 10 planar kite faces
-    h = 0.15
+    # Proporzioni matematiche autentiche dei dadi D&D (Chessex/standard RPG):
+    # H/r ≈ 1.515 con apici affilati e facce aquilone perfettamente complanari.
+    h = 0.16
     k = (2.0 * math.sin(math.pi / 5.0) + math.sin(2.0 * math.pi / 5.0)) / (2.0 * math.sin(math.pi / 5.0) - math.sin(2.0 * math.pi / 5.0))
     H = h * k
     r = 1.0
@@ -319,10 +361,12 @@ def _build_d10(is_d100: bool = False) -> PolyhedronModel:
         ups.append(vec3_norm(vec3_sub(p0, c)))
         
     if is_d100:
-        nums = ["00", "50", "10", "60", "20", "70", "30", "80", "40", "90"]
+        # Numerazione decine percentile: coppie opposte sommano a 90 (00-90, 10-80, 20-70, 30-60, 40-50)
+        nums = ["00", "10", "20", "30", "40", "60", "50", "90", "80", "70"]
         return PolyhedronModel("d100", verts, faces, nums, normals, ups, "#78350F", "#D97706", "#FFFFFF")
     else:
-        nums = [1, 6, 2, 7, 3, 8, 4, 9, 5, 10]
+        # Numerazione classica d10: coppie opposte sommano a 11 (1-10, 2-9, 3-8, 4-7, 5-6)
+        nums = [1, 2, 3, 4, 5, 7, 6, 10, 9, 8]
         return PolyhedronModel("d10", verts, faces, nums, normals, ups, "#9A3412", "#F97316", "#FEF08A")
 
 
@@ -580,13 +624,16 @@ class Die3DInstance:
                 except Exception:
                     pass
         self.target_idx = target_idx
-        self.target_value = self.model.face_numbers[target_idx]
+        # Manteniamo il target_value originale passato (es. 0, 10, "00", 7)
+        self.target_value = target_value if target_value is not None else self.model.face_numbers[target_idx]
         
-        # Matrice di orientamento target
-        target_mat = get_face_target_matrix(
+        # Matrice di orientamento target: orienta la faccia verso la camera e applica la vista prospettica da tavolo
+        base_target_mat = get_face_target_matrix(
             self.model.face_normals[target_idx],
             self.model.face_ups[target_idx]
         )
+        view_mat = get_die_view_matrix(self.model.name)
+        target_mat = mat_matrix_mul(view_mat, base_target_mat)
         self.target_quat = matrix_to_quat(target_mat)
         
         # Stato
@@ -700,14 +747,18 @@ class Die3DInstance:
                 outline="#EF4444", width=3, tags="dice_glow"
             )
             
-        # 3. Trasformazione dei vertici e facce
+        # 3. Trasformazione dei vertici e facce con prospettiva 3D da tavolo
         scale = self.radius * (1.0 + self.z * 0.0015)
+        D_cam = 4.0 # Distanza focale della camera per scorcio prospettico naturale
         trans_verts = []
         for v in self.model.vertices:
             rv = mat_vec_mul(M, v)
-            # Proiezione 2D ortogonale/prospettica dolce
-            px = self.x + rv[0] * scale
-            py = self.y - rv[1] * scale # Y invertita su schermo
+            # Scorcio prospettico: i vertici verso la telecamera (+Z) sono ingranditi,
+            # quelli lontani (-Z) convergono dolcemente verso il punto di fuga
+            fov = D_cam / (D_cam - rv[2] * 0.70)
+            eff_scale = scale * fov
+            px = self.x + rv[0] * eff_scale
+            py = self.y - rv[1] * eff_scale # Y invertita su schermo
             trans_verts.append((px, py, rv[2]))
             
         # Vettore luce direzionale da alto-sinistra
@@ -721,7 +772,7 @@ class Die3DInstance:
             rn = mat_vec_mul(M, orig_n)
             
             # Backface check dolce
-            if rn[2] <= -0.15:
+            if rn[2] <= -0.10:
                 continue
                 
             # Calcolo Z medio
@@ -770,10 +821,8 @@ class Die3DInstance:
             b_c = min(255, max(0, int(base_rgb[2] * brightness)))
             fill_hex = f"#{r_c:02x}{g_c:02x}{b_c:02x}"
             
-            # Se il dado è fermo ed è la faccia target vincente, evidenziamo il bordo
-            is_target_face = (f_idx == self.target_idx)
-            is_facing_front = (rn[2] >= 0.88)
-            is_winning_face = self.is_settled and (is_target_face or is_facing_front)
+            # Se il dado è fermo ed è la faccia target vincente, evidenziamo il bordo in oro lucido
+            is_winning_face = self.is_settled and (f_idx == self.target_idx)
             
             f_outline = "#FDE047" if is_winning_face else edge_color
             f_width = 3 if is_winning_face else 2
@@ -781,18 +830,23 @@ class Die3DInstance:
             canvas.create_polygon(pts, fill=fill_hex, outline=f_outline, width=f_width, tags="dice_face")
             
             # Disegno del numero della faccia se rivolta verso la camera
-            if rn[2] > 0.40:
+            if rn[2] > 0.35:
                 cx = sum(trans_verts[vi][0] for vi in face) / len(face)
                 cy = sum(trans_verts[vi][1] for vi in face) / len(face)
                 
-                num_val = self.model.face_numbers[f_idx]
-                num_str = str(num_val)
+                # Numero da mostrare
+                if f_idx == self.target_idx and self.target_value is not None:
+                    num_str = str(self.target_value)
+                else:
+                    num_str = str(self.model.face_numbers[f_idx])
+                    
                 if num_str in ("6", "9"):
                     num_str += "." # Distinzione 6 e 9
                     
                 if self.is_settled:
                     if is_winning_face:
-                        font_sz = max(13, int(20 * (self.radius / 52.0)))
+                        font_sz = max(14, int(22 * (self.radius / 52.0)))
+                        # Ombra testo 1px per contrasto perfetto
                         canvas.create_text(
                             cx + 1, cy + 1,
                             text=num_str, font=("Georgia", font_sz, "bold"),
@@ -803,15 +857,16 @@ class Die3DInstance:
                             text=num_str, font=("Georgia", font_sz, "bold"),
                             fill=txt_color, tags="dice_num"
                         )
-                    else:
-                        font_sz = max(8, int(11 * (self.radius / 52.0)))
+                    elif rn[2] > 0.45:
+                        # Facce secondarie adiacenti visibili in 3D: numeri discreti
+                        font_sz = max(7, int(10 * (self.radius / 52.0)))
                         canvas.create_text(
                             cx, cy,
                             text=num_str, font=("Georgia", font_sz, "bold"),
                             fill="#64748B", tags="dice_num"
                         )
                 else:
-                    font_sz = max(9, int(15 * (self.radius / 52.0) * rn[2]))
+                    font_sz = max(9, int(15 * (self.radius / 52.0) * max(0.5, rn[2])))
                     canvas.create_text(
                         cx + 1, cy + 1,
                         text=num_str, font=("Georgia", font_sz, "bold"),
@@ -974,17 +1029,43 @@ class Dice3DOverlay:
             for cnt_s, sides_s in tokens:
                 cnt = int(cnt_s) if cnt_s else 1
                 sides = int(sides_s)
-                die_name = f"d{sides}"
                 for _ in range(cnt):
                     val = rolls[t_idx] if t_idx < len(rolls) else (random.randint(1, sides))
                     t_idx += 1
-                    dice_list.append({
-                        "die": die_name,
-                        "val": val,
-                        "is_crit": is_crit if die_name == "d20" and val == 20 else False,
-                        "is_fumble": is_fumble if die_name == "d20" and val == 1 else False,
-                        "is_discarded": False
-                    })
+                    
+                    if sides == 100:
+                        # Risoluzione autentica D&D 5e RAW: coppia di dadi (Decine 00-90 + Unità 0-9)
+                        val_int = int(val)
+                        if val_int == 100:
+                            tens_val = "00"
+                            unit_val = 0
+                        else:
+                            tens_val = f"{((val_int // 10) * 10) % 100:02d}"
+                            unit_val = val_int % 10
+                            
+                        dice_list.append({
+                            "die": "d100",
+                            "val": tens_val,
+                            "is_crit": (val_int == 100),
+                            "is_fumble": (val_int == 1),
+                            "is_discarded": False
+                        })
+                        dice_list.append({
+                            "die": "d10",
+                            "val": unit_val,
+                            "is_crit": (val_int == 100),
+                            "is_fumble": (val_int == 1),
+                            "is_discarded": False
+                        })
+                    else:
+                        die_name = f"d{sides}"
+                        dice_list.append({
+                            "die": die_name,
+                            "val": val,
+                            "is_crit": is_crit if die_name == "d20" and val == 20 else False,
+                            "is_fumble": is_fumble if die_name == "d20" and val == 1 else False,
+                            "is_discarded": False
+                        })
                     if len(dice_list) >= 8: # Limite a 8 dadi visivi per pulizia a schermo
                         break
                 if len(dice_list) >= 8:
@@ -1097,7 +1178,10 @@ class Dice3DOverlay:
         
         # Badge di stato
         if is_crit:
-            badge = "🌟 20 NATURALE - SUCCESSO CRITICO!"
+            if "100" in form or any(d.model.name == "d100" for d in self.dice):
+                badge = "🌟 100 NATURALE - SUCCESSO CRITICO!"
+            else:
+                badge = "🌟 20 NATURALE - SUCCESSO CRITICO!"
             b_color = "#2ECC71"
         elif is_fumble:
             badge = "💀 1 NATURALE - FALLIMENTO CRITICO!"
