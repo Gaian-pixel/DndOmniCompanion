@@ -15,6 +15,7 @@ Questa guida illustra passo dopo passo come avviare una sessione, configurare l'
    - [Barra dei Menu: Lingua, Unità di Misura ed Esportazione Log](#barra-dei-menu-lingua-unità-di-misura-ed-esportazione-log)
    - [Layout a 3 Colonne, HUD e Strumenti Lavagna (`[ ✏️ ]`)](#layout-a-3-colonne-hud-e-strumenti-lavagna---)
    - [Tavolozza Comandi Rapida (`Ctrl+K`)](#tavolozza-comandi-rapida-ctrlk)
+   - [Motore di Dadi 3D Nativo su Mappa (`🎲`)](#motore-di-dadi-3d-nativo-su-mappa-)
 3. [Sistema di Unità di Misura, Scale Mappa, Griglie e Righello](#3-sistema-di-unità-di-misura-scale-mappa-griglie-e-righello)
    - [Scelta tra Piedi/Miglia (`ft/mi`) e Metri/Chilometri (`m/km`)](#scelta-tra-piedimiglia-ftmi-e-metrichilometri-mkm)
    - [Le 4 Scale della Mappa (DMG p. 14)](#le-4-scale-della-mappa-dmg-p-14)
@@ -80,11 +81,11 @@ Se desideri utilizzare D&D OmniCompanion senza installare Python, puoi scaricare
    * **Dungeon Master (Host)**:
      * **⚔️ Avvia con Campagna**: carica una campagna esistente (con atti, scene, incontri preparati e mappe).
      * **📜 Prepara / Modifica Campagna**: apre direttamente l'Editor di Campagna per creare la tua avventura prima della sessione.
-     * **⚡ Sessione Rapida (Vuota)**: avvia subito il server sulla porta TCP `53911` (e Voice UDP `53912`) per una partita estemporanea.
+     * **⚡ Sessione Rapida (Vuota)**: avvia subito il server sulla porta TCP `5000` (e Voice UDP `53912`) per una partita estemporanea.
    * **Giocatore (Player)**:
      * **👤 Gestione Personaggi (Offline)**: apre direttamente la schermata di gestione eroi per creare, consultare, modificare la scheda, duplicare, eliminare ed esportare personaggi in PDF o JSON senza dover connettersi ad alcun server.
      * **✨ Crea Personaggio (Guidato)**: avvia subito la procedura guidata passo-passo (Razza, Classe, Statistiche, Background, Equipaggiamento) per creare un eroe di 1° livello.
-     * **🛡️ Unisciti alla Partita**: avvia il client Giocatore. Dal menu `Server -> Connetti al Server...` (oppure `Riconnetti Ultimo Server`), scegli il tuo personaggio, inserisci l'indirizzo IP del DM (`127.0.0.1` o IP LAN/VPN) e clicca su **Connetti**.
+     * **🛡️ Unisciti alla Partita**: apre immediatamente la finestra modale di accesso (`LoginDialog`) per selezionare o inserire l'indirizzo IP del server (con cronologia automatica dei server recenti e pulsante rapido `🖥️ Locale (127.0.0.1)`) e scegliere il personaggio; cliccando su **Connetti** il client si avvia già connesso ed entra direttamente nella sessione. Se ti disconnetti, trovi sempre il pulsante `[ 🔗 Connetti ]` direttamente nel tab `Controlli PG`.
 
 * **Esperienza Mono-Finestra (In-Place)**: Tutte le viste secondarie del launcher (*👤 Gestione Personaggi*, *✨ Crea Personaggio* e *📜 Prepara / Modifica Campagna*) si aprono direttamente in-place all'interno della stessa finestra principale, corredate da una barra superiore `[ ← Torna al Menu Principale ]` per tornare alla schermata iniziale con un click, azzerando la proliferazione di finestre sul desktop.
 
@@ -114,6 +115,7 @@ L'interfaccia è divisa in tre aree ergonomiche:
    * `[ 🪨 ]` **Pennello Terreni Difficili (solo DM)**: permette di selezionare un tipo di terreno (Fango, Ghiaccio, Rovi, Macerie, Palude, Gomma) e dipingerlo o cancellarlo al volo sulle caselle della mappa attiva.
    * `[ 🌑 ]` **Filtro Oscurità 1-Click (solo DM)**: attiva o disattiva all'istante il filtro di Oscurità ambientale sulla mappa, con gestione automatica delle regole D&D 5e su visibilità e Scurovisione.
    * `☁️` Nebbia di Guerra (FoW con raggio pennello da 0 a 3, solo DM).
+   * `🎲` **Attiva/Disattiva Dadi 3D**: abilita o disabilita al volo il motore di simulazione dei dadi poliedrici tridimensionali sulla mappa.
 2. **Viewport Centrale (`HexMapCanvas`)**: la mappa interattiva (esagonale, quadrata o senza griglia), arricchita da due HUD sovrapposti:
    * **Initiative Ribbon HUD (in alto al centro)**: appare automaticamente durante il combattimento mostrando le card di tutti i combattenti in ordine di turno (`#1`, `#2`...), la freccia `▼` sul turno attivo e una mini-barra PV per ciascuno. Cliccando su una card la mappa si centra su quel token.
    * **Controlli Mappa Glassmorphism (in basso a sinistra)**: pulsanti flottanti `[ - ]`, `[ 100% ]`, `[ + ]` e `[ ⌖ ]` per regolare lo zoom o ricentrare la visuale con un click.
@@ -124,6 +126,27 @@ Premendo **`Ctrl+K`** in qualsiasi momento (o da `Strumenti/Libreria -> Tavolozz
 * Digita il nome di un **mostro**, di un **incantesimo** o di una **regola 5e** per leggerne i dettagli.
 * Digita il nome di un **token sulla mappa** per centrare immediatamente la telecamera su di esso.
 * Digita un'espressione come `/roll 2d6+4` o `1d20+5` e premi `Invio` per lanciare subito i dadi in chat.
+
+### Motore di Dadi 3D Nativo su Mappa (`🎲`)
+D&D OmniCompanion include un motore tridimensionale poliedrico nativo disegnato direttamente sopra la mappa tattica (`HexMapCanvas`):
+* **Nessuna Dipendenza Esterna**: zero OpenGL o librerie esterne pesanti; pura geometria analitica e proiezioni prospettiche da tavolo renderizzate direttamente sul canvas Tkinter.
+* **Geometrie Poliedriche Complete RAW 5e**:
+  * **d4**: Tetraedro regolare a 4 vertici e 4 facce triangolari.
+  * **d6**: Cubo regolare con facce opposte che sommano a 7.
+  * **d8**: Ottaedro regolare con facce opposte che sommano a 9.
+  * **d10**: Trapezoedro pentagonale numerato 0–9.
+  * **d12**: Dodecaedro regolare con facce opposte che sommano a 13.
+  * **d20**: Icosaedro regolare con facce opposte che sommano a 21.
+  * **d100 (Zocchihedron Autentico)**: Sfera poliedrica singola a 92 vertici e 100 facce planari numerate 1–100 con coppie opposte a somma 101, fedele all'iconico dado di Lou Zocchi.
+* **Overlay Trasparente Senza Oscurare la Mappa**:
+  * I dadi rotolano in primo piano con ombra di contatto sfumata (`stipple="gray50"`), preservando al 100% la visibilità della mappa, dei token, della griglia e della nebbia di guerra.
+* **Fisica Balistica, Rimbalzo e Slerp di Orientamento**:
+  * I dadi subiscono gravità ($980\text{ px/s}^2$), rimbalzi elastici e attrito angolare, assestandosi con interpolazione sferica (Slerp) per esporre la faccia vincente esattamente verso la telecamera con orientamento del testo perfettamente verticale.
+* **Feedback Visivo e Audio Immediato**:
+  * **20 Naturale**: Aspetto oro splendente (`#D97706`), bagliore e annuncio trionfale.
+  * **1 Naturale**: Aspetto vermiglio cupo ossidiana (`#7F1D1D`).
+  * **Vantaggio e Svantaggio**: Rotolamento sincrono di due d20; il dado scartato si attenua in grigio ferro con etichetta `(scartato)`.
+  * **Banner HUD Fluttuante**: Mostra la formula, i dadi e il totale finale; include il pulsante `[ ✕ ]` per chiudere subito l'animazione o scompare in automatico dopo 4.5s. Cliccando durante il lancio si salta subito all'esito.
 
 ---
 

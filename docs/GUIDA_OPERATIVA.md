@@ -163,8 +163,8 @@ Per eseguire D&D OmniCompanion senza dover installare Python o gestire ambienti 
   ```
 
 Apparirà il selettore del ruolo del **Launcher unificato**:
-1. **Dungeon Master**: Avvia il server Host DM sulle porte predefinite `53911` (TCP) e `53912` (UDP) e apre la plancia del DM (con Campagna, Editor Campagna o Sessione Rapida).
-2. **Giocatore**: Avvia il client VTT Giocatore, consentendo la creazione/selezione del personaggio e la connessione al server tramite IP/hostname.
+1. **Dungeon Master**: Avvia il server Host DM sulle porte predefinite `5000` (TCP) e `53912` (UDP) e apre la plancia del DM (con Campagna, Editor Campagna o Sessione Rapida).
+2. **Giocatore**: Cliccando su *"⚔️ Unisciti a Partita"*, si apre immediatamente la finestra modale per inserire/selezionare l'IP del server (con storico dei server recenti e pulsante rapido `🖥️ Locale (127.0.0.1)`) e scegliere il personaggio; il client si avvia già connesso ed entra direttamente nella sessione.
 3. **Gestione Offline & Wizard Guidato**: Gestione completa schede personaggio e creazione guidata livello 1 senza richiedere alcuna connessione di rete.
 
 ---
@@ -654,7 +654,11 @@ D&D OmniCompanion include un renderer tridimensionale vettoriale poliedrico nati
   * **d10**: Trapezoedro pentagonale (12 vertici, 10 facce aquilone numerate 0-9).
   * **d12**: Dodecaedro regolare (20 vertici, 12 facce pentagonali, facce opposte che sommano a 13).
   * **d20**: Icosaedro regolare (12 vertici, 20 facce triangolari, facce opposte che sommano a 21).
-  * **d100**: Percentile a doppia cifra ('00', '10' ... '90').
+  * **d100 (Zocchihedron sferico autentico)**: Modello a 92 vertici e 100 facce planari numerate 1-100 con coppie opposte a somma 101, esattamente come il vero d100 di Lou Zocchi. Un unico dado singolo che rotola ed esibisce direttamente il risultato.
+* **Rendering Sovrapposto Trasparente Senza Oscurare la Mappa**:
+  * I dadi vengono disegnati direttamente sopra il canvas della mappa tattica ([`HexMapCanvas`](file:///c:/Users/gaian/Desktop/Projects/DndOmniCompanion/components/ui_components.py#L15)) tramite tag `dice_3d`: non viene creato alcun canvas opaco né rettangolo di sfondo oscurante. Miniature, griglia, nebbia di guerra e dungeon restano visibili al 100% sotto il lancio.
+  * Ombra di contatto a terra semitrasparente tramite stipple (`stipple="gray50"`).
+  * Intercettazione eventi trasparente: i click sui dadi o sul banner fermano o chiudono il roll, mentre i click sul resto della mappa continuano a controllare liberamente token, righello e navigazione.
 * **Illuminazione e Shading Dark Fantasy**:
   * Shading Lambertiano con calcolo dinamico del vettore normale di ogni faccia rispetto a una sorgente di luce direzionale virtuale in alto a sinistra.
   * Riflessi speculari metallici, beveled edge dorati (`#D4AF37`) e Z-sorting (*Painter's algorithm*) per prevenire artefatti grafici durante le rotazioni complesse.
@@ -669,20 +673,23 @@ D&D OmniCompanion include un renderer tridimensionale vettoriale poliedrico nati
   * **SFX Audio Nativo**: Generazione autonoma in memoria e riproduzione non bloccante di file audio WAV con tre micro-impatti acustici di rotolamento dadi.
 * **Controlli Utente**:
   * Pulsante rapido `🎲` nella barra laterale sinistra del client e del server per attivare/disattivare i dadi 3D al volo.
-  * Click durante il lancio per saltare immediatamente all'esito; secondo click per chiudere subito la card dei risultati.
+  * Banner HUD fluttuante in basso con riepilogo del tiro, chiusura rapida tramite pulsante `[ ✕ ]` o chiusura automatica dopo 4.5s. Click durante il lancio per saltare immediatamente all'arresto.
 
 ---
 
 ## 11. Suite di Test e Quality Assurance
 
-Il progetto include una suite consolidata nella cartella `tests/` con **341 test automatizzati** che passano al 100% con 0 errori, coprendo unit test headless, simulazione fisica dei dadi 3D, compagni/famigli, viaggi e accampamento, smoke test della GUI, architettura mono-finestra e simulazioni di campagna complete:
+Il progetto include una suite consolidata nella cartella `tests/` con **356 test automatizzati** che passano al 100% con 0 errori, coprendo unit test headless, simulazione fisica dei dadi 3D, flusso di login rapido, compagni/famigli, viaggi e accampamento, smoke test della GUI, architettura mono-finestra e simulazioni di campagna complete:
 
 ```powershell
-# 1. Esegui l'intera suite di unit test (341 test con 0 fallimenti)
+# 1. Esegui l'intera suite di unit test (356 test con 0 fallimenti)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 2. Esegui la suite specifica per il motore di dadi 3D poliedrici
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_3d_dice.py
+
+# 3. Esegui il test del flusso di connessione rapido e storico server
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_join_game.py
 ```
 
 # 2. Esegui la suite regole autentiche RAW 5e (Porte, Scasso, Spille Stanza, Reazioni, Scudo, Evasione, Furtivo, Blind Rolls)

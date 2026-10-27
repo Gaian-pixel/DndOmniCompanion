@@ -6,9 +6,10 @@
 [![Ruleset: D&D 5e](https://img.shields.io/badge/ruleset-D%26D%205e-red.svg)](https://dnd.wizards.com/)
 [![UI: ttkbootstrap](https://img.shields.io/badge/ui-ttkbootstrap-orange.svg)](https://ttkbootstrap.readthedocs.io/)
 [![Multiplayer: TCP/UDP](https://img.shields.io/badge/networking-TCP%20%2B%20UDP-green.svg)]()
-[![Tests: Passing](https://img.shields.io/badge/tests-273%2F273%20superati-brightgreen.svg)]()
+[![Tests: Passing](https://img.shields.io/badge/tests-356%2F356%20superati-brightgreen.svg)]()
 [![Localization: IT / EN](https://img.shields.io/badge/i18n-Italiano%20%7C%20English-blueviolet.svg)]()
 [![Units: Imperial / Metric](https://img.shields.io/badge/units-ft%2Fmi%20%7C%20m%2Fkm-informational.svg)]()
+[![Version](https://img.shields.io/badge/release-v0.2.0--alpha-gold.svg)](https://github.com/Gaian-pixel/DndOmniCompanion/releases)
 
 **D&D OmniCompanion** è un Virtual Tabletop (VTT) Client-Server all-in-one e un motore di gestione campagne per **Dungeons & Dragons 5a Edizione**, sviluppato in Python. Progettato sia per sessioni al tavolo in presenza sia per il gioco online da remoto, unisce l'automazione completa delle regole D&D 5e, una mappa esagonale interattiva ad alte prestazioni, chat vocale UDP in tempo reale e una suite completa di strumenti per il Dungeon Master.
 
@@ -26,6 +27,20 @@
 ---
 
 ## 🌟 Caratteristiche Principali
+
+### 🎲 Motore di Dadi 3D Poliedrici Nativo (Zero Dipendenze Esterne)
+* **Geometria Poliedrica RAW 5e Completa**: Modelli 3D vettoriali per **d4**, **d6**, **d8**, **d10**, **d12**, **d20** e l'autentico **Zocchihedron d100 sferico** (92 vertici, 100 facce planari numerate 1–100 con coppie opposte a somma 101, un unico dado singolo a schermo).
+* **Telecamera Prospettica da Tavolo**: Punto di vista assonometrico con convergenza prospettica e rotazioni fluide via slerp di quaternioni.
+* **Rendering Sovrapposto Senza Mascherare la Mappa**: I dadi rotolano direttamente sul canvas della mappa tattica tramite rendering tag-based (`tags="dice_3d"`). Griglia, miniature dei personaggi, nebbia di guerra e dungeon restano visibili al 100% sotto i dadi!
+* **Ombra di Contatto Morbida & Shading Dark Fantasy**: Ombra di contatto semitrasparente (`stipple="gray50"`), shading Lambertiano direzionale con riflessi speculari metallici e bordi smussati dorati.
+* **Card HUD Galleggiante**: Banner compatto posizionato in basso sullo schermo con dettagli del tiro, dadi scartati per Vantaggio/Svantaggio e pulsante di chiusura immediata `[ ✕ ]` (o chiusura automatica dopo 4.5s).
+* **Zero Dipendenze Esterne**: Pura libreria standard Python (`math`, `random`, `wave`, `struct`, `tkinter`). Nessun bisogno di OpenGL o Pygame.
+
+### 🚀 Flusso Diretto "Unisciti a Partita" & Storico Server
+* **Scelta Immediata del Server**: Cliccando su `[ ⚔️ Unisciti a Partita ]` nel launcher, si apre subito la finestra di connessione senza dover navigare nella barra superiore.
+* **Cronologia IP & Preset Locale**: Memorizza automaticamente i server recenti in `client_data/settings.json`, con pulsante rapido `[ 🖥️ Locale (127.0.0.1) ]` e supporto a porte custom (`host:port`).
+* **Selezione Eroe & Connessione Automatica**: Seleziona il personaggio ed entra subito in sessione già connesso e registrato.
+* **Pulsante Rapido di Riconnessione**: Se la connessione cade, un pulsante `[ 🔗 Connetti ]` compare direttamente nel pannello comandi.
 
 ### 🖥️ Esperienza e Architettura Mono-Finestra (Single-Window & Center Overlay)
 * **Launcher Unificato In-Place**: Tutte le sezioni del launcher (*Gestione Personaggi*, *Wizard Creazione Guidata PG* ed *Editor Campagna*) vengono renderizzate direttamente in-place all'interno della stessa finestra principale, provviste di una comoda barra superiore `[ ← Torna al Menu Principale ]`, azzerando la moltiplicazione di finestre secondarie.
@@ -213,11 +228,11 @@ Esegui il launcher unificato dalla cartella principale del progetto:
   # oppure: python3 main.py
   ```
 Dal selettore iniziale potrai scegliere:
-1. **Dungeon Master**: Avvia il server TCP (`53911`) e UDP Voice (`53912`) aprendo la plancia del DM (con campagna, editor campagna o sessione rapida).
+1. **Dungeon Master**: Avvia il server TCP (`5000`) e UDP Voice (`53912`) aprendo la plancia del DM (con campagna, editor campagna o sessione rapida).
 2. **Giocatore (Player)**:
    * **👤 Gestione Personaggi (Offline)**: Crea, consulta, duplica, elimina ed esporta le schede dei tuoi eroi (PDF/JSON) in piena autonomia, senza richiedere l'avvio o la connessione a un server.
    * **✨ Crea Personaggio (Guidato)**: Avvia subito il wizard guidato passo-passo stile Baldur's Gate 3 per generare un nuovo eroe di 1° livello con razze, classi, caratteristiche e statistiche calcolate.
-   * **🛡️ Unisciti a Partita**: Avvia il client VTT Giocatore per collegarti alla sessione online del Dungeon Master.
+   * **🛡️ Unisciti a Partita**: Apre la finestra modale di selezione server (con storico IP recenti e preset rapido `🖥️ Locale (127.0.0.1)`) e scelta del personaggio per connettersi direttamente alla sessione online del Dungeon Master.
 
 ---
 
@@ -314,13 +329,15 @@ DndOmniCompanion/
 │   ├── USER_GUIDE.md               # Complete User Guide (English)
 │   ├── GUIDA_OPERATIVA.md          # Manuale operativo e architettura (Italiano)
 │   └── OPERATIONAL_GUIDE.md        # System & Operational Manual (English)
-├── tests/                          # Suite di test automatizzati (296 test superati)
+├── tests/                          # Suite di test automatizzati (356 test passati)
 │   ├── simulate_4player_campaign.py# Simulazione live campagna 4 giocatori + DM (11 fasi)
 │   ├── simulate_game_session.py    # Simulazione multiplayer end-to-end (53 fasi)
+│   ├── test_3d_dice.py             # Test motore dadi 3d vettoriali e overlay trasparente
+│   ├── test_join_game.py           # Test dialogo unione partita, storico server e auto-connessione
 │   ├── test_mono_finestra.py       # Test architettura single-window, overlay e docking
 │   ├── test_authentic_5e.py        # Test regole autentiche RAW 5e
 │   ├── test_ui_smoke.py            # Smoke test di tutte le schermate grafiche
-│   └── ... (28 moduli di test unitari e di integrazione)
+│   └── ... (30 moduli di test unitari e di integrazione)
 └── main.py                         # Launcher unificato (DM Host / Player Client)
 ```
 
@@ -328,11 +345,17 @@ DndOmniCompanion/
 
 ## 🧪 Test e Verifica Automatica
 
-Tutti i **296 test automatizzati** passano al 100% con 0 errori:
+Tutti i **356 test automatizzati** passano al 100% con 0 errori:
 
 ```powershell
-# 1. Unit Test completi (296 test: righello, critici, mono-finestra, economia turno, unità, inventario, razze/classi)
+# 1. Unit Test completi (356 test: dadi 3D, flusso connessione, righello, critici, mono-finestra, economia turno, unità, inventario)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
+
+# 2. Test specifico motore dadi 3D poliedrici
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_3d_dice.py
+
+# 3. Test flusso unione a partita e storico IP server
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_join_game.py
 
 # 2. Test Meccaniche Autentiche RAW 5e (Porte, Lockpicking, Room Pins, Reazioni, Shield, Evasione, Furtivo, Blind Rolls)
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_authentic_5e.py

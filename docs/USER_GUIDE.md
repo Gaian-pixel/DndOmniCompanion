@@ -14,6 +14,7 @@ This manual walks you step by step through starting a session, configuring the i
    - [Top Menu Bar: Language, Distance Units & Session Log Export](#top-menu-bar-language-distance-units--session-log-export)
    - [3-Column Layout, Canvas HUDs & Whiteboard Tools (`[ ✏️ ]`)](#3-column-layout-canvas-huds--whiteboard-tools---)
    - [Quick Command Palette (`Ctrl+K`)](#quick-command-palette-ctrlk)
+   - [Native 3D Dice Engine on Battlemap (`🎲`)](#native-3d-dice-engine-on-battlemap-)
 3. [Distance Units, Map Scales, Multi-Grid & Dynamic Ruler](#3-distance-units-map-scales-multi-grid--dynamic-ruler)
    - [Choosing Between Feet/Miles (`ft/mi`) and Meters/Kilometers (`m/km`)](#choosing-between-feetmiles-ftmi-and-meterskilometers-mkm)
    - [The 4 Map Scales (DMG p. 14)](#the-4-map-scales-dmg-p-14)
@@ -79,11 +80,11 @@ To run D&D OmniCompanion without installing Python or dependencies, download the
    * **Dungeon Master (Host)**:
      * **⚔️ Launch with Campaign**: load an existing campaign (with acts, scenes, prepared encounters, and maps).
      * **📜 Prepare / Edit Campaign**: open the Campaign Editor to author your adventure before the session.
-     * **⚡ Quick Session (Empty)**: immediately start the server on TCP port `53911` (and UDP Voice port `53912`) for an ad-hoc game.
+     * **⚡ Quick Session (Empty)**: immediately start the server on TCP port `5000` (and UDP Voice port `53912`) for an ad-hoc game.
    * **Player**:
      * **👤 Character Manager (Offline)**: opens a dedicated window to view, create, edit, duplicate, delete, and export character sheets (Official PDF or JSON backup) completely offline without needing a server connection.
      * **✨ Create Character (Wizard)**: immediately starts the step-by-step Baldur's Gate 3 inspired character creation wizard for a Level 1 hero.
-     * **🛡️ Join Game**: opens the Player VTT client. From `Server -> Connect to Server...` (or `Reconnect to Last Server`), choose your character, enter the DM's IP address (`127.0.0.1` or LAN/VPN IP), and click **Connect**.
+     * **🛡️ Join Game**: immediately opens the server selection dialog (`LoginDialog`) to choose or enter the DM's IP address (featuring automatic server history and a quick `🖥️ Local (127.0.0.1)` preset) and pick your character; clicking **Connect** launches the client already connected to the live session. If disconnected later, a `[ 🔗 Connect ]` button is readily accessible directly inside the Player Controls tab.
 
 * **Single-Window Architecture (In-Place)**: All secondary configuration and management views (*👤 Character Manager*, *✨ Create Character*, and *📜 Prepare / Edit Campaign*) render seamlessly in-place within the launcher window. A top navigation banner `[ ← Back to Main Menu / Torna al Menu Principale ]` lets you return to the launcher menu at any time, eliminating desktop window clutter.
 
@@ -113,6 +114,7 @@ The workspace is divided into three ergonomic columns:
    * `[ 🪨 ]` **Difficult Terrain Brush (DM only)**: select a terrain brush (Mud, Ice, Briars, Rubble, Swamp, Eraser) and paint or clear surfaces directly on the live session battlemap.
    * `[ 🌑 ]` **1-Click Darkness Filter (DM only)**: instantly toggles map-wide Darkness with automated D&D 5e visibility, torchlight, and Darkvision rules.
    * `☁️` Fog of War (with multi-radius brush from 0 to 3, DM only).
+   * `🎲` **Toggle 3D Dice**: enables or disables the real-time polyhedral 3D dice physics engine on the battlemap.
 2. **Center Viewport (`HexMapCanvas`)**: the interactive map (hexagonal, square, or gridless), enhanced by two floating HUD overlays:
    * **Initiative Ribbon HUD (top-center)**: automatically appears during combat, displaying cards for all combatants in turn order (`#1`, `#2`...), an active turn arrow `▼`, and a mini HP bar for each combatant. Clicking any card centers the camera on that token.
    * **Glassmorphism Map Controls (bottom-left)**: floating `[ - ]`, `[ 100% ]`, `[ + ]`, and `[ ⌖ ]` buttons to zoom or recenter the viewport with 1 click.
@@ -123,6 +125,27 @@ Press **`Ctrl+K`** at any time (or select `Tools/Library -> Quick Command Palett
 * Type a **monster**, **spell**, or **5e rule** name to inspect its statblock or description.
 * Type a **map token** name to immediately center the camera on that token.
 * Type a dice expression such as `/roll 2d6+4` or `1d20+5` and press `Enter` to roll immediately in chat.
+
+### Native 3D Dice Engine on Battlemap (`🎲`)
+D&D OmniCompanion features a native 3D polyhedral dice physics engine rendered directly on top of the tactical battlemap (`HexMapCanvas`):
+* **Zero External Dependencies**: no OpenGL, WebGL, or heavy 3D packages required; pure mathematical analytical geometry and tabletop perspective projection rendered directly on the Tkinter canvas.
+* **Complete RAW 5e Polyhedral Geometry**:
+  * **d4**: Regular tetrahedron (4 vertices, 4 triangular faces).
+  * **d6**: Regular cube with opposite faces summing to 7.
+  * **d8**: Regular octahedron with opposite faces summing to 9.
+  * **d10**: Pentagonal trapezohedron numbered 0–9.
+  * **d12**: Regular dodecahedron with opposite faces summing to 13.
+  * **d20**: Regular icosahedron with opposite faces summing to 21.
+  * **d100 (Authentic Zocchihedron)**: Single spherical 100-sided die featuring 92 vertices and 100 planar faces numbered 1–100 with opposite pairs summing to 101, faithfully replicating Lou Zocchi's iconic d100.
+* **Non-Obscuring Transparent Battlemap Overlay**:
+  * Dice roll directly on the canvas with a soft contact stipple shadow (`stipple="gray50"`). Battlemat tiles, tokens, grid lines, and fog of war remain 100% visible and interactive throughout the roll.
+* **Ballistic Physics, Elastic Bounces & Slerp Settlement**:
+  * Dice experience gravity ($980\text{ px/s}^2$), dynamic friction, and rotational inertia, settling smoothly via spherical linear quaternion interpolation (Slerp) so the winning face faces squarely toward the camera with upright text orientation.
+* **Visual & Audio Feedback**:
+  * **Natural 20**: Radiant amber gold (`#D97706`), pulsing halo, and triumphant fanfare.
+  * **Natural 1**: Deep obsidian crimson (`#7F1D1D`) with dark vermilion glow.
+  * **Advantage & Disadvantage**: Simultaneous dual d20 rolling; the dropped die gracefully dims to iron gray with a `(dropped)` badge.
+  * **Floating HUD Card**: Displays the roll formula, dice results, and total modifier; includes an instant `[ ✕ ]` close button or automatically fades after 4.5s. Clicking the canvas during a roll immediately skips to the settled result.
 
 ---
 

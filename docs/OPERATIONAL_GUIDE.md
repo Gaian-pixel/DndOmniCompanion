@@ -164,8 +164,8 @@ To run D&D OmniCompanion without needing to install Python or configure virtual 
   ```
 
 The **Unified Launcher** will prompt you to select a mode:
-1. **Dungeon Master**: Launches the Host DM server on default ports `53911` (TCP) and `53912` (UDP) and opens the DM Dashboard (with Campaign, Campaign Editor, or Quick Session).
-2. **Player**: Launches the Player VTT client, allowing character selection and connection to the DM server via IP/hostname.
+1. **Dungeon Master**: Launches the Host DM server on default ports `5000` (TCP) and `53912` (UDP) and opens the DM Dashboard (with Campaign, Campaign Editor, or Quick Session).
+2. **Player**: Clicking *"⚔️ Join Game"* immediately opens a connection dialog to choose/enter the server IP (with recent server history and a `🖥️ Local (127.0.0.1)` quick preset) and choose your character; the client launches already connected and immediately joins the session.
 3. **Offline Character Management & Creation Wizard**: Manage character sheets, export to Official PDF/JSON, or launch the BG3-style Level 1 character creation wizard completely offline.
 
 ---
@@ -660,7 +660,11 @@ D&D OmniCompanion features a native polyhedral 3D vector dice renderer ([`compon
   * **d10**: Pentagonal trapezohedron (12 vertices, 10 kite faces numbered 0-9).
   * **d12**: Regular dodecahedron (20 vertices, 12 pentagonal faces, opposing faces summing to 13).
   * **d20**: Regular icosahedron (12 vertices, 20 triangular faces, opposing faces summing to 21).
-  * **d100**: Double-digit percentile die ('00', '10' ... '90').
+  * **d100 (Authentic Spherical Zocchihedron)**: True 100-sided spherical model (92 vertices, 100 planar facets numbered 1–100 with opposite pairs summing to 101, matching Lou Zocchi's original design). Spawns as a single authentic die.
+* **Non-Obscuring Battlemap Overlay Architecture**:
+  * Dice are rendered directly on the live tactical map canvas ([`HexMapCanvas`](file:///c:/Users/gaian/Desktop/Projects/DndOmniCompanion/components/ui_components.py#L15)) using the tag `dice_3d`: no secondary opaque canvas is placed, and no dark background rectangles obscure the scene. Miniature tokens, hex/square grid lines, walls, and fog of war remain 100% visible beneath rolling dice.
+  * Contact ground shadow rendered with dot-matrix stipple (`stipple="gray50"`), providing a soft translucent shadow on dungeon floors.
+  * Transparent event filtering: clicks on dice or the result banner skip/dismiss the roll, while clicks on the battlefield pass through directly to token selection, movement, and ruler measurements.
 * **Dark Fantasy Lighting & Lambertian Shading**:
   * Lambertian diffuse shading computing surface normals against a virtual top-left directional light source.
   * Specular gleams, beveled gold borders (`#D4AF37`), and Z-sorting (*Painter's algorithm*) to prevent occlusion artifacts.
@@ -675,20 +679,23 @@ D&D OmniCompanion features a native polyhedral 3D vector dice renderer ([`compon
   * **Native SFX Audio**: In-memory synthesis and asynchronous non-blocking playback of WAV audio with micro-impact dice roll clicks.
 * **User Controls**:
   * Quick `🎲` toggle button in the left toolbars of both client and server to toggle 3D dice on the fly.
-  * Click during rolling to instantly skip to the final result; click again to dismiss the result card.
+  * Floating HUD result card at the bottom of the map view with roll breakdown, discarded dice, and a quick-close `[ ✕ ]` button (or auto-closes after 4.5s). Click during rolling to instantly skip to the final result.
 
 ---
 
 ## 11. Testing Suite & Quality Assurance
 
-The codebase includes a consolidated testing suite in the `tests/` directory with **341 automated tests** passing at 100% with 0 failures, covering headless unit tests, 3D dice physics and rendering, companions/familiars, travel/camping, GUI smoke tests, single-window architecture, and full multiplayer campaign simulations:
+The codebase includes a consolidated testing suite in the `tests/` directory with **356 automated tests** passing at 100% with 0 failures, covering headless unit tests, 3D dice physics and rendering, join game flow and server history, companions/familiars, travel/camping, GUI smoke tests, single-window architecture, and full multiplayer campaign simulations:
 
 ```powershell
-# 1. Run comprehensive unit tests (341 tests with 0 failures)
+# 1. Run comprehensive unit tests (356 tests with 0 failures)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 2. Run specific 3D polyhedral dice test suite
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_3d_dice.py
+
+# 3. Run join game flow and server history test suite
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_join_game.py
 ```
 
 # 2. Run authentic 5e RAW rules test suite (Doors, Lockpicking, Room Pins, Reactions, Shield, Evasion, Sneak Attack, Blind Rolls)
