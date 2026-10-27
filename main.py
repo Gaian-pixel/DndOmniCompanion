@@ -41,13 +41,25 @@ def start_app():
         from server.server import DM_GUI
         app = DM_GUI(root, initial_campaign=campaign)
 
-    def launch_player(initial_character=None):
+    def launch_player(initial_character=None, auto_connect_ip=None):
         for widget in root.winfo_children():
             widget.destroy()
         root.resizable(True, True)
         root.minsize(950, 650)
         from client.client import ClientGUI
-        app = ClientGUI(root, initial_character=initial_character)
+        app = ClientGUI(root, initial_character=initial_character, auto_connect_ip=auto_connect_ip)
+
+    def prompt_join_game(initial_character=None):
+        """Apre subito il dialogo di connessione per scegliere il server IP e il personaggio."""
+        from client.character_manager import CharacterManager
+        from client.login_ui import LoginDialog
+        char_mgr = CharacterManager()
+        login_dialog = LoginDialog(root, char_mgr, initial_character=initial_character)
+        root.wait_window(login_dialog)
+        if not login_dialog.result:
+            return
+        server_ip, char = login_dialog.result
+        launch_player(initial_character=char, auto_connect_ip=server_ip)
 
     def show_campaign_selector_view():
         for w in content_container.winfo_children():
@@ -97,7 +109,7 @@ def start_app():
         mgr_view = CharacterManagerFrame(
             content_container,
             manager=CharacterManager(),
-            on_select_callback=lambda char: launch_player(initial_character=char),
+            on_select_callback=lambda char: prompt_join_game(initial_character=char),
             on_close_callback=show_launcher_menu,
             on_create_wizard_callback=show_character_wizard_view,
             is_embedded=True
@@ -255,7 +267,7 @@ def start_app():
         btn_pl_box.pack(fill=tk.X, side=tk.BOTTOM, pady=(8, 0))
         ttk.Button(btn_pl_box, text=_t("launcher_player_btn_manage_chars"), command=show_character_manager_view, style="Gold.TButton").pack(fill=tk.X, pady=(0, 6))
         ttk.Button(btn_pl_box, text=_t("launcher_player_btn_create_char"), command=show_character_wizard_view, style="Info.TButton").pack(fill=tk.X, pady=(0, 6))
-        ttk.Button(btn_pl_box, text=_t("launcher_player_btn_join"), command=lambda: launch_player(None), style="Primary.TButton").pack(fill=tk.X)
+        ttk.Button(btn_pl_box, text=_t("launcher_player_btn_join"), command=prompt_join_game, style="Primary.TButton").pack(fill=tk.X)
 
         # --- FOOTER ---
         footer = tk.Frame(content_container, bg=BG_COLOR)

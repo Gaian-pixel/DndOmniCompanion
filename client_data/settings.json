@@ -1,4 +1,8 @@
 {
   "language": "it",
-  "distance_unit": "m"
+  "distance_unit": "m",
+  "recent_servers": [
+    "127.0.0.1"
+  ],
+  "last_server_ip": "127.0.0.1"
 }

@@ -32,11 +32,12 @@ from common.theme import (
 from .network import ClientNetwork
 
 class ClientGUI:
-    def __init__(self, master, initial_character=None):
+    def __init__(self, master, initial_character=None, auto_connect_ip=None):
         self.master = master
         setup_theme(master)
         self.master.title("D&D Client")
         self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.auto_connect_ip = auto_connect_ip
         self.audio_manager = AudioManager()
         from common.file_utils import get_writable_dir
         self.audio_cache_dir = os.path.join(get_writable_dir(), "client_data", "audio_cache")
@@ -83,6 +84,8 @@ class ClientGUI:
         if initial_character:
             self.set_active_character_from_manager(initial_character)
         self.master.after(100, self.process_queue)
+        if self.auto_connect_ip and self.active_character:
+            self.master.after(150, lambda: self.perform_connect(self.auto_connect_ip, self.active_character))
 
     def show_toast(self, message, title=None, duration=3500, toast_type="info", icon=None):
         return show_toast(self.master, message, title=title, duration=duration, toast_type=toast_type, icon=icon)
@@ -401,8 +404,12 @@ class ClientGUI:
         controls_tab = ttk.Frame(self.right_notebook, padding=10)
         self.right_notebook.add(controls_tab, text=_t("tab_player_controls"))
         
-        self.status_label = ttk.Label(controls_tab, text=_t("status_disconnected"), style="Danger.TLabel", font=FONT_SMALL)
-        self.status_label.pack(anchor="w", pady=(0, 6))
+        status_bar = tk.Frame(controls_tab, bg=SURFACE_COLOR_ALT)
+        status_bar.pack(fill=tk.X, pady=(0, 6))
+        self.status_label = ttk.Label(status_bar, text=_t("status_disconnected"), style="Danger.TLabel", font=FONT_SMALL)
+        self.status_label.pack(side=tk.LEFT, anchor="w", padx=(4, 6))
+        self.btn_quick_connect = ttk.Button(status_bar, text="🔗 Connetti", style="Info.TButton", command=self.connect_to_server)
+        self.btn_quick_connect.pack(side=tk.RIGHT, padx=2)
         
         # --- HERO SUMMARY CARD ---
         hero_card = tk.Frame(controls_tab, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
@@ -2618,40 +2625,81 @@ class ClientGUI:
     def connect_to_server(self):
         if self.is_connected: return
         
-        login_dialog = LoginDialog(self.master, self.character_manager)
+        login_dialog = LoginDialog(self.master, self.character_manager, initial_character=self.active_character)
         self.master.wait_window(login_dialog)
         
         if not login_dialog.result: return
         
         server_ip, char = login_dialog.result
-        self.name = char.name
-        self.active_character = char
-        
+        self.perform_connect(server_ip, char)
+
+    def perform_connect(self, server_ip: str, char=None):
+        """Esegue la connessione al server specificato con il personaggio selezionato."""
+        if not server_ip:
+            return
+        if char:
+            self.name = char.name
+            self.active_character = char
+            if hasattr(self, 'active_character_var'):
+                self.active_character_var.set(self.name)
+            
+        host = server_ip.strip()
+        port = 5000
+        if ":" in host:
+            parts = host.split(":", 1)
+            host = parts[0].strip()
+            try:
+                port = int(parts[1].strip())
+            except ValueError:
+                port = 5000
+                
         try:
-            self.network.connect(server_ip, 5000)
+            self.network.connect(host, port)
             self.is_connected = True
             self.last_server_ip = server_ip
             
             # Start Voice Client
-            self.voice_client = VoiceClient(server_ip, 53912)
-            self.voice_client.start()
-            
-            self.network.send(make_join(self.name, getattr(self.active_character, "last_position", None)))
-            self.network.send(make_update_stats_request(self.active_character.hp_current, self.active_character.hp_max, self.active_character.initiative, getattr(self.active_character, "conditions", [])))
-            self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
-            self.log_to_chat(f"Connesso a {server_ip} come {self.name} (Lv.{char.level} {char.char_class}).", "Globale")
+            try:
+                if self.voice_client:
+                    try: self.voice_client.stop()
+                    except Exception: pass
+                self.voice_client = VoiceClient(host, 53912)
+                self.voice_client.start()
+            except Exception as ve:
+                print(f"[Client] Avviso VoiceClient: {ve}")
+                
+            char_to_send = self.active_character
+            last_pos = getattr(char_to_send, "last_position", None) if char_to_send else None
+            self.network.send(make_join(self.name, last_pos))
+            if char_to_send:
+                self.network.send(make_update_stats_request(char_to_send.hp_current, char_to_send.hp_max, char_to_send.initiative, getattr(char_to_send, "conditions", [])))
+                self.network.send(make_update_full_sheet_request(char_to_send.to_dict()))
+                char_info = f" (Lv.{char_to_send.level} {char_to_send.char_class})"
+            else:
+                char_info = ""
+                
+            self.log_to_chat(f"Connesso a {host}:{port} come {self.name}{char_info}.", "Globale", sender="Sistema", color="#2ECC71")
             self.master.title(f"D&D Client - {self.name}")
-            self.status_label.config(text=f"Stato: Connesso a {server_ip}", style="Success.TLabel")
+            self.status_label.config(text=f"Stato: Connesso a {host}:{port}", style="Success.TLabel")
+            if hasattr(self, 'btn_quick_connect'):
+                self.btn_quick_connect.pack_forget()
             if hasattr(self, 'voice_status_lbl'):
                 self.voice_status_lbl.config(text="🟢 Voice: Connesso", fg=ACCENT_GREEN)
             self.set_controls_state(tk.NORMAL)
-            self.active_character_var.set(self.name)
             self.update_hero_summary_card()
-            for i in range(10):
-                cmd = self.active_character.hotbar[i]
-                self.hotbar_buttons[i].config(text=cmd[:10] if cmd else f"{i+1}")
+            if self.active_character and hasattr(self, 'hotbar_buttons'):
+                for i in range(10):
+                    cmd = self.active_character.hotbar[i]
+                    self.hotbar_buttons[i].config(text=cmd[:10] if cmd else f"{i+1}")
+            if hasattr(self, "show_toast"):
+                self.show_toast(f"Connesso a {host}:{port}!", title="Connessione Riuscita", toast_type="success")
         except Exception as e:
-            messagebox.showerror("Errore", f"Impossibile connettersi a {server_ip}: {e}"); self.is_connected = False
+            self.is_connected = False
+            self.status_label.config(text=_t("status_disconnected"), style="Danger.TLabel")
+            if hasattr(self, 'btn_quick_connect'):
+                self.btn_quick_connect.pack(side=tk.RIGHT, padx=2)
+            self.set_controls_state(tk.DISABLED)
+            messagebox.showerror("Errore di Connessione", f"Impossibile connettersi a {host}:{port}.\n\nAssicurati che il server del Dungeon Master sia avviato e raggiungibile.\n\nDettagli: {e}")
 
     def reconnect_to_server(self):
         if self.is_connected:
@@ -2661,27 +2709,7 @@ class ClientGUI:
         if not last_ip or not self.active_character:
             self.connect_to_server()
             return
-        try:
-            self.network.connect(last_ip, 5000)
-            self.is_connected = True
-            if self.voice_client:
-                try: self.voice_client.stop()
-                except Exception: pass
-            self.voice_client = VoiceClient(last_ip, 53912)
-            self.voice_client.start()
-            self.network.send(make_join(self.name, getattr(self.active_character, "last_position", None)))
-            self.network.send(make_update_stats_request(self.active_character.hp_current, self.active_character.hp_max, self.active_character.initiative, getattr(self.active_character, "conditions", [])))
-            self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
-            self.log_to_chat(f"Riconnesso con successo a {last_ip} come {self.name}!", "Globale", sender="Sistema", color="#2ECC71")
-            self.master.title(f"D&D Client - {self.name}")
-            self.status_label.config(text=f"Stato: Connesso a {last_ip}", style="Success.TLabel")
-            if hasattr(self, 'voice_status_lbl'):
-                self.voice_status_lbl.config(text="🟢 Voice: Connesso", fg=ACCENT_GREEN)
-            self.set_controls_state(tk.NORMAL)
-            self.update_hero_summary_card()
-        except Exception as e:
-            messagebox.showerror("Errore Riconnessione", f"Impossibile riconnettersi a {last_ip}: {e}")
-            self.is_connected = False
+        self.perform_connect(last_ip, self.active_character)
 
     def process_queue(self):
         try:
@@ -3100,6 +3128,8 @@ class ClientGUI:
         self.show_toast("La connessione con il server è stata persa.\nPuoi usare 'Riconnetti Ultimo Server' dal menu Server.", title="Disconnesso", toast_type="danger")
         self.master.title("D&D Client - Disconnesso")
         self.status_label.config(text="Stato: Disconnesso", style="Danger.TLabel")
+        if hasattr(self, 'btn_quick_connect'):
+            self.btn_quick_connect.pack(side=tk.RIGHT, padx=2)
         self.set_controls_state(tk.DISABLED)
         self.local_map_data=None; self.players_data={}; self.update_player_listbox(); self.redraw_map_and_players()
 
