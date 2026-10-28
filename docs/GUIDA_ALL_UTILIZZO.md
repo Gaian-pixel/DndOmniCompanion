@@ -343,6 +343,29 @@ La sezione **Economia Turno** nel tab `Controlli PG` si adatta automaticamente a
     * Subire danni richiede automaticamente un TS Costituzione ($\text{CD} \ge 10$): in caso di fallimento, l'incantesimo crolla immediatamente.
 * **Pulsante `⏭️ Termina Turno`**: attivo durante il tuo turno di combattimento; passa immediatamente l'iniziativa al combattente successivo.
 
+### Targeting Tattico con Mirino, Fiancheggiamento (DMG p. 251) e Manovre RAW (Lotta & Spinta)
+OmniCompanion introduce un sistema integrato di ingaggio tattico sulla mappa:
+
+1. **Mirino Tattico & Linea di Tiro Dinamica (Raycasting & Cover)**:
+   * **Selezione del Bersaglio**: Clicca su un token nemico oppure usa **`Shift + Click Sinistro`** su qualsiasi token della mappa (o tasto destro $\to$ **`🎯 Bersaglia Token`**).
+   * **Mirino a 4 Tacche**: Sul token agganciato compare un mirino circolare rosso neon pulsante con 4 tacche di collimazione e badge informativo fluttuante.
+   * **Linea di Tiro / Copertura Dinamica**: Dal token del giocatore al bersaglio viene proiettata una linea tratteggiata codificata per colore in base al raycasting degli ostacoli:
+     * 🟢 **Verde Smeraldo**: Linea di vista libera, nessuna copertura (+0 CA).
+     * 🔷 **Ciano / Blu Elettrico**: Mezza Copertura (+2 CA / +2 TS DES, es. feritoia leggera o muretto parziale).
+     * 🟧 **Ambra / Arancio Intenso**: Tre Quarti di Copertura (+5 CA / +5 TS DES, es. feritoia stretta o creatura interposta).
+     * 🔴 **Rosso Neon**: Linea di vista bloccata da muro o ostacolo solido (nessun attacco a distanza consentito).
+   * **HUD Bersaglio Attivo**: Nella barra laterale dei Controlli PG compare il badge `🎯 Bersaglio: [Nome] [ ✕ ]`. Cliccando su `[ ✕ ]` o ripremendo `Shift + Click` il bersaglio viene sganciato. Quando un bersaglio è agganciato, il pulsante **`⚔️ Azione`** apre l'attacco pre-impostato direttamente su di esso senza doverlo riselezionare manualmente.
+
+2. **Fiancheggiamento Opzionale (Flanking - DMG p. 251)**:
+   * Quando l'opzione è attiva nelle impostazioni del DM (`enable_flanking`), due alleati posizionati su lati opposti rispetto a una creatura nemica concedono reciprocamente **Vantaggio (2d20kh1)** a tutti gli attacchi in mischia ($dist \le 1$ casella).
+   * Il sistema calcola l'opposto geometrico sulla griglia esagonale o quadrata ($2 \cdot q_{\text{bersaglio}} - q_{\text{attaccante}}, 2 \cdot r_{\text{bersaglio}} - r_{\text{attaccante}}$). Se un alleato cosciente e non incapacitato si trova su tale casella, il bonus viene applicato automaticamente con annuncio esplicito in chat.
+
+3. **Manovre di Lotta & Spinta RAW 5e (Grapple & Shove - PHB p. 195)**:
+   * Direttamente dai pulsanti rapidi **`[ 🤼 Lotta ]`** e **`[ 💨 Spingi ]`** (o dal menu contestuale col tasto destro sul token del bersaglio):
+     * **🤼 Lotta (Grapple)**: Richiede una contesa tra l'**Atletica (Forza)** dell'attaccante e l'**Atletica (Forza)** o **Acrobazia (Destrezza)** del difensore (a scelta del valore più alto per il difensore). Il bersaglio non può essere più di 1 taglia superiore all'attaccante. In caso di successo, al bersaglio viene applicata la condizione **Afferrato (Grappled)** che azzera istantaneamente la velocità di movimento (`speed = 0`).
+     * **💨 Spinta (Shove)**: Contesa analoga di Forza (Atletica). L'attaccante può scegliere tra **Atterrare Prono** (infliggendo la condizione **Prono**, che concede vantaggio agli attacchi in mischia entro 5 ft) oppure **Spingere Indietro di 5 ft** (la creatura viene respinta lungo il vettore di attacco verso la casella successiva, fermandosi in sicurezza qualora vi sia un muro o un ostacolo impraticabile).
+     * **Supporto Condizioni RAW**: Sia per Lotta che per Spinta, l'Ira barbarica conferisce automaticamente Vantaggio alle prove di Forza (Atletica), l'Indebolimento o la Paura infliggono Svantaggio, e le creature Incapacitate, Incoscienti o Paralizzate falliscono automaticamente la contesa.
+
 ### Reazioni RAW e Incantesimo Scudo (*Shield*)
 * **Economia delle Reazioni RAW (PHB p. 190)**:
   * Ogni creatura dispone di una sola `🛡️ Reazione` per round, che si ripristina all'inizio del proprio turno.

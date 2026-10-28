@@ -64,6 +64,7 @@ def open_automation_settings_dialog(dm_gui):
     conc_var = tk.BooleanVar(value=cur_settings.get("auto_concentration_check", True))
     death_var = tk.BooleanVar(value=cur_settings.get("auto_death_saves", True))
     adv_var = tk.BooleanVar(value=cur_settings.get("auto_calc_advantage", True))
+    flanking_var = tk.BooleanVar(value=cur_settings.get("enable_flanking", True))
     fow_var = tk.BooleanVar(value=cur_settings.get("auto_explore_fow", True))
     rest_var = tk.BooleanVar(value=cur_settings.get("auto_apply_rest_recovery", True))
     advance_time_var = tk.BooleanVar(value=cur_settings.get("auto_advance_time", True))
@@ -81,6 +82,7 @@ def open_automation_settings_dialog(dm_gui):
             conc_var.set(False)
             death_var.set(False)
             adv_var.set(False)
+            flanking_var.set(False)
             fow_var.set(False)
             rest_var.set(False)
             advance_time_var.set(False)
@@ -95,6 +97,7 @@ def open_automation_settings_dialog(dm_gui):
             conc_var.set(True)
             death_var.set(True)
             adv_var.set(True)
+            flanking_var.set(True)
             fow_var.set(True)
             rest_var.set(True)
             advance_time_var.set(True)
@@ -109,6 +112,7 @@ def open_automation_settings_dialog(dm_gui):
             conc_var.set(True)
             death_var.set(True)
             adv_var.set(True)
+            flanking_var.set(True)
             fow_var.set(True)
             rest_var.set(True)
             advance_time_var.set(True)
@@ -146,6 +150,9 @@ def open_automation_settings_dialog(dm_gui):
 
     ttk.Checkbutton(sec1, text="Calcolo automatico Vantaggio / Svantaggio (2d20)", variable=adv_var).pack(anchor="w", pady=2)
     tk.Label(sec1, text="  ↳ Se disattivato, le condizioni suggeriscono il modificatore senza forzare il doppio dado, lasciando la scelta a master e giocatori.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
+
+    ttk.Checkbutton(sec1, text="Fiancheggiamento opzionale in mischia (Flanking DMG p. 251)", variable=flanking_var).pack(anchor="w", pady=2)
+    tk.Label(sec1, text="  ↳ Se attivo, due alleati su lati opposti di un nemico comune ottengono Vantaggio ai tiri per colpire in mischia.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
 
     ttk.Checkbutton(sec1, text="Prompt automatici per Reazioni (AdO, Incantesimo Scudo)", variable=reactions_var).pack(anchor="w", pady=2)
     tk.Label(sec1, text="  ↳ Se disattivato, le reazioni vengono chiamate verbalmente dai giocatori al tavolo senza popup modali invasivi.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
@@ -201,6 +208,7 @@ def open_automation_settings_dialog(dm_gui):
             "auto_concentration_check": bool(conc_var.get()),
             "auto_death_saves": bool(death_var.get()),
             "auto_calc_advantage": bool(adv_var.get()),
+            "enable_flanking": bool(flanking_var.get()),
             "auto_explore_fow": bool(fow_var.get()),
             "auto_apply_rest_recovery": bool(rest_var.get()),
             "auto_advance_time": bool(advance_time_var.get()),

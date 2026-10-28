@@ -330,6 +330,7 @@ class ClientGUI:
         self.map_canvas.on_token_drop_callback = self.on_token_drop
         self.map_canvas.set_on_ping_callback(self.on_ping_callback)
         self.map_canvas.set_on_hex_right_click_callback(self.on_hex_right_clicked)
+        self.map_canvas.set_on_target_changed_callback(self.on_target_changed)
         self.map_canvas.set_on_wall_toggle_callback(self.on_wall_toggle_callback)
         self.map_canvas.set_on_cover_toggle_callback(self.on_cover_toggle_callback)
         self.map_canvas.set_on_draw_callback(self.on_draw_request)
@@ -554,6 +555,41 @@ class ClientGUI:
         )
         self.btn_help.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
         ToolTip(self.btn_help, lambda: _t("tooltip_help"))
+
+        # Terza riga: Manovre Tattiche 5e (Lotta & Spinta RAW)
+        econ_quick_actions_3 = tk.Frame(self.economy_frame, bg=SURFACE_COLOR)
+        econ_quick_actions_3.pack(fill=tk.X, pady=(2, 0))
+
+        self.btn_grapple = tk.Button(
+            econ_quick_actions_3, text="🤼 Lotta", font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_grapple
+        )
+        self.btn_grapple.pack(side=tk.LEFT, padx=(0, 2), fill=tk.X, expand=True)
+        ToolTip(self.btn_grapple, lambda: "Tenta di afferrare il bersaglio con una prova contrapposta di Forza (Atletica) [PHB p. 195]")
+
+        self.btn_shove = tk.Button(
+            econ_quick_actions_3, text="💨 Spingi", font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_shove
+        )
+        self.btn_shove.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
+        ToolTip(self.btn_shove, lambda: "Spingi il bersaglio per atterrarlo Prono o farlo arretrare di 5 ft [PHB p. 195]")
+
+        # Barra HUD Bersaglio Corrente (Target HUD)
+        self.target_hud_frame = tk.Frame(self.economy_frame, bg="#111827", highlightbackground=BORDER_COLOR, highlightthickness=1)
+        self.target_hud_frame.pack(fill=tk.X, pady=(4, 0))
+
+        self.lbl_target_hud = tk.Label(
+            self.target_hud_frame, text="🎯 Bersaglio: Nessuno", font=FONT_SMALL,
+            bg="#111827", fg=TEXT_MUTED
+        )
+        self.lbl_target_hud.pack(side=tk.LEFT, padx=(6, 2), pady=2, fill=tk.X, expand=True)
+
+        self.btn_target_hud_clear = tk.Button(
+            self.target_hud_frame, text="✕", font=("Segoe UI", 7, "bold"), bd=0,
+            bg="#1F2937", fg="#9CA3AF", activebackground="#374151", activeforeground="white",
+            command=self.map_canvas.clear_target
+        )
+        self.btn_target_hud_clear.pack(side=tk.RIGHT, padx=4, pady=2)
 
         # Scelta Personaggio Attivo
         self.lbl_change_char = tk.Label(controls_tab, text=_t("change_active_char"), font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED)
@@ -1835,6 +1871,20 @@ class ClientGUI:
                 self.player_listbox.activate(i)
                 break
                 
+        if token_name and token_name != self.name:
+            from common.protocol import make_grapple_request, make_shove_request
+            is_cur_target = (getattr(self.map_canvas, "current_target_name", None) == token_name)
+            if is_cur_target:
+                menu.add_command(label=f"❌ Rimuovi Bersaglio ({token_name})", command=lambda: self.map_canvas.clear_target())
+            else:
+                menu.add_command(label=f"🎯 Punta come Bersaglio ({token_name})", command=lambda: self.map_canvas.set_target(token_name))
+            
+            menu.add_separator()
+            menu.add_command(label=f"🤼 Tenta Lotta (Grapple RAW) vs {token_name}", command=lambda: self.network.send(make_grapple_request(token_name)))
+            menu.add_command(label=f"💨 Spinta: Atterra Prono (Shove) vs {token_name}", command=lambda: self.network.send(make_shove_request(token_name, option="prone")))
+            menu.add_command(label=f"💨 Spinta: Indietro 5ft (Push) vs {token_name}", command=lambda: self.network.send(make_shove_request(token_name, option="push")))
+            menu.add_separator()
+
         if self.character_manager and self.character_manager.active_character and token_name == self.character_manager.active_character.name:
             menu.add_command(label=_t("ctx_view_sheet", default="Visualizza Scheda PG"), command=self.open_stats_dialog)
             
@@ -1901,6 +1951,7 @@ class ClientGUI:
                     break
             if target_name:
                 self.attack_targeting_mode = False
+                self.map_canvas.set_target(target_name)
                 params = self.attack_params
                 from common.protocol import make_attack_request
                 self.network.send(make_attack_request(
@@ -1969,6 +2020,17 @@ class ClientGUI:
                 self.request_move(clicked_hex)
 
     def on_attack_action(self, weapon_name, hit_bonus, damage_formula, damage_type="Tagliente"):
+        target_name = getattr(self.map_canvas, "current_target_name", None)
+        if target_name and target_name in self.players_data:
+            from common.protocol import make_attack_request
+            self.network.send(make_attack_request(
+                target_name, weapon_name, hit_bonus, damage_formula, damage_type
+            ))
+            self.action_spent = True
+            self.update_action_economy_ui()
+            self.show_toast(f"🎯 Attacco contro {target_name} con {weapon_name} inviato!", title="Attacco Inviato", toast_type="info")
+            return
+
         self.attack_targeting_mode = True
         self.attack_params = {
             "weapon_name": weapon_name,
@@ -1977,6 +2039,54 @@ class ClientGUI:
             "damage_type": damage_type
         }
         self.show_toast(f"Seleziona un bersaglio sulla mappa per attaccare con {weapon_name} ({damage_type})!", title="Modalità Bersaglio", toast_type="info")
+
+    def on_target_changed(self, target_name):
+        if not hasattr(self, 'lbl_target_hud'):
+            return
+        if not target_name:
+            self.lbl_target_hud.config(text="🎯 Bersaglio: Nessuno", fg=TEXT_MUTED)
+        else:
+            self.lbl_target_hud.config(text=f"🎯 Bersaglio: {target_name}", fg=ACCENT_GOLD)
+
+    def perform_grapple(self):
+        target_name = getattr(self.map_canvas, "current_target_name", None)
+        if not target_name:
+            self.show_toast("Seleziona prima un bersaglio sulla mappa (o fai Shift+Click su un token)!", title="🤼 Lotta", toast_type="warning")
+            return
+        from common.protocol import make_grapple_request
+        self.network.send(make_grapple_request(target_name))
+        self.action_spent = True
+        self.update_action_economy_ui()
+        self.show_toast(f"Tentativo di Lotta inviato contro {target_name}!", title="🤼 Lotta", toast_type="info")
+
+    def perform_shove(self):
+        target_name = getattr(self.map_canvas, "current_target_name", None)
+        if not target_name:
+            self.show_toast("Seleziona prima un bersaglio sulla mappa (o fai Shift+Click su un token)!", title="💨 Spinta", toast_type="warning")
+            return
+
+        from common.protocol import make_shove_request
+        pop = tk.Toplevel(self.master)
+        pop.title("Opzione Spinta")
+        pop.geometry("280x130")
+        pop.configure(bg=SURFACE_COLOR)
+        pop.resizable(False, False)
+        pop.transient(self.master)
+        pop.grab_set()
+
+        tk.Label(pop, text=f"Come vuoi spingere {target_name}?", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(pady=(12, 8))
+
+        def _do_shove(opt):
+            self.network.send(make_shove_request(target_name, option=opt))
+            self.action_spent = True
+            self.update_action_economy_ui()
+            pop.destroy()
+            self.show_toast(f"Spinta ({opt}) inviata contro {target_name}!", title="💨 Spinta", toast_type="info")
+
+        btn_f = tk.Frame(pop, bg=SURFACE_COLOR)
+        btn_f.pack(fill=tk.X, padx=12, pady=6)
+        tk.Button(btn_f, text="🧎 Atterra (Prono)", bg="#374151", fg="white", font=FONT_SMALL, command=lambda: _do_shove("prone")).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
+        tk.Button(btn_f, text="💨 Indietro (5 ft)", bg="#374151", fg="white", font=FONT_SMALL, command=lambda: _do_shove("push")).pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(4, 0))
 
 
 

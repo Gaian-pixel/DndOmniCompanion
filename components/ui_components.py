@@ -6,9 +6,9 @@ import math
 from io import BytesIO
 from PIL import Image, ImageTk, ImageDraw
 from common.hex_utils import (
-    Hex, HexLayout, SquareLayout, hex_distance,
+    Hex, HexLayout, SquareLayout, hex_distance, grid_distance,
     get_sphere_hexes, get_cone_hexes, get_line_hexes, get_visible_hexes,
-    hex_linedraw
+    hex_linedraw, get_cover_between
 )
 from common.i18n import _t, format_distance_hexes, get_map_scale_info
 
@@ -104,6 +104,8 @@ class HexMapCanvas(tk.Canvas):
         self.turn_player_name = ""
         self.players_data = {}
         self.aoes_data = []
+        self.current_target_name = None
+        self.on_target_changed_callback = None
 
         self.bind("<MouseWheel>", self._zoom)
         self.bind("<Button-4>", self._zoom)
@@ -537,6 +539,19 @@ class HexMapCanvas(tk.Canvas):
                     self._drag_start_hex = clicked_hex
                     break
         
+        # Shift+Click su token: toggle mirino tattico target
+        shift_held = bool(event.state & 0x0001)
+        if shift_held and self.dragging_token_name:
+            if self.current_target_name == self.dragging_token_name:
+                self.clear_target()
+            else:
+                self.set_target(self.dragging_token_name)
+            return
+
+        # Click normale su un token diverso dal proprio eroe (es. nemico o PNG): seleziona come target
+        if self.dragging_token_name and self.dragging_token_name != getattr(self, "player_name", None):
+            self.set_target(self.dragging_token_name)
+
         self._last_clicked_hex = clicked_hex
         self.on_hex_click_callback(clicked_hex)
 
@@ -949,6 +964,33 @@ class HexMapCanvas(tk.Canvas):
         pos = pdata.get('position', [0, 0]) if isinstance(pdata, dict) else pdata
         self.center_on_hex(Hex(*pos))
 
+    def set_target(self, target_name):
+        """Imposta il token target corrente per il targeting tattico con mirino."""
+        if self.current_target_name == target_name:
+            return
+        self.current_target_name = target_name
+        if getattr(self, "on_target_changed_callback", None):
+            try:
+                self.on_target_changed_callback(target_name)
+            except Exception:
+                pass
+        self.redraw()
+
+    def clear_target(self):
+        """Rimuove il bersaglio corrente."""
+        if self.current_target_name is None:
+            return
+        self.current_target_name = None
+        if getattr(self, "on_target_changed_callback", None):
+            try:
+                self.on_target_changed_callback(None)
+            except Exception:
+                pass
+        self.redraw()
+
+    def set_on_target_changed_callback(self, callback):
+        self.on_target_changed_callback = callback
+
     def update_data(self, map_data, players_data, player_name="", turn_player_name="", aoes_data=None, time_hour=12, weather="Sereno", combat_active=False, combat_order=None, round_number=1, time_minute=0, auto_day_night=True):
         """Salva i dati necessari per il ridisegno."""
         if getattr(self, 'map_data', None) is not map_data:
@@ -966,6 +1008,122 @@ class HexMapCanvas(tk.Canvas):
         self.round_number = round_number
         self.auto_day_night = auto_day_night
         self.redraw()
+
+    def _draw_targeting_system(self):
+        """Disegna il mirino circolare tattico, la linea tratteggiata di mira e il badge di copertura."""
+        if not getattr(self, "current_target_name", None) or not getattr(self, "players_data", None):
+            return
+        target_name = self.current_target_name
+        target_data = self.players_data.get(target_name)
+        if not target_data or not getattr(self, "hex_layout", None):
+            return
+
+        t_pos = target_data.get("position", [0, 0]) if isinstance(target_data, dict) else target_data
+        if not t_pos:
+            return
+
+        t_hex = Hex(t_pos[0], t_pos[1])
+        t_cx, t_cy = self.hex_layout.hex_to_pixel(t_hex)
+        t_sx = t_cx * self.zoom_level + self.pan_offset_x
+        t_sy = t_cy * self.zoom_level + self.pan_offset_y
+
+        my_name = getattr(self, "player_name", None)
+        origin_pos = None
+        if my_name and my_name in self.players_data:
+            p_my = self.players_data[my_name]
+            origin_pos = p_my.get("position", [0, 0]) if isinstance(p_my, dict) else p_my
+        elif getattr(self, "turn_player_name", None) and self.turn_player_name in self.players_data:
+            p_turn = self.players_data[self.turn_player_name]
+            origin_pos = p_turn.get("position", [0, 0]) if isinstance(p_turn, dict) else p_turn
+
+        cur_map = getattr(self, "map_data", {}) or {}
+        grid_type = cur_map.get("grid_type", "hex")
+        
+        dist_str = ""
+        is_blocked = False
+        cover_bonus = 0
+        cover_label = "Linea Libera"
+        line_color = "#10B981"
+
+        if origin_pos and (origin_pos[0] != t_pos[0] or origin_pos[1] != t_pos[1]):
+            o_hex = Hex(origin_pos[0], origin_pos[1])
+            o_cx, o_cy = self.hex_layout.hex_to_pixel(o_hex)
+            o_sx = o_cx * self.zoom_level + self.pan_offset_x
+            o_sy = o_cy * self.zoom_level + self.pan_offset_y
+
+            dist_hex = int(grid_distance(o_hex, t_hex, grid_type=grid_type))
+            dist_str = format_distance_hexes(dist_hex, map_data=cur_map)
+
+            walls = cur_map.get("walls", [])
+            wall_set = set((w[0], w[1]) for w in walls if isinstance(w, (list, tuple)) and len(w) >= 2)
+            line = hex_linedraw(o_hex, t_hex, grid_type=grid_type)
+            for step in line[1:-1]:
+                if (step.q, step.r) in wall_set:
+                    is_blocked = True
+                    break
+
+            if is_blocked:
+                line_color = "#EF4444"
+                cover_label = "Muro (LoS Ostruita)"
+            else:
+                half_cover = cur_map.get("half_cover", [])
+                three_quarters = cur_map.get("three_quarters_cover", [])
+                other_creatures = [
+                    p_data.get("position", [0, 0])
+                    for p_k, p_data in self.players_data.items()
+                    if p_k != my_name and p_k != target_name and isinstance(p_data, dict)
+                ]
+                cover_bonus, cover_name = get_cover_between(o_hex, t_hex, half_cover, three_quarters, other_creatures)
+                if cover_bonus >= 5:
+                    line_color = "#F59E0B"
+                    cover_label = "3/4 Copertura (+5 CA)"
+                elif cover_bonus >= 2:
+                    line_color = "#06B6D4"
+                    cover_label = "1/2 Copertura (+2 CA)"
+
+            self.create_line(o_sx, o_sy, t_sx, t_sy, fill=line_color, width=2, dash=(5, 3), tags="targeting_reticle")
+
+        raw_size = target_data.get("size", 1) if isinstance(target_data, dict) else 1
+        size_mult = 1.0
+        if isinstance(raw_size, str):
+            size_mult = {"small": 0.8, "medium": 1.0, "large": 1.8, "huge": 2.6, "gargantuan": 3.5}.get(raw_size.lower(), 1.0)
+        elif isinstance(raw_size, (int, float)):
+            size_mult = float(raw_size)
+        r = max(16, int(20 * size_mult * min(self.zoom_level, 1.4)))
+
+        self.create_oval(t_sx - r, t_sy - r, t_sx + r, t_sy + r, outline="#EF4444", width=2, tags="targeting_reticle")
+        self.create_oval(t_sx - r + 3, t_sy - r + 3, t_sx + r - 3, t_sy + r - 3, outline="#F87171", width=1, dash=(3, 2), tags="targeting_reticle")
+        
+        tick_len = 6
+        self.create_line(t_sx, t_sy - r - tick_len, t_sx, t_sy - r + 3, fill="#EF4444", width=2, tags="targeting_reticle")
+        self.create_line(t_sx, t_sy + r - 3, t_sx, t_sy + r + tick_len, fill="#EF4444", width=2, tags="targeting_reticle")
+        self.create_line(t_sx - r - tick_len, t_sy, t_sx - r + 3, t_sy, fill="#EF4444", width=2, tags="targeting_reticle")
+        self.create_line(t_sx + r - 3, t_sy, t_sx + r + tick_len, t_sy, fill="#EF4444", width=2, tags="targeting_reticle")
+
+        ca_info = ""
+        if isinstance(target_data, dict):
+            ac = target_data.get("ac") or (target_data.get("full_sheet", {}).get("ac") if isinstance(target_data.get("full_sheet"), dict) else None)
+            if ac is not None:
+                ca_info = f"CA {ac}"
+                if cover_bonus > 0:
+                    ca_info += f" (+{cover_bonus})"
+
+        badge_parts = [f"🎯 {target_name}"]
+        if ca_info: badge_parts.append(ca_info)
+        if dist_str: badge_parts.append(dist_str)
+        badge_parts.append(cover_label)
+        badge_text = " • ".join(badge_parts)
+
+        badge_y = t_sy - r - 16
+        b_font = ("Segoe UI", max(8, int(9 * min(self.zoom_level, 1.2))), "bold")
+        text_w = max(90, len(badge_text) * 7)
+        bx1 = t_sx - text_w // 2
+        bx2 = t_sx + text_w // 2
+        by1 = badge_y - 9
+        by2 = badge_y + 9
+
+        self.create_rectangle(bx1 - 2, by1 - 1, bx2 + 2, by2 + 1, fill="#111827", outline=line_color, width=1.5, tags="targeting_reticle")
+        self.create_text(t_sx, badge_y, text=badge_text, fill="#F9FAFB", font=b_font, tags="targeting_reticle")
 
     def redraw(self):
         if not hasattr(self, '_avatar_cache'):
@@ -1668,8 +1826,11 @@ class HexMapCanvas(tk.Canvas):
         
         # 1 & 2. Day/Night Cycle & Weather Overlays
         self._draw_environment_and_weather_overlays(w, h)
+
+        # 3. Reticolo di Puntamento e Linea di Tiro Tattica (Targeting System)
+        self._draw_targeting_system()
             
-        # 3. Horizontal Initiative Carousel Ribbon (Foundry VTT / D&D Beyond modern style)
+        # 4. Horizontal Initiative Carousel Ribbon (Foundry VTT / D&D Beyond modern style)
         self._initiative_ribbon_bboxes = []
         if getattr(self, "combat_active", False) and getattr(self, "combat_order", None):
             order = [name for name in self.combat_order if name in self.players_data]

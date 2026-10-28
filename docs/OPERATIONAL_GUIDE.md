@@ -683,18 +683,40 @@ D&D OmniCompanion features a native polyhedral 3D vector dice renderer ([`compon
 
 ---
 
-## 11. Testing Suite & Quality Assurance
+## 11. Tactical Targeting, Flanking (DMG p. 251) & RAW 5e Maneuvers
 
-The codebase includes a consolidated testing suite in the `tests/` directory with **356 automated tests** passing at 100% with 0 failures, covering headless unit tests, 3D dice physics and rendering, join game flow and server history, companions/familiars, travel/camping, GUI smoke tests, single-window architecture, and full multiplayer campaign simulations:
+D&D OmniCompanion features comprehensive targeting infrastructure, dynamic raycasting line-of-fire, and RAW 5e melee maneuvers:
+
+* **Tactical Targeting Reticle & Dynamic Raycasting**:
+  * Quick target locking with `Shift + Left Click`, clicking enemy tokens, or right-click `🎯 Target Token`.
+  * Native canvas rendering with a 4-notch pulsating reticle, range badge, and color-coded dashed line of fire (`HexMapCanvas._draw_targeting_system`).
+  * Dynamic half cover (+2 AC), three-quarters cover (+5 AC), or total line-of-sight blockage calculation along the hex/square raycast.
+  * Target HUD in Player Controls with un-target button `[ ✕ ]` and automatic pre-population when initiating attack actions.
+* **Optional Flanking (DMG p. 251)**:
+  * Controlled by the DM automation setting `enable_flanking`, toggleable via the DM Automation Settings dialog.
+  * Geometric verification of the opposite grid vector ($2 \cdot q_{\text{target}} - q_{\text{attacker}}, 2 \cdot r_{\text{target}} - r_{\text{attacker}}$) between conscious melee allies ($dist \le 1$ hex). Automatically confers Advantage to melee attacks.
+* **RAW 5e Maneuvers: Grapple & Shove (PHB p. 195)**:
+  * Protocol messages `SHOVE_REQUEST` (`make_shove_request`) and `GRAPPLE_REQUEST` (`make_grapple_request`).
+  * Dedicated HUD buttons `[ 🤼 Lotta ]` and `[ 💨 Spingi ]`, chat slash commands `/lotta`, `/grapple`, `/spingi`, `/shove`, and DM token context menu entries.
+  * Contested checks of Strength (Athletics) vs Strength (Athletics) or Dexterity (Acrobatics), applying *Prone* or *Grappled* conditions, knockback with wall obstacle collision detection, and automated integration with Barbarian Rage, Exhaustion, and Incapacitation.
+
+---
+
+## 12. Testing Suite & Quality Assurance
+
+The codebase includes a consolidated testing suite in the `tests/` directory with **368 automated tests** passing at 100% with 0 failures, covering headless unit tests, 3D dice physics and rendering, tactical combat, join game flow and server history, companions/familiars, travel/camping, GUI smoke tests, single-window architecture, and full multiplayer campaign simulations:
 
 ```powershell
-# 1. Run comprehensive unit tests (356 tests with 0 failures)
+# 1. Run comprehensive unit tests (368 tests with 0 failures)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
-# 2. Run specific 3D polyhedral dice test suite
+# 2. Run tactical combat, flanking and RAW maneuvers test suite
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_tactical_combat.py
+
+# 3. Run specific 3D polyhedral dice test suite
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_3d_dice.py
 
-# 3. Run join game flow and server history test suite
+# 4. Run join game flow and server history test suite
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_join_game.py
 ```
 

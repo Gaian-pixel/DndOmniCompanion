@@ -264,6 +264,24 @@ def handle_chat(data, player, game_state):
         handle_blind_roll_request({"formula": formula, "reason": reason}, player, game_state)
         return
 
+    # Manovre tattiche 5e: Spinta (/spingi, /shove) e Lotta (/lotta, /grapple)
+    if text.lower().startswith(("/spingi ", "/shove ")):
+        parts = text.split()
+        if len(parts) >= 2:
+            target_name = parts[1]
+            opt = parts[2].lower() if len(parts) >= 3 else "prone"
+            from server.rules.combat import handle_shove_request
+            handle_shove_request({"target_name": target_name, "option": opt}, player, game_state)
+            return
+
+    if text.lower().startswith(("/lotta ", "/grapple ")):
+        parts = text.split()
+        if len(parts) >= 2:
+            target_name = parts[1]
+            from server.rules.combat import handle_grapple_request
+            handle_grapple_request({"target_name": target_name}, player, game_state)
+            return
+
     game_state.log_dm_message(f"[{player.name}]: {text}")
     broadcast(game_state, make_chat_broadcast(player.name, text))
 

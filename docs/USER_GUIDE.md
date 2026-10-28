@@ -342,6 +342,29 @@ The **Turn Economy** section in the `Player Controls` tab automatically adapts t
     * Taking damage while concentrating triggers an automatic Constitution save ($\text{DC} \ge 10$); failure instantly removes the condition and linked persistent AoE zones.
 * **`⏭️ End Turn` Button**: active during your combat turn; immediately advances initiative to the next combatant.
 
+### Tactical Targeting Reticle, Flanking (DMG p. 251) & RAW Maneuvers (Grapple & Shove)
+OmniCompanion introduces a fully integrated tactical engagement system on the battlemap:
+
+1. **Tactical Targeting Reticle & Dynamic Line of Fire (Raycasting & Cover)**:
+   * **Target Selection**: Click on an enemy token or use **`Shift + Left Click`** on any token across the map (or right-click $\to$ **`🎯 Target Token`**).
+   * **4-Notch Targeting Reticle**: A pulsating neon-red reticle with 4 crosshairs and a floating distance/status badge locks onto the targeted token.
+   * **Dynamic Line of Sight & Cover Line**: A dashed line connects the active player to the target, dynamically color-coded by raycasting obstacles:
+     * 🟢 **Emerald Green**: Clean line of sight, no cover (+0 AC).
+     * 🔷 **Cyan / Electric Blue**: Half Cover (+2 AC / +2 DEX save, e.g. low wall or partial obstruction).
+     * 🟧 **Amber / Deep Orange**: Three-Quarters Cover (+5 AC / +5 DEX save, e.g. arrow slit or intervening creature).
+     * 🔴 **Neon Red**: Obstructed Line of Sight (solid wall or obstacle blocks ranged attack).
+   * **Target HUD Indicator**: The Player Controls sidebar displays `🎯 Target: [Name] [ ✕ ]`. Clicking `[ ✕ ]` or re-pressing `Shift + Click` clears the target. When locked, pressing **`⚔️ Action`** automatically pre-selects the locked target for attack without manual search.
+
+2. **Optional Flanking (DMG p. 251)**:
+   * When enabled in DM Automation Settings (`enable_flanking`), two allies positioned on opposite sides of an enemy creature grant each other **Advantage (2d20kh1)** on all melee attacks ($dist \le 1$ hex).
+   * The system computes the exact opposite grid vector on hex and square grids ($2 \cdot q_{\text{target}} - q_{\text{attacker}}, 2 \cdot r_{\text{target}} - r_{\text{attacker}}$). If an un-incapacitated ally occupies that cell, Advantage is automatically granted with an explicit chat announcement.
+
+3. **RAW 5e Maneuvers: Grapple & Shove (PHB p. 195)**:
+   * Triggerable directly via HUD buttons **`[ 🤼 Lotta ]`** (Grapple) and **`[ 💨 Spingi ]`** (Shove) or via right-click token context menu:
+     * **🤼 Grapple**: Contested roll between attacker's **Strength (Athletics)** and defender's **Strength (Athletics)** or **Dexterity (Acrobatics)** (whichever is higher for defender). Target cannot exceed attacker's size by more than 1 category. On success, applies the **Afferrato (Grappled)** condition, setting movement speed to 0.
+     * **💨 Shove**: Similar Strength (Athletics) contested check. Attacker chooses between knocking the target **Prono (Prone)** (granting advantage to melee attacks within 5 ft) or **Pushing 5 ft Away** (pushed backwards along attack vector, halting safely if meeting a solid wall).
+     * **RAW Condition Modifiers**: Barbarian Rage grants Advantage on Athletics checks; Exhaustion or Frightened inflicts Disadvantage; Incapacitated/Unconscious/Paralyzed defenders automatically fail the contest.
+
 ### RAW Reactions & Shield Spell Prompt
 * **RAW Reaction Economy (PHB p. 190)**:
   * Each creature has exactly one `🛡️ Reaction` per round, which refreshes at the start of its turn.

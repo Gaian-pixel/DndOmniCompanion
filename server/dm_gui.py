@@ -377,6 +377,13 @@ class DM_GUI:
             activebackground=ACCENT_GOLD, activeforeground=TEXT_DARK,
             font=self.default_font
         )
+        self.player_menu.add_command(label="🎯 Punta come Bersaglio", command=self.target_selected_player)
+        self.player_menu.add_command(label="❌ Rimuovi Bersaglio", command=lambda: self.map_canvas.clear_target())
+        self.player_menu.add_separator()
+        self.player_menu.add_command(label="🤼 Tenta Lotta (Grapple RAW)", command=self.grapple_selected_player)
+        self.player_menu.add_command(label="💨 Spinta: Atterra Prono (Shove)", command=lambda: self.shove_selected_player("prone"))
+        self.player_menu.add_command(label="💨 Spinta: Indietro 5ft (Push)", command=lambda: self.shove_selected_player("push"))
+        self.player_menu.add_separator()
         self.player_menu.add_command(label=_t("ctx_view_sheet"), command=self.view_player_sheet)
         self.player_menu.add_command(label=_t("ctx_assign_item"), command=self.open_assign_item_dialog)
         self.player_menu.add_command(label=_t("ctx_modify_hp"), command=self.open_modify_hp_dialog)
@@ -3207,6 +3214,37 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         if display_text.startswith('---'): return None
         name = display_text.split(" (HP")[0].replace("▶", "").replace("[N]", "").strip()
         return name
+
+    def target_selected_player(self):
+        target_name = self.get_selected_player_name()
+        if target_name:
+            self.map_canvas.set_target(target_name)
+
+    def grapple_selected_player(self):
+        target_name = self.get_selected_player_name()
+        if not target_name: return
+        attacker = self.server.game_state.get_current_turn_player()
+        if not attacker:
+            players = [p for p in self.server.game_state.players if p.name != target_name]
+            attacker = players[0] if players else None
+        if not attacker:
+            self.show_toast("Nessun attaccante disponibile per la lotta!", title="🤼 Lotta", toast_type="warning")
+            return
+        from server.rules.combat import handle_grapple_request
+        handle_grapple_request({"target_name": target_name}, attacker, self.server.game_state)
+
+    def shove_selected_player(self, option="prone"):
+        target_name = self.get_selected_player_name()
+        if not target_name: return
+        attacker = self.server.game_state.get_current_turn_player()
+        if not attacker:
+            players = [p for p in self.server.game_state.players if p.name != target_name]
+            attacker = players[0] if players else None
+        if not attacker:
+            self.show_toast("Nessun attaccante disponibile per la spinta!", title="💨 Spinta", toast_type="warning")
+            return
+        from server.rules.combat import handle_shove_request
+        handle_shove_request({"target_name": target_name, "option": option}, attacker, self.server.game_state)
 
     def open_light_source_dialog(self):
         return dm_open_light_source_dialog(self)

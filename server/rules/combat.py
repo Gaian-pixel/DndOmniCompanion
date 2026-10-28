@@ -689,20 +689,28 @@ def handle_attack_request(data, player, game_state):
                 if dist <= 1: adv_reasons.append("Bersaglio Prono (Mischia)")
                 elif dist > 1: dis_reasons.append("Bersaglio Prono (Distanza)")
             if dist <= 1:
-                opp_q = q2 + (q2 - q1)
-                opp_r = r2 + (r2 - r1)
-                attacker_party = bool(getattr(player, "is_party_member", False) or getattr(player, "conn", None))
-                target_party = bool(getattr(target_player, "is_party_member", False) or getattr(target_player, "conn", None))
-                for p in getattr(game_state, "players", []):
-                    if p.name != player.name and getattr(p, "hp", 0) > 0:
-                        if hasattr(p, "position") and p.position and p.position[0] == opp_q and p.position[1] == opp_r:
-                            p_c = getattr(p, "conditions", [])
-                            p_party = bool(getattr(p, "is_party_member", False) or getattr(p, "conn", None))
-                            is_ally = (p_party == attacker_party) if attacker_party != target_party else True
-                            incapacitated = any(is_condition_active(p_c, c) for c in ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto"])
-                            if is_ally and not incapacitated and "Invisibile" not in p_c and "Nascosto" not in p_c:
-                                adv_reasons.append("Fiancheggiamento")
-                                break
+                enable_flanking = True
+                if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+                    enable_flanking = game_state.automation_settings.get("enable_flanking", True)
+                
+                w_lower = str(weapon_name).lower()
+                is_ranged_weapon = bool(data.get("is_ranged")) or any(k in w_lower for k in ["arco", "bow", "balestra", "crossbow", "dardo", "dart", "fionda", "sling", "distanza", "ranged"])
+                
+                if enable_flanking and not is_ranged_weapon:
+                    opp_q = q2 + (q2 - q1)
+                    opp_r = r2 + (r2 - r1)
+                    attacker_party = bool(getattr(player, "is_party_member", False) or getattr(player, "conn", None))
+                    target_party = bool(getattr(target_player, "is_party_member", False) or getattr(target_player, "conn", None))
+                    for p in getattr(game_state, "players", []):
+                        if p.name != player.name and getattr(p, "hp", 0) > 0:
+                            if hasattr(p, "position") and p.position and p.position[0] == opp_q and p.position[1] == opp_r:
+                                p_c = getattr(p, "conditions", [])
+                                p_party = bool(getattr(p, "is_party_member", False) or getattr(p, "conn", None))
+                                is_ally = (p_party == attacker_party) if attacker_party != target_party else True
+                                incapacitated = any(is_condition_active(p_c, c) for c in ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto", "Incapacitato", "Incapacitated"])
+                                if is_ally and not incapacitated and "Invisibile" not in p_c and "Nascosto" not in p_c:
+                                    adv_reasons.append("Fiancheggiamento (DMG p. 251)")
+                                    break
 
             # Effetti Atmosferici D&D 5e (DMG p. 109-110)
             weather_val = str(getattr(game_state, "weather", "Sereno")).strip().lower()
@@ -1406,6 +1414,321 @@ def handle_help_request(data, player, game_state):
     broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
     broadcast(game_state, make_chat_broadcast("Sistema", f"🤝 {player.name} compie l'Azione di Aiuto contro {target_name}! Il prossimo attacco alleato contro {target_name} avrà Vantaggio."))
     game_state.log_dm_message(f"[COMBAT] {player.name} ha usato Aiuto contro {target_name}.")
+    game_state._trigger_gui_update()
+
+def _get_entity_ability_mod(entity, stat="FOR"):
+    sheet = getattr(entity, "full_sheet", None) or {}
+    attrs = sheet.get("attributes", {})
+    val = attrs.get(stat, attrs.get("STR" if stat=="FOR" else ("DEX" if stat=="DES" else stat), 10))
+    try:
+        return (int(val) - 10) // 2
+    except (ValueError, TypeError):
+        return 0
+
+def _get_entity_skill_bonus(entity, skill_it, skill_en, fallback_stat):
+    sheet = getattr(entity, "full_sheet", None) or {}
+    skills = sheet.get("skills", {})
+    mod = _get_entity_ability_mod(entity, fallback_stat)
+    lvl = sheet.get("level", getattr(entity, "level", 1))
+    try:
+        lvl = int(lvl)
+    except (ValueError, TypeError):
+        lvl = 1
+    pb = 2 + max(0, (lvl - 1) // 4)
+    
+    val = skills.get(skill_it, skills.get(skill_en))
+    if val is not None:
+        try:
+            num_val = int(val)
+            if num_val == 1:
+                return mod + pb
+            elif num_val >= 2:
+                return mod + 2 * pb
+            else:
+                return mod
+        except (ValueError, TypeError):
+            try:
+                return int(str(val).replace("+", ""))
+            except Exception:
+                pass
+    return mod
+
+def _get_entity_size_rank(entity):
+    sheet = getattr(entity, "full_sheet", None) or {}
+    size_str = str(sheet.get("size", getattr(entity, "size", "Medium"))).lower()
+    size_map = {
+        "tiny": 0, "piccolissima": 0,
+        "small": 1, "piccola": 1,
+        "medium": 2, "media": 2,
+        "large": 3, "grande": 3,
+        "huge": 4, "enorme": 4,
+        "gargantuan": 5, "mastodontica": 5
+    }
+    for k, v in size_map.items():
+        if k in size_str:
+            return v
+    return 2
+
+def handle_shove_request(data, player, game_state):
+    """
+    Risolve la manovra Spingere (Shove - D&D 5e PHB p. 195):
+    - Attacco speciale in mischia in sostituzione di un attacco.
+    - Bersaglio max 1 taglia più grande.
+    - Prova contrapposta: Forza (Atletica) vs Forza (Atletica) o Destrezza (Acrobazia).
+    - Se l'attaccante vince:
+        * option == 'prone': atterra il bersaglio ('Prono').
+        * option == 'push': spinge indietro il bersaglio di 5 piedi (1 casella) lungo la linea d'attacco.
+    """
+    if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
+        data = data["data"]
+    target_name = data.get("target_name")
+    option = data.get("option", "prone").lower()
+    
+    target_player = game_state.find_player(target_name)
+    if not target_player or not player:
+        return
+        
+    p_cond = getattr(player, "conditions", [])
+    blocking = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto", "Incapacitato", "Incapacitated"]
+    if any(is_condition_active(p_cond, c) for c in blocking) or getattr(player, "hp", 1) <= 0:
+        if player and getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Non puoi compiere manovre mentre sei Incosciente o Incapacitato!"))
+        return
+
+    strict_lock = False
+    if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+        strict_lock = game_state.automation_settings.get("strict_turn_lock", False)
+    if getattr(game_state, "combat_active", False) and strict_lock:
+        curr_turn = game_state.get_current_turn_player()
+        if curr_turn and curr_turn.name != player.name:
+            if player and getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply(f"Non è il tuo turno in combattimento! È il turno di {curr_turn.name}."))
+            return
+
+    if not (hasattr(player, "position") and player.position and hasattr(target_player, "position") and target_player.position):
+        return
+    q1, r1 = player.position[0], player.position[1]
+    q2, r2 = target_player.position[0], target_player.position[1]
+    cur_map = getattr(game_state, "current_map", {}) or {}
+    grid_type = cur_map.get("grid_type", "hex")
+    from common.hex_utils import Hex, grid_distance
+    dist = int(grid_distance(Hex(q1, r1), Hex(q2, r2), grid_type=grid_type))
+    if dist > 1:
+        if player and getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply(f"{target_name} è troppo distante per una spinta in mischia ({dist} caselle)!"))
+        return
+
+    att_size = _get_entity_size_rank(player)
+    def_size = _get_entity_size_rank(target_player)
+    if def_size > att_size + 1:
+        msg = f"❌ {target_player.name} è troppo grande per essere spinto da {player.name} (differenza di oltre 1 taglia)!"
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        return
+
+    att_ath_bonus = _get_entity_skill_bonus(player, "Atletica", "Athletics", "FOR")
+    att_adv = is_condition_active(p_cond, "Ira")
+    att_dis = getattr(player, "exhaustion_level", 0) >= 1 or is_condition_active(p_cond, "Spaventato")
+    
+    ar1 = random.randint(1, 20)
+    ar2 = random.randint(1, 20)
+    if att_adv and not att_dis:
+        att_d20 = max(ar1, ar2)
+        att_detail = f"max({ar1}, {ar2})={att_d20} (Ira/Vantaggio)"
+    elif att_dis and not att_adv:
+        att_d20 = min(ar1, ar2)
+        att_detail = f"min({ar1}, {ar2})={att_d20} (Svantaggio)"
+    else:
+        att_d20 = ar1
+        att_detail = str(att_d20)
+    att_total = att_d20 + att_ath_bonus
+
+    def_cond = getattr(target_player, "conditions", [])
+    def_ath = _get_entity_skill_bonus(target_player, "Atletica", "Athletics", "FOR")
+    def_acr = _get_entity_skill_bonus(target_player, "Acrobazia", "Acrobatics", "DES")
+    use_acr = (def_acr > def_ath)
+    def_bonus = def_acr if use_acr else def_ath
+    def_skill_name = "Acrobazia" if use_acr else "Atletica"
+    
+    def_adv = is_condition_active(def_cond, "Ira") and not use_acr
+    def_dis = getattr(target_player, "exhaustion_level", 0) >= 1 or is_condition_active(def_cond, "Spaventato")
+    def_incap = any(is_condition_active(def_cond, c) for c in ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Incapacitato", "Incapacitated"])
+
+    dr1 = random.randint(1, 20)
+    dr2 = random.randint(1, 20)
+    if def_adv and not def_dis:
+        def_d20 = max(dr1, dr2)
+        def_detail = f"max({dr1}, {dr2})={def_d20}"
+    elif def_dis and not def_adv:
+        def_d20 = min(dr1, dr2)
+        def_detail = f"min({dr1}, {dr2})={def_d20}"
+    else:
+        def_d20 = dr1
+        def_detail = str(def_d20)
+    def_total = def_d20 + def_bonus if not def_incap else -99
+
+    attacker_wins = (att_total > def_total) or def_incap
+    
+    opt_label = "Atterrare" if option == "prone" else "Spingere Indietro"
+    log_text = f"💨 **Spinta (Shove - PHB p. 195: {opt_label})**: {player.name} tenta di spingere {target_player.name}!\n"
+    log_text += f"• {player.name} [Atletica]: {att_total} ({att_detail} + {att_ath_bonus})\n"
+    if def_incap:
+        log_text += f"• {target_player.name} è Incapacitato e fallisce automaticamente la contesa!\n"
+    else:
+        log_text += f"• {target_player.name} [{def_skill_name}]: {def_total} ({def_detail} + {def_bonus})\n"
+
+    if attacker_wins:
+        if option == "prone":
+            if "Prono" not in def_cond:
+                def_cond.append("Prono")
+            if getattr(target_player, "full_sheet", None) and isinstance(target_player.full_sheet.get("conditions"), list):
+                if "Prono" not in target_player.full_sheet["conditions"]:
+                    target_player.full_sheet["conditions"].append("Prono")
+            log_text += f"💥 **SUCCESSO!** {target_player.name} viene spinto a terra ed è ora **PRONO**!"
+            broadcast(game_state, make_player_stats_update(
+                target_player.name, target_player.hp, target_player.max_hp, target_player.initiative,
+                def_cond, getattr(target_player, "temp_hp", 0), active_effects=getattr(target_player, "active_effects", [])
+            ))
+        else:
+            dq = q2 - q1
+            dr = r2 - r1
+            dest_q = q2 + dq
+            dest_r = r2 + dr
+            from server.rules.movement import get_effective_map_walls
+            walls = get_effective_map_walls(cur_map)
+            if [dest_q, dest_r] in walls:
+                log_text += f"💥 **SUCCESSO!** {target_player.name} viene spinto indietro ma sbatte contro un ostacolo sulla casella ({dest_q}, {dest_r})!"
+            else:
+                target_player.position = [dest_q, dest_r]
+                log_text += f"💥 **SUCCESSO!** {target_player.name} viene spinto indietro di 5 ft alla casella ({dest_q}, {dest_r})!"
+                broadcast(game_state, make_map_data_update_broadcast(cur_map))
+                broadcast(game_state, make_player_move(target_player.name, [dest_q, dest_r]))
+    else:
+        log_text += f"🛡️ **FALLITO!** {target_player.name} resiste saldamente e non cede alla spinta."
+
+    player.has_acted_this_turn = True
+    broadcast(game_state, make_chat_broadcast("Sistema", log_text))
+    game_state.log_dm_message(f"[SPINTA] {log_text}")
+    game_state._trigger_gui_update()
+
+def handle_grapple_request(data, player, game_state):
+    """
+    Risolve la manovra Lottare (Grapple - D&D 5e PHB p. 195):
+    - Attacco speciale in mischia in sostituzione di un attacco.
+    - Bersaglio max 1 taglia più grande.
+    - Prova contrapposta: Forza (Atletica) vs Forza (Atletica) o Destrezza (Acrobazia).
+    - Se l'attaccante vince: bersaglio subisce la condizione 'Afferrato' (Velocità 0).
+    """
+    if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
+        data = data["data"]
+    target_name = data.get("target_name")
+    
+    target_player = game_state.find_player(target_name)
+    if not target_player or not player:
+        return
+        
+    p_cond = getattr(player, "conditions", [])
+    blocking = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto", "Incapacitato", "Incapacitated"]
+    if any(is_condition_active(p_cond, c) for c in blocking) or getattr(player, "hp", 1) <= 0:
+        if player and getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Non puoi lottare mentre sei Incosciente o Incapacitato!"))
+        return
+
+    strict_lock = False
+    if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+        strict_lock = game_state.automation_settings.get("strict_turn_lock", False)
+    if getattr(game_state, "combat_active", False) and strict_lock:
+        curr_turn = game_state.get_current_turn_player()
+        if curr_turn and curr_turn.name != player.name:
+            if player and getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply(f"Non è il tuo turno in combattimento! È il turno di {curr_turn.name}."))
+            return
+
+    if not (hasattr(player, "position") and player.position and hasattr(target_player, "position") and target_player.position):
+        return
+    q1, r1 = player.position[0], player.position[1]
+    q2, r2 = target_player.position[0], target_player.position[1]
+    cur_map = getattr(game_state, "current_map", {}) or {}
+    grid_type = cur_map.get("grid_type", "hex")
+    from common.hex_utils import Hex, grid_distance
+    dist = int(grid_distance(Hex(q1, r1), Hex(q2, r2), grid_type=grid_type))
+    if dist > 1:
+        if player and getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply(f"{target_name} è troppo distante per essere afferrato ({dist} caselle)!"))
+        return
+
+    att_size = _get_entity_size_rank(player)
+    def_size = _get_entity_size_rank(target_player)
+    if def_size > att_size + 1:
+        msg = f"❌ {target_player.name} è troppo grande per essere afferrato da {player.name} (oltre 1 taglia di differenza)!"
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        return
+
+    att_ath_bonus = _get_entity_skill_bonus(player, "Atletica", "Athletics", "FOR")
+    att_adv = is_condition_active(p_cond, "Ira")
+    att_dis = getattr(player, "exhaustion_level", 0) >= 1 or is_condition_active(p_cond, "Spaventato")
+    
+    ar1, ar2 = random.randint(1, 20), random.randint(1, 20)
+    if att_adv and not att_dis:
+        att_d20 = max(ar1, ar2)
+        att_detail = f"max({ar1}, {ar2})={att_d20} (Ira/Vantaggio)"
+    elif att_dis and not att_adv:
+        att_d20 = min(ar1, ar2)
+        att_detail = f"min({ar1}, {ar2})={att_d20} (Svantaggio)"
+    else:
+        att_d20 = ar1
+        att_detail = str(att_d20)
+    att_total = att_d20 + att_ath_bonus
+
+    def_cond = getattr(target_player, "conditions", [])
+    def_ath = _get_entity_skill_bonus(target_player, "Atletica", "Athletics", "FOR")
+    def_acr = _get_entity_skill_bonus(target_player, "Acrobazia", "Acrobatics", "DES")
+    use_acr = (def_acr > def_ath)
+    def_bonus = def_acr if use_acr else def_ath
+    def_skill_name = "Acrobazia" if use_acr else "Atletica"
+    
+    def_adv = is_condition_active(def_cond, "Ira") and not use_acr
+    def_dis = getattr(target_player, "exhaustion_level", 0) >= 1 or is_condition_active(def_cond, "Spaventato")
+    def_incap = any(is_condition_active(def_cond, c) for c in ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Incapacitato", "Incapacitated"])
+
+    dr1, dr2 = random.randint(1, 20), random.randint(1, 20)
+    if def_adv and not def_dis:
+        def_d20 = max(dr1, dr2)
+        def_detail = f"max({dr1}, {dr2})={def_d20}"
+    elif def_dis and not def_adv:
+        def_d20 = min(dr1, dr2)
+        def_detail = f"min({dr1}, {dr2})={def_d20}"
+    else:
+        def_d20 = dr1
+        def_detail = str(def_d20)
+    def_total = def_d20 + def_bonus if not def_incap else -99
+
+    attacker_wins = (att_total > def_total) or def_incap
+
+    log_text = f"🤼 **Lotta (Grapple - PHB p. 195)**: {player.name} tenta di afferrare {target_player.name}!\n"
+    log_text += f"• {player.name} [Atletica]: {att_total} ({att_detail} + {att_ath_bonus})\n"
+    if def_incap:
+        log_text += f"• {target_player.name} è Incapacitato e non può opporsi alla presa!\n"
+    else:
+        log_text += f"• {target_player.name} [{def_skill_name}]: {def_total} ({def_detail} + {def_bonus})\n"
+
+    if attacker_wins:
+        if "Afferrato" not in def_cond:
+            def_cond.append("Afferrato")
+        if getattr(target_player, "full_sheet", None) and isinstance(target_player.full_sheet.get("conditions"), list):
+            if "Afferrato" not in target_player.full_sheet["conditions"]:
+                target_player.full_sheet["conditions"].append("Afferrato")
+        target_player.grappled_by = player.name
+        log_text += f"💥 **SUCCESSO!** {target_player.name} è ora **AFFERRATO** da {player.name} (Velocità 0)!"
+        broadcast(game_state, make_player_stats_update(
+            target_player.name, target_player.hp, target_player.max_hp, target_player.initiative,
+            def_cond, getattr(target_player, "temp_hp", 0), active_effects=getattr(target_player, "active_effects", [])
+        ))
+    else:
+        log_text += f"🛡️ **FALLITO!** {target_player.name} schiva la presa di {player.name} e rimane libero."
+
+    player.has_acted_this_turn = True
+    broadcast(game_state, make_chat_broadcast("Sistema", log_text))
+    game_state.log_dm_message(f"[LOTTA] {log_text}")
     game_state._trigger_gui_update()
 
 def handle_short_rest_request(data, player, game_state):

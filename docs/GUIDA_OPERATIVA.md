@@ -677,18 +677,40 @@ D&D OmniCompanion include un renderer tridimensionale vettoriale poliedrico nati
 
 ---
 
-## 11. Suite di Test e Quality Assurance
+## 11. Targeting Tattico, Fiancheggiamento (DMG p. 251) e Manovre RAW 5e
 
-Il progetto include una suite consolidata nella cartella `tests/` con **356 test automatizzati** che passano al 100% con 0 errori, coprendo unit test headless, simulazione fisica dei dadi 3D, flusso di login rapido, compagni/famigli, viaggi e accampamento, smoke test della GUI, architettura mono-finestra e simulazioni di campagna complete:
+D&D OmniCompanion include un'infrastruttura completa di puntamento, calcolo geometrico delle linee di tiro e manovre corpo a corpo RAW 5e:
+
+* **Targeting Tattico con Reticolo e Raycasting della Copertura**:
+  * Puntamento rapido con `Shift + Click Sinistro`, click su miniature nemiche o menu contestuale `🎯 Bersaglia Token`.
+  * Rendering canvas nativo con reticolo a 4 mirini, anello pulsante e linea tratteggiata codificata per colore con raycasting dinamico degli ostacoli e delle coperture (`HexMapCanvas._draw_targeting_system`).
+  * Calcolo automatico della mezza copertura (+2 CA), tre quarti (+5 CA) o blocco totale LoS lungo il tragitto esagonale o squadrato.
+  * HUD Bersaglio nei Controlli PG con pulsante di sgancio `[ ✕ ]` e pre-selezione istantanea nell'azione di attacco.
+* **Fiancheggiamento Opzionale (DMG p. 251)**:
+  * Controllato dall'impostazione DM `enable_flanking` (`automation_settings`), configurabile nel pannello automazioni del DM.
+  * Verifica geometrica del vettore opposto ($2 \cdot q_{\text{bersaglio}} - q_{\text{attaccante}}, 2 \cdot r_{\text{bersaglio}} - r_{\text{attaccante}}$) tra due alleati coscienti in mischia ($dist \le 1$ casella). Conferisce Vantaggio automatico all'attacco corpo a corpo.
+* **Manovre di Lotta & Spinta RAW 5e (PHB p. 195)**:
+  * Messaggi di protocollo `SHOVE_REQUEST` (`make_shove_request`) e `GRAPPLE_REQUEST` (`make_grapple_request`).
+  * Pulsanti dedicati nei Controlli Giocatore `[ 🤼 Lotta ]` e `[ 💨 Spingi ]`, comandi chat `/lotta`, `/grapple`, `/spingi`, `/shove` e opzioni nel menu contestuale del DM.
+  * Risoluzione contese di Forza (Atletica) vs Forza (Atletica) o Destrezza (Acrobazia), applicazione condizioni *Prono* o *Afferrato*, arretramento con controllo collisione contro i muri della mappa e gestione automatica di Ira barbarica, Indebolimento e Incapacitazione.
+
+---
+
+## 12. Suite di Test e Quality Assurance
+
+Il progetto include una suite consolidata nella cartella `tests/` con **368 test automatizzati** che passano al 100% con 0 errori, coprendo unit test headless, simulazione fisica dei dadi 3D, combattimento tattico, flusso di login rapido, compagni/famigli, viaggi e accampamento, smoke test della GUI, architettura mono-finestra e simulazioni di campagna complete:
 
 ```powershell
-# 1. Esegui l'intera suite di unit test (356 test con 0 fallimenti)
+# 1. Esegui l'intera suite di unit test (368 test con 0 fallimenti)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
-# 2. Esegui la suite specifica per il motore di dadi 3D poliedrici
+# 2. Esegui la suite specifica per il combattimento tattico, fiancheggiamento e manovre RAW
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_tactical_combat.py
+
+# 3. Esegui la suite specifica per il motore di dadi 3D poliedrici
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_3d_dice.py
 
-# 3. Esegui il test del flusso di connessione rapido e storico server
+# 4. Esegui il test del flusso di connessione rapido e storico server
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_join_game.py
 ```
 

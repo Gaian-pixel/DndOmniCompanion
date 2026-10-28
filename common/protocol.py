@@ -489,6 +489,18 @@ def make_generate_encounter_request(biome: str, danger: str = "moderate", is_nig
         "force_category": force_category
     }}
 
+def make_shove_request(target_name: str, option: str = "prone") -> ProtocolMessage:
+    return {"type": "SHOVE_REQUEST", "data": {
+        "target_name": target_name,
+        "option": option
+    }}
+
+def make_grapple_request(target_name: str) -> ProtocolMessage:
+    return {"type": "GRAPPLE_REQUEST", "data": {
+        "target_name": target_name
+    }}
+
+
 
 
 

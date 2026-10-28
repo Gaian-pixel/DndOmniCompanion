@@ -65,6 +65,8 @@ command_handlers = {
     "SET_WATCH_SHIFTS_REQUEST": handle_set_watch_shifts_request,
     "RESOLVE_NIGHT_CAMP_REQUEST": handle_resolve_night_camp_request,
     "GENERATE_ENCOUNTER_REQUEST": handle_generate_encounter_request,
+    "SHOVE_REQUEST": handle_shove_request,
+    "GRAPPLE_REQUEST": handle_grapple_request,
 }
 
 
