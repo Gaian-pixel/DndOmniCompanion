@@ -282,6 +282,42 @@ def handle_chat(data, player, game_state):
             handle_grapple_request({"target_name": target_name}, player, game_state)
             return
 
+    # Quota 3D & Elevazione (/quota, /elevation, /vola, /fly)
+    if text.lower().startswith(("/quota ", "/elevation ", "/vola ", "/fly ")):
+        parts = text.split()
+        if len(parts) >= 2:
+            raw_val = parts[1].lower()
+            target_name = parts[2] if len(parts) >= 3 else player.name
+            try:
+                if raw_val.endswith("m"):
+                    val = int(float(raw_val.replace("m", "")) * 3.28)
+                else:
+                    val = int(raw_val.replace("ft", ""))
+                from server.rules.character import handle_set_elevation_request
+                handle_set_elevation_request({"elevation": val, "target_name": target_name}, player, game_state)
+                return
+            except ValueError:
+                pass
+
+    # Caduta RAW 5e (/caduta, /fall)
+    if text.lower().startswith(("/caduta ", "/fall ")):
+        parts = text.split()
+        if len(parts) >= 2:
+            try:
+                dist_ft = int(parts[1].replace("ft", "").replace("m", ""))
+                target_name = parts[2] if len(parts) >= 3 else player.name
+                target_obj = None
+                for p in getattr(game_state, "players", []):
+                    if p.name.lower() == target_name.lower():
+                        target_obj = p
+                        break
+                if target_obj:
+                    from server.rules.combat import resolve_falling
+                    resolve_falling(target_obj, dist_ft, game_state)
+                    return
+            except ValueError:
+                pass
+
     game_state.log_dm_message(f"[{player.name}]: {text}")
     broadcast(game_state, make_chat_broadcast(player.name, text))
 

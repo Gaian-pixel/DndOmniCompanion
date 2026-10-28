@@ -365,6 +365,36 @@ OmniCompanion introduces a fully integrated tactical engagement system on the ba
      * **💨 Shove**: Similar Strength (Athletics) contested check. Attacker chooses between knocking the target **Prono (Prone)** (granting advantage to melee attacks within 5 ft) or **Pushing 5 ft Away** (pushed backwards along attack vector, halting safely if meeting a solid wall).
      * **RAW Condition Modifiers**: Barbarian Rage grants Advantage on Athletics checks; Exhaustion or Frightened inflicts Disadvantage; Incapacitated/Unconscious/Paralyzed defenders automatically fail the contest.
 
+### 3D Combat Space, Altitude & Elevation, RAW Falling (PHB p. 183) & Concentration Tethers
+D&D OmniCompanion natively supports three-dimensional tactical aerial combat and visual concentration lifecycle:
+
+1. **3D Quota & Token Elevation (Flight, Climbing & Verticality)**:
+   * **Setting Elevation**: Every token possesses a 3D altitude $Z$ (in feet, dynamically convertible to meters).
+   * **HUD & Controls**:
+     * **Hero Controls HUD**: Quick elevation badge/button `[ 📐 0ft ]` / `[ ⬆ 30ft ]` in the Hero Summary Card.
+     * **Token Context Menu**: Right-click any token $\to$ **`📐 Set 3D Elevation...`** opens the elevation dialog with presets (`0 ft Ground`, `10 ft`, `20 ft`, `30 ft Flight`, `60 ft`).
+     * **Slash Chat Commands**: `/quota <val>` (e.g. `/quota 30`, `/quota 9m`), `/elevation`, `/vola`, `/fly`.
+   * **Canvas Visuals & Projected Ground Shadows**:
+     * Elevated tokens are vertically translated on screen proportional to altitude and zoom level.
+     * A ground contact shadow is cast at $(sx, sy)$ with a vertical dashed altitude guideline connecting ground to token.
+     * An elevation pill badge (e.g. `⬆ 30ft` or `⬆ 9m` / `⬇ 10ft`) displays current altitude beside the token.
+   * **3D Distance & Melee Reach**:
+     * The engine computes true 3D Euclidean distance ($D_{\text{3D}} = \sqrt{D_{\text{2D}}^2 + \Delta z^2}$).
+     * If an enemy flies 30 ft overhead, ground melee attacks cannot reach it ($D_{\text{3D}} > 1\text{ cell}$), authentically enforcing range limits against flying foes without reach weapons.
+
+2. **RAW 5e Falling Rules (PHB p. 183)**:
+   * **Falling Damage**: $1\text{d6}$ bludgeoning damage per 10 feet fallen, capped at the official maximum of **$20\text{d6}$**.
+   * **Prone Condition**: The creature automatically lands **Prono (Prone)**, unless it avoids all falling damage.
+   * **Official Mitigations**:
+     * **Monk Slow Fall (Level 4+)**: Reduces fall damage by $5 \times \text{Monk Level}$. If damage is reduced to 0, the monk lands on their feet without falling Prone.
+     * **Feather Fall**: Completely negates all falling damage and allows landing safely on feet.
+   * **Involuntary Plummets on Flight Loss (PHB p. 191)**:
+     * A flying creature lacking hover that is knocked **Prone** (e.g. via Shove), reduced to **0 HP**, or rendered **Unconscious/Paralyzed/Stunned** plummets to the ground, taking falling damage RAW.
+
+3. **Ethereal Concentration Tethers**:
+   * When a caster concentrates on an effect on another creature (e.g. *Bless*, *Hold Person*, *Fly*, *Hunter's Mark*) or an active AoE zone (e.g. *Wall of Fire*, *Spirit Guardians*), the canvas draws glowing **violet and emerald ethereal tethers** connecting the caster directly to the affected targets with a magic rune `✦`.
+   * **Cascade Interruption**: If the caster's concentration breaks (from taking damage and failing the CON save, or dropping to 0 HP), linked effects and AoEs vanish instantly, and creatures held aloft by spells like *Fly* plummet to the ground, resolving RAW falling damage.
+
 ### RAW Reactions & Shield Spell Prompt
 * **RAW Reaction Economy (PHB p. 190)**:
   * Each creature has exactly one `🛡️ Reaction` per round, which refreshes at the start of its turn.

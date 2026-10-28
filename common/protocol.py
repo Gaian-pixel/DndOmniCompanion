@@ -180,20 +180,22 @@ def make_dice_roll_result(player_name, formula, reason, result):
         "result": result
     }}
 
-def make_update_stats_request(hp, max_hp, initiative, conditions=None, temp_hp=0, light_radius=None, light_color=None, name=None):
+def make_update_stats_request(hp, max_hp, initiative, conditions=None, temp_hp=0, light_radius=None, light_color=None, name=None, elevation=None):
     if conditions is None: conditions = []
     d = {"hp": hp, "max_hp": max_hp, "initiative": initiative, "conditions": conditions, "temp_hp": temp_hp}
     if light_radius is not None: d["light_radius"] = light_radius
     if light_color is not None: d["light_color"] = light_color
+    if elevation is not None: d["elevation"] = int(elevation)
     if name is not None: d["name"] = name
     return {"type": "UPDATE_STATS_REQUEST", "data": d}
 
-def make_player_stats_update(player_name, hp, max_hp, initiative, conditions=None, temp_hp=0, light_radius=None, light_color=None, active_effects=None):
+def make_player_stats_update(player_name, hp, max_hp, initiative, conditions=None, temp_hp=0, light_radius=None, light_color=None, active_effects=None, elevation=None):
     if conditions is None: conditions = []
     d = {"name": player_name, "hp": hp, "max_hp": max_hp, "initiative": initiative, "conditions": conditions, "temp_hp": temp_hp}
     if light_radius is not None: d["light_radius"] = light_radius
     if light_color is not None: d["light_color"] = light_color
     if active_effects is not None: d["active_effects"] = active_effects
+    if elevation is not None: d["elevation"] = int(elevation)
     return {"type": "PLAYER_STATS_UPDATE", "data": d}
 
 
@@ -499,6 +501,12 @@ def make_grapple_request(target_name: str) -> ProtocolMessage:
     return {"type": "GRAPPLE_REQUEST", "data": {
         "target_name": target_name
     }}
+
+def make_set_elevation_request(elevation: int, target_name: Optional[str] = None) -> ProtocolMessage:
+    d = {"elevation": int(elevation)}
+    if target_name:
+        d["target_name"] = str(target_name)
+    return {"type": "SET_ELEVATION_REQUEST", "data": d}
 
 
 

@@ -26,6 +26,13 @@ def handle_update_stats_request(data, player, game_state):
             target.light_radius = max(0, int(data["light_radius"]))
         if "light_color" in data:
             target.light_color = str(data["light_color"])
+        if "elevation" in data:
+            old_elev = getattr(target, "elevation", 0)
+            new_elev = int(data["elevation"])
+            target.elevation = new_elev
+            if old_elev > new_elev and data.get("is_fall", False):
+                from server.rules.combat import resolve_falling
+                resolve_falling(target, old_elev - new_elev, game_state)
         incap = ("incapacitato", "incapacitated", "incosciente", "unconscious", "paralizzato", "paralyzed", "stordito", "stunned", "pietrificato", "petrified", "morto", "dead")
         if any(str(c).strip().lower() in incap for c in conditions) or hp <= 0:
             from server.rules.combat import drop_concentration
@@ -35,9 +42,42 @@ def handle_update_stats_request(data, player, game_state):
         if auto_explore_fow(target, game_state):
             broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
         game_state._trigger_gui_update()
-        broadcast(game_state, make_player_stats_update(target.name, target.hp, target.max_hp, target.initiative, target.conditions, target.temp_hp))
+        broadcast(game_state, make_player_stats_update(target.name, target.hp, target.max_hp, target.initiative, target.conditions, target.temp_hp, elevation=getattr(target, "elevation", 0)))
     except Exception as e:
         print("Errore handle_update_stats_request:", e)
+
+
+def handle_set_elevation_request(data, player, game_state):
+    """Imposta la quota 3D / altitudine in piedi di un personaggio o mostro."""
+    target_name = data.get("target_name") or player.name
+    target = None
+    for p in getattr(game_state, "players", []):
+        if p.name == target_name:
+            target = p
+            break
+    if not target:
+        return
+
+    old_elev = getattr(target, "elevation", 0)
+    new_elev = int(data.get("elevation", 0))
+    is_fall = data.get("is_fall", False)
+    
+    if is_fall and old_elev > new_elev:
+        fall_dist = old_elev - new_elev
+        from server.rules.combat import resolve_falling
+        resolve_falling(target, fall_dist, game_state)
+    else:
+        target.elevation = new_elev
+        broadcast(game_state, make_player_stats_update(
+            target.name, target.hp, target.max_hp, target.initiative,
+            getattr(target, "conditions", []), getattr(target, "temp_hp", 0),
+            elevation=target.elevation,
+            active_effects=getattr(target, "active_effects", [])
+        ))
+        msg = f"📐 **Quota 3D**: {target.name} imposta la quota ad altitudine **{new_elev} ft**."
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        game_state.log_dm_message(f"[QUOTA] {msg}")
+        game_state._trigger_gui_update()
 
 
 def handle_update_full_sheet_request(data, player, game_state):

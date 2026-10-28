@@ -693,24 +693,35 @@ D&D OmniCompanion include un'infrastruttura completa di puntamento, calcolo geom
   * Messaggi di protocollo `SHOVE_REQUEST` (`make_shove_request`) e `GRAPPLE_REQUEST` (`make_grapple_request`).
   * Pulsanti dedicati nei Controlli Giocatore `[ 🤼 Lotta ]` e `[ 💨 Spingi ]`, comandi chat `/lotta`, `/grapple`, `/spingi`, `/shove` e opzioni nel menu contestuale del DM.
   * Risoluzione contese di Forza (Atletica) vs Forza (Atletica) o Destrezza (Acrobazia), applicazione condizioni *Prono* o *Afferrato*, arretramento con controllo collisione contro i muri della mappa e gestione automatica di Ira barbarica, Indebolimento e Incapacitazione.
+* **Spazio Tattico 3D & Risoluzione Cadute RAW (PHB p. 183 & p. 191)**:
+  * Attributo `elevation` (in piedi) per tutti i token con sincronizzazione di rete (`SET_ELEVATION_REQUEST`, `make_set_elevation_request`).
+  * Distanza 3D euclidea su griglia (`grid_distance_3d`, `distance_3d_feet`) per portata armi, incantesimi e attacchi in mischia.
+  * Funzione `resolve_falling`: $1\text{d6}$ contundente per ogni 10 ft (max 20d6), atterraggio *Prono*, mitigazione automatica per *Caduta Lenta del Monaco* (5 x livello) e *Caduta Morbida*.
+  * Caduta automatica su perdita di volo per creature prive di volo stazionario quando ridotte a 0 HP o rese Prono/Incoscienti.
+* **Concentration Tethers & Interruzione a Catena**:
+  * Rendering canvas vettoriale non bloccante (`_draw_concentration_tethers`): fasci eterei violacei e smeraldo con rune magiche collegati tra caster in Concentrazione e bersagli/AoE attivi.
+  * Pulizia a cascata in `drop_concentration`: rimozione istantanea degli effetti collegati, dissoluzione AoE persistenti e precipitazione al suolo di creature sorrette in volo dall'incantesimo.
 
 ---
 
 ## 12. Suite di Test e Quality Assurance
 
-Il progetto include una suite consolidata nella cartella `tests/` con **368 test automatizzati** che passano al 100% con 0 errori, coprendo unit test headless, simulazione fisica dei dadi 3D, combattimento tattico, flusso di login rapido, compagni/famigli, viaggi e accampamento, smoke test della GUI, architettura mono-finestra e simulazioni di campagna complete:
+Il progetto include una suite consolidata nella cartella `tests/` con **378 test automatizzati** che passano al 100% con 0 errori, coprendo unit test headless, simulazione fisica dei dadi 3D, combattimento tattico, spazio 3D ed elevazione, flusso di login rapido, compagni/famigli, viaggi e accampamento, smoke test della GUI, architettura mono-finestra e simulazioni di campagna complete:
 
 ```powershell
-# 1. Esegui l'intera suite di unit test (368 test con 0 fallimenti)
+# 1. Esegui l'intera suite di unit test (378 test con 0 fallimenti)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
-# 2. Esegui la suite specifica per il combattimento tattico, fiancheggiamento e manovre RAW
+# 2. Esegui la suite specifica per Quota 3D, Cadute RAW 5e e Concentration Tethers
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_elevation_and_concentration.py
+
+# 3. Esegui la suite specifica per il combattimento tattico, fiancheggiamento e manovre RAW
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_tactical_combat.py
 
-# 3. Esegui la suite specifica per il motore di dadi 3D poliedrici
+# 4. Esegui la suite specifica per il motore di dadi 3D poliedrici
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_3d_dice.py
 
-# 4. Esegui il test del flusso di connessione rapido e storico server
+# 5. Esegui il test del flusso di connessione rapido e storico server
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_join_game.py
 ```
 

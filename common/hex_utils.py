@@ -117,6 +117,23 @@ def grid_distance(a: Hex, b: Hex, grid_type: str = "hex") -> float:
 def hex_distance(a: Hex, b: Hex) -> int:
     return int(grid_distance(a, b, "hex"))
 
+def grid_distance_3d(a: Hex, b: Hex, z_a: float = 0, z_b: float = 0, grid_type: str = "hex", feet_per_cell: float = 5.0) -> float:
+    """
+    Calcola la distanza 3D in caselle tra due posizioni tenendo conto della quota Z (in piedi).
+    """
+    d_2d_cells = grid_distance(a, b, grid_type=grid_type)
+    d_2d_ft = d_2d_cells * feet_per_cell
+    delta_z = abs(float(z_a) - float(z_b))
+    d_3d_ft = math.hypot(d_2d_ft, delta_z)
+    return d_3d_ft / feet_per_cell
+
+def distance_3d_feet(a: Hex, b: Hex, z_a: float = 0, z_b: float = 0, grid_type: str = "hex", feet_per_cell: float = 5.0) -> float:
+    """Calcola la distanza 3D euclidea effettiva in piedi (ft)."""
+    d_2d_cells = grid_distance(a, b, grid_type=grid_type)
+    d_2d_ft = d_2d_cells * feet_per_cell
+    delta_z = abs(float(z_a) - float(z_b))
+    return math.hypot(d_2d_ft, delta_z)
+
 def get_sphere_hexes(origin: Hex, radius: int, grid_type: str = "hex") -> list[Hex]:
     results = []
     if grid_type in ("square", "none", "gridless"):

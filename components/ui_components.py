@@ -1026,15 +1026,21 @@ class HexMapCanvas(tk.Canvas):
         t_cx, t_cy = self.hex_layout.hex_to_pixel(t_hex)
         t_sx = t_cx * self.zoom_level + self.pan_offset_x
         t_sy = t_cy * self.zoom_level + self.pan_offset_y
+        t_elev = target_data.get("elevation", 0) if isinstance(target_data, dict) else 0
+        if t_elev != 0:
+            t_sy -= min(60, int((t_elev / 5.0) * 8 * self.zoom_level))
 
         my_name = getattr(self, "player_name", None)
         origin_pos = None
+        o_elev = 0
         if my_name and my_name in self.players_data:
             p_my = self.players_data[my_name]
             origin_pos = p_my.get("position", [0, 0]) if isinstance(p_my, dict) else p_my
+            o_elev = p_my.get("elevation", 0) if isinstance(p_my, dict) else 0
         elif getattr(self, "turn_player_name", None) and self.turn_player_name in self.players_data:
             p_turn = self.players_data[self.turn_player_name]
             origin_pos = p_turn.get("position", [0, 0]) if isinstance(p_turn, dict) else p_turn
+            o_elev = p_turn.get("elevation", 0) if isinstance(p_turn, dict) else 0
 
         cur_map = getattr(self, "map_data", {}) or {}
         grid_type = cur_map.get("grid_type", "hex")
@@ -1045,14 +1051,20 @@ class HexMapCanvas(tk.Canvas):
         cover_label = "Linea Libera"
         line_color = "#10B981"
 
-        if origin_pos and (origin_pos[0] != t_pos[0] or origin_pos[1] != t_pos[1]):
+        if origin_pos and (origin_pos[0] != t_pos[0] or origin_pos[1] != t_pos[1] or o_elev != t_elev):
             o_hex = Hex(origin_pos[0], origin_pos[1])
             o_cx, o_cy = self.hex_layout.hex_to_pixel(o_hex)
             o_sx = o_cx * self.zoom_level + self.pan_offset_x
             o_sy = o_cy * self.zoom_level + self.pan_offset_y
+            if o_elev != 0:
+                o_sy -= min(60, int((o_elev / 5.0) * 8 * self.zoom_level))
 
             dist_hex = int(grid_distance(o_hex, t_hex, grid_type=grid_type))
             dist_str = format_distance_hexes(dist_hex, map_data=cur_map)
+            if abs(o_elev - t_elev) > 0:
+                from common.hex_utils import grid_distance_3d
+                dist_3d = grid_distance_3d(o_hex, t_hex, o_elev, t_elev, grid_type=grid_type)
+                dist_str += f" [3D: {int(dist_3d * 5)}ft]"
 
             walls = cur_map.get("walls", [])
             wall_set = set((w[0], w[1]) for w in walls if isinstance(w, (list, tuple)) and len(w) >= 2)
@@ -1112,6 +1124,8 @@ class HexMapCanvas(tk.Canvas):
         if ca_info: badge_parts.append(ca_info)
         if dist_str: badge_parts.append(dist_str)
         badge_parts.append(cover_label)
+        if t_elev != 0:
+            badge_parts.append(f"Z: {t_elev}ft")
         badge_text = " • ".join(badge_parts)
 
         badge_y = t_sy - r - 16
@@ -1124,6 +1138,64 @@ class HexMapCanvas(tk.Canvas):
 
         self.create_rectangle(bx1 - 2, by1 - 1, bx2 + 2, by2 + 1, fill="#111827", outline=line_color, width=1.5, tags="targeting_reticle")
         self.create_text(t_sx, badge_y, text=badge_text, fill="#F9FAFB", font=b_font, tags="targeting_reticle")
+
+    def _draw_concentration_tethers(self):
+        """Disegna fasci eterei e rune magiche tra gli incantatori in Concentrazione e i loro bersagli o aree collegate."""
+        if not getattr(self, "players_data", None) or not getattr(self, "hex_layout", None):
+            return
+
+        for c_name, c_data in self.players_data.items():
+            if not isinstance(c_data, dict):
+                continue
+            conds = c_data.get("conditions", [])
+            if "Concentrazione" not in conds:
+                continue
+            c_pos = c_data.get("position")
+            if not c_pos:
+                continue
+            c_hex = Hex(c_pos[0], c_pos[1])
+            cx, cy = self.hex_layout.hex_to_pixel(c_hex)
+            csx = cx * self.zoom_level + self.pan_offset_x
+            csy = cy * self.zoom_level + self.pan_offset_y
+            c_elev = c_data.get("elevation", 0)
+            if c_elev != 0:
+                csy -= min(60, int((c_elev / 5.0) * 8 * self.zoom_level))
+
+            # 1. Bersagli con effetto attivo concentration_caster == c_name
+            for t_name, t_data in self.players_data.items():
+                if not isinstance(t_data, dict):
+                    continue
+                fx_list = t_data.get("active_effects", [])
+                is_target = any(fx.get("concentration_caster") == c_name for fx in fx_list)
+                if is_target and t_name != c_name:
+                    t_pos = t_data.get("position")
+                    if t_pos:
+                        t_hex = Hex(t_pos[0], t_pos[1])
+                        tx, ty = self.hex_layout.hex_to_pixel(t_hex)
+                        tsx = tx * self.zoom_level + self.pan_offset_x
+                        tsy = ty * self.zoom_level + self.pan_offset_y
+                        t_elev = t_data.get("elevation", 0)
+                        if t_elev != 0:
+                            tsy -= min(60, int((t_elev / 5.0) * 8 * self.zoom_level))
+                        
+                        # Fascio etereo con alone viola radiante e linea tratteggiata interna
+                        self.create_line(csx, csy, tsx, tsy, fill="#7C3AED", width=5, stipple="gray25", tags="concentration_tether")
+                        self.create_line(csx, csy, tsx, tsy, fill="#C084FC", width=2, dash=(6, 3), tags="concentration_tether")
+                        mx, my = (csx + tsx) / 2, (csy + tsy) / 2
+                        self.create_text(mx, my, text="✦", fill="#EDE9FE", font=("Segoe UI", 9, "bold"), tags="concentration_tether")
+
+            # 2. Aree AoE persistenti lanciate da c_name con concentration == True
+            for aoe in getattr(self, "aoes_data", []):
+                if isinstance(aoe, dict) and aoe.get("caster") == c_name and aoe.get("concentration"):
+                    orig = aoe.get("origin")
+                    if orig:
+                        ox, oy = self.hex_layout.hex_to_pixel(Hex(orig[0], orig[1]))
+                        osx = ox * self.zoom_level + self.pan_offset_x
+                        osy = oy * self.zoom_level + self.pan_offset_y
+                        self.create_line(csx, csy, osx, osy, fill="#047857", width=5, stipple="gray25", tags="concentration_tether")
+                        self.create_line(csx, csy, osx, osy, fill="#34D399", width=2, dash=(6, 3), tags="concentration_tether")
+                        mx, my = (csx + osx) / 2, (csy + osy) / 2
+                        self.create_text(mx, my, text="🌀", fill="#A7F3D0", font=("Segoe UI Emoji", 9), tags="concentration_tether")
 
     def redraw(self):
         if not hasattr(self, '_avatar_cache'):
@@ -1710,19 +1782,30 @@ class HexMapCanvas(tk.Canvas):
                                  sx + screen_light_r, sy + screen_light_r,
                                  fill=glow_fill, stipple=glow_stip, outline=light_color, dash=(5, 5), width=2)
 
+            elev = pdata.get('elevation', 0) if isinstance(pdata, dict) else 0
+            if elev != 0:
+                elev_dy = min(60, int((elev / 5.0) * 8 * self.zoom_level))
+                shadow_w = radius * (1.3 if elev > 0 else 0.8)
+                shadow_h = radius * (0.6 if elev > 0 else 0.4)
+                self.create_oval(sx - shadow_w, sy - shadow_h/2, sx + shadow_w, sy + shadow_h/2, fill="#020617", outline="", stipple="gray25")
+                self.create_line(sx, sy, sx, sy - elev_dy, fill="#94A3B8", dash=(3, 3), width=1.5)
+                tok_y = sy - elev_dy
+            else:
+                elev_dy = 0
+                tok_y = sy
+                # 3D Soft Drop-Shadow below token base
+                self.create_oval(sx - radius + 1, sy - radius + 3, sx + radius + 1, sy + radius + 4, fill="#050608", outline="")
+                self.create_oval(sx - radius, sy - radius + 2, sx + radius, sy + radius + 2, fill="#0E1015", outline="")
+
             # Evidenziazione Turno Attivo (Doppio anello oro radiante)
             is_turn = getattr(self, "turn_player_name", "") == name
             if is_turn:
-                self.create_oval(sx-(radius+5), sy-(radius+5), sx+(radius+5), sy+(radius+5), fill="", outline="#FCC419", width=2)
-                self.create_oval(sx-(radius+3), sy-(radius+3), sx+(radius+3), sy+(radius+3), fill="", outline="#D4AF37", width=3)
-
-            # 3D Soft Drop-Shadow below token base
-            self.create_oval(sx - radius + 1, sy - radius + 3, sx + radius + 1, sy + radius + 4, fill="#050608", outline="")
-            self.create_oval(sx - radius, sy - radius + 2, sx + radius, sy + radius + 2, fill="#0E1015", outline="")
+                self.create_oval(sx-(radius+5), tok_y-(radius+5), sx+(radius+5), tok_y+(radius+5), fill="", outline="#FCC419", width=2)
+                self.create_oval(sx-(radius+3), tok_y-(radius+3), sx+(radius+3), tok_y+(radius+3), fill="", outline="#D4AF37", width=3)
 
             # Dynamic outer ring halo for Heroes and Bosses
             if (is_me or is_boss) and not is_turn:
-                self.create_oval(sx - (radius + 1.5), sy - (radius + 1.5), sx + (radius + 1.5), sy + (radius + 1.5), fill="", outline=token_border_color, width=1)
+                self.create_oval(sx - (radius + 1.5), tok_y - (radius + 1.5), sx + (radius + 1.5), tok_y + (radius + 1.5), fill="", outline=token_border_color, width=1)
 
             is_invisible = "Invisibile" in conditions
             avatar_b64 = pdata.get('avatar_b64') if isinstance(pdata, dict) else None
@@ -1747,39 +1830,39 @@ class HexMapCanvas(tk.Canvas):
 
                 tk_img = self._avatar_cache.get(cache_key)
                 if tk_img:
-                    self.create_image(sx, sy, image=tk_img, anchor="center")
+                    self.create_image(sx, tok_y, image=tk_img, anchor="center")
                     ring_outline = "#A855F7" if is_gm_layer else ("gray" if is_invisible else token_border_color)
                     ring_dash = (4, 2) if is_gm_layer else ((2, 2) if is_invisible else "")
-                    self.create_oval(sx-radius, sy-radius, sx+radius, sy+radius, fill="", outline=ring_outline, width=ring_width, dash=ring_dash)
+                    self.create_oval(sx-radius, tok_y-radius, sx+radius, tok_y+radius, fill="", outline=ring_outline, width=ring_width, dash=ring_dash)
                 else:
                     outline_style = "#A855F7" if is_gm_layer else ("gray" if is_invisible else token_border_color)
                     dash_style = (4, 2) if is_gm_layer else ((2, 2) if is_invisible else "")
-                    self.create_oval(sx-radius, sy-radius, sx+radius, sy+radius, fill=token_base_color, outline=outline_style, width=ring_width, dash=dash_style)
-                    self.create_text(sx, sy, text=name[:2].upper(), fill="white", font=("Segoe UI", 8, "bold"))
+                    self.create_oval(sx-radius, tok_y-radius, sx+radius, tok_y+radius, fill=token_base_color, outline=outline_style, width=ring_width, dash=dash_style)
+                    self.create_text(sx, tok_y, text=name[:2].upper(), fill="white", font=("Segoe UI", 8, "bold"))
             else:
                 outline_style = "#A855F7" if is_gm_layer else ("gray" if is_invisible else token_border_color)
                 dash_style = (4, 2) if is_gm_layer else ((2, 2) if is_invisible else "")
-                self.create_oval(sx-radius, sy-radius, sx+radius, sy+radius, fill=token_base_color, outline=outline_style, width=ring_width, dash=dash_style)
-                self.create_text(sx, sy, text=name[:2].upper(), fill="white", font=("Segoe UI", 8, "bold"))
+                self.create_oval(sx-radius, tok_y-radius, sx+radius, tok_y+radius, fill=token_base_color, outline=outline_style, width=ring_width, dash=dash_style)
+                self.create_text(sx, tok_y, text=name[:2].upper(), fill="white", font=("Segoe UI", 8, "bold"))
 
             if is_gm_layer:
-                self.create_text(sx, sy - radius - 7, text="[GM]", fill="#C084FC", font=("Segoe UI", max(7, int(8 * self.zoom_level)), "bold"))
+                self.create_text(sx, tok_y - radius - 7, text="[GM]", fill="#C084FC", font=("Segoe UI", max(7, int(8 * self.zoom_level)), "bold"))
 
             # Distintivo Boss Leggendario (👑)
             if is_boss:
-                self.create_text(sx - radius, sy - radius, text="👑", font=("Segoe UI Emoji", max(9, int(11 * self.zoom_level))))
+                self.create_text(sx - radius, tok_y - radius, text="👑", font=("Segoe UI Emoji", max(9, int(11 * self.zoom_level))))
 
             # Distintivo Compagno / Famiglio (🐾 / 🦉 / 🐺)
             is_comp = pdata.get('is_companion', False) or pdata.get('companion_type')
             if is_comp:
                 c_type = pdata.get('companion_type', 'familiar')
                 badge_sym = "🦉" if c_type == "familiar" else ("🐺" if c_type == "beast" else "⚡")
-                self.create_text(sx + radius - 2, sy - radius + 2, text=badge_sym, font=("Segoe UI Emoji", max(8, int(10 * self.zoom_level))))
+                self.create_text(sx + radius - 2, tok_y - radius + 2, text=badge_sym, font=("Segoe UI Emoji", max(8, int(10 * self.zoom_level))))
 
             if hp_max > 0:
                 bar_w = radius * 2.2
                 bar_h = 4
-                bar_y = sy + radius + 3
+                bar_y = tok_y + radius + 3
                 bar_x = sx - (bar_w / 2)
                 hp_ratio = max(0.0, min(1.0, hp / hp_max))
                 self.create_rectangle(bar_x, bar_y, bar_x + bar_w, bar_y + bar_h, fill="#1A1B1E", outline="#2C2E33")
@@ -1787,12 +1870,27 @@ class HexMapCanvas(tk.Canvas):
                     bar_color = "#2B8A3E" if hp_ratio > 0.5 else ("#F59F00" if hp_ratio > 0.25 else "#C92A2A")
                     self.create_rectangle(bar_x, bar_y, bar_x + (bar_w * hp_ratio), bar_y + bar_h, fill=bar_color, outline="")
 
+            # Badge Quota 3D / Elevazione
+            if elev != 0:
+                is_metric = getattr(self, "distance_unit", "ft") in ("m", "metri", "metric")
+                if is_metric:
+                    m_val = round(elev * 0.3048, 1)
+                    badge_txt = f"⬆ {int(m_val) if m_val.is_integer() else m_val}m" if elev > 0 else f"⬇ {-int(m_val) if m_val.is_integer() else -m_val}m"
+                else:
+                    badge_txt = f"⬆ {elev}ft" if elev > 0 else f"⬇ {-elev}ft"
+                badge_bg = "#0284C7" if elev > 0 else "#7C2D12"
+                bx = sx + radius + 3
+                by = tok_y - 6
+                tw = len(badge_txt) * 6 + 8
+                self.create_rectangle(bx, by - 6, bx + tw, by + 7, fill=badge_bg, outline="#E0F2FE", width=0.8)
+                self.create_text(bx + 4, by, text=badge_txt, fill="#FFFFFF", font=("Segoe UI", 7, "bold"), anchor="w")
+
             if conditions:
                 cond_badge_map = self.cond_badge_map
 
                 badge_r = max(6, int(8 * min(self.zoom_level, 1.2)))
                 start_x = sx - radius
-                start_y = sy - radius - badge_r - 2
+                start_y = tok_y - radius - badge_r - 2
                 p_fx = pdata.get("active_effects", []) if isinstance(pdata, dict) else []
                 p_cd = pdata.get("condition_durations", {}) if isinstance(pdata, dict) else {}
                 for i, cond in enumerate(conditions[:5]):
@@ -1829,6 +1927,9 @@ class HexMapCanvas(tk.Canvas):
 
         # 3. Reticolo di Puntamento e Linea di Tiro Tattica (Targeting System)
         self._draw_targeting_system()
+
+        # 3b. Linee di Collegamento Eteree di Concentrazione (Concentration Tethers)
+        self._draw_concentration_tethers()
             
         # 4. Horizontal Initiative Carousel Ribbon (Foundry VTT / D&D Beyond modern style)
         self._initiative_ribbon_bboxes = []

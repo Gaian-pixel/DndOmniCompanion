@@ -699,24 +699,35 @@ D&D OmniCompanion features comprehensive targeting infrastructure, dynamic rayca
   * Protocol messages `SHOVE_REQUEST` (`make_shove_request`) and `GRAPPLE_REQUEST` (`make_grapple_request`).
   * Dedicated HUD buttons `[ 🤼 Lotta ]` and `[ 💨 Spingi ]`, chat slash commands `/lotta`, `/grapple`, `/spingi`, `/shove`, and DM token context menu entries.
   * Contested checks of Strength (Athletics) vs Strength (Athletics) or Dexterity (Acrobatics), applying *Prone* or *Grappled* conditions, knockback with wall obstacle collision detection, and automated integration with Barbarian Rage, Exhaustion, and Incapacitation.
+* **3D Tactical Space & RAW Falling Resolution (PHB p. 183 & p. 191)**:
+  * Token `elevation` (in feet) network synchronization (`SET_ELEVATION_REQUEST`, `make_set_elevation_request`).
+  * 3D Euclidean grid distance calculation (`grid_distance_3d`, `distance_3d_feet`) for weapon, spell, and melee reach checks.
+  * `resolve_falling` function: $1\text{d6}$ bludgeoning per 10 ft fallen (max 20d6), lands *Prone*, with automated mitigation for *Monk Slow Fall* (5 x level) and *Feather Fall*.
+  * Involuntary plummet on flight loss for non-hover creatures knocked Prone, rendered Unconscious, or dropped to 0 HP.
+* **Concentration Tethers & Cascade Cleanup**:
+  * Non-blocking vector canvas rendering (`_draw_concentration_tethers`): glowing violet and emerald ethereal beams with magic runes connecting concentrating casters to affected targets and persistent AoE zones.
+  * Cascade cleanup in `drop_concentration`: instant removal of linked effects, dissolution of persistent AoEs, and plummeting falls for creatures suspended by concentration flight.
 
 ---
 
 ## 12. Testing Suite & Quality Assurance
 
-The codebase includes a consolidated testing suite in the `tests/` directory with **368 automated tests** passing at 100% with 0 failures, covering headless unit tests, 3D dice physics and rendering, tactical combat, join game flow and server history, companions/familiars, travel/camping, GUI smoke tests, single-window architecture, and full multiplayer campaign simulations:
+The codebase includes a consolidated testing suite in the `tests/` directory with **378 automated tests** passing at 100% with 0 failures, covering headless unit tests, 3D dice physics and rendering, tactical combat, 3D space and elevation, join game flow and server history, companions/familiars, travel/camping, GUI smoke tests, single-window architecture, and full multiplayer campaign simulations:
 
 ```powershell
-# 1. Run comprehensive unit tests (368 tests with 0 failures)
+# 1. Run comprehensive unit tests (378 tests with 0 failures)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
-# 2. Run tactical combat, flanking and RAW maneuvers test suite
+# 2. Run 3D elevation, RAW falling and concentration tethers test suite
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_elevation_and_concentration.py
+
+# 3. Run tactical combat, flanking and RAW maneuvers test suite
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_tactical_combat.py
 
-# 3. Run specific 3D polyhedral dice test suite
+# 4. Run specific 3D polyhedral dice test suite
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_3d_dice.py
 
-# 4. Run join game flow and server history test suite
+# 5. Run join game flow and server history test suite
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_join_game.py
 ```
 

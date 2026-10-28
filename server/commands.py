@@ -67,6 +67,7 @@ command_handlers = {
     "GENERATE_ENCOUNTER_REQUEST": handle_generate_encounter_request,
     "SHOVE_REQUEST": handle_shove_request,
     "GRAPPLE_REQUEST": handle_grapple_request,
+    "SET_ELEVATION_REQUEST": handle_set_elevation_request,
 }
 
 

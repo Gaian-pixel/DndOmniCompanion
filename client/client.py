@@ -459,6 +459,13 @@ class ClientGUI:
         self.hero_backpack_btn.pack(side=tk.RIGHT)
         ToolTip(self.hero_backpack_btn, lambda: _t("btn_drop_backpack") if not getattr(getattr(self, "active_character", None), "backpack_dropped", False) else _t("btn_pickup_backpack"))
 
+        self.hero_elevation_btn = tk.Button(
+            pill_row, text="📐 0ft", font=FONT_SMALL, relief=tk.FLAT, bd=0, padx=6, pady=2,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, activebackground=BORDER_COLOR, command=lambda: self.open_elevation_dialog(self.name)
+        )
+        self.hero_elevation_btn.pack(side=tk.RIGHT, padx=(0, 4))
+        ToolTip(self.hero_elevation_btn, lambda: "Quota 3D & Altitudine (PHB p. 183 - Click per modificare)")
+
         self.hero_light_btn = tk.Button(
             pill_row, text="🕯️", font=FONT_SMALL, relief=tk.FLAT, bd=0, padx=6, pady=2,
             bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, activebackground=BORDER_COLOR, command=self.quick_toggle_light
@@ -930,6 +937,14 @@ class ClientGUI:
                     self.hero_companion_btn.config(text=c_icon, bg="#064E3B", fg="#10B981")
             else:
                 self.hero_companion_btn.config(text="🐾", bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED)
+
+        if hasattr(self, 'hero_elevation_btn'):
+            my_data = self.players_data.get(self.name, {}) if isinstance(self.players_data, dict) else {}
+            my_elev = my_data.get("elevation", 0) if isinstance(my_data, dict) else 0
+            if my_elev != 0:
+                self.hero_elevation_btn.config(text=f"⬆ {my_elev}ft", bg="#0284C7", fg="white")
+            else:
+                self.hero_elevation_btn.config(text="📐 0ft", bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED)
 
         self.update_action_economy_ui()
 
@@ -1885,6 +1900,10 @@ class ClientGUI:
             menu.add_command(label=f"💨 Spinta: Indietro 5ft (Push) vs {token_name}", command=lambda: self.network.send(make_shove_request(token_name, option="push")))
             menu.add_separator()
 
+        if token_name:
+            menu.add_command(label=f"📐 Imposta Quota 3D ({token_name})...", command=lambda: self.open_elevation_dialog(token_name))
+            menu.add_separator()
+
         if self.character_manager and self.character_manager.active_character and token_name == self.character_manager.active_character.name:
             menu.add_command(label=_t("ctx_view_sheet", default="Visualizza Scheda PG"), command=self.open_stats_dialog)
             
@@ -1897,6 +1916,77 @@ class ClientGUI:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
             menu.grab_release()
+
+    def open_elevation_dialog(self, target_name=None):
+        import tkinter as tk
+        from common.protocol import make_set_elevation_request
+        
+        target = target_name or self.name
+        cur_pdata = self.players_data.get(target, {}) if isinstance(self.players_data, dict) else {}
+        current_elev = cur_pdata.get("elevation", 0) if isinstance(cur_pdata, dict) else 0
+
+        dialog = tk.Toplevel(self.master)
+        dialog.title(f"📐 Quota 3D: {target}")
+        dialog.geometry("380x310")
+        dialog.configure(bg=SURFACE_COLOR)
+        dialog.transient(self.master)
+        dialog.grab_set()
+
+        lbl_title = tk.Label(dialog, text=f"📐 Quota Tattica 3D: {target}", font=FONT_SUBTITLE, bg=SURFACE_COLOR, fg=TEXT_COLOR)
+        lbl_title.pack(pady=(12, 4))
+
+        lbl_cur = tk.Label(dialog, text=f"Altitudine Attuale: {current_elev} ft ({round(current_elev*0.3048, 1)} m)", font=FONT_REGULAR, bg=SURFACE_COLOR, fg=TEXT_MUTED)
+        lbl_cur.pack(pady=(0, 10))
+
+        frame_input = tk.Frame(dialog, bg=SURFACE_COLOR)
+        frame_input.pack(pady=5)
+
+        tk.Label(frame_input, text="Nuova Quota (ft):", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(side=tk.LEFT, padx=5)
+        ent_elev = tk.Entry(frame_input, font=FONT_REGULAR, width=8, bg=INPUT_BG, fg=TEXT_COLOR, insertbackground=TEXT_COLOR)
+        ent_elev.pack(side=tk.LEFT, padx=5)
+        ent_elev.insert(0, str(current_elev))
+        ent_elev.focus_set()
+
+        frame_presets = tk.Frame(dialog, bg=SURFACE_COLOR)
+        frame_presets.pack(pady=8)
+        tk.Label(frame_presets, text="Preset Rapidi:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", padx=10)
+        
+        btn_box = tk.Frame(frame_presets, bg=SURFACE_COLOR)
+        btn_box.pack(pady=4)
+
+        def set_preset(v):
+            ent_elev.delete(0, tk.END)
+            ent_elev.insert(0, str(v))
+
+        for p_val, p_lbl in [(0, "0 ft (Suolo)"), (10, "10 ft"), (20, "20 ft"), (30, "30 ft (Volo)"), (60, "60 ft")]:
+            b = tk.Button(btn_box, text=p_lbl, font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR,
+                          command=lambda v=p_val: set_preset(v))
+            b.pack(side=tk.LEFT, padx=2)
+
+        fall_var = tk.BooleanVar(value=False)
+        chk_fall = tk.Checkbutton(
+            dialog, text="🍂 È una caduta involontaria (risolvi RAW 1d6/10ft)",
+            variable=fall_var, font=FONT_SMALL, bg=SURFACE_COLOR, fg="#FCA5A5", selectcolor=SURFACE_COLOR,
+            activebackground=SURFACE_COLOR, activeforeground="#F87171"
+        )
+        chk_fall.pack(pady=6)
+
+        def confirm():
+            try:
+                new_v = int(ent_elev.get().strip().replace("ft", ""))
+                is_f = fall_var.get()
+                msg = make_set_elevation_request(new_v, target_name=target)
+                if is_f:
+                    msg["data"]["is_fall"] = True
+                self.network.send(msg)
+                dialog.destroy()
+            except ValueError:
+                pass
+
+        btn_row = tk.Frame(dialog, bg=SURFACE_COLOR)
+        btn_row.pack(side=tk.BOTTOM, pady=12)
+        tk.Button(btn_row, text="✔ Applica Quota", font=FONT_BOLD, bg=PRIMARY_COLOR, fg=TEXT_DARK, padx=10, command=confirm).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_row, text="Annulla", font=FONT_REGULAR, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, padx=8, command=dialog.destroy).pack(side=tk.LEFT, padx=5)
 
     def on_hex_click(self, clicked_hex):
         if getattr(self, "aoe_mode", False) and getattr(self, "aoe_params", None):

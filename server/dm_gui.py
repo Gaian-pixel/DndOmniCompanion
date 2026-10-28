@@ -391,6 +391,7 @@ class DM_GUI:
         self.player_menu.add_command(label=_t("ctx_execute_action"), command=self.open_action_dialog)
         self.player_menu.add_command(label=_t("ctx_set_aura"), command=self.open_aura_dialog)
         self.player_menu.add_command(label=_t("ctx_light_source"), command=self.open_light_source_dialog)
+        self.player_menu.add_command(label="📐 Imposta Quota / Altitudine (3D)...", command=self.open_elevation_dialog)
         self.player_menu.add_command(label=_t("ctx_config_boss"), command=self.open_boss_config_dialog)
         self.player_menu.add_command(label=_t("ctx_spend_legendary"), command=self.open_spend_legendary_action_dialog)
         self.player_menu.add_command(label=_t("ctx_set_owner"), command=self.open_set_owner_dialog)
@@ -3245,6 +3246,79 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
             return
         from server.rules.combat import handle_shove_request
         handle_shove_request({"target_name": target_name, "option": option}, attacker, self.server.game_state)
+
+    def open_elevation_dialog(self):
+        target_name = self.get_selected_player_name()
+        if not target_name:
+            self.show_toast("Seleziona prima un token o entità dalla lista o dalla mappa.", title="Quota 3D", toast_type="warning")
+            return
+        player = self.server.game_state.find_player(target_name)
+        if not player:
+            return
+
+        current_elev = getattr(player, "elevation", 0)
+
+        dialog = tk.Toplevel(self.master)
+        dialog.title(f"📐 Quota 3D & Altitudine: {target_name}")
+        dialog.geometry("380x310")
+        dialog.configure(bg=SURFACE_COLOR)
+        dialog.transient(self.master)
+        dialog.grab_set()
+
+        lbl_title = tk.Label(dialog, text=f"📐 Quota Tattica 3D: {target_name}", font=self.subtitle_font, bg=SURFACE_COLOR, fg=TEXT_COLOR)
+        lbl_title.pack(pady=(12, 4))
+
+        lbl_cur = tk.Label(dialog, text=f"Altitudine Attuale: {current_elev} ft ({round(current_elev*0.3048, 1)} m)", font=self.default_font, bg=SURFACE_COLOR, fg=TEXT_MUTED)
+        lbl_cur.pack(pady=(0, 10))
+
+        frame_input = tk.Frame(dialog, bg=SURFACE_COLOR)
+        frame_input.pack(pady=5)
+
+        tk.Label(frame_input, text="Nuova Quota (ft):", font=self.bold_font, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(side=tk.LEFT, padx=5)
+        ent_elev = tk.Entry(frame_input, font=self.default_font, width=8, bg=INPUT_BG, fg=TEXT_COLOR, insertbackground=TEXT_COLOR)
+        ent_elev.pack(side=tk.LEFT, padx=5)
+        ent_elev.insert(0, str(current_elev))
+        ent_elev.focus_set()
+
+        frame_presets = tk.Frame(dialog, bg=SURFACE_COLOR)
+        frame_presets.pack(pady=8)
+        tk.Label(frame_presets, text="Preset Rapidi:", font=self.small_font, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", padx=10)
+        
+        btn_box = tk.Frame(frame_presets, bg=SURFACE_COLOR)
+        btn_box.pack(pady=4)
+
+        def set_preset(v):
+            ent_elev.delete(0, tk.END)
+            ent_elev.insert(0, str(v))
+
+        for p_val, p_lbl in [(0, "0 ft (Suolo)"), (10, "10 ft"), (20, "20 ft"), (30, "30 ft (Volo)"), (60, "60 ft")]:
+            b = tk.Button(btn_box, text=p_lbl, font=self.small_font, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR,
+                          command=lambda v=p_val: set_preset(v))
+            b.pack(side=tk.LEFT, padx=2)
+
+        fall_var = tk.BooleanVar(value=False)
+        chk_fall = tk.Checkbutton(
+            dialog, text="🍂 È una caduta involontaria (risolvi RAW 1d6/10ft)",
+            variable=fall_var, font=self.small_font, bg=SURFACE_COLOR, fg="#FCA5A5", selectcolor=SURFACE_COLOR,
+            activebackground=SURFACE_COLOR, activeforeground="#F87171"
+        )
+        chk_fall.pack(pady=6)
+
+        def confirm():
+            try:
+                new_v = int(ent_elev.get().strip().replace("ft", ""))
+                is_f = fall_var.get()
+                from server.rules.character import handle_set_elevation_request
+                dummy_player = type("Dummy", (), {"name": "DM"})()
+                handle_set_elevation_request({"elevation": new_v, "target_name": target_name, "is_fall": is_f}, dummy_player, self.server.game_state)
+                dialog.destroy()
+            except ValueError:
+                pass
+
+        btn_row = tk.Frame(dialog, bg=SURFACE_COLOR)
+        btn_row.pack(side=tk.BOTTOM, pady=12)
+        tk.Button(btn_row, text="✔ Applica Quota", font=self.bold_font, bg=PRIMARY_COLOR, fg=TEXT_DARK, padx=10, command=confirm).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_row, text="Annulla", font=self.default_font, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, padx=8, command=dialog.destroy).pack(side=tk.LEFT, padx=5)
 
     def open_light_source_dialog(self):
         return dm_open_light_source_dialog(self)

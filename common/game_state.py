@@ -48,6 +48,7 @@ class Player:
         self.in_pocket_dimension = False
         self.can_attack = True
         self.is_companion = False
+        self.elevation = 0
 
 
 
@@ -189,13 +190,15 @@ class Player:
             "master_name": getattr(self, "master_name", None),
             "in_pocket_dimension": getattr(self, "in_pocket_dimension", False),
             "can_attack": getattr(self, "can_attack", True),
-            "is_companion": getattr(self, "is_companion", False)
+            "is_companion": getattr(self, "is_companion", False),
+            "elevation": getattr(self, "elevation", 0)
         }
 
     @classmethod
     def from_dict(cls, data):
         p = cls(data.get("name", "Unknown"))
         p.position = data.get("position", [0, 0])
+        p.elevation = data.get("elevation", 0)
         p.hp = data.get("hp", 10)
         p.max_hp = data.get("max_hp", 10)
         p.temp_hp = data.get("temp_hp", 0)
@@ -790,6 +793,7 @@ class GameState:
                     existing.has_darkvision = p_data.get("has_darkvision", None)
                     existing.has_lair_actions = p_data.get("has_lair_actions", False)
                     existing.owner = p_data.get("owner", None)
+                    existing.elevation = p_data.get("elevation", 0)
                     loaded_players.append(existing)
                 else:
                     loaded_players.append(Player.from_dict(p_data))

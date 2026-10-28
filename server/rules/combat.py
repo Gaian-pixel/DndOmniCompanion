@@ -92,6 +92,99 @@ def drop_concentration(player, game_state, notify=True):
         broadcast(game_state, make_chat_broadcast("Sistema", break_msg))
         game_state.log_dm_message(f"[CONCENTRAZIONE] {break_msg}")
 
+        # Se sono stati interrotti effetti di volo o se il bersaglio si trovava a quota elevata, cade al suolo (PHB p. 191)
+        for target_name, fx_name in removed_effects:
+            for p in getattr(game_state, "players", []):
+                if p.name == target_name and getattr(p, "elevation", 0) > 0:
+                    if "vol" in fx_name.lower() or "fly" in fx_name.lower():
+                        resolve_falling(p, p.elevation, game_state)
+        if getattr(player, "elevation", 0) > 0:
+            sheet = getattr(player, "full_sheet", {}) or {}
+            speed_types = str(sheet.get("speed", "")).lower()
+            traits = str(sheet.get("traits", [])).lower()
+            has_natural_flight = any(k in speed_types or k in traits for k in ["volo", "fly", "ali", "wings", "stazionario", "hover"])
+            if not has_natural_flight:
+                resolve_falling(player, player.elevation, game_state)
+
+def resolve_falling(entity, fall_distance_ft, game_state, is_voluntary=False):
+    """
+    Risolve la caduta secondo le regole autentiche D&D 5e (PHB p. 183):
+    - 1d6 danni contundenti per ogni 10 piedi di caduta, fino a un massimo di 20d6.
+    - La creatura atterra prona (condizione Prono), a meno che non eviti completamente il danno.
+    - Verifica capacità speciali: Caduta Lenta del Monaco (liv. 4+: riduce il danno di 5 x livello Monaco)
+      e incantesimo Caduta Morbida (Feather Fall: 0 danni).
+    """
+    if not entity or fall_distance_ft < 10:
+        if entity:
+            entity.elevation = max(0, getattr(entity, "elevation", 0) - fall_distance_ft)
+            broadcast(game_state, make_player_stats_update(
+                entity.name, entity.hp, entity.max_hp, entity.initiative,
+                getattr(entity, "conditions", []), getattr(entity, "temp_hp", 0),
+                elevation=entity.elevation
+            ))
+        return 0
+
+    dice_count = min(20, int(fall_distance_ft // 10))
+    rolls = [random.randint(1, 6) for _ in range(dice_count)]
+    raw_dmg = sum(rolls)
+
+    mitigated = False
+    mitigation_note = ""
+
+    # 1. Controllo Caduta Morbida (Feather Fall)
+    has_feather_fall = False
+    for fx in getattr(entity, "active_effects", []):
+        fn = str(fx.get("name", "")).lower()
+        if "feather fall" in fn or "caduta morbida" in fn:
+            has_feather_fall = True
+            break
+
+    if has_feather_fall:
+        raw_dmg = 0
+        mitigated = True
+        mitigation_note = " (Annullato da Caduta Morbida / Feather Fall)"
+    else:
+        # 2. Controllo Caduta Lenta del Monaco (Monk 4+ Slow Fall)
+        sheet = getattr(entity, "full_sheet", {}) or {}
+        cls_name = str(sheet.get("class", "")).lower()
+        lvl = int(sheet.get("level", 1))
+        if ("monaco" in cls_name or "monk" in cls_name) and lvl >= 4:
+            reduction = lvl * 5
+            raw_dmg = max(0, raw_dmg - reduction)
+            mitigated = True
+            mitigation_note = f" (Ridotto di {reduction} da Caduta Lenta del Monaco)"
+
+    final_dmg = raw_dmg
+    entity.elevation = max(0, getattr(entity, "elevation", 0) - fall_distance_ft)
+
+    if final_dmg > 0:
+        _apply_hp_change(entity, entity.hp - final_dmg, game_state)
+        conds = getattr(entity, "conditions", [])
+        if "Prono" not in conds:
+            conds.append("Prono")
+        if getattr(entity, "full_sheet", None) and isinstance(entity.full_sheet.get("conditions"), list):
+            if "Prono" not in entity.full_sheet["conditions"]:
+                entity.full_sheet["conditions"].append("Prono")
+
+    log_text = f"🍂 **Caduta (Falling - RAW PHB p. 183)**: {entity.name} precipita per {fall_distance_ft} ft!"
+    if mitigation_note:
+        log_text += mitigation_note
+    if final_dmg > 0:
+        log_text += f"\n• Danno: **{final_dmg}** danni contundenti ({dice_count}d6: {rolls})"
+        log_text += f"\n• {entity.name} si schianta a terra ed è ora **PRONO**!"
+    else:
+        log_text += f"\n• {entity.name} atterra dolcemente sui propri piedi senza subire danni."
+
+    broadcast(game_state, make_chat_broadcast("Sistema", log_text))
+    game_state.log_dm_message(f"[CADUTA] {log_text}")
+    broadcast(game_state, make_player_stats_update(
+        entity.name, entity.hp, entity.max_hp, entity.initiative,
+        getattr(entity, "conditions", []), getattr(entity, "temp_hp", 0),
+        elevation=entity.elevation,
+        active_effects=getattr(entity, "active_effects", [])
+    ))
+    game_state._trigger_gui_update()
+    return final_dmg
 
 def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=None, is_crit=False):
     """
@@ -208,6 +301,8 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
                     target_player.conditions.append("Incosciente")
                 if "Prono" not in target_player.conditions:
                     target_player.conditions.append("Prono")
+                if getattr(target_player, "elevation", 0) > 0:
+                    resolve_falling(target_player, target_player.elevation, game_state)
                 if old_hp == 0 and dmg_to_hp > 0:
                     if not hasattr(target_player, "death_saves") or not isinstance(target_player.death_saves, dict):
                         target_player.death_saves = {"successes": 0, "failures": 0}
@@ -273,6 +368,8 @@ def _apply_hp_change(target_player, new_hp_unbounded, game_state):
                     target_player.conditions.append("Incosciente")
                 if "Prono" not in target_player.conditions:
                     target_player.conditions.append("Prono")
+                if getattr(target_player, "elevation", 0) > 0:
+                    resolve_falling(target_player, target_player.elevation, game_state)
                 if old_hp == 0 and new_hp_unbounded < 0:
                     if not hasattr(target_player, "death_saves") or not isinstance(target_player.death_saves, dict):
                         target_player.death_saves = {"successes": 0, "failures": 0}
@@ -681,14 +778,21 @@ def handle_attack_request(data, player, game_state):
         
         # Gestione distanza e Prono / Fiancheggiamento
         dist = 999
+        dist_3d = 999.0
         if hasattr(player, "position") and player.position and hasattr(target_player, "position") and target_player.position:
             q1, r1 = player.position[0], player.position[1]
             q2, r2 = target_player.position[0], target_player.position[1]
+            z1 = getattr(player, "elevation", 0)
+            z2 = getattr(target_player, "elevation", 0)
             dist = max(abs(q1 - q2), abs(q1 + r1 - q2 - r2), abs(r1 - r2))
+            from common.hex_utils import grid_distance_3d, Hex
+            cur_map = getattr(game_state, "current_map", {}) or {}
+            grid_type = cur_map.get("grid_type", "hex")
+            dist_3d = grid_distance_3d(Hex(q1, r1), Hex(q2, r2), z1, z2, grid_type=grid_type)
             if is_condition_active(t_cond, "Prono"):
-                if dist <= 1: adv_reasons.append("Bersaglio Prono (Mischia)")
-                elif dist > 1: dis_reasons.append("Bersaglio Prono (Distanza)")
-            if dist <= 1:
+                if dist_3d <= 1.0: adv_reasons.append("Bersaglio Prono (Mischia)")
+                elif dist_3d > 1.0: dis_reasons.append("Bersaglio Prono (Distanza)")
+            if dist_3d <= 1.0:
                 enable_flanking = True
                 if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
                     enable_flanking = game_state.automation_settings.get("enable_flanking", True)
@@ -704,13 +808,15 @@ def handle_attack_request(data, player, game_state):
                     for p in getattr(game_state, "players", []):
                         if p.name != player.name and getattr(p, "hp", 0) > 0:
                             if hasattr(p, "position") and p.position and p.position[0] == opp_q and p.position[1] == opp_r:
-                                p_c = getattr(p, "conditions", [])
-                                p_party = bool(getattr(p, "is_party_member", False) or getattr(p, "conn", None))
-                                is_ally = (p_party == attacker_party) if attacker_party != target_party else True
-                                incapacitated = any(is_condition_active(p_c, c) for c in ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto", "Incapacitato", "Incapacitated"])
-                                if is_ally and not incapacitated and "Invisibile" not in p_c and "Nascosto" not in p_c:
-                                    adv_reasons.append("Fiancheggiamento (DMG p. 251)")
-                                    break
+                                p_z = getattr(p, "elevation", 0)
+                                if abs(p_z - z2) <= 5: # Stessa quota del bersaglio (entro 5ft)
+                                    p_c = getattr(p, "conditions", [])
+                                    p_party = bool(getattr(p, "is_party_member", False) or getattr(p, "conn", None))
+                                    is_ally = (p_party == attacker_party) if attacker_party != target_party else True
+                                    incapacitated = any(is_condition_active(p_c, c) for c in ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto", "Incapacitato", "Incapacitated"])
+                                    if is_ally and not incapacitated and "Invisibile" not in p_c and "Nascosto" not in p_c:
+                                        adv_reasons.append("Fiancheggiamento (DMG p. 251)")
+                                        break
 
             # Effetti Atmosferici D&D 5e (DMG p. 109-110)
             weather_val = str(getattr(game_state, "weather", "Sereno")).strip().lower()
@@ -1588,6 +1694,8 @@ def handle_shove_request(data, player, game_state):
                 target_player.name, target_player.hp, target_player.max_hp, target_player.initiative,
                 def_cond, getattr(target_player, "temp_hp", 0), active_effects=getattr(target_player, "active_effects", [])
             ))
+            if getattr(target_player, "elevation", 0) > 0:
+                resolve_falling(target_player, target_player.elevation, game_state)
         else:
             dq = q2 - q1
             dr = r2 - r1

@@ -366,6 +366,36 @@ OmniCompanion introduce un sistema integrato di ingaggio tattico sulla mappa:
      * **💨 Spinta (Shove)**: Contesa analoga di Forza (Atletica). L'attaccante può scegliere tra **Atterrare Prono** (infliggendo la condizione **Prono**, che concede vantaggio agli attacchi in mischia entro 5 ft) oppure **Spingere Indietro di 5 ft** (la creatura viene respinta lungo il vettore di attacco verso la casella successiva, fermandosi in sicurezza qualora vi sia un muro o un ostacolo impraticabile).
      * **Supporto Condizioni RAW**: Sia per Lotta che per Spinta, l'Ira barbarica conferisce automaticamente Vantaggio alle prove di Forza (Atletica), l'Indebolimento o la Paura infliggono Svantaggio, e le creature Incapacitate, Incoscienti o Paralizzate falliscono automaticamente la contesa.
 
+### Spazio 3D, Quota & Elevazione, Cadute RAW (PHB p. 183) e Concentration Tethers
+D&D OmniCompanion gestisce nativamente la tridimensionalità dei combattimenti e il ciclo di vita della concentrazione visiva:
+
+1. **Quota 3D & Altitudine dei Token (Volo, Arrampicata e Dislivelli)**:
+   * **Impostazione Quota**: Ogni token possiede un'altitudine tridimensionale $Z$ (in piedi, convertibile a runtime in metri).
+   * **Interfaccia e Controlli**:
+     * **HUD Controlli PG**: Pulsante rapido `[ 📐 0ft ]` / `[ ⬆ 30ft ]` nella Hero Summary Card.
+     * **Menu Contestuale Token**: Clic destro su qualsiasi token $\to$ **`📐 Imposta Quota 3D...`** per aprire la finestra di configurazione quota con preset rapidi (`0 ft Suolo`, `10 ft`, `20 ft`, `30 ft Volo`, `60 ft`).
+     * **Comandi Chat Slash**: `/quota <valore>` (es. `/quota 30`, `/quota 9m`), `/elevation`, `/vola`, `/fly`.
+   * **Visualizzazione Canvas & Ombre Proiettate**:
+     * I token in quota vengono traslati verticalmente sul canvas proporzionalmente all'altitudine e allo zoom.
+     * Al suolo viene proiettata l'ombra della creatura unita a una linea guida tratteggiata verticale di quota.
+     * Un badge ciano/blu o marrone (es. `⬆ 30ft` o `⬆ 9m` / `⬇ 10ft`) indica l'altitudine esatta accanto al token.
+   * **Distanze 3D & Portata in Mischia**:
+     * Il motore calcola la distanza tridimensionale euclidea ($D_{\text{3D}} = \sqrt{D_{\text{2D}}^2 + \Delta z^2}$).
+     * Se una creatura volante è a 30 ft di quota, gli attacchi in mischia da terra non possono raggiungerla ($D_{\text{3D}} > 1\text{ casella}$), proteggendola dagli attacchi corpo a corpo senza armi con portata o volo.
+
+2. **Risoluzione Cadute RAW 5e (Falling - PHB p. 183)**:
+   * **Danno da Caduta**: $1\text{d6}$ danni contundenti per ogni 10 piedi di caduta, fino a un massimo ufficiale di **$20\text{d6}$**.
+   * **Condizione Prono**: All'atterraggio la creatura diventa automaticamente **Prono**, a meno che non eviti completamente il danno.
+   * **Mitigazioni Ufficiali RAW**:
+     * **Caduta Lenta del Monaco (Slow Fall, liv. 4+)**: Riduce il danno da caduta di $5 \times \text{livello Monaco}$. Se il danno scende a 0, il monaco atterra in piedi senza cadere Prono.
+     * **Caduta Morbida (Feather Fall)**: Annulla completamente i danni da caduta e consente di atterrare dolcemente sui propri piedi.
+   * **Caduta Automatica su Perdita di Volo (PHB p. 191)**:
+     * Una creatura volante a quota elevata priva di volo stazionario (*hover*) che viene atterrata **Prono** (es. tramite Spinta) o ridotta a **0 HP** o resa **Incosciente/Paralizzata/Stordita** precipita immediatamente al suolo subendo i relativi danni da caduta.
+
+3. **Fasci Eterei di Concentrazione (Concentration Tethers)**:
+   * Quando un incantatore mantiene la concentrazione su un bersaglio (es. *Benedizione*, *Blocca Persone*, *Volare*, *Cacciatore di Nemici*) o su un'area AoE persistente (es. *Muro di Fuoco*, *Spiriti Guardiani*), il canvas disegna eleganti **fasci eterei violacei e smeraldo** (`Concentration Tethers`) che collegano visivamente l'incantatore ai suoi bersagli con una runa magica `✦`.
+   * **Interruzione a Catena**: Se la concentrazione dell'incantatore crolla (subendo danni e fallendo il TS su Costituzione, o cadendo a 0 HP), tutti gli effetti legati e le aree AoE svaniscono all'istante, e qualsiasi creatura sorretta in volo dall'incantesimo cade immediatamente al suolo risolvendo la caduta RAW.
+
 ### Reazioni RAW e Incantesimo Scudo (*Shield*)
 * **Economia delle Reazioni RAW (PHB p. 190)**:
   * Ogni creatura dispone di una sola `🛡️ Reazione` per round, che si ripristina all'inizio del proprio turno.
