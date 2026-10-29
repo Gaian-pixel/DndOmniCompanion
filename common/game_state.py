@@ -408,6 +408,12 @@ class GameState:
                     p.conditions = [c for c in p.conditions if c not in temp_combat_conds]
                 if getattr(p, "full_sheet", None) and isinstance(p.full_sheet.get("conditions"), list):
                     p.full_sheet["conditions"] = [c for c in p.full_sheet["conditions"] if c not in temp_combat_conds]
+            try:
+                from server.rules.combat import recover_expended_ammunition
+                for p in list(self.players):
+                    recover_expended_ammunition(p, self)
+            except Exception:
+                pass
         self._trigger_gui_update()
         
     def _get_combatants(self):

@@ -578,8 +578,15 @@ class ClientGUI:
             econ_quick_actions_3, text="💨 Spingi", font=FONT_SMALL, relief=tk.FLAT, bd=0,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_shove
         )
-        self.btn_shove.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
+        self.btn_shove.pack(side=tk.LEFT, padx=(2, 2), fill=tk.X, expand=True)
         ToolTip(self.btn_shove, lambda: "Spingi il bersaglio per atterrarlo Prono o farlo arretrare di 5 ft [PHB p. 195]")
+
+        self.btn_ammo = tk.Button(
+            econ_quick_actions_3, text="🏹 Munizioni", font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_ammo_recovery
+        )
+        self.btn_ammo.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
+        ToolTip(self.btn_ammo, lambda: "Recupera il 50% delle munizioni impiegate in combattimento (PHB p. 146)")
 
         # Barra HUD Bersaglio Corrente (Target HUD)
         self.target_hud_frame = tk.Frame(self.economy_frame, bg="#111827", highlightbackground=BORDER_COLOR, highlightthickness=1)
@@ -2177,6 +2184,11 @@ class ClientGUI:
         btn_f.pack(fill=tk.X, padx=12, pady=6)
         tk.Button(btn_f, text="🧎 Atterra (Prono)", bg="#374151", fg="white", font=FONT_SMALL, command=lambda: _do_shove("prone")).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
         tk.Button(btn_f, text="💨 Indietro (5 ft)", bg="#374151", fg="white", font=FONT_SMALL, command=lambda: _do_shove("push")).pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(4, 0))
+
+    def perform_ammo_recovery(self):
+        """Richiede al server il recupero del 50% delle munizioni impiegate in combattimento (PHB p. 146)."""
+        from common.protocol import make_chat
+        self.network.send(make_chat("/recupera_munizioni"))
 
 
 

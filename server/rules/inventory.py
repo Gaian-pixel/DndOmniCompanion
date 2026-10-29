@@ -114,6 +114,30 @@ def handle_take_loot_request(data, player, game_state):
                         sheet["inventory_grid"][s_i] = dict(loot_entry)
                         break
 
+                # Trasferisci eventuali monete e oggetti contenuti nelle spoglie (DMG p. 133)
+                contents = found.get("contents", {})
+                wallet = contents.get("wallet", {})
+                items = contents.get("items", [])
+                if wallet:
+                    p_wallet = sheet.setdefault("wallet", {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0})
+                    coin_notes = []
+                    for c_type, c_qty in wallet.items():
+                        if c_qty > 0:
+                            p_wallet[c_type] = p_wallet.get(c_type, 0) + c_qty
+                            coin_notes.append(f"{c_qty} {c_type}")
+                    if coin_notes:
+                        c_str = ", ".join(coin_notes)
+                        broadcast(game_state, make_chat_broadcast("Sistema", f"💰 {player.name} ha raccolto {c_str} dalle spoglie!"))
+
+                if items:
+                    for extra_item in items:
+                        for s_i in range(len(sheet["inventory_grid"])):
+                            if sheet["inventory_grid"][s_i] is None:
+                                sheet["inventory_grid"][s_i] = dict(extra_item)
+                                if getattr(player, 'conn', None):
+                                    send_message(player.conn, make_receive_item(extra_item))
+                                break
+
     if found and loot_entry:
         if getattr(player, 'conn', None):
             send_message(player.conn, make_receive_item(loot_entry))

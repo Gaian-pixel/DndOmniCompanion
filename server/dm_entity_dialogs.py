@@ -349,28 +349,54 @@ def open_assign_item_dialog(dm_gui, prefill_item=None):
 
 
 def open_modify_hp_dialog(dm_gui):
-    """Apre il dialogo rapido per la variazione manuale degli HP di un token."""
-    sel = dm_gui.player_listbox.curselection()
-    if not sel: return
-    display_text = dm_gui.player_listbox.get(sel[0])
-    if display_text.startswith('---'): return
-    player_name = display_text.split(" (HP")[0].replace("▶", "").strip()
-    player = dm_gui.server.game_state.find_player(player_name)
-    if not player: return
+    """Apre il dialogo rapido per la variazione manuale degli HP di uno o più token selezionati."""
+    names = getattr(dm_gui, "get_selected_player_names", lambda: [])()
+    if not names:
+        sel = dm_gui.player_listbox.curselection()
+        if not sel: return
+        display_text = dm_gui.player_listbox.get(sel[0])
+        if display_text.startswith('---'): return
+        names = [display_text.split(" (HP")[0].replace("▶", "").strip()]
 
-    delta_str = simpledialog.askstring("Modifica HP", f"Inserisci variazione HP per {player_name}\n(es. -5 per danno, +8 per cura):")
-    if not delta_str: return
-    
-    try:
-        delta = int(delta_str)
-        with dm_gui.server.game_state.lock:
-            player.hp = max(0, min(player.max_hp, player.hp + delta))
-        dm_gui.server.game_state._trigger_gui_update()
-        from common.protocol import make_player_stats_update
-        broadcast(dm_gui.server.game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative))
-        dm_gui.log_to_chat(f"[SISTEMA] HP di {player.name} aggiornati a {player.hp}/{player.max_hp}")
-    except ValueError:
-        messagebox.showerror("Errore", "Valore non valido.")
+    if len(names) == 1:
+        player_name = names[0]
+        player = dm_gui.server.game_state.find_player(player_name)
+        if not player: return
+
+        delta_str = simpledialog.askstring("Modifica HP", f"Inserisci variazione HP per {player_name}\n(es. -5 per danno, +8 per cura):", parent=dm_gui.master)
+        if not delta_str: return
+        
+        try:
+            delta = int(delta_str)
+            with dm_gui.server.game_state.lock:
+                player.hp = max(0, min(player.max_hp, player.hp + delta))
+            dm_gui.server.game_state._trigger_gui_update()
+            from common.protocol import make_player_stats_update
+            broadcast(dm_gui.server.game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, getattr(player, "conditions", []), getattr(player, "temp_hp", 0)))
+            dm_gui.log_to_chat(f"[SISTEMA] HP di {player.name} aggiornati a {player.hp}/{player.max_hp}")
+        except ValueError:
+            messagebox.showerror("Errore", "Valore non valido.", parent=dm_gui.master)
+    else:
+        # Multi-selezione
+        summary = ", ".join(names[:4])
+        if len(names) > 4: summary += f" (+{len(names)-4} altri)"
+        delta_str = simpledialog.askstring("Modifica HP Multipli", f"Inserisci variazione HP per {len(names)} creature:\n[{summary}]\n(es. -8 per danno AoE, +10 per cura di massa):", parent=dm_gui.master)
+        if not delta_str: return
+        try:
+            delta = int(delta_str)
+            from common.protocol import make_player_stats_update
+            updated = []
+            for p_name in names:
+                p = dm_gui.server.game_state.find_player(p_name)
+                if p:
+                    with dm_gui.server.game_state.lock:
+                        p.hp = max(0, min(p.max_hp, p.hp + delta))
+                    broadcast(dm_gui.server.game_state, make_player_stats_update(p.name, p.hp, p.max_hp, p.initiative, getattr(p, "conditions", []), getattr(p, "temp_hp", 0)))
+                    updated.append(f"{p.name}: {p.hp}/{p.max_hp}")
+            dm_gui.server.game_state._trigger_gui_update()
+            dm_gui.log_to_chat(f"🩹 [SISTEMA] HP di Gruppo ({len(names)} creature) aggiornati ({delta:+d}): {', '.join(updated)}")
+        except ValueError:
+            messagebox.showerror("Errore", "Valore non valido.", parent=dm_gui.master)
 
 
 def open_conditions_dialog(dm_gui):

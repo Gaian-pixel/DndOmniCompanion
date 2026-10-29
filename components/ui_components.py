@@ -106,6 +106,7 @@ class HexMapCanvas(tk.Canvas):
         self.aoes_data = []
         self.current_target_name = None
         self.on_target_changed_callback = None
+        self.selected_tokens = set()
 
         self.bind("<MouseWheel>", self._zoom)
         self.bind("<Button-4>", self._zoom)
@@ -539,6 +540,18 @@ class HexMapCanvas(tk.Canvas):
                     self._drag_start_hex = clicked_hex
                     break
         
+        # Ctrl+Click su token: Multi-selezione per DM / tavolo
+        ctrl_held = bool(event.state & 0x0004)
+        if ctrl_held and self.dragging_token_name:
+            if not hasattr(self, "selected_tokens"):
+                self.selected_tokens = set()
+            if self.dragging_token_name in self.selected_tokens:
+                self.selected_tokens.remove(self.dragging_token_name)
+            else:
+                self.selected_tokens.add(self.dragging_token_name)
+            self.redraw()
+            return
+
         # Shift+Click su token: toggle mirino tattico target
         shift_held = bool(event.state & 0x0001)
         if shift_held and self.dragging_token_name:
@@ -1802,6 +1815,10 @@ class HexMapCanvas(tk.Canvas):
             if is_turn:
                 self.create_oval(sx-(radius+5), tok_y-(radius+5), sx+(radius+5), tok_y+(radius+5), fill="", outline="#FCC419", width=2)
                 self.create_oval(sx-(radius+3), tok_y-(radius+3), sx+(radius+3), tok_y+(radius+3), fill="", outline="#D4AF37", width=3)
+
+            # Anello di Multi-Selezione (Giallo/Oro brillante tratteggiato)
+            if hasattr(self, "selected_tokens") and name in self.selected_tokens:
+                self.create_oval(sx - radius - 5, tok_y - radius - 5, sx + radius + 5, tok_y + radius + 5, fill="", outline="#FBBF24", width=2.5, dash=(4, 2))
 
             # Dynamic outer ring halo for Heroes and Bosses
             if (is_me or is_boss) and not is_turn:

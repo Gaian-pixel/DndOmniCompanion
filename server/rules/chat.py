@@ -318,6 +318,12 @@ def handle_chat(data, player, game_state):
             except ValueError:
                 pass
 
+    # Recupero Munizioni 50% RAW (PHB p. 146)
+    if text.lower().startswith(("/recupera_munizioni", "/ammo_recover", "/munizioni")):
+        from server.rules.combat import recover_expended_ammunition
+        recover_expended_ammunition(player, game_state)
+        return
+
     game_state.log_dm_message(f"[{player.name}]: {text}")
     broadcast(game_state, make_chat_broadcast(player.name, text))
 

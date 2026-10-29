@@ -712,11 +712,14 @@ D&D OmniCompanion features comprehensive targeting infrastructure, dynamic rayca
 
 ## 12. Testing Suite & Quality Assurance
 
-The codebase includes a consolidated testing suite in the `tests/` directory with **378 automated tests** passing at 100% with 0 failures, covering headless unit tests, 3D dice physics and rendering, tactical combat, 3D space and elevation, join game flow and server history, companions/familiars, travel/camping, GUI smoke tests, single-window architecture, and full multiplayer campaign simulations:
+The codebase includes a consolidated testing suite in the `tests/` directory with **384 automated tests** passing at 100% with 0 failures, covering headless unit tests, 3D dice physics and rendering, tactical combat, 3D space and elevation, join game flow and server history, companions/familiars, travel/camping, GUI smoke tests, single-window architecture, and full multiplayer campaign simulations:
 
 ```powershell
-# 1. Run comprehensive unit tests (378 tests with 0 failures)
+# 1. Run comprehensive unit tests (384 tests with 0 failures)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
+
+# 2. Run monster corpse loot, 50% ammo recovery and multi-selection test suite
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_table_and_loot_automation.py
 
 # 2. Run 3D elevation, RAW falling and concentration tethers test suite
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_elevation_and_concentration.py

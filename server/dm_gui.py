@@ -398,6 +398,9 @@ class DM_GUI:
         self.player_menu.add_command(label=_t("ctx_open_private_chat"), command=self.open_private_chat_from_context)
         self.player_menu.add_command(label="🖼️ Imposta Immagine / Token...", command=self.open_set_token_image_dialog)
         self.player_menu.add_separator()
+        self.player_menu.add_command(label="⚡ Tira Iniziativa Multipla (Gruppo)", command=self.roll_group_initiative)
+        self.player_menu.add_command(label="🗑️ Elimina Token Multipli (Gruppo)", command=self.delete_selected_group)
+        self.player_menu.add_separator()
         size_menu = tk.Menu(
             self.player_menu, tearoff=0,
             bg=SURFACE_COLOR, fg=TEXT_COLOR,
@@ -741,6 +744,7 @@ class DM_GUI:
         self.player_listbox = tk.Listbox(
             list_frame, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=FONT_MAIN,
             selectbackground=ACCENT_GOLD, selectforeground=TEXT_DARK,
+            selectmode=tk.EXTENDED,
             borderwidth=0, relief="flat", highlightthickness=0, yscrollcommand=scrollbar.set
         )
         self.player_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -3210,11 +3214,74 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
 
     def get_selected_player_name(self):
         sel = self.player_listbox.curselection()
-        if not sel: return None
+        if not sel:
+            canvas_sel = getattr(self.map_canvas, "selected_tokens", set())
+            if canvas_sel:
+                return next(iter(canvas_sel))
+            return None
         display_text = self.player_listbox.get(sel[0])
         if display_text.startswith('---'): return None
         name = display_text.split(" (HP")[0].replace("▶", "").replace("[N]", "").strip()
         return name
+
+    def get_selected_player_names(self):
+        sel = self.player_listbox.curselection()
+        names = []
+        for idx in sel:
+            display_text = self.player_listbox.get(idx)
+            if display_text.startswith('---'): continue
+            name = display_text.split(" (HP")[0].replace("▶", "").replace("[N]", "").strip()
+            if name and name not in names:
+                names.append(name)
+        canvas_sel = getattr(self.map_canvas, "selected_tokens", set())
+        for cn in canvas_sel:
+            if cn not in names:
+                names.append(cn)
+        return names
+
+    def roll_group_initiative(self):
+        names = self.get_selected_player_names()
+        if not names:
+            self.show_toast("Seleziona almeno un token.", title="Iniziativa Gruppo", toast_type="warning")
+            return
+        import random
+        from common.protocol import make_player_stats_update
+        from common.network_utils import broadcast
+        rolled = []
+        for name in names:
+            p = self.server.game_state.find_player(name)
+            if p:
+                sheet = getattr(p, "full_sheet", {}) or {}
+                attrs = sheet.get("attributes", {})
+                des = attrs.get("DES", 10)
+                init_bonus = (des - 10) // 2
+                roll = random.randint(1, 20)
+                p.initiative = roll + init_bonus
+                rolled.append(f"{p.name}: {p.initiative}")
+                broadcast(self.server.game_state, make_player_stats_update(p.name, p.hp, p.max_hp, p.initiative, getattr(p, "conditions", []), getattr(p, "temp_hp", 0)))
+        self.server.game_state._trigger_gui_update()
+        summary = ", ".join(rolled)
+        self.log_to_chat(f"⚡ [INIZIATIVA GRUPPO] {summary}")
+        self.show_toast(f"Iniziativa tirata per {len(names)} creature!", title="Iniziativa Gruppo", toast_type="success")
+
+    def delete_selected_group(self):
+        names = self.get_selected_player_names()
+        if not names:
+            self.show_toast("Nessun token selezionato.", title="Elimina Gruppo", toast_type="warning")
+            return
+        if not messagebox.askyesno("Elimina Gruppo", f"Vuoi davvero eliminare le {len(names)} pedine selezionate dalla mappa?", parent=self.master):
+            return
+        from common.protocol import make_player_left
+        from common.network_utils import broadcast
+        for name in list(names):
+            p = self.server.game_state.find_player(name)
+            if p:
+                self.server.game_state.players.remove(p)
+                broadcast(self.server.game_state, make_player_left(p.name))
+        if hasattr(self.map_canvas, "selected_tokens"):
+            self.map_canvas.selected_tokens.clear()
+        self.server.game_state._trigger_gui_update()
+        self.show_toast(f"Rimosse {len(names)} pedine dalla mappa.", title="Elimina Gruppo", toast_type="info")
 
     def target_selected_player(self):
         target_name = self.get_selected_player_name()

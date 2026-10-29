@@ -30,16 +30,83 @@ def _spawn_corpse_loot(target_player, game_state):
     loot_name = f"Spoglie di {target_player.name}"
     already_looted = any(l.get("q") == pos[0] and l.get("r") == pos[1] and l.get("item") == loot_name for l in loots)
     if not already_looted:
+        sheet = getattr(target_player, "full_sheet", {}) or {}
+        loot_items = []
+        if isinstance(sheet.get("inventory_grid"), list):
+            loot_items = [dict(it) for it in sheet["inventory_grid"] if isinstance(it, dict) and it.get("name")]
+        
+        coins = dict(sheet.get("wallet", {})) if isinstance(sheet.get("wallet"), dict) else {}
+        if not coins and not sheet.get("gold"):
+            cr = sheet.get("cr", 1)
+            try:
+                cr_num = float(cr)
+            except (ValueError, TypeError):
+                cr_num = 1.0
+            if cr_num <= 4:
+                sp = sum(random.randint(1, 6) for _ in range(3))
+                gp = sum(random.randint(1, 6) for _ in range(2))
+                coins = {"MO": gp, "MA": sp}
+            else:
+                gp = sum(random.randint(1, 6) for _ in range(4)) * 10
+                coins = {"MO": gp}
+
         loots.append({
             "q": pos[0],
             "r": pos[1],
             "item": loot_name,
-            "qty": 1
+            "qty": 1,
+            "contents": {
+                "items": loot_items,
+                "wallet": coins
+            }
         })
         msg = f"☠️ {target_player.name} è caduto! Un forziere con le sue spoglie è apparso sulla mappa."
         broadcast(game_state, make_chat_broadcast("Sistema", msg))
         game_state.log_dm_message(f"[LOOT] {msg}")
         broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
+
+def recover_expended_ammunition(player, game_state):
+    """
+    Recupera il 50% delle munizioni spese durante il combattimento (D&D 5e PHB p. 146).
+    'Al termine del combattimento, il personaggio può dedicare un minuto a setacciare
+    il campo di battaglia per recuperare metà delle munizioni impiegate.'
+    """
+    expended = getattr(player, "expended_ammo", {})
+    if not expended or not any(v > 0 for v in expended.values()):
+        return {}
+
+    recovered = {}
+    sheet = getattr(player, "full_sheet", None)
+    
+    for ammo_name, count in list(expended.items()):
+        rec_count = count // 2 # 50% arrotondato per difetto
+        if rec_count > 0:
+            recovered[ammo_name] = rec_count
+            if isinstance(sheet, dict) and isinstance(sheet.get("inventory_grid"), list):
+                found = False
+                for item in sheet["inventory_grid"]:
+                    if isinstance(item, dict) and (ammo_name.lower() in item.get("name", "").lower()):
+                        item["qty"] = int(item.get("qty", 0)) + rec_count
+                        found = True
+                        break
+                if not found:
+                    for idx, slot in enumerate(sheet["inventory_grid"]):
+                        if slot is None:
+                            sheet["inventory_grid"][idx] = {
+                                "name": ammo_name, "type": "Munizioni", "qty": rec_count,
+                                "weight": 0.05 * rec_count, "attuned": False, "desc": "Munizioni recuperate RAW"
+                            }
+                            found = True
+                            break
+        expended[ammo_name] = 0
+
+    if recovered:
+        summary = ", ".join([f"{qty}x {name}" for name, qty in recovered.items()])
+        msg = f"🏹 **Recupero Munizioni (RAW PHB p. 146)**: {player.name} cerca sul campo di battaglia e recupera metà delle munizioni: **{summary}**!"
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        game_state.log_dm_message(f"[MUNIZIONI] {msg}")
+        game_state._trigger_gui_update()
+    return recovered
 
 def drop_concentration(player, game_state, notify=True):
     """Interrompe la concentrazione di un personaggio (5e RAW) e rimuove le sue AoE attive collegate."""
@@ -981,6 +1048,19 @@ def handle_attack_request(data, player, game_state):
             hit_roll = base_roll + int(hit_bonus)
         except ValueError:
             hit_roll = base_roll
+
+        # Traccia munizioni impiegate per armi a distanza (D&D 5e PHB p. 146)
+        w_lower = str(weapon_name).lower()
+        is_ranged_att = bool(data.get("is_ranged")) or any(k in w_lower for k in ["arco", "bow", "balestra", "crossbow", "dardo", "dart", "fionda", "sling", "distanza", "ranged"])
+        if is_ranged_att:
+            ammo_name = "Frecce"
+            if any(k in w_lower for k in ["balestra", "crossbow"]): ammo_name = "Quadrelli"
+            elif any(k in w_lower for k in ["fionda", "sling"]): ammo_name = "Proiettili da Fionda"
+            elif any(k in w_lower for k in ["dardo", "dart"]): ammo_name = "Dardi"
+            
+            if not hasattr(player, "expended_ammo") or not isinstance(player.expended_ammo, dict):
+                player.expended_ammo = {}
+            player.expended_ammo[ammo_name] = player.expended_ammo.get(ammo_name, 0) + 1
             
         crit_thresh = 20
         if "crit_threshold" in data:

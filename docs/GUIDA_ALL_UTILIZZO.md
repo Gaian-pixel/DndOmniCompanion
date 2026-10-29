@@ -29,10 +29,13 @@ Questa guida illustra passo dopo passo come avviare una sessione, configurare l'
    - [Sintonia con Oggetti Magici (Attunement `🔮`) e Ispirazione DM](#sintonia-con-oggetti-magici-attunement--e-ispirazione-dm)
    - [Economia del Turno: Esplorazione vs Combattimento](#economia-del-turno-esplorazione-vs-combattimento)
    - [Azioni in Combattimento, Incantesimi AoE e Upcasting](#azioni-in-combattimento-incantesimi-aoe-e-upcasting)
+   - [Targeting Tattico con Mirino, Fiancheggiamento (DMG p. 251) e Manovre RAW (Lotta & Spinta)](#targeting-tattico-con-mirino-fiancheggiamento-dmg-p-251-e-manovre-raw-lotta--spinta)
+   - [Spazio 3D, Quota & Elevazione, Cadute RAW (PHB p. 183) e Concentration Tethers](#spazio-3d-quota--elevazione-cadute-raw-phb-p-183-e-concentration-tethers)
    - [Reazioni RAW e Incantesimo Scudo (*Shield*)](#reazioni-raw-e-incantesimo-scudo-shield)
    - [Tratti Speciali: Evasione (Ladro/Monaco) e Attacco Furtivo](#tratti-speciali-evasione-ladromonaco-e-attacco-furtivo)
    - [Punti Ferita, Riposi e Tiri Salvezza contro la Morte](#punti-ferita-riposi-e-tiri-salvezza-contro-la-morte)
    - [Inventario, Ingombro, Scambi e Richieste al DM](#inventario-ingombro-scambi-e-richieste-al-dm)
+   - [Spoglie dei Mostri (Loot Drop DMG p. 133) e Recupero 50% Munizioni RAW (PHB p. 146)](#spoglie-dei-mostri-loot-drop-dmg-p-133-e-recupero-50-munizioni-raw-phb-p-146)
    - [Esportazione Scheda Personaggio (PDF Ufficiale D&D 5e e JSON)](#esportazione-scheda-personaggio-pdf-ufficiale-dd-5e-e-json)
    - [Macro Hotbar (Slot Rapidi 1–10)](#macro-hotbar-slot-rapidi-110)
 5. [Guida per il Dungeon Master (DM)](#5-guida-per-il-dungeon-master-dm)
@@ -45,6 +48,7 @@ Questa guida illustra passo dopo passo come avviare una sessione, configurare l'
    - [Nebbia di Guerra (FoW), Pennello Manuale, Line of Sight e Luci](#nebbia-di-guerra-fow-pennello-manuale-line-of-sight-e-luci)
    - [Taglie Creature (Dimensioni Token) e Livello Nascosto DM (GM Layer)](#taglie-creature-dimensioni-token-e-livello-nascosto-dm-gm-layer)
    - [Gestione del Combattimento e Bilanciatore Incontri (DMG p. 82)](#gestione-del-combattimento-e-bilanciatore-incontri-dmg-p-82)
+   - [Multi-Selezione Token ed Operazioni di Gruppo del DM](#multi-selezione-token-ed-operazioni-di-gruppo-del-dm)
    - [Bestiario SRD, Manuali PDF Offline e Generatori Procedurali](#bestiario-srd-manuali-pdf-offline-e-generatori-procedurali)
    - [Mondo, Calendario, Meteo, Viaggio, Negozi e Quest](#mondo-calendario-meteo-viaggio-negozi-e-quest)
    - [Handout (Documenti/Immagini) e Soundboard Audio](#handout-documentiimmagini-e-soundboard-audio)
@@ -463,6 +467,24 @@ D&D OmniCompanion gestisce nativamente la tridimensionalità dei combattimenti e
   * Puoi trasferire oggetti o monete direttamente a un altro giocatore connesso.
   * **Anti-Duplicazione**: Lo slot nell'inventario del mittente viene svuotato preventivamente prima dell'invio e della conferma da parte del destinatario, impedendo qualsiasi duplicazione accidentale di oggetti anche in condizioni di latenza di rete.
 
+### Spoglie dei Mostri (Loot Drop DMG p. 133) e Recupero 50% Munizioni RAW (PHB p. 146)
+D&D OmniCompanion automatizza l'economia post-combattimento secondo le regole autentiche della Guida del Dungeon Master e del Manuale del Giocatore:
+
+1. **Spoglie dei Mostri & Drop Bottino Dinamico (DMG p. 133)**:
+   * Alla morte di un mostro o PNG (`hp <= 0` o eliminazione durante lo scontro), il server genera automaticamente sulla mappa un contenitore di spoglie (`Spoglie di [Nome]`).
+   * **Monete Generate per Grado di Sfida (CR)**:
+     * **CR 0–4**: genera una borsa di monete contenente $3\text{d6}$ Monete d'Argento (MA) e $2\text{d6}$ Monete d'Oro (MO).
+     * **CR 5–10**: genera un tesoro di $4\text{d6} \times 10$ Monete d'Oro (MO).
+     * **CR 11+**: tesori epici con monete d'oro e platino.
+   * **Equipaggiamento Recuperabile**: tutti gli oggetti presenti nell'inventario del mostro (armi, armature, pozioni, pergamene) vengono inseriti nelle spoglie.
+   * **Raccolta Istantanea**: un personaggio posizionato sulle spoglie o che interagisce con esse riceve immediatamente le monete nel proprio portafoglio e gli oggetti nello zaino, con notifica e annuncio pubblico in chat.
+
+2. **Tracciamento e Recupero 50% Munizioni RAW (PHB p. 146)**:
+   * Nelle regole di D&D 5e, al termine di un combattimento un arciere o balestriere può impiegare 1 minuto per recuperare la metà (50%) di tutte le munizioni scagliate durante la battaglia.
+   * **Tracciamento Automatico**: ogni attacco a distanza con arco, balestra, fionda o dardi tiene traccia delle munizioni consumate nel turno.
+   * **Recupero Automatico a Fine Scontro**: quando il DM preme **`Termina Combattimento`**, il server calcola automaticamente $\lfloor \text{munizioni} / 2 \rfloor$ per ciascun eroe, le ripristina all'istante nello zaino e invia un report dettagliato in chat (es. `🏹 Legolas recupera 4x Frecce dal campo di battaglia!`).
+   * **Pulsante e Comando Rapido**: il giocatore può attivare il recupero in qualsiasi momento cliccando sul pulsante **`[ 🏹 Munizioni ]`** nella terza riga dei Controlli PG oppure digitando `/recupera_munizioni` (o `/ammo_recover`, `/munizioni`) in chat.
+
 ### Esportazione Scheda Personaggio (PDF Ufficiale D&D 5e e JSON)
 In fondo alla finestra della Scheda PG trovi il pulsante **`📥 Esporta Scheda...`**: cliccandolo si apre una finestra modale dedicata che ti permette di scegliere chiaramente tra due formati:
 * **📄 Scheda Ufficiale D&D 5e (PDF)**: richiede in input di selezionare il file PDF del modello vuoto ministeriale a 3 pagine (es. `dnd_blankcharactersheet_it.pdf`, non caricato su Git per ragioni di copyright e dimensioni) e compila direttamente la scheda. Include:
@@ -626,6 +648,19 @@ Nel tab **`Iniziativa & PG`** della sidebar destra del DM:
    * **Azioni di Tana (Iniziativa 20)**:
      * Per le creature con tana attiva (`has_lair_actions = True`), all'inizio di ogni round a **Iniziativa 20** il sistema annuncia l'Azione di Tana sia in chat che nel log DM, consentendo al Master di attivare gli effetti ambientali della tana.
    * **Resistenze Leggendarie (3/giorno)**: quando il boss fallisce un Tiro Salvezza, il DM può convertirlo all'istante in successo.
+
+### Multi-Selezione Token ed Operazioni di Gruppo del DM
+Per velocizzare la gestione di gruppi numerosi di mostri ed alleati sul campo di battaglia, OmniCompanion include un sistema completo di multi-selezione token per il Dungeon Master:
+
+1. **Selezione Multipla su Canvas e Lista**:
+   * **Dalla Lista Iniziativa & PG**: la lista delle creature supporta la selezione estesa nativa (selectmode=tk.EXTENDED). Puoi selezionare più entità tenendo premuto **Ctrl** (per selezioni multiple disgiunte) oppure **Shift** (per intervalli continui).
+   * **Dal Canvas della Mappa**: tieni premuto **Ctrl + Click Sinistro** su qualsiasi token della mappa per aggiungerlo o rimuoverlo istantaneamente dal gruppo selezionato.
+   * **Feedback Visivo sulla Mappa**: tutti i token facenti parte della multi-selezione attiva vengono evidenziati sul canvas con un distintivo **cerchio dorato tratteggiato** (#F59E0B).
+
+2. **Operazioni Massive a 1-Click**:
+   * **🎲 Iniziativa Gruppo**: nella sidebar destra compare il pulsante per tirare l'iniziativa simultaneamente solo per i mostri/token selezionati, aggiornando la sequenza dei turni in un colpo solo.
+   * **🩹 Modifica PV Gruppo**: apre una finestra di dialogo di massa per applicare danni o cure a tutti i token selezionati contemporaneamente (supporta sia modificatori relativi +10 o -5, sia impostazioni a valore assoluto).
+   * **🗑️ Elimina Gruppo**: rimuove con un solo click e finestra di conferma tutti i token selezionati dalla mappa e dalla lista partecipanti.
 
 ### Bestiario SRD, Compendio Split View e Generatori Procedurali
 * **Compendio & SRD Split View (`Strumenti -> Compendio & SRD` o `Libreria -> Compendio & Regole`)**:

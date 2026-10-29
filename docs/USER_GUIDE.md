@@ -28,10 +28,13 @@ This manual walks you step by step through starting a session, configuring the i
    - [Magic Item Attunement (Attunement `🔮`) & DM Inspiration](#magic-item-attunement-attunement--dm-inspiration)
    - [Turn Economy: Exploration vs. Combat](#turn-economy-exploration-vs-combat)
    - [Combat Actions, AoE Spells & Upcasting](#combat-actions-aoe-spells--upcasting)
+   - [Tactical Targeting Reticle, Flanking (DMG p. 251) & RAW Maneuvers (Grapple & Shove)](#tactical-targeting-reticle-flanking-dmg-p-251--raw-maneuvers-grapple--shove)
+   - [3D Combat Space, Altitude & Elevation, RAW Falling (PHB p. 183) & Concentration Tethers](#3d-combat-space-altitude--elevation-raw-falling-phb-p-183--concentration-tethers)
    - [RAW Reactions & Shield Spell Prompt](#raw-reactions--shield-spell-prompt)
    - [Special Traits: Evasion (Rogue/Monk) & Sneak Attack](#special-traits-evasion-roguemonk--sneak-attack)
    - [Hit Points, Rests & Death Saving Throws](#hit-points-rests--death-saving-throws)
    - [Inventory, Encumbrance, Trading & DM Approval](#inventory-encumbrance-trading--dm-approval)
+   - [Monster Corpse Loot Drops (DMG p. 133) & RAW 50% Ammunition Recovery (PHB p. 146)](#monster-corpse-loot-drops-dmg-p-133--raw-50-ammunition-recovery-phb-p-146)
    - [Character Sheet Export (Official D&D 5e PDF & JSON)](#character-sheet-export-official-dd-5e-pdf--json)
    - [Macro Hotbar (Quick Slots 1–10)](#macro-hotbar-quick-slots-110)
 5. [Dungeon Master (DM) Guide](#5-dungeon-master-dm-guide)
@@ -44,6 +47,7 @@ This manual walks you step by step through starting a session, configuring the i
    - [Fog of War (FoW), Manual Brush, Line of Sight & Lighting](#fog-of-war-fow-manual-brush-line-of-sight--lighting)
    - [Creature Token Sizes & DM Hidden Layer (GM Layer)](#creature-token-sizes--dm-hidden-layer-gm-layer)
    - [Combat Management & Live Encounter Balancer (DMG p. 82)](#combat-management--live-encounter-balancer-dmg-p-82)
+   - [DM Token Multi-Selection & Group Batch Operations](#dm-token-multi-selection--group-batch-operations)
    - [SRD Bestiary, Offline PDF Rulebooks & Procedural Generators](#srd-bestiary-offline-pdf-rulebooks--procedural-generators)
    - [World, Calendar, Weather, Travel, Shops & Quests](#world-calendar-weather-travel-shops--quests)
    - [Handouts (Documents/Images) & Audio Soundboard](#handouts-documentsimages--audio-soundboard)
@@ -462,6 +466,24 @@ D&D OmniCompanion natively supports three-dimensional tactical aerial combat and
   * Transfer items or gold pieces directly to another connected party member.
   * **Anti-Duplication**: The item slot in the sender's inventory is cleared prior to transmitting and confirming receipt by the recipient, preventing accidental item duplication across asynchronous network packets.
 
+### Monster Corpse Loot Drops (DMG p. 133) & RAW 50% Ammunition Recovery (PHB p. 146)
+D&D OmniCompanion automates post-combat economics and battlefield scavenging in strict compliance with the Dungeon Master's Guide and Player's Handbook:
+
+1. **Monster Corpse Loot Drops & Dynamic Treasure (DMG p. 133)**:
+   * When a monster or NPC dies (`hp <= 0` or eliminated during combat), the server automatically spawns an interactive corpse container on the map (`Spoglie di [Name]`).
+   * **Challenge Rating (CR) Scaled Coins**:
+     * **CR 0–4**: generates a coin purse containing $3\text{d6}$ Silver Pieces (SP) and $2\text{d6}$ Gold Pieces (GP).
+     * **CR 5–10**: generates a rich hoard of $4\text{d6} \times 10$ Gold Pieces (GP).
+     * **CR 11+**: generates epic hordes with gold and platinum.
+   * **Recoverable Equipment**: all inventory items belonging to the fallen monster (weapons, armor, potions, scrolls) are bundled inside the corpse container.
+   * **Instant Collection**: any player moving onto the corpse tile can collect the loot; coins are immediately credited to the player's wallet and items are placed into available backpack slots with a public announcement in chat.
+
+2. **Tracked Expended Ammunition & RAW 50% Recovery (PHB p. 146)**:
+   * In D&D 5e RAW, characters spend 1 minute searching the battlefield to recover half (50%) of all ammunition expended during combat.
+   * **Automatic Tracking**: every ranged attack with bows, crossbows, slings, or darts tracks ammunition usage in `player.expended_ammo`.
+   * **Automatic Recovery on Combat End**: when the DM clicks **`End Combat`**, the server automatically computes $\lfloor \text{ammo} / 2 \rfloor$ for each character, restores them immediately into the backpack, and broadcasts a recovery report in chat (e.g. `🏹 Legolas recovers 4x Arrows from the battlefield!`).
+   * **Quick HUD Button & Chat Command**: players can also trigger recovery manually at any time by clicking **`[ 🏹 Munizioni ]`** in Hero Controls or typing `/ammo_recover` (or `/recupera_munizioni`, `/munizioni`) in chat.
+
 ### Character Sheet Export (Official D&D 5e PDF & JSON)
 At the bottom of the Character Sheet window, click **`📥 Esporta Scheda...`**: a dedicated modal selection window opens, allowing you to choose between two formats:
 * **📄 Official D&D 5e Character Sheet (PDF)**: prompts you to select your blank 3-page D&D 5e PDF template (e.g., `dnd_blankcharactersheet_it.pdf`, not bundled in Git for size and licensing reasons) and compiles the sheet directly. Includes:
@@ -625,6 +647,19 @@ In the DM **`Initiative & Characters`** tab:
    * **Lair Actions (Initiative 20)**:
      * For bosses with an active lair (`has_lair_actions = True`), at the top of each combat round at **Initiative count 20**, an automated Lair Action alert broadcasts to chat and DM logs, allowing the DM to trigger environmental lair effects.
    * **Legendary Resistances (3/day)**: when the boss fails a saving throw, the DM can immediately turn the failure into a success.
+
+### DM Token Multi-Selection & Group Batch Operations
+To accelerate managing large swarms of monsters and allies on the battlemap, OmniCompanion provides a comprehensive token multi-selection system for the Dungeon Master:
+
+1. **Multi-Selection on Canvas and List**:
+   * **From the `Initiative & Party` Sidebar List**: the list supports extended selection (`selectmode=tk.EXTENDED`). Hold **`Ctrl`** to toggle non-contiguous selections or **`Shift`** for contiguous ranges.
+   * **From the Battlemap Canvas**: hold **`Ctrl + Left Click`** on any token across the canvas to instantly add or remove it from the selected group.
+   * **Visual Canvas Feedback**: all tokens currently part of the multi-selection are rendered with a distinct **gold dashed ring** (`#F59E0B`).
+
+2. **1-Click Batch Operations**:
+   * **`🎲 Group Initiative`**: sidebar button rolls initiative simultaneously for all selected tokens, updating the turn order in a single click.
+   * **`🩹 Group Modify HP`**: opens a batch health dialog to apply damage or healing to all selected tokens at once (supports relative offsets like `+10` or `-5` as well as absolute values).
+   * **`🗑️ Delete Group`**: removes all selected tokens from the map and initiative tracker in one click with confirmation.
 
 ### SRD Bestiary, Compendium Split View & Procedural Generators
 * **Compendium & SRD Split View (`Tools -> Compendium & SRD` or `Library -> Compendium & Rules`)**:

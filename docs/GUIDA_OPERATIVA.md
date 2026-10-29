@@ -313,6 +313,12 @@ Il server implementa un'architettura granulare per arbitrare il livello di autom
 6. **Meccaniche Boss e Azioni Leggendarie**:
    * **Resistenze Leggendarie**: I mostri dotati di resistenze leggendarie (es. 3/giorno) possono trasformare un Tiro Salvezza fallito in un successo con 1 click.
    * **Azioni Leggendarie**: Spendi punti azione leggendaria fuori dal turno del boss, con reset automatico all'inizio di ogni round.
+7. **Multi-Selezione Token ed Operazioni di Gruppo del DM**:
+   * **Supporto Esteso Tkinter (`selectmode=tk.EXTENDED`)**: La listbox del DM supporta selezioni multiple combinate tramite `Ctrl+Click` o `Shift+Click`.
+   * **Selezione su Canvas**: L'evento `_on_canvas_click` su `MapCanvas` intercetta `Ctrl + Click Sinistro`, aggiungendo o rimuovendo il token dal set `self.selected_tokens`. Sul canvas viene renderizzato un anello dorato tratteggiato (`#F59E0B`) attorno a tutte le pedine selezionate.
+   * **Iniziativa di Gruppo (`roll_group_initiative`)**: Tira simultaneamente l'iniziativa per tutte le entità selezionate con un click sul pulsante `[ 🎲 Iniziativa Gruppo ]`.
+   * **Modifica PV Bulk (`open_modify_hp_dialog`)**: Applica danni o cure di gruppo specificando un importo relativo (`+10`, `-5`) o assoluto a tutti i token selezionati.
+   * **Eliminazione di Gruppo (`delete_selected_group`)**: Rimuove contestualmente tutti i token selezionati con popup di conferma.
 
 ### Bestiario Mostri, Compendio Split View e Indicizzatore PDF Offline
 * **Compendio & SRD Split View (`server/compendium_ui.py`)**:
@@ -709,8 +715,11 @@ D&D OmniCompanion include un'infrastruttura completa di puntamento, calcolo geom
 Il progetto include una suite consolidata nella cartella `tests/` con **378 test automatizzati** che passano al 100% con 0 errori, coprendo unit test headless, simulazione fisica dei dadi 3D, combattimento tattico, spazio 3D ed elevazione, flusso di login rapido, compagni/famigli, viaggi e accampamento, smoke test della GUI, architettura mono-finestra e simulazioni di campagna complete:
 
 ```powershell
-# 1. Esegui l'intera suite di unit test (378 test con 0 fallimenti)
+# 1. Esegui l'intera suite di unit test (384 test con 0 fallimenti)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
+
+# 2. Esegui la suite per spoglie mostri, recupero 50% munizioni e multi-selezione
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_table_and_loot_automation.py
 
 # 2. Esegui la suite specifica per Quota 3D, Cadute RAW 5e e Concentration Tethers
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_elevation_and_concentration.py
