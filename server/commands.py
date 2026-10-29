@@ -5,6 +5,11 @@ from server.rules.inventory import *
 from server.rules.character import *
 from server.rules.chat import *
 from server.rules.audio import handle_audio_track_request
+from server.rules.journal import (
+    handle_journal_update_request,
+    handle_new_journal_session_request,
+    handle_conclude_journal_session_request
+)
 
 command_handlers = {
     "DRAW_REQUEST": handle_draw_request,
@@ -68,6 +73,9 @@ command_handlers = {
     "SHOVE_REQUEST": handle_shove_request,
     "GRAPPLE_REQUEST": handle_grapple_request,
     "SET_ELEVATION_REQUEST": handle_set_elevation_request,
+    "JOURNAL_UPDATE_REQUEST": handle_journal_update_request,
+    "NEW_JOURNAL_SESSION_REQUEST": handle_new_journal_session_request,
+    "CONCLUDE_JOURNAL_SESSION_REQUEST": handle_conclude_journal_session_request,
 }
 
 

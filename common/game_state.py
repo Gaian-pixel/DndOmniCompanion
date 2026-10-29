@@ -280,6 +280,8 @@ class GameState:
         self.camp_has_campfire = True
         self.active_campaign = None
         self.campaign_starter_kit = []
+        from common.campaign_journal import CampaignJournal
+        self.campaign_journal = CampaignJournal()
         self.automation_mode = "full" # "manual" | "hybrid" | "full"
         self.automation_settings = {
             "auto_apply_damage": True,
@@ -372,6 +374,32 @@ class GameState:
         """Notifica alla GUI che il suo stato principale deve essere ridisegnato."""
         self.gui_queue.put({"type": "UPDATE_STATE"})
 
+    def record_journal_event(self, category: str, title: str, description: str = "", actor: str = "", data: dict = None):
+        with self.lock:
+            if not hasattr(self, "campaign_journal") or self.campaign_journal is None:
+                from common.campaign_journal import CampaignJournal
+                camp_name = getattr(self.active_campaign, "name", "Campagna") if getattr(self, "active_campaign", None) else "Campagna"
+                self.campaign_journal = CampaignJournal(campaign_name=camp_name)
+
+            active_sess = self.campaign_journal.get_active_session()
+            if not active_sess.weather:
+                active_sess.weather = getattr(self, "weather", "Sereno")
+            if not active_sess.location and getattr(self, "current_map", None):
+                active_sess.location = self.current_map.get("name", "Mappa Tattica")
+            if not active_sess.game_date:
+                active_sess.game_date = {
+                    "year": getattr(self, "time_year", 1492),
+                    "month": getattr(self, "time_month", 1),
+                    "day": getattr(self, "time_day", 1),
+                    "hour": getattr(self, "time_hour", 8),
+                    "minute": getattr(self, "time_minute", 0)
+                }
+
+            evt = self.campaign_journal.record_event(category, title, description, actor, data)
+            if getattr(self, "active_campaign", None):
+                self.active_campaign.journal = self.campaign_journal
+            return evt
+
     def start_combat(self, participant_names=None):
         with self.lock:
             self.combat_active = True
@@ -394,6 +422,13 @@ class GameState:
             if active:
                 active.movement_spent_this_turn = 0
                 active.has_acted_this_turn = False
+
+            try:
+                enemies = [p.name for p in self.players if getattr(p, 'in_combat', True) and not getattr(p, 'is_party_member', False)]
+                en_str = ", ".join(enemies) if enemies else "forze ostili"
+                self.record_journal_event("combat", "Inizio Combattimento", f"Il gruppo ingaggia battaglia contro: {en_str}.", actor="Party")
+            except Exception:
+                pass
         self._trigger_gui_update()
 
     def end_combat(self):
@@ -412,6 +447,10 @@ class GameState:
                 from server.rules.combat import recover_expended_ammunition
                 for p in list(self.players):
                     recover_expended_ammunition(p, self)
+            except Exception:
+                pass
+            try:
+                self.record_journal_event("combat", "Fine Combattimento", f"Scontro risolto dopo {self.round_number} round.", actor="Party")
             except Exception:
                 pass
         self._trigger_gui_update()
@@ -680,7 +719,8 @@ class GameState:
                 "automation_mode": getattr(self, "automation_mode", "hybrid"),
                 "automation_settings": getattr(self, "automation_settings", {}),
                 "pending_damages": getattr(self, "pending_damages", {}) if is_dm else {},
-                "pending_doors": getattr(self, "pending_doors", {}) if is_dm else {}
+                "pending_doors": getattr(self, "pending_doors", {}) if is_dm else {},
+                "campaign_journal": self.campaign_journal.to_dict(include_dm_notes=True) if is_dm and hasattr(self, "campaign_journal") and self.campaign_journal else (self.campaign_journal.sanitize_for_players() if hasattr(self, "campaign_journal") and self.campaign_journal else None)
             }
 
     def move_player(self, name, new_pos):
@@ -756,8 +796,16 @@ class GameState:
                 try:
                     from common.campaign import Campaign
                     self.active_campaign = Campaign.load(camp_folder)
+                    if hasattr(self.active_campaign, "journal") and self.active_campaign.journal:
+                        self.campaign_journal = self.active_campaign.journal
                 except Exception as e:
                     print(f"[GAME_STATE] Errore ripristino campagna: {e}")
+
+            if "campaign_journal" in state and state["campaign_journal"]:
+                from common.campaign_journal import CampaignJournal
+                self.campaign_journal = CampaignJournal.from_dict(state["campaign_journal"])
+                if getattr(self, "active_campaign", None):
+                    self.active_campaign.journal = self.campaign_journal
             
             loaded_players = []
             for p_data in state.get("players", []):

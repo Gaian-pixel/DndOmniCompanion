@@ -145,6 +145,7 @@ class ClientGUI:
         library_menu.add_command(label=_t("menu_srd_compendium"), command=self.open_srd_compendium)
         library_menu.add_separator()
         library_menu.add_command(label=_t("menu_quest_log"), command=self.open_quest_log_dialog)
+        library_menu.add_command(label=_t("menu_campaign_journal", default="📖 Diario di Campagna..."), command=self.open_player_journal_dialog)
         menubar.add_cascade(label=_t("menu_library"), menu=library_menu)
 
         # Menu Visualizza / View
@@ -301,6 +302,10 @@ class ClientGUI:
         self.cmd_palette_btn = ttk.Button(left_panel, text="🔍", width=3, style="Tool.TButton", command=self.open_command_palette)
         self.cmd_palette_btn.pack(pady=2)
         ToolTip(self.cmd_palette_btn, lambda: _t("tool_command_palette"))
+
+        self.journal_btn = ttk.Button(left_panel, text="📓", width=3, style="Tool.TButton", command=self.open_player_journal_dialog)
+        self.journal_btn.pack(pady=2)
+        ToolTip(self.journal_btn, lambda: _t("menu_campaign_journal", default="📖 Diario Narrativo di Campagna"))
 
         # Pulsante rapido Schermo Intero e Dadi 3D in fondo alla barra
         self.btn_fullscreen = ttk.Button(left_panel, text="⛶", width=3, style="Tool.TButton", command=self.toggle_fullscreen)
@@ -3103,6 +3108,13 @@ class ClientGUI:
         self.update_player_listbox()
         self.redraw_map_and_players()
 
+        j_data = data.get("campaign_journal")
+        if j_data:
+            from common.campaign_journal import CampaignJournal
+            self.campaign_journal = CampaignJournal.from_dict(j_data)
+            if hasattr(self, "journal_dialog") and self.journal_dialog and self.journal_dialog.winfo_exists():
+                self.journal_dialog.update_journal(self.campaign_journal)
+
     def show_turn_banner(self):
         banner = tk.Toplevel(self.master)
         banner.overrideredirect(True)
@@ -3384,7 +3396,8 @@ class ClientGUI:
             "HANDOUT_BROADCAST": self.handle_handout_broadcast,
             "HANDOUT_SHARE_BROADCAST": self.handle_handout_broadcast,
             "QUEST_LIST_UPDATE": self.handle_quest_list_update,
-            "AUTOMATION_SETTINGS_BROADCAST": self.handle_automation_settings_broadcast
+            "AUTOMATION_SETTINGS_BROADCAST": self.handle_automation_settings_broadcast,
+            "JOURNAL_SYNC": self.handle_journal_sync
         }
 
         handler=handler_map.get(msg_type)
@@ -3548,6 +3561,38 @@ class ClientGUI:
         if not quests and hasattr(self, "server") and getattr(self.server, "game_state", None):
             quests = getattr(self.server.game_state, "quests", [])
         QuestLogDialog(self.master, {"quests": quests}, is_dm=False, network_or_server=getattr(self, "network", None))
+
+    def handle_journal_sync(self, data):
+        """Riceve l'aggiornamento in tempo reale del Diario di Campagna dal Dungeon Master."""
+        j_data = data.get("journal", {})
+        if j_data:
+            from common.campaign_journal import CampaignJournal
+            self.campaign_journal = CampaignJournal.from_dict(j_data)
+            if hasattr(self, "journal_dialog") and self.journal_dialog and self.journal_dialog.winfo_exists():
+                self.journal_dialog.update_journal(self.campaign_journal)
+            self.show_toast(
+                _t("toast_journal_synced", default="Il Diario di Campagna è stato sincronizzato dal DM!"),
+                title=_t("toast_journal_title", default="📖 Diario di Campagna"),
+                toast_type="gold"
+            )
+
+    def open_player_journal_dialog(self):
+        """Apre il Diario Narrativo di Sessione per consultare le cronache della campagna e annotare memorie personali."""
+        from client.player_journal_dialog import PlayerJournalDialog
+        journal = getattr(self, "campaign_journal", None)
+        if not journal and hasattr(self, "server") and getattr(self.server, "game_state", None):
+            journal = getattr(self.server.game_state, "campaign_journal", None)
+        if not journal:
+            from common.campaign_journal import CampaignJournal
+            journal = CampaignJournal()
+            self.campaign_journal = journal
+
+        char_name = self.active_character.name if self.active_character else getattr(self, "name", "Avventuriero")
+        if hasattr(self, "journal_dialog") and self.journal_dialog and self.journal_dialog.winfo_exists():
+            self.journal_dialog.lift()
+            self.journal_dialog.focus_force()
+            return
+        self.journal_dialog = PlayerJournalDialog(self.master, journal, character_name=char_name)
 
     def handle_opportunity_alert(self, data):
         enemy_name = data.get("enemy_name", "Un nemico")

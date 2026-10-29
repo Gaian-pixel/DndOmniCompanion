@@ -143,6 +143,11 @@ def handle_take_loot_request(data, player, game_state):
             send_message(player.conn, make_receive_item(loot_entry))
             
         game_state.log_dm_message(f'[Loot] {player.name} ha raccolto {found["qty"]}x {found["item"]}.')
+        if hasattr(game_state, "record_journal_event"):
+            try:
+                game_state.record_journal_event("loot", "Raccolta Bottino", f"{player.name} ha raccolto {found['qty']}x {found['item']}.", actor=player.name)
+            except Exception:
+                pass
         game_state._trigger_gui_update()
         broadcast(game_state, make_game_state(game_state.get_state_dict()))
 

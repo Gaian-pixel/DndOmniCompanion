@@ -172,6 +172,7 @@ class DM_GUI:
         file_menu.add_separator()
         file_menu.add_command(label="🧭 Flusso Live della Campagna (Ctrl+N)", command=self.open_live_flow_controller)
         file_menu.add_command(label="📜 Cronistoria & Recap Sessione...", command=self.open_session_chronicle_dialog)
+        file_menu.add_command(label=_t("menu_campaign_journal", default="📖 Diario Continuativo di Campagna..."), command=self.open_campaign_journal_dialog)
         file_menu.add_separator()
         file_menu.add_command(label=_t("menu_load_map"), command=self.load_map_from_file)
         file_menu.add_separator()
@@ -816,6 +817,9 @@ class DM_GUI:
         self.btn_live_flow.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
         self.btn_chronicle = ttk.Button(flow_btn_box, text="📜 Cronistoria", command=self.open_session_chronicle_dialog, style='Info.TButton')
         self.btn_chronicle.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
+        
+        self.btn_journal = ttk.Button(camp_card, text=_t("btn_campaign_journal", default="📖 Diario di Campagna"), command=self.open_campaign_journal_dialog, style='Gold.TButton')
+        self.btn_journal.pack(fill=tk.X, pady=(0, 4))
         
         self.btn_switch_scene = ttk.Button(camp_card, text=_t("btn_switch_scene"), command=self.switch_campaign_scene_dialog, style='Dark.TButton')
         self.btn_switch_scene.pack(fill=tk.X)
@@ -2527,6 +2531,10 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         from server.dm_live_flow import SessionChronicleDialog
         active_camp = getattr(self.server.game_state, 'active_campaign', None)
         SessionChronicleDialog(self, self.session_ledger, campaign=active_camp)
+
+    def open_campaign_journal_dialog(self):
+        from server.dm_journal_dialog import DMJournalDialog
+        DMJournalDialog(self, self.server.game_state)
 
     def deploy_campaign_encounter_dialog(self):
         active_camp = getattr(self.server.game_state, 'active_campaign', None)

@@ -339,6 +339,14 @@ The server features a granular architecture for balancing 5e automation with hum
 * **Shop & Economy System**: Open merchant stores where players can browse goods, check inventory weight, and purchase gear deducted directly from their gold pieces.
 * **Quest Log**: Track Active, Completed, and Failed quests with milestone rewards.
 
+### Cumulative Multi-Session Campaign Adventure Journal
+* **Persistent Memory**: access from `File -> 📖 Campaign Adventure Journal...` or via `[ 📖 Journal ]` on the campaign card. Preserves sequential session history (Session 1, 2, 3...) bound to the active campaign.
+* **Automated Event Tracking**: logs combats, kills, 0 HP drops, loot, locked doors, disarmed traps, and rests automatically in real time.
+* **Atmospheric RPG Narrative Prose**: synthesizes raw logs into clear, chaptered prose (Exploration, Hazards, Battles, Spoils, Camp) with no forced poetry or dry stats.
+* **DM Private Notes (Anti-Metagame)**: confidential tab for secret DM notes, strictly excluded when broadcasting to players.
+* **Party Synchronization**: single-click `📢 Share with Players` distributes the updated journal to all connected clients.
+* **Triple Export**: HTML dark parchment web page with print stylesheets, Markdown document (.md), and Discord/WhatsApp clipboard recap.
+
 ### Party Management & Loot Splitting
 * **Party vs NPC Separation**: In out-of-combat mode, the DM listbox separates players into `--- PARTY ---` and `--- NPC ---`. Right-click any entity to toggle party status.
 * **Loot Splitter**: Click **Dividi Denaro** and enter an amount of Gold Pieces (GP). The server divides the gold evenly among all active party members and updates their character sheets automatically.
@@ -458,6 +466,12 @@ The Player Action Economy panel automatically adapts to whether combat is active
 * 10 customizable quick slots at the bottom of the player panel.
 * **Right-Click Slot**: Configure macro command (e.g., `/roll 1d20+5 Spada Lunga`, `/ds`, `/tsmorte`).
 * **Left-Click Slot**: Instantly executes the macro in chat.
+
+### Campaign Adventure Journal & Hero Notes
+* Access via `Library -> 📖 Campaign Adventure Journal...` or the `[ 📓 ]` button on the left vertical toolbar.
+* Browse the sequential chronicle of all played campaign sessions with the DM's narrative prose and milestones.
+* Tab `✏️ Personal Memories`: local character journal for each session with persistent disk storage (`[ 💾 Save Memories ]`).
+* One-click export to HTML parchment, Markdown, or Discord/WhatsApp clipboard recap.
 
 ### Familiars, Beast Companions & Summoned Creatures (5e RAW)
 Accessible directly via the `🐾` button on the VTT **Hero Summary Card** for all players:

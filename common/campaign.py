@@ -67,6 +67,10 @@ class Campaign:
         self.flow_script: str = ""
         self.flow_graph: Dict[str, Any] = {}
 
+        # Diario Continuativo di Campagna (Multi-Session Journal)
+        from common.campaign_journal import CampaignJournal
+        self.journal = CampaignJournal(campaign_name=self.name)
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "name": self.name,
@@ -86,6 +90,7 @@ class Campaign:
             "handouts": self.handouts,
             "flow_script": self.flow_script,
             "flow_graph": self.flow_graph,
+            "journal": self.journal.to_dict() if hasattr(self.journal, "to_dict") else self.journal,
         }
 
     @classmethod
@@ -107,6 +112,11 @@ class Campaign:
         c.handouts = data.get("handouts", [])
         c.flow_script = data.get("flow_script", "")
         c.flow_graph = data.get("flow_graph", {})
+        from common.campaign_journal import CampaignJournal
+        if data.get("journal"):
+            c.journal = CampaignJournal.from_dict(data["journal"])
+        else:
+            c.journal = CampaignJournal(campaign_name=c.name)
         return c
 
     def save(self, target_folder: Optional[str] = None) -> str:

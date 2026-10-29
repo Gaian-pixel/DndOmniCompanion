@@ -508,6 +508,23 @@ def make_set_elevation_request(elevation: int, target_name: Optional[str] = None
         d["target_name"] = str(target_name)
     return {"type": "SET_ELEVATION_REQUEST", "data": d}
 
+def make_journal_sync(journal_dict: Dict[str, Any]) -> ProtocolMessage:
+    return {"type": "JOURNAL_SYNC", "data": {"journal": journal_dict}}
+
+def make_journal_update_request(session_index: int, title: str, prose: str, dm_notes: str = "") -> ProtocolMessage:
+    return {"type": "JOURNAL_UPDATE_REQUEST", "data": {
+        "session_index": session_index,
+        "title": title,
+        "prose": prose,
+        "dm_notes": dm_notes
+    }}
+
+def make_new_journal_session_request(title: str = "") -> ProtocolMessage:
+    return {"type": "NEW_JOURNAL_SESSION_REQUEST", "data": {"title": title}}
+
+def make_conclude_journal_session_request() -> ProtocolMessage:
+    return {"type": "CONCLUDE_JOURNAL_SESSION_REQUEST", "data": {}}
+
 
 
 

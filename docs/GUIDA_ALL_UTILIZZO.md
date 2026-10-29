@@ -38,9 +38,11 @@ Questa guida illustra passo dopo passo come avviare una sessione, configurare l'
    - [Spoglie dei Mostri (Loot Drop DMG p. 133) e Recupero 50% Munizioni RAW (PHB p. 146)](#spoglie-dei-mostri-loot-drop-dmg-p-133-e-recupero-50-munizioni-raw-phb-p-146)
    - [Esportazione Scheda Personaggio (PDF Ufficiale D&D 5e e JSON)](#esportazione-scheda-personaggio-pdf-ufficiale-dd-5e-e-json)
    - [Macro Hotbar (Slot Rapidi 1–10)](#macro-hotbar-slot-rapidi-110)
+   - [Diario Narrativo di Campagna e Memorie Personali (Player)](#diario-narrativo-di-campagna-e-memorie-personali-player)
 5. [Guida per il Dungeon Master (DM)](#5-guida-per-il-dungeon-master-dm)
    - [Stili di Gestione della Campagna (DM Agency vs Full Automation) e Barra Decisioni](#stili-di-gestione-della-campagna-dm-agency-vs-full-automation-e-barra-decisioni)
    - [Gestione Campagne, Atti, Scene e Starter Pack](#gestione-campagne-atti-scene-e-starter-pack)
+   - [Diario Narrativo di Sessione Continuativo (Campaign Adventure Journal)](#diario-narrativo-di-sessione-continuativo-campaign-adventure-journal)
    - [Gestione Mappe, Editor Mappe, Muri, Trappole e Portali](#gestione-mappe-editor-mappe-muri-trappole-e-portali)
    - [Gestione Porte, Serrature e Meccanica di Scasso RAW 5e](#gestione-porte-serrature-e-meccanica-di-scasso-raw-5e)
    - [Spille di Stanza del Dungeon (Room Pins) e Narrazione al Tavolo](#spille-di-stanza-del-dungeon-room-pins-e-narrazione-al-tavolo)
@@ -498,6 +500,14 @@ In fondo alla finestra del Giocatore è presente una barra con **10 pulsanti num
 * **Click Destro su uno slot**: assegna un nome e un comando o tiro rapido (es. `Spada Lunga` $\rightarrow$ `/roll 1d20+6`, oppure `/ds`).
 * **Click Sinistro su uno slot**: esegue immediatamente la macro. Le macro vengono salvate nel profilo del personaggio.
 
+### Diario Narrativo di Campagna e Memorie Personali (Player)
+I giocatori possono consultare in qualsiasi momento la storia viva dell'avventura dal menu **`Libreria -> 📖 Diario Narrativo di Campagna...`** o dal pulsante rapido **`[ 📓 ]`** posto nella barra verticale degli strumenti di sinistra:
+* **Indice Storico Multi-Sessione**: sfoglia l'elenco cronologico di tutte le sessioni giocate (Sessione 1, 2, 3...) con data reale, calendario di Harptos, meteo e ambientazione geografica.
+* **Cronaca Narrativa Ufficiale**: leggi il resoconto in prosa pura approvato dal Dungeon Master, senza statistiche aride o gergo di sistema.
+* **Memorie Personali dell'Eroe (Tab `✏️ Memorie Personali`)**: un blocco note privato legato al proprio personaggio in cui annotare pensieri, sospetti, indizi o promemoria specifici per quella sessione, salvabili localmente con il pulsante `[ 💾 Salva Memorie ]`.
+* **Registro Eventi Chiave**: linea temporale degli eventi salienti (combattimenti, trappole disinnescate, tesori raccolti, riposi).
+* **Esportazione a Portata di Click**: esporta il diario in pergamena dark fantasy HTML (`.html`), documento Markdown (`.md`) o copia negli appunti un recap pronto per essere incollato su Discord o WhatsApp.
+
 ---
 
 ## 5. Guida per il Dungeon Master (DM)
@@ -545,6 +555,29 @@ Dal menu **`File`** e **`Strumenti`** della plancia DM:
 * **Pulsante `🗺️ Cambia Scena`** (nel tab `Iniziativa & PG`): carica istantaneamente la mappa della scena selezionata e la trasmette a tutti i giocatori.
 * **Pulsante `⚔️ Schiera Incontro`**: posiziona con un solo click tutti i mostri di un incontro preparato sulla mappa attiva.
 * **Starter Pack Campagna (`Strumenti -> Starter Pack Campagna`)**: configura la lista di oggetti iniziali (es. Razioni, Torcia, Pozione di Guarigione) che ogni nuovo personaggio riceverà automaticamente al suo primo ingresso nella campagna.
+
+### Diario Narrativo di Sessione Continuativo (Campaign Adventure Journal)
+Il **Diario Narrativo di Campagna** è il cuore della memoria dell'avventura: non un semplice file di log disconnesso per singola giocata, ma un **libro continuativo multi-sessione** legato alla campagna, accessibile da **`File -> 📖 Diario Narrativo di Campagna...`** o dal pulsante **`[ 📖 Diario ]`** nella scheda della campagna attiva:
+* **Architettura Continuativa**: ogni sessione viene registrata in sequenza (Sessione 1, Sessione 2, Sessione 3...) preservando la storia completa del gruppo dall'inizio al termine della campagna.
+* **Cattura Automatica degli Eventi**: il motore di gioco traccia automaticamente in background tutti gli avvenimenti salienti:
+  - Inizi e conclusioni dei combattimenti con elenco nemici.
+  - Mostri sconfitti e personaggi che scendono a 0 PF (con attacchi mortali o salvataggi).
+  - Serrature scassinate, porte forzate e trappole individuate/disinnescate.
+  - Bottini e tesori raccolti dai cadaveri o forzieri.
+  - Riposi Brevi e Riposi Lunghi con ripristino risorse.
+  - Data reale e temporale (Calendario Harptos), meteo e posizione geografica.
+* **Sintesi Narrativa RPG Immersiva**: con il pulsante **`↺ Rigenera Sintesi Narrativa`**, il sistema analizza tutti gli eventi della sessione e li fonde in una prosa fluida e pulita suddivisa per sezioni tematiche (*Esplorazione & Percorso*, *Pericoli & Trappole*, *Fatti d'Arme & Combattimenti*, *Spoglie & Tesori*, *Bivacco & Riposo*). Non una cantata bardica in rima né un freddo resoconto statistico, ma una cronaca autentica di gioco di ruolo.
+* **Editing e Note Riservate del DM (Anti-Metagame)**:
+  - Il DM può modificare liberamente il titolo e il testo della prosa nella scheda principale.
+  - Nella scheda **`🔒 Note Private DM`**, il Master può inserire segreti di trama, retroscena su PNG e piani futuri. Queste note sono protette e **non vengono mai inviate ai giocatori**.
+* **Sincronizzazione in Tempo Reale (`📢 Trasmetti ai Giocatori`)**: con un solo click, il DM trasmette l'intera cronaca aggiornata a tutti i giocatori connessi, che ricevono una notifica dorata e visualizzano il diario nei propri client.
+* **Nuova Sessione e Archiviazione**:
+  - `[ ➕ Nuova Sessione ]`: archivia la sessione corrente come conclusa e apre la successiva, sincronizzando il meteo e la data.
+  - `[ 🏁 Concludi Sessione ]`: conclude la sessione attiva generando la cronaca definitiva.
+* **Esportazione Tripla**:
+  1. **Pergamena Medievale HTML (`📜 Pergamena HTML`)**: genera una pagina web dark fantasy stile pergamena miniata, con layout a due colonne, stili tipografici medievali e supporto nativo per la stampa.
+  2. **Documento Markdown (`📑 Esporta Markdown`)**: salva l'intero diario o la singola sessione per Obsidian, Notion o GitHub.
+  3. **Recap per Discord/WhatsApp (`📋 Copia per Discord`)**: formatta la cronaca con blocchi citazione ed emoji per essere incollata istantaneamente nella chat del gruppo.
 
 ### Gestione Mappe, Editor Mappe, Muri, Trappole e Portali
 * **Editor Mappe (`Strumenti -> Editor Mappe`)**:

@@ -348,6 +348,11 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
                     if not hasattr(target_player, "conditions"): target_player.conditions = []
                     target_player.conditions.append("Morto")
                     _spawn_corpse_loot(target_player, game_state)
+                    if game_state and hasattr(game_state, "record_journal_event"):
+                        try:
+                            game_state.record_journal_event("combat", "Nemico Abbattuto", f"{target_player.name} è stato abbattuto.", actor=target_player.name)
+                        except Exception:
+                            pass
             else:
                 msg = f"💀 {target_player.name} scende a 0 HP! (In attesa di verdetto DM: sconfitto/ucciso/arreso)"
                 if game_state:
@@ -362,12 +367,22 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
                     if game_state:
                         broadcast(game_state, make_chat_broadcast("Sistema", msg))
                         game_state.log_dm_message(msg)
+                        if hasattr(game_state, "record_journal_event"):
+                            try:
+                                game_state.record_journal_event("death", "Morte Istantanea", f"💀 {target_player.name} è morto sul colpo per danno massiccio!", actor=target_player.name)
+                            except Exception:
+                                pass
             else:
                 if not hasattr(target_player, "conditions"): target_player.conditions = []
                 if "Incosciente" not in target_player.conditions:
                     target_player.conditions.append("Incosciente")
                 if "Prono" not in target_player.conditions:
                     target_player.conditions.append("Prono")
+                if game_state and hasattr(game_state, "record_journal_event") and old_hp > 0:
+                    try:
+                        game_state.record_journal_event("combat", "Eroe a 0 PV", f"⚠️ {target_player.name} è caduto a 0 PV ed è privo di sensi!", actor=target_player.name)
+                    except Exception:
+                        pass
                 if getattr(target_player, "elevation", 0) > 0:
                     resolve_falling(target_player, target_player.elevation, game_state)
                 if old_hp == 0 and dmg_to_hp > 0:

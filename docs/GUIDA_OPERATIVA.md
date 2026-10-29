@@ -343,6 +343,14 @@ Il server implementa un'architettura granulare per arbitrare il livello di autom
 * **Sistema Negozi ed Economia**: Apri empori di mercanti dove i giocatori possono consultare merci e acquistare equipaggiamento.
 * **Quest Log**: Traccia missioni Attive, Completate e Fallite con ricompense.
 
+### Diario Narrativo di Campagna Continuativo (Multi-Session Journal)
+* **Memoria Multi-Sessione**: accessibile dal menu `File -> 📖 Diario Narrativo di Campagna...` o dal pulsante `[ 📖 Diario ]` nella card campagna. Salva e preserva la cronistoria cumulativa di tutte le sessioni giocate.
+* **Cattura Eventi Automatica**: il motore registra in tempo reale combattimenti, mostri uccisi, eroi a 0 PF, bottini raccolti, scassi/trappole e riposi.
+* **Sintesi Narrativa RPG Immersiva**: genera prosa fluida articolata in capitoli tematici senza filastrocche o freddi tabulati.
+* **Note Private DM & Anti-Metagame**: tab riservato per segreti di trama del Master, rigorosamente omesso dalle trasmissioni di rete verso i giocatori.
+* **Sincronizzazione in Tempo Reale**: pulsante `📢 Trasmetti ai Giocatori` per inviare la cronaca aggiornata a tutto il tavolo.
+* **Esportazione Multipla**: Pergamena dark fantasy HTML con supporto stampa, Markdown completo (.md) e formattazione rapida per Discord/WhatsApp.
+
 ### Gestione Party e Divisione Bottino
 * **Separazione Party vs PNG**: Fuori dal combattimento, la lista del DM separa `--- MEMBRI DEL PARTY ---` e `--- PNG & MOSTRI ---`.
 * **Dividi Denaro**: Clicca su **💰 Dividi Denaro** e inserisci l'ammontare di Monete d'Oro (MO) da dividere equamente tra tutti i membri del party.
@@ -452,6 +460,12 @@ Il pannello **Economia Turno** del Giocatore si adatta automaticamente allo stat
 
 ### Macro Hotbar Rapida
 * 10 slot rapidi personalizzabili nella parte inferiore del pannello giocatore (**Click Destro** per configurare, **Click Sinistro** per eseguire).
+
+### Diario Narrativo di Campagna & Note Personali
+* Accessibile da `Libreria -> 📖 Diario Narrativo di Campagna...` o tramite il pulsante rapido `[ 📓 ]` nella toolbar verticale di sinistra.
+* Sfoglia tutte le sessioni giocate della campagna con la prosa ufficiale del DM e gli eventi salienti.
+* Tab `✏️ Memorie Personali`: appunti personali dell'eroe per ciascuna sessione con salvataggio persistente locale (`[ 💾 Salva Memorie ]`).
+* Esportazione in pergamena HTML, Markdown o copia istantanea per Discord/WhatsApp.
 
 ### Famigli, Compagni Animali e Creature Evocate 5e RAW
 Accessibile direttamente dal pulsante `🐾` sulla **Hero Summary Card** della VTT per tutti i giocatori:

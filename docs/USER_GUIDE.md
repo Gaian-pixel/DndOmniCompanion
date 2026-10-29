@@ -37,9 +37,11 @@ This manual walks you step by step through starting a session, configuring the i
    - [Monster Corpse Loot Drops (DMG p. 133) & RAW 50% Ammunition Recovery (PHB p. 146)](#monster-corpse-loot-drops-dmg-p-133--raw-50-ammunition-recovery-phb-p-146)
    - [Character Sheet Export (Official D&D 5e PDF & JSON)](#character-sheet-export-official-dd-5e-pdf--json)
    - [Macro Hotbar (Quick Slots 1–10)](#macro-hotbar-quick-slots-110)
+   - [Campaign Adventure Journal & Personal Memories (Player)](#campaign-adventure-journal--personal-memories-player)
 5. [Dungeon Master (DM) Guide](#5-dungeon-master-dm-guide)
    - [Campaign Management Styles (DM Agency vs. Full Automation) & Pending Actions Dock](#campaign-management-styles-dm-agency-vs-full-automation--pending-actions-dock)
    - [Campaigns, Acts, Scenes & Starter Pack](#campaigns-acts-scenes--starter-pack)
+   - [Cumulative Multi-Session Campaign Adventure Journal](#cumulative-multi-session-campaign-adventure-journal)
    - [Map Management, Map Editor, Walls, Traps & Portals](#map-management-map-editor-walls-traps--portals)
    - [Doors, Locks & RAW 5e Lockpicking Mechanics](#doors-locks--raw-5e-lockpicking-mechanics)
    - [Dungeon Room Pins & Narration Boxed Text](#dungeon-room-pins--narration-boxed-text)
@@ -497,6 +499,14 @@ At the bottom of the Player window is a bar with **10 numbered macro buttons (`1
 * **Right-Click a slot**: assign a label and a chat/roll command (e.g., `Longsword` $\rightarrow$ `/roll 1d20+6`, or `/ds`).
 * **Left-Click a slot**: immediately executes the macro. Macros are persisted per character.
 
+### Campaign Adventure Journal & Personal Memories (Player)
+Players can review the living chronicle of their adventure at any time from **`Library -> 📖 Campaign Adventure Journal...`** or via the **`[ 📓 ]`** button on the left vertical toolbar:
+* **Multi-Session History**: browse all played sessions (Session 1, Session 2, Session 3...) chronologically with real date, Harptos calendar, weather, and world location.
+* **Official Narrative Chronicle**: read the clean, immersive prose synthesized and approved by the Dungeon Master—free from stats clutter or forced rhymes.
+* **Hero's Personal Journal (Tab `✏️ Personal Memories`)**: private character diary to jot down personal thoughts, theories, suspicions, or clues for that session, saved locally with `[ 💾 Save Memories ]`.
+* **Key Events Timeline**: chronological breakdown of milestones (battles, picked locks, disabled traps, acquired loot, short/long rests).
+* **Multi-Format Export**: export the chronicles as an illuminated dark-fantasy parchment web page (`.html`), clean Markdown (`.md`), or one-click copy to clipboard formatted for Discord and WhatsApp.
+
 ---
 
 ## 5. Dungeon Master (DM) Guide
@@ -544,6 +554,29 @@ From the DM **`File`** and **`Tools`** menus:
 * **`🗺️ Switch Scene` Button** (in the `Initiative & Characters` tab): loads the selected scene's map and broadcasts it to all players with 1 click.
 * **`⚔️ Deploy Encounter` Button**: spawns all monsters of a prepared encounter onto the active map with 1 click.
 * **Campaign Starter Pack (`Tools -> Campaign Starter Pack`)**: configure starting equipment (e.g., Rations, Torch, Potion of Healing) automatically granted to new PCs upon their first login to the campaign.
+
+### Cumulative Multi-Session Campaign Adventure Journal
+The **Campaign Adventure Journal** serves as the persistent memory of the campaign: not a fragmented log per single session, but a **continuous multi-session chronicle** bound to the active campaign, accessible via **`File -> 📖 Campaign Adventure Journal...`** or the **`[ 📖 Journal ]`** button on the campaign card:
+* **Cumulative Multi-Session Memory**: records all played sessions sequentially (Session 1, Session 2, Session 3...), preserving the entire story from level 1 onward.
+* **Automated Event Capture**: the engine tracks salient moments automatically in the background:
+  - Combat starts & ends with combatant lists.
+  - Defeated monsters and characters reduced to 0 HP.
+  - Picked locks, forced gates, and detected/disarmed traps.
+  - Loot gathered from chests and fallen foes.
+  - Short and Long Rests taken by the party.
+  - In-game calendar (Harptos), weather, and world region.
+* **Immersive Narrative Synthesis**: clicking **`↺ Regenerate Narrative`** groups raw events into flowing, atmospheric RPG prose divided into clear thematic chapters (*Exploration & Journey*, *Hazards & Traps*, *Battles & Skirmishes*, *Spoils & Treasure*, *Camp & Rest*). Authentic adventure prose with zero forced bardic rhyming and no dry stats.
+* **Full DM Control & Anti-Metagame DM Notes**:
+  - The DM can edit titles and prose at will.
+  - The **`🔒 DM Private Notes`** tab allows recording hidden secrets, NPC motives, and future plots. These notes are confidential and **never sent over the network to players**.
+* **Live Broadcast to Party (`📢 Share with Players`)**: 1-click network sync broadcasts the sanitized journal to all connected player clients, accompanied by a toast notification.
+* **Session Lifecycle**:
+  - `[ ➕ New Session ]`: concludes the previous session and starts a new one, inheriting date, weather, and location.
+  - `[ 🏁 Conclude Session ]`: marks the active session as finished.
+* **Triple Export Formats**:
+  1. **HTML Dark Fantasy Parchment (`📜 HTML Parchment`)**: illuminated medieval parchment styling with two-column typography, print styles, and browser rendering.
+  2. **Markdown Document (`📑 Export Markdown`)**: clean `.md` for Obsidian, Notion, or personal archives.
+  3. **Discord / WhatsApp Recap (`📋 Copy for Discord`)**: instant formatted quote block with section headers ready for social media.
 
 ### Map Management, Map Editor, Walls, Traps & Portals
 * **Map Editor (`Tools -> Map Editor`)**:
