@@ -74,17 +74,17 @@ class TestAuditV13Fixes(unittest.TestCase):
         target.max_hp = 30
         self.game_state.players = [target]
         
-        # Nat 20 auto-succeeds on saving throws
+        # In D&D 5e RAW (PHB p. 179), non esiste successo automatico con 20 naturale sui TS (totale 15 < CD 30 -> fallisce)
         _process_save_result("Bersaglio", "SAG", 15, is_crit=True, is_fail=False, dc=30,
                              damage_formula="10", half_on_success=False, source_name="Incantesimo",
                              game_state=self.game_state, damage_type="Psichico")
-        self.assertEqual(target.hp, 30) # Succeeded -> 0 damage
+        self.assertEqual(target.hp, 20) # Fallito matematicamente -> 10 danni
 
-        # Nat 1 auto-fails even if roll_total >= dc
+        # In D&D 5e RAW, non esiste fallimento automatico con 1 naturale sui TS (totale 25 >= CD 10 -> supera)
         _process_save_result("Bersaglio", "SAG", 25, is_crit=False, is_fail=True, dc=10,
                              damage_formula="10", half_on_success=False, source_name="Incantesimo",
                              game_state=self.game_state, damage_type="Psichico")
-        self.assertEqual(target.hp, 20) # Failed -> took 10 damage
+        self.assertEqual(target.hp, 20) # Superato matematicamente -> 0 danni
 
     def test_teleport_does_not_provoke_opportunity_attack(self):
         enemy = Player("Nemico")

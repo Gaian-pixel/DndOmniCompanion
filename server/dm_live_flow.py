@@ -266,20 +266,98 @@ class DMLiveFlowDialog(tk.Toplevel):
             is_off_track=is_off_track,
             details=detail_text
         )
+        self._record_to_campaign_journal("exploration", target_node.title, detail_text, actor="Party")
         self._update_action_panel()
 
+    def _get_game_state(self):
+        if hasattr(self.master_gui, "server") and hasattr(self.master_gui.server, "game_state"):
+            return self.master_gui.server.game_state
+        return getattr(self.master_gui, "game_state", None)
+
+    def _record_to_campaign_journal(self, category: str, title: str, description: str = "", actor: str = "DM", data: dict = None):
+        try:
+            gs = self._get_game_state()
+            if gs and hasattr(gs, "record_journal_event"):
+                gs.record_journal_event(category=category, title=title, description=description, actor=actor, data=data)
+        except Exception as e:
+            print(f"[DMLiveFlowDialog] Errore sincronizzazione CampaignJournal: {e}")
+
+    def _broadcast_chat(self, sender: str, msg: str):
+        gs = self._get_game_state()
+        if hasattr(self.master_gui, "log_to_chat"):
+            self.master_gui.log_to_chat(msg)
+        if gs is not None:
+            from common.network_utils import broadcast
+            from common.protocol import make_chat_broadcast
+            broadcast(gs, make_chat_broadcast(sender, msg))
+
     def activate_scene_on_vtt(self, node: FlowNode):
-        map_file = node.data.get("map_file", "")
-        if map_file and hasattr(self.master_gui, "load_map_from_file"):
-            try:
-                # Carica mappa sul canvas
-                self.master_gui.server.game_state.map_file = map_file
-                if hasattr(self.master_gui, "broadcast_game_state"):
-                    self.master_gui.broadcast_game_state()
-                self.master_gui.log_to_chat(f"🗺️ [FLUSSO] Scena '{node.title}' attivata ({map_file}).")
-                messagebox.showinfo("Scena Attivata", f"Mappa '{map_file}' caricata con successo per tutti i giocatori!", parent=self)
-            except Exception as e:
-                messagebox.showerror("Errore", f"Impossibile attivare la mappa: {e}", parent=self)
+        map_file = str(node.data.get("map_file", "") or "").strip()
+        if not map_file:
+            messagebox.showinfo("Scena", "Nessun file mappa specificato in questo nodo.", parent=self)
+            return
+        gs = self._get_game_state()
+        if gs is None:
+            return
+        try:
+            import os, json, base64
+            from common.network_utils import broadcast
+            from common.protocol import make_game_state, make_chat_broadcast
+            repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            maps_dir = os.path.join(repo_root, "maps")
+            camp_dir = getattr(getattr(gs, "active_campaign", None), "folder_path", "") or ""
+            candidates = [map_file]
+            if camp_dir:
+                candidates.extend([
+                    os.path.join(camp_dir, map_file),
+                    os.path.join(camp_dir, "maps", os.path.basename(map_file)),
+                ])
+            candidates.append(os.path.join(maps_dir, os.path.basename(map_file)))
+            resolved_path = next((p for p in candidates if p and os.path.isfile(p)), None)
+            if not resolved_path:
+                raise FileNotFoundError(f"File mappa non trovato: {map_file}")
+
+            if resolved_path.lower().endswith(".json"):
+                with open(resolved_path, "r", encoding="utf-8") as f:
+                    map_data = json.load(f)
+                bg_img = map_data.get("base_image_path", "")
+                if bg_img and not map_data.get("bg_image_data"):
+                    img_candidates = [
+                        bg_img,
+                        os.path.join(os.path.dirname(resolved_path), os.path.basename(bg_img)),
+                        os.path.join(maps_dir, os.path.basename(bg_img)),
+                    ]
+                    bg_resolved = next((ip for ip in img_candidates if ip and os.path.isfile(ip)), None)
+                    if bg_resolved:
+                        with open(bg_resolved, "rb") as img_f:
+                            map_data["bg_image_data"] = base64.b64encode(img_f.read()).decode("utf-8")
+            else:
+                with open(resolved_path, "rb") as img_f:
+                    b64_img = base64.b64encode(img_f.read()).decode("utf-8")
+                map_data = {
+                    "name": node.title,
+                    "base_image_path": resolved_path,
+                    "bg_image_data": b64_img,
+                    "hex_size": 60,
+                    "grid_type": "square",
+                    "map_scale_type": "combat",
+                    "hexes": [[q, r] for q in range(20) for r in range(15)],
+                    "pois": {},
+                    "difficult_terrain": {},
+                }
+
+            gs.load_map(map_data)
+            if hasattr(self.master_gui, "fow_enabled_var"):
+                self.master_gui.fow_enabled_var.set(gs.current_map.get("fow_enabled", False))
+            if hasattr(self.master_gui, "redraw_map_and_players"):
+                self.master_gui.redraw_map_and_players()
+            broadcast(gs, make_game_state(gs.get_state_dict()))
+            broadcast(gs, make_chat_broadcast("DM", f"🗺️ Nuova scena attiva: {node.title}"))
+            if hasattr(self.master_gui, "log_to_chat"):
+                self.master_gui.log_to_chat(f"🗺️ [FLUSSO] Scena '{node.title}' attivata ({os.path.basename(resolved_path)}).")
+            messagebox.showinfo("Scena Attivata", f"Mappa '{os.path.basename(resolved_path)}' caricata con successo per tutti i giocatori!", parent=self)
+        except Exception as e:
+            messagebox.showerror("Errore", f"Impossibile attivare la mappa: {e}", parent=self)
 
     def activate_encounter_on_vtt(self, node: FlowNode):
         monsters = node.data.get("monsters", [])
@@ -287,14 +365,75 @@ class DMLiveFlowDialog(tk.Toplevel):
             messagebox.showinfo("Incontro", "Nessun mostro specificato in questo nodo.", parent=self)
             return
 
-        # Popola NPC/Mostri nel combat tracker
+        gs = self._get_game_state()
+        if gs is None:
+            return
         try:
+            from common.game_state import Player
+            from common.srd_offline import (
+                resolve_compendium_monster,
+                extract_and_normalize_attributes,
+                normalize_ac_value,
+                normalize_speed_value,
+            )
+            from common.network_utils import broadcast
+            from common.protocol import make_player_joined, make_chat_broadcast
+
+            spawned = []
             for m in monsters:
-                m_name = m.get("name", "Mostro")
-                qty = m.get("quantity", 1)
-                for _ in range(qty):
-                    self.master_gui.add_npc_by_name(m_name)
-            
+                if isinstance(m, str):
+                    m = resolve_compendium_monster(m)
+                else:
+                    base_comp = resolve_compendium_monster(m.get("name", "Mostro"))
+                    merged = dict(base_comp)
+                    merged.update({k: v for k, v in m.items() if v is not None})
+                    m = merged
+                m_base_name = m.get("name", "Mostro")
+                qty = int(m.get("quantity", m.get("count", 1)) or 1)
+                sheet_src = m.get("sheet") if isinstance(m.get("sheet"), dict) else {}
+                for i in range(max(1, qty)):
+                    cand_name = f"{m_base_name} {i+1}" if qty > 1 else m_base_name
+                    suffix = 1
+                    base_cand = cand_name
+                    while gs.find_player(cand_name):
+                        suffix += 1
+                        cand_name = f"{base_cand} ({suffix})"
+                    npc = Player(name=cand_name)
+                    hp_val = int(m.get("hp", sheet_src.get("hp_max", sheet_src.get("hp", 15))) or 15)
+                    npc.hp = max(1, hp_val)
+                    npc.max_hp = max(1, hp_val)
+                    attrs = extract_and_normalize_attributes(m.get("attributes") or sheet_src.get("attributes"), m_base_name)
+                    dex_val = attrs.get("DES", 10)
+                    npc.initiative = int(m["initiative"]) if m.get("initiative") is not None else (dex_val - 10) // 2
+                    npc.initiative_bonus = npc.initiative
+                    ac_val = normalize_ac_value(m.get("ac", m.get("armor_class", sheet_src.get("ac", 12))))
+                    speed_val, speed_disp, speed_unit = normalize_speed_value(m.get("speed", sheet_src.get("speed", 30)))
+                    npc.speed = speed_val
+                    npc.speed_unit = speed_unit
+                    npc.full_sheet = dict(sheet_src)
+                    npc.full_sheet.update({
+                        "name": npc.name,
+                        "char_class": "Mostro/NPC",
+                        "level": 1,
+                        "hp_current": npc.hp,
+                        "hp_max": npc.max_hp,
+                        "ac": ac_val,
+                        "speed": speed_val,
+                        "speed_display": speed_disp,
+                        "speed_unit": speed_unit,
+                        "attributes": attrs,
+                        "cr": str(m.get("cr", sheet_src.get("cr", "1"))),
+                        "actions": m.get("actions") or sheet_src.get("actions", []),
+                        "features": m.get("features") or sheet_src.get("features", []),
+                    })
+                    gs.add_player(npc)
+                    broadcast(gs, make_player_joined(npc.to_dict()))
+                    spawned.append(npc.name)
+
+            gs._trigger_gui_update()
+            if hasattr(self.master_gui, "redraw_map_and_players"):
+                self.master_gui.redraw_map_and_players()
+            broadcast(gs, make_chat_broadcast("DM", f"⚔️ Incontro '{node.title}' schierato! ({len(spawned)} creature)"))
             self.session_ledger.record_combat(
                 title=node.title,
                 monsters=monsters,
@@ -303,8 +442,10 @@ class DMLiveFlowDialog(tk.Toplevel):
                 loot=node.data.get("loot", ""),
                 xp=node.data.get("xp", 0)
             )
-            self.master_gui.log_to_chat(f"⚔️ [FLUSSO] Incontro '{node.title}' schierato sul Combat Tracker!")
-            messagebox.showinfo("Combattimento Schierato", f"Mostri dell'incontro '{node.title}' aggiunti con successo all'iniziativa!", parent=self)
+            self._record_to_campaign_journal("combat", f"Incontro: {node.title}", f"Mostri: {', '.join(spawned)} (GS {cr})", actor="Party")
+            if hasattr(self.master_gui, "log_to_chat"):
+                self.master_gui.log_to_chat(f"⚔️ [FLUSSO] Incontro '{node.title}' schierato sul Combat Tracker: {', '.join(spawned)}")
+            messagebox.showinfo("Combattimento Schierato", f"Mostri dell'incontro '{node.title}' aggiunti con successo ({len(spawned)} creature)!", parent=self)
         except Exception as e:
             messagebox.showerror("Errore", f"Errore schieramento incontro: {e}", parent=self)
 
@@ -312,10 +453,7 @@ class DMLiveFlowDialog(tk.Toplevel):
         text = node.data.get("read_aloud") or node.data.get("description", "")
         if not text:
             return
-        if hasattr(self.master_gui, "broadcast_dm_narration"):
-            self.master_gui.broadcast_dm_narration(text)
-        elif hasattr(self.master_gui, "log_to_chat"):
-            self.master_gui.log_to_chat(f"📜 [NARRAZIONE DM]\n{text}")
+        self._broadcast_chat("Narratore (DM)", f"📜 [{node.title}]\n\"{text}\"")
         messagebox.showinfo("Narrazione Trasmessa", "Testo descrittivo inviato nella chat di tutti i giocatori!", parent=self)
 
     def reveal_secret(self, node: FlowNode, secret_data: Dict[str, Any]):
@@ -325,17 +463,25 @@ class DMLiveFlowDialog(tk.Toplevel):
             check=secret_data.get("check", ""),
             text=secret_data.get("text", "")
         )
-        self.master_gui.log_to_chat(f"🔍 [SEGRETO SVELATO] {node.title}: {secret_data.get('text', '')}")
+        self._record_to_campaign_journal("discovery", f"Segreto: {node.title}", secret_data.get("text", ""), actor="Party")
+        if hasattr(self.master_gui, "log_to_chat"):
+            self.master_gui.log_to_chat(f"🔍 [SEGRETO SVELATO] {node.title}: {secret_data.get('text', '')}")
+        if secret_data.get("text"):
+            gs = self._get_game_state()
+            if gs is not None:
+                from common.network_utils import broadcast
+                from common.protocol import make_chat_broadcast
+                broadcast(gs, make_chat_broadcast("DM", f"🔍 [SCOPERTA] {secret_data.get('text', '')}"))
         self._update_action_panel()
-        messagebox.showinfo("Segreto Svelato", "Segreto registrato nella cronistoria della sessione!", parent=self)
+        messagebox.showinfo("Segreto Svelato", "Segreto registrato nella cronistoria della sessione e comunicato al gruppo!", parent=self)
 
     def broadcast_check(self, node: FlowNode):
         ab = node.data.get("ability", "Prova di Caratteristica")
         cd = node.data.get("cd", 10)
         msg = f"🎲 [PROVA RICHIESTA] Il Master richiede una prova di {ab} (CD {cd})!"
-        if hasattr(self.master_gui, "log_to_chat"):
-            self.master_gui.log_to_chat(msg)
+        self._broadcast_chat("DM", msg)
         self.session_ledger.record_dm_note(f"Richiesta prova: {ab} (CD {cd}) per {node.title}")
+        self._record_to_campaign_journal("social", f"Prova: {ab} (CD {cd})", f"Nodo: {node.title}", actor="DM")
         messagebox.showinfo("Prova Richiesta", f"Richiesta di {ab} (CD {cd}) trasmessa in chat!", parent=self)
 
     def trigger_trap(self, node: FlowNode):
@@ -343,46 +489,77 @@ class DMLiveFlowDialog(tk.Toplevel):
         dmg = node.data.get("damage", "1d10 Danno")
         save = node.data.get("save", "Destrezza")
         msg = f"⚠️ [TRAPPOLA ATTIVATA!] '{node.title}' scatta! TS {save} CD {cd}. Danno potenziale: {dmg}!"
-        if hasattr(self.master_gui, "log_to_chat"):
-            self.master_gui.log_to_chat(msg)
+        self._broadcast_chat("Sistema", msg)
         self.session_ledger.record_dm_note(f"Trappola attivata: {node.title} (CD {cd}, {dmg})")
+        self._record_to_campaign_journal("combat", f"Trappola attivata: {node.title}", f"TS {save} CD {cd}. Danno: {dmg}", actor="DM")
         messagebox.showinfo("Trappola Scattata", f"Allarme trappola '{node.title}' trasmesso in chat!", parent=self)
 
     def award_loot(self, node: FlowNode):
         g = node.data.get("gold", "0")
         items = node.data.get("items", [])
-        items_str = ", ".join(items) if items else "Nessun oggetto speciale"
+        items_list = [str(it.get("name", it)) if isinstance(it, dict) else str(it) for it in items] if isinstance(items, list) else ([str(items)] if items else [])
+        items_str = ", ".join(items_list) if items_list else "Nessun oggetto speciale"
         msg = f"💎 [TESORO SCOPERTO] Il party trova: {g} monete d'oro e: {items_str}!"
-        if hasattr(self.master_gui, "log_to_chat"):
-            self.master_gui.log_to_chat(msg)
+        self._broadcast_chat("DM", msg)
         self.session_ledger.record_dm_note(f"Tesoro distribuito: {g} mo, {items_str}")
+        self._record_to_campaign_journal("loot", f"Tesoro: {node.title}", f"{g} MO, {items_str}", actor="Party")
         messagebox.showinfo("Tesoro Consegnato", f"Bottino di '{node.title}' annunciato ai giocatori!", parent=self)
 
     def present_shop(self, node: FlowNode):
         merch = node.data.get("merchant", "Mercante")
         stype = node.data.get("shop_type", "Bottega")
         items = node.data.get("items", [])
-        items_str = ", ".join(items) if items else "merci assortite"
+        items_list = [str(it.get("name", it)) if isinstance(it, dict) else str(it) for it in items] if isinstance(items, list) else ([str(items)] if items else [])
+        items_str = ", ".join(items_list) if items_list else "merci assortite"
+        gs = self._get_game_state()
+        if gs is not None:
+            from common.srd_offline import resolve_compendium_item
+            from common.network_utils import broadcast
+            from common.protocol import make_game_state
+            import re as _re
+            if not isinstance(getattr(gs, "shops", None), dict):
+                gs.shops = {}
+            norm_items = []
+            for entry in items:
+                resolved = entry if isinstance(entry, dict) else resolve_compendium_item(str(entry))
+                raw_cost = resolved.get("price", resolved.get("cost", 10))
+                if isinstance(raw_cost, str):
+                    mc = _re.search(r"(\d+)", raw_cost)
+                    pval = int(mc.group(1)) if mc else 10
+                else:
+                    try:
+                        pval = int(raw_cost)
+                    except (ValueError, TypeError):
+                        pval = 10
+                cp = dict(resolved)
+                cp.setdefault("name", str(entry))
+                cp["price"] = max(0, pval)
+                norm_items.append(cp)
+            gs.shops[node.title] = {
+                "name": node.title,
+                "merchant": merch,
+                "shop_type": stype,
+                "items": norm_items,
+            }
+            broadcast(gs, make_game_state(gs.get_state_dict()))
         msg = f"🏬 [EMPORIO] {node.title} ({stype}) gestito da {merch}.\nArticoli in vendita: {items_str}"
-        if hasattr(self.master_gui, "log_to_chat"):
-            self.master_gui.log_to_chat(msg)
-        messagebox.showinfo("Emporio Aperto", f"Lista merci di {merch} trasmessa in chat!", parent=self)
+        self._broadcast_chat("DM", msg)
+        messagebox.showinfo("Emporio Aperto", f"Emporio '{node.title}' registrato e lista merci di {merch} trasmessa ai giocatori!", parent=self)
 
     def reveal_puzzle(self, node: FlowNode):
         clue = node.data.get("clue", "") or node.data.get("read_aloud", "Nessun indizio.")
         diff = node.data.get("difficulty", "Media")
         msg = f"🧩 [ENIGMA: {node.title}] (Difficoltà {diff})\nIndizio per il party: \"{clue}\""
-        if hasattr(self.master_gui, "log_to_chat"):
-            self.master_gui.log_to_chat(msg)
+        self._broadcast_chat("DM", msg)
         messagebox.showinfo("Enigma Trasmesso", "Indizio dell'enigma inviato ai giocatori!", parent=self)
 
     def commence_rest(self, node: FlowNode):
         rtype = node.data.get("rest_type", "Breve")
         safe = node.data.get("safety", "Sicuro")
         msg = f"⛺ [RIPOSO {rtype.upper()}] Il party si accampa per riposare (Luogo: {safe}). Recupero slot e dadi vita secondo le regole."
-        if hasattr(self.master_gui, "log_to_chat"):
-            self.master_gui.log_to_chat(msg)
+        self._broadcast_chat("Sistema", msg)
         self.session_ledger.record_dm_note(f"Riposo {rtype} effettuato a {node.title}")
+        self._record_to_campaign_journal("rest", f"Riposo {rtype.capitalize()}", f"Luogo: {node.title} ({safe})", actor="Party")
         messagebox.showinfo("Riposo Avviato", f"Riposo {rtype} annunciato in chat!", parent=self)
 
     def share_lore(self, node: FlowNode):
@@ -390,9 +567,18 @@ class DMLiveFlowDialog(tk.Toplevel):
         lang = node.data.get("language", "Comune")
         text = node.data.get("read_aloud") or node.data.get("description", "Contenuto del documento...")
         msg = f"📜 [DOCUMENTO: {node.title}] (Autore: {auth}, Lingua: {lang})\n\"{text}\""
-        if hasattr(self.master_gui, "log_to_chat"):
-            self.master_gui.log_to_chat(msg)
+        self._broadcast_chat("DM", msg)
+        gs = self._get_game_state()
+        if gs is not None:
+            from common.network_utils import broadcast
+            from common.protocol import make_handout_broadcast
+            handout = {"title": node.title, "content": text, "description": text, "author": auth, "language": lang}
+            if hasattr(gs, "handouts") and isinstance(gs.handouts, list):
+                if not any(h.get("title") == node.title for h in gs.handouts if isinstance(h, dict)):
+                    gs.handouts.append(handout)
+            broadcast(gs, make_handout_broadcast(node.title, text, ""))
         self.session_ledger.record_secret(title=node.title, check=f"Lingua {lang}", text=text)
+        self._record_to_campaign_journal("discovery", f"Documento: {node.title}", text, actor="DM")
         messagebox.showinfo("Documento Condiviso", f"Documento '{node.title}' inviato ai giocatori!", parent=self)
 
     def toggle_fullscreen(self, event=None):
@@ -417,6 +603,7 @@ class DMLiveFlowDialog(tk.Toplevel):
             is_off_track=True,
             details="Il party ha deviato dal percorso pianificato. Modalità Improvvisazione attiva."
         )
+        self._record_to_campaign_journal("exploration", "Deviazione Libera Fuori Pista", "Il party ha deviato dal percorso pianificato.", actor="Party")
         self._update_action_panel()
         messagebox.showinfo("Modalità Fuori Pista", "Modalità Improvvisazione attivata! Tutte le azioni manuali verranno tracciate nella cronistoria.", parent=self)
 
@@ -424,6 +611,7 @@ class DMLiveFlowDialog(tk.Toplevel):
         note = simpledialog.askstring("Nota Rapida del Master", "Cosa è appena successo?", parent=self)
         if note and note.strip():
             self.session_ledger.record_dm_note(note.strip())
+            self._record_to_campaign_journal("dm_note", "Nota DM", note.strip(), actor="DM")
             messagebox.showinfo("Nota Registrata", "Nota salvata nella cronistoria della sessione!", parent=self)
 
 

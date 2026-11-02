@@ -29,14 +29,17 @@ XP_THRESHOLDS_5E = {
     20: {"easy": 2800, "medium": 5700, "hard": 8500, "deadly": 12700},
 }
 
-# Tabella XP corrispondente al Grado Sfida (CR / GS)
+# Tabella XP corrispondente al Grado Sfida (CR / GS) D&D 5e RAW (DMG p. 275)
 CR_TO_XP = {
     "0": 10, "1/8": 25, "1/4": 50, "1/2": 100,
+    "0.125": 25, 0.125: 25, "0.25": 50, 0.25: 50, "0.5": 100, 0.5: 100,
     "1": 200, "2": 450, "3": 700, "4": 1100, "5": 1800,
     "6": 2300, "7": 2900, "8": 3900, "9": 5000, "10": 5900,
     "11": 7200, "12": 8400, "13": 10000, "14": 11500, "15": 13000,
     "16": 15000, "17": 18000, "18": 20000, "19": 22000, "20": 25000,
-    "21": 33000, "22": 41000, "23": 50000, "24": 62000, "30": 155000
+    "21": 33000, "22": 41000, "23": 50000, "24": 62000,
+    "25": 75000, "26": 90000, "27": 105000, "28": 120000, "29": 135000,
+    "30": 155000
 }
 
 
@@ -100,20 +103,33 @@ def calculate_encounter_difficulty(party_levels: list[int], monster_xps: list) -
         if isinstance(m, dict):
             xp = m.get("xp")
             if xp is None and "cr" in m:
-                xp = CR_TO_XP.get(m["cr"], CR_TO_XP.get(str(m["cr"]), 0))
+                cr_key = str(m["cr"]).strip()
+                xp = CR_TO_XP.get(cr_key, CR_TO_XP.get(m["cr"], 0))
             parsed_xps.append(int(xp or 0))
         elif isinstance(m, str):
-            if m in CR_TO_XP:
-                parsed_xps.append(CR_TO_XP[m])
+            clean_m = m.strip()
+            if clean_m in CR_TO_XP:
+                parsed_xps.append(CR_TO_XP[clean_m])
             else:
-                try: parsed_xps.append(int(m))
+                try: parsed_xps.append(int(clean_m))
                 except ValueError: parsed_xps.append(0)
         elif isinstance(m, (int, float)):
-            cr_str = str(int(m)) if isinstance(m, int) or (isinstance(m, float) and m.is_integer()) else str(m)
-            if cr_str in CR_TO_XP and m <= 30:
-                parsed_xps.append(CR_TO_XP[cr_str])
+            if m in CR_TO_XP:
+                parsed_xps.append(CR_TO_XP[m])
+            elif m == 0.5:
+                parsed_xps.append(100)
+            elif m == 0.25:
+                parsed_xps.append(50)
+            elif m == 0.125:
+                parsed_xps.append(25)
+            elif m == 0:
+                parsed_xps.append(10)
             else:
-                parsed_xps.append(int(m))
+                cr_str = str(int(m)) if isinstance(m, int) or (isinstance(m, float) and m.is_integer()) else str(m)
+                if cr_str in CR_TO_XP and m <= 30 and m not in (10, 25):
+                    parsed_xps.append(CR_TO_XP[cr_str])
+                else:
+                    parsed_xps.append(int(m))
         else:
             parsed_xps.append(0)
 

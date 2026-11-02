@@ -10,6 +10,10 @@ def handle_give_item_request(data, player, game_state):
     if not isinstance(item, dict):
         return
     if not target_name or not item: return
+
+    give_qty = int(item.get("qty", 1) or 1)
+    if give_qty <= 0:
+        return
     
     target_player = game_state.find_player(target_name)
     if not target_player or not target_player.conn:
@@ -85,62 +89,131 @@ def handle_take_loot_request(data, player, game_state):
                 
         if found:
             sheet = getattr(player, "full_sheet", None)
-            if sheet:
-                if not isinstance(sheet.get("inventory_grid"), list):
-                    sheet["inventory_grid"] = [None] * 25
-                has_space = any(s is None for s in sheet["inventory_grid"]) or any(isinstance(s, dict) and s.get("name") == found["item"] for s in sheet["inventory_grid"])
-                if not has_space:
-                    if getattr(player, "conn", None):
-                        send_message(player.conn, make_error_reply("Zaino pieno! Non puoi raccogliere questo oggetto."))
-                    return
-            loots.remove(found)
-            
-            loot_entry = {
-                "name": found["item"],
-                "type": "Misto",
-                "qty": found["qty"],
-                "weight": 1.0,
-                "attuned": False,
-                "desc": "Raccolto da forziere/spoglie",
-                "_sender": "Forziere"
-            }
-            # Aggiungi allo zaino del giocatore sul server
-            sheet = getattr(player, "full_sheet", None)
-            if sheet:
-                if not isinstance(sheet.get("inventory_grid"), list):
-                    sheet["inventory_grid"] = [None] * 25
-                for s_i in range(len(sheet["inventory_grid"])):
-                    if sheet["inventory_grid"][s_i] is None:
-                        sheet["inventory_grid"][s_i] = dict(loot_entry)
-                        break
+            contents = found.get("contents") if isinstance(found.get("contents"), dict) else None
+            is_container_loot = contents is not None
+            loot_entry = None
+            coin_sync_msgs = []
+            item_sync_msgs = []
 
-                # Trasferisci eventuali monete e oggetti contenuti nelle spoglie (DMG p. 133)
-                contents = found.get("contents", {})
-                wallet = contents.get("wallet", {})
-                items = contents.get("items", [])
-                if wallet:
-                    p_wallet = sheet.setdefault("wallet", {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0})
-                    coin_notes = []
-                    for c_type, c_qty in wallet.items():
-                        if c_qty > 0:
-                            p_wallet[c_type] = p_wallet.get(c_type, 0) + c_qty
-                            coin_notes.append(f"{c_qty} {c_type}")
-                    if coin_notes:
-                        c_str = ", ".join(coin_notes)
-                        broadcast(game_state, make_chat_broadcast("Sistema", f"💰 {player.name} ha raccolto {c_str} dalle spoglie!"))
+            if sheet:
+                if not isinstance(sheet.get("inventory_grid"), list) or len(sheet["inventory_grid"]) == 0:
+                    sheet["inventory_grid"] = [None] * 25
 
-                if items:
+                if is_container_loot:
+                    wallet = contents.get("wallet", {})
+                    items = list(contents.get("items", []))
+                    # Se non ci sono monete e ci sono oggetti, verifica che almeno un oggetto entri nello zaino
+                    if not any(v > 0 for v in wallet.values()) and items:
+                        has_space = any(s is None for s in sheet["inventory_grid"])
+                        if not has_space:
+                            if getattr(player, "conn", None):
+                                send_message(player.conn, make_error_reply("Zaino pieno! Non puoi raccogliere questi oggetti."))
+                            return
+
+                    # 1. Trasferisci monete sincronizzando sia currency che wallet/gp
+                    if wallet:
+                        p_curr = sheet.get("currency")
+                        p_wallet = sheet.get("wallet")
+                        if not isinstance(p_curr, dict):
+                            base_coins = dict(p_wallet) if isinstance(p_wallet, dict) else {}
+                            try:
+                                base_mo = int(base_coins.get("MO", sheet.get("gp", 0)) or 0)
+                            except (ValueError, TypeError):
+                                base_mo = 0
+                            p_curr = {
+                                "MR": int(base_coins.get("MR", 0) or 0),
+                                "MA": int(base_coins.get("MA", 0) or 0),
+                                "ME": int(base_coins.get("ME", 0) or 0),
+                                "MO": base_mo,
+                                "MP": int(base_coins.get("MP", 0) or 0),
+                            }
+                            sheet["currency"] = p_curr
+                        if not isinstance(p_wallet, dict):
+                            p_wallet = dict(p_curr)
+                            sheet["wallet"] = p_wallet
+
+                        coin_notes = []
+                        for c_type, c_qty in list(wallet.items()):
+                            try:
+                                c_qty_int = int(c_qty or 0)
+                            except (ValueError, TypeError):
+                                c_qty_int = 0
+                            if c_qty_int > 0:
+                                prev_val = max(int(p_curr.get(c_type, 0) or 0), int(p_wallet.get(c_type, 0) or 0))
+                                new_val = prev_val + c_qty_int
+                                p_curr[c_type] = new_val
+                                p_wallet[c_type] = new_val
+                                if c_type == "MO":
+                                    sheet["gp"] = str(new_val)
+                                coin_notes.append(f"{c_qty_int} {c_type}")
+                                coin_sync_msgs.append(make_currency_response(player.name, c_type, c_qty_int, approved=True, reason="Spoglie"))
+                        contents["wallet"] = {}
+                        if coin_notes:
+                            c_str = ", ".join(coin_notes)
+                            broadcast(game_state, make_chat_broadcast("Sistema", f"💰 {player.name} ha raccolto {c_str} dalle spoglie!"))
+
+                    # 2. Trasferisci oggetti reali senza sprecare slot per il contenitore fittizio e senza distruggere l'eccedenza
+                    unplaced_items = []
                     for extra_item in items:
+                        placed_extra = False
+                        item_copy = dict(extra_item) if isinstance(extra_item, dict) else {"name": str(extra_item), "qty": 1, "type": "Equipaggiamento", "weight": 1.0}
+                        item_copy.setdefault("_sender", "Forziere")
                         for s_i in range(len(sheet["inventory_grid"])):
                             if sheet["inventory_grid"][s_i] is None:
-                                sheet["inventory_grid"][s_i] = dict(extra_item)
-                                if getattr(player, 'conn', None):
-                                    send_message(player.conn, make_receive_item(extra_item))
+                                sheet["inventory_grid"][s_i] = dict(item_copy)
+                                item_sync_msgs.append(make_receive_item(dict(item_copy)))
+                                placed_extra = True
                                 break
+                        if not placed_extra:
+                            unplaced_items.append(extra_item)
 
-    if found and loot_entry:
+                    if unplaced_items:
+                        contents["items"] = unplaced_items
+                        if getattr(player, "conn", None):
+                            send_message(player.conn, make_error_reply(f"Zaino pieno: {len(unplaced_items)} oggetti sono rimasti a terra."))
+                    else:
+                        loots.remove(found)
+                else:
+                    has_space = any(s is None for s in sheet["inventory_grid"])
+                    if not has_space:
+                        if getattr(player, "conn", None):
+                            send_message(player.conn, make_error_reply("Zaino pieno! Non puoi raccogliere questo oggetto."))
+                        return
+                    loots.remove(found)
+                    loot_entry = {
+                        "name": found["item"],
+                        "type": "Misto",
+                        "qty": found["qty"],
+                        "weight": 1.0,
+                        "attuned": False,
+                        "desc": "Raccolto da forziere/spoglie",
+                        "_sender": "Forziere"
+                    }
+                    for s_i in range(len(sheet["inventory_grid"])):
+                        if sheet["inventory_grid"][s_i] is None:
+                            sheet["inventory_grid"][s_i] = dict(loot_entry)
+                            break
+                    item_sync_msgs.append(make_receive_item(dict(loot_entry)))
+            else:
+                loots.remove(found)
+                if not is_container_loot:
+                    loot_entry = {
+                        "name": found["item"],
+                        "type": "Misto",
+                        "qty": found["qty"],
+                        "weight": 1.0,
+                        "attuned": False,
+                        "desc": "Raccolto da forziere/spoglie",
+                        "_sender": "Forziere"
+                    }
+                    item_sync_msgs.append(make_receive_item(dict(loot_entry)))
+
+    if found:
         if getattr(player, 'conn', None):
-            send_message(player.conn, make_receive_item(loot_entry))
+            for c_msg in coin_sync_msgs:
+                send_message(player.conn, c_msg)
+            for i_msg in item_sync_msgs:
+                send_message(player.conn, i_msg)
             
         game_state.log_dm_message(f'[Loot] {player.name} ha raccolto {found["qty"]}x {found["item"]}.')
         if hasattr(game_state, "record_journal_event"):
@@ -162,7 +235,30 @@ def handle_buy_item_request(data, player, game_state):
         if not shop: return
         
         item_to_buy = None
-        for item in shop.get("items", []):
+        shop_items = shop.get("items")
+        if not shop_items:
+            raw_inv = shop.get("resolved_inventory") or shop.get("inventory") or []
+            shop_items = []
+            for raw_it in raw_inv:
+                if isinstance(raw_it, dict):
+                    raw_p = raw_it.get("price", raw_it.get("cost_gp", raw_it.get("cost", 10)))
+                    try:
+                        import re as _re
+                        p_val = int(_re.search(r"(\d+)", str(raw_p)).group(1)) if isinstance(raw_p, str) and _re.search(r"(\d+)", str(raw_p)) else int(raw_p)
+                    except (ValueError, TypeError):
+                        p_val = 10
+                    shop_items.append({
+                        "name": raw_it.get("name", "Oggetto"),
+                        "price": max(0, p_val),
+                        "qty": int(raw_it.get("qty", 1) or 1),
+                        "weight": float(raw_it.get("weight", 1.0) or 1.0),
+                        "type": raw_it.get("type", "Equipaggiamento"),
+                        "description": raw_it.get("description", raw_it.get("desc", "")),
+                    })
+                else:
+                    shop_items.append({"name": str(raw_it), "price": 10, "qty": 1, "weight": 1.0})
+            shop["items"] = shop_items
+        for item in shop_items:
             if item.get("name") == item_name:
                 item_to_buy = item
                 break
@@ -191,8 +287,8 @@ def handle_buy_item_request(data, player, game_state):
             curr["MO"] = new_mo
         sheet["gp"] = str(new_mo)
         
-        # Inserisci nella griglia 25 slot
-        if not isinstance(sheet.get("inventory_grid"), list) or len(sheet["inventory_grid"]) != 25:
+        # Inserisci nella griglia inventario (preservando griglie > 25 slot)
+        if not isinstance(sheet.get("inventory_grid"), list) or len(sheet["inventory_grid"]) == 0:
             sheet["inventory_grid"] = [None] * 25
             
         new_entry = {
@@ -214,7 +310,7 @@ def handle_buy_item_request(data, player, game_state):
                 break
                 
         if not placed:
-            for idx in range(25):
+            for idx in range(len(sheet["inventory_grid"])):
                 if sheet["inventory_grid"][idx] is None:
                     sheet["inventory_grid"][idx] = new_entry
                     placed = True
@@ -277,9 +373,9 @@ def handle_give_gold_request(data, player, game_state):
             new_sg = s_gold - amount
             if isinstance(curr, dict):
                 curr["MO"] = new_sg
+            if isinstance(sender_sheet.get("wallet"), dict):
+                sender_sheet["wallet"]["MO"] = new_sg
             sender_sheet["gp"] = str(new_sg)
-            if player.conn:
-                send_message(player.conn, make_currency_response(player.name, "MO", -amount, approved=True, reason=f"Donato a {target_name}"))
 
         recip_sheet = getattr(target_player, "full_sheet", None)
         if recip_sheet:
@@ -288,8 +384,9 @@ def handle_give_gold_request(data, player, game_state):
             new_rg = r_gold + amount
             if isinstance(r_curr, dict):
                 r_curr["MO"] = new_rg
+            if isinstance(recip_sheet.get("wallet"), dict):
+                recip_sheet["wallet"]["MO"] = new_rg
             recip_sheet["gp"] = str(new_rg)
-            send_message(target_player.conn, make_currency_response(target_name, "MO", amount, approved=True, reason=f"Ricevuto da {player.name}"))
 
     send_message(target_player.conn, {"type": "RECEIVE_GOLD", "data": {"amount": amount, "sender": player.name}})
     log_msg = f"{player.name} ha donato {amount} Monete d'Oro (MO) a {target_name}."

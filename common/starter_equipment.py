@@ -155,6 +155,20 @@ CLASS_STARTING_KITS = {
             {"name": "Zaino da Studioso", "type": "Equipaggiamento", "qty": 1, "desc": "Libro, inchiostro, penna, pergamene, razioni.", "weight": 10.0},
             {"name": "Monete d'Oro", "type": "Valuta", "qty": 10, "desc": "Monete iniziali (10 MO).", "weight": 0.02, "_coins_synced": True}
         ]
+    },
+    "Artefice": {
+        "ac_base": 14, # Corazza a Scaglie 14 + Des (max 2)
+        "ac_shield": 0,
+        "items": [
+            {"name": "Corazza a Scaglie", "type": "Armatura", "qty": 1, "desc": "Armatura media. CA 14 + mod Destrezza (max 2).", "weight": 45.0},
+            {"name": "Balestra Leggera", "type": "Arma", "qty": 1, "desc": "1d8 danni perforanti, gittata 24/96m.", "weight": 5.0},
+            {"name": "Dardi da Balestra", "type": "Munizioni", "qty": 20, "desc": "Munizioni per balestra.", "weight": 0.075},
+            {"name": "Due Pugnali", "type": "Arma", "qty": 2, "desc": "1d4 danni perforanti ciascuno.", "weight": 1.0},
+            {"name": "Strumenti da Scasso", "type": "Strumenti", "qty": 1, "desc": "Grimaldelli per serrature.", "weight": 1.0},
+            {"name": "Strumenti da Fabbro", "type": "Strumenti", "qty": 1, "desc": "Attrezzi per forgiare e incantare oggetti.", "weight": 8.0},
+            {"name": "Zaino da Esploratore Sotterraneo", "type": "Equipaggiamento", "qty": 1, "desc": "Torce, acciarino, razioni, corda 15m.", "weight": 12.0},
+            {"name": "Monete d'Oro", "type": "Valuta", "qty": 10, "desc": "Monete iniziali (10 MO).", "weight": 0.02, "_coins_synced": True}
+        ]
     }
 }
 
@@ -226,8 +240,39 @@ CLASS_STARTING_SPELLS = {
             {"name": "Intralciare", "level": 1, "time": "1 Azione", "range": "27m", "desc": "Erbe e viticci trattengono le creature in un quadrato di 6m (TS Forza)."},
             {"name": "Bacche Benefiche", "level": 1, "time": "1 Azione", "range": "Contatto", "desc": "Crea 10 bacche magiche: ciascuna cura 1 PF e fornisce nutrimento per un giorno intero."}
         ]
+    },
+    "Artefice": {
+        "slots_lvl1": 2,
+        "spells": [
+            {"name": "Guida", "level": 0, "time": "1 Azione", "range": "Contatto", "desc": "+1d4 a una prova di caratteristica."},
+            {"name": "Mano Magica", "level": 0, "time": "1 Azione", "range": "9m", "desc": "Mano spettrale che manipola oggetti fino a 4.5kg."},
+            {"name": "Cura Ferite", "level": 1, "time": "1 Azione", "range": "Contatto", "desc": "Cura 1d8 + mod Intelligenza PF."},
+            {"name": "Ritirata Rapida", "level": 1, "time": "1 Azione Bonus", "range": "Personale", "desc": "Azione di Scatto come azione bonus."}
+        ]
     }
 }
+
+# Aliasing bilingue per classi (Italiano <-> Inglese)
+_CLASS_NAME_ALIASES = {
+    "Fighter": "Guerriero",
+    "Wizard": "Mago",
+    "Rogue": "Ladro",
+    "Cleric": "Chierico",
+    "Barbarian": "Barbaro",
+    "Bard": "Bardo",
+    "Paladin": "Paladino",
+    "Ranger": "Ranger",
+    "Druid": "Druido",
+    "Monk": "Monaco",
+    "Sorcerer": "Stregone",
+    "Warlock": "Warlock",
+    "Artificer": "Artefice"
+}
+for _en, _it in _CLASS_NAME_ALIASES.items():
+    if _it in CLASS_STARTING_KITS and _en not in CLASS_STARTING_KITS:
+        CLASS_STARTING_KITS[_en] = CLASS_STARTING_KITS[_it]
+    if _it in CLASS_STARTING_SPELLS and _en not in CLASS_STARTING_SPELLS:
+        CLASS_STARTING_SPELLS[_en] = CLASS_STARTING_SPELLS[_it]
 
 # Incantesimi e tratti razziali aggiuntivi
 RACE_STARTING_SPELLS = {
@@ -275,7 +320,9 @@ CLASS_DEFAULT_SKILLS = {
     "Monk": ["Acrobazia", "Atletica"],
     "Stregone": ["Arcano", "Inganno"],
     "Sorcerer": ["Arcano", "Inganno"],
-    "Warlock": ["Arcano", "Inganno"]
+    "Warlock": ["Arcano", "Inganno"],
+    "Artefice": ["Arcano", "Indagare"],
+    "Artificer": ["Arcano", "Indagare"]
 }
 
 # Equipaggiamento iniziale predefinito della campagna (impostato dal Master)
@@ -331,29 +378,30 @@ def save_campaign_starter_kit(items):
         return False
 
 def calculate_initial_ac(char_class, attributes, has_shield=False):
-    """Calcola la Classe Armatura (CA) iniziale secondo le regole di D&D 5e."""
-    des = attributes.get("DES", 10)
-    cos = attributes.get("COS", 10)
-    sag = attributes.get("SAG", 10)
+    """Calcola la Classe Armatura (CA) iniziale secondo le regole di D&D 5e RAW."""
+    des = attributes.get("DES", attributes.get("DEX", 10))
+    cos = attributes.get("COS", attributes.get("CON", 10))
+    sag = attributes.get("SAG", attributes.get("WIS", 10))
     
-    des_mod = (des - 10) // 2
-    cos_mod = (cos - 10) // 2
-    sag_mod = (sag - 10) // 2
+    des_mod = (int(des) - 10) // 2
+    cos_mod = (int(cos) - 10) // 2
+    sag_mod = (int(sag) - 10) // 2
     
     shield_bonus = 2 if has_shield else 0
+    c_lower = str(char_class).lower().strip()
     
-    if char_class == "Guerriero" or char_class == "Paladino":
+    if any(k in c_lower for k in ["guerriero", "fighter", "paladino", "paladin"]):
         return 16 + shield_bonus # Cotta di maglia (AC fissa 16) + eventuale scudo
-    elif char_class == "Chierico" or char_class == "Ranger":
-        return 14 + min(2, max(0, des_mod)) + shield_bonus # Cotta a scaglie 14 + max 2 Des
-    elif char_class in ["Ladro", "Bardo", "Warlock", "Druido"]:
+    elif any(k in c_lower for k in ["chierico", "cleric", "ranger", "artefice", "artificer"]):
+        return 14 + min(2, des_mod) + shield_bonus # Cotta a scaglie 14 + max 2 Des (penalità negativa ammessa)
+    elif any(k in c_lower for k in ["ladro", "rogue", "bardo", "bard", "warlock", "druido", "druid"]):
         return 11 + des_mod + shield_bonus # Cuoio 11 + Des
-    elif char_class == "Barbaro":
-        return 10 + des_mod + cos_mod + shield_bonus # Senz'armatura: 10 + Des + Cos
-    elif char_class == "Monaco":
-        return 10 + des_mod + sag_mod # Senz'armatura: 10 + Des + Sag
+    elif any(k in c_lower for k in ["barbaro", "barbarian"]):
+        return 10 + des_mod + cos_mod + shield_bonus # Difesa Senz'armatura: 10 + Des + Cos
+    elif any(k in c_lower for k in ["monaco", "monk"]):
+        return 10 + des_mod + sag_mod # Difesa Senz'armatura: 10 + Des + Sag (senza scudo)
     else:
-        # Mago, Stregone
+        # Mago, Stregone, Wizard, Sorcerer
         return 10 + des_mod
 
 def apply_class_and_race_starter_kit(char_obj_or_dict):
@@ -396,8 +444,12 @@ def apply_class_and_race_starter_kit(char_obj_or_dict):
             if it and it.get("name") != "Zaino Base":
                 cleaned_grid.append(it)
                 
-        # Aggiungi i nuovi oggetti
+        # Aggiungi i nuovi oggetti (contrassegna armature e scudi come equipaggiati)
         for item in items:
+            itype = str(item.get("type", "")).lower()
+            iname = str(item.get("name", "")).lower()
+            if itype in ("armatura", "armor", "scudo", "shield") or "scudo" in iname or "shield" in iname or any(k in iname for k in ["corazza", "cotta", "cuoio", "maglia", "piastre", "imbottita", "scaglie"]):
+                item["container"] = "equipped"
             cleaned_grid.append(item)
             
         # Riempi fino ad almeno 25 slot
@@ -529,11 +581,12 @@ STANDARD_ITEM_WEIGHTS = {
     "giavellotto": 2.0, "giavellotti": 6.0, "cinque giavellotti": 10.0, "lancia": 3.0,
     "alabarda": 6.0, "giusarma": 6.0, "giusarma / alabarda": 6.0, "randello": 2.0, "bastone ferrato": 4.0,
     "arco corto": 2.0, "arco lungo": 2.0, "balestra leggera": 5.0, "balestra pesante": 18.0,
-    "balestra a mano": 3.0, "frecce": 1.0, "dardo": 0.25, "dardi": 1.5, "dardi da balestra": 1.5, "dieci dardi": 1.5, "faretra": 1.0,
-    # Attrezzi, Zaini & Equipaggiamento
-    "zaino da esploratore": 10.0, "zaino da studioso": 10.0, "zaino da scassinatore": 12.0,
-    "zaino da sacerdote": 10.0, "zaino da intrattenitore": 8.0, "zaino da diplomatico": 8.0,
-    "zaino da esploratore sotterraneo": 12.0, "zaino": 5.0, "sacco a pelo": 7.0,
+    "balestra a mano": 3.0, "frecce": 1.0, "freccia": 0.05, "frecce (20)": 1.0, "dardo": 0.25, "dardi": 1.5, "dardo da balestra": 0.075, "dardi da balestra": 1.5, "dardi da balestra (20)": 1.5, "dieci dardi": 1.5, "faretra": 1.0,
+    # Attrezzi, Zaini & Equipaggiamento (D&D 5e RAW PHB p. 151)
+    "zaino da esploratore": 59.0, "zaino da studioso": 11.0, "zaino da scassinatore": 47.5,
+    "zaino da sacerdote": 25.0, "zaino da intrattenitore": 38.0, "zaino da diplomatico": 36.0,
+    "zaino da esploratore sotterraneo": 61.5, "zaino": 5.0, "sacco a pelo": 7.0,
+    "borsa conservante": 15.0, "bag of holding": 15.0,
     "corda di canapa (15m)": 10.0, "corda": 5.0, "torcia": 1.0, "torce (10)": 10.0, "lanterna": 2.0,
     "lanterna a occhio di bue": 2.0, "olio (fiaschetta)": 1.0, "fiaschetta d'olio": 1.0,
     "acciarino": 1.0, "razione": 2.0, "razioni": 10.0, "razioni (10 giorni)": 20.0,

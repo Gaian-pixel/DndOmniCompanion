@@ -367,9 +367,9 @@ def handle_roll_request(data, player, game_state):
         result = roll_dice(formula)
         crit_badge = ""
         if result.get("is_crit"):
-            crit_badge = " 🌟 SUCCESSO CRITICO! [20 Naturale]"
+            crit_badge = " 🌟 [20 Naturale]"
         elif result.get("is_fumble"):
-            crit_badge = " 💀 FALLIMENTO CRITICO! [1 Naturale]"
+            crit_badge = " 💀 [1 Naturale]"
         reason_part = f" ({reason})" if reason else ""
         log_msg = f"{player.name} tira {formula}{reason_part} e ottiene {result['total']} (dadi: {result.get('rolls')}, mod: {result.get('modifier')}){crit_badge}"
         game_state.log_dm_message(f"[ROLL] {log_msg}")

@@ -109,6 +109,7 @@ class MapEditorWindow(tk.Toplevel):
         self.pois = {}
         self.difficult_terrain = {}
         self.add_terrain_mode = False
+        self._preserved_map_metadata = {}
         
         self.grid_hexes = set()
         self.hex_to_canvas_id = {}
@@ -213,6 +214,14 @@ class MapEditorWindow(tk.Toplevel):
         self.bind("<Down>", lambda e: self.pan_by(0, -60))
         self.bind("<Left>", lambda e: self.pan_by(60, 0))
         self.bind("<Right>", lambda e: self.pan_by(-60, 0))
+        def _on_editor_destroy(e=None):
+            if e and getattr(e, "widget", None) != self:
+                return
+            if getattr(self, "_zoom_timer", None) is not None:
+                try: self.after_cancel(self._zoom_timer)
+                except Exception: pass
+                self._zoom_timer = None
+        self.bind("<Destroy>", _on_editor_destroy, add="+")
 
     def _create_layout(self, hex_size, grid_type=None):
         if grid_type is None:
@@ -492,8 +501,10 @@ class MapEditorWindow(tk.Toplevel):
         if not file_path:
             return
         try:
+            import copy
             with open(file_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
+            self._preserved_map_metadata = copy.deepcopy(data) if isinstance(data, dict) else {}
             self._clear_grid()
             hex_size = data.get("hex_size", 60)
             self.current_hex_size = hex_size
@@ -557,14 +568,19 @@ class MapEditorWindow(tk.Toplevel):
         if not file_path:
             return
         
-        pois_to_save = {f"{h.q},{h.r}": data for h, data in self.pois.items()}
+        import copy
+        pois_to_save = {
+            f"{h.q},{h.r}": ({kp: vp for kp, vp in pdata.items() if kp != "image_tk"} if isinstance(pdata, dict) else pdata)
+            for h, pdata in self.pois.items()
+        }
         scale_type = self.MAP_SCALE_TYPES.get(self.map_scale_var.get(), "combat")
         diff_terrain_to_save = {f"{h.q},{h.r}": t_type for h, t_type in self.difficult_terrain.items()}
         
         hex_size = getattr(self, "current_hex_size", 60)
         grid_type = self.grid_type_var.get() if hasattr(self, "grid_type_var") else "hex"
         
-        map_data = {
+        map_data = copy.deepcopy(getattr(self, "_preserved_map_metadata", {}) or {})
+        map_data.update({
             "base_image_path": self.base_image_path,
             "hex_size": hex_size,
             "grid_type": grid_type,
@@ -573,7 +589,8 @@ class MapEditorWindow(tk.Toplevel):
             "hexes": [[h.q, h.r] for h in self.grid_hexes],
             "pois": pois_to_save,
             "difficult_terrain": diff_terrain_to_save
-        }
+        })
+        self._preserved_map_metadata = copy.deepcopy(map_data)
         try:
             with open(file_path, 'w', encoding="utf-8") as f:
                 json.dump(map_data, f, indent=2)

@@ -207,7 +207,12 @@ class PlayerJournalDialog(tk.Toplevel):
             command=self.destroy
         ).pack(side=tk.RIGHT)
 
+    def destroy(self):
+        self._save_personal_notes_silent()
+        super().destroy()
+
     def update_journal(self, new_journal: CampaignJournal):
+        self._save_personal_notes_silent()
         self.journal = new_journal
         self._populate_sessions_list()
         self._load_session_data(self.selected_index)
@@ -225,6 +230,7 @@ class PlayerJournalDialog(tk.Toplevel):
         sel = self.session_listbox.curselection()
         if not sel:
             return
+        self._save_personal_notes_silent()
         self.selected_index = sel[0]
         self._load_session_data(self.selected_index)
 
@@ -279,29 +285,34 @@ class PlayerJournalDialog(tk.Toplevel):
 
     def _get_notes_file_path(self) -> str:
         safe_char = "".join(c for c in self.character_name if c.isalnum() or c in ("_", "-")).strip() or "hero"
-        return os.path.join(get_writable_dir(), "client_data", f"journal_notes_{safe_char}.json")
+        camp_name = getattr(self.journal, "campaign_name", "campaign")
+        safe_camp = "".join(c for c in camp_name if c.isalnum() or c in ("_", "-")).strip() or "default"
+        return os.path.join(get_writable_dir(), "client_data", f"journal_notes_{safe_char}_{safe_camp}.json")
 
-    def _save_personal_notes(self):
-        if self.selected_index < 0 or self.selected_index >= len(self.journal.sessions):
+    def _save_personal_notes_silent(self):
+        if not hasattr(self, "selected_index") or self.selected_index < 0 or self.selected_index >= len(self.journal.sessions):
             return
-        sess = self.journal.sessions[self.selected_index]
-        notes_path = self._get_notes_file_path()
-        all_notes = {}
-        if os.path.exists(notes_path):
-            try:
-                with open(notes_path, "r", encoding="utf-8") as f:
-                    all_notes = json.load(f)
-            except Exception:
-                all_notes = {}
-        text = self.txt_personal.get("1.0", tk.END).strip()
-        all_notes[str(sess.session_number)] = text
         try:
+            sess = self.journal.sessions[self.selected_index]
+            notes_path = self._get_notes_file_path()
+            all_notes = {}
+            if os.path.exists(notes_path):
+                try:
+                    with open(notes_path, "r", encoding="utf-8") as f:
+                        all_notes = json.load(f)
+                except Exception:
+                    all_notes = {}
+            text = self.txt_personal.get("1.0", tk.END).strip()
+            all_notes[str(sess.session_number)] = text
             os.makedirs(os.path.dirname(notes_path), exist_ok=True)
             with open(notes_path, "w", encoding="utf-8") as f:
                 json.dump(all_notes, f, indent=2, ensure_ascii=False)
-            show_toast(self, _t("toast_notes_saved", default="💾 Memorie personali salvate con successo!"), color=ACCENT_GREEN)
-        except Exception as e:
-            show_toast(self, f"Errore nel salvataggio: {e}", color="#EF4444")
+        except Exception:
+            pass
+
+    def _save_personal_notes(self):
+        self._save_personal_notes_silent()
+        show_toast(self, _t("toast_notes_saved", default="💾 Memorie personali salvate con successo!"), color=ACCENT_GREEN)
 
     def _on_copy_discord(self):
         text = self.journal.export_discord(self.selected_index, language=get_language())

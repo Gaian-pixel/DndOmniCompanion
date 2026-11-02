@@ -170,6 +170,13 @@ class CampaignJournal:
             return self.sessions[self.active_session_index]
         return self.sessions[-1]
 
+    def get_all_events(self) -> List[JournalEvent]:
+        """Restituisce la lista di tutti gli eventi registrati in tutte le sessioni."""
+        events = []
+        for s in self.sessions:
+            events.extend(s.events)
+        return events
+
     def start_new_session(
         self,
         title: str = "",

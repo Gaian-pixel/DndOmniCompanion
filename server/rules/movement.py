@@ -2,7 +2,7 @@ import os
 import json
 import base64
 import random
-from common.hex_utils import Hex, hex_linedraw, get_visible_hexes
+from common.hex_utils import Hex, hex_linedraw, get_visible_hexes, grid_distance_3d
 from common.network_utils import send_message, broadcast
 from common.i18n import is_condition_active
 
@@ -164,6 +164,12 @@ def handle_move_request(data, player, game_state):
                 base_hexes = max(1, base_hexes // 2)
             is_dashed = is_condition_active(conds, "Scatto")
             max_hexes = base_hexes * 2 if is_dashed else base_hexes
+            eff_names = [str(e.get("name", "")).lower() for e in getattr(player, "active_effects", []) if isinstance(e, dict)]
+            conds_lower = [str(c).lower() for c in conds]
+            if any(k in conds_lower for k in ["velocità", "haste"]) or any(k in eff_names for k in ["velocità", "haste"]):
+                max_hexes *= 2
+            if any(k in conds_lower for k in ["lentezza", "slow"]) or any(k in eff_names for k in ["lentezza", "slow"]):
+                max_hexes = max(1, max_hexes // 2)
             # Calcolo percorso con hex_linedraw e applicazione Terreno Difficile (D&D 5e: costo doppio per ogni casella)
             cur_map = getattr(game_state, "current_map", None)
             diff_terrain = cur_map.get("difficult_terrain", {}) if cur_map else {}
@@ -234,6 +240,14 @@ def handle_move_request(data, player, game_state):
                         if is_enemy and not has_reacted:
                             qo, ro = other.position[0], other.position[1]
                             reach = getattr(other, "reach", 1) or 1
+                            cur_m = getattr(game_state, "current_map", None)
+                            g_type = cur_m.get("grid_type", "hex") if cur_m else "hex"
+                            d_rule = "standard"
+                            if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+                                d_rule = game_state.automation_settings.get("square_diagonal_rule", "standard")
+                            z_oth = getattr(other, "elevation", 0) or 0
+                            z_ply = getattr(player, "elevation", 0) or 0
+
                             exited_reach = False
                             if move_path and len(move_path) > 1:
                                 for p_i in range(len(move_path) - 1):
@@ -242,14 +256,14 @@ def handle_move_request(data, player, game_state):
                                     cr1 = getattr(s_cur, "r", s_cur[1] if isinstance(s_cur, (list, tuple)) else 0)
                                     cq2 = getattr(s_nxt, "q", s_nxt[0] if isinstance(s_nxt, (list, tuple)) else 0)
                                     cr2 = getattr(s_nxt, "r", s_nxt[1] if isinstance(s_nxt, (list, tuple)) else 0)
-                                    d_c = max(abs(cq1 - qo), abs(cq1 + cr1 - qo - ro), abs(cr1 - ro))
-                                    d_n = max(abs(cq2 - qo), abs(cq2 + cr2 - qo - ro), abs(cr2 - ro))
+                                    d_c = grid_distance_3d(Hex(cq1, cr1), Hex(qo, ro), z_ply, z_oth, grid_type=g_type, diagonal_rule=d_rule)
+                                    d_n = grid_distance_3d(Hex(cq2, cr2), Hex(qo, ro), z_ply, z_oth, grid_type=g_type, diagonal_rule=d_rule)
                                     if d_c <= reach and d_n > reach:
                                         exited_reach = True
                                         break
                             else:
-                                d_f = max(abs(from_pos[0] - qo), abs(from_pos[0] + from_pos[1] - qo - ro), abs(from_pos[1] - ro))
-                                d_t = max(abs(to_pos[0] - qo), abs(to_pos[0] + to_pos[1] - qo - ro), abs(to_pos[1] - ro))
+                                d_f = grid_distance_3d(Hex(from_pos[0], from_pos[1]), Hex(qo, ro), z_ply, z_oth, grid_type=g_type, diagonal_rule=d_rule)
+                                d_t = grid_distance_3d(Hex(to_pos[0], to_pos[1]), Hex(qo, ro), z_ply, z_oth, grid_type=g_type, diagonal_rule=d_rule)
                                 exited_reach = (d_f <= reach and d_t > reach)
                             if exited_reach:
                                 incaps = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto", "Incapacitato", "Incapacitated"]
@@ -374,10 +388,16 @@ def handle_move_request(data, player, game_state):
             teleports = game_state.current_map.get("teleports", {})
             pos_key = f"{to_pos[0]},{to_pos[1]}"
             if pos_key in teleports:
-                map_file = teleports[pos_key]
-                maps_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "maps")
-                map_path = os.path.join(maps_dir, map_file)
-                if os.path.exists(map_path):
+                raw_map_file = str(teleports[pos_key])
+                map_file = os.path.basename(raw_map_file)
+                maps_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "maps"))
+                map_path = os.path.abspath(os.path.join(maps_dir, map_file))
+                
+                camp_folder = getattr(game_state.active_campaign, "folder_path", None) if getattr(game_state, "active_campaign", None) else None
+                camp_folder_abs = os.path.abspath(camp_folder) if camp_folder else None
+                
+                is_safe = map_path.startswith(maps_dir + os.sep) or (camp_folder_abs and map_path.startswith(camp_folder_abs + os.sep))
+                if is_safe and os.path.exists(map_path):
                     try:
                         with open(map_path, "r", encoding="utf-8") as f:
                             new_map_data = json.load(f)
@@ -412,3 +432,49 @@ def handle_move_request(data, player, game_state):
                 
         from common.protocol import make_player_move
         broadcast(game_state, make_player_move(player.name, to_pos))
+
+
+def handle_stand_up_request(data, player, game_state):
+    """
+    Rialzarsi da terra (Prono) secondo D&D 5e RAW (PHB p. 190):
+    Costa una quantità di movimento pari alla metà della velocità massima (max_hexes // 2).
+    Non è possibile rialzarsi se la velocità è 0 o il movimento rimasto non basta.
+    """
+    if not player:
+        return
+    conds = getattr(player, "conditions", [])
+    from common.i18n import is_condition_active
+    from common.network_utils import send_message, broadcast
+    from common.protocol import make_error_reply, make_chat_broadcast, make_player_stats_update
+    if not is_condition_active(conds, "Prono"):
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply(f"{player.name} non è Prono a terra!"))
+        return
+
+    in_combat = getattr(game_state, "combat_active", False)
+    if in_combat:
+        speed = getattr(player, "speed", 30)
+        speed_unit = getattr(player, "speed_unit", None)
+        from common.i18n import speed_to_hexes
+        base_hexes = speed_to_hexes(speed, speed_unit)
+        is_dashed = is_condition_active(conds, "Scatto")
+        max_hexes = base_hexes * 2 if is_dashed else base_hexes
+        cost = max(1, max_hexes // 2)
+        spent = getattr(player, "movement_spent_this_turn", 0)
+        strict_move = True
+        if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+            strict_move = game_state.automation_settings.get("strict_movement_limits", True)
+        if strict_move and (spent + cost) > max_hexes:
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply(f"Non hai abbastanza movimento per rialzarti! Rialzarsi costa {cost} esagoni (metà del tuo movimento). Ti restano solo {max(0, max_hexes - spent)} esagoni."))
+            return
+        player.movement_spent_this_turn = spent + cost
+
+    player.conditions = [c for c in conds if str(c).strip().lower() not in ("prono", "prone")]
+    if getattr(player, "full_sheet", None) and isinstance(player.full_sheet.get("conditions"), list):
+        player.full_sheet["conditions"] = list(player.conditions)
+    broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions, getattr(player, "temp_hp", 0)))
+    msg = f"🛡️ {player.name} si rialza da terra (Prono rimosso, costo: metà del movimento)."
+    broadcast(game_state, make_chat_broadcast("Sistema", msg))
+    game_state.log_dm_message(msg)
+    game_state._trigger_gui_update()

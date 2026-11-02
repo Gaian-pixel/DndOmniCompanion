@@ -83,8 +83,25 @@ class ShopDialog(tk.Toplevel):
         
         shops = self._get_shops()
         shop = shops.get(shop_name, {})
-        for item in shop.get("items", []):
-            self.tree.insert("", tk.END, values=(item.get("name"), item.get("price")))
+        shop_items = shop.get("items")
+        if not shop_items:
+            raw_inv = shop.get("resolved_inventory") or shop.get("inventory") or []
+            shop_items = []
+            for raw_it in raw_inv:
+                if isinstance(raw_it, dict):
+                    raw_p = raw_it.get("price", raw_it.get("cost_gp", raw_it.get("cost", 10)))
+                    try:
+                        import re as _re
+                        p_val = int(_re.search(r"(\d+)", str(raw_p)).group(1)) if isinstance(raw_p, str) and _re.search(r"(\d+)", str(raw_p)) else int(raw_p)
+                    except (ValueError, TypeError):
+                        p_val = 10
+                    shop_items.append({"name": raw_it.get("name", "Oggetto"), "price": max(0, p_val)})
+                else:
+                    shop_items.append({"name": str(raw_it), "price": 10})
+            if isinstance(shop, dict):
+                shop["items"] = shop_items
+        for item in shop_items:
+            self.tree.insert("", tk.END, values=(item.get("name"), item.get("price", 0)))
 
     def add_shop(self):
         name = simpledialog.askstring("Nuovo Negozio", "Nome della bottega:", parent=self)
@@ -131,10 +148,16 @@ class ShopDialog(tk.Toplevel):
         item_name = self.tree.item(sel[0], "values")[0]
         price = self.tree.item(sel[0], "values")[1]
         
-        if messagebox.askyesno("Conferma Acquisto", f"Vuoi comprare '{item_name}' per {price} mo?"):
+        if messagebox.askyesno("Conferma Acquisto", f"Vuoi comprare '{item_name}' per {price} mo?", parent=self):
             if self.network:
-                from common.network_utils import send_message
-                send_message(self.network.conn, {"type": "BUY_ITEM_REQUEST", "data": {"shop_name": shop_name, "item_name": item_name}})
+                msg = {"type": "BUY_ITEM_REQUEST", "data": {"shop_name": shop_name, "item_name": item_name}}
+                if hasattr(self.network, "send") and callable(self.network.send):
+                    self.network.send(msg)
+                else:
+                    from common.network_utils import send_message
+                    sock = getattr(self.network, "conn", None) or getattr(self.network, "client_socket", None)
+                    if sock:
+                        send_message(sock, msg)
         
     def _sync(self):
         if self.is_dm and self.network:

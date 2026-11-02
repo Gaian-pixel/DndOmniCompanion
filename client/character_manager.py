@@ -202,7 +202,7 @@ class Character:
         import random
         for _ in range(actual_spend):
             roll = random.randint(1, sides)
-            total = max(1, roll + cos_mod)
+            total = max(0, roll + cos_mod)
             recovered += total
             
         self.hp_current = min(self.hp_max, self.hp_current + recovered)
@@ -256,61 +256,101 @@ class Character:
                 res["current"] = res.get("max", 0)
 
     def auto_populate_class_resources(self):
-        """Popola le risorse 5e note in base alla classe se custom_resources è vuota."""
+        """Popola le risorse 5e note in base alla classe se custom_resources è vuota (D&D 5e RAW)."""
         if getattr(self, "custom_resources", None):
             return
         self.custom_resources = []
         c_cls = str(getattr(self, "char_class", "")).lower()
         lvl = max(1, int(getattr(self, "level", 1) or 1))
-        car = int(self.attributes.get("CAR", 10))
-        car_mod = max(1, (car - 10) // 2)
+        car_val = self.get_effective_attribute("CAR") if hasattr(self, "get_effective_attribute") else int(self.attributes.get("CAR", self.attributes.get("CHA", 10)))
+        car_mod = max(1, (car_val - 10) // 2)
         
         if any(k in c_cls for k in ["barbar", "barbarian"]):
-            rage = 2 if lvl < 3 else (3 if lvl < 6 else (4 if lvl < 12 else 5))
+            rage = 2 if lvl < 3 else (3 if lvl < 6 else (4 if lvl < 12 else (5 if lvl < 17 else (6 if lvl < 20 else 99))))
             self.custom_resources.append({"name": "Ira (Rage)", "current": rage, "max": rage, "reset_on": "long"})
         elif any(k in c_cls for k in ["monk", "monaco"]):
-            self.custom_resources.append({"name": "Punti Ki", "current": lvl, "max": lvl, "reset_on": "short"})
+            if lvl >= 2:
+                self.custom_resources.append({"name": "Punti Ki", "current": lvl, "max": lvl, "reset_on": "short"})
         elif any(k in c_cls for k in ["bard", "bardo"]):
             rst = "short" if lvl >= 5 else "long"
             self.custom_resources.append({"name": "Ispirazione Bardica", "current": car_mod, "max": car_mod, "reset_on": rst})
         elif any(k in c_cls for k in ["druid", "druido"]):
-            self.custom_resources.append({"name": "Forma Selvatica", "current": 2, "max": 2, "reset_on": "short"})
+            if lvl >= 2:
+                self.custom_resources.append({"name": "Forma Selvatica", "current": 2, "max": 2, "reset_on": "short"})
         elif any(k in c_cls for k in ["paladin", "paladino"]):
             self.custom_resources.append({"name": "Mani Curative (Lay on Hands)", "current": lvl * 5, "max": lvl * 5, "reset_on": "long"})
-            self.custom_resources.append({"name": "Canale di Divinità", "current": 1, "max": 1, "reset_on": "short"})
+            if lvl >= 3:
+                self.custom_resources.append({"name": "Canale di Divinità", "current": 1, "max": 1, "reset_on": "short"})
         elif any(k in c_cls for k in ["cleric", "chierico"]):
-            ch_uses = 1 if lvl < 6 else (2 if lvl < 18 else 3)
-            self.custom_resources.append({"name": "Canale di Divinità", "current": ch_uses, "max": ch_uses, "reset_on": "short"})
+            if lvl >= 2:
+                ch_uses = 1 if lvl < 6 else (2 if lvl < 18 else 3)
+                self.custom_resources.append({"name": "Canale di Divinità", "current": ch_uses, "max": ch_uses, "reset_on": "short"})
         elif any(k in c_cls for k in ["fighter", "guerriero"]):
             self.custom_resources.append({"name": "Secondo Fiato (Second Wind)", "current": 1, "max": 1, "reset_on": "short"})
-            act = 2 if lvl >= 17 else 1
-            self.custom_resources.append({"name": "Azione Impetuosa (Action Surge)", "current": act, "max": act, "reset_on": "short"})
+            if lvl >= 2:
+                act = 2 if lvl >= 17 else 1
+                self.custom_resources.append({"name": "Azione Impetuosa (Action Surge)", "current": act, "max": act, "reset_on": "short"})
         elif any(k in c_cls for k in ["sorcerer", "stregone"]):
             if lvl >= 2:
                 self.custom_resources.append({"name": "Punti Stregoneria", "current": lvl, "max": lvl, "reset_on": "long"})
+        elif any(k in c_cls for k in ["warlock"]):
+            if lvl >= 11:
+                self.custom_resources.append({"name": "Arcanum Mistico (6° liv)", "current": 1, "max": 1, "reset_on": "long"})
+            if lvl >= 13:
+                self.custom_resources.append({"name": "Arcanum Mistico (7° liv)", "current": 1, "max": 1, "reset_on": "long"})
+            if lvl >= 15:
+                self.custom_resources.append({"name": "Arcanum Mistico (8° liv)", "current": 1, "max": 1, "reset_on": "long"})
+            if lvl >= 17:
+                self.custom_resources.append({"name": "Arcanum Mistico (9° liv)", "current": 1, "max": 1, "reset_on": "long"})
 
     def get_attunement_bonuses(self):
-        """Calcola i modificatori passivi derivanti dagli oggetti attualmente sintonizzati (🔮 max 3)."""
+        """Calcola i modificatori passivi derivanti dagli oggetti attualmente sintonizzati (🔮 max 3, fino a 6 per Artefice)."""
         bonuses = {
             "bonus_ac": 0,
             "bonus_saves": 0,
             "bonus_stats": {},
             "set_stats": {}
         }
+        
+        char_cls = str(getattr(self, "char_class", "")).lower()
+        level = int(getattr(self, "level", 1) or 1)
+        max_attune = 3
+        if "artefice" in char_cls or "artificer" in char_cls:
+            max_attune = 6 if level >= 18 else (5 if level >= 14 else (4 if level >= 10 else 3))
+
         attuned_items = []
         for item in getattr(self, "inventory_grid", []):
             if isinstance(item, dict) and item.get("attuned"):
                 attuned_items.append(item)
-                if len(attuned_items) >= 3:
+                if len(attuned_items) >= max_attune:
                     break
+
+        has_equipped_armor = False
+        has_equipped_shield = False
+        for it in getattr(self, "inventory_grid", []):
+            if isinstance(it, dict) and it.get("container") == "equipped":
+                itype = str(it.get("type", "")).lower()
+                iname = str(it.get("name", "")).lower()
+                if "scudo" in iname or "shield" in iname or itype in ("scudo", "shield"):
+                    has_equipped_shield = True
+                elif itype in ("armatura", "armor") or any(k in iname for k in [
+                    "armatura", "armor", "cuoio", "leather", "corazza", "giaco", 
+                    "maglia", "chain", "piastre", "plate", "imbottita", "padded", 
+                    "scaglie", "scale", "pettorale", "breastplate", "strisce", 
+                    "splint", "anelli", "ring mail", "pelle", "hide"
+                ]):
+                    has_equipped_armor = True
 
         for item in attuned_items:
             name = str(item.get("name", "")).lower()
             desc = str(item.get("desc", "")).lower()
             
             # Proprietà esplicite
+            has_explicit_ac = False
             if "bonus_ac" in item:
-                try: bonuses["bonus_ac"] += int(item["bonus_ac"])
+                try: 
+                    bonuses["bonus_ac"] += int(item["bonus_ac"])
+                    has_explicit_ac = True
                 except Exception: pass
             if "bonus_saves" in item:
                 try: bonuses["bonus_saves"] += int(item["bonus_saves"])
@@ -325,13 +365,22 @@ class Character:
                 try: bonuses["set_stats"]["COS"] = max(bonuses["set_stats"].get("COS", 0), int(item["set_con"]))
                 except Exception: pass
 
-            # Oggetti magici celebri 5e
+            # Oggetti magici celebri 5e (evita duplicazione se bonus_ac già assegnato esplicitamente)
+            handled_by_name = False
+            if not has_explicit_ac:
+                if any(k in name for k in ["anello di protezione", "mantello della protezione", "ring of protection", "cloak of protection"]):
+                    bonuses["bonus_ac"] += 1
+                    handled_by_name = True
+                elif any(k in name for k in ["bracciali della difesa", "bracers of defense"]):
+                    # D&D 5e RAW: i Bracciali della Difesa danno +2 CA SOLO se NON si indossa armatura e NON si usa scudo
+                    if not has_equipped_armor and not has_equipped_shield:
+                        bonuses["bonus_ac"] += 2
+                    handled_by_name = True
+
             if any(k in name for k in ["anello di protezione", "mantello della protezione", "ring of protection", "cloak of protection"]):
-                bonuses["bonus_ac"] += 1
-                bonuses["bonus_saves"] += 1
-            elif any(k in name for k in ["bracciali della difesa", "bracers of defense"]):
-                bonuses["bonus_ac"] += 2
-            elif any(k in name for k in ["guanti della forza dell'orco", "gauntlets of ogre power"]):
+                if "bonus_saves" not in item:
+                    bonuses["bonus_saves"] += 1
+            if any(k in name for k in ["guanti della forza dell'orco", "gauntlets of ogre power"]):
                 bonuses["set_stats"]["FOR"] = max(bonuses["set_stats"].get("FOR", 0), 19)
             elif any(k in name for k in ["fascia dell'intelletto", "headband of intellect"]):
                 bonuses["set_stats"]["INT"] = max(bonuses["set_stats"].get("INT", 0), 19)
@@ -348,16 +397,18 @@ class Character:
                     bonuses["set_stats"]["FOR"] = max(bonuses["set_stats"].get("FOR", 0), 23)
                 else:
                     bonuses["set_stats"]["FOR"] = max(bonuses["set_stats"].get("FOR", 0), 21)
-            else:
+            elif not handled_by_name:
                 import re
-                ac_match = re.search(r'\+(\d+)\s*(?:alla\s*)?(?:ca|ac|armatura|classe armatura)', desc)
-                if ac_match and "bonus_ac" not in item:
-                    try: bonuses["bonus_ac"] += int(ac_match.group(1))
-                    except Exception: pass
-                save_match = re.search(r'\+(\d+)\s*(?:a\s*tutti\s*i\s*)?(?:tiri\s*salvezza|ts|saving\s*throws)', desc)
-                if save_match and "bonus_saves" not in item:
-                    try: bonuses["bonus_saves"] += int(save_match.group(1))
-                    except Exception: pass
+                if not has_explicit_ac:
+                    ac_match = re.search(r'\+(\d+)\s*(?:alla\s*)?(?:ca|ac|armatura|classe armatura)', desc)
+                    if ac_match:
+                        try: bonuses["bonus_ac"] += int(ac_match.group(1))
+                        except Exception: pass
+                if "bonus_saves" not in item:
+                    save_match = re.search(r'\+(\d+)\s*(?:a\s*tutti\s*i\s*)?(?:tiri\s*salvezza|ts|saving\s*throws)', desc)
+                    if save_match:
+                        try: bonuses["bonus_saves"] += int(save_match.group(1))
+                        except Exception: pass
 
         return bonuses
 
@@ -370,9 +421,23 @@ class Character:
             base += bonuses["bonus_stats"][attr_name]
         return base
 
+    def get_modifier(self, attr_name: str) -> int:
+        """Calcola il modificatore d'abilità per la caratteristica richiesta considerando attributi effettivi (oggetti magici, sintonizzazione)."""
+        STAT_MAP = {
+            "STR": "FOR", "STRENGTH": "FOR", "FORZA": "FOR", "FOR": "FOR",
+            "DEX": "DES", "DEXTERITY": "DES", "DESTREZZA": "DES", "DES": "DES",
+            "CON": "COS", "CONSTITUTION": "COS", "COSTITUZIONE": "COS", "COS": "COS",
+            "INT": "INT", "INTELLIGENCE": "INT", "INTELLIGENZA": "INT",
+            "WIS": "SAG", "WISDOM": "SAG", "SAGGEZZA": "SAG", "SAG": "SAG",
+            "CHA": "CAR", "CHARISMA": "CAR", "CARISMA": "CAR", "CAR": "CAR"
+        }
+        canonical = STAT_MAP.get(str(attr_name).strip().upper(), str(attr_name).strip().upper())
+        val = self.get_effective_attribute(canonical)
+        return (val - 10) // 2
+
     def get_effective_ac(self):
-        bonuses = self.get_attunement_bonuses()
-        return self.ac + bonuses["bonus_ac"]
+        """Restituisce la CA effettiva calcolata da recalculate_ac() senza duplicare i bonus di sintonizzazione."""
+        return self.recalculate_ac()
 
     def get_effective_save_bonus(self, stat_name):
         STAT_MAP = {
@@ -411,48 +476,95 @@ class Character:
             if it.get("container") == "equipped":
                 itype = str(it.get("type", "")).lower()
                 iname = str(it.get("name", "")).lower()
-                if "scudo" in iname or "shield" in iname or itype == "scudo":
+                if "scudo" in iname or "shield" in iname or itype in ("scudo", "shield"):
                     has_shield = True
-                elif itype == "armatura" or any(k in iname for k in ["armatura", "cuoio", "corazza", "giaco", "maglia", "piastre", "imbottita"]):
+                elif itype in ("armatura", "armor") or any(k in iname for k in [
+                    "armatura", "armor", "cuoio", "leather", "corazza", "giaco", 
+                    "maglia", "chain", "piastre", "plate", "imbottita", "padded", 
+                    "scaglie", "scale", "pettorale", "breastplate", "strisce", 
+                    "splint", "anelli", "ring mail", "pelle", "hide"
+                ]):
                     equipped_armor = it
 
         base_ac = 10
         char_cls = str(getattr(self, "char_class", "")).lower()
         subclass = str(getattr(self, "subclass", "")).lower()
 
+        features_list = getattr(self, "features", [])
+        if isinstance(features_list, str):
+            features_list = [features_list]
+        elif not isinstance(features_list, (list, tuple, set)):
+            features_list = []
+        features_str = " ".join(str(f).lower() for f in features_list)
+
         if equipped_armor:
             aname = str(equipped_armor.get("name", "")).lower()
-            if any(k in aname for k in ["imbottita", "cuoio", "cuoio borchiato", "padded", "leather", "studded"]):
-                armor_base = 12 if ("borchiato" in aname or "studded" in aname) else 11
-                dex_allowed = des_mod
-            elif any(k in aname for k in ["pelle", "giaco", "scaglie", "piastre", "pettorale", "hide", "chain shirt", "scale", "breastplate", "half plate"]):
-                if "half plate" in aname or "mezza armatura" in aname: armor_base = 15
-                elif "breastplate" in aname or "pettorale" in aname: armor_base = 14
-                elif "scale" in aname or "scaglie" in aname: armor_base = 14
-                elif "chain shirt" in aname or "giaco" in aname: armor_base = 13
-                else: armor_base = 12
-                dex_allowed = min(2, des_mod)
-            elif any(k in aname for k in ["anelli", "cotta", "strisce", "completa", "ring mail", "chain mail", "splint", "plate"]):
-                if "completa" in aname or "plate" in aname: armor_base = 18
-                elif "strisce" in aname or "splint" in aname: armor_base = 17
-                elif "cotta" in aname or "chain mail" in aname: armor_base = 16
-                else: armor_base = 14
+            explicit_base = equipped_armor.get("ac_base", equipped_armor.get("base_ac"))
+            
+            # Heavy Armor (Armatura Pesante): Destrezza non modifica la CA (PHB p. 145)
+            if any(k in aname for k in ["armatura a piastre", "piastre complete", "full plate", "completa"]) or (aname.strip() in ("piastre", "plate")):
+                armor_base = 18
                 dex_allowed = 0
+            elif any(k in aname for k in ["corazza a strisce", "strisce", "splint"]):
+                armor_base = 17
+                dex_allowed = 0
+            elif any(k in aname for k in ["cotta di maglia", "chain mail"]):
+                armor_base = 16
+                dex_allowed = 0
+            elif any(k in aname for k in ["corazza ad anelli", "anelli", "ring mail"]):
+                armor_base = 14
+                dex_allowed = 0
+            # Medium Armor (Armatura Media): CA base + Mod DES (max +2, penalità negativa ammessa)
+            elif any(k in aname for k in ["mezza armatura", "half plate"]):
+                armor_base = 15
+                dex_allowed = min(2, des_mod)
+            elif any(k in aname for k in ["pettorale", "corazza pettorale", "breastplate"]):
+                armor_base = 14
+                dex_allowed = min(2, des_mod)
+            elif any(k in aname for k in ["scaglie", "corazza a scaglie", "scale mail"]):
+                armor_base = 14
+                dex_allowed = min(2, des_mod)
+            elif any(k in aname for k in ["giaco di maglia", "giaco", "chain shirt"]):
+                armor_base = 13
+                dex_allowed = min(2, des_mod)
+            elif any(k in aname for k in ["pelle", "armatura di pelle", "hide"]):
+                armor_base = 12
+                dex_allowed = min(2, des_mod)
+            # Light Armor (Armatura Leggera): CA base + Mod DES completo
+            elif any(k in aname for k in ["cuoio borchiato", "borchiato", "studded leather", "studded"]):
+                armor_base = 12
+                dex_allowed = des_mod
+            elif any(k in aname for k in ["cuoio", "leather"]):
+                armor_base = 11
+                dex_allowed = des_mod
+            elif any(k in aname for k in ["imbottita", "padded"]):
+                armor_base = 11
+                dex_allowed = des_mod
             else:
-                armor_base = int(equipped_armor.get("ac_base", 11) or 11)
+                if explicit_base is not None:
+                    try:
+                        armor_base = int(explicit_base)
+                    except (ValueError, TypeError):
+                        armor_base = 11
+                else:
+                    armor_base = 11
                 dex_allowed = min(2, des_mod)
 
             base_ac = armor_base + dex_allowed
 
-            features_list = [str(f).lower() for f in getattr(self, "features", [])]
-            if any("difesa" in f or "defense" in f for f in features_list):
+            # Stile di Combattimento Difesa (PHB p. 72): +1 CA mentre si indossa un'armatura
+            if any(k in features_str for k in ["difesa", "defense"]):
                 base_ac += 1
         else:
+            # Difesa senz'armatura (D&D 5e RAW)
             if "monaco" in char_cls or "monk" in char_cls:
-                base_ac = 10 + des_mod + (max(0, sag_mod) if not has_shield else 0)
+                # 10 + Des + Sag (solo se NON si usa uno scudo, PHB p. 78)
+                base_ac = 10 + des_mod + (sag_mod if not has_shield else 0)
             elif "barbaro" in char_cls or "barbarian" in char_cls:
-                base_ac = 10 + des_mod + max(0, cos_mod)
-            elif "dracon" in subclass:
+                # 10 + Des + Cos (può usare uno scudo, PHB p. 48)
+                base_ac = 10 + des_mod + cos_mod
+            elif "dracon" in subclass or "draconic" in subclass:
+                # Resilienza Draconica (Stregone, PHB p. 102): 13 + Des
                 base_ac = 13 + des_mod
             else:
                 base_ac = 10 + des_mod
@@ -464,8 +576,45 @@ class Character:
         self.ac = base_ac + bonuses.get("bonus_ac", 0)
         return self.ac
 
+    def check_has_darkvision(self) -> bool:
+        """Determina se il personaggio possiede Scurovisione secondo le regole D&D 5e."""
+        if getattr(self, "has_darkvision", None) is not None:
+            return bool(self.has_darkvision)
+        conds = [str(c).lower() for c in getattr(self, "conditions", [])]
+        if any("scurovisione" in c or "darkvision" in c for c in conds):
+            return True
+        race = str(getattr(self, "race", "")).lower()
+        dv_races = (
+            "elfo", "elf", "nano", "dwarf", "mezzelfo", "half-elf", "mezzorco", 
+            "half-orc", "gnomo", "gnome", "tiefling", "drow", "duergar", "aasimar", 
+            "tabaxi", "coboldo", "kobold", "bugbear", "hobgoblin", "orco", "orc", 
+            "goblin", "genasi del fuoco", "fire genasi", "genasi della terra", "earth genasi",
+            "tritone", "triton"
+        )
+        if any(r in race for r in dv_races):
+            return True
+        senses = str(getattr(self, "senses", "")).lower()
+        if "scurovisione" in senses or "darkvision" in senses:
+            return True
+        features_list = getattr(self, "features", [])
+        if isinstance(features_list, str):
+            features_list = [features_list]
+        elif not isinstance(features_list, (list, tuple, set)):
+            features_list = []
+        feats = [str(f).lower() for f in features_list]
+        if any("scurovisione" in f or "darkvision" in f for f in feats):
+            return True
+        traits = [str(t).lower() for t in getattr(self, "traits", [])]
+        if any("scurovisione" in t or "darkvision" in t for t in traits):
+            return True
+        return getattr(self, "vision_radius", 6) > 6
+
+        bonuses = self.get_attunement_bonuses()
+        self.ac = base_ac + bonuses.get("bonus_ac", 0)
+        return self.ac
+
     def update_class_resources_for_level(self, new_level: int):
-        """Aggiorna le risorse di classe scalabili in base al livello (Ki, Rage, Mani Curative, ecc.)."""
+        """Aggiorna le risorse di classe scalabili in base al livello (Ki, Rage, Mani Curative, ecc. - D&D 5e RAW)."""
         cls_name = str(getattr(self, "char_class", "")).lower()
         if not hasattr(self, "custom_resources") or not isinstance(self.custom_resources, list):
             self.custom_resources = []
@@ -477,22 +626,62 @@ class Character:
             if ki:
                 ki["max"] = new_level
                 ki["current"] = min(ki["max"], ki.get("current", new_level))
+            elif new_level >= 2:
+                self.custom_resources.append({"name": "Punti Ki", "current": new_level, "max": new_level, "reset_on": "short"})
         elif "barbaro" in cls_name or "barbarian" in cls_name:
-            rage = res_dict.get("Ire") or res_dict.get("Ira") or res_dict.get("Rage")
+            max_r = 2 if new_level < 3 else (3 if new_level < 6 else (4 if new_level < 12 else (5 if new_level < 17 else (6 if new_level < 20 else 99))))
+            rage = res_dict.get("Ire") or res_dict.get("Ira") or res_dict.get("Rage") or res_dict.get("Ira (Rage)")
             if rage:
-                max_r = 2 if new_level < 3 else (3 if new_level < 6 else (4 if new_level < 12 else (5 if new_level < 17 else (6 if new_level < 20 else 99))))
                 rage["max"] = max_r
                 rage["current"] = min(max_r, rage.get("current", max_r))
+            else:
+                self.custom_resources.append({"name": "Ira (Rage)", "current": max_r, "max": max_r, "reset_on": "long"})
         elif "paladino" in cls_name or "paladin" in cls_name:
-            loh = res_dict.get("Imposizione delle Mani") or res_dict.get("Mani Curative")
+            loh = res_dict.get("Imposizione delle Mani") or res_dict.get("Mani Curative") or res_dict.get("Mani Curative (Lay on Hands)")
             if loh:
                 loh["max"] = new_level * 5
                 loh["current"] = min(loh["max"], loh.get("current", loh["max"]))
+            else:
+                self.custom_resources.append({"name": "Mani Curative (Lay on Hands)", "current": new_level * 5, "max": new_level * 5, "reset_on": "long"})
+            if new_level >= 3 and not (res_dict.get("Canale di Divinità") or res_dict.get("Incanalare Divinità")):
+                self.custom_resources.append({"name": "Canale di Divinità", "current": 1, "max": 1, "reset_on": "short"})
+        elif "chierico" in cls_name or "cleric" in cls_name:
+            ch_uses = 1 if new_level < 6 else (2 if new_level < 18 else 3)
+            ch = res_dict.get("Canale di Divinità") or res_dict.get("Incanalare Divinità")
+            if ch:
+                ch["max"] = ch_uses
+                ch["current"] = min(ch_uses, ch.get("current", ch_uses))
+            elif new_level >= 2:
+                self.custom_resources.append({"name": "Canale di Divinità", "current": ch_uses, "max": ch_uses, "reset_on": "short"})
+        elif "guerriero" in cls_name or "fighter" in cls_name:
+            act = 2 if new_level >= 17 else 1
+            asurge = res_dict.get("Azione Impetuosa (Action Surge)") or res_dict.get("Azione Impetuosa") or res_dict.get("Action Surge")
+            if asurge:
+                asurge["max"] = act
+                asurge["current"] = min(act, asurge.get("current", act))
+            elif new_level >= 2:
+                self.custom_resources.append({"name": "Azione Impetuosa (Action Surge)", "current": act, "max": act, "reset_on": "short"})
+        elif "druido" in cls_name or "druid" in cls_name:
+            if new_level >= 2 and not res_dict.get("Forma Selvatica"):
+                self.custom_resources.append({"name": "Forma Selvatica", "current": 2, "max": 2, "reset_on": "short"})
+        elif "bardo" in cls_name or "bard" in cls_name:
+            binsp = res_dict.get("Ispirazione Bardica") or res_dict.get("Bardic Inspiration")
+            if binsp and new_level >= 5:
+                binsp["reset_on"] = "short"
         elif "stregone" in cls_name or "sorcerer" in cls_name:
             sp = res_dict.get("Punti Stregoneria") or res_dict.get("Sorcery Points")
             if sp and new_level >= 2:
                 sp["max"] = new_level
                 sp["current"] = min(sp["max"], sp.get("current", sp["max"]))
+            elif new_level >= 2:
+                self.custom_resources.append({"name": "Punti Stregoneria", "current": new_level, "max": new_level, "reset_on": "long"})
+        elif "warlock" in cls_name:
+            arcanum_levels = [(11, 6), (13, 7), (15, 8), (17, 9)]
+            for min_lvl, slot_lvl in arcanum_levels:
+                if new_level >= min_lvl:
+                    name = f"Arcanum Mistico ({slot_lvl}° liv)"
+                    if name not in res_dict:
+                        self.custom_resources.append({"name": name, "current": 1, "max": 1, "reset_on": "long"})
 
     def get_carried_weight(self) -> float:
         """
@@ -668,6 +857,8 @@ class Character:
             "backpack_dropped": backpack_dropped,
             "backpack_weight": backpack_weight,
             "boh_weight": boh_weight,
+            "boh_max": 500.0,
+            "boh_overloaded": (boh_weight > 500.0),
             "haversack_weight": haversack_weight,
             "mount_weight": mount_weight
         }
@@ -775,6 +966,9 @@ class Character:
             old_inv = getattr(c, "inventory", "")
             if old_inv:
                 c.inventory_grid[0] = {"name": "Vecchio Inv.", "type": "Misto", "desc": old_inv, "qty": 1}
+        else:
+            while len(c.inventory_grid) < 25:
+                c.inventory_grid.append(None)
         
         if not hasattr(c, "spell_slots"):
             c.spell_slots = {str(i): {"max": 0, "current": 0} for i in range(1, 10)}

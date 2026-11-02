@@ -770,9 +770,22 @@ def calculate_effective_sentinel_pp(
     try: perc_val = int(perc_bonus)
     except (ValueError, TypeError): perc_val = 0
 
-    base_pp = 10 + sag_mod + perc_val
+    lvl = max(1, int(sheet.get("level", 1) or 1))
+    pb = 2 + (lvl - 1) // 4
+    if perc_val in (1, 2):
+        # perc_val rappresenta il livello di competenza (1 = Competente, 2 = Maestria)
+        skill_mod = sag_mod + (pb * perc_val)
+    elif perc_val > 2:
+        # perc_val era indicato come bonus abilità/competenza esplicito
+        skill_mod = sag_mod + perc_val
+    else:
+        skill_mod = sag_mod
+
+    base_pp = 10 + skill_mod
     has_dv = bool(getattr(player, "has_darkvision", False))
-    if not has_dv and isinstance(sheet, dict):
+    if hasattr(player, "check_has_darkvision"):
+        has_dv = player.check_has_darkvision()
+    elif not has_dv and isinstance(sheet, dict):
         race = str(sheet.get("race", "")).lower()
         if any(r in race for r in ("elf", "elfo", "dwarf", "nano", "gnomo", "gnome", "tiefling")):
             has_dv = True
@@ -782,10 +795,11 @@ def calculate_effective_sentinel_pp(
     if is_night and not has_campfire:
         if not has_dv:
             penalty = -5
-            note = "Oscurità Totale (-5 PP, Senza Scurovisione)"
+            note = "Oscurità Totale (Senza Scurovisione: Svantaggio -5 PP)"
         else:
+            # D&D 5e RAW: La Scurovisione nell'oscurità totale vede come in Luce Fioca (Svantaggio: -5 PP)
             penalty = -5
-            note = "Luce Fioca / Buio (-5 PP, Scurovisione)"
+            note = "Oscurità Totale (Scurovisione -> Luce Fioca: Svantaggio -5 PP)"
 
     final_pp = base_pp + penalty
 

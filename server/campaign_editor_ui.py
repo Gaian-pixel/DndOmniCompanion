@@ -173,9 +173,12 @@ class CampaignEncounterDialog(tk.Toplevel):
                 init = monster_sheet.get("initiative", 0)
                 xp = monster_sheet.get("xp", 50)
                 ac = monster_sheet.get("ac", 10)
+                raw_count = item_data.get("import_quantity") or item_data.get("count") or 1
+                try: count_val = max(1, int(raw_count))
+                except (ValueError, TypeError): count_val = 1
                 self.monsters.append({
                     "name": name,
-                    "count": 1,
+                    "count": count_val,
                     "hp": hp,
                     "initiative": init,
                     "xp": xp,
@@ -217,9 +220,12 @@ class CampaignEncounterDialog(tk.Toplevel):
                 dex = item_data.get("dexterity") or item_data.get("attributes", {}).get("DES", 10)
                 init_mod = item_data.get("initiative", (dex - 10) // 2)
                 xp = item_data.get("xp", 50)
+                raw_count = item_data.get("import_quantity") or item_data.get("count") or 1
+                try: count_val = max(1, int(raw_count))
+                except (ValueError, TypeError): count_val = 1
                 self.monsters.append({
                     "name": name,
-                    "count": 1,
+                    "count": count_val,
                     "hp": hp,
                     "initiative": init_mod,
                     "xp": xp,
@@ -815,20 +821,32 @@ class CampaignEditorFrame(tk.Frame):
                     cnt += 1
                     name = f"{base_name} ({cnt})"
                     
+                sheet_src = m.get("sheet") if isinstance(m.get("sheet"), dict) else {}
                 npc = Player(name=name)
-                npc.hp = m.get("hp", 15)
-                npc.max_hp = m.get("hp", 15)
-                attrs = extract_and_normalize_attributes(m.get("attributes"), m.get("name", name))
+                raw_hp = m.get("hp", sheet_src.get("hp_max", sheet_src.get("hp", 15)))
+                try:
+                    hp_int = max(1, int(raw_hp))
+                except (ValueError, TypeError):
+                    hp_int = 15
+                npc.hp = hp_int
+                npc.max_hp = hp_int
+                raw_attrs = m.get("attributes") or sheet_src.get("attributes")
+                attrs = extract_and_normalize_attributes(raw_attrs, m.get("name", name))
                 dex_val = attrs.get("DES", 10)
-                npc.initiative = m.get("initiative") if m.get("initiative") is not None else (dex_val - 10) // 2
-                ac = normalize_ac_value(m.get("ac", m.get("armor_class", 10)))
-                speed_val, speed_disp, speed_unit = normalize_speed_value(m.get("speed", 30))
+                init_val = m.get("initiative", sheet_src.get("initiative"))
+                npc.initiative = int(init_val) if init_val is not None else (dex_val - 10) // 2
+                npc.initiative_bonus = npc.initiative
+                ac = normalize_ac_value(m.get("ac", m.get("armor_class", sheet_src.get("ac", sheet_src.get("armor_class", 10)))))
+                speed_val, speed_disp, speed_unit = normalize_speed_value(m.get("speed", sheet_src.get("speed", 30)))
                 npc.speed = speed_val
                 npc.speed_unit = speed_unit
-                npc.full_sheet = {
+                actions_list = m.get("actions") if m.get("actions") else sheet_src.get("actions", [])
+                features_list = m.get("features") if m.get("features") else (sheet_src.get("features") or sheet_src.get("special_abilities", []))
+                npc.full_sheet = dict(sheet_src)
+                npc.full_sheet.update({
                     "name": npc.name,
-                    "char_class": "Mostro/NPC",
-                    "level": 1,
+                    "char_class": sheet_src.get("char_class", "Mostro/NPC"),
+                    "level": sheet_src.get("level", 1),
                     "hp_current": npc.hp,
                     "hp_max": npc.max_hp,
                     "ac": ac,
@@ -836,10 +854,10 @@ class CampaignEditorFrame(tk.Frame):
                     "speed_display": speed_disp,
                     "speed_unit": speed_unit,
                     "attributes": attrs,
-                    "cr": str(m.get("cr", "1")),
-                    "actions": m.get("actions", []),
-                    "features": m.get("features", [])
-                }
+                    "cr": str(m.get("cr", sheet_src.get("cr", "1"))),
+                    "actions": actions_list,
+                    "features": features_list
+                })
                 self.game_state.add_player(npc)
                 broadcast(self.game_state, make_player_joined(npc.to_dict()))
                 added.append(npc.name)

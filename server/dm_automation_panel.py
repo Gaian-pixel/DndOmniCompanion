@@ -179,6 +179,22 @@ def open_automation_settings_dialog(dm_gui):
     ttk.Checkbutton(sec2, text="Svelamento dinamico automatico Nebbia di Guerra (FoW) attorno ai token", variable=fow_var).pack(anchor="w", pady=2)
     tk.Label(sec2, text="  ↳ Se disattivato, il DM rivela manualmente le aree della mappa preservando la suspense senza spoiler accidentali.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
 
+    diag_frame = tk.Frame(sec2, bg=SURFACE_COLOR)
+    diag_frame.pack(fill=tk.X, pady=(6, 2))
+    tk.Label(diag_frame, text="Regola Diagonali su Griglia Quadrata (D&D 5e):", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+    diag_rule_var = tk.StringVar()
+    cur_d = cur_settings.get("square_diagonal_rule", "standard")
+    diag_rule_var.set("tactical (5-10-5 ft DMG)" if cur_d in ("tactical", "5-10-5") else "standard (5-5-5 ft PHB)")
+    diag_cb = ttk.Combobox(
+        diag_frame, 
+        textvariable=diag_rule_var, 
+        values=["standard (5-5-5 ft PHB)", "tactical (5-10-5 ft DMG)"], 
+        state="readonly",
+        width=32
+    )
+    diag_cb.pack(anchor="w", pady=(2, 2))
+    tk.Label(diag_frame, text="  ↳ Standard: ogni diagonale costa 5 ft (Chebyshev). Tattica DMG: la 1ª diagonale costa 5 ft, la 2ª 10 ft.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+
     # Sezione 3: Riposo & Risorse
     sec3 = tk.LabelFrame(scrollable_frame, text=" ⛺ Riposo & Recupero Risorse ", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GREEN, padx=10, pady=8)
     sec3.pack(fill=tk.X, pady=6)
@@ -212,7 +228,8 @@ def open_automation_settings_dialog(dm_gui):
             "auto_explore_fow": bool(fow_var.get()),
             "auto_apply_rest_recovery": bool(rest_var.get()),
             "auto_advance_time": bool(advance_time_var.get()),
-            "auto_day_night_cycle": bool(day_night_var.get())
+            "auto_day_night_cycle": bool(day_night_var.get()),
+            "square_diagonal_rule": "tactical" if "tactical" in diag_rule_var.get() else "standard"
         }
         from server.rules.combat import handle_set_automation_mode_request
         handle_set_automation_mode_request({"mode": sel_mode, "settings": new_settings}, None, dm_gui.server.game_state)

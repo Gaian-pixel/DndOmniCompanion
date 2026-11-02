@@ -47,7 +47,7 @@ CLASS_SPELLCASTING_ABILITY = {
     "warlock": "CAR",
     "paladin": "CAR", "paladino": "CAR",
     "ranger": "SAG",
-    "monk": "SAG", "monaco": "SAG",
+    "artificer": "INT", "artefice": "INT"
 }
 
 # Mappa abilità -> caratteristica chiave
@@ -462,11 +462,11 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
     if inv_items:
         _draw_wrapped_lines(can, "\n".join(inv_items), 260, 189.9, 124, 11.0, max_lines=15, font_size=7.5)
 
-    # 14. Colonna destra (Tratti, Ideali, Legami, Difetti)
-    traits = data.get("personality_traits", "") or data.get("traits", "")
-    ideals = data.get("ideals", "")
-    bonds = data.get("bonds", "")
-    flaws = data.get("flaws", "")
+    # 14. Colonna destra (Tratti, Ideali, Legami, Difetti - D&D 5e RAW)
+    traits = data.get("personality_trait", "") or data.get("personality_traits", "") or data.get("traits", "")
+    ideals = data.get("ideal", "") or data.get("ideals", "")
+    bonds = data.get("bond", "") or data.get("bonds", "")
+    flaws = data.get("flaw", "") or data.get("flaws", "")
 
     _draw_wrapped_lines(can, str(traits), 410, 642.8, 156, 12.5, max_lines=4, font_size=7.5)
     _draw_wrapped_lines(can, str(ideals), 410, 573.7, 156, 12.5, max_lines=3, font_size=7.5)
@@ -476,12 +476,13 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
     # 15. Privilegi e Tratti (Features & Traits - Colonna destra inferiore)
     features_lines = []
     class_res = data.get("class_resources", {})
+    char_class_low = str(data.get("char_class", data.get("class", ""))).lower()
     if isinstance(class_res, dict):
-        if class_res.get("rage_max", 0) > 0:
+        if class_res.get("rage_max", 0) > 0 and any(k in char_class_low for k in ["barbar", "barbarian"]):
             features_lines.append(f"• Ira: {class_res.get('rage_current', 0)}/{class_res.get('rage_max', 0)}")
-        if class_res.get("second_wind"):
+        if class_res.get("second_wind") and any(k in char_class_low for k in ["guerrier", "fighter"]):
             features_lines.append("• Secondo Fiato: Disponibile")
-        if class_res.get("action_surge"):
+        if class_res.get("action_surge") and any(k in char_class_low for k in ["guerrier", "fighter"]):
             features_lines.append("• Azione Impetuosa: Disponibile")
 
     for cres in data.get("custom_resources", []):

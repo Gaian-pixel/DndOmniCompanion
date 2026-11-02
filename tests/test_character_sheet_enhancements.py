@@ -33,7 +33,7 @@ class TestCharacterSheetEnhancements(unittest.TestCase):
         self.assertEqual(lookup_standard_weight("Spada Lunga"), 3.0)
         self.assertEqual(lookup_standard_weight("Dardo"), 0.25)
         self.assertEqual(lookup_standard_weight("Dieci Dardi"), 1.5)
-        self.assertEqual(lookup_standard_weight("Zaino da Esploratore"), 10.0)
+        self.assertEqual(lookup_standard_weight("Zaino da Esploratore"), 59.0)
         self.assertEqual(lookup_standard_weight("Armatura di Cuoio"), 10.0)
         self.assertEqual(lookup_standard_weight("Scudo"), 6.0)
         self.assertEqual(lookup_standard_weight("Pozione di Guarigione"), 0.5)
@@ -44,6 +44,7 @@ class TestCharacterSheetEnhancements(unittest.TestCase):
     def test_character_carried_weight_fallback(self):
         """Verifica che Character.get_carried_weight non restituisca 0 per equipaggiamento standard con weight 0.0."""
         c = Character("Test Hero")
+        c.attributes["FOR"] = 14
         c.inventory_grid = [
             {"name": "Spada Corta", "qty": 1, "weight": 0.0},
             {"name": "Zaino da Esploratore", "qty": 1, "weight": 0.0},
@@ -51,10 +52,10 @@ class TestCharacterSheetEnhancements(unittest.TestCase):
             {"name": "Pozione di Guarigione", "qty": 2, "weight": 0.0}
         ]
         carried = c.get_carried_weight()
-        # 2.0 + 10.0 + (0.5 * 2) = 13.0 lbs
-        self.assertEqual(carried, 13.0)
+        # 2.0 + 59.0 + (0.5 * 2) = 62.0 lbs (PHB p. 151 Dotazione da Esploratore)
+        self.assertEqual(carried, 62.0)
         enc = c.get_encumbrance_status()
-        self.assertEqual(enc["carried_weight"], 13.0)
+        self.assertEqual(enc["carried_weight"], 62.0)
         self.assertEqual(enc["tier"], "normal")
 
     def test_parse_and_serialize_features(self):

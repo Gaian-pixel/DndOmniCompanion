@@ -845,17 +845,40 @@ def sync_flow_graph_to_campaign(graph: FlowGraph, campaign: Any):
 
         elif node.node_type == "shop":
             from common.srd_offline import resolve_compendium_item
+            import re as _re
             items = d.get("items", [])
             wares = d.get("wares", "")
             if items and not wares:
-                wares = ", ".join(items) if isinstance(items, list) else str(items)
-            inv_list = items if isinstance(items, list) else ([wares] if wares else [])
-            resolved_inv = d.get("resolved_items") or [resolve_compendium_item(it) for it in inv_list]
+                wares = ", ".join(str(x.get("name", x)) if isinstance(x, dict) else str(x) for x in items) if isinstance(items, list) else str(items)
+            inv_list = items if isinstance(items, list) else ([w.strip() for w in wares.split(",") if w.strip()] if wares else [])
+            resolved_inv = d.get("resolved_items") or [
+                it if isinstance(it, dict) and "price" in it else resolve_compendium_item(it.get("name", "") if isinstance(it, dict) else str(it))
+                for it in inv_list
+            ]
+            normalized_items = []
+            for entry in (resolved_inv or inv_list):
+                if isinstance(entry, dict):
+                    raw_cost = entry.get("price", entry.get("cost", 10))
+                    if isinstance(raw_cost, str):
+                        m_cost = _re.search(r"(\d+)", raw_cost)
+                        price_val = int(m_cost.group(1)) if m_cost else 10
+                    else:
+                        try:
+                            price_val = int(raw_cost)
+                        except (ValueError, TypeError):
+                            price_val = 10
+                    item_copy = dict(entry)
+                    item_copy.setdefault("name", entry.get("item", "Oggetto"))
+                    item_copy["price"] = max(0, price_val)
+                    normalized_items.append(item_copy)
+                elif isinstance(entry, str) and entry.strip():
+                    normalized_items.append({"name": entry.strip(), "price": 10})
             shops_map[node.title] = {
                 "name": node.title,
                 "merchant": d.get("merchant", "Mercante"),
                 "shop_type": d.get("shop_type", "Beni Generali"),
                 "wares": wares,
+                "items": normalized_items,
                 "inventory": inv_list,
                 "resolved_inventory": resolved_inv,
             }

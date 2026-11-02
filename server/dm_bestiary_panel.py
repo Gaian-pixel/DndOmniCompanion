@@ -315,7 +315,8 @@ class DMBestiaryPanel(ttk.Frame):
                 new_name = f"{base_name} {idx}"
 
             npc = self._build_npc_player(new_name, mdata, hp, ac, initiative, speed_val, speed_disp, speed_unit, attrs, pos)
-            self.dm_gui.server.game_state.add_player(npc)
+            with self.dm_gui.server.game_state.lock:
+                self.dm_gui.server.game_state.add_player(npc)
             self.dm_gui.server.game_state._trigger_gui_update()
             broadcast(self.dm_gui.server.game_state, make_player_joined(npc.to_dict()))
             broadcast(self.dm_gui.server.game_state, make_player_stats_update(npc.name, npc.hp, npc.max_hp, npc.initiative, []))
@@ -324,7 +325,8 @@ class DMBestiaryPanel(ttk.Frame):
         # 2. Se elemento online SRD, scarica e spawna da API
         index_selezionato = selected.get("index")
         if index_selezionato:
-            threading.Thread(target=self._spawn_bestiario_thread, args=(index_selezionato,), daemon=True).start()
+            pos_copy = list(pos) if isinstance(pos, (list, tuple)) else [0, 0]
+            threading.Thread(target=self._spawn_bestiario_thread, args=(index_selezionato, pos_copy), daemon=True).start()
 
     def _build_npc_player(self, name, mdata, hp, ac, initiative, speed_val, speed_disp, speed_unit, attrs, pos):
         npc = Player(name, None, None)
@@ -373,7 +375,8 @@ class DMBestiaryPanel(ttk.Frame):
         }
         return npc
 
-    def _spawn_bestiario_thread(self, index_selezionato):
+    def _spawn_bestiario_thread(self, index_selezionato, spawn_pos=None):
+        pos = list(spawn_pos) if isinstance(spawn_pos, (list, tuple)) else [0, 0]
         try:
             url = f"https://www.dnd5eapi.co/api/monsters/{index_selezionato}"
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -390,10 +393,6 @@ class DMBestiaryPanel(ttk.Frame):
                 dex = attrs.get("DES", 10)
                 initiative = (dex - 10) // 2
 
-                pos = [0, 0]
-                if hasattr(self.dm_gui, 'map_canvas') and self.dm_gui.map_canvas and hasattr(self.dm_gui.map_canvas, '_last_clicked_hex') and self.dm_gui.map_canvas._last_clicked_hex:
-                    pos = [self.dm_gui.map_canvas._last_clicked_hex.q, self.dm_gui.map_canvas._last_clicked_hex.r]
-
                 base_name = name
                 idx = 1
                 new_name = base_name
@@ -403,7 +402,8 @@ class DMBestiaryPanel(ttk.Frame):
 
                 npc = self._build_npc_player(new_name, data, hit_points, ac_value, initiative, speed_val, speed_disp, speed_unit, attrs, pos)
 
-                self.dm_gui.server.game_state.add_player(npc)
+                with self.dm_gui.server.game_state.lock:
+                    self.dm_gui.server.game_state.add_player(npc)
                 self.dm_gui.server.game_state._trigger_gui_update()
                 broadcast(self.dm_gui.server.game_state, make_player_joined(npc.to_dict()))
                 broadcast(self.dm_gui.server.game_state, make_player_stats_update(npc.name, npc.hp, npc.max_hp, npc.initiative, []))
@@ -422,10 +422,6 @@ class DMBestiaryPanel(ttk.Frame):
                     dex = attrs.get("DES", 10)
                     initiative = (dex - 10) // 2
 
-                    pos = [0, 0]
-                    if hasattr(self.dm_gui, 'map_canvas') and self.dm_gui.map_canvas and hasattr(self.dm_gui.map_canvas, '_last_clicked_hex') and self.dm_gui.map_canvas._last_clicked_hex:
-                        pos = [self.dm_gui.map_canvas._last_clicked_hex.q, self.dm_gui.map_canvas._last_clicked_hex.r]
-
                     base_name = name
                     idx = 1
                     new_name = base_name
@@ -435,7 +431,8 @@ class DMBestiaryPanel(ttk.Frame):
 
                     npc = self._build_npc_player(new_name, mdata, hit_points, ac_value, initiative, speed_val, speed_disp, speed_unit, attrs, pos)
 
-                    self.dm_gui.server.game_state.add_player(npc)
+                    with self.dm_gui.server.game_state.lock:
+                        self.dm_gui.server.game_state.add_player(npc)
                     self.dm_gui.server.game_state._trigger_gui_update()
                     broadcast(self.dm_gui.server.game_state, make_player_joined(npc.to_dict()))
                     broadcast(self.dm_gui.server.game_state, make_player_stats_update(npc.name, npc.hp, npc.max_hp, npc.initiative, []))

@@ -1,6 +1,7 @@
 # dm_server.py
 import sys
 import os
+import html
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import socket
 import threading
@@ -123,12 +124,68 @@ class DM_GUI:
             self.log_to_chat(f"[SISTEMA] Campagna '{self.initial_campaign.name}' applicata con successo.")
 
             
+        self._is_closing = False
+        self._process_queue_job = None
+        self._listbox_player_names = []
+        try:
+            self.master.bind("<Destroy>", self._on_master_destroyed, add="+")
+        except Exception:
+            pass
+
         self.server_thread=threading.Thread(target=self.server.start, daemon=True); self.server_thread.start()
         self.voice_client = VoiceClient("127.0.0.1", 53912)
         self.voice_client.start()
         register_language_listener(self.on_language_changed)
         register_unit_listener(self.on_unit_changed)
-        self.master.after(100, self.process_queue)
+        self._process_queue_job = self.master.after(100, self.process_queue)
+
+    def _on_master_destroyed(self, event=None):
+        if event and getattr(event, "widget", None) != self.master:
+            return
+        self._is_closing = True
+        try:
+            unregister_language_listener(self.on_language_changed)
+        except Exception:
+            pass
+        try:
+            unregister_unit_listener(self.on_unit_changed)
+        except Exception:
+            pass
+        if getattr(self, "_process_queue_job", None):
+            try:
+                self.master.after_cancel(self._process_queue_job)
+            except Exception:
+                pass
+            self._process_queue_job = None
+
+    def get_player_name_from_listbox(self, index=None):
+        """Restituisce il nome dell'entità alla riga index (o selezione corrente) senza fragilità di string-splitting."""
+        if index is None:
+            sel = self.player_listbox.curselection()
+            if not sel:
+                return None
+            index = sel[0]
+        if hasattr(self, "_listbox_player_names") and 0 <= index < len(self._listbox_player_names):
+            return self._listbox_player_names[index]
+        try:
+            raw = self.player_listbox.get(index)
+            if raw.startswith("---"):
+                return None
+            for pfx in ("➡️", "▶", "?", "[N]"):
+                raw = raw.replace(pfx, "")
+            raw = raw.strip()
+            if " (HP" in raw:
+                return raw.split(" (HP")[0].strip()
+            if " [" in raw:
+                return raw.split(" [")[0].strip()
+            return raw.strip()
+        except Exception:
+            return None
+
+    def get_selected_player(self):
+        """Restituisce l'istanza Player selezionata nella player_listbox, oppure None."""
+        name = self.get_player_name_from_listbox()
+        return self.server.game_state.find_player(name) if name else None
 
     def show_toast(self, message, title=None, duration=3500, toast_type="info", icon=None):
         return show_toast(self.master, message, title=title, duration=duration, toast_type=toast_type, icon=icon)
@@ -1363,9 +1420,11 @@ class DM_GUI:
             import random
             from common.protocol import make_request_initiative, make_player_stats_update
             if player.conn is None:
-                player.initiative = random.randint(1, 20) + player.initiative
+                if getattr(player, "initiative_bonus", None) is None:
+                    player.initiative_bonus = player.initiative
+                player.initiative = random.randint(1, 20) + player.get_initiative_bonus()
                 self.log_to_chat(f"[COMBAT] {player.name} (NPC) entra in combattimento con iniziativa: {player.initiative}")
-                broadcast(self.server.game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions))
+                broadcast(self.server.game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions, getattr(player, "temp_hp", 0)))
             else:
                 send_message(player.conn, make_request_initiative())
                 self.log_to_chat(f"[COMBAT] Richiesta iniziativa a {player.name} entrato mid-combat.")
@@ -1609,9 +1668,7 @@ class DM_GUI:
         if token_name:
             # Seleziona il token nella listbox in base al nome
             for i in range(self.player_listbox.size()):
-                display_text = self.player_listbox.get(i)
-                if display_text.startswith('---'): continue
-                name = display_text.split(" (HP")[0].replace("? ", "").strip()
+                name = self.get_player_name_from_listbox(i)
                 if name == token_name:
                     self.player_listbox.selection_clear(0, "end")
                     self.player_listbox.selection_set(i)
@@ -1918,6 +1975,49 @@ class DM_GUI:
     def on_hex_clicked(self, clicked_hex):
         if not self.server.game_state.current_map: return
 
+        if getattr(self, "aoe_mode", False) and getattr(self, "aoe_params", None):
+            params = dict(self.aoe_params)
+            aoe_type = params.get("type", "sfera")
+            sel_caster_name = self.get_selected_player_name()
+            sel_caster = self.server.game_state.find_player(sel_caster_name) if sel_caster_name else None
+            if aoe_type in ("cono", "linea"):
+                if sel_caster and getattr(sel_caster, "position", None):
+                    origin_pt = list(sel_caster.position[:2])
+                    target_pt = [clicked_hex.q, clicked_hex.r]
+                elif getattr(self, "_aoe_pending_origin", None) is None:
+                    self._aoe_pending_origin = [clicked_hex.q, clicked_hex.r]
+                    self.show_toast("Origine impostata! Clicca ora la direzione/bersaglio.", title="🔥 AoE Direzionale", toast_type="info")
+                    return
+                else:
+                    origin_pt = list(self._aoe_pending_origin)
+                    target_pt = [clicked_hex.q, clicked_hex.r]
+                    self._aoe_pending_origin = None
+                aoe_data = {
+                    "type": aoe_type,
+                    "origin": origin_pt,
+                    "target": target_pt,
+                    "size": params.get("size", 3),
+                    "color": params.get("color", "#EF4444"),
+                }
+            else:
+                aoe_data = {
+                    "type": aoe_type,
+                    "origin": [clicked_hex.q, clicked_hex.r],
+                    "size": params.get("size", 3),
+                    "color": params.get("color", "#EF4444"),
+                }
+            for k in ("req_save", "stat", "dc", "dmg", "half", "concentration", "name"):
+                if k in params:
+                    aoe_data[k] = params[k]
+            caster_obj = sel_caster if sel_caster else type("DMCaster", (), {"name": "DM", "role": "DM", "conn": None, "conditions": []})()
+            from server.rules.map_interaction import handle_create_aoe_request
+            handle_create_aoe_request({"aoe_data": aoe_data}, caster_obj, self.server.game_state)
+            self.aoe_mode = False
+            self._aoe_pending_origin = None
+            self.redraw_map_and_players()
+            self.show_toast(f"AoE ({aoe_type}) piazzata a [{clicked_hex.q}, {clicked_hex.r}]!", title="🔥 Area d'Effetto", toast_type="success")
+            return
+
         if getattr(self, "terrain_paint_mode", False):
             brush = getattr(self, "active_terrain_brush", "fango")
             if brush == "clear":
@@ -2020,8 +2120,19 @@ class DM_GUI:
                 "hp": p.hp,
                 "hp_max": p.max_hp,
                 "is_party_member": getattr(p, "is_party_member", False),
+                "is_companion": getattr(p, "is_companion", False),
                 "conditions": list(getattr(p, "conditions", [])),
+                "size": getattr(p, "size", getattr(p, "size_mult", 1)),
                 "size_mult": getattr(p, "size_mult", 1),
+                "layer": getattr(p, "layer", "token"),
+                "elevation": getattr(p, "elevation", 0),
+                "active_effects": list(getattr(p, "active_effects", [])),
+                "condition_durations": dict(getattr(p, "condition_durations", {})),
+                "temp_hp": getattr(p, "temp_hp", 0),
+                "ac": getattr(p, "ac", 10),
+                "in_pocket_dimension": getattr(p, "in_pocket_dimension", False),
+                "concentrating_on": getattr(p, "concentrating_on", None),
+                "in_combat": getattr(p, "in_combat", True),
                 "aura_radius": getattr(p, "aura_radius", 0),
                 "aura_color": getattr(p, "aura_color", "yellow"),
                 "light_radius": getattr(p, "light_radius", 0),
@@ -2036,12 +2147,9 @@ class DM_GUI:
         view_name = ""
         if getattr(self, "dm_player_view_var", None) and self.dm_player_view_var.get():
             view_name = "DM_TEST"
-            if hasattr(self, 'player_listbox') and self.player_listbox.curselection():
-                display_text = self.player_listbox.get(self.player_listbox.curselection()[0])
-                if not display_text.startswith('---'):
-                    sel_pname = display_text.split(" (HP")[0].replace("▶", "").strip()
-                    if sel_pname in players_data:
-                        view_name = sel_pname
+            sel_pname = self.get_player_name_from_listbox()
+            if sel_pname and sel_pname in players_data:
+                view_name = sel_pname
         
         time_hour = getattr(self.server.game_state, "time_hour", 12)
         time_minute = getattr(self.server.game_state, "time_minute", 0)
@@ -2086,6 +2194,9 @@ class DM_GUI:
                 text=_t("map_env_indoor"),
                 fg="#818CF8"
             )
+
+    def update_canvas(self):
+        self.redraw_map_and_players()
 
     def toggle_map_outdoor(self):
         cur_map = getattr(self.server.game_state, "current_map", None) if hasattr(self, "server") and hasattr(self.server, "game_state") else None
@@ -2300,11 +2411,14 @@ class DM_GUI:
         campaign_str = campaign_name.name if campaign_name else "D&D Session"
 
         if filepath.endswith(".html"):
+            safe_campaign = html.escape(str(campaign_str))
+            safe_log = html.escape(str(log_text))
+            safe_title = html.escape(str(_t('export_log_title')))
             html_content = f"""<!DOCTYPE html>
 <html lang="it">
 <head>
 <meta charset="utf-8">
-<title>{_t('export_log_title')} - {campaign_str}</title>
+<title>{safe_title} - {safe_campaign}</title>
 <style>
 body {{ background-color: #121316; color: #E5E7EB; font-family: 'Segoe UI', Tahoma, sans-serif; padding: 24px; line-height: 1.6; }}
 h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
@@ -2313,9 +2427,9 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
 </style>
 </head>
 <body>
-<h1>📜 {_t('export_log_title')} - {campaign_str}</h1>
+<h1>📜 {safe_title} - {safe_campaign}</h1>
 <div class="meta">Esportato il: {now_str} • D&D OmniCompanion</div>
-<div class="log-box">{log_text}</div>
+<div class="log-box">{safe_log}</div>
 </body>
 </html>"""
             with open(filepath, "w", encoding="utf-8") as f:
@@ -2775,6 +2889,7 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                 self.lbl_encounter_diff.config(text="⚔️ Bilanciamento 5e: Nessun nemico", fg=TEXT_MUTED)
 
         if self.server.game_state:
+            self._listbox_player_names = []
             players = self.server.game_state.get_all_players()
             if not self.server.game_state.combat_active:
                 party = sorted([p for p in players if getattr(p, "is_party_member", False)], key=lambda p: p.initiative, reverse=True)
@@ -2788,10 +2903,12 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
 
                 for i, item in enumerate(ordered_list):
                     if isinstance(item[0], str):
+                        self._listbox_player_names.append(None)
                         self.player_listbox.insert(tk.END, item[0])
                         self.player_listbox.itemconfig(i, {'bg': SURFACE_COLOR, 'fg': TEXT_MUTED})
                     else:
                         p = item[0]
+                        self._listbox_player_names.append(p.name)
                         prefix = "  "
                         conds = f" {{{', '.join(p.conditions)}}}" if getattr(p, "conditions", []) else ""
                         hidden_str = "[N] " if getattr(p, "is_hidden", False) else ""
@@ -2800,9 +2917,11 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                         self.player_listbox.insert(tk.END, display_text)
                         self.player_listbox.itemconfig(i, {'bg': SURFACE_COLOR, 'fg': TEXT_COLOR})
             else:
+                curr_turn_p = self.server.game_state.get_current_turn_player()
                 for i, p in enumerate(players): 
+                    self._listbox_player_names.append(p.name)
                     in_combat = getattr(p, 'in_combat', True) if self.server.game_state.combat_active else True
-                    is_turn = self.server.game_state.combat_active and in_combat and i == self.server.game_state.turn_index
+                    is_turn = bool(self.server.game_state.combat_active and in_combat and curr_turn_p and p.name == curr_turn_p.name)
                     
                     prefix = "➡️ " if is_turn else "  "
                     conds = f" {{{', '.join(p.conditions)}}}" if getattr(p, "conditions", []) else ""
@@ -2828,6 +2947,14 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             except tk.TclError: pass
 
     def process_queue(self):
+        if getattr(self, "_is_closing", False) or not hasattr(self, "master"):
+            return
+        try:
+            if not self.master.winfo_exists():
+                return
+        except Exception:
+            return
+
         try:
             while True:
                 msg = self.gui_queue.get_nowait()
@@ -2865,7 +2992,12 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                     p = msg.get("payload", {})
                     self.trigger_3d_dice_roll(p.get("formula", "1d20"), p.get("result", {}), p.get("player", "Giocatore"), p.get("reason", "🙈 Tiro Segreto"))
         except queue.Empty: pass
-        self.master.after(100, self.process_queue)
+
+        if not getattr(self, "_is_closing", False):
+            try:
+                self._process_queue_job = self.master.after(100, self.process_queue)
+            except Exception:
+                pass
 
     def prompt_currency_approval(self, player, coin, amount, reason):
         if not player or amount <= 0: return
@@ -2942,27 +3074,49 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         from common.network_utils import send_message, broadcast
         if approved:
             sheet = getattr(player, "full_sheet", None)
+            is_weapon_req = (item.get("target_collection") == "weapons")
             if sheet:
-                if not isinstance(sheet.get("inventory_grid"), list):
-                    sheet["inventory_grid"] = [None] * 25
-                target_slot = slot_idx if (slot_idx is not None and 0 <= slot_idx < 25) else None
-                if is_remove:
-                    if target_slot is not None:
-                        sheet["inventory_grid"][target_slot] = None
+                if is_weapon_req:
+                    if not isinstance(sheet.get("weapons"), list):
+                        sheet["weapons"] = []
+                    if is_remove:
+                        if slot_idx is not None and 0 <= slot_idx < len(sheet["weapons"]):
+                            sheet["weapons"].pop(slot_idx)
+                        else:
+                            for w_i, w_obj in enumerate(sheet["weapons"]):
+                                if isinstance(w_obj, dict) and w_obj.get("name") == it_name:
+                                    sheet["weapons"].pop(w_i)
+                                    break
                     else:
-                        for s_i in range(len(sheet["inventory_grid"])):
-                            if sheet["inventory_grid"][s_i] and sheet["inventory_grid"][s_i].get("name") == it_name:
-                                sheet["inventory_grid"][s_i] = None
-                                break
+                        clean_weapon = {k: v for k, v in item.items() if k not in ("action", "target_collection")}
+                        sheet["weapons"].append(clean_weapon)
                 else:
-                    if target_slot is None or sheet["inventory_grid"][target_slot] is not None:
-                        for s_i in range(len(sheet["inventory_grid"])):
-                            if sheet["inventory_grid"][s_i] is None:
-                                target_slot = s_i
-                                break
-                    if target_slot is not None and target_slot < 25:
-                        sheet["inventory_grid"][target_slot] = item
-                        slot_idx = target_slot
+                    if not isinstance(sheet.get("inventory_grid"), list):
+                        sheet["inventory_grid"] = [None] * 25
+                    grid = sheet["inventory_grid"]
+                    target_slot = slot_idx if (slot_idx is not None and 0 <= slot_idx < len(grid)) else None
+                    if is_remove:
+                        if target_slot is not None:
+                            grid[target_slot] = None
+                        else:
+                            for s_i in range(len(grid)):
+                                if grid[s_i] and grid[s_i].get("name") == it_name:
+                                    grid[s_i] = None
+                                    break
+                    else:
+                        clean_item = {k: v for k, v in item.items() if k not in ("action", "target_collection")}
+                        if target_slot is None or grid[target_slot] is not None:
+                            target_slot = None
+                            for s_i in range(len(grid)):
+                                if grid[s_i] is None:
+                                    target_slot = s_i
+                                    break
+                        if target_slot is not None and 0 <= target_slot < len(grid):
+                            grid[target_slot] = clean_item
+                            slot_idx = target_slot
+                        else:
+                            grid.append(clean_item)
+                            slot_idx = len(grid) - 1
             if player.conn:
                 send_message(player.conn, make_item_approval_response(p_name, item, slot_idx, approved=True))
             action_desc = "la rimozione di" if is_remove else "l'assegnazione di"
@@ -3084,6 +3238,11 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
 
     def on_closing(self):
         if messagebox.askokcancel(_t("menu_exit"), _t("confirm_exit_server")):
+            self._is_closing = True
+            if getattr(self, "_process_queue_job", None):
+                try: self.master.after_cancel(self._process_queue_job)
+                except Exception: pass
+                self._process_queue_job = None
             try:
                 unregister_language_listener(self.on_language_changed)
             except Exception:
@@ -3259,10 +3418,15 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         for name in names:
             p = self.server.game_state.find_player(name)
             if p:
-                sheet = getattr(p, "full_sheet", {}) or {}
-                attrs = sheet.get("attributes", {})
-                des = attrs.get("DES", 10)
-                init_bonus = (des - 10) // 2
+                if getattr(p, "initiative_bonus", None) is None:
+                    sheet = getattr(p, "full_sheet", {}) or {}
+                    attrs = sheet.get("attributes", {})
+                    if "DES" in attrs or "DEX" in attrs:
+                        des = attrs.get("DES", attrs.get("DEX", 10))
+                        p.initiative_bonus = (int(des) - 10) // 2
+                    else:
+                        p.initiative_bonus = p.initiative
+                init_bonus = p.get_initiative_bonus()
                 roll = random.randint(1, 20)
                 p.initiative = roll + init_bonus
                 rolled.append(f"{p.name}: {p.initiative}")
@@ -3284,7 +3448,7 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         for name in list(names):
             p = self.server.game_state.find_player(name)
             if p:
-                self.server.game_state.players.remove(p)
+                self.server.game_state.remove_player(p)
                 broadcast(self.server.game_state, make_player_left(p.name))
         if hasattr(self.map_canvas, "selected_tokens"):
             self.map_canvas.selected_tokens.clear()
@@ -3340,24 +3504,24 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         dialog.transient(self.master)
         dialog.grab_set()
 
-        lbl_title = tk.Label(dialog, text=f"📐 Quota Tattica 3D: {target_name}", font=self.subtitle_font, bg=SURFACE_COLOR, fg=TEXT_COLOR)
+        lbl_title = tk.Label(dialog, text=f"📐 Quota Tattica 3D: {target_name}", font=FONT_HEADER, bg=SURFACE_COLOR, fg=TEXT_COLOR)
         lbl_title.pack(pady=(12, 4))
 
-        lbl_cur = tk.Label(dialog, text=f"Altitudine Attuale: {current_elev} ft ({round(current_elev*0.3048, 1)} m)", font=self.default_font, bg=SURFACE_COLOR, fg=TEXT_MUTED)
+        lbl_cur = tk.Label(dialog, text=f"Altitudine Attuale: {current_elev} ft ({round(current_elev*0.3048, 1)} m)", font=FONT_MAIN, bg=SURFACE_COLOR, fg=TEXT_MUTED)
         lbl_cur.pack(pady=(0, 10))
 
         frame_input = tk.Frame(dialog, bg=SURFACE_COLOR)
         frame_input.pack(pady=5)
 
-        tk.Label(frame_input, text="Nuova Quota (ft):", font=self.bold_font, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(side=tk.LEFT, padx=5)
-        ent_elev = tk.Entry(frame_input, font=self.default_font, width=8, bg=INPUT_BG, fg=TEXT_COLOR, insertbackground=TEXT_COLOR)
+        tk.Label(frame_input, text="Nuova Quota (ft):", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(side=tk.LEFT, padx=5)
+        ent_elev = tk.Entry(frame_input, font=FONT_MAIN, width=8, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, insertbackground=TEXT_COLOR)
         ent_elev.pack(side=tk.LEFT, padx=5)
         ent_elev.insert(0, str(current_elev))
         ent_elev.focus_set()
 
         frame_presets = tk.Frame(dialog, bg=SURFACE_COLOR)
         frame_presets.pack(pady=8)
-        tk.Label(frame_presets, text="Preset Rapidi:", font=self.small_font, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", padx=10)
+        tk.Label(frame_presets, text="Preset Rapidi:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", padx=10)
         
         btn_box = tk.Frame(frame_presets, bg=SURFACE_COLOR)
         btn_box.pack(pady=4)
@@ -3367,14 +3531,14 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
             ent_elev.insert(0, str(v))
 
         for p_val, p_lbl in [(0, "0 ft (Suolo)"), (10, "10 ft"), (20, "20 ft"), (30, "30 ft (Volo)"), (60, "60 ft")]:
-            b = tk.Button(btn_box, text=p_lbl, font=self.small_font, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR,
+            b = tk.Button(btn_box, text=p_lbl, font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR,
                           command=lambda v=p_val: set_preset(v))
             b.pack(side=tk.LEFT, padx=2)
 
         fall_var = tk.BooleanVar(value=False)
         chk_fall = tk.Checkbutton(
             dialog, text="🍂 È una caduta involontaria (risolvi RAW 1d6/10ft)",
-            variable=fall_var, font=self.small_font, bg=SURFACE_COLOR, fg="#FCA5A5", selectcolor=SURFACE_COLOR,
+            variable=fall_var, font=FONT_SMALL, bg=SURFACE_COLOR, fg="#FCA5A5", selectcolor=SURFACE_COLOR,
             activebackground=SURFACE_COLOR, activeforeground="#F87171"
         )
         chk_fall.pack(pady=6)
@@ -3384,7 +3548,7 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
                 new_v = int(ent_elev.get().strip().replace("ft", ""))
                 is_f = fall_var.get()
                 from server.rules.character import handle_set_elevation_request
-                dummy_player = type("Dummy", (), {"name": "DM"})()
+                dummy_player = type("Dummy", (), {"name": "DM", "role": "DM", "conn": None})()
                 handle_set_elevation_request({"elevation": new_v, "target_name": target_name, "is_fall": is_f}, dummy_player, self.server.game_state)
                 dialog.destroy()
             except ValueError:
@@ -3392,8 +3556,8 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
 
         btn_row = tk.Frame(dialog, bg=SURFACE_COLOR)
         btn_row.pack(side=tk.BOTTOM, pady=12)
-        tk.Button(btn_row, text="✔ Applica Quota", font=self.bold_font, bg=PRIMARY_COLOR, fg=TEXT_DARK, padx=10, command=confirm).pack(side=tk.LEFT, padx=5)
-        tk.Button(btn_row, text="Annulla", font=self.default_font, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, padx=8, command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_row, text="✔ Applica Quota", font=FONT_BOLD, bg=ACCENT_GOLD, fg=TEXT_DARK, padx=10, command=confirm).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_row, text="Annulla", font=FONT_MAIN, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, padx=8, command=dialog.destroy).pack(side=tk.LEFT, padx=5)
 
     def open_light_source_dialog(self):
         return dm_open_light_source_dialog(self)
@@ -3707,11 +3871,8 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
 
 
     def open_set_owner_dialog(self):
-        sel = self.player_listbox.curselection()
-        if not sel: return
-        display_text = self.player_listbox.get(sel[0])
-        if display_text.startswith('---'): return
-        player_name = display_text.split(" (HP")[0].replace("? ", "").strip()
+        player_name = self.get_player_name_from_listbox()
+        if not player_name: return
         player = self.server.game_state.find_player(player_name)
         
         if not player: return

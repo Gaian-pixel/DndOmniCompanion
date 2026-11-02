@@ -43,8 +43,10 @@ class DMJournalDialog(tk.Toplevel):
         self.geometry("980x680")
         self.minsize(840, 560)
         self.transient(master_gui.master)
-        apply_modern_window_style(self, bind_escape=True)
+        apply_modern_window_style(self, bind_escape=False)
         self.configure(bg=BG_COLOR)
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.bind("<Escape>", lambda e: self._on_close())
 
         self._build_ui()
         self._populate_sessions_list()
@@ -249,7 +251,7 @@ class DMJournalDialog(tk.Toplevel):
         ttk.Button(
             bbar,
             text=_t("btn_close", default="Chiudi"),
-            command=self.destroy
+            command=self._on_close
         ).pack(side=tk.RIGHT)
 
     def _populate_sessions_list(self):
@@ -320,14 +322,31 @@ class DMJournalDialog(tk.Toplevel):
                 if e.description:
                     self.txt_events.insert(tk.END, f"    {e.description}\n")
 
+    def _persist_to_disk(self):
+        camp = getattr(self.game_state, "active_campaign", None)
+        if camp:
+            camp.journal = self.journal
+            if getattr(camp, "folder_path", None):
+                try:
+                    camp.save()
+                except Exception:
+                    pass
+
+    def _on_close(self):
+        try:
+            self._save_current_ui_into_session()
+            self._persist_to_disk()
+        except Exception:
+            pass
+        self.destroy()
+
     def _save_current_ui_into_session(self):
         if 0 <= self.selected_index < len(self.journal.sessions):
             sess = self.journal.sessions[self.selected_index]
             sess.title = self.var_title.get().strip() or f"Sessione {sess.session_number}"
             sess.prose = self.txt_prose.get("1.0", tk.END).strip()
             sess.dm_notes = self.txt_dm_notes.get("1.0", tk.END).strip()
-            if getattr(self.game_state, "active_campaign", None):
-                self.game_state.active_campaign.journal = self.journal
+            self._persist_to_disk()
 
     def _on_save_edits(self):
         self._save_current_ui_into_session()
@@ -408,3 +427,4 @@ class DMJournalDialog(tk.Toplevel):
             with open(fpath, "w", encoding="utf-8") as f:
                 f.write(html_content)
             show_toast(self, _t("toast_exported_html_success", default="📄 Pergamena HTML generata con successo!"), color=ACCENT_GREEN)
+

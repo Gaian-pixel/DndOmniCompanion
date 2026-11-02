@@ -160,7 +160,9 @@ def open_combat_config(dm_gui, initiator_name=None):
             row = ttk.Frame(sf)
             row.pack(fill=tk.X, pady=2)
             ttk.Label(row, text=npc.name, width=15).pack(side=tk.LEFT)
-            auto_roll = random.randint(1, 20) + npc.initiative
+            if getattr(npc, "initiative_bonus", None) is None:
+                npc.initiative_bonus = npc.initiative
+            auto_roll = random.randint(1, 20) + npc.get_initiative_bonus()
             var = tk.StringVar(value=str(auto_roll))
             entries[npc.name] = var
             ttk.Entry(row, textvariable=var, width=5).pack(side=tk.RIGHT)
@@ -323,26 +325,50 @@ def open_assign_item_dialog(dm_gui, prefill_item=None):
         desc = desc_entry.get().strip()
         try:
             qty = int(qty_entry.get().strip())
+            if qty <= 0:
+                raise ValueError
         except ValueError:
-            messagebox.showerror("Errore", "La quantità deve essere un numero intero.")
+            messagebox.showerror("Errore", "La quantità deve essere un numero intero positivo.", parent=win)
             return
 
-        item = {"name": name, "desc": desc, "quantity": qty}
+        item = {"name": name, "desc": desc, "description": desc, "qty": qty, "quantity": qty, "weight": 0.0}
         
-        # Aggiungi all'inventario del giocatore
+        # Aggiungi all'inventario del giocatore (sia full_sheet['inventory_grid'] che legacy player.inventory)
         with dm_gui.server.game_state.lock:
-            if hasattr(player, "inventory"):
-                player.inventory.append(item)
+            if hasattr(player, "inventory") and isinstance(player.inventory, list):
+                player.inventory.append(dict(item))
             else:
-                player.inventory = [item]
+                player.inventory = [dict(item)]
+            sheet = getattr(player, "full_sheet", None)
+            if isinstance(sheet, dict):
+                if not isinstance(sheet.get("inventory_grid"), list):
+                    sheet["inventory_grid"] = [None] * 25
+                grid = sheet["inventory_grid"]
+                placed = False
+                for idx_s, existing in enumerate(grid):
+                    if isinstance(existing, dict) and str(existing.get("name", "")).strip().lower() == name.lower():
+                        cur_q = int(existing.get("qty", existing.get("quantity", 1)) or 1)
+                        existing["qty"] = cur_q + qty
+                        existing["quantity"] = cur_q + qty
+                        placed = True
+                        break
+                if not placed:
+                    for idx_s in range(len(grid)):
+                        if grid[idx_s] is None:
+                            grid[idx_s] = dict(item)
+                            placed = True
+                            break
+                if not placed:
+                    grid.append(dict(item))
                 
         dm_gui.server.game_state._trigger_gui_update()
         dm_gui.log_to_chat(f"[SISTEMA] Assegnato {qty}x {name} a {player_name}")
         
-        from common.protocol import make_receive_item
+        from common.protocol import make_receive_item, make_game_state
         if player.conn:
             send_message(player.conn, make_receive_item(item))
-        messagebox.showinfo("Successo", f"Oggetto inviato a {player_name}!")
+        broadcast(dm_gui.server.game_state, make_game_state(dm_gui.server.game_state.get_state_dict()))
+        messagebox.showinfo("Successo", f"Oggetto inviato a {player_name}!", parent=win)
         win.destroy()
 
     ttk.Button(win, text="Assegna", command=submit).pack(pady=20)

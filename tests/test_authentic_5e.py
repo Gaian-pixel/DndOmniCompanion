@@ -259,6 +259,7 @@ class TestAuthentic5eFeatures(unittest.TestCase):
         char.attributes["FOR"] = 12
         char.attributes["COS"] = 14
         char.inventory_grid = [
+            {"name": "Pettorale", "type": "Armatura", "container": "equipped"},
             {"name": "Anello di Protezione", "attuned": True, "desc": "+1 alla CA e ai tiri salvezza"},
             {"name": "Guanti della Forza dell'Orco", "attuned": True, "desc": "Imposta la Forza a 19"},
             {"name": "Amuleto della Salute", "attuned": True, "desc": "Imposta la Costituzione a 19"}

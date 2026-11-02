@@ -89,6 +89,12 @@ def setup_theme(root):
     # Bottone Dorato (Gold / Primary fantasy)
     style.configure('Gold.TButton', font=FONT_BOLD, background=ACCENT_GOLD, foreground=TEXT_DARK, borderwidth=0, padding=(10, 6))
     style.map('Gold.TButton', background=[('active', ACCENT_GOLD_LIGHT), ('pressed', ACCENT_GOLD_HOVER)])
+    style.configure('Accent.TButton', font=FONT_BOLD, background=ACCENT_GOLD, foreground=TEXT_DARK, borderwidth=0, padding=(10, 6))
+    style.map('Accent.TButton', background=[('active', ACCENT_GOLD_LIGHT), ('pressed', ACCENT_GOLD_HOVER)])
+
+    # Bottone Secondario
+    style.configure('Secondary.TButton', font=FONT_MAIN, background=SURFACE_COLOR_ALT, foreground=TEXT_COLOR, padding=(8, 5))
+    style.map('Secondary.TButton', background=[('active', SURFACE_LIGHT)])
 
     # Bottone Cremisi (Crimson / Danger D&D)
     style.configure('Primary.TButton', font=FONT_BOLD, background=ACCENT_RED, foreground="#FFFFFF", borderwidth=0, padding=(10, 6))
@@ -218,7 +224,21 @@ def apply_modern_window_style(win, bind_escape=True, center_on_parent=True):
             except Exception:
                 pass
         if center_on_parent:
+            idle_id = None
+            def _cleanup(e=None):
+                nonlocal idle_id
+                if e and getattr(e, "widget", None) != win:
+                    return
+                if idle_id is not None:
+                    try:
+                        win.after_cancel(idle_id)
+                    except Exception:
+                        pass
+                    idle_id = None
+
             def _center():
+                nonlocal idle_id
+                idle_id = None
                 try:
                     if not win.winfo_exists():
                         return
@@ -245,7 +265,8 @@ def apply_modern_window_style(win, bind_escape=True, center_on_parent=True):
                 except Exception:
                     pass
             try:
-                win.after_idle(_center)
+                idle_id = win.after_idle(_center)
+                win.bind("<Destroy>", _cleanup, add="+")
             except Exception:
                 pass
 

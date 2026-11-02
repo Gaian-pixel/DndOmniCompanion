@@ -176,7 +176,7 @@ def get_die_view_matrix(die_type: str) -> List[List[float]]:
     """
     dt = str(die_type).lower().strip()
     angles = {
-        "d4":   (math.radians(16.0), math.radians(-24.0)),
+        "d4":   (math.radians(-19.5), math.radians(0.0)),
         "d6":   (math.radians(18.0), math.radians(-14.0)),
         "d8":   (math.radians(15.0), math.radians(-12.0)),
         "d10":  (math.radians(15.0), math.radians(-12.0)),
@@ -562,43 +562,44 @@ _SOUND_FILE_PATH: Optional[str] = None
 def ensure_dice_sound_file() -> str:
     """Genera e salva un file WAV di impatto dadi se non esiste già nella cache."""
     global _SOUND_FILE_PATH
-    if _SOUND_FILE_PATH and os.path.exists(_SOUND_FILE_PATH):
-        return _SOUND_FILE_PATH
-    
-    try:
-        from common.utils import get_writable_dir
-        base_dir = get_writable_dir()
-    except Exception:
-        base_dir = "."
+    with _SOUND_LOCK:
+        if _SOUND_FILE_PATH and os.path.exists(_SOUND_FILE_PATH):
+            return _SOUND_FILE_PATH
         
-    cache_dir = os.path.join(base_dir, "client_data", "audio_cache")
-    os.makedirs(cache_dir, exist_ok=True)
-    wav_path = os.path.join(cache_dir, "dice_roll_clack.wav")
-    
-    if not os.path.exists(wav_path):
-        sample_rate = 44100
-        duration = 0.22
-        n_samples = int(sample_rate * duration)
-        impacts = [(0.0, 1.0, 1200), (0.045, 0.65, 980), (0.095, 0.40, 1450)]
-        samples = [0.0] * n_samples
-        for start_t, amp, freq in impacts:
-            start_idx = int(start_t * sample_rate)
-            for i in range(start_idx, n_samples):
-                t = (i - start_idx) / sample_rate
-                decay = math.exp(-t * 48.0)
-                noise = (random.random() * 2.0 - 1.0) * 0.45
-                wave_val = math.sin(2.0 * math.pi * freq * t) * 0.55
-                samples[i] += (wave_val + noise) * decay * amp
-        max_val = max(abs(s) for s in samples) or 1.0
-        int_samples = [int((s / max_val) * 32767 * 0.85) for s in samples]
-        with wave.open(wav_path, "wb") as wav:
-            wav.setnchannels(1)
-            wav.setsampwidth(2)
-            wav.setframerate(sample_rate)
-            wav.writeframes(struct.pack("<" + "h" * len(int_samples), *int_samples))
+        try:
+            from common.file_utils import get_writable_dir
+            base_dir = get_writable_dir()
+        except Exception:
+            base_dir = "."
             
-    _SOUND_FILE_PATH = wav_path
-    return wav_path
+        cache_dir = os.path.join(base_dir, "client_data", "audio_cache")
+        os.makedirs(cache_dir, exist_ok=True)
+        wav_path = os.path.join(cache_dir, "dice_roll_clack.wav")
+        
+        if not os.path.exists(wav_path):
+            sample_rate = 44100
+            duration = 0.22
+            n_samples = int(sample_rate * duration)
+            impacts = [(0.0, 1.0, 1200), (0.045, 0.65, 980), (0.095, 0.40, 1450)]
+            samples = [0.0] * n_samples
+            for start_t, amp, freq in impacts:
+                start_idx = int(start_t * sample_rate)
+                for i in range(start_idx, n_samples):
+                    t = (i - start_idx) / sample_rate
+                    decay = math.exp(-t * 48.0)
+                    noise = (random.random() * 2.0 - 1.0) * 0.45
+                    wave_val = math.sin(2.0 * math.pi * freq * t) * 0.55
+                    samples[i] += (wave_val + noise) * decay * amp
+            max_val = max(abs(s) for s in samples) or 1.0
+            int_samples = [int((s / max_val) * 32767 * 0.85) for s in samples]
+            with wave.open(wav_path, "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(sample_rate)
+                wav.writeframes(struct.pack("<" + "h" * len(int_samples), *int_samples))
+                
+        _SOUND_FILE_PATH = wav_path
+        return wav_path
 
 
 def play_dice_bounce_sound():
@@ -1144,12 +1145,14 @@ class Dice3DOverlay:
             
         # Parse formula base per determinare il tipo di dado (d4, d6, d8, d10, d12, d20, d100)
         import re
-        tokens = re.findall(r'(\d*)d(\d+)', formula.lower())
+        tokens = re.findall(r'(\d*)d(\d+|%)', formula.lower())
         if tokens:
             t_idx = 0
             for cnt_s, sides_s in tokens:
                 cnt = int(cnt_s) if cnt_s else 1
-                sides = int(sides_s)
+                sides = 100 if sides_s == "%" else int(sides_s)
+                if is_crit and len(rolls) >= cnt * 2:
+                    cnt = cnt * 2
                 for _ in range(cnt):
                     val = rolls[t_idx] if t_idx < len(rolls) else (random.randint(1, sides))
                     t_idx += 1
@@ -1229,9 +1232,12 @@ class Dice3DOverlay:
             self.is_finished = True
             import time
             self.finished_time = time.time()
+            if self.timer_id:
+                try: self.canvas.after_cancel(self.timer_id)
+                except Exception: pass
             # Pianifica chiusura automatica dopo abbondante attesa (4.5s) per consentire la lettura con calma
             self.timer_id = self.canvas.after(int(self.auto_close_delay * 1000), self.dismiss)
-        else:
+        elif not self.is_finished:
             self.timer_id = self.canvas.after(20, self._animate_step)
 
     def _render_result_banner(self, pw: float, ph: float):
@@ -1319,6 +1325,10 @@ class Dice3DOverlay:
         import time
         now = time.time()
         if not self.is_finished:
+            if self.timer_id:
+                try: self.canvas.after_cancel(self.timer_id)
+                except Exception: pass
+                self.timer_id = None
             # Salta subito all'arresto
             self.elapsed = self.total_duration
             self.finished_time = now

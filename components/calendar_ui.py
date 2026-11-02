@@ -93,6 +93,12 @@ class CalendarDialog(tk.Toplevel):
         self.refresh_calendar()
         
     def refresh_calendar(self):
+        try:
+            m_idx = int(self.view_month)
+        except (ValueError, TypeError):
+            m_idx = 1
+        m_idx = max(1, min(12, m_idx))
+        self.view_month = m_idx
         m_name = self.months[self.view_month]
         self.lbl_month_year.config(text=f"{m_name} {self.view_year}")
         
@@ -156,7 +162,7 @@ class CalendarDialog(tk.Toplevel):
                 
     def add_manual_event(self):
         if not self.selected_day: return
-        text = simpledialog.askstring("Nuovo Evento", "Descrizione dell'evento:")
+        text = simpledialog.askstring("Nuovo Evento", "Descrizione dell'evento:", parent=self)
         if text:
             date_key = f"{self.view_year}-{self.view_month}-{self.selected_day}"
             if not hasattr(self.game_state, 'calendar_events'):
@@ -177,5 +183,5 @@ class CalendarDialog(tk.Toplevel):
             # Sync
             if self.network_or_server:
                 self.game_state._trigger_gui_update()
-                from server.server import broadcast
+                from server.network import broadcast
                 broadcast(self.game_state, make_game_state(self.game_state.get_state_dict()))

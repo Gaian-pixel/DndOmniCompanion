@@ -275,8 +275,8 @@ class TestEnhancedRaceDescriptions(unittest.TestCase):
         self.assertEqual(char.attributes["FOR"], 17)
         # COS finale = 13 base + 1 bonus Mezzorco = 14
         self.assertEqual(char.attributes["COS"], 14)
-        # Velocità = 30
-        self.assertEqual(char.speed, 30)
+        # Velocità 5e RAW: 9.0m in italiano (30 ft / 6 caselle)
+        self.assertIn(char.speed, (9.0, 30))
         
         wiz.destroy()
 

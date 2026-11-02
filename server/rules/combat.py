@@ -3,10 +3,29 @@ import random
 import math
 import threading
 from common.protocol import *
-from common.hex_utils import Hex, hex_distance, get_sphere_hexes, hex_linedraw, get_cover_between
+from common.hex_utils import Hex, hex_distance, grid_distance, grid_distance_3d, get_sphere_hexes, hex_linedraw, get_cover_between
 from common.network_utils import send_message, broadcast
 from common.dice import roll_dice
 from common.i18n import is_condition_active
+
+def has_effect_or_condition(entity, name_it, name_en=None):
+    """Verifica se un'entità è soggetta a un effetto attivo o a una condizione (D&D 5e)."""
+    if not entity:
+        return False
+    conds = [str(c).lower() for c in getattr(entity, "conditions", [])]
+    effs = []
+    for e in getattr(entity, "active_effects", []):
+        if isinstance(e, dict):
+            effs.append(str(e.get("name", "")).lower())
+            if e.get("key"):
+                effs.append(str(e.get("key")).lower())
+    keys = [name_it.lower()]
+    if name_en:
+        keys.append(name_en.lower())
+    for k in keys:
+        if any(k in c for c in conds) or any(k in e for e in effs):
+            return True
+    return False
 
 def _spawn_corpse_loot(target_player, game_state):
     """Spawna automaticamente un forziere con le spoglie sulla mappa quando un mostro o PNG muore a 0 HP."""
@@ -108,14 +127,20 @@ def recover_expended_ammunition(player, game_state):
         game_state._trigger_gui_update()
     return recovered
 
-def drop_concentration(player, game_state, notify=True):
+def drop_concentration(player, game_state, notify=True, reason=None):
     """Interrompe la concentrazione di un personaggio (5e RAW) e rimuove le sue AoE attive collegate."""
     had_conc = False
+    if getattr(player, "concentrating_on", None):
+        player.concentrating_on = None
+        had_conc = True
     if hasattr(player, "conditions") and "Concentrazione" in player.conditions:
         player.conditions.remove("Concentrazione")
         had_conc = True
-    if getattr(player, "full_sheet", None) and isinstance(player.full_sheet.get("conditions"), list):
-        if "Concentrazione" in player.full_sheet["conditions"]:
+    if getattr(player, "full_sheet", None):
+        if player.full_sheet.get("concentrating_on"):
+            player.full_sheet["concentrating_on"] = None
+            had_conc = True
+        if isinstance(player.full_sheet.get("conditions"), list) and "Concentrazione" in player.full_sheet["conditions"]:
             player.full_sheet["conditions"].remove("Concentrazione")
             had_conc = True
 
@@ -136,36 +161,47 @@ def drop_concentration(player, game_state, notify=True):
         for p in list(game_state.players):
             if hasattr(p, "active_effects") and p.active_effects:
                 for fx in list(p.active_effects):
-                    if fx.get("concentration_caster") == player.name:
+                    caster = fx.get("concentration_caster")
+                    if caster == player.name or (p.name == player.name and fx.get("concentration")):
                         p.remove_effect(fx.get("id") or fx.get("name"))
                         removed_effects.append((p.name, fx.get("name", "Effetto")))
+                        had_conc = True
                         broadcast(game_state, make_player_stats_update(
                             p.name, p.hp, p.max_hp, p.initiative, p.conditions, getattr(p, "temp_hp", 0), active_effects=getattr(p, "active_effects", [])
                         ))
             if getattr(p, "companion_type", None) == "summon" and getattr(p, "master_name", None) == player.name:
-                game_state.players.remove(p)
+                if hasattr(game_state, "remove_player"):
+                    game_state.remove_player(p)
+                elif p in game_state.players:
+                    game_state.players.remove(p)
                 removed_summons.append(p.name)
                 from common.protocol import make_player_left
                 broadcast(game_state, make_player_left(p.name))
 
-    if (had_conc or removed_aoes or removed_effects or removed_summons) and notify and game_state:
-        break_msg = f"La concentrazione di {player.name} si spezza! Gli effetti ad essa legati svaniscono."
-        if removed_effects:
-            fx_summary = ", ".join([f"'{fx_name}' su {target}" for target, fx_name in removed_effects])
-            break_msg += f" (Effetti terminati: {fx_summary})"
-        if removed_summons:
-            s_summary = ", ".join(removed_summons)
-            break_msg += f" (Creature evocate dissolte: {s_summary})"
-        broadcast(game_state, make_chat_broadcast("Sistema", break_msg))
-        game_state.log_dm_message(f"[CONCENTRAZIONE] {break_msg}")
+    if (had_conc or removed_aoes or removed_effects or removed_summons) and game_state:
+        if notify:
+            reason_str = f" ({reason})" if reason else ""
+            break_msg = f"La concentrazione di {player.name} si spezza{reason_str}! Gli effetti ad essa legati svaniscono."
+            if removed_effects:
+                fx_summary = ", ".join([f"'{fx_name}' su {target}" for target, fx_name in removed_effects])
+                break_msg += f" (Effetti terminati: {fx_summary})"
+            if removed_summons:
+                s_summary = ", ".join(removed_summons)
+                break_msg += f" (Creature evocate dissolte: {s_summary})"
+            broadcast(game_state, make_chat_broadcast("Sistema", break_msg))
+            game_state.log_dm_message(f"[CONCENTRAZIONE] {break_msg}")
 
-        # Se sono stati interrotti effetti di volo o se il bersaglio si trovava a quota elevata, cade al suolo (PHB p. 191)
+        # D&D 5e RAW (PHB p. 191): La caduta per rottura di concentrazione avviene SOLO se l'effetto interrotto concedeva il volo
+        flight_spells = ("volo", "volare", "fly", "flying", "levitazione", "levitate", "vento", "wind walk")
+        conc_spell = str(getattr(player, "concentrating_on", "") or "").lower()
+        caster_flew_by_conc = any(fs in conc_spell for fs in flight_spells)
+
         for target_name, fx_name in removed_effects:
             for p in getattr(game_state, "players", []):
                 if p.name == target_name and getattr(p, "elevation", 0) > 0:
-                    if "vol" in fx_name.lower() or "fly" in fx_name.lower():
+                    if any(fs in fx_name.lower() for fs in flight_spells):
                         resolve_falling(p, p.elevation, game_state)
-        if getattr(player, "elevation", 0) > 0:
+        if caster_flew_by_conc and getattr(player, "elevation", 0) > 0:
             sheet = getattr(player, "full_sheet", {}) or {}
             speed_types = str(sheet.get("speed", "")).lower()
             traits = str(sheet.get("traits", [])).lower()
@@ -386,11 +422,15 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
                 if getattr(target_player, "elevation", 0) > 0:
                     resolve_falling(target_player, target_player.elevation, game_state)
                 if old_hp == 0 and dmg_to_hp > 0:
+                    if "Stabilizzato" in getattr(target_player, "conditions", []):
+                        target_player.conditions.remove("Stabilizzato")
+                    if "Stable" in getattr(target_player, "conditions", []):
+                        target_player.conditions.remove("Stable")
                     if not hasattr(target_player, "death_saves") or not isinstance(target_player.death_saves, dict):
                         target_player.death_saves = {"successes": 0, "failures": 0}
                     fail_add = 2 if is_crit else 1
                     target_player.death_saves["failures"] += fail_add
-                    msg = f"💀 {target_player.name} subisce danni mentre è a 0 HP! Segna {fail_add} fallimento/i nel TS contro la morte (Totale: {target_player.death_saves['failures']}/3)!"
+                    msg = f"💀 {target_player.name} subisce danni mentre è a 0 HP! Perde lo stato Stabilizzato e subisce {fail_add} fallimento/i nel TS contro la morte (Totale: {target_player.death_saves['failures']}/3)!"
                     if target_player.death_saves["failures"] >= 3:
                         if not hasattr(target_player, "conditions"): target_player.conditions = []
                         if "Morto" not in target_player.conditions:
@@ -619,9 +659,12 @@ def advance_combat_turn(game_state, ending_player=None):
                 getattr(prev_p, "temp_hp", 0), active_effects=getattr(prev_p, "active_effects", [])
             ))
 
-        # 2. Avanza l'indice di turno nel GameState
+        # 2. Avanza l'indice di turno nel GameState (evita doppio decremento end_of_turn già gestito sopra)
         old_round = game_state.round_number
-        game_state.next_turn()
+        try:
+            game_state.next_turn(tick_end_of_turn=False)
+        except TypeError:
+            game_state.next_turn()
         round_advanced = (game_state.round_number > old_round)
 
         # 3. Inizio Turno per next_p
@@ -769,15 +812,19 @@ def handle_remove_effect_request(data, player, game_state):
 
 def handle_submit_initiative(data, player, game_state):
     init = data.get("initiative", 0)
+    if getattr(player, "initiative_bonus", None) is None:
+        player.initiative_bonus = getattr(player, "initiative", 0)
     player.initiative = init
     
     with game_state.lock:
         if game_state.combat_active and len(game_state.players) > 0:
-            current_active = game_state.players[game_state.turn_index] if game_state.turn_index < len(game_state.players) else None
+            combatants_before = game_state._get_combatants() if hasattr(game_state, "_get_combatants") else [p for p in game_state.players if getattr(p, "in_combat", True)]
+            current_active = combatants_before[game_state.turn_index] if 0 <= game_state.turn_index < len(combatants_before) else None
             game_state.players.sort(key=lambda p: (getattr(p, 'in_combat', True), p.initiative), reverse=True)
             if current_active:
+                combatants_after = game_state._get_combatants() if hasattr(game_state, "_get_combatants") else [p for p in game_state.players if getattr(p, "in_combat", True)]
                 try:
-                    game_state.turn_index = game_state.players.index(current_active)
+                    game_state.turn_index = combatants_after.index(current_active)
                 except ValueError:
                     game_state.turn_index = 0
             
@@ -871,6 +918,55 @@ def handle_attack_request(data, player, game_state):
             cur_map = getattr(game_state, "current_map", {}) or {}
             grid_type = cur_map.get("grid_type", "hex")
             dist_3d = grid_distance_3d(Hex(q1, r1), Hex(q2, r2), z1, z2, grid_type=grid_type)
+            # Controllo portata / gittata (D&D 5e RAW - PHB p. 146-147, 195)
+            w_lower = str(weapon_name).lower()
+            w_props = [str(p).lower() for p in data.get("weapon_props", [])]
+            is_ranged_weapon = bool(data.get("is_ranged")) or any(k in w_lower for k in ["arco", "bow", "balestra", "crossbow", "dardo", "dart", "fionda", "sling", "distanza", "ranged"]) or any(k in w_props for k in ["ranged", "a distanza"])
+            has_reach = any(k in w_lower for k in ["alabarda", "halberd", "glaive", "roncone", "picca", "pike", "frusta", "whip", "lancia da cavaliere", "lance"]) or any(k in w_props for k in ["reach", "portata"])
+
+            if not is_ranged_weapon:
+                # Mischia: portata 5 ft (1 casella) o 10 ft (2 caselle con proprietà Portata)
+                max_reach = 2.0 if has_reach else 1.0
+                if dist_3d > max_reach:
+                    if player and getattr(player, "conn", None):
+                        send_message(player.conn, make_error_reply(f"Bersaglio fuori portata! Portata dell'arma: {int(max_reach * 5)} ft ({int(max_reach)} caselle). Bersaglio a {dist_3d:.1f} caselle."))
+                    return
+            else:
+                # Distanza: Svantaggio con nemico ostile attivo entro 5 ft (PHB p. 195)
+                attacker_party = bool(getattr(player, "is_party_member", False) or getattr(player, "conn", None))
+                has_hostile_adjacent = False
+                for other in getattr(game_state, "players", []):
+                    if other.name != player.name and getattr(other, "hp", 0) > 0 and getattr(other, "position", None):
+                        other_party = bool(getattr(other, "is_party_member", False) or getattr(other, "conn", None))
+                        if other_party != attacker_party:
+                            d_adj = grid_distance_3d(Hex(q1, r1), Hex(other.position[0], other.position[1]), z1, getattr(other, "elevation", 0), grid_type=grid_type)
+                            if d_adj <= 1.0:
+                                o_conds = getattr(other, "conditions", [])
+                                if not any(is_condition_active(o_conds, c) for c in ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto", "Incapacitato", "Incapacitated"]):
+                                    has_hostile_adjacent = True
+                                    break
+                if has_hostile_adjacent:
+                    dis_reasons.append("Nemico Ostile adiacente a 5 ft (PHB p. 195)")
+
+                # Gittata normale ed estrema
+                normal_range_hex = 16.0
+                max_range_hex = 64.0
+                if any(k in w_lower for k in ["arco lungo", "longbow"]):
+                    normal_range_hex, max_range_hex = 30.0, 120.0
+                elif any(k in w_lower for k in ["balestra pesante", "heavy crossbow"]):
+                    normal_range_hex, max_range_hex = 20.0, 80.0
+                elif any(k in w_lower for k in ["pugnale", "dagger", "dardo", "dart", "martello leggero"]):
+                    normal_range_hex, max_range_hex = 4.0, 12.0
+                elif any(k in w_lower for k in ["balestra a mano", "hand crossbow"]):
+                    normal_range_hex, max_range_hex = 6.0, 24.0
+
+                if dist_3d > max_range_hex:
+                    if player and getattr(player, "conn", None):
+                        send_message(player.conn, make_error_reply(f"Bersaglio oltre la gittata massima! ({int(max_range_hex * 5)} ft / {int(max_range_hex)} caselle)."))
+                    return
+                elif dist_3d > normal_range_hex:
+                    dis_reasons.append(f"Oltre la Gittata Normale ({int(normal_range_hex * 5)} ft - Svantaggio)")
+
             if is_condition_active(t_cond, "Prono"):
                 if dist_3d <= 1.0: adv_reasons.append("Bersaglio Prono (Mischia)")
                 elif dist_3d > 1.0: dis_reasons.append("Bersaglio Prono (Distanza)")
@@ -878,9 +974,6 @@ def handle_attack_request(data, player, game_state):
                 enable_flanking = True
                 if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
                     enable_flanking = game_state.automation_settings.get("enable_flanking", True)
-                
-                w_lower = str(weapon_name).lower()
-                is_ranged_weapon = bool(data.get("is_ranged")) or any(k in w_lower for k in ["arco", "bow", "balestra", "crossbow", "dardo", "dart", "fionda", "sling", "distanza", "ranged"])
                 
                 if enable_flanking and not is_ranged_weapon:
                     opp_q = q2 + (q2 - q1)
@@ -903,16 +996,16 @@ def handle_attack_request(data, player, game_state):
             # Effetti Atmosferici D&D 5e (DMG p. 109-110)
             weather_val = str(getattr(game_state, "weather", "Sereno")).strip().lower()
             if weather_val in ("tempesta", "storm"):
-                if dist > 1:
+                if is_ranged_weapon:
                     dis_reasons.append("Tempesta (Vento forte e pioggia battente)")
             elif weather_val in ("nebbia", "fog"):
-                if dist > 1:
-                    dis_reasons.append("Nebbia fitta (Visibilità pesantemente oscurata)")
+                if is_ranged_weapon and dist_3d > 1.0:
+                    dis_reasons.append("Nebbia fitta (Visibilità oscurata)")
             elif weather_val in ("pioggia", "rain"):
-                if dist >= 4:
+                if is_ranged_weapon and dist_3d >= 4.0:
                     dis_reasons.append("Pioggia intensa (Scarsa visibilità)")
             elif weather_val in ("neve", "snow"):
-                if dist >= 3:
+                if is_ranged_weapon and dist_3d >= 3.0:
                     dis_reasons.append("Neve e bufera (Scarsa visibilità)")
 
             # Oscurità Ambientale o Magica (D&D 5e PHB p. 183 & p. 194-195)
@@ -995,46 +1088,6 @@ def handle_attack_request(data, player, game_state):
                     # Bersaglio vede l'attaccante ma l'attaccante non vede il bersaglio -> Svantaggio
                     dis_reasons.append("Bersaglio Non Visibile nell'Oscurità (Attaccante Cieco)")
 
-            # Terreni Difficili & Pericolosi D&D 5e sulla mappa
-            cur_map = getattr(game_state, "current_map", None)
-            diff_terrain = cur_map.get("difficult_terrain", {}) if cur_map else {}
-            diff_dict = {}
-            if isinstance(diff_terrain, dict):
-                for k, v in diff_terrain.items():
-                    if isinstance(k, str) and "," in k:
-                        parts = k.split(",")
-                        diff_dict[(int(parts[0]), int(parts[1]))] = str(v).lower()
-                    elif isinstance(k, (tuple, list)) and len(k) >= 2:
-                        diff_dict[(int(k[0]), int(k[1]))] = str(v).lower()
-            elif isinstance(diff_terrain, list):
-                for item in diff_terrain:
-                    if isinstance(item, (list, tuple)) and len(item) >= 2:
-                        diff_dict[(int(item[0]), int(item[1]))] = "fango"
-
-            # Attaccante su terreno difficile instabile / intralciante
-            p_pos_tup = (q1, r1)
-            if p_pos_tup in diff_dict:
-                t_type = diff_dict[p_pos_tup]
-                if t_type in ("ghiaccio", "ice"):
-                    dis_reasons.append("Terreno Scivoloso (Ghiaccio)")
-                elif t_type in ("rovi", "briars", "spine"):
-                    dis_reasons.append("Intralcio nei Rovi")
-                elif t_type in ("palude", "swamp"):
-                    dis_reasons.append("Immerso nella Palude")
-                elif t_type in ("macerie", "rubble", "rocce"):
-                    dis_reasons.append("Equilibrio Instabile (Macerie)")
-                elif t_type in ("fango", "mud"):
-                    dis_reasons.append("Fango Profondo")
-
-            # Bersaglio intralciato su terreno difficile
-            t_pos_tup = (q2, r2)
-            if t_pos_tup in diff_dict:
-                t_target_type = diff_dict[t_pos_tup]
-                if t_target_type in ("rovi", "briars", "spine"):
-                    adv_reasons.append("Bersaglio Intralciato nei Rovi")
-                elif t_target_type in ("fango", "mud"):
-                    adv_reasons.append("Bersaglio Bloccato nel Fango")
-
         has_adv = len(adv_reasons) > 0
         has_dis = len(dis_reasons) > 0
         had_both_cancel = False
@@ -1091,9 +1144,14 @@ def handle_attack_request(data, player, game_state):
         is_fail = (base_roll == 1)
         
         benedizione_bonus = 0
-        if is_condition_active(getattr(player, "conditions", []), "Benedizione"):
+        if has_effect_or_condition(player, "Benedizione", "Bless"):
             benedizione_bonus = random.randint(1, 4)
             hit_roll += benedizione_bonus
+
+        anatema_penalty = 0
+        if has_effect_or_condition(player, "Anatema", "Bane"):
+            anatema_penalty = random.randint(1, 4)
+            hit_roll -= anatema_penalty
         
         # 2. CA Bersaglio
         target_ac = 10
@@ -1104,9 +1162,19 @@ def handle_attack_request(data, player, game_state):
                 pass
                 
         scudo_applicato = False
-        if is_condition_active(getattr(target_player, "conditions", []), "Scudo"):
+        if has_effect_or_condition(target_player, "Scudo", "Shield"):
             target_ac += 5
             scudo_applicato = True
+
+        haste_ac = False
+        if has_effect_or_condition(target_player, "Velocità", "Haste"):
+            target_ac += 2
+            haste_ac = True
+
+        slow_ac = False
+        if has_effect_or_condition(target_player, "Lentezza", "Slow"):
+            target_ac -= 2
+            slow_ac = True
                 
         # Line of Sight e Copertura D&D 5e (Ostacoli e Creature Interposte)
         blocked_by_wall = False
@@ -1167,9 +1235,15 @@ def handle_attack_request(data, player, game_state):
         log_msg += f" Tiro per colpire: {hit_roll} [d20: {d20_detail}]"
         if benedizione_bonus > 0:
             log_msg += f" (+{benedizione_bonus} Benedizione)"
+        if anatema_penalty > 0:
+            log_msg += f" (-{anatema_penalty} Anatema)"
         log_msg += f" vs CA {target_ac}."
         if scudo_applicato:
             log_msg += " (Scudo +5 CA applicato)"
+        if haste_ac:
+            log_msg += " (Velocità +2 CA)"
+        if slow_ac:
+            log_msg += " (Lentezza -2 CA)"
         if cover_name and cover_bonus > 0:
             log_msg += f" ({cover_name})"
         
@@ -1223,7 +1297,8 @@ def handle_attack_request(data, player, game_state):
                 finesse_kws = ["accurata", "finesse", "stocco", "rapier", "pugnale", "dagger", "spada corta", "shortsword", "scimitarra", "scimitar", "frusta", "whip"]
                 ranged_kws = ["arco", "bow", "balestra", "crossbow", "dardo", "dart", "fionda", "sling", "distanza", "ranged"]
                 w_props = [str(p).lower() for p in data.get("weapon_props", [])]
-                is_finesse_or_ranged = any(k in w_name_l for k in finesse_kws) or any(k in w_name_l for k in ranged_kws) or any(k in w_props for k in ["finesse", "accurata", "ranged", "a distanza"]) or bool(data.get("is_ranged")) or (weapon_name in ("Attacco", "Senz'Armi", "Unarmed Strike") or not weapon_name)
+                # D&D 5e RAW (PHB p. 96): L'Attacco Furtivo richiede necessariamente un'arma accurata o a distanza (esclusi Colpi Senz'Armi o magie)
+                is_finesse_or_ranged = (any(k in w_name_l for k in finesse_kws) or any(k in w_name_l for k in ranged_kws) or any(k in w_props for k in ["finesse", "accurata", "ranged", "a distanza"]) or bool(data.get("is_ranged"))) and not any(k in w_name_l for k in ["senz'armi", "unarmed"])
 
                 if is_rogue and is_finesse_or_ranged and not getattr(player, "sneak_attack_used_this_turn", False):
                     has_adjacent_ally = False
@@ -1315,14 +1390,24 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
     except (ValueError, TypeError): dc = 10
 
     benedizione_bonus = 0
-    if is_condition_active(getattr(target_player, "conditions", []), "Benedizione"):
+    if has_effect_or_condition(target_player, "Benedizione", "Bless"):
         benedizione_bonus = random.randint(1, 4)
         roll_total += benedizione_bonus
+
+    anatema_penalty = 0
+    if has_effect_or_condition(target_player, "Anatema", "Bane"):
+        anatema_penalty = random.randint(1, 4)
+        roll_total -= anatema_penalty
         
     extra_adv_note = ""
     if stat in ("DES", "DEX"):
         if is_condition_active(getattr(target_player, "conditions", []), "Schivata"):
             extra_adv_note += " (Vantaggio da Schivata)"
+        if has_effect_or_condition(target_player, "Velocità", "Haste"):
+            extra_adv_note += " (Vantaggio da Velocità)"
+        if has_effect_or_condition(target_player, "Lentezza", "Slow"):
+            roll_total -= 2
+            extra_adv_note += " (-2 Lentezza)"
         cover_val = str(cover).lower()
         if cover_val in ("half", "mezza"):
             roll_total += 2
@@ -1344,8 +1429,9 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
         success = False
         extra_adv_note += f" (Fallimento automatico per condizione: {auto_fail_cond})"
     else:
-        # D&D 5e: Successo su CD con supporto a Critico (20 Nat) ed Errore Critico (1 Nat)
-        success = is_crit or (not is_fail and roll_total >= dc)
+        # D&D 5e RAW (PHB p. 179): I Tiri Salvezza (tranne TS Morte) NON hanno successo o fallimento automatico su 20 o 1 naturale.
+        # Il totale ottenuto deve raggiungere o superare la CD richiesta.
+        success = (roll_total >= dc)
     
     # D&D 5e: Resistenze Leggendarie (es. 3/giorno)
     # Se la creatura fallisce un TS, può scegliere di considerarlo automaticamente un successo.
@@ -1360,16 +1446,16 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
     log_msg = f"{target_name} effettua un TS su {stat} contro CD {dc} di {source_name}. Risultato: {roll_total}{extra_adv_note}"
     if benedizione_bonus > 0:
         log_msg += f" (+{benedizione_bonus} Benedizione)"
+    if anatema_penalty > 0:
+        log_msg += f" (-{anatema_penalty} Anatema)"
     log_msg += "."
     if used_legendary_resistance:
         if is_fail:
             log_msg += " (1 Naturale annullato!)"
         log_msg += f" 👑 RESISTENZA LEGGENDARIA USATA! Il fallimento si trasforma in SUCCESSO! (Rimaste: {target_player.legendary_resistances_current}/{target_player.legendary_resistances_max})"
     elif success:
-        if is_crit:
-            log_msg += " 🌟 SUCCESSO CRITICO (20 Naturale)! SUPERATO!"
-        else:
-            log_msg += " SUPERATO!"
+        crit_str = " 🌟 [20 Naturale!]" if is_crit else ""
+        log_msg += f"{crit_str} SUPERATO!"
         if str(source_name).startswith("Save-Ends:"):
             eff_name = str(source_name).replace("Save-Ends:", "").strip()
             removed = target_player.remove_effect(eff_name)
@@ -1381,10 +1467,8 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
             ))
             game_state._trigger_gui_update()
     else:
-        if is_fail:
-            log_msg += " 💀 FALLIMENTO CRITICO (1 Naturale)! FALLITO!"
-        else:
-            log_msg += " FALLITO!"
+        fumble_str = " 💀 [1 Naturale!]" if is_fail else ""
+        log_msg += f"{fumble_str} FALLITO!"
         if str(source_name).startswith("Save-Ends:"):
             eff_name = str(source_name).replace("Save-Ends:", "").strip()
             log_msg += f" ❌ L'effetto '{eff_name}' su {target_name} persiste!"
@@ -1402,9 +1486,12 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
                 dmg_res = roll_dice(clean_dmg)
                 dmg_val = dmg_res["total"]
             
-            # Elusione (Evasion) D&D 5e: Ladro/Monaco su TS Destrezza
+            # Elusione (Evasion) D&D 5e: Ladro/Monaco su TS Destrezza (non utilizzabile se Incapacitato/Paralizzato/Stordito)
             has_evasion = False
-            if stat in ("DES", "DEX") and target_player:
+            incap_evasion = ["incapacitato", "incapacitated", "incosciente", "unconscious", "paralizzato", "paralyzed", "stordito", "stunned", "pietrificato", "petrified", "morto", "dead"]
+            t_conds_low = [str(c).lower() for c in getattr(target_player, "conditions", [])]
+            is_incap = any(c in t_conds_low for c in incap_evasion)
+            if stat in ("DES", "DEX") and target_player and not is_incap:
                 tokens = [str(c) for c in getattr(target_player, "conditions", [])]
                 feat_obj = getattr(target_player, "features", [])
                 if isinstance(feat_obj, list):
@@ -1478,6 +1565,9 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
     broadcast(game_state, make_chat_broadcast("Sistema", log_msg))
 
 def handle_force_save_request(data, player, game_state):
+    is_dm = (player is None or getattr(player, "role", "") == "DM" or getattr(player, "conn", None) is None)
+    if not is_dm:
+        return
     targets = data.get("targets", [])
     stat = data.get("stat")
     dc = data.get("dc")
@@ -1485,25 +1575,58 @@ def handle_force_save_request(data, player, game_state):
     half_on_success = data.get("half_on_success", True)
     damage_type = data.get("damage_type", "Fuoco")
     
+    # D&D 5e RAW (PHB p. 196): I danni degli incantesimi/effetti ad area si tirano una sola volta per tutti i bersagli!
+    resolved_damage = None
+    if damage_formula:
+        clean_f = str(damage_formula).strip()
+        if clean_f.isdigit():
+            resolved_damage = clean_f
+        else:
+            try:
+                from common.dice import roll_dice
+                resolved_damage = str(roll_dice(clean_f)["total"])
+            except Exception:
+                resolved_damage = damage_formula
+
     for t_name in targets:
         target_player = game_state.find_player(t_name)
         if not target_player: continue
         
+        target_formula = resolved_damage if resolved_damage else damage_formula
         if getattr(target_player, "conn", None):
-            send_message(target_player.conn, make_prompt_save(stat, dc, damage_formula, half_on_success, player.name, damage_type))
+            send_message(target_player.conn, make_prompt_save(stat, dc, target_formula, half_on_success, player.name if player else "DM", damage_type))
         else:
             try:
                 mod = 0
                 s_map = {"STR": "FOR", "DEX": "DES", "CON": "COS", "INT": "INT", "WIS": "SAG", "CHA": "CAR"}
                 c_stat = s_map.get(str(stat).upper(), str(stat).upper())
                 if target_player.full_sheet:
-                    attr = target_player.full_sheet.get("attributes", {})
-                    val = attr.get(c_stat, attr.get(stat))
-                    if val is not None:
-                        try:
-                            mod = (int(val) - 10) // 2
-                        except (ValueError, TypeError):
-                            pass
+                    sheet = target_player.full_sheet
+                    # Verifica esplicita tiri salvezza dei mostri (es. {"DES": "+5"} o {"dex": 5})
+                    st_dict = sheet.get("saving_throws", {})
+                    found_st = False
+                    if isinstance(st_dict, dict):
+                        for k, v in st_dict.items():
+                            if s_map.get(str(k).upper(), str(k).upper()) == c_stat:
+                                try:
+                                    mod = int(str(v).replace("+", "").strip())
+                                    found_st = True
+                                    break
+                                except Exception:
+                                    pass
+                    if not found_st:
+                        attr = sheet.get("attributes", {})
+                        val = attr.get(c_stat, attr.get(stat))
+                        if val is not None:
+                            try: mod = (int(val) - 10) // 2
+                            except (ValueError, TypeError): pass
+                        prof_saves = [s_map.get(str(s).upper(), str(s).upper()) for s in sheet.get("saving_throw_proficiencies", [])]
+                        if c_stat in prof_saves:
+                            cr_or_lvl = sheet.get("cr", sheet.get("level", 1))
+                            try: num = float(cr_or_lvl)
+                            except Exception: num = 1.0
+                            pb = 2 + max(0, int(num - 1) // 4)
+                            mod += pb
                 
                 # Vantaggio ai TS su DES per Schivata
                 if c_stat == "DES" and is_condition_active(getattr(target_player, "conditions", []), "Schivata"):
@@ -1517,7 +1640,7 @@ def handle_force_save_request(data, player, game_state):
                 is_crit = (base_roll == 20)
                 is_fail = (base_roll == 1)
                 
-                _process_save_result(target_player.name, stat, roll_tot, is_crit, is_fail, dc, damage_formula, half_on_success, player.name, game_state, damage_type)
+                _process_save_result(target_player.name, stat, roll_tot, is_crit, is_fail, dc, target_formula, half_on_success, player.name if player else "DM", game_state, damage_type)
             except Exception as e:
                 print("Errore nel roll NPC per TS:", e)
 
@@ -1552,7 +1675,8 @@ def _validate_combat_tactical_action(player, game_state, action_label: str) -> b
             send_message(player.conn, make_error_reply(f"Non puoi compiere l'azione di {action_label} mentre sei Incosciente, Paralizzato, Stordito o a 0 HP!"))
         return False
 
-    if getattr(game_state, "strict_turn_lock", False):
+    strict_lock = game_state.automation_settings.get("strict_turn_lock", False) if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict) else getattr(game_state, "strict_turn_lock", False)
+    if strict_lock:
         curr_turn = game_state.get_current_turn_player()
         if curr_turn and player and curr_turn.name != player.name:
             if getattr(player, "conn", None):
@@ -1935,16 +2059,45 @@ def handle_grapple_request(data, player, game_state):
     game_state._trigger_gui_update()
 
 def handle_short_rest_request(data, player, game_state):
-    hd_spent = data.get("hd_spent", 1)
-    try: hp_rec = int(data.get("hp_recovered", 0))
+    if getattr(game_state, "combat_active", False):
+        if player and getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Non puoi effettuare un Riposo Breve durante il combattimento!"))
+        return
+
+    hd_spent = int(data.get("hd_spent", 1) or 1)
+    try: hp_rec = max(0, int(data.get("hp_recovered", 0)))
     except (ValueError, TypeError): hp_rec = 0
-    if player and hp_rec > 0:
-        with game_state.lock:
+
+    if not player:
+        return
+
+    with game_state.lock:
+        sheet = getattr(player, "full_sheet", None)
+        if sheet:
+            cur_hd = int(sheet.get("hit_dice_current", sheet.get("level", 1)) or 0)
+            if cur_hd < hd_spent:
+                if getattr(player, "conn", None):
+                    send_message(player.conn, make_error_reply(f"Dadi Vita insufficienti! Ne possiedi {cur_hd}."))
+                return
+            sheet["hit_dice_current"] = max(0, cur_hd - hd_spent)
+            
+            # D&D 5e RAW: I Warlock ricaricano gli slot Patto (fino al 5° livello) con un Riposo Breve
+            char_cls = str(sheet.get("char_class", "")).lower()
+            if "warlock" in char_cls and isinstance(sheet.get("spell_slots"), dict):
+                for sl_lvl, sl_info in sheet["spell_slots"].items():
+                    try:
+                        if int(sl_lvl) <= 5 and isinstance(sl_info, dict):
+                            sl_info["current"] = sl_info.get("max", 0)
+                    except (ValueError, TypeError):
+                        pass
+
+        if hp_rec > 0:
             player.hp = min(player.max_hp, player.hp + hp_rec)
-            if getattr(player, "full_sheet", None):
-                player.full_sheet["hp_current"] = player.hp
-        broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, getattr(player, "conditions", []), getattr(player, "temp_hp", 0)))
-        game_state._trigger_gui_update()
+            if sheet:
+                sheet["hp_current"] = player.hp
+            broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, getattr(player, "conditions", []), getattr(player, "temp_hp", 0)))
+            game_state._trigger_gui_update()
+
     msg = f"☕ {player.name} ha completato un Riposo Breve (ha speso {hd_spent} Dado/i Vita e recuperato {hp_rec} HP)!"
     broadcast(game_state, make_chat_broadcast("Sistema", msg))
     game_state.log_dm_message(f"[RIPOSO] {msg}")
@@ -2106,7 +2259,10 @@ def handle_summon_companion_request(data, player, game_state):
     if comp_type == "familiar":
         old_familiars = [p for p in game_state.players if getattr(p, "companion_type", None) == "familiar" and getattr(p, "master_name", None) == player.name]
         for old_f in old_familiars:
-            game_state.players.remove(old_f)
+            if hasattr(game_state, "remove_player"):
+                game_state.remove_player(old_f)
+            elif old_f in game_state.players:
+                game_state.players.remove(old_f)
             from common.protocol import make_player_left
             broadcast(game_state, make_player_left(old_f.name))
             
@@ -2220,17 +2376,23 @@ def handle_deliver_touch_spell_request(data, player, game_state):
     f_pos = getattr(familiar, "position", [0, 0])
     t_pos = getattr(target, "position", [0, 0])
     
-    dist_master_fam = hex_distance(Hex(p_pos[0], p_pos[1]), Hex(f_pos[0], f_pos[1]))
+    cur_m = getattr(game_state, "current_map", None)
+    g_type = cur_m.get("grid_type", "hex") if cur_m else "hex"
+    d_rule = "standard"
+    if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+        d_rule = game_state.automation_settings.get("square_diagonal_rule", "standard")
+
+    dist_master_fam = grid_distance_3d(Hex(p_pos[0], p_pos[1]), Hex(f_pos[0], f_pos[1]), getattr(player, "elevation", 0), getattr(familiar, "elevation", 0), grid_type=g_type, diagonal_rule=d_rule)
     if dist_master_fam > 20:
         if getattr(player, "conn", None):
-            send_message(player.conn, make_error_reply(f"Il famiglio è troppo lontano dal padrone ({dist_master_fam} esagoni > 20 esagoni / 100 ft)!"))
+            send_message(player.conn, make_error_reply(f"Il famiglio è troppo lontano dal padrone ({dist_master_fam:.1f} caselle > 20 caselle / 100 ft)!"))
         return
         
-    # Verifica distanza famiglio-bersaglio (portata a contatto: 1 esagono)
-    dist_fam_target = hex_distance(Hex(f_pos[0], f_pos[1]), Hex(t_pos[0], t_pos[1]))
+    # Verifica distanza famiglio-bersaglio (portata a contatto: 1 casella)
+    dist_fam_target = grid_distance_3d(Hex(f_pos[0], f_pos[1]), Hex(t_pos[0], t_pos[1]), getattr(familiar, "elevation", 0), getattr(target, "elevation", 0), grid_type=g_type, diagonal_rule=d_rule)
     if dist_fam_target > 1:
         if getattr(player, "conn", None):
-            send_message(player.conn, make_error_reply(f"Il bersaglio non è a portata di contatto dal famiglio ({dist_fam_target} esagoni > 1 esagono)!"))
+            send_message(player.conn, make_error_reply(f"Il bersaglio non è a portata di contatto dal famiglio ({dist_fam_target:.1f} caselle > 1 casella)!"))
         return
         
     # Il famiglio spende la propria reazione (5e RAW)

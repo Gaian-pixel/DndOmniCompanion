@@ -814,20 +814,21 @@ class TestDndNewFeatures(unittest.TestCase):
             )
         self.assertEqual(defender.hp, 50, "L'1 Naturale deve mancare automaticamente anche se il totale supera la CA")
 
-        # 5. Tiri Salvezza: 20 Naturale supera sempre, 1 Naturale fallisce sempre
+        # 5. Tiri Salvezza: in D&D 5e RAW (PHB p. 179), 20/1 naturale non determinano successo/fallimento automatico sui TS
         defender.hp = 40
-        # 20 Naturale con totale 18 contro CD 30 (senza dimezzamento) -> successo automatico (0 danni)
-        _process_save_result(
-            defender, "DES", 18, True, False, 30, "4d6", False, "Disintegrazione", self.game_state
-        )
-        self.assertEqual(defender.hp, 40, "Un 20 Naturale sul TS deve avere successo automatico anche sotto la CD")
+        # Totale 18 contro CD 30 -> fallimento matematico (18 < 30)
+        with patch("common.dice.random.randint", return_value=3):
+            _process_save_result(
+                defender, "DES", 18, True, False, 30, "4d6", False, "Disintegrazione", self.game_state
+            )
+        self.assertEqual(defender.hp, 28, "In D&D 5e RAW un TS con totale inferiore alla CD fallisce anche con 20 naturale")
 
-        # 1 Naturale con totale 25 contro CD 10 -> fallimento automatico (danni pieni)
+        # Totale 25 contro CD 10 -> successo matematico (25 >= 10) anche con 1 naturale
         with patch("common.dice.random.randint", return_value=4):
             _process_save_result(
                 defender, "SAG", 25, False, True, 10, "2d6", False, "Paura Arcana", self.game_state
             )
-        self.assertEqual(defender.hp, 32, "Un 1 Naturale sul TS deve fallire automaticamente anche sopra la CD")
+        self.assertEqual(defender.hp, 28, "In D&D 5e RAW un TS con totale pari o superiore alla CD supera anche con 1 naturale")
 
         # 6. Comando /roll in chat
         with patch("common.dice.random.randint", return_value=20):
@@ -1432,11 +1433,17 @@ class TestDndNewFeatures(unittest.TestCase):
 
             sheet_online.destroy()
 
-            # 2. Verifica Scheda Offline (is_connected=False)
+            # 2. Verifica Scheda Offline (is_connected=False): i parametri critici (HP) devono restare protetti anche offline
             sheet_offline = CharacterSheetUI(root, char, mgr, is_connected=False)
             root.update()
-            self.assertEqual(str(sheet_offline.hp_cur_entry.cget("state")), "normal")
-            self.assertEqual(str(sheet_offline.hp_max_entry.cget("state")), "normal")
+            self.assertEqual(str(sheet_offline.hp_cur_entry.cget("state")), "readonly")
+            self.assertEqual(str(sheet_offline.hp_max_entry.cget("state")), "readonly")
+
+            sheet_offline.hp_cur_var.set(99)
+            sheet_offline.hp_max_var.set(99)
+            sheet_offline.save_character(close_after=False)
+            self.assertEqual(char.hp_current, 24)
+            self.assertEqual(char.hp_max, 24)
 
             btn_texts_offline = []
             collect_texts(sheet_offline)
@@ -1693,23 +1700,25 @@ class TestDndNewFeatures(unittest.TestCase):
         self.game_state.players = [attacker, defender]
         self.game_state.weather = "Sereno"
 
-        # 1. Attaccante su Macerie -> Svantaggio (Equilibrio Instabile)
+        # 1. Attaccante su Macerie -> In 5e RAW il terreno difficile dimezza il movimento ma NON impone svantaggio all'attacco
         self.game_state.current_map = {
             "hexes": [[0, 0], [1, 0]],
             "difficult_terrain": {
                 "0,0": "macerie"
             }
         }
-        # roll1=17, roll2=4 -> con svantaggio prende 4 (manca contro CA 12)
-        with patch("common.dice.random.randint", side_effect=[17, 4, 3]):
+        # roll1=17 supera CA 12 -> Colpisce normalmente senza svantaggio 5e RAW, danno=3
+        with patch("common.dice.random.randint", side_effect=[17, 10, 3]):
             handle_attack_request(
                 {"target_name": "Orco", "hit_bonus": 0, "damage_formula": "1d8"},
                 attacker,
                 self.game_state,
             )
-        self.assertEqual(defender.hp, 20, "L'attaccante su macerie deve avere Svantaggio")
+        self.assertEqual(defender.hp, 17, "In D&D 5e RAW il terreno difficile non impone svantaggio all'attacco")
 
-        # 2. Bersaglio intralciato nei Rovi -> Attaccante ha Vantaggio
+        # 2. Bersaglio con condizione Trattenuto (es. Rovi/Intralcio) -> Attaccante ha Vantaggio
+        defender.conditions = ["Trattenuto"]
+        defender.hp = 20
         self.game_state.current_map = {
             "hexes": [[0, 0], [1, 0]],
             "difficult_terrain": {
@@ -1723,7 +1732,7 @@ class TestDndNewFeatures(unittest.TestCase):
                 attacker,
                 self.game_state,
             )
-        self.assertEqual(defender.hp, 14, "Attaccare un bersaglio nei rovi conferisce Vantaggio")
+        self.assertEqual(defender.hp, 14, "Attaccare un bersaglio trattenuto nei rovi conferisce Vantaggio")
 
     def test_dm_and_map_editor_difficult_terrain_sync(self):
         """Testa le operazioni DM di aggiunta/rimozione terreno difficile e il salvataggio/caricamento."""
@@ -1808,7 +1817,7 @@ class TestDndNewFeatures(unittest.TestCase):
         # roll1=3 (manca contro CA 14), roll2=16 (colpisce). Con vantaggio prende max(3, 16) = 16 -> Colpito!
         with patch("common.dice.random.randint", side_effect=[3, 16, 5]):
             handle_attack_request(
-                {"target_name": "UmanoGuerriero", "hit_bonus": 0, "damage_formula": "1d6"},
+                {"target_name": "UmanoGuerriero", "hit_bonus": 0, "damage_formula": "1d6", "weapon": "Arco Corto", "is_ranged": True},
                 attacker,
                 self.game_state,
             )
@@ -1823,7 +1832,7 @@ class TestDndNewFeatures(unittest.TestCase):
 
         with patch("common.dice.random.randint", side_effect=[2, 17, 6]):
             handle_attack_request(
-                {"target_name": "UmanoGuerriero", "hit_bonus": 0, "damage_formula": "1d6"},
+                {"target_name": "UmanoGuerriero", "hit_bonus": 0, "damage_formula": "1d6", "weapon": "Arco Corto", "is_ranged": True},
                 attacker,
                 self.game_state,
             )
@@ -1840,7 +1849,7 @@ class TestDndNewFeatures(unittest.TestCase):
         # roll1=18, roll2=4 -> con svantaggio prende min(18, 4) = 4 -> Manca contro CA 14!
         with patch("common.dice.random.randint", side_effect=[18, 4, 6]):
             handle_attack_request(
-                {"target_name": "UmanoGuerriero", "hit_bonus": 0, "damage_formula": "1d6"},
+                {"target_name": "UmanoGuerriero", "hit_bonus": 0, "damage_formula": "1d6", "weapon": "Arco Corto", "is_ranged": True},
                 attacker,
                 self.game_state,
             )
@@ -1857,7 +1866,7 @@ class TestDndNewFeatures(unittest.TestCase):
         # Tiro normale (roll1=15 colpisce CA 14 con danno 5)
         with patch("common.dice.random.randint", side_effect=[15, 15, 5]):
             handle_attack_request(
-                {"target_name": "UmanoGuerriero", "hit_bonus": 0, "damage_formula": "1d6"},
+                {"target_name": "UmanoGuerriero", "hit_bonus": 0, "damage_formula": "1d6", "weapon": "Arco Corto", "is_ranged": True},
                 attacker,
                 self.game_state,
             )

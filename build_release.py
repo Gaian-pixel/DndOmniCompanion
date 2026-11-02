@@ -37,12 +37,11 @@ def run_pyinstaller():
             print(f"Pulizia cartella: {p}")
             shutil.rmtree(p, ignore_errors=True)
             
-    # Dati da includere (source, dest)
+    # Dati pubblici/core da includere (source, dest).
+    # NOTE: manuals/, audio_library/ e campagne private non vengono incluse per evitare
+    # la redistribuzione accidentale di PDF protetti da copyright o audio/campagne personali dell'utente.
     datas = [
         ("srd_data", "srd_data"),
-        ("manuals", "manuals"),
-        ("campaigns", "campaigns"),
-        ("audio_library", "audio_library"),
         ("maps", "maps"),
     ]
     
@@ -106,6 +105,20 @@ def run_pyinstaller():
         src_doc = os.path.join(BASE_DIR, doc)
         if os.path.exists(src_doc):
             shutil.copy2(src_doc, app_dist_dir)
+
+    # Crea cartelle template pulite per l'utente finale (senza file privati o protetti da copyright)
+    user_template_dirs = [
+        ("manuals", "Posiziona qui i tuoi manuali o regole personalizzate (PDF, Markdown)."),
+        ("campaigns", "Cartella per le campagne utente. Le campagne salvate verranno collocate qui."),
+        ("audio_library", "Cartella per le tracce audio e playlist del Dungeon Master.")
+    ]
+    for udir, readme_text in user_template_dirs:
+        target_dir = os.path.join(app_dist_dir, udir)
+        os.makedirs(target_dir, exist_ok=True)
+        readme_file = os.path.join(target_dir, "README.txt")
+        if not os.path.exists(readme_file):
+            with open(readme_file, "w", encoding="utf-8") as f:
+                f.write(f"{readme_text}\n")
             
     if IS_LINUX:
         # Crea script launcher run.sh con permessi di esecuzione
@@ -141,11 +154,30 @@ def run_pyinstaller():
         print(f"  Binario: {os.path.join(app_dist_dir, APP_NAME)}")
         print(f"  Archivio TAR.GZ: {tar_path} ({tar_size_mb:.2f} MB)")
         print(f"========================================================")
+    elif IS_MACOS:
+        zip_filename = f"{APP_NAME}-{VERSION}-macos.zip"
+        zip_path = os.path.join(dist_dir, zip_filename)
+        print(f"\nCreazione pacchetto compresso macOS: {zip_path}")
+        
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            for root, dirs, files in os.walk(app_dist_dir):
+                for file in files:
+                    file_full = os.path.join(root, file)
+                    rel_path = os.path.relpath(file_full, dist_dir)
+                    zf.write(file_full, rel_path)
+                    
+        zip_size_mb = os.path.getsize(zip_path) / (1024 * 1024)
+        print(f"\n========================================================")
+        print(f"RELEASE MACOS GENERATA CON SUCCESSO:")
+        print(f"  Cartella: {app_dist_dir}")
+        print(f"  Binario: {os.path.join(app_dist_dir, APP_NAME)}")
+        print(f"  Archivio ZIP: {zip_path} ({zip_size_mb:.2f} MB)")
+        print(f"========================================================")
     else:
         # Genera archivio ZIP per Windows
         zip_filename = f"{APP_NAME}-{VERSION}-win64.zip"
         zip_path = os.path.join(dist_dir, zip_filename)
-        print(f"\nCreazione pacchetto compresso: {zip_path}")
+        print(f"\nCreazione pacchetto compresso Windows: {zip_path}")
         
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
             for root, dirs, files in os.walk(app_dist_dir):

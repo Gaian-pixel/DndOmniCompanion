@@ -46,10 +46,25 @@ def send_message(sock, message_data):
         message_json = json.dumps(message_data)
         message_bytes = message_json.encode('utf-8')
         header = struct.pack('!I', len(message_bytes))
-        with _get_send_lock(sock):
-            sock.sendall(header + message_bytes)
-    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
-        # Errori normali di disconnessione client
+        old_timeout = None
+        has_timeout = hasattr(sock, "gettimeout") and hasattr(sock, "settimeout")
+        if has_timeout:
+            try:
+                old_timeout = sock.gettimeout()
+            except Exception:
+                old_timeout = None
+            if old_timeout is None:
+                try: sock.settimeout(5.0)
+                except Exception: pass
+        try:
+            with _get_send_lock(sock):
+                sock.sendall(header + message_bytes)
+        finally:
+            if has_timeout and old_timeout is None:
+                try: sock.settimeout(None)
+                except Exception: pass
+    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, socket.timeout):
+        # Errori normali di disconnessione client o timeout invio
         pass
     except OSError as e:
         # Codici normali di socket chiuso/reimpostato su Windows (10038, 10054, 10053, 10058) o POSIX
@@ -76,24 +91,81 @@ def receive_message(sock):
         return None
 
 def sanitize_map_for_players(map_data: dict) -> dict:
-    """Filtra elementi segreti della mappa (trappole nascoste, porte segrete, note del Master) per i giocatori."""
+    """Filtra elementi segreti della mappa (trappole nascoste, porte segrete, note del Master, POI segreti) per i giocatori."""
     if not isinstance(map_data, dict):
         return map_data
     clean = dict(map_data)
+
+    # 1. Trappole: mostra solo quelle rilevate o innescate (o esplicitamente non nascoste)
     if "traps" in clean and isinstance(clean["traps"], list):
-        clean["traps"] = [t for t in clean["traps"] if not t.get("hidden", True) or t.get("triggered", False)]
+        clean["traps"] = [
+            t for t in clean["traps"]
+            if (t.get("triggered", False) or t.get("detected", False) or not t.get("hidden", True))
+            and not t.get("secret", False)
+        ]
+
+    # 2. Porte: le porte segrete non scoperte vengono rimosse dall'array 'doors'
+    #    e il loro bordo viene aggiunto a 'walls' per bloccare movimento e LoS senza svelare l'icona
     if "doors" in clean and isinstance(clean["doors"], list):
-        clean["doors"] = [d for d in clean["doors"] if not ((d.get("is_secret") or d.get("state") == "secret") and not d.get("discovered", False))]
+        clean_doors = []
+        secret_walls_to_add = []
+        for d in clean["doors"]:
+            is_secret = (d.get("is_secret") or d.get("state") == "secret") and not d.get("discovered", False)
+            if is_secret:
+                edge = d.get("edge")
+                if edge and edge not in clean.get("walls", []):
+                    secret_walls_to_add.append(edge)
+            else:
+                clean_doors.append(d)
+        clean["doors"] = clean_doors
+        if secret_walls_to_add:
+            clean["walls"] = list(clean.get("walls", [])) + secret_walls_to_add
+
+    # 3. Room Pins: escludi pin segreti o dm_only, e rimuovi dm_notes e secret
     if "room_pins" in clean and isinstance(clean["room_pins"], list):
         clean_pins = []
         for pin in clean["room_pins"]:
             if isinstance(pin, dict):
+                if pin.get("secret", False) or pin.get("dm_only", False) or pin.get("is_secret", False):
+                    continue
                 p_copy = dict(pin)
                 p_copy.pop("dm_notes", None)
+                p_copy.pop("secret", None)
                 clean_pins.append(p_copy)
             else:
                 clean_pins.append(pin)
         clean["room_pins"] = clean_pins
+
+    # 4. POIs: escludi POI marcati segreti o dm_only e rimuovi dm_notes
+    if "pois" in clean and isinstance(clean["pois"], dict):
+        clean_pois = {}
+        for k, pdata in clean["pois"].items():
+            if isinstance(pdata, dict):
+                if pdata.get("secret", False) or pdata.get("dm_only", False) or pdata.get("is_secret", False):
+                    continue
+                poi_copy = dict(pdata)
+                poi_copy.pop("dm_notes", None)
+                poi_copy.pop("secret", None)
+                clean_pois[k] = poi_copy
+            else:
+                clean_pois[k] = pdata
+        clean["pois"] = clean_pois
+
+    # 5. Bottini (Loots): escludi loots non scoperti o nascosti dalla FoW
+    if "loots" in clean and isinstance(clean["loots"], list):
+        fow_enabled = bool(clean.get("fow_enabled", False))
+        if fow_enabled:
+            rev_set = set()
+            for h in clean.get("fow_revealed", []):
+                if isinstance(h, (list, tuple)) and len(h) >= 2:
+                    rev_set.add((h[0], h[1]))
+            clean["loots"] = [
+                l for l in clean["loots"]
+                if not l.get("hidden", False) and (not rev_set or (l.get("q"), l.get("r")) in rev_set)
+            ]
+        else:
+            clean["loots"] = [l for l in clean["loots"] if not l.get("hidden", False)]
+
     return clean
 
 def broadcast(game_state, message_data, exclude_player=None):

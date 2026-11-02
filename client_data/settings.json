@@ -2,7 +2,9 @@
   "language": "it",
   "distance_unit": "m",
   "recent_servers": [
+    "192.168.1.42",
+    "192.168.1.50:5555",
     "127.0.0.1"
   ],
-  "last_server_ip": "127.0.0.1"
+  "last_server_ip": "192.168.1.42"
 }

@@ -79,9 +79,9 @@ class CharacterManagerFrame(tk.Frame):
         try:
             self.refresh_list()
             if self.selected_character:
-                self.show_character_details(self.selected_character)
+                self.render_character_details(self.selected_character)
             else:
-                self.show_empty_details()
+                self.render_empty_details()
         except Exception:
             pass
 
@@ -528,10 +528,6 @@ class CharacterManagerFrame(tk.Frame):
 
         def on_created(new_char):
             self.refresh_list()
-        try:
-            register_language_listener(self._on_language_changed)
-        except Exception:
-            pass
             if new_char and hasattr(new_char, "id"):
                 self.selected_character = new_char
                 if self.tree.exists(new_char.id):
@@ -543,19 +539,8 @@ class CharacterManagerFrame(tk.Frame):
         self.wait_window(wizard)
 
     def create_manual_character(self):
-        """Crea un personaggio vuoto e apre direttamente la scheda per la compilazione manuale."""
-        c = Character(name="Nuovo Eroe")
-        self.manager.add_character(c)
-        self.refresh_list()
-        try:
-            register_language_listener(self._on_language_changed)
-        except Exception:
-            pass
-        self.selected_character = c
-        if self.tree.exists(c.id):
-            self.tree.selection_set(c.id)
-            self.tree.see(c.id)
-        self.open_selected_sheet()
+        """Crea un personaggio tramite il Wizard guidato per garantire integrità regolistica."""
+        self.create_wizard_character()
 
     def duplicate_selected_character(self):
         """Duplica il personaggio selezionato creando una copia indipendente."""
@@ -570,10 +555,6 @@ class CharacterManagerFrame(tk.Frame):
         copy_char = Character.from_dict(char_dict)
         self.manager.add_character(copy_char)
         self.refresh_list()
-        try:
-            register_language_listener(self._on_language_changed)
-        except Exception:
-            pass
 
         if self.tree.exists(copy_char.id):
             self.tree.selection_set(copy_char.id)
@@ -595,10 +576,7 @@ class CharacterManagerFrame(tk.Frame):
             self.manager.delete_character(self.selected_character)
             self.selected_character = None
             self.refresh_list()
-        try:
-            register_language_listener(self._on_language_changed)
-        except Exception:
-            pass
+            self.render_empty_details()
             messagebox.showinfo("Eliminato", f"Il personaggio '{deleted_name}' è stato eliminato.", parent=self)
 
     def confirm_selection(self):

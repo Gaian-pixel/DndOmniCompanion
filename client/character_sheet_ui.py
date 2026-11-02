@@ -1,4 +1,5 @@
 import tkinter as tk
+import html
 import re
 import threading
 import urllib.request
@@ -172,9 +173,14 @@ def parse_features_text(raw_text: str):
             current_cat = "Privilegio di Classe"
             clean_hdr = s.replace("-", "").strip()
             current_title = clean_hdr or "Privilegi di Livello"
-        elif s.startswith("- ") and current_cat == "Privilegio di Classe" and "livello" in current_title.lower():
+        elif (s.startswith("- ") or s.startswith("• ")) and not s.startswith("---"):
+            if current_title and current_body:
+                items.append({"name": current_title, "category": current_cat, "desc": "\n".join(current_body).strip()})
+                current_body = []
+                current_title = ""
             ft_name = s[2:].strip()
-            items.append({"name": ft_name, "category": "Privilegio di Classe", "desc": f"Privilegio di classe: {ft_name}"})
+            cat = current_cat if current_cat != "Altro" else "Privilegio di Classe"
+            items.append({"name": ft_name, "category": cat, "desc": ft_name})
         elif s.startswith("=== ") and s.endswith(" ==="):
             if current_title:
                 items.append({"name": current_title, "category": current_cat, "desc": "\n".join(current_body).strip()})
@@ -507,6 +513,20 @@ class CharacterSheetFrame(ttk.Frame):
         else:
             self.destroy()
 
+    def _safe_save_characters(self):
+        if getattr(self, "_loading_data", False):
+            return
+        mgr = getattr(self, "manager", None)
+        if mgr and hasattr(mgr, "save_characters"):
+            mgr.save_characters()
+
+    def _safe_update_character(self):
+        if getattr(self, "_loading_data", False):
+            return
+        mgr = getattr(self, "manager", None)
+        if mgr and hasattr(mgr, "update_character"):
+            mgr.update_character(self.character)
+
     def setup_ui(self):
         # Banner di controllo overlay/docking se overlay o con callback
         if self.is_overlay or self.on_detach_callback or self.on_dock_callback:
@@ -569,7 +589,10 @@ class CharacterSheetFrame(ttk.Frame):
 
         tk.Label(header_frame, text=_t("sheet_name"), font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).grid(row=0, column=1, sticky="e", padx=(0, 4))
         self.name_var = tk.StringVar()
-        ttk.Entry(header_frame, textvariable=self.name_var, width=16).grid(row=0, column=2, padx=4, pady=3, sticky="ew")
+        self.name_entry = ttk.Entry(header_frame, textvariable=self.name_var, width=16)
+        if self.is_connected:
+            self.name_entry.configure(state="readonly")
+        self.name_entry.grid(row=0, column=2, padx=4, pady=3, sticky="ew")
 
         tk.Label(header_frame, text=_t("sheet_campaign"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=0, column=3, sticky="e", padx=(8, 4))
         self.campaign_var = tk.StringVar()
@@ -580,7 +603,8 @@ class CharacterSheetFrame(ttk.Frame):
 
         tk.Label(header_frame, text=_t("sheet_class"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=1, column=1, sticky="e", padx=(0, 4))
         self.class_var = tk.StringVar()
-        ttk.Entry(header_frame, textvariable=self.class_var, width=16).grid(row=1, column=2, padx=4, pady=3, sticky="ew")
+        self.class_entry = ttk.Entry(header_frame, textvariable=self.class_var, width=16, state="readonly")
+        self.class_entry.grid(row=1, column=2, padx=4, pady=3, sticky="ew")
 
         tk.Label(header_frame, text=_t("sheet_level"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=1, column=3, sticky="e", padx=(8, 4))
         self.level_var = tk.IntVar()
@@ -595,14 +619,15 @@ class CharacterSheetFrame(ttk.Frame):
 
         tk.Label(header_frame, text=_t("sheet_race"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=2, column=1, sticky="e", padx=(0, 4))
         self.race_var = tk.StringVar()
-        ttk.Entry(header_frame, textvariable=self.race_var, width=16).grid(row=2, column=2, padx=4, pady=3, sticky="ew")
+        self.race_entry = ttk.Entry(header_frame, textvariable=self.race_var, width=16, state="readonly")
+        self.race_entry.grid(row=2, column=2, padx=4, pady=3, sticky="ew")
 
         self.lbl_subclass_title = tk.Label(header_frame, text=_t("sheet_header_subclass"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
         self.lbl_subclass_title.grid(row=2, column=3, sticky="e", padx=(8, 4))
         self.subclass_var = tk.StringVar()
-        self.subclass_combo = ttk.Combobox(header_frame, textvariable=self.subclass_var, width=14)
+        self.subclass_combo = ttk.Combobox(header_frame, textvariable=self.subclass_var, width=14, state="disabled")
         self.subclass_combo.grid(row=2, column=4, padx=4, pady=3, sticky="ew")
-        ToolTip(self.subclass_combo, "Sottoclasse / Archetipo D&D 5e (Seleziona dalla lista SRD o digita il tuo archetipo)")
+        ToolTip(self.subclass_combo, "Sottoclasse / Archetipo D&D 5e (gestita tramite Wizard e Avanzamento di Livello)")
 
         self.btn_inspiration = tk.Button(
             header_frame, text=_t("insp_none"), font=("Segoe UI", 9, "bold"),
@@ -652,10 +677,8 @@ class CharacterSheetFrame(ttk.Frame):
             bottom_row = tk.Frame(box, bg=SURFACE_COLOR_ALT)
             bottom_row.pack(pady=(1, 2))
             
-            entry = ttk.Entry(bottom_row, textvariable=var, width=3, justify="center")
-            if self.is_connected:
-                entry.configure(state="readonly")
-                ToolTip(entry, _t("msg_attr_locked_online"))
+            entry = ttk.Entry(bottom_row, textvariable=var, width=3, justify="center", state="readonly")
+            ToolTip(entry, _t("msg_attr_locked_online"))
             entry.pack(side=tk.LEFT, padx=2)
             
             btn = ttk.Button(bottom_row, text="🎲", width=2, command=lambda a=attr, v=var: self.roll_stat(a, v.get()))
@@ -694,7 +717,7 @@ class CharacterSheetFrame(ttk.Frame):
 
             cb = tk.Checkbutton(
                 row, variable=chk_var, bg=SURFACE_COLOR_ALT, selectcolor=SURFACE_COLOR,
-                activebackground=SURFACE_COLOR_ALT,
+                activebackground=SURFACE_COLOR_ALT, state=tk.DISABLED,
                 command=self._on_save_prof_changed
             )
             cb.pack(side=tk.LEFT)
@@ -771,7 +794,7 @@ class CharacterSheetFrame(ttk.Frame):
             self.skill_vars[skill] = var
             var.trace_add("write", lambda *args: self.update_skill_modifiers() if hasattr(self, "update_skill_modifiers") else None)
             
-            combo = ttk.Combobox(skills_inner_frame, textvariable=var, values=[0, 1, 2], width=2, state="readonly")
+            combo = ttk.Combobox(skills_inner_frame, textvariable=var, values=[0, 1, 2], width=2, state="disabled")
             combo.grid(row=i, column=0, padx=2, pady=2, sticky="w")
             ToolTip(combo, _t("tooltip_skill_combo"))
 
@@ -805,7 +828,8 @@ class CharacterSheetFrame(ttk.Frame):
         ca_box.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
         tk.Label(ca_box, text=f"🛡️ {_t('sheet_armor_class')}", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack()
         self.ac_var = tk.IntVar(value=10)
-        ttk.Entry(ca_box, textvariable=self.ac_var, width=3, justify="center").pack(pady=2)
+        self.ac_entry = ttk.Entry(ca_box, textvariable=self.ac_var, width=3, justify="center", state="readonly")
+        self.ac_entry.pack(pady=2)
 
         # Iniziativa
         init_box = tk.Frame(core_badges, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=4)
@@ -814,7 +838,8 @@ class CharacterSheetFrame(ttk.Frame):
         self.init_var = tk.IntVar(value=0)
         init_sub = tk.Frame(init_box, bg=SURFACE_COLOR_ALT)
         init_sub.pack(pady=2)
-        ttk.Entry(init_sub, textvariable=self.init_var, width=3, justify="center").pack(side=tk.LEFT)
+        self.init_entry = ttk.Entry(init_sub, textvariable=self.init_var, width=3, justify="center", state="readonly")
+        self.init_entry.pack(side=tk.LEFT)
         ttk.Button(init_sub, text="🎲", width=2, command=self.roll_initiative).pack(side=tk.LEFT, padx=(2, 0))
 
         # Velocità
@@ -824,7 +849,8 @@ class CharacterSheetFrame(ttk.Frame):
         speed_input_row = tk.Frame(speed_box, bg=SURFACE_COLOR_ALT)
         speed_input_row.pack(pady=2)
         self.speed_var = tk.StringVar(value="30")
-        ttk.Entry(speed_input_row, textvariable=self.speed_var, width=4, justify="center").pack(side=tk.LEFT, padx=(0, 2))
+        self.speed_entry = ttk.Entry(speed_input_row, textvariable=self.speed_var, width=4, justify="center", state="readonly")
+        self.speed_entry.pack(side=tk.LEFT, padx=(0, 2))
         self.speed_unit_var = tk.StringVar(value=get_distance_unit())
         self._last_speed_unit = self.speed_unit_var.get()
         self.speed_unit_combo = ttk.Combobox(speed_input_row, textvariable=self.speed_unit_var, values=["ft", "m"], width=3, state="readonly")
@@ -848,17 +874,13 @@ class CharacterSheetFrame(ttk.Frame):
         hp_inputs.pack(fill=tk.X, pady=(0, 3))
         tk.Label(hp_inputs, text="HP:", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).pack(side=tk.LEFT, padx=(0, 4))
         self.hp_cur_var = tk.IntVar()
-        self.hp_cur_entry = ttk.Entry(hp_inputs, textvariable=self.hp_cur_var, width=4, justify="center")
-        if self.is_connected:
-            self.hp_cur_entry.configure(state="readonly")
-            ToolTip(self.hp_cur_entry, lambda: _t("msg_hp_cur_locked_online"))
+        self.hp_cur_entry = ttk.Entry(hp_inputs, textvariable=self.hp_cur_var, width=4, justify="center", state="readonly")
+        ToolTip(self.hp_cur_entry, lambda: _t("msg_hp_cur_locked_online"))
         self.hp_cur_entry.pack(side=tk.LEFT)
         tk.Label(hp_inputs, text="/", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED).pack(side=tk.LEFT, padx=3)
         self.hp_max_var = tk.IntVar()
-        self.hp_max_entry = ttk.Entry(hp_inputs, textvariable=self.hp_max_var, width=4, justify="center")
-        if self.is_connected:
-            self.hp_max_entry.configure(state="readonly")
-            ToolTip(self.hp_max_entry, lambda: _t("msg_hp_max_locked_online"))
+        self.hp_max_entry = ttk.Entry(hp_inputs, textvariable=self.hp_max_var, width=4, justify="center", state="readonly")
+        ToolTip(self.hp_max_entry, lambda: _t("msg_hp_max_locked_online"))
         self.hp_max_entry.pack(side=tk.LEFT)
         
         # Health bar fill
@@ -1072,9 +1094,12 @@ class CharacterSheetFrame(ttk.Frame):
             self.features_tree.delete(it)
             
         flist = getattr(self.character, "features_list", None)
-        if flist is None:
-            raw_f = getattr(self.character, "features", "")
-            flist = parse_features_text(raw_f)
+        raw_f = getattr(self.character, "features", "")
+        if not flist and raw_f and str(raw_f).strip():
+            flist = parse_features_text(str(raw_f))
+            self.character.features_list = flist
+        elif flist is None:
+            flist = []
             self.character.features_list = flist
             
         cat_labels = {
@@ -1096,12 +1121,17 @@ class CharacterSheetFrame(ttk.Frame):
             self.features_tree.insert(parent_node, tk.END, iid=f"feat_{idx}", text=f"  ★ {nm}")
             
         serialized = serialize_features_list(flist)
-        self.character.features = serialized
+        if flist or not (raw_f and str(raw_f).strip()):
+            self.character.features = serialized
+        else:
+            serialized = str(raw_f)
         if "features" in self.text_widgets:
             txt = self.text_widgets["features"]
             txt.config(state="normal")
             txt.delete("1.0", tk.END)
             txt.insert("1.0", serialized)
+            if not self.is_connected:
+                txt.config(state="disabled")
 
     def _on_feature_tree_selected(self, event=None):
         sel = self.features_tree.selection()
@@ -1122,18 +1152,34 @@ class CharacterSheetFrame(ttk.Frame):
             render_markdown_to_widget(self.feat_detail_desc, desc)
 
     def open_add_feature_dialog(self):
+        if not self.is_connected:
+            messagebox.showwarning(
+                "Azione Non Consentita",
+                "Non puoi aggiungere privilegi o talenti manualmente in modalità offline.\n\n"
+                "I privilegi vengono assegnati automaticamente tramite il Wizard di creazione, l'Avanzamento di Livello o con l'approvazione del Dungeon Master in sessione.",
+                parent=self
+            )
+            return
         def _on_save(new_item):
-            if not hasattr(self.character, "features_list") or not isinstance(self.character.features_list, list):
-                self.character.features_list = []
-            self.character.features_list.append(new_item)
-            self.refresh_features_ui()
-            self.manager.save_characters()
-            if self.is_connected and self.request_journal_approval_callback:
-                if messagebox.askyesno("Approvazione Master", f"Hai aggiunto '{new_item.get('name')}'.\n\nVuoi inviare la richiesta di approvazione al Dungeon Master?", parent=self):
-                    self.request_journal_approval_callback("features", self.character.features, f"Aggiunto {new_item.get('name')}")
+            base_list = list(getattr(self.character, "features_list", []) or [])
+            proposed_list = base_list + [new_item]
+            proposed_text = serialize_features_list(proposed_list)
+            if self.request_journal_approval_callback:
+                if messagebox.askyesno("Approvazione Master", f"Vuoi inviare la richiesta di aggiunta del tratto '{new_item.get('name')}' al Dungeon Master?", parent=self):
+                    self.request_journal_approval_callback("features", proposed_text, f"Aggiunto {new_item.get('name')}")
+            else:
+                messagebox.showwarning("Non Consentito", "La modifica dei privilegi richiede l'approvazione del Dungeon Master.", parent=self)
         FeatureEditorDialog(self, on_save_callback=_on_save)
 
     def open_edit_feature_dialog(self):
+        if not self.is_connected:
+            messagebox.showwarning(
+                "Azione Non Consentita",
+                "Non puoi modificare privilegi o talenti manualmente in modalità offline.\n\n"
+                "La modifica dei tratti richiede l'approvazione del Dungeon Master durante una sessione di gioco.",
+                parent=self
+            )
+            return
         sel = self.features_tree.selection()
         if not sel or not sel[0].startswith("feat_"):
             messagebox.showinfo("Seleziona", "Seleziona prima un tratto dall'elenco a sinistra da modificare.", parent=self)
@@ -1142,15 +1188,25 @@ class CharacterSheetFrame(ttk.Frame):
         flist = getattr(self.character, "features_list", [])
         if 0 <= idx < len(flist):
             def _on_save(updated_item):
-                flist[idx] = updated_item
-                self.refresh_features_ui()
-                self.manager.save_characters()
-                if self.is_connected and self.request_journal_approval_callback:
-                    if messagebox.askyesno("Approvazione Master", f"Hai modificato '{updated_item.get('name')}'.\n\nVuoi inviare la richiesta di approvazione al Master?", parent=self):
-                        self.request_journal_approval_callback("features", self.character.features, f"Modificato {updated_item.get('name')}")
+                proposed_list = list(flist)
+                proposed_list[idx] = updated_item
+                proposed_text = serialize_features_list(proposed_list)
+                if self.request_journal_approval_callback:
+                    if messagebox.askyesno("Approvazione Master", f"Vuoi inviare la richiesta di modifica per '{updated_item.get('name')}' al Master?", parent=self):
+                        self.request_journal_approval_callback("features", proposed_text, f"Modificato {updated_item.get('name')}")
+                else:
+                    messagebox.showwarning("Non Consentito", "La modifica dei privilegi richiede l'approvazione del Dungeon Master.", parent=self)
             FeatureEditorDialog(self, item=flist[idx], on_save_callback=_on_save)
 
     def delete_selected_feature(self):
+        if not self.is_connected:
+            messagebox.showwarning(
+                "Azione Non Consentita",
+                "Non puoi rimuovere privilegi o tratti in modalità offline.\n\n"
+                "La modifica dei tratti richiede l'approvazione del Dungeon Master durante una sessione di gioco.",
+                parent=self
+            )
+            return
         sel = self.features_tree.selection()
         if not sel or not sel[0].startswith("feat_"):
             messagebox.showinfo("Seleziona", "Seleziona prima un tratto dall'elenco a sinistra da eliminare.", parent=self)
@@ -1159,13 +1215,11 @@ class CharacterSheetFrame(ttk.Frame):
         flist = getattr(self.character, "features_list", [])
         if 0 <= idx < len(flist):
             nm = flist[idx].get("name", "questo tratto")
-            if messagebox.askyesno("Elimina", f"Sei sicuro di voler eliminare '{nm}'?", parent=self):
-                flist.pop(idx)
-                self.refresh_features_ui()
-                self.manager.save_characters()
-                if self.is_connected and self.request_journal_approval_callback:
-                    if messagebox.askyesno("Approvazione Master", f"Hai rimosso '{nm}'.\n\nVuoi notificare il Dungeon Master?", parent=self):
-                        self.request_journal_approval_callback("features", self.character.features, f"Rimosso {nm}")
+            if messagebox.askyesno("Richiesta Rimozione al Master", f"Vuoi inviare la richiesta di rimozione per '{nm}' al Dungeon Master?", parent=self):
+                proposed_list = [f for i, f in enumerate(flist) if i != idx]
+                proposed_text = serialize_features_list(proposed_list)
+                if self.request_journal_approval_callback:
+                    self.request_journal_approval_callback("features", proposed_text, f"Rimosso {nm}")
 
     def toggle_features_view_mode(self):
         if self._features_view_mode == "structured":
@@ -1176,9 +1230,12 @@ class CharacterSheetFrame(ttk.Frame):
             self.btn_add_feature.pack_forget()
             self.btn_edit_feature.pack_forget()
             self.btn_del_feature.pack_forget()
+            if not self.is_connected and "features" in self.text_widgets:
+                self.text_widgets["features"].config(state="disabled")
         else:
-            raw_text = self.text_widgets["features"].get("1.0", tk.END).strip()
-            self.character.features_list = parse_features_text(raw_text)
+            if self.is_connected and "features" in self.text_widgets:
+                raw_text = self.text_widgets["features"].get("1.0", tk.END).strip()
+                self.character.features_list = parse_features_text(raw_text)
             self.features_text_frame.pack_forget()
             self.features_paned.pack(fill=tk.BOTH, expand=True)
             self._features_view_mode = "structured"
@@ -1234,14 +1291,17 @@ class CharacterSheetFrame(ttk.Frame):
                     res_obj = self.character.custom_resources[i]
                     res_obj["current"] = max(0, min(res_obj.get("max", 0), res_obj.get("current", 0) + delta))
                     v_lbl.config(text=f"{res_obj['current']} / {res_obj.get('max', 0)}")
-                    self.manager.save_characters()
+                    self._safe_save_characters()
                 return _cmd
 
             def make_delete(i=idx):
                 def _del():
+                    if not self.is_connected:
+                        messagebox.showwarning("Azione Non Consentita", "Non puoi rimuovere risorse di classe in modalità offline.", parent=self)
+                        return
                     if messagebox.askyesno("Elimina Risorsa", f"Vuoi eliminare la risorsa '{self.character.custom_resources[i].get('name')}'?"):
                         self.character.custom_resources.pop(i)
-                        self.manager.save_characters()
+                        self._safe_save_characters()
                         self.refresh_custom_resources_ui()
                 return _del
 
@@ -1251,6 +1311,14 @@ class CharacterSheetFrame(ttk.Frame):
             ttk.Button(row, text="🗑", width=2, command=make_delete(idx)).pack(side=tk.RIGHT, padx=2)
 
     def add_custom_resource_dialog(self):
+        if not self.is_connected:
+            messagebox.showwarning(
+                "Azione Non Consentita",
+                "Non puoi creare nuove risorse di classe manualmente in modalità offline.\n\n"
+                "Le risorse ufficiali vengono assegnate automaticamente alla creazione o all'avanzamento di livello.",
+                parent=self
+            )
+            return
         name = simpledialog.askstring("Nuova Risorsa di Classe", "Nome risorsa (es. Punti Ki, Furore, Ispirazione Bardica):", parent=self)
         if not name or not name.strip():
             return
@@ -1426,9 +1494,9 @@ class CharacterSheetFrame(ttk.Frame):
     def _generate_character_html(data):
         if hasattr(data, "to_dict"):
             data = data.to_dict()
-        name = data.get("name", "Eroe")
-        char_cls = data.get("char_class", "")
-        race = data.get("race", "")
+        name = html.escape(str(data.get("name", "Eroe")))
+        char_cls = html.escape(str(data.get("char_class", "")))
+        race = html.escape(str(data.get("race", "")))
         lvl = data.get("level", 1)
         hp = data.get("hp_current", 10)
         hp_max = data.get("hp_max", 10)
@@ -1451,16 +1519,28 @@ class CharacterSheetFrame(ttk.Frame):
             
         res_html = ""
         for r in data.get("custom_resources", []):
-            res_html += f"<li><strong>{r.get('name')}</strong>: {r.get('current')}/{r.get('max')} (Reset: {r.get('reset_on')})</li>"
+            r_name = html.escape(str(r.get('name', '')))
+            r_cur = r.get('current', 0)
+            r_max = r.get('max', 0)
+            r_reset = html.escape(str(r.get('reset_on', '')))
+            res_html += f"<li><strong>{r_name}</strong>: {r_cur}/{r_max} (Reset: {r_reset})</li>"
         if not res_html: res_html = "<li>Nessuna risorsa registrata</li>"
         
         weap_html = ""
         for w in data.get("weapons", []):
-            weap_html += f"<tr><td>{w.get('name')}</td><td>{w.get('bonus', 0):+d}</td><td>{w.get('damage_dice', '1d6')} {w.get('damage_type', '')}</td></tr>"
+            w_name = html.escape(str(w.get('name', '')))
+            w_bonus = w.get('bonus', 0)
+            w_dice = html.escape(str(w.get('damage_dice', '1d6')))
+            w_type = html.escape(str(w.get('damage_type', '')))
+            weap_html += f"<tr><td>{w_name}</td><td>{w_bonus:+d}</td><td>{w_dice} {w_type}</td></tr>"
             
         spells_html = ""
         for s in data.get("spellbook", []):
-            spells_html += f"<li><strong>Lv {s.get('level', 0)} - {s.get('name')}</strong> ({s.get('time', '-')}, {s.get('range', '-')})</li>"
+            s_name = html.escape(str(s.get('name', '')))
+            s_lvl = s.get('level', 0)
+            s_time = html.escape(str(s.get('time', '-')))
+            s_range = html.escape(str(s.get('range', '-')))
+            spells_html += f"<li><strong>Lv {s_lvl} - {s_name}</strong> ({s_time}, {s_range})</li>"
 
         return f"""<!DOCTYPE html>
 <html>
@@ -1552,7 +1632,7 @@ class CharacterSheetFrame(ttk.Frame):
             self.currency_vars[coin] = var
             var.trace_add("write", lambda *args: self.update_currency_total())
             
-            entry = ttk.Entry(card, textvariable=var, width=6, justify="center")
+            entry = ttk.Entry(card, textvariable=var, width=6, justify="center", state="readonly")
             entry.pack(side=tk.TOP, pady=2)
             
             lbl_sub = tk.Label(card, text=_t(sub_k), font=("Segoe UI", 7), fg=TEXT_MUTED, bg=bg_tint)
@@ -1570,7 +1650,9 @@ class CharacterSheetFrame(ttk.Frame):
         inv_bar = tk.Frame(parent_frame, bg=BG_COLOR)
         inv_bar.pack(fill=tk.X, padx=6, pady=(4, 2))
         
-        tk.Label(inv_bar, text=f"🎒 {_t('sheet_tab_inventory')} (25 Slot)", font=FONT_BOLD, fg=ACCENT_GOLD, bg=BG_COLOR).pack(side=tk.LEFT)
+        init_slot_count = max(25, len(getattr(self.character, "inventory_grid", []) or []))
+        self.lbl_inv_slots_header = tk.Label(inv_bar, text=f"🎒 {_t('sheet_tab_inventory')} ({init_slot_count} Slot)", font=FONT_BOLD, fg=ACCENT_GOLD, bg=BG_COLOR)
+        self.lbl_inv_slots_header.pack(side=tk.LEFT)
         
         self.btn_drop_backpack = ttk.Button(inv_bar, text=_t("btn_drop_backpack"), command=self.toggle_drop_backpack, style="Slot.TButton")
         self.btn_drop_backpack.pack(side=tk.LEFT, padx=(8, 4))
@@ -1655,6 +1737,7 @@ class CharacterSheetFrame(ttk.Frame):
         tk.Label(hdr_frame, text=_t("sheet_weight_col"), font=FONT_BOLD, fg=TEXT_MUTED, bg=SURFACE_COLOR_ALT, width=10).pack(side=tk.RIGHT, padx=4)
         tk.Label(hdr_frame, text="Spendi", font=FONT_BOLD, fg=TEXT_MUTED, bg=SURFACE_COLOR_ALT, width=5).pack(side=tk.RIGHT, padx=4)
 
+        self.inv_scrollable_frame = scrollable_frame
         self.inventory_row_frames = []
         self.inventory_buttons = []
         self.container_quick_buttons = []
@@ -1662,54 +1745,9 @@ class CharacterSheetFrame(ttk.Frame):
         self.weight_vars = []
         self.attuned_vars = []
         
-        for i in range(25):
-            row_bg = SURFACE_COLOR if (i % 2 == 0) else SURFACE_COLOR_ALT
-            row_frame = tk.Frame(scrollable_frame, bg=row_bg, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=2)
-            row_frame.pack(fill=tk.X, padx=2, pady=1)
-            self.inventory_row_frames.append(row_frame)
-            
-            # Indice slot #i+1
-            lbl_idx = tk.Label(row_frame, text=f"#{i+1:02d}", font=FONT_SMALL, fg=TEXT_MUTED, bg=row_bg, width=3)
-            lbl_idx.pack(side=tk.LEFT, padx=(2, 2))
-            
-            # Bottone Rapido Contenitore (Collocazione)
-            btn_c = tk.Button(row_frame, text="🎒", font=("Segoe UI Emoji", 10), relief=tk.FLAT, bd=0, bg=row_bg, fg=TEXT_COLOR, activebackground=BORDER_COLOR, width=3)
-            btn_c.pack(side=tk.LEFT, padx=(0, 2))
-            btn_c.config(command=lambda idx=i, b=btn_c: self.open_quick_container_picker(idx, b))
-            ToolTip(btn_c, "Sposta rapidamente questo oggetto in un altro contenitore (Zaino, Addosso, Borsa Conservante, ecc.)")
-            self.container_quick_buttons.append(btn_c)
-            
-            # Bottone Oggetto
-            btn = ttk.Button(row_frame, text=_t("sheet_empty_slot_desc"), command=lambda idx=i: self.on_inventory_click(idx), style="Slot.TButton")
-            btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
-            btn.bind("<Button-3>", lambda e, idx=i: self.show_container_context_menu(e, idx))
-            row_frame.bind("<Button-3>", lambda e, idx=i: self.show_container_context_menu(e, idx))
-            self.inventory_buttons.append(btn)
-            
-            # Bottone Rapido Spendi / Consuma / Spacchetta
-            btn_spend = ttk.Button(row_frame, text="-1", width=4, style="Small.TButton", command=lambda idx=i: self.on_quick_spend_or_open_click(idx))
-            btn_spend.pack(side=tk.RIGHT, padx=2)
-            self.spend_buttons.append(btn_spend)
-            
-            # Peso
-            w_frame = tk.Frame(row_frame, bg=row_bg)
-            w_frame.pack(side=tk.RIGHT, padx=4)
-            w_var = tk.DoubleVar(value=0.0)
-            w_var.trace_add("write", lambda *args: self.calculate_total_weight())
-            w_entry = ttk.Entry(w_frame, textvariable=w_var, width=5, justify="center")
-            w_entry.pack(side=tk.LEFT)
-            tk.Label(w_frame, text="lbs", font=FONT_SMALL, fg=TEXT_MUTED, bg=row_bg).pack(side=tk.LEFT, padx=1)
-            self.weight_vars.append(w_var)
-            
-            # Sintonia
-            a_frame = tk.Frame(row_frame, bg=row_bg)
-            a_frame.pack(side=tk.RIGHT, padx=4)
-            a_var = tk.BooleanVar(value=False)
-            a_var.trace_add("write", lambda *args, idx=i: self.check_attunement(idx))
-            cb = ttk.Checkbutton(a_frame, variable=a_var)
-            cb.pack(side=tk.LEFT)
-            self.attuned_vars.append(a_var)
-            ToolTip(cb, "Sintonizza questo oggetto magico (Max 3 contemporaneamente)")
+        initial_slots = max(25, len(getattr(self.character, "inventory_grid", []) or []))
+        for i in range(initial_slots):
+            self._create_inventory_slot_row(i)
 
         # 4. Barra Inferiore (Peso, Capacità di Carico e Pulsanti)
         bottom_frame = tk.Frame(parent_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=6)
@@ -1744,6 +1782,52 @@ class CharacterSheetFrame(ttk.Frame):
         
         btn_give_gold = ttk.Button(btn_bar, text=_t("sheet_give_gold_btn"), command=self.on_give_gold_click, style="Gold.TButton")
         btn_give_gold.pack(side=tk.RIGHT, padx=2)
+
+    def _create_inventory_slot_row(self, i: int):
+        scrollable_frame = getattr(self, "inv_scrollable_frame", None)
+        if not scrollable_frame:
+            return
+        row_bg = SURFACE_COLOR if (i % 2 == 0) else SURFACE_COLOR_ALT
+        row_frame = tk.Frame(scrollable_frame, bg=row_bg, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=2)
+        row_frame.pack(fill=tk.X, padx=2, pady=1)
+        self.inventory_row_frames.append(row_frame)
+
+        lbl_idx = tk.Label(row_frame, text=f"#{i+1:02d}", font=FONT_SMALL, fg=TEXT_MUTED, bg=row_bg, width=3)
+        lbl_idx.pack(side=tk.LEFT, padx=(2, 2))
+
+        btn_c = tk.Button(row_frame, text="🎒", font=("Segoe UI Emoji", 10), relief=tk.FLAT, bd=0, bg=row_bg, fg=TEXT_COLOR, activebackground=BORDER_COLOR, width=3)
+        btn_c.pack(side=tk.LEFT, padx=(0, 2))
+        btn_c.config(command=lambda idx=i, b=btn_c: self.open_quick_container_picker(idx, b))
+        ToolTip(btn_c, "Sposta rapidamente questo oggetto in un altro contenitore (Zaino, Addosso, Borsa Conservante, ecc.)")
+        self.container_quick_buttons.append(btn_c)
+
+        btn = ttk.Button(row_frame, text=_t("sheet_empty_slot_desc"), command=lambda idx=i: self.on_inventory_click(idx), style="Slot.TButton")
+        btn.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
+        btn.bind("<Button-3>", lambda e, idx=i: self.show_container_context_menu(e, idx))
+        row_frame.bind("<Button-3>", lambda e, idx=i: self.show_container_context_menu(e, idx))
+        self.inventory_buttons.append(btn)
+
+        btn_spend = ttk.Button(row_frame, text="-1", width=4, style="Small.TButton", command=lambda idx=i: self.on_quick_spend_or_open_click(idx))
+        btn_spend.pack(side=tk.RIGHT, padx=2)
+        self.spend_buttons.append(btn_spend)
+
+        w_frame = tk.Frame(row_frame, bg=row_bg)
+        w_frame.pack(side=tk.RIGHT, padx=4)
+        w_var = tk.DoubleVar(value=0.0)
+        w_var.trace_add("write", lambda *args: self.calculate_total_weight())
+        w_entry = ttk.Entry(w_frame, textvariable=w_var, width=5, justify="center")
+        w_entry.pack(side=tk.LEFT)
+        tk.Label(w_frame, text="lbs", font=FONT_SMALL, fg=TEXT_MUTED, bg=row_bg).pack(side=tk.LEFT, padx=1)
+        self.weight_vars.append(w_var)
+
+        a_frame = tk.Frame(row_frame, bg=row_bg)
+        a_frame.pack(side=tk.RIGHT, padx=4)
+        a_var = tk.BooleanVar(value=False)
+        a_var.trace_add("write", lambda *args, idx=i: self.check_attunement(idx))
+        cb = ttk.Checkbutton(a_frame, variable=a_var)
+        cb.pack(side=tk.LEFT)
+        self.attuned_vars.append(a_var)
+        ToolTip(cb, "Sintonizza questo oggetto magico (Max 3 contemporaneamente)")
 
     def sync_inventory_coins_to_currency(self):
         """
@@ -1908,36 +1992,21 @@ class CharacterSheetFrame(ttk.Frame):
             
         from common.starter_equipment import lookup_standard_weight
         # Sincronizza i pesi inseriti nella UI sugli oggetti
-        for i in range(25):
-            if i < len(self.character.inventory_grid):
-                item = self.character.inventory_grid[i]
-                if item and i < len(self.weight_vars):
-                    try:
-                        w_val = float(self.weight_vars[i].get())
-                        if w_val > 0:
-                            item["weight"] = w_val
-                        elif not item.get("weight") or float(item.get("weight", 0)) == 0:
-                            std_w = lookup_standard_weight(item.get("name", ""))
-                            if std_w > 0:
-                                item["weight"] = std_w
-                                self.weight_vars[i].set(std_w)
-                    except (tk.TclError, ValueError):
-                        pass
-
-        # Sincronizza le monete per il calcolo del peso
-        if hasattr(self, "currency_vars"):
-            for coin, var in self.currency_vars.items():
+        slot_limit = min(len(self.character.inventory_grid), len(self.weight_vars))
+        for i in range(slot_limit):
+            item = self.character.inventory_grid[i]
+            if item:
                 try:
-                    self.character.currency[coin] = int(var.get())
+                    w_val = float(self.weight_vars[i].get())
+                    if w_val > 0:
+                        item["weight"] = w_val
+                    elif not item.get("weight") or float(item.get("weight", 0)) == 0:
+                        std_w = lookup_standard_weight(item.get("name", ""))
+                        if std_w > 0:
+                            item["weight"] = std_w
+                            self.weight_vars[i].set(std_w)
                 except (tk.TclError, ValueError):
                     pass
-
-        # Sincronizza FOR se modificata nei campi di testo
-        if hasattr(self, "attr_vars") and "FOR" in self.attr_vars:
-            try:
-                self.character.attributes["FOR"] = int(self.attr_vars["FOR"].get())
-            except (tk.TclError, ValueError):
-                pass
 
         enc = self.character.get_encumbrance_status()
         total = enc["carried_weight"]
@@ -1994,14 +2063,22 @@ class CharacterSheetFrame(ttk.Frame):
     def check_attunement(self, changed_idx=None):
         if not hasattr(self, 'attuned_vars'): return
         attuned_count = sum(1 for var in self.attuned_vars if var.get())
+        
+        # Massimo sintonizzazioni (Regola 5e: standard 3, fino a 6 per Artefice)
+        char_class = str(getattr(self.character, "char_class", "")).lower() if hasattr(self, "character") else ""
+        lvl = int(getattr(self.character, "level", 1) or 1) if hasattr(self, "character") else 1
+        max_attune = 3
+        if "artefice" in char_class or "artificer" in char_class:
+            max_attune = 6 if lvl >= 18 else (5 if lvl >= 14 else (4 if lvl >= 10 else 3))
+
         if hasattr(self, 'attunement_label'):
-            color = ACCENT_RED if attuned_count > 3 else (ACCENT_GOLD if attuned_count == 3 else ACCENT_BLUE)
+            color = ACCENT_RED if attuned_count > max_attune else (ACCENT_GOLD if attuned_count == max_attune else ACCENT_BLUE)
             self.attunement_label.config(
-                text=_t("sheet_attunement_count", count=attuned_count),
+                text=f"🔮 Sintonizzati: {attuned_count}/{max_attune}",
                 fg=color
             )
-        if attuned_count > 3 and changed_idx is not None:
-            messagebox.showwarning("Sintonia", "Non puoi sintonizzarti con più di 3 oggetti contemporaneamente!")
+        if attuned_count > max_attune and changed_idx is not None:
+            messagebox.showwarning("Sintonia", f"Non puoi sintonizzarti con più di {max_attune} oggetti contemporaneamente!")
             self.attuned_vars[changed_idx].set(False)
             return
 
@@ -2021,7 +2098,63 @@ class CharacterSheetFrame(ttk.Frame):
             else:
                 self.lbl_attunement_status.config(text="")
 
+    def update_spell_stats(self):
+        """Aggiorna la testata dinamica degli incantesimi (CD Salvezza, Bonus Attacco, Caratteristica chiave, PB)."""
+        if not hasattr(self, "lbl_spell_dc"):
+            return
+        level = 1
+        try:
+            level = int(self.level_var.get())
+        except (ValueError, AttributeError, tk.TclError):
+            if hasattr(self, "character") and getattr(self.character, "level", None):
+                level = self.character.level
+        level = max(1, level)
+        pb = ((level - 1) // 4) + 2
+
+        char_class = str(getattr(self.character, "char_class", "")).lower() if hasattr(self, "character") else ""
+        subclass = str(getattr(self.character, "subclass", "")).lower() if hasattr(self, "character") else ""
+        
+        stat = "INT"
+        if any(k in char_class for k in ["chierico", "cleric", "druido", "druid", "ranger"]):
+            stat = "SAG"
+        elif any(k in char_class for k in ["bardo", "bard", "paladino", "paladin", "stregone", "sorcerer", "warlock"]):
+            stat = "CAR"
+        elif any(k in char_class for k in ["mago", "wizard", "artefice", "artificer"]) or any(k in subclass for k in ["mistico", "eldritch", "arcane"]):
+            stat = "INT"
+
+        if hasattr(self, "character") and hasattr(self.character, "get_modifier"):
+            mod = self.character.get_modifier(stat)
+        else:
+            try: val = int(self.attr_vars[stat].get())
+            except Exception: val = 10
+            mod = (val - 10) // 2
+
+        dc = 8 + pb + mod
+        atk = pb + mod
+        atk_str = f"+{atk}" if atk >= 0 else str(atk)
+
+        self.lbl_spell_stat.config(text=f"🔮 Caratteristica: {stat} ({'+' if mod >= 0 else ''}{mod})")
+        self.lbl_spell_dc.config(text=f"🎯 CD Salvezza: {dc}")
+        self.lbl_spell_atk.config(text=f"⚔️ Attacco Magico: {atk_str}")
+        self.lbl_spell_pb.config(text=f"⭐ Competenza: +{pb}")
+
     def build_spells_tab(self, parent_frame):
+        # Testata Statistiche Magiche D&D 5e RAW (CD Salvezza & Bonus Attacco Incantesimi)
+        stats_bar = tk.Frame(parent_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=4)
+        stats_bar.pack(fill=tk.X, padx=5, pady=(5, 3))
+        
+        self.lbl_spell_stat = tk.Label(stats_bar, text="🔮 Caratteristica: INT (+0)", font=FONT_BOLD, fg=ACCENT_GOLD, bg=SURFACE_COLOR)
+        self.lbl_spell_stat.pack(side=tk.LEFT, padx=(4, 12))
+        
+        self.lbl_spell_dc = tk.Label(stats_bar, text="🎯 CD Salvezza: 10", font=FONT_BOLD, fg=ACCENT_BLUE, bg=SURFACE_COLOR)
+        self.lbl_spell_dc.pack(side=tk.LEFT, padx=8)
+        
+        self.lbl_spell_atk = tk.Label(stats_bar, text="⚔️ Attacco Magico: +2", font=FONT_BOLD, fg=ACCENT_GREEN, bg=SURFACE_COLOR)
+        self.lbl_spell_atk.pack(side=tk.LEFT, padx=8)
+
+        self.lbl_spell_pb = tk.Label(stats_bar, text="⭐ Competenza: +2", font=FONT_SMALL, fg=TEXT_MUTED, bg=SURFACE_COLOR)
+        self.lbl_spell_pb.pack(side=tk.RIGHT, padx=4)
+
         slots_frame = ttk.LabelFrame(parent_frame, text=_t("sheet_spell_slots_header"))
         slots_frame.pack(fill=tk.X, padx=5, pady=5)
         self.slot_vars = {}
@@ -2034,7 +2167,7 @@ class CharacterSheetFrame(ttk.Frame):
             massimi = tk.IntVar(value=0)
             usati = tk.IntVar(value=0)
             self.slot_vars[str(i)] = {"max": massimi, "current": usati}
-            ttk.Entry(sub_frame, textvariable=massimi, width=2, justify="center").pack(side=tk.LEFT)
+            ttk.Entry(sub_frame, textvariable=massimi, width=2, justify="center", state="readonly").pack(side=tk.LEFT)
             ttk.Label(sub_frame, text="/").pack(side=tk.LEFT)
             ttk.Entry(sub_frame, textvariable=usati, width=2, justify="center").pack(side=tk.LEFT)
             
@@ -2387,7 +2520,7 @@ class CharacterSheetFrame(ttk.Frame):
             self.character.avatar_b64 = b64
             self.character.avatar_path = path
             render_avatar_on_canvas(self.avatar_canvas, b64, self.character.name, size=64)
-            self.manager.update_character(self.character)
+            self._safe_update_character()
             if self.is_connected and self.on_save_callback:
                 self.on_save_callback(self.character)
 
@@ -2402,11 +2535,18 @@ class CharacterSheetFrame(ttk.Frame):
         self.character.avatar_b64 = ""
         self.character.avatar_path = ""
         render_avatar_on_canvas(self.avatar_canvas, "", self.character.name, size=64)
-        self.manager.update_character(self.character)
+        self._safe_update_character()
         if self.is_connected and self.on_save_callback:
             self.on_save_callback(self.character)
 
     def load_data(self):
+        self._loading_data = True
+        try:
+            self._load_data_inner()
+        finally:
+            self._loading_data = False
+
+    def _load_data_inner(self):
         from common.image_utils import render_avatar_on_canvas
         if hasattr(self, "avatar_canvas"):
             render_avatar_on_canvas(self.avatar_canvas, getattr(self.character, "avatar_b64", ""), self.character.name, size=64)
@@ -2427,7 +2567,23 @@ class CharacterSheetFrame(ttk.Frame):
             self._class_var_traced = True
         
         for k, v in self.character.attributes.items():
-            self.attr_vars[k].set(v)
+            if k in self.attr_vars:
+                self.attr_vars[k].set(v)
+
+        if hasattr(self, "save_prof_vars"):
+            name_to_abbr = {
+                "FOR": "FOR", "STR": "FOR", "FORZA": "FOR", "STRENGTH": "FOR",
+                "DES": "DES", "DEX": "DES", "DESTREZZA": "DES", "DEXTERITY": "DES",
+                "COS": "COS", "CON": "COS", "COSTITUZIONE": "COS", "CONSTITUTION": "COS",
+                "INT": "INT", "INTELLIGENZA": "INT", "INTELLIGENCE": "INT",
+                "SAG": "SAG", "WIS": "SAG", "SAGGEZZA": "SAG", "WISDOM": "SAG",
+                "CAR": "CAR", "CHA": "CAR", "CARISMA": "CAR", "CHARISMA": "CAR",
+            }
+            raw_profs = getattr(self.character, "saving_throw_proficiencies", []) or []
+            norm_profs = {name_to_abbr.get(str(p).strip().upper(), str(p).strip().upper()[:3]) for p in raw_profs}
+            for attr, s_var in self.save_prof_vars.items():
+                s_var.set(1 if attr in norm_profs else 0)
+            self.update_save_modifiers()
             
         if hasattr(self.character, "skills"):
             total_prof = sum(self.character.skills.values()) if self.character.skills else 0
@@ -2519,7 +2675,7 @@ class CharacterSheetFrame(ttk.Frame):
         self._capture_initial_state()
 
     def update_skill_modifiers(self):
-        """Calcola e aggiorna dinamicamente i bonus calcolati (+X / -X) per tutte le abilità."""
+        """Calcola e aggiorna dinamicamente i bonus calcolati (+X / -X) per tutte le abilità (D&D 5e RAW)."""
         level = 1
         try:
             level = int(self.level_var.get())
@@ -2529,12 +2685,18 @@ class CharacterSheetFrame(ttk.Frame):
         level = max(1, level)
         prof_bonus = ((level - 1) // 4) + 2
 
+        char_class = str(getattr(self.character, "char_class", "")).lower() if hasattr(self, "character") else ""
+        is_bard_jack = ("bardo" in char_class or "bard" in char_class) and level >= 2
+
         for skill, stat in self.skill_map.items():
-            try:
-                stat_val = int(self.attr_vars[stat].get())
-            except (KeyError, ValueError, tk.TclError):
-                stat_val = 10
-            stat_mod = (stat_val - 10) // 2
+            if hasattr(self, "character") and hasattr(self.character, "get_modifier"):
+                stat_mod = self.character.get_modifier(stat)
+            else:
+                try:
+                    stat_val = int(self.attr_vars[stat].get())
+                except (KeyError, ValueError, tk.TclError):
+                    stat_val = 10
+                stat_mod = (stat_val - 10) // 2
 
             prof_level = 0
             if skill in self.skill_vars:
@@ -2543,7 +2705,9 @@ class CharacterSheetFrame(ttk.Frame):
                 except (ValueError, tk.TclError):
                     prof_level = 0
 
-            total_mod = stat_mod + (prof_bonus * prof_level)
+            # Factotum (Jack of All Trades): +prof_bonus // 2 alle prove di caratteristica non competenti
+            jack_bonus = (prof_bonus // 2) if (prof_level == 0 and is_bard_jack) else 0
+            total_mod = stat_mod + (prof_bonus * prof_level) + jack_bonus
             mod_str = f"+{total_mod}" if total_mod >= 0 else str(total_mod)
 
             lbl = self.skill_mod_labels.get(skill)
@@ -2556,6 +2720,10 @@ class CharacterSheetFrame(ttk.Frame):
                 elif total_mod < 0:
                     fg_color = ACCENT_RED
                 lbl.config(text=mod_str, fg=fg_color)
+
+        # Aggiorna anche le statistiche magiche della scheda
+        if hasattr(self, "update_spell_stats"):
+            self.update_spell_stats()
 
     def update_exp_ui(self):
         exp = getattr(self.character, "exp", 0)
@@ -2586,6 +2754,17 @@ class CharacterSheetFrame(ttk.Frame):
         backpack_dropped = getattr(self.character, "backpack_dropped", False)
         from common.starter_equipment import lookup_standard_weight, get_pack_contents
         from client.character_manager import CONTAINERS
+
+        if not hasattr(self.character, "inventory_grid") or not isinstance(self.character.inventory_grid, list):
+            self.character.inventory_grid = [None] * 25
+        while len(self.character.inventory_grid) < 25:
+            self.character.inventory_grid.append(None)
+        if hasattr(self, "inv_scrollable_frame") and self.inv_scrollable_frame and self.inv_scrollable_frame.winfo_exists():
+            while len(self.inventory_buttons) < len(self.character.inventory_grid):
+                self._create_inventory_slot_row(len(self.inventory_buttons))
+        total_slots = max(25, len(self.character.inventory_grid))
+        if hasattr(self, "lbl_inv_slots_header") and self.lbl_inv_slots_header.winfo_exists():
+            self.lbl_inv_slots_header.config(text=f"🎒 {_t('sheet_tab_inventory')} ({total_slots} Slot)")
         
         # 1. Calcola statistiche per contenitore
         c_counts = {"all": 0, "backpack": 0, "equipped": 0, "bag_of_holding": 0, "haversack": 0, "mount": 0}
@@ -2614,7 +2793,7 @@ class CharacterSheetFrame(ttk.Frame):
         # 2. Aggiorna bottoni del filtro contenitori
         if hasattr(self, "container_filter_btns"):
             filter_labels = [
-                ("all", f"📦 Tutti ({c_counts['all']}/25)"),
+                ("all", f"📦 Tutti ({c_counts['all']}/{total_slots})"),
                 ("backpack", f"🎒 Zaino ({c_counts['backpack']})"),
                 ("equipped", f"⚔️ Addosso ({c_counts['equipped']})"),
                 ("bag_of_holding", f"🔮 Borsa ({c_counts['bag_of_holding']})"),
@@ -2633,7 +2812,7 @@ class CharacterSheetFrame(ttk.Frame):
             if active_f == "all":
                 carried_w = self.character.get_carried_weight()
                 self.container_info_lbl.config(
-                    text=f"📦 Tutti gli Oggetti: {c_counts['all']}/25 slot occupati • Carico Trasportato: {carried_w} lbs"
+                    text=f"📦 Tutti gli Oggetti: {c_counts['all']}/{total_slots} slot occupati • Carico Trasportato: {carried_w} lbs"
                 )
             elif active_f == "backpack":
                 bp_state = "⚠️ A Terra (Escluso dal carico)" if backpack_dropped else "Indossato (Sul personaggio)"
@@ -2847,9 +3026,6 @@ class CharacterSheetFrame(ttk.Frame):
                 self.character.hp_current = min(self.character.hp_max, self.character.hp_current + heal_roll)
                 if hasattr(self, "hp_cur_var"):
                     self.hp_cur_var.set(self.character.hp_current)
-                if hasattr(self, "hp_cur_entry") and self.hp_cur_entry.winfo_exists():
-                    self.hp_cur_entry.delete(0, tk.END)
-                    self.hp_cur_entry.insert(0, str(self.character.hp_current))
                 if hasattr(self, "update_hp_bar"):
                     self.update_hp_bar()
                 heal_msg = f"\n🧪 Hai bevuto la Pozione di Guarigione {pot_tier} e recuperato +{heal_roll} PF (ora {self.character.hp_current}/{self.character.hp_max})!"
@@ -2926,13 +3102,10 @@ class CharacterSheetFrame(ttk.Frame):
         free_slots = [idx for idx, it in enumerate(self.character.inventory_grid) if it is None]
         slots_needed = len(sub_items) - 1
         if len(free_slots) < slots_needed:
-            messagebox.showwarning(
-                "Spazio Insufficiente",
-                f"Per spacchettare '{pack_name}' servono {len(sub_items)} slot liberi nello zaino (attualmente ne hai {len(free_slots)+1}).\n\n"
-                "Libera prima qualche slot per estrarre tutti gli oggetti individuali.",
-                parent=self
-            )
-            return
+            missing_slots = slots_needed - len(free_slots)
+            start_len = len(self.character.inventory_grid)
+            self.character.inventory_grid.extend([None] * missing_slots)
+            free_slots.extend(range(start_len, start_len + missing_slots))
             
         if not messagebox.askyesno(
             "Spacchetta Contenuto",
@@ -2949,9 +3122,8 @@ class CharacterSheetFrame(ttk.Frame):
             self.character.inventory_grid[free_idx] = sub_items[curr_sub_idx]
             curr_sub_idx += 1
             
-        self.manager.update_character(self.character)
-        if hasattr(self.manager, 'save_characters'):
-            self.manager.save_characters()
+        self._safe_update_character()
+        self._safe_save_characters()
             
         self.refresh_inventory_grid()
         self.refresh_weapons_list()
@@ -3323,6 +3495,7 @@ class CharacterSheetFrame(ttk.Frame):
         container_combo.pack(fill=tk.X, pady=(0, 2))
 
         # Pulsanti rapidi cambio contenitore
+        from client.character_manager import CONTAINERS
         c_quick_frame = tk.Frame(body, bg=SURFACE_COLOR)
         c_quick_frame.pack(fill=tk.X, pady=(2, 6))
         tk.Label(c_quick_frame, text="Sposta rapido:", font=FONT_SMALL, fg=TEXT_MUTED, bg=SURFACE_COLOR).pack(side=tk.LEFT, padx=(0, 4))
@@ -3341,13 +3514,11 @@ class CharacterSheetFrame(ttk.Frame):
         tk.Label(qp_frame, text="Quantità:", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(side=tk.LEFT, padx=(0, 4))
         initial_qty = max(1, int(item.get("qty", 1) or 1))
         qty_var = tk.IntVar(value=initial_qty)
-        ttk.Button(qp_frame, text="-", width=2, command=lambda: qty_var.set(max(1, qty_var.get() - 1))).pack(side=tk.LEFT)
-        ttk.Entry(qp_frame, textvariable=qty_var, width=4, justify="center", state="readonly").pack(side=tk.LEFT, padx=2)
-        ttk.Button(qp_frame, text="+", width=2, command=lambda: qty_var.set(min(9999, qty_var.get() + 1))).pack(side=tk.LEFT, padx=(0, 14))
+        ttk.Entry(qp_frame, textvariable=qty_var, width=5, justify="center", state="readonly").pack(side=tk.LEFT, padx=(0, 14))
         
         tk.Label(qp_frame, text="Peso Unitario (lbs):", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(side=tk.LEFT, padx=(0, 4))
         w_var = tk.DoubleVar(value=item.get("weight", 0.0))
-        ttk.Entry(qp_frame, textvariable=w_var, width=5, justify="center").pack(side=tk.LEFT)
+        ttk.Entry(qp_frame, textvariable=w_var, width=5, justify="center", state="readonly").pack(side=tk.LEFT)
         
         attune_var = tk.BooleanVar(value=item.get("attuned", False))
         cb_attune = ttk.Checkbutton(body, text="Oggetto Sintonizzato 🔮", variable=attune_var)
@@ -3370,8 +3541,7 @@ class CharacterSheetFrame(ttk.Frame):
                 if current_attuned >= 3:
                     messagebox.showwarning("Limite Sintonia", "Non puoi sintonizzarti con più di 3 oggetti magici contemporaneamente!", parent=win)
                     return
-            item["qty"] = max(1, qty_var.get())
-            item["weight"] = max(0.0, w_var.get())
+            item["qty"] = initial_qty
             item["attuned"] = attune_var.get()
             item["desc"] = desc_text.get("1.0", tk.END).strip()
             sel_c = container_combo.get()
@@ -3382,9 +3552,8 @@ class CharacterSheetFrame(ttk.Frame):
                     break
             item["container"] = c_code
             self.refresh_inventory_grid()
-            self.manager.update_character(self.character)
-            if hasattr(self.manager, 'save_characters'):
-                self.manager.save_characters()
+            self._safe_update_character()
+            self._safe_save_characters()
             win.destroy()
             
         def discard():
@@ -3547,17 +3716,13 @@ class CharacterSheetFrame(ttk.Frame):
             "desc": desc,
             "container": default_c
         }
-        if self.is_connected and self.request_item_callback:
-            self.request_item_callback(entry, target_idx)
-            messagebox.showinfo("Richiesta Inviata", _t("msg_item_approval_sent", item=item_data.get('name')), parent=self)
+        if self.is_connected:
+            if self.request_item_callback:
+                self.request_item_callback(entry, target_idx)
+                messagebox.showinfo("Richiesta Inviata", _t("msg_item_approval_sent", item=item_data.get('name')), parent=self)
+            else:
+                messagebox.showwarning("Non Consentito", "L'importazione di oggetti richiede l'approvazione del Dungeon Master.", parent=self)
             return
-
-        self.character.inventory_grid[target_idx] = entry
-        self.manager.update_character(self.character)
-        if hasattr(self.manager, 'save_characters'):
-            self.manager.save_characters()
-        self.refresh_inventory_grid()
-        messagebox.showinfo("Importato", f"'{item_data.get('name')}' importato nello slot #{target_idx+1}!")
 
     def toggle_drop_backpack(self):
         new_state = self.character.toggle_drop_backpack()
@@ -3602,53 +3767,20 @@ class CharacterSheetFrame(ttk.Frame):
         return self.import_from_compendium_to_slot(item_data, category, None)
 
     def _adjust_hp_quick(self, delta: int):
-        if self.is_connected:
-            return
-        try:
-            cur = int(self.hp_cur_var.get())
-            mx = max(1, int(self.hp_max_var.get()))
-            new_hp = max(0, min(mx, cur + delta))
-            self.hp_cur_var.set(new_hp)
-        except (ValueError, tk.TclError):
-            pass
+        # Bloccato anti-cheat sia online che offline: i PF si modificano tramite Riposi, Pozioni o azioni del DM
+        return
 
     def save_character(self, event=None, close_after=True):
         try:
-            self.character.name = self.name_var.get()
+            if not self.is_connected:
+                new_nm = self.name_var.get().strip()
+                if new_nm:
+                    self.character.name = new_nm
             self.character.campaign = self.campaign_var.get()
-            self.character.char_class = self.class_var.get()
-            self.character.level = self.level_var.get()
-            self.character.race = self.race_var.get()
-            if hasattr(self, "subclass_var"):
-                self.character.subclass = self.subclass_var.get().strip()
             if hasattr(self, "background_var"):
                 self.character.background = self.background_var.get().strip()
             if hasattr(self, "alignment_var"):
                 self.character.alignment = self.alignment_var.get().strip()
-            
-            for k, var in self.attr_vars.items():
-                self.character.attributes[k] = var.get()
-                
-            if not hasattr(self.character, "skills"):
-                self.character.skills = {}
-            for k, var in self.skill_vars.items():
-                try:
-                    self.character.skills[k] = var.get()
-                except tk.TclError:
-                    self.character.skills[k] = 0
-                
-            if not self.is_connected:
-                self.character.hp_current = self.hp_cur_var.get()
-                self.character.hp_max = self.hp_max_var.get()
-            try: self.character.ac = int(self.ac_var.get())
-            except (ValueError, tk.TclError): self.character.ac = 10
-            try: self.character.initiative = int(self.init_var.get())
-            except (ValueError, tk.TclError): self.character.initiative = 0
-            try:
-                spd_raw = float(str(self.speed_var.get()).replace(",", "."))
-            except (ValueError, tk.TclError):
-                spd_raw = 30.0
-            self.character.speed = int(spd_raw) if spd_raw == int(spd_raw) else round(spd_raw, 1)
             if hasattr(self, "speed_unit_var"):
                 self.character.speed_unit = self.speed_unit_var.get()
                 set_distance_unit(self.character.speed_unit)
@@ -3689,46 +3821,61 @@ class CharacterSheetFrame(ttk.Frame):
                                     self.request_journal_approval_callback("features", serialized, title="Aggiornamento Tratti & Privilegi")
                             setattr(self.character, "features", initial_val)
             else:
-                for attr, txt in self.text_widgets.items():
-                    val = txt.get("1.0", tk.END).strip()
-                    setattr(self.character, attr, val)
+                for attr in ("journal_notes", "notes"):
+                    if attr in self.text_widgets:
+                        val = self.text_widgets[attr].get("1.0", tk.END).strip()
+                        setattr(self.character, attr, val)
                 
             if not hasattr(self.character, "currency"):
                 self.character.currency = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
             currency_blocked = False
             for coin, var in self.currency_vars.items():
                 try:
-                    val = var.get()
-                    if self.is_connected and hasattr(self, "initial_currency"):
-                        init_val = self.initial_currency.get(coin, 0)
+                    val = max(0, int(var.get()))
+                    if hasattr(self, "initial_currency"):
+                        init_val = int(self.initial_currency.get(coin, self.character.currency.get(coin, 0)) or 0)
                         if val > init_val:
                             val = init_val
                             var.set(init_val)
                             currency_blocked = True
                     self.character.currency[coin] = val
-                except tk.TclError:
+                except (tk.TclError, ValueError):
                     pass
             if currency_blocked:
                 messagebox.showwarning("Valuta Bloccata", _t("msg_currency_locked_online"), parent=self)
                 
-            # Salva slot incantesimi
+            # Salva slot incantesimi (i massimi sono protetti, gli attuali sono limitati a [0, max])
             if not hasattr(self.character, "spell_slots"):
                 self.character.spell_slots = {}
             for lvl, vars_ in self.slot_vars.items():
-                self.character.spell_slots[lvl] = {"max": vars_["max"].get(), "current": vars_["current"].get()}
+                existing_slot = self.character.spell_slots.get(lvl, {})
+                if isinstance(existing_slot, dict):
+                    auth_max = int(existing_slot.get("max", vars_["max"].get()) or 0)
+                elif isinstance(existing_slot, list) and len(existing_slot) >= 2:
+                    auth_max = int(existing_slot[1] or 0)
+                else:
+                    auth_max = 0
+                cur_slot = max(0, min(auth_max, int(vars_["current"].get() or 0)))
+                vars_["max"].set(auth_max)
+                vars_["current"].set(cur_slot)
+                self.character.spell_slots[lvl] = {"max": auth_max, "current": cur_slot}
                 
-            # Salva peso e sintonia inventario
+            # Salva peso e sintonia inventario (supporto dinamico > 25 slot)
             if hasattr(self, 'weight_vars') and hasattr(self, 'attuned_vars'):
-                for i in range(25):
+                slot_limit = min(len(self.character.inventory_grid), len(self.weight_vars), len(self.attuned_vars))
+                for i in range(slot_limit):
                     item = self.character.inventory_grid[i]
                     if item:
                         try:
-                            item["weight"] = float(self.weight_vars[i].get())
+                            new_w = float(self.weight_vars[i].get())
+                            if new_w > 0 or not item.get("weight"):
+                                item["weight"] = max(0.0, new_w)
                         except (tk.TclError, ValueError):
-                            item["weight"] = 0.0
+                            pass
                         item["attuned"] = self.attuned_vars[i].get()
                 
-            self.manager.update_character(self.character)
+            self._safe_update_character()
+            self._safe_save_characters()
             self._capture_initial_state()
             
             if self.on_save_callback:
@@ -3747,8 +3894,11 @@ class CharacterSheetFrame(ttk.Frame):
                 cur_val = float(str(self.speed_var.get()).replace(",", "."))
                 converted = convert_speed_value(cur_val, old_u, new_u)
                 self.speed_var.set(str(converted))
+                self.character.speed = int(converted) if converted == int(converted) else round(converted, 1)
             except (ValueError, TypeError):
-                self.speed_var.set("9" if new_u == "m" else "30")
+                fallback = 9 if new_u == "m" else 30
+                self.speed_var.set(str(fallback))
+                self.character.speed = fallback
             self._last_speed_unit = new_u
             self.character.speed_unit = new_u
             set_distance_unit(new_u)
@@ -3832,8 +3982,19 @@ class CharacterSheetFrame(ttk.Frame):
     def roll_initiative(self):
         if not self.roll_callback: return
         try:
-            des_val = int(self.attr_vars["DES"].get())
-            mod = (des_val - 10) // 2
+            if hasattr(self, "character") and hasattr(self.character, "get_modifier"):
+                mod = self.character.get_modifier("DES")
+            else:
+                des_val = int(self.attr_vars["DES"].get())
+                mod = (des_val - 10) // 2
+
+            # Factotum (Jack of All Trades): Il Bardo di 2° livello somma metà competenza all'Iniziativa (D&D 5e RAW - PHB p. 54)
+            char_class = str(getattr(self.character, "char_class", "")).lower() if hasattr(self, "character") else ""
+            lvl = int(getattr(self.character, "level", 1) or 1) if hasattr(self, "character") else 1
+            if ("bardo" in char_class or "bard" in char_class) and lvl >= 2:
+                pb = ((lvl - 1) // 4) + 2
+                mod += pb // 2
+
             mod_str = f"+{mod}" if mod >= 0 else str(mod)
             
             formula = f"1d20{mod_str}"
@@ -4065,9 +4226,10 @@ class CharacterSheetFrame(ttk.Frame):
         else:
             self.death_saves_frame.pack_forget()
             if hasattr(self.character, "death_saves"):
-                self.character.death_saves["successes"] = 0
-                self.character.death_saves["failures"] = 0
-                self.manager.save_characters()
+                if self.character.death_saves.get("successes", 0) != 0 or self.character.death_saves.get("failures", 0) != 0:
+                    self.character.death_saves["successes"] = 0
+                    self.character.death_saves["failures"] = 0
+                    self._safe_save_characters()
             
         if not hasattr(self.character, "death_saves"):
             self.character.death_saves = {"successes": 0, "failures": 0}
@@ -4254,21 +4416,35 @@ class CharacterSheetFrame(ttk.Frame):
             )
             return
         def _on_save(w_data):
+            payload = dict(w_data)
+            payload["target_collection"] = "weapons"
+            payload.setdefault("type", "Arma")
             if getattr(self, "request_item_callback", None):
-                self.request_item_callback(w_data)
+                self.request_item_callback(payload)
                 messagebox.showinfo("Richiesta Inviata", f"Richiesta di aggiunta per l'arma '{w_data.get('name')}' inviata al Master per approvazione!", parent=self)
             else:
-                if not hasattr(self.character, "weapons"): self.character.weapons = []
-                self.character.weapons.append(w_data)
-                self.manager.save_characters()
-                self.refresh_weapons_list()
+                messagebox.showwarning("Non Consentito", "L'aggiunta di armi richiede l'approvazione del Dungeon Master.", parent=self)
         WeaponDialog(self, on_save_callback=_on_save)
 
     def open_edit_weapon_dialog(self, weapon, idx):
+        if not self.is_connected:
+            messagebox.showwarning(
+                "Azione Non Consentita",
+                "Non puoi modificare le statistiche o i dadi danno delle armi in modalità offline.\n\n"
+                "La modifica delle armi richiede sempre l'approvazione del Dungeon Master durante una sessione di gioco.",
+                parent=self
+            )
+            return
         def _on_save(w_data):
-            self.character.weapons[idx] = w_data
-            self.manager.save_characters()
-            self.refresh_weapons_list()
+            payload = dict(w_data)
+            payload["target_collection"] = "weapons"
+            payload["action"] = "edit"
+            payload.setdefault("type", "Arma")
+            if getattr(self, "request_item_callback", None):
+                self.request_item_callback(payload, slot_idx=idx)
+                messagebox.showinfo("Richiesta Inviata", f"Richiesta di modifica per l'arma '{w_data.get('name')}' inviata al Master per approvazione!", parent=self)
+            else:
+                messagebox.showwarning("Non Consentito", "La modifica delle armi richiede l'approvazione del Dungeon Master.", parent=self)
         WeaponDialog(self, weapon_data=weapon, on_save_callback=_on_save)
 
     def remove_weapon(self, idx):
@@ -4289,7 +4465,7 @@ class CharacterSheetFrame(ttk.Frame):
             return
             
         if messagebox.askyesno("Richiesta Rimozione al Master", f"Vuoi inviare la richiesta di rimozione per l'arma '{w_name}' al Dungeon Master?", parent=self):
-            sent = self.request_item_callback({"name": w_name, "action": "remove", "type": "Arma"})
+            sent = self.request_item_callback({"name": w_name, "action": "remove", "type": "Arma", "target_collection": "weapons"}, slot_idx=idx)
             if sent:
                 messagebox.showinfo("Richiesta Inviata", f"Richiesta di rimozione per '{w_name}' inviata al Master!", parent=self)
 
@@ -4498,8 +4674,14 @@ class CharacterSheetFrame(ttk.Frame):
         )
         edit_box.delete("1.0", tk.END)
         edit_box.insert("1.0", story)
-        self.save_text_field_offline("journal_notes")
-        messagebox.showinfo("Storia Creata", "Biografia narrativa generata con successo e salvata nel Diario del Personaggio!", parent=self)
+        if self.is_connected:
+            bundle = self._markdown_widgets.get("journal_notes")
+            if bundle:
+                render_markdown_to_widget(bundle["preview"], story)
+            self.propose_text_field_approval("journal_notes", _t("sheet_journal_title"))
+        else:
+            self.save_text_field_offline("journal_notes")
+            messagebox.showinfo("Storia Creata", "Biografia narrativa generata con successo e salvata nel Diario del Personaggio!", parent=self)
 
     def create_notes_tab(self, parent_frame):
         self.create_markdown_journal_tab(
@@ -4526,11 +4708,11 @@ class CharacterSheetFrame(ttk.Frame):
                 messagebox.showinfo("Richiesta Inviata", f"Le modifiche a '{field_title}' sono state inviate al Master per approvazione!\nRiceverai una notifica quando il Master le approverà.", parent=self)
 
     def save_text_field_offline(self, field_name):
-        if field_name not in self.text_widgets:
+        if field_name not in self.text_widgets or field_name == "features":
             return
         content = self.text_widgets[field_name].get("1.0", tk.END).strip()
         setattr(self.character, field_name, content)
-        self.manager.save_characters()
+        self._safe_save_characters()
         bundle = self._markdown_widgets.get(field_name)
         if bundle:
             render_markdown_to_widget(bundle["preview"], content)

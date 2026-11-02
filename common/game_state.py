@@ -17,6 +17,7 @@ class Player:
         self.damage_vulnerabilities = []
         self.exhaustion_level = 0
         self.initiative = 0
+        self.initiative_bonus = None
         self.full_sheet = None
         self.conditions = []
         self.condition_durations = {}
@@ -149,6 +150,32 @@ class Player:
     def get_active_effects(self) -> list:
         return list(getattr(self, "active_effects", []))
 
+    def get_initiative_bonus(self) -> int:
+        """Restituisce il modificatore fisso di Iniziativa (separato dal totale tirato in combattimento)."""
+        if getattr(self, "initiative_bonus", None) is not None:
+            try:
+                return int(self.initiative_bonus)
+            except (ValueError, TypeError):
+                pass
+        sheet = getattr(self, "full_sheet", None)
+        if isinstance(sheet, dict):
+            if sheet.get("initiative") is not None:
+                try:
+                    return int(sheet["initiative"])
+                except (ValueError, TypeError):
+                    pass
+            attrs = sheet.get("attributes", {})
+            if isinstance(attrs, dict) and ("DES" in attrs or "DEX" in attrs):
+                try:
+                    dex = int(attrs.get("DES", attrs.get("DEX", 10)))
+                    return (dex - 10) // 2
+                except (ValueError, TypeError):
+                    pass
+        try:
+            return int(getattr(self, "initiative", 0) or 0)
+        except (ValueError, TypeError):
+            return 0
+
     def to_dict(self):
         return {
             "name": self.name, 
@@ -161,6 +188,7 @@ class Player:
             "damage_vulnerabilities": getattr(self, "damage_vulnerabilities", []),
             "exhaustion_level": getattr(self, "exhaustion_level", 0),
             "initiative": self.initiative,
+            "initiative_bonus": getattr(self, "initiative_bonus", None),
             "full_sheet": self.full_sheet,
             "conditions": self.conditions,
             "condition_durations": getattr(self, "condition_durations", {}),
@@ -191,7 +219,13 @@ class Player:
             "in_pocket_dimension": getattr(self, "in_pocket_dimension", False),
             "can_attack": getattr(self, "can_attack", True),
             "is_companion": getattr(self, "is_companion", False),
-            "elevation": getattr(self, "elevation", 0)
+            "elevation": getattr(self, "elevation", 0),
+            "ac": getattr(self, "ac", 10),
+            "concentrating_on": getattr(self, "concentrating_on", None),
+            "in_combat": getattr(self, "in_combat", False),
+            "death_save_successes": getattr(self, "death_save_successes", 0),
+            "death_save_failures": getattr(self, "death_save_failures", 0),
+            "combat_initiative": getattr(self, "combat_initiative", None)
         }
 
     @classmethod
@@ -199,10 +233,17 @@ class Player:
         p = cls(data.get("name", "Unknown"))
         p.position = data.get("position", [0, 0])
         p.elevation = data.get("elevation", 0)
+        p.ac = data.get("ac", 10)
+        p.concentrating_on = data.get("concentrating_on", None)
+        p.in_combat = data.get("in_combat", False)
+        p.death_save_successes = data.get("death_save_successes", 0)
+        p.death_save_failures = data.get("death_save_failures", 0)
+        p.combat_initiative = data.get("combat_initiative", None)
         p.hp = data.get("hp", 10)
         p.max_hp = data.get("max_hp", 10)
         p.temp_hp = data.get("temp_hp", 0)
         p.initiative = data.get("initiative", 0)
+        p.initiative_bonus = data.get("initiative_bonus", None)
         p.full_sheet = data.get("full_sheet", None)
         p.conditions = data.get("conditions", [])
         p.condition_durations = data.get("condition_durations", {})
@@ -458,7 +499,7 @@ class GameState:
     def _get_combatants(self):
         return [p for p in self.players if getattr(p, 'in_combat', True)]
 
-    def next_turn(self):
+    def next_turn(self, tick_end_of_turn=True):
         end_of_turn_conds = {"Scatto", "Disimpegno", "Dash", "Disengage"}
         start_of_turn_conds = {"Schivata", "Dodge", "Scatto", "Disimpegno", "Dash", "Disengage"}
         with self.lock:
@@ -470,7 +511,7 @@ class GameState:
                     prev_active.conditions = [c for c in prev_active.conditions if c not in end_of_turn_conds]
                 if getattr(prev_active, "full_sheet", None) and isinstance(prev_active.full_sheet.get("conditions"), list):
                     prev_active.full_sheet["conditions"] = [c for c in prev_active.full_sheet["conditions"] if c not in end_of_turn_conds]
-                if hasattr(prev_active, "active_effects") and isinstance(prev_active.active_effects, list):
+                if tick_end_of_turn and hasattr(prev_active, "active_effects") and isinstance(prev_active.active_effects, list):
                     expired_fx = []
                     for fx in prev_active.active_effects:
                         if fx.get("decrement_timing") == "end_of_turn" and fx.get("duration_rounds") is not None:
@@ -622,6 +663,12 @@ class GameState:
     def remove_player(self, player_to_remove):
         target_name = player_to_remove if isinstance(player_to_remove, str) else getattr(player_to_remove, "name", None)
         with self.lock:
+            combatants_before = self._get_combatants()
+            combat_idx = -1
+            for ci, cp in enumerate(combatants_before):
+                if cp.name == target_name:
+                    combat_idx = ci
+                    break
             idx_to_remove = -1
             for i, p in enumerate(self.players):
                 if p.name == target_name:
@@ -629,10 +676,13 @@ class GameState:
                     break
             if idx_to_remove != -1:
                 self.players.pop(idx_to_remove)
-                if getattr(self, "combat_active", False):
-                    if idx_to_remove < self.turn_index:
+                if getattr(self, "combat_active", False) and combat_idx != -1:
+                    combatants_after = self._get_combatants()
+                    if not combatants_after:
+                        self.turn_index = 0
+                    elif combat_idx < self.turn_index:
                         self.turn_index -= 1
-                    elif idx_to_remove == self.turn_index and self.turn_index >= len(self.players):
+                    elif combat_idx == self.turn_index and self.turn_index >= len(combatants_after):
                         self.turn_index = 0
                         self.round_number += 1
         self._trigger_gui_update()
@@ -666,22 +716,42 @@ class GameState:
                 (getattr(p, "owner", None) == player_name and getattr(p, "is_companion", False))
             ]
 
-    def get_state_dict(self, is_dm=True):
+    def get_state_dict(self, is_dm=False):
         """Restituisce una rappresentazione dell'intero stato del gioco come dizionario."""
         with self.lock:
+            fow_enabled = False
+            revealed_set = set()
+            if self.current_map and isinstance(self.current_map, dict):
+                fow_enabled = bool(self.current_map.get("fow_enabled", False))
+                for h in self.current_map.get("fow_revealed", []):
+                    if isinstance(h, (list, tuple)) and len(h) >= 2:
+                        revealed_set.add((h[0], h[1]))
+
             players_data = []
             for p in self.players:
-                if not is_dm and getattr(p, "layer", "token") == "gm":
-                    continue
+                if not is_dm:
+                    if getattr(p, "layer", "token") == "gm" or getattr(p, "is_hidden", False):
+                        continue
+                    is_party = getattr(p, "is_party_member", False) or getattr(p, "is_companion", False)
+                    if fow_enabled and not is_party:
+                        pos = getattr(p, "position", None)
+                        if pos and (pos[0], pos[1]) not in revealed_set:
+                            continue
+
                 p_dict = p.to_dict()
                 if not is_dm and p_dict.get("full_sheet"):
-                    # Rimuovi segreti confidenziali del PG dai payload inviati ad altri giocatori
+                    # Rimuovi segreti confidenziali e note DM dai payload inviati ai giocatori
                     p_dict["full_sheet"] = dict(p_dict["full_sheet"])
                     p_dict["full_sheet"].pop("secret", None)
+                    p_dict["full_sheet"].pop("dm_notes", None)
+                    if not getattr(p, "is_party_member", False) and not getattr(p, "is_companion", False):
+                        for priv_k in ["special_abilities", "legendary_actions_details", "reactions_details", "features", "actions"]:
+                            p_dict["full_sheet"].pop(priv_k, None)
                 players_data.append(p_dict)
+
             curr_turn = self.get_current_turn_player()
             turn_name = curr_turn.name if curr_turn else None
-            if not is_dm and curr_turn and getattr(curr_turn, "layer", "token") == "gm":
+            if not is_dm and curr_turn and (getattr(curr_turn, "layer", "token") == "gm" or getattr(curr_turn, "is_hidden", False)):
                 turn_name = "Sconosciuto"
 
             from common.network_utils import sanitize_map_for_players
@@ -715,7 +785,7 @@ class GameState:
                 "travel_miles_today": getattr(self, 'travel_miles_today', 0),
                 "camp_watch_shifts": getattr(self, 'camp_watch_shifts', {}),
                 "camp_has_campfire": getattr(self, 'camp_has_campfire', True),
-                "active_campaign_folder": getattr(self.active_campaign, 'folder_path', None) if getattr(self, 'active_campaign', None) else None,
+                "active_campaign_folder": getattr(self.active_campaign, 'folder_path', None) if is_dm and getattr(self, 'active_campaign', None) else None,
                 "automation_mode": getattr(self, "automation_mode", "hybrid"),
                 "automation_settings": getattr(self, "automation_settings", {}),
                 "pending_damages": getattr(self, "pending_damages", {}) if is_dm else {},
@@ -747,7 +817,7 @@ class GameState:
         from common.file_utils import atomic_save_json
         import copy
         with self.lock:
-            state = copy.deepcopy(self.get_state_dict())
+            state = copy.deepcopy(self.get_state_dict(is_dm=True))
         atomic_save_json(filepath, state, indent=4, ensure_ascii=False)
         self.log_dm_message(f"[SISTEMA] Sessione salvata in {filepath}")
 
@@ -763,6 +833,8 @@ class GameState:
             self.combat_active = state.get("combat_active", False)
             self.turn_index = state.get("turn_index", 0)
             self.round_number = state.get("round_number", 1)
+            self.active_aoes = state.get("active_aoes", [])
+            self.drawn_lines = state.get("drawn_lines", [])
             self.time_day = state.get("time_day", 1)
             self.time_month = state.get("time_month", 1)
             self.time_year = state.get("time_year", 1492)
@@ -848,6 +920,17 @@ class GameState:
                     existing.has_lair_actions = p_data.get("has_lair_actions", False)
                     existing.owner = p_data.get("owner", None)
                     existing.elevation = p_data.get("elevation", 0)
+                    existing.ac = p_data.get("ac", 10)
+                    existing.size = p_data.get("size", 1)
+                    existing.is_hidden = p_data.get("is_hidden", False)
+                    existing.concentrating_on = p_data.get("concentrating_on", None)
+                    existing.in_combat = p_data.get("in_combat", False)
+                    existing.death_save_successes = p_data.get("death_save_successes", 0)
+                    existing.death_save_failures = p_data.get("death_save_failures", 0)
+                    existing.combat_initiative = p_data.get("combat_initiative", None)
+                    existing.active_effects = p_data.get("active_effects", [])
+                    existing.is_companion = p_data.get("is_companion", False)
+                    existing.in_pocket_dimension = p_data.get("in_pocket_dimension", False)
                     loaded_players.append(existing)
                 else:
                     loaded_players.append(Player.from_dict(p_data))

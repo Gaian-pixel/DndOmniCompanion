@@ -108,6 +108,14 @@ class LevelUpDialog(tk.Toplevel):
 
         self.hit_die = HIT_DICE_MAP.get(self.char_class_en, 8)
         self.avg_hp = (self.hit_die // 2) + 1
+        if getattr(self.character, "level", 1) >= 20:
+            messagebox.showinfo(
+                "Livello Massimo Raggiunto",
+                "Il personaggio ha già raggiunto il Livello 20 (massimo consentito dalle regole ufficiali D&D 5e)!",
+                parent=master,
+            )
+            self.destroy()
+            return
         self.new_level = self.character.level + 1
 
         try:
@@ -260,9 +268,13 @@ class LevelUpDialog(tk.Toplevel):
 
     def _update_hp_preview(self):
         try:
-            val = self.hp_add_var.get()
+            val = int(self.hp_add_var.get())
         except Exception:
             val = self.avg_hp
+        if self.hp_choice.get() == "media":
+            val = self.avg_hp
+        else:
+            val = max(1, min(self.hit_die, val))
         tot = max(1, val + self.cos_mod)
         cur_max = getattr(self.character, "hp_max", 10)
         self.lbl_hp_preview.config(text=f"➡ Punti Ferita Massimi: {cur_max} ➔ {cur_max + tot} (+{tot} PF a questo livello)")
@@ -344,12 +356,9 @@ class LevelUpDialog(tk.Toplevel):
             self.txt_sub_desc.insert(tk.END, sub.get("description", ""))
             self.txt_sub_desc.configure(state="disabled")
 
-            # Rinfresca i privilegi se questa sottoclasse conferisce privilegi a new_level
+            # Rinfresca privilegi e slot senza mutare self.character.subclass prima della conferma!
             self._refresh_subclass_features(sub)
-            sub_name = str(sub.get("name", "")).lower()
-            if any(k in sub_name for k in ["cavaliere mistico", "eldritch knight", "mistificatore arcano", "arcane trickster"]):
-                self.character.subclass = sub.get("name", "")
-                self.fetch_level_data()
+            self.fetch_level_data(preview_subclass=sub.get("name", ""))
 
     def _refresh_subclass_features(self, sub_obj):
         if not hasattr(self, "_current_subclass_features"):
@@ -587,10 +596,20 @@ class LevelUpDialog(tk.Toplevel):
         except Exception:
             pass
 
-    def fetch_level_data(self):
+    def fetch_level_data(self, preview_subclass=None):
         """Carica immediatamente i dati dalla progressione locale SRD 5e senza attese di rete."""
         try:
-            off_data = get_class_level_features_offline(self.character.char_class, self.new_level, getattr(self.character, "subclass", ""))
+            active_sub = (
+                preview_subclass
+                if preview_subclass is not None
+                else (
+                    self.subclass_choice_var.get().strip()
+                    if hasattr(self, "subclass_choice_var") and self.subclass_choice_var.get().strip()
+                    else getattr(self.character, "subclass", "")
+                )
+            )
+            self._preview_subclass = active_sub
+            off_data = get_class_level_features_offline(self.character.char_class, self.new_level, active_sub)
             features_list = [{"name": f} if isinstance(f, str) else f for f in off_data.get("features", [])]
             spellcasting = {}
             for lvl_str, count in off_data.get("spell_slots", {}).items():
@@ -616,6 +635,10 @@ class LevelUpDialog(tk.Toplevel):
         self.lbl_loading.config(text=_t("prog_loaded_srd"))
         self.btn_apply.state(["!disabled"])
 
+        self.new_features = []
+        self.new_feature_details = {}
+        self.features_listbox.delete(0, tk.END)
+
         # Popola privilegi di classe base
         if "features" in data:
             for f in data["features"]:
@@ -625,10 +648,10 @@ class LevelUpDialog(tk.Toplevel):
                     self.new_feature_details[fname] = f.get("desc", f"Privilegio di classe conferito al Livello {self.new_level}.")
                     self.features_listbox.insert(tk.END, f"⚔️ {fname}")
 
-        # Se la sottoclasse è già selezionata, aggiungi anche i privilegi di sottoclasse
-        existing_sub = getattr(self.character, "subclass", "").strip()
-        if existing_sub:
-            matched = [s for s in self.matching_subclasses if s["name"].lower().startswith(existing_sub.lower()) or existing_sub.lower() in s["name"].lower()]
+        # Se la sottoclasse è già selezionata (o in preview), aggiungi anche i privilegi di sottoclasse
+        active_sub = getattr(self, "_preview_subclass", None) or getattr(self.character, "subclass", "").strip()
+        if active_sub:
+            matched = [s for s in self.matching_subclasses if s["name"].lower().startswith(active_sub.lower()) or active_sub.lower() in s["name"].lower()]
             if matched:
                 self._refresh_subclass_features(matched[0])
 
@@ -649,19 +672,22 @@ class LevelUpDialog(tk.Toplevel):
 
         max_slot_lvl = max([int(k) for k, v in slots.items() if v > 0], default=0)
 
-        # Controllo se classe o sottoclasse è magica
-        sub_name = getattr(self.character, "subclass", "").lower()
+        # Controllo se classe o sottoclasse (inclusa preview) è magica
+        sub_name = (getattr(self, "_preview_subclass", None) or getattr(self.character, "subclass", "")).lower()
         is_sub_caster = any(k in sub_name for k in ["mistico", "arcano", "eldritch", "trickster"])
         is_magic_class = self.char_class_en in [
             "wizard", "cleric", "druid", "bard", "sorcerer", "warlock", "paladin", "ranger", "artificer"
         ] or is_sub_caster
 
         if not is_magic_class and max_slot_lvl == 0:
+            if hasattr(self, "selected_spells"):
+                self.selected_spells.clear()
+            if hasattr(self, "tree_spells"):
+                for item in self.tree_spells.get_children():
+                    self.tree_spells.delete(item)
             self.lbl_slots_summary.config(text=_t("prog_no_spell_slots"))
             self.lbl_new_circle.config(text="")
             self.lbl_class_guidance.config(text=_t("prog_compendium_hint"))
-            btn = ttk.Button(self.magic_header_frame, text="📖 Apri Compendio Generale", command=self.open_compendium)
-            btn.pack(anchor="w", pady=4)
             return
 
         # Riepilogo slot
@@ -824,11 +850,30 @@ class LevelUpDialog(tk.Toplevel):
         CompendiumDialog(self.master, is_dm=False)
 
     def apply(self):
-        # 1. Punti Ferita
+        if getattr(self.character, "level", 1) >= 20:
+            messagebox.showwarning("Livello Massimo", "Il personaggio è già al Livello 20!", parent=self)
+            return
+
+        # 0. Validazione preliminare PRIMA di qualsiasi mutazione su self.character!
+        if getattr(self, "has_asi", False):
+            mode = getattr(self, "asi_choice_var", None)
+            mode_val = mode.get() if mode else "single"
+            if mode_val == "dual" and hasattr(self, "asi_dual_stat1") and hasattr(self, "asi_dual_stat2"):
+                s1_chk = self.asi_dual_stat1.get().split()[0].upper()
+                s2_chk = self.asi_dual_stat2.get().split()[0].upper()
+                if s1_chk == s2_chk:
+                    messagebox.showwarning("Selezione Non Valida", _t("prog_asi_dual_error"), parent=self)
+                    return
+
+        # 1. Punti Ferita (con clamping RAW 1..hit_die sul tiro del dado)
         try:
-            hp_inc = self.hp_add_var.get()
+            hp_inc = int(self.hp_add_var.get())
         except (ValueError, tk.TclError):
             hp_inc = self.avg_hp
+        if hasattr(self, "hp_choice") and self.hp_choice.get() == "media":
+            hp_inc = self.avg_hp
+        else:
+            hp_inc = max(1, min(self.hit_die, hp_inc))
 
         cos_mod = (self.character.attributes.get("COS", 10) - 10) // 2
         total_hp_inc = max(1, hp_inc + cos_mod)

@@ -195,10 +195,6 @@ class CharacterCreationWizardFrame(ttk.Frame):
         super().destroy()
 
     def clear_container(self):
-        try:
-            self.unbind_all("<MouseWheel>")
-        except Exception:
-            pass
         if hasattr(self, "container") and self.container.winfo_exists():
             for widget in self.container.winfo_children():
                 widget.destroy()
@@ -1250,10 +1246,22 @@ class CharacterCreationWizardFrame(ttk.Frame):
         
         ttk.Separator(card, orient="horizontal").pack(fill=tk.X, pady=6)
         
-        # Sezione 4: Archetipi Futuri
+        # Sezione 4: Archetipi Futuri & Sottoclasse di Livello 1 (D&D 5e RAW)
         ttk.Label(card, text=_t("wizard_subclasses_archetypes"), font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel").pack(anchor="w")
         subclasses_lbl = ttk.Label(card, text="", font=("Segoe UI", 9), wraplength=640, justify=tk.LEFT, style="Surface.TLabel")
         subclasses_lbl.pack(anchor="w", pady=(2, 4))
+        
+        # Frame di selezione sottoclasse di Livello 1 per Chierico, Stregone e Warlock
+        subclass_selector_frame = ttk.Frame(card, style="Surface.TFrame")
+        self.subclass_var = tk.StringVar(value=self.char_data.get("subclass", ""))
+        lbl_sub_prompt = ttk.Label(subclass_selector_frame, text="⚡ Scegli la Sottoclasse di Livello 1 (D&D 5e RAW):", font=("Segoe UI", 9, "bold"), foreground=ACCENT_GOLD, style="Surface.TLabel")
+        lbl_sub_prompt.pack(anchor="w", pady=(4, 2))
+        self.subclass_combo = ttk.Combobox(subclass_selector_frame, textvariable=self.subclass_var, state="readonly", width=42, font=self.default_font)
+        self.subclass_combo.pack(anchor="w", pady=(0, 4))
+        
+        def _on_subclass_choice(*args):
+            self.char_data["subclass"] = self.subclass_var.get()
+        self.subclass_var.trace_add("write", _on_subclass_choice)
         
         def update_desc(*args):
             raw_c = self.class_var.get()
@@ -1284,6 +1292,24 @@ class CharacterCreationWizardFrame(ttk.Frame):
                 playstyle_lbl.config(text=info.get("playstyle", ""))
                 subclasses_lbl.config(text="\n".join(f"• {sub}" for sub in info.get("subclasses_preview", [])))
                 
+                # Gestione Sottoclasse al Livello 1 per Chierico, Stregone e Warlock
+                if c in ("Chierico", "Stregone", "Warlock"):
+                    try:
+                        from common.srd_subclasses_complete import ALL_OFFICIAL_SUBCLASSES
+                        sub_opts = [s["name"] for s in ALL_OFFICIAL_SUBCLASSES if s.get("class_name") == c]
+                    except Exception:
+                        sub_opts = []
+                    if not sub_opts:
+                        sub_opts = [s.split("(")[0].strip() for s in info.get("subclasses_preview", [])]
+                    self.subclass_combo.config(values=sub_opts)
+                    if not self.subclass_var.get() or self.subclass_var.get() not in sub_opts:
+                        self.subclass_var.set(sub_opts[0] if sub_opts else "")
+                    subclass_selector_frame.pack(fill=tk.X, pady=(4, 6))
+                else:
+                    subclass_selector_frame.pack_forget()
+                    self.subclass_var.set("")
+                    self.char_data["subclass"] = ""
+                
                 # Rigenera blocchi privilegi di livello 1
                 for w in features_container.winfo_children():
                     w.destroy()
@@ -1304,18 +1330,29 @@ class CharacterCreationWizardFrame(ttk.Frame):
         self.class_var.trace_add("write", update_desc)
         update_desc()
     # -------------------------------------------------------------------------
-    # PASSO 3: CARATTERISTICHE (STANDARD ARRAY)
+    # PASSO 3: CARATTERISTICHE (STANDARD ARRAY, POINT BUY 27, 4d6 DROP LOWEST)
     # -------------------------------------------------------------------------
     def build_step_attributes(self, parent=None):
         parent = parent or self.container
-        ttk.Label(parent, text=_t("wizard_step3_title"), style="Title.TLabel").pack(pady=(0, 10))
-        ttk.Label(parent, text=_t("wizard_step3_instruction"), justify=tk.CENTER).pack(pady=(0, 15))
+        ttk.Label(parent, text=_t("wizard_step3_title"), style="Title.TLabel").pack(pady=(0, 6))
+        
+        # Selettore Metodo di Generazione 5e
+        method_frame = ttk.Frame(parent)
+        method_frame.pack(pady=(0, 10))
+        ttk.Label(method_frame, text="Metodo di Generazione:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
+        
+        gen_method_var = tk.StringVar(value="Standard Array")
+        method_cb = ttk.Combobox(method_frame, textvariable=gen_method_var, values=["Standard Array", "Point Buy (27 pt)", "Tira 4d6 (Scarta il più basso)"], state="readonly", width=30)
+        method_cb.pack(side=tk.LEFT)
+
+        instruction_lbl = ttk.Label(parent, text=_t("wizard_step3_instruction"), justify=tk.CENTER)
+        instruction_lbl.pack(pady=(0, 10))
         
         self.attr_vars = {}
         self.old_attr_values = {}
         
-        frame = ttk.Frame(parent)
-        frame.pack()
+        content_frame = ttk.Frame(parent)
+        content_frame.pack()
         
         for i, attr in enumerate(ATTRIBUTES):
             val = self.char_data["attributes"].get(attr, STANDARD_ARRAY[i])
@@ -1325,32 +1362,123 @@ class CharacterCreationWizardFrame(ttk.Frame):
             
         self._is_swapping = False
         
-        def on_var_change(changed_attr, *args):
-            if self._is_swapping: return
-            new_val = self.attr_vars[changed_attr].get()
-            old_val = self.old_attr_values.get(changed_attr)
+        def render_standard_array():
+            for w in content_frame.winfo_children(): w.destroy()
+            instruction_lbl.config(text="Assegna i 6 valori predefiniti (15, 14, 13, 12, 10, 8) alle caratteristiche.")
             
-            if new_val == old_val:
-                return
-                
-            self._is_swapping = True
-            for other_attr in ATTRIBUTES:
-                if other_attr != changed_attr and self.attr_vars[other_attr].get() == new_val:
-                    self.attr_vars[other_attr].set(old_val)
-                    self.old_attr_values[other_attr] = old_val
-                    break
-                    
-            self.old_attr_values[changed_attr] = new_val
-            self._is_swapping = False
+            def on_var_change(changed_attr, *args):
+                if self._is_swapping: return
+                new_val = self.attr_vars[changed_attr].get()
+                old_val = self.old_attr_values.get(changed_attr)
+                if new_val == old_val: return
+                self._is_swapping = True
+                for other_attr in ATTRIBUTES:
+                    if other_attr != changed_attr and self.attr_vars[other_attr].get() == new_val:
+                        self.attr_vars[other_attr].set(old_val)
+                        self.old_attr_values[other_attr] = old_val
+                        break
+                self.old_attr_values[changed_attr] = new_val
+                self.char_data["attributes"][changed_attr] = new_val
+                self._is_swapping = False
 
-        for i, attr in enumerate(ATTRIBUTES):
-            ttk.Label(frame, text=translate_ability(attr), font=("Segoe UI", 10, "bold")).grid(row=i, column=0, sticky="e", padx=8, pady=4)
+            for i, attr in enumerate(ATTRIBUTES):
+                ttk.Label(content_frame, text=translate_ability(attr), font=("Segoe UI", 10, "bold")).grid(row=i, column=0, sticky="e", padx=8, pady=4)
+                var = self.attr_vars[attr]
+                if var.get() not in STANDARD_ARRAY: var.set(STANDARD_ARRAY[i])
+                self.old_attr_values[attr] = var.get()
+                self.char_data["attributes"][attr] = var.get()
+                var.trace_add("write", lambda name, index, mode, a=attr: on_var_change(a))
+                cb = ttk.Combobox(content_frame, textvariable=var, values=STANDARD_ARRAY, state="readonly", width=6, justify="center")
+                cb.grid(row=i, column=1, padx=8, pady=4)
+
+        def render_point_buy():
+            for w in content_frame.winfo_children(): w.destroy()
+            PB_COSTS = {8: 0, 9: 1, 10: 2, 11: 3, 12: 4, 13: 5, 14: 7, 15: 9}
             
-            var = self.attr_vars[attr]
-            var.trace_add("write", lambda name, index, mode, a=attr: on_var_change(a))
+            for attr in ATTRIBUTES:
+                if self.attr_vars[attr].get() < 8 or self.attr_vars[attr].get() > 15:
+                    self.attr_vars[attr].set(8)
+                    self.char_data["attributes"][attr] = 8
+
+            pb_header = ttk.Frame(content_frame)
+            pb_header.grid(row=0, column=0, columnspan=4, pady=(0, 8))
+            pts_lbl = ttk.Label(pb_header, text="Punti Rimasti: 27 / 27", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD)
+            pts_lbl.pack()
+
+            def update_pb_points():
+                spent = sum(PB_COSTS.get(self.attr_vars[a].get(), 0) for a in ATTRIBUTES)
+                rem = 27 - spent
+                pts_lbl.config(text=f"Punti Rimasti: {rem} / 27", foreground="#EF4444" if rem < 0 else ACCENT_GOLD)
+                for a in ATTRIBUTES:
+                    self.char_data["attributes"][a] = self.attr_vars[a].get()
+
+            def adjust_pb(attr, delta):
+                cur = self.attr_vars[attr].get()
+                nxt = cur + delta
+                if 8 <= nxt <= 15:
+                    spent_other = sum(PB_COSTS.get(self.attr_vars[a].get(), 0) for a in ATTRIBUTES if a != attr)
+                    cost_nxt = PB_COSTS.get(nxt, 0)
+                    if spent_other + cost_nxt <= 27:
+                        self.attr_vars[attr].set(nxt)
+                        update_pb_points()
+
+            for i, attr in enumerate(ATTRIBUTES):
+                ttk.Label(content_frame, text=translate_ability(attr), font=("Segoe UI", 10, "bold")).grid(row=i+1, column=0, sticky="e", padx=8, pady=3)
+                btn_dec = ttk.Button(content_frame, text="◀", width=3, command=lambda a=attr: adjust_pb(a, -1))
+                btn_dec.grid(row=i+1, column=1, padx=2, pady=3)
+                lbl_val = ttk.Label(content_frame, textvariable=self.attr_vars[attr], font=("Segoe UI", 10, "bold"), width=4, justify="center")
+                lbl_val.grid(row=i+1, column=2, padx=4, pady=3)
+                btn_inc = ttk.Button(content_frame, text="▶", width=3, command=lambda a=attr: adjust_pb(a, 1))
+                btn_inc.grid(row=i+1, column=3, padx=2, pady=3)
+
+            update_pb_points()
+
+        def render_4d6():
+            for w in content_frame.winfo_children(): w.destroy()
+            instruction_lbl.config(text="Tira 4d6 scartando il dado più basso per generare i punteggi, poi assegnali.")
             
-            cb = ttk.Combobox(frame, textvariable=var, values=STANDARD_ARRAY, state="readonly", width=6, justify="center")
-            cb.grid(row=i, column=1, padx=8, pady=4)
+            rolled_pool = [15, 14, 13, 12, 10, 8]
+            pool_lbl = ttk.Label(content_frame, text=f"Dadi generati: {rolled_pool}", font=("Segoe UI", 9, "italic"), foreground=ACCENT_GOLD)
+            pool_lbl.grid(row=0, column=0, columnspan=2, pady=(0, 6))
+
+            def do_roll_4d6():
+                nonlocal rolled_pool
+                new_pool = []
+                for _ in range(6):
+                    d4 = sorted([random.randint(1, 6) for _ in range(4)])
+                    new_pool.append(sum(d4[1:])) # scarta il piu' basso
+                rolled_pool = sorted(new_pool, reverse=True)
+                pool_lbl.config(text=f"Dadi generati: {rolled_pool}")
+                for idx, a in enumerate(ATTRIBUTES):
+                    self.attr_vars[a].set(rolled_pool[idx])
+                    self.old_attr_values[a] = rolled_pool[idx]
+                    self.char_data["attributes"][a] = rolled_pool[idx]
+                rebind_combos()
+
+            btn_roll = ttk.Button(content_frame, text="🎲 Tira 4d6 per tutte le caratteristiche", command=do_roll_4d6, style="Gold.TButton")
+            btn_roll.grid(row=1, column=0, columnspan=2, pady=(0, 8))
+
+            combos = []
+            def rebind_combos():
+                for cb in combos:
+                    cb.config(values=sorted(list(set(rolled_pool)), reverse=True))
+
+            for i, attr in enumerate(ATTRIBUTES):
+                ttk.Label(content_frame, text=translate_ability(attr), font=("Segoe UI", 10, "bold")).grid(row=i+2, column=0, sticky="e", padx=8, pady=3)
+                var = self.attr_vars[attr]
+                cb = ttk.Combobox(content_frame, textvariable=var, values=rolled_pool, state="readonly", width=6, justify="center")
+                cb.grid(row=i+2, column=1, padx=8, pady=3)
+                combos.append(cb)
+                var.trace_add("write", lambda *args, a=attr, v=var: self.char_data["attributes"].__setitem__(a, v.get()))
+
+        def _on_method_change(*args):
+            m = gen_method_var.get()
+            if "Point Buy" in m: render_point_buy()
+            elif "4d6" in m: render_4d6()
+            else: render_standard_array()
+
+        gen_method_var.trace_add("write", _on_method_change)
+        render_standard_array()
 
     # -------------------------------------------------------------------------
     # PASSO 4: BACKGROUND & COMPETENZE
@@ -1738,11 +1866,17 @@ class CharacterCreationWizardFrame(ttk.Frame):
         # Calcolo attributi = array + bonus razza (+ eventuale sottorazza o scelta Mezzelfo)
         race_info = RACES.get(c.race, RACES["Umano"])
         effective_bonuses = dict(race_info.get("bonuses", {}))
-        if c.race == "Mezzelfo" and isinstance(self.char_data.get("half_elf_bonuses"), dict):
+        if c.race == "Mezzelfo":
             effective_bonuses = {"CAR": 2}
-            for he_k, he_v in self.char_data["half_elf_bonuses"].items():
-                if he_k != "CAR" and he_k in ATTRIBUTES:
-                    effective_bonuses[he_k] = effective_bonuses.get(he_k, 0) + int(he_v)
+            he_b = self.char_data.get("half_elf_bonuses")
+            if isinstance(he_b, (list, tuple)):
+                for b_attr in he_b:
+                    if b_attr in ATTRIBUTES and b_attr != "CAR":
+                        effective_bonuses[b_attr] = effective_bonuses.get(b_attr, 0) + 1
+            elif isinstance(he_b, dict):
+                for he_k, he_v in he_b.items():
+                    if he_k != "CAR" and he_k in ATTRIBUTES:
+                        effective_bonuses[he_k] = effective_bonuses.get(he_k, 0) + int(he_v)
 
         chosen_subrace = self.char_data.get("subrace", "")
         subraces_dict = race_info.get("subraces", {})
@@ -1770,6 +1904,46 @@ class CharacterCreationWizardFrame(ttk.Frame):
         c.hit_dice_type = f"d{class_info.get('hd', 8)}"
         c.hit_dice_total = 1
         c.hit_dice_current = 1
+
+        # Sottoclasse di Livello 1 (Chierico, Stregone, Warlock - D&D 5e RAW)
+        chosen_subclass = self.char_data.get("subclass", "")
+        if chosen_subclass:
+            c.subclass = chosen_subclass.split("(")[0].strip()
+
+        # Taglia del Personaggio (D&D 5e RAW)
+        small_races = ("halfling", "gnomo", "gnome", "coboldo", "kobold", "goblin")
+        race_lower = str(c.race).lower()
+        if any(r in race_lower for r in small_races):
+            c.size = "Piccola"
+        else:
+            c.size = "Media"
+
+        # Resistenze Razziali ai Danni (D&D 5e RAW)
+        c.damage_resistances = list(getattr(c, "damage_resistances", []))
+        if "nano" in race_lower or "dwarf" in race_lower:
+            if "Veleno" not in c.damage_resistances:
+                c.damage_resistances.append("Veleno")
+        elif "tiefling" in race_lower:
+            if "Fuoco" not in c.damage_resistances:
+                c.damage_resistances.append("Fuoco")
+        elif "aasimar" in race_lower:
+            for r in ["Necrotico", "Radioso"]:
+                if r not in c.damage_resistances:
+                    c.damage_resistances.append(r)
+        elif "draconide" in race_lower or "dragonborn" in race_lower:
+            sub_low = str(chosen_subrace).lower() + " " + str(self.char_data.get("draconic_ancestry", "")).lower()
+            if any(k in sub_low for k in ["blu", "blue", "bronzo", "bronze"]):
+                res_type = "Fulmine"
+            elif any(k in sub_low for k in ["nero", "black", "rame", "copper"]):
+                res_type = "Acido"
+            elif any(k in sub_low for k in ["bianco", "white", "argento", "silver"]):
+                res_type = "Freddo"
+            elif any(k in sub_low for k in ["verde", "green"]):
+                res_type = "Veleno"
+            else:
+                res_type = "Fuoco"
+            if res_type not in c.damage_resistances:
+                c.damage_resistances.append(res_type)
         
         # Competenze nei Tiri Salvezza della classe (D&D 5e RAW)
         save_map = {
@@ -1807,7 +1981,13 @@ class CharacterCreationWizardFrame(ttk.Frame):
         # Calcolo AC base (10 + Dex) e Velocità
         c.ac = 10 + dex_mod
         c.initiative = dex_mod
-        c.speed = subrace_info.get("speed", race_info.get("speed", 30))
+        c.speed_unit = self.char_data.get("speed_unit", getattr(c, "speed_unit", "m" if get_language() == "it" else "ft"))
+        speed_ft = float(subrace_info.get("speed", race_info.get("speed", 30)) or 30)
+        if c.speed_unit == "m":
+            # Converte piedi 5e in metri (30 ft -> 9m, 25 ft -> 7.5m, 35 ft -> 10.5m)
+            c.speed = round(speed_ft * 0.3, 1) if speed_ft > 15 else speed_ft
+        else:
+            c.speed = int(round(speed_ft))
         
         # Equipaggiamento iniziale di classe (armi, armature, scudi) e incantesimi
         from common.starter_equipment import apply_class_and_race_starter_kit
@@ -1953,6 +2133,12 @@ class CharacterCreationWizardFrame(ttk.Frame):
         threading.Thread(target=_fetch_level_1_online, daemon=True).start()
 
     def _on_creation_done(self, c):
+        try:
+            from client.character_sheet_ui import parse_features_text
+            if getattr(c, "features", "").strip() and not getattr(c, "features_list", None):
+                c.features_list = parse_features_text(c.features)
+        except Exception:
+            pass
         self.manager.add_character(c)
         try:
             messagebox.showinfo(_t("success"), _t("wizard_msg_char_created").format(name=c.name), parent=self)
@@ -1998,10 +2184,6 @@ class CharacterCreationWizard(tk.Toplevel):
         self._frame_internal.pack(fill=tk.BOTH, expand=True)
 
     def destroy(self):
-        try:
-            self.unbind_all("<MouseWheel>")
-        except Exception:
-            pass
         try:
             super().destroy()
         except (tk.TclError, Exception):

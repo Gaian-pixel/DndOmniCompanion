@@ -66,16 +66,21 @@ class TestElevationAndConcentration(unittest.TestCase):
         self.game_state.players = [self.caster, self.target, self.monster]
 
     def test_3d_distance_calculation(self):
-        """Verifica il calcolo della distanza 3D euclidea tra punti a quote differenti."""
+        """Verifica il calcolo della distanza 3D conforme a 5e (Standard Chebyshev vs Tattica/Euclidea)."""
         # 0 ft orizzontale, 30 ft verticale -> 6 celle (30 ft)
         dist_cells = grid_distance_3d(Hex(0, 0), Hex(0, 0), z_a=0, z_b=30, grid_type="hex")
         self.assertEqual(dist_cells, 6.0)
         self.assertEqual(distance_3d_feet(Hex(0, 0), Hex(0, 0), z_a=0, z_b=30), 30.0)
 
-        # 40 ft orizzontale (8 celle) e 30 ft verticale -> hypot(40, 30) = 50 ft (10 celle)
-        dist_cells_diag = grid_distance_3d(Hex(0, 0), Hex(8, 0), z_a=0, z_b=30, grid_type="hex")
-        self.assertEqual(dist_cells_diag, 10.0)
-        self.assertEqual(distance_3d_feet(Hex(0, 0), Hex(8, 0), z_a=0, z_b=30), 50.0)
+        # Regola standard 5e RAW (Chebyshev): max(d_2d, dz) -> max(8, 6) = 8 celle (40 ft)
+        dist_standard = grid_distance_3d(Hex(0, 0), Hex(8, 0), z_a=0, z_b=30, grid_type="hex", diagonal_rule="standard")
+        self.assertEqual(dist_standard, 8.0)
+        self.assertEqual(distance_3d_feet(Hex(0, 0), Hex(8, 0), z_a=0, z_b=30, diagonal_rule="standard"), 40.0)
+
+        # Regola tattica DMG / Euclidea: hypot(8, 6) = 10 celle (50 ft)
+        dist_tactical = grid_distance_3d(Hex(0, 0), Hex(8, 0), z_a=0, z_b=30, grid_type="hex", diagonal_rule="tactical")
+        self.assertEqual(dist_tactical, 10.0)
+        self.assertEqual(distance_3d_feet(Hex(0, 0), Hex(8, 0), z_a=0, z_b=30, diagonal_rule="tactical"), 50.0)
 
     def test_falling_raw_damage_and_prone(self):
         """Caduta da 30 ft infligge 3d6 danni contundenti e atterra Prono (PHB p. 183)."""

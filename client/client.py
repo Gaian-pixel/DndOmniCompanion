@@ -72,10 +72,17 @@ class ClientGUI:
         self.bonus_spent = False
         self.reaction_spent = False
         self.movement_spent_ft = 0
+        self._is_closing = False
+        self._process_queue_job = None
+        self._char_save_timer = None
+        self._listbox_player_names = []
+        try:
+            self.master.bind("<Destroy>", self._on_master_destroyed, add="+")
+        except Exception:
+            pass
+
         def _safe_disconnect_notify():
-            if hasattr(self, 'master') and self.master.winfo_exists():
-                try: self.master.after(0, self.handle_disconnection)
-                except Exception: pass
+            self.gui_queue.put({"type": "DISCONNECTED"})
         self.network = ClientNetwork(self.gui_queue, _safe_disconnect_notify)
         register_language_listener(self.on_language_changed)
         register_unit_listener(self.on_unit_changed)
@@ -83,9 +90,82 @@ class ClientGUI:
         self.refresh_offline_characters()
         if initial_character:
             self.set_active_character_from_manager(initial_character)
-        self.master.after(100, self.process_queue)
+        self._process_queue_job = self.master.after(100, self.process_queue)
         if self.auto_connect_ip and self.active_character:
             self.master.after(150, lambda: self.perform_connect(self.auto_connect_ip, self.active_character))
+
+    def _on_master_destroyed(self, event=None):
+        if event and getattr(event, "widget", None) != self.master:
+            return
+        self._is_closing = True
+        try:
+            unregister_language_listener(self.on_language_changed)
+        except Exception:
+            pass
+        try:
+            unregister_unit_listener(self.on_unit_changed)
+        except Exception:
+            pass
+        if getattr(self, "_process_queue_job", None):
+            try:
+                self.master.after_cancel(self._process_queue_job)
+            except Exception:
+                pass
+            self._process_queue_job = None
+        if getattr(self, "_char_save_timer", None):
+            try:
+                self.master.after_cancel(self._char_save_timer)
+                self._char_save_timer = None
+                if self.character_manager:
+                    self.character_manager.save_characters()
+            except Exception:
+                pass
+
+    def schedule_save_characters(self, delay_ms: int = 1000):
+        """Salva i personaggi su disco in modo debounced per evitare stuttering e freeze I/O durante il movimento."""
+        if self._is_closing:
+            return
+        if getattr(self, "_char_save_timer", None):
+            try:
+                self.master.after_cancel(self._char_save_timer)
+            except Exception:
+                pass
+            self._char_save_timer = None
+
+        def _do_save():
+            self._char_save_timer = None
+            if self.character_manager and not self._is_closing:
+                try:
+                    self.character_manager.save_characters()
+                except Exception as e:
+                    print(f"[ClientGUI] Errore salvataggio debounced personaggi: {e}")
+
+        try:
+            self._char_save_timer = self.master.after(delay_ms, _do_save)
+        except Exception:
+            _do_save()
+
+    def get_player_name_from_listbox(self, index=None):
+        """Restituisce il nome dell'entità selezionata o a un dato indice senza string splitting fragile."""
+        if index is None:
+            sel = self.player_listbox.curselection()
+            if not sel:
+                return None
+            index = sel[0]
+        if hasattr(self, "_listbox_player_names") and 0 <= index < len(self._listbox_player_names):
+            return self._listbox_player_names[index]
+        try:
+            raw = self.player_listbox.get(index)
+            if raw == "DM":
+                return "DM"
+            for pfx in ("➡️", "▶", "?", "[N]"):
+                raw = raw.replace(pfx, "")
+            raw = raw.strip()
+            if " (HP" in raw:
+                return raw.split(" (HP")[0].strip()
+            return raw.strip()
+        except Exception:
+            return None
 
     def show_toast(self, message, title=None, duration=3500, toast_type="info", icon=None):
         return show_toast(self.master, message, title=title, duration=duration, toast_type=toast_type, icon=icon)
@@ -1251,8 +1331,9 @@ class ClientGUI:
         f_pos = familiar_data.get("position", [0, 0])
         f_vis = familiar_data.get("vision_radius", 6)
         
-        if hasattr(self, "canvas") and hasattr(self.canvas, "center_on_hex"):
-            self.canvas.center_on_hex(f_pos[0], f_pos[1])
+        self.familiar_shared_senses = f_name
+        if hasattr(self, "map_canvas") and self.map_canvas:
+            self.map_canvas.center_on_token(f_name)
         self.show_toast(
             f"👁️ Stai vedendo attraverso i sensi di {f_name} (Raggio: {f_vis} esagoni)!\nIl tuo corpo fisico è cieco e sordo.",
             title="Sensi del Famiglio",
@@ -1890,8 +1971,7 @@ class ClientGUI:
         
         # Seleziona nella listbox per preparare l'apertura chat
         for i in range(self.player_listbox.size()):
-            display_text = self.player_listbox.get(i)
-            name = display_text.split(" (HP")[0].replace("? ", "").strip()
+            name = self.get_player_name_from_listbox(i)
             if name == token_name:
                 self.player_listbox.selection_clear(0, tk.END)
                 self.player_listbox.selection_set(i)
@@ -1944,7 +2024,7 @@ class ClientGUI:
         dialog.transient(self.master)
         dialog.grab_set()
 
-        lbl_title = tk.Label(dialog, text=f"📐 Quota Tattica 3D: {target}", font=FONT_SUBTITLE, bg=SURFACE_COLOR, fg=TEXT_COLOR)
+        lbl_title = tk.Label(dialog, text=f"📐 Quota Tattica 3D: {target}", font=FONT_HEADER, bg=SURFACE_COLOR, fg=TEXT_COLOR)
         lbl_title.pack(pady=(12, 4))
 
         lbl_cur = tk.Label(dialog, text=f"Altitudine Attuale: {current_elev} ft ({round(current_elev*0.3048, 1)} m)", font=FONT_REGULAR, bg=SURFACE_COLOR, fg=TEXT_MUTED)
@@ -1954,7 +2034,7 @@ class ClientGUI:
         frame_input.pack(pady=5)
 
         tk.Label(frame_input, text="Nuova Quota (ft):", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(side=tk.LEFT, padx=5)
-        ent_elev = tk.Entry(frame_input, font=FONT_REGULAR, width=8, bg=INPUT_BG, fg=TEXT_COLOR, insertbackground=TEXT_COLOR)
+        ent_elev = tk.Entry(frame_input, font=FONT_REGULAR, width=8, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, insertbackground=TEXT_COLOR)
         ent_elev.pack(side=tk.LEFT, padx=5)
         ent_elev.insert(0, str(current_elev))
         ent_elev.focus_set()
@@ -1997,7 +2077,7 @@ class ClientGUI:
 
         btn_row = tk.Frame(dialog, bg=SURFACE_COLOR)
         btn_row.pack(side=tk.BOTTOM, pady=12)
-        tk.Button(btn_row, text="✔ Applica Quota", font=FONT_BOLD, bg=PRIMARY_COLOR, fg=TEXT_DARK, padx=10, command=confirm).pack(side=tk.LEFT, padx=5)
+        tk.Button(btn_row, text="✔ Applica Quota", font=FONT_BOLD, bg=ACCENT_GOLD, fg=TEXT_DARK, padx=10, command=confirm).pack(side=tk.LEFT, padx=5)
         tk.Button(btn_row, text="Annulla", font=FONT_REGULAR, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, padx=8, command=dialog.destroy).pack(side=tk.LEFT, padx=5)
 
     def on_hex_click(self, clicked_hex):
@@ -2200,9 +2280,16 @@ class ClientGUI:
     def open_calendar_dialog(self):
         try:
             from components.calendar_ui import CalendarDialog
-            win = CalendarDialog(self.master, self.game_state_obj if hasattr(self, 'game_state_obj') else type('obj', (object,), self.game_state)(), is_dm=False)
+            if hasattr(self, "game_state_obj") and self.game_state_obj is not None:
+                gs_target = self.game_state_obj
+            else:
+                state_dict = self.game_state if isinstance(getattr(self, "game_state", None), dict) else {
+                    "time_year": 1492, "time_month": 1, "time_day": 1, "calendar_events": {}
+                }
+                gs_target = type("CalendarStateProxy", (object,), state_dict)()
+            win = CalendarDialog(self.master, gs_target, is_dm=False)
             win.grab_set()
-        except ImportError as e:
+        except Exception as e:
             from common.messagebox import messagebox
             messagebox.showerror("Errore", f"Impossibile aprire il calendario: {e}")
 
@@ -2929,19 +3016,34 @@ class ClientGUI:
         self.perform_connect(last_ip, self.active_character)
 
     def process_queue(self):
+        if getattr(self, "_is_closing", False) or not hasattr(self, "master"):
+            return
+        try:
+            if not self.master.winfo_exists():
+                return
+        except Exception:
+            return
+
         try:
             while True:
                 try:
                     msg = self.gui_queue.get_nowait()
                 except queue.Empty:
                     break
+                if isinstance(msg, dict) and msg.get("type") == "DISCONNECTED":
+                    self.handle_disconnection()
+                    continue
                 try:
                     self.handle_server_message(msg)
                 except Exception as e:
                     print(f"[CLIENT] Errore elaborazione messaggio: {e}")
         finally:
-            if hasattr(self, "master") and self.master.winfo_exists():
-                self.master.after(100, self.process_queue)
+            if not getattr(self, "_is_closing", False) and hasattr(self, "master"):
+                try:
+                    if self.master.winfo_exists():
+                        self._process_queue_job = self.master.after(100, self.process_queue)
+                except Exception:
+                    pass
 
     def redraw_map_and_players(self):
         # Pass the full players_data so UI components can access position, conditions, etc.
@@ -3052,9 +3154,9 @@ class ClientGUI:
                 self.active_character.hp_max = p_dict["max_hp"]
             if "temp_hp" in p_dict and p_dict["temp_hp"] is not None:
                 self.active_character.temp_hp = p_dict["temp_hp"]
-            if "initiative" in p_dict and p_dict["initiative"] is not None:
-                self.active_character.initiative = p_dict["initiative"]
-            self.character_manager.save_characters()
+            # Non sovrascrivere self.active_character.initiative (modificatore permanente sulla scheda)
+            # con il totale tirato in combattimento (p_dict["initiative"])!
+            self.schedule_save_characters(delay_ms=1000)
             self.update_hero_summary_card()
         
         owned_chars = [p['name'] for p in data.get('players', []) if p['name'] == self.name or p.get('owner') == self.name]
@@ -3151,7 +3253,7 @@ class ClientGUI:
         new_pos = data.get('position')
         if name == self.name and self.active_character:
             self.active_character.last_position = new_pos
-            self.character_manager.save_characters()
+            self.schedule_save_characters(delay_ms=1000)
             if self.combat_active and getattr(self, "_is_my_turn", False) and old_pos and new_pos and old_pos != new_pos:
                 dist = max(abs(old_pos[0] - new_pos[0]), abs(old_pos[0] + old_pos[1] - new_pos[0] - new_pos[1]), abs(old_pos[1] - new_pos[1]))
                 self.movement_spent_ft += dist * 5
@@ -3177,15 +3279,14 @@ class ClientGUI:
                 self.active_character.hp_current = data.get('hp')
             if data.get('max_hp') is not None:
                 self.active_character.hp_max = data.get('max_hp')
-            if data.get('initiative') is not None:
-                self.active_character.initiative = data.get('initiative')
+            # Non sovrascrivere self.active_character.initiative (bonus permanente) col tiro d'iniziativa del round
             if 'temp_hp' in data and data.get('temp_hp') is not None:
                 self.active_character.temp_hp = data.get('temp_hp', 0)
             if 'conditions' in data and data.get('conditions') is not None:
                 self.active_character.conditions = data.get('conditions')
             if 'active_effects' in data and data.get('active_effects') is not None:
                 self.active_character.active_effects = data.get('active_effects')
-            self.character_manager.save_characters()
+            self.schedule_save_characters(delay_ms=1000)
             self.update_hero_summary_card()
             self.update_action_economy_ui()
             
@@ -3330,6 +3431,19 @@ class ClientGUI:
     def on_closing(self):
         msg = _t("confirm_exit_connected") if self.is_connected else _t("confirm_exit_client")
         if messagebox.askokcancel(_t("menu_exit"), msg):
+            self._is_closing = True
+            if getattr(self, "_process_queue_job", None):
+                try: self.master.after_cancel(self._process_queue_job)
+                except Exception: pass
+                self._process_queue_job = None
+            if getattr(self, "_char_save_timer", None):
+                try:
+                    self.master.after_cancel(self._char_save_timer)
+                    self._char_save_timer = None
+                    if self.character_manager:
+                        self.character_manager.save_characters()
+                except Exception:
+                    pass
             try:
                 unregister_language_listener(self.on_language_changed)
             except Exception:
@@ -3686,8 +3800,38 @@ class ClientGUI:
         reason = data.get("reason", "")
         it_name = item.get("name", "Oggetto")
         is_remove = item.get("action") == "remove"
+        is_weapon_req = item.get("target_collection") == "weapons"
         if approved:
             if self.active_character:
+                from common.protocol import make_update_full_sheet_request
+                if is_weapon_req:
+                    if not hasattr(self.active_character, "weapons") or not isinstance(self.active_character.weapons, list):
+                        self.active_character.weapons = []
+                    if is_remove:
+                        if slot_idx is not None and 0 <= slot_idx < len(self.active_character.weapons):
+                            self.active_character.weapons.pop(slot_idx)
+                        else:
+                            for w_i, w_obj in enumerate(self.active_character.weapons):
+                                if isinstance(w_obj, dict) and w_obj.get("name") == it_name:
+                                    self.active_character.weapons.pop(w_i)
+                                    break
+                        self.character_manager.save_characters()
+                        if hasattr(self, "stats_window") and self.stats_window and self.stats_window.winfo_exists():
+                            if hasattr(self.stats_window, "refresh_weapons_list"):
+                                self.stats_window.refresh_weapons_list()
+                        self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
+                        self.show_toast(f"Il Dungeon Master ha APPROVATO la rimozione dell'arma '{it_name}'.", title="Rimozione Arma Approvata", toast_type="info")
+                        return
+                    clean_weapon = {k: v for k, v in item.items() if k not in ("action", "target_collection")}
+                    self.active_character.weapons.append(clean_weapon)
+                    self.character_manager.save_characters()
+                    if hasattr(self, "stats_window") and self.stats_window and self.stats_window.winfo_exists():
+                        if hasattr(self.stats_window, "refresh_weapons_list"):
+                            self.stats_window.refresh_weapons_list()
+                    self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
+                    self.show_toast(f"Il Dungeon Master ha APPROVATO l'arma '{it_name}'!", title="Arma Approvata!", toast_type="success")
+                    return
+
                 if is_remove:
                     if not hasattr(self.active_character, "inventory_grid") or not isinstance(self.active_character.inventory_grid, list):
                         self.active_character.inventory_grid = [None] * 25
@@ -3701,22 +3845,28 @@ class ClientGUI:
                     self.character_manager.save_characters()
                     if hasattr(self, 'stats_window') and self.stats_window and self.stats_window.winfo_exists():
                         self.stats_window.refresh_inventory_grid()
-                    from common.protocol import make_update_full_sheet_request
                     self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
                     self.show_toast(f"Il Dungeon Master ha APPROVATO la rimozione di '{it_name}' dallo zaino.", title="Rimozione Approvata", toast_type="info")
                     return
                 if not hasattr(self.active_character, "inventory_grid") or not isinstance(self.active_character.inventory_grid, list):
                     self.active_character.inventory_grid = [None] * 25
-                if slot_idx is not None and 0 <= slot_idx < len(self.active_character.inventory_grid):
-                    self.active_character.inventory_grid[slot_idx] = item
+                clean_item = {k: v for k, v in item.items() if k not in ("action", "target_collection")}
+                placed = False
+                if slot_idx is not None and 0 <= slot_idx < len(self.active_character.inventory_grid) and self.active_character.inventory_grid[slot_idx] is None:
+                    self.active_character.inventory_grid[slot_idx] = clean_item
+                    placed = True
                 else:
                     for i in range(len(self.active_character.inventory_grid)):
                         if self.active_character.inventory_grid[i] is None:
-                            self.active_character.inventory_grid[i] = item
+                            self.active_character.inventory_grid[i] = clean_item
+                            placed = True
                             break
+                if not placed:
+                    self.active_character.inventory_grid.append(clean_item)
                 self.character_manager.save_characters()
                 if hasattr(self, 'stats_window') and self.stats_window and self.stats_window.winfo_exists():
                     self.stats_window.refresh_inventory_grid()
+                self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
             self.show_toast(f"Il Dungeon Master ha APPROVATO '{it_name}'!\nL'oggetto è stato aggiunto al tuo inventario.", title="Oggetto Approvato!", toast_type="success")
         else:
             act_disp = "la rimozione di" if is_remove else "la richiesta per"
@@ -3786,7 +3936,18 @@ class ClientGUI:
         if not track_id:
             return
 
-        target_path = os.path.join(self.audio_cache_dir, f"{track_id}{ext}")
+        clean_track_id = re.sub(r"[^A-Za-z0-9_-]", "", str(track_id))
+        clean_ext = str(ext).lower() if str(ext).lower() in (".mp3", ".wav", ".ogg", ".flac") else ".mp3"
+        if not clean_track_id:
+            return
+        track_id = clean_track_id
+        ext = clean_ext
+
+        cache_dir_abs = os.path.realpath(self.audio_cache_dir)
+        target_path = os.path.realpath(os.path.join(self.audio_cache_dir, f"{track_id}{ext}"))
+        if not target_path.startswith(cache_dir_abs + os.sep) and target_path != cache_dir_abs:
+            return
+
         if os.path.isfile(target_path):
             self.audio_manager.play(target_path, channel=channel, loop=loop, volume=volume, name=name)
             icon = "🎵" if channel == "music" else "💥"
@@ -3814,6 +3975,13 @@ class ClientGUI:
         if not track_id:
             return
 
+        clean_track_id = re.sub(r"[^A-Za-z0-9_-]", "", str(track_id))
+        clean_ext = str(ext).lower() if str(ext).lower() in (".mp3", ".wav", ".ogg", ".flac") else ".mp3"
+        if not clean_track_id:
+            return
+        track_id = clean_track_id
+        ext = clean_ext
+
         if track_id not in self._audio_downloads:
             self._audio_downloads[track_id] = {
                 "total": total,
@@ -3831,7 +3999,10 @@ class ClientGUI:
             return
 
         if len(rec["chunks"]) == rec["total"]:
-            target_path = os.path.join(self.audio_cache_dir, f"{track_id}{rec['ext']}")
+            cache_dir_abs = os.path.realpath(self.audio_cache_dir)
+            target_path = os.path.realpath(os.path.join(self.audio_cache_dir, f"{track_id}{rec['ext']}"))
+            if not target_path.startswith(cache_dir_abs + os.sep) and target_path != cache_dir_abs:
+                return
             try:
                 with open(target_path, "wb") as f:
                     for i in range(rec["total"]):
@@ -3902,9 +4073,13 @@ class ClientGUI:
         self.show_toast("Disegni mappa cancellati", title="Lavagna", toast_type="info")
 
     def export_session_log(self):
-        if not hasattr(self, "chat_display"):
+        import html as _html
+        chat_widget = getattr(self, "chat_display", None)
+        if chat_widget is None and isinstance(getattr(self, "chat_tabs", None), dict):
+            chat_widget = self.chat_tabs.get("Globale") or next(iter(self.chat_tabs.values()), None)
+        if chat_widget is None:
             return
-        log_text = self.chat_display.get("1.0", tk.END).strip()
+        log_text = chat_widget.get("1.0", tk.END).strip()
         from common.messagebox import messagebox
         if not log_text:
             messagebox.showinfo(_t("export_log_title"), _t("export_log_empty"))
@@ -3922,14 +4097,21 @@ class ClientGUI:
             return
 
         now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        char_name = self.character_manager.active_character.name if self.character_manager and self.character_manager.active_character else self.username
+        char_name = (
+            self.active_character.name
+            if getattr(self, "active_character", None)
+            else (getattr(self, "name", None) or getattr(self, "username", None) or "Giocatore")
+        )
 
         if filepath.endswith(".html"):
+            safe_title = _html.escape(_t('export_log_title'))
+            safe_char = _html.escape(str(char_name))
+            safe_log = _html.escape(log_text)
             html_content = f"""<!DOCTYPE html>
 <html lang="it">
 <head>
 <meta charset="utf-8">
-<title>{_t('export_log_title')} - {char_name}</title>
+<title>{safe_title} - {safe_char}</title>
 <style>
 body {{ background-color: #121316; color: #E5E7EB; font-family: 'Segoe UI', Tahoma, sans-serif; padding: 24px; line-height: 1.6; }}
 h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
@@ -3938,9 +4120,9 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
 </style>
 </head>
 <body>
-<h1>📜 {_t('export_log_title')} - {char_name}</h1>
+<h1>📜 {safe_title} - {safe_char}</h1>
 <div class="meta">Esportato il: {now_str} • D&D OmniCompanion</div>
-<div class="log-box">{log_text}</div>
+<div class="log-box">{safe_log}</div>
 </body>
 </html>"""
             with open(filepath, "w", encoding="utf-8") as f:
@@ -4133,10 +4315,8 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         self.trigger_3d_dice_roll(formula, res, player_name=player_name, reason=reason)
     
     def open_private_chat_from_list(self, event):
-        selected_indices=self.player_listbox.curselection()
-        if not selected_indices: return
-        display_text=self.player_listbox.get(selected_indices[0])
-        player_name = display_text.split(" (HP")[0].replace("▶", "").strip() if " (HP" in display_text else display_text.strip()
+        player_name = self.get_player_name_from_listbox()
+        if not player_name: return
         if player_name == "DM": pass
         elif player_name == self.name: return # Non aprire chat con se stessi
         self.create_chat_tab(player_name)
@@ -4166,6 +4346,7 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         if state == tk.DISABLED:
             self.player_listbox.config(state=tk.NORMAL)
             
+        self._listbox_player_names = ["DM"]
         self.player_listbox.delete(0, tk.END)
         self.player_listbox.insert(tk.END, "DM")
         try:
@@ -4173,13 +4354,36 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         except tk.TclError:
             pass
         
-        # Includi tutti i giocatori per vedere l'ordine di iniziativa
-        all_players = list(self.players_data.values())
+        # Includi tutti i giocatori visibili per vedere l'ordine di iniziativa
+        cur_map = getattr(self, "map_data", {}) or {}
+        fow_enabled = bool(cur_map.get("fow_enabled", False))
+        fow_revealed = set()
+        if fow_enabled:
+            for h in cur_map.get("fow_revealed", []):
+                if isinstance(h, (list, tuple)) and len(h) >= 2:
+                    fow_revealed.add((h[0], h[1]))
+
+        filtered_players = []
+        for p in self.players_data.values():
+            if not isinstance(p, dict):
+                continue
+            if p.get("layer", "token") == "gm" or p.get("is_hidden", False) or p.get("in_pocket_dimension"):
+                continue
+            is_party = p.get("is_party_member", False) or p.get("is_companion", False) or p.get("name") == self.name
+            if fow_enabled and not is_party:
+                pos = p.get("position", [0, 0])
+                if (pos[0], pos[1]) not in fow_revealed:
+                    continue
+            filtered_players.append(p)
+
+        all_players = filtered_players
         if not getattr(self, "combat_active", False):
             all_players = sorted(all_players, key=lambda x: x.get('initiative', 0), reverse=True)
             
+        curr_turn_name = getattr(self, "turn_player_name", "")
         for i, p in enumerate(all_players):
-            is_turn = getattr(self, "combat_active", False) and i == getattr(self, "turn_index", 0)
+            self._listbox_player_names.append(p["name"])
+            is_turn = bool(getattr(self, "combat_active", False) and curr_turn_name and p["name"] == curr_turn_name)
             prefix = "▶ " if is_turn else "  "
             display_text = f"{prefix}{p['name']} (HP: {p.get('hp', 10)}/{p.get('max_hp', 10)}) [Iniz: {p.get('initiative', 0)}]"
             conditions = p.get('conditions', [])
@@ -4519,14 +4723,14 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             
             if is_crit:
                 self.show_toast(
-                    f"20 NATURALE sul Tiro Salvezza su {stat} (Totale: {res['total']})! Successo Automatico!",
-                    title="🌟 TS Critico!",
+                    f"20 NATURALE sul Tiro Salvezza su {stat}! (Totale: {res['total']})",
+                    title="🌟 20 Naturale!",
                     toast_type="gold",
                 )
             elif is_fail:
                 self.show_toast(
-                    f"1 NATURALE sul Tiro Salvezza su {stat} (Totale: {res['total']})! Fallimento Critico!",
-                    title="💀 TS Fallimento Critico!",
+                    f"1 NATURALE sul Tiro Salvezza su {stat}! (Totale: {res['total']})",
+                    title="💀 1 Naturale!",
                     toast_type="danger",
                 )
             

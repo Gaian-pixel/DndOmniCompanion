@@ -7,20 +7,33 @@ from common.i18n import is_condition_active
 
 def handle_update_stats_request(data, player, game_state):
     try:
+        is_dm = (player is None or getattr(player, "role", "") == "DM" or getattr(player, "conn", None) is None)
         target = player
-        if not target and data.get("name"):
+        if is_dm and data.get("name"):
+            target = game_state.find_player(data.get("name"))
+        elif not target and data.get("name"):
             target = game_state.find_player(data.get("name"))
         if not target:
             return
+        if not is_dm and player:
+            is_owner = (target.name == player.name or getattr(target, "owner", None) == player.name or getattr(target, "master_name", None) == player.name)
+            if not is_owner:
+                return
             
         hp = int(data.get("hp", target.hp))
         max_hp = int(data.get("max_hp", target.max_hp)) if data.get("max_hp") is not None else target.max_hp
         initiative = int(data.get("initiative", target.initiative)) if data.get("initiative") is not None else target.initiative
         conditions = data.get("conditions", getattr(target, "conditions", []))
-        temp_hp = int(data.get("temp_hp", getattr(target, "temp_hp", 0)))
+        if "temp_hp" in data and data.get("temp_hp") is not None:
+            temp_hp = int(data.get("temp_hp"))
+        else:
+            temp_hp = getattr(target, "temp_hp", 0)
         target.max_hp = max_hp
         target.temp_hp = max(0, temp_hp)
-        target.initiative = initiative
+        if data.get("initiative") is not None:
+            target.initiative_bonus = initiative
+            if not (getattr(game_state, "combat_active", False) and getattr(target, "in_combat", False)):
+                target.initiative = initiative
         target.conditions = conditions
         if "light_radius" in data:
             target.light_radius = max(0, int(data["light_radius"]))
@@ -57,6 +70,12 @@ def handle_set_elevation_request(data, player, game_state):
             break
     if not target:
         return
+
+    is_dm = (player is None or getattr(player, "role", "") == "DM" or getattr(player, "conn", None) is None)
+    if not is_dm and player:
+        is_owner = (target.name == player.name or getattr(target, "owner", None) == player.name or getattr(target, "master_name", None) == player.name)
+        if not is_owner:
+            return
 
     old_elev = getattr(target, "elevation", 0)
     new_elev = int(data.get("elevation", 0))
@@ -228,8 +247,15 @@ def handle_update_full_sheet_request(data, player, game_state):
                     conds.append(c)
             player.conditions = conds
         player.max_hp = char_data.get("hp_max", player.max_hp)
-        player.temp_hp = char_data.get("temp_hp", getattr(player, "temp_hp", 0))
-        player.initiative = char_data.get("initiative", player.initiative)
+        if "temp_hp" in char_data and char_data.get("temp_hp") is not None:
+            player.temp_hp = char_data.get("temp_hp")
+        if char_data.get("initiative") is not None:
+            try:
+                player.initiative_bonus = int(char_data.get("initiative"))
+                if not (getattr(game_state, "combat_active", False) and getattr(player, "in_combat", False)):
+                    player.initiative = player.initiative_bonus
+            except (ValueError, TypeError):
+                pass
         player.exhaustion_level = char_data.get("exhaustion_level", getattr(player, "exhaustion_level", 0))
         player.speed = char_data.get("speed", getattr(player, "speed", 30))
         player.speed_unit = char_data.get("speed_unit", getattr(player, "speed_unit", None))
@@ -377,27 +403,46 @@ def handle_resolve_night_camp_request(data, player, game_state):
 
     if res["ambush"]:
         full_msg += "\n\n🚨 IMBOSCATA NOTTURNA! Il gruppo viene assalito durante il riposo! Iniziativa richiesta!"
+        # D&D 5e RAW: Solo i membri del party che stavano dormendo (esclusa la sentinella) iniziano Incoscienti e Proni
         for p in getattr(game_state, "players", []):
-            if p.name != res.get("sentinel_name"):
+            if getattr(p, "is_party_member", False) and p.name != res.get("sentinel_name"):
+                if "Morto" in getattr(p, "conditions", []) or "Dead" in getattr(p, "conditions", []):
+                    continue
                 if not hasattr(p, "conditions"): p.conditions = []
                 if "Incosciente" not in p.conditions: p.conditions.append("Incosciente")
                 if "Prono" not in p.conditions: p.conditions.append("Prono")
+                if getattr(p, "full_sheet", None):
+                    p.full_sheet["conditions"] = list(p.conditions)
         broadcast(game_state, make_chat_broadcast("Sistema", full_msg))
     else:
         full_msg += "\n\n✨ Notte serena! Tutti recuperano HP e Slot Incantesimo (Riposo Lungo completato)."
         for p in getattr(game_state, "players", []):
+            if not getattr(p, "is_party_member", False) and not getattr(p, "is_companion", False):
+                continue
+            if "Morto" in getattr(p, "conditions", []) or "Dead" in getattr(p, "conditions", []):
+                continue
             p.hp = p.max_hp
             p.temp_hp = 0
             p.exhaustion_level = max(0, getattr(p, "exhaustion_level", 0) - 1)
-            conds = [c for c in getattr(p, "conditions", []) if not c.startswith("Sfinimento") and c not in ("Incosciente", "Prono")]
+            conds = [c for c in getattr(p, "conditions", []) if not c.startswith("Sfinimento") and c not in ("Incosciente", "Prono", "Avvelenato")]
             if p.exhaustion_level > 0:
                 conds.append(f"Sfinimento (Liv. {p.exhaustion_level})")
             p.conditions = conds
             if getattr(p, "full_sheet", None):
                 p.full_sheet["hp_current"] = p.hp
                 p.full_sheet["exhaustion_level"] = p.exhaustion_level
-                p.full_sheet["conditions"] = conds
+                p.full_sheet["conditions"] = list(conds)
                 p.full_sheet["temp_hp"] = 0
+                # D&D 5e RAW: Ripristina tutti gli slot incantesimo
+                if isinstance(p.full_sheet.get("spell_slots"), dict):
+                    for lvl_k, sl_data in p.full_sheet["spell_slots"].items():
+                        if isinstance(sl_data, dict):
+                            sl_data["current"] = sl_data.get("max", 0)
+                # D&D 5e RAW: Ripristina metà dei Dadi Vita (minimo 1)
+                lvl = int(p.full_sheet.get("level", 1) or 1)
+                hd_rec = max(1, lvl // 2)
+                cur_hd = int(p.full_sheet.get("hit_dice_current", lvl) or 0)
+                p.full_sheet["hit_dice_current"] = min(lvl, cur_hd + hd_rec)
             if getattr(p, "conn", None):
                 from common.network_utils import send_message
                 send_message(p.conn, {"type": "DO_LONG_REST", "data": {}})
@@ -457,13 +502,30 @@ def trigger_group_long_rest(game_state, reason="Il gruppo si è accampato per un
 
     with game_state.lock:
         for p in getattr(game_state, "players", []):
+            if not getattr(p, "is_party_member", False) and not getattr(p, "is_companion", False):
+                continue
+            if "Morto" in getattr(p, "conditions", []) or "Dead" in getattr(p, "conditions", []):
+                continue
             p.hp = p.max_hp
             p.temp_hp = 0
             p.exhaustion_level = max(0, getattr(p, "exhaustion_level", 0) - 1)
+            conds = [c for c in getattr(p, "conditions", []) if not c.startswith("Sfinimento") and c not in ("Incosciente", "Prono", "Avvelenato")]
+            if p.exhaustion_level > 0:
+                conds.append(f"Sfinimento (Liv. {p.exhaustion_level})")
+            p.conditions = conds
             if getattr(p, "full_sheet", None):
                 p.full_sheet["hp_current"] = p.hp
                 p.full_sheet["exhaustion_level"] = p.exhaustion_level
                 p.full_sheet["temp_hp"] = 0
+                p.full_sheet["conditions"] = list(conds)
+                if isinstance(p.full_sheet.get("spell_slots"), dict):
+                    for lvl_k, sl_data in p.full_sheet["spell_slots"].items():
+                        if isinstance(sl_data, dict):
+                            sl_data["current"] = sl_data.get("max", 0)
+                lvl = int(p.full_sheet.get("level", 1) or 1)
+                hd_rec = max(1, lvl // 2)
+                cur_hd = int(p.full_sheet.get("hit_dice_current", lvl) or 0)
+                p.full_sheet["hit_dice_current"] = min(lvl, cur_hd + hd_rec)
     broadcast(game_state, make_chat_broadcast("Sistema", f"{reason} Tutti recuperano HP e Slot."))
     for p in getattr(game_state, "players", []):
         if getattr(p, "conn", None):
@@ -479,7 +541,10 @@ def handle_long_rest_request(data, player, game_state):
         
     players = getattr(game_state, "players", [])
     active_conns = len([p for p in players if getattr(p, "conn", None)])
-    if active_conns == 0: return
+    if active_conns <= 1:
+        # Nessun altro client connesso (test, modalità offline o singolo giocatore): applica direttamente il riposo lungo
+        trigger_group_long_rest(game_state)
+        return
         
     needed = max(1, math.ceil(active_conns / 2))
     game_state.ongoing_rest_vote = {"initiator": player.name, "votes_needed": needed, "total_conns": active_conns, "votes_received": 0, "votes_rejected": 0, "voters": set()}

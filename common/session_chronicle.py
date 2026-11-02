@@ -8,6 +8,7 @@ e la retro-integrazione delle azioni 'Fuori Pista' nel grafo della campagna.
 from datetime import datetime
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional
+import html
 import uuid
 
 from common.campaign_script import FlowNode, FlowEdge, FlowGraph
@@ -306,13 +307,14 @@ class ChronicleGenerator:
     @staticmethod
     def generate_html(ledger: SessionLedger) -> str:
         md_text = ChronicleGenerator.generate_markdown(ledger, include_dm_notes=True)
-        # Semplice conversione HTML Dark Fantasy
-        html_body = md_text.replace("\n", "<br>")
+        # Semplice conversione HTML Dark Fantasy con escaping anti-XSS
+        escaped_title = html.escape(ledger.campaign_name or "Campagna")
+        html_body = html.escape(md_text).replace("\n", "<br>")
         return f"""<!DOCTYPE html>
 <html lang="it">
 <head>
 <meta charset="utf-8">
-<title>Cronistoria Sessione - {ledger.campaign_name}</title>
+<title>Cronistoria Sessione - {escaped_title}</title>
 <style>
 body {{ background-color: #121316; color: #ECEFF1; font-family: 'Segoe UI', Tahoma, sans-serif; padding: 28px; line-height: 1.6; max-width: 900px; margin: 0 auto; }}
 h1 {{ color: #D4AF37; border-bottom: 2px solid #A37F2C; padding-bottom: 8px; }}

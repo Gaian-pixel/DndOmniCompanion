@@ -42,6 +42,7 @@ CONDITIONS_IT_TO_EN = {
     "Trattenuto": "Restrained",
     "Stordito": "Stunned",
     "Incosciente": "Unconscious",
+    "Privo di Sensi": "Unconscious",
     "Sfinimento": "Exhaustion",
     "Concentrazione": "Concentration",
     "Morto": "Dead",
@@ -49,12 +50,23 @@ CONDITIONS_IT_TO_EN = {
     "Disimpegno": "Disengage",
     "Schivata": "Dodge",
     "Aiuto": "Help",
+    "Aiutato": "Helped",
     "Afferrato": "Grappled",
-    "Privo di Sensi": "Incapacitated",
     "Nascosto": "Hidden",
+    "Ira": "Rage",
+    "Scudo": "Shield",
+    "Benedizione": "Bless",
+    "Anatema": "Bane",
+    "Velocità": "Haste",
+    "Lentezza": "Slow",
+    "Stabilizzato": "Stabilized",
+    "Stabile": "Stable",
 }
 
 CONDITIONS_EN_TO_IT = {v: k for k, v in CONDITIONS_IT_TO_EN.items()}
+# Ensure primary canonical mappings
+CONDITIONS_EN_TO_IT["Incapacitated"] = "Incapacitato"
+CONDITIONS_EN_TO_IT["Unconscious"] = "Incosciente"
 
 # Dizionario Caratteristiche / Abilità 5e
 ABILITIES_IT_TO_EN = {
@@ -306,6 +318,7 @@ STRINGS = {
         "language_name": "Italiano",
         "select_language": "Seleziona Lingua",
         "language_changed_toast": "Lingua impostata su {lang}. I nuovi testi sono attivi!",
+        "wizard_filter_classes": "Filtra per Ruolo:",
 
         # --- Launcher (main.py) ---
         "launcher_tagline": "Virtual Tabletop & Campaign Manager • 5e",
@@ -1435,6 +1448,7 @@ STRINGS = {
         "language_name": "English",
         "select_language": "Select Language",
         "language_changed_toast": "Language set to {lang}. New texts are active!",
+        "wizard_filter_classes": "Filter by Role:",
 
         # --- Launcher (main.py) ---
         "launcher_tagline": "Virtual Tabletop & Campaign Manager • 5e",
@@ -2617,7 +2631,7 @@ def set_distance_unit(unit_code: str):
             cb(_current_distance_unit)
         except Exception as e:
             err_msg = str(e)
-            if "destroyed" in err_msg or "cannot invoke" in err_msg:
+            if any(term in err_msg for term in ("destroyed", "cannot invoke", "invalid command name", "application has been destroyed")):
                 dead_listeners.append(cb)
             else:
                 print(f"[i18n] Errore callback unità: {e}")
@@ -2858,7 +2872,7 @@ def set_language(lang_code: str):
             cb(_current_language)
         except Exception as e:
             err_msg = str(e)
-            if "destroyed" in err_msg or "cannot invoke" in err_msg:
+            if any(term in err_msg for term in ("destroyed", "cannot invoke", "invalid command name", "application has been destroyed")):
                 dead_listeners.append(cb)
             else:
                 print(f"[i18n] Errore callback lingua: {e}")
@@ -2939,15 +2953,26 @@ def translate_condition(condition: str, target_lang: str = None) -> str:
 def is_condition_active(conditions_list, condition_name: str) -> bool:
     """
     Verifica se una condizione è presente in una lista, accettando indistintamente
-    il nome in italiano o in inglese.
+    il nome in italiano o in inglese (incluso sinonimi come Incosciente / Privo di Sensi).
     Esempio: is_condition_active(player.conditions, 'Prono') -> True anche se contiene 'Prone'.
     """
     if not conditions_list or not condition_name:
         return False
-    name_it = CONDITIONS_EN_TO_IT.get(condition_name, condition_name)
-    name_en = CONDITIONS_IT_TO_EN.get(condition_name, condition_name)
+    cond_clean = str(condition_name).strip()
+    target_lower = cond_clean.lower()
+    target_en = CONDITIONS_IT_TO_EN.get(cond_clean, cond_clean).strip().lower()
+    target_it = CONDITIONS_EN_TO_IT.get(cond_clean, cond_clean).strip().lower()
+
     for c in conditions_list:
-        if c in (name_it, name_en, condition_name):
+        if not c:
+            continue
+        c_str = str(c).strip()
+        c_lower = c_str.lower()
+        if c_lower in (target_lower, target_en, target_it):
+            return True
+        c_en = CONDITIONS_IT_TO_EN.get(c_str, c_str).strip().lower()
+        c_it = CONDITIONS_EN_TO_IT.get(c_str, c_str).strip().lower()
+        if c_en in (target_lower, target_en) or c_it in (target_lower, target_it):
             return True
     return False
 

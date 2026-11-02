@@ -195,11 +195,15 @@ class Campaign:
             if self.start_weather:
                 game_state.weather = self.start_weather
                 
-            # Quest & Negozi
+            # Quest, Negozi, Handout & Diario Narrativo Cumulativo
             if self.quests:
                 game_state.quests = [q.copy() for q in self.quests]
             if self.shops:
                 game_state.shops = {k: v.copy() for k, v in self.shops.items()}
+            if self.handouts:
+                game_state.handouts = [h.copy() for h in self.handouts]
+            if getattr(self, "journal", None) is not None:
+                game_state.campaign_journal = self.journal
                 
             # Referenza alla campagna attiva
             game_state.active_campaign = self

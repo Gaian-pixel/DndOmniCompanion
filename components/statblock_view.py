@@ -129,8 +129,16 @@ class StatblockCardView(ttk.Frame):
             lambda e: self.canvas.itemconfig(self.canvas_window, width=e.width)
         )
 
-        # Mousewheel binding universale
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel, add="+")
+        # Mousewheel binding locale al passaggio del mouse
+        def _bind_mw(e):
+            try: self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+            except Exception: pass
+        def _unbind_mw(e):
+            try: self.canvas.unbind_all("<MouseWheel>")
+            except Exception: pass
+        self.canvas.bind("<Enter>", _bind_mw)
+        self.canvas.bind("<Leave>", _unbind_mw)
+        self.bind("<Destroy>", _unbind_mw, add="+")
 
         self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)

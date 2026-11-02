@@ -24,8 +24,8 @@ class Hex:
             return self.s
         raise IndexError("Hex index out of range")
 
-    def distance(self, other: "Hex", grid_type: str = "hex") -> int:
-        return int(grid_distance(self, other, grid_type))
+    def distance(self, other: "Hex", grid_type: str = "hex", diagonal_rule: str = "standard") -> int:
+        return int(grid_distance(self, other, grid_type, diagonal_rule))
 
 class SquareLayout:
     def __init__(self, size, origin=(0, 0)):
@@ -100,13 +100,19 @@ def hex_round(q_frac, r_frac) -> Hex:
         r = -q - s
     return Hex(q, r)
 
-def grid_distance(a: Hex, b: Hex, grid_type: str = "hex") -> float:
+def grid_distance(a: Hex, b: Hex, grid_type: str = "hex", diagonal_rule: str = "standard") -> float:
     aq = a.q if hasattr(a, 'q') else a[0]
     ar = a.r if hasattr(a, 'r') else a[1]
     bq = b.q if hasattr(b, 'q') else b[0]
     br = b.r if hasattr(b, 'r') else b[1]
     if grid_type == "square":
-        return max(abs(aq - bq), abs(ar - br))
+        dx = abs(aq - bq)
+        dy = abs(ar - br)
+        if diagonal_rule in ("tactical", "5-10-5"):
+            diagonals = min(dx, dy)
+            straight = abs(dx - dy)
+            return straight + diagonals + (diagonals // 2)
+        return max(dx, dy)
     elif grid_type in ("none", "gridless"):
         return math.hypot(aq - bq, ar - br)
     else:
@@ -117,22 +123,22 @@ def grid_distance(a: Hex, b: Hex, grid_type: str = "hex") -> float:
 def hex_distance(a: Hex, b: Hex) -> int:
     return int(grid_distance(a, b, "hex"))
 
-def grid_distance_3d(a: Hex, b: Hex, z_a: float = 0, z_b: float = 0, grid_type: str = "hex", feet_per_cell: float = 5.0) -> float:
+def grid_distance_3d(a: Hex, b: Hex, z_a: float = 0, z_b: float = 0, grid_type: str = "hex", feet_per_cell: float = 5.0, diagonal_rule: str = "standard") -> float:
     """
     Calcola la distanza 3D in caselle tra due posizioni tenendo conto della quota Z (in piedi).
+    D&D 5e RAW:
+    - Sotto la regola standard (Chebyshev 5-5-5 ft), la distanza 3D è max(d_2d_cells, abs(z_a - z_b) / feet_per_cell).
+    - Sotto la regola tattica o gridless, è la distanza tridimensionale euclidea.
     """
-    d_2d_cells = grid_distance(a, b, grid_type=grid_type)
-    d_2d_ft = d_2d_cells * feet_per_cell
-    delta_z = abs(float(z_a) - float(z_b))
-    d_3d_ft = math.hypot(d_2d_ft, delta_z)
-    return d_3d_ft / feet_per_cell
+    d_2d_cells = grid_distance(a, b, grid_type=grid_type, diagonal_rule=diagonal_rule)
+    dz_cells = abs(float(z_a) - float(z_b)) / max(0.1, float(feet_per_cell))
+    if diagonal_rule in ("tactical", "5-10-5") or grid_type in ("none", "gridless"):
+        return math.hypot(d_2d_cells, dz_cells)
+    return max(d_2d_cells, dz_cells)
 
-def distance_3d_feet(a: Hex, b: Hex, z_a: float = 0, z_b: float = 0, grid_type: str = "hex", feet_per_cell: float = 5.0) -> float:
-    """Calcola la distanza 3D euclidea effettiva in piedi (ft)."""
-    d_2d_cells = grid_distance(a, b, grid_type=grid_type)
-    d_2d_ft = d_2d_cells * feet_per_cell
-    delta_z = abs(float(z_a) - float(z_b))
-    return math.hypot(d_2d_ft, delta_z)
+def distance_3d_feet(a: Hex, b: Hex, z_a: float = 0, z_b: float = 0, grid_type: str = "hex", feet_per_cell: float = 5.0, diagonal_rule: str = "standard") -> float:
+    """Calcola la distanza 3D effettiva in piedi (ft)."""
+    return grid_distance_3d(a, b, z_a, z_b, grid_type=grid_type, feet_per_cell=feet_per_cell, diagonal_rule=diagonal_rule) * feet_per_cell
 
 def get_sphere_hexes(origin: Hex, radius: int, grid_type: str = "hex") -> list[Hex]:
     results = []

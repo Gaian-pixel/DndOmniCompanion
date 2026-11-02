@@ -41,6 +41,7 @@ command_handlers = {
     "CUSTOM_SPELL_REQUEST": handle_custom_spell_request,
     "AUDIO_TRACK_REQUEST": handle_audio_track_request,
     "DASH_REQUEST": handle_dash_request,
+    "STAND_UP_REQUEST": handle_stand_up_request,
     "DISENGAGE_REQUEST": handle_disengage_request,
     "DODGE_REQUEST": handle_dodge_request,
     "HELP_REQUEST": handle_help_request,

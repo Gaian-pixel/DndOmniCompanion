@@ -103,7 +103,19 @@ class CampaignStudioFrame(tk.Frame):
 
         self._build_ui()
         self.sync_text_to_canvas()
-        self.after(100, self._bind_fullscreen_shortcuts)
+        self._bind_job = self.after(100, self._bind_fullscreen_shortcuts)
+        def _on_studio_destroyed(e=None):
+            if e and getattr(e, "widget", None) != self:
+                return
+            if getattr(self, "_bind_job", None) is not None:
+                try: self.after_cancel(self._bind_job)
+                except Exception: pass
+                self._bind_job = None
+            if getattr(self, "_sync_job", None) is not None:
+                try: self.after_cancel(self._sync_job)
+                except Exception: pass
+                self._sync_job = None
+        self.bind("<Destroy>", _on_studio_destroyed, add="+")
 
     def _build_ui(self):
         # Main PanedWindow (Split-Screen: Sinistra = DndScript + Toolbar Blocchi, Destra = Flow Canvas + Controlli Grafo)

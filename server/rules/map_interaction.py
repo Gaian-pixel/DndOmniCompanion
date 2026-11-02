@@ -45,12 +45,18 @@ def handle_create_aoe_request(data, player, game_state):
     else:
         hexes = []
         
+    cur_map = getattr(game_state, "current_map", None) or {}
+    walls = cur_map.get("walls", [])
+    doors = cur_map.get("doors", [])
+    from common.hex_utils import has_line_of_sight
     affected_players = []
     for p in getattr(game_state, "players", []):
         if getattr(p, "hp", 0) > 0 and getattr(p, "position", None):
             pos_hex = Hex(p.position[0], p.position[1])
             if pos_hex in hexes:
-                affected_players.append(p)
+                # Regola D&D 5e RAW (PHB p. 204): Muri solidi e porte chiuse bloccano la linea d'effetto dell'area (Copertura Totale)
+                if pos_hex == origin or has_line_of_sight(origin, pos_hex, walls, doors):
+                    affected_players.append(p)
                 
     if not affected_players:
         return
@@ -58,36 +64,75 @@ def handle_create_aoe_request(data, player, game_state):
     from common.protocol import make_prompt_save
     game_state.log_dm_message(f"[AoE] {player.name} ha lanciato un'AoE. {len(affected_players)} bersagli colpiti.")
     
+    # D&D 5e RAW (PHB p. 196): Danno dell'area d'effetto tirato una sola volta per tutti i bersagli coinvolti
+    raw_dmg = aoe_data.get("dmg", "8d6")
+    resolved_dmg = raw_dmg
+    if raw_dmg:
+        clean_d = str(raw_dmg).strip()
+        if clean_d.isdigit():
+            resolved_dmg = clean_d
+        else:
+            try:
+                from common.dice import roll_dice
+                resolved_dmg = str(roll_dice(clean_d)["total"])
+            except Exception:
+                resolved_dmg = raw_dmg
+
+    damage_type = aoe_data.get("damage_type", "Fuoco")
     for p in affected_players:
         if hasattr(p, "conn") and p.conn:
             send_message(p.conn, make_prompt_save(
                 stat=aoe_data.get("stat", "DES"),
                 dc=aoe_data.get("dc", 10),
-                damage_formula=aoe_data.get("dmg", "8d6"),
+                damage_formula=resolved_dmg,
                 half_on_success=aoe_data.get("half", True),
-                source_name=player.name
+                source_name=player.name,
+                damage_type=damage_type
             ))
             game_state.log_dm_message(f"[AoE] Richiesto Tiro Salvezza a {p.name}.")
         else:
-            # Mostro/NPC gestito dal server/DM: tiro salvezza ed applicazione automatica dei danni!
+            # Mostro/NPC gestito dal server/DM: tiro salvezza ed applicazione automatica dei danni con competenze 5e!
             try:
                 from server.rules.combat import _process_save_result
                 from common.dice import roll_dice
                 stat = aoe_data.get("stat", "DES")
                 dc = aoe_data.get("dc", 10)
-                damage_formula = aoe_data.get("dmg", "8d6")
                 half_on_success = aoe_data.get("half", True)
                 mod = 0
+                s_map = {"STR": "FOR", "DEX": "DES", "CON": "COS", "INT": "INT", "WIS": "SAG", "CHA": "CAR"}
+                c_stat = s_map.get(str(stat).upper(), str(stat).upper())
                 if getattr(p, "full_sheet", None):
-                    attr = p.full_sheet.get("attributes", {})
-                    if stat in attr:
-                        mod = (int(attr[stat]) - 10) // 2
+                    sheet = p.full_sheet
+                    st_dict = sheet.get("saving_throws", {})
+                    found_st = False
+                    if isinstance(st_dict, dict):
+                        for k, v in st_dict.items():
+                            if s_map.get(str(k).upper(), str(k).upper()) == c_stat:
+                                try:
+                                    mod = int(str(v).replace("+", "").strip())
+                                    found_st = True
+                                    break
+                                except Exception:
+                                    pass
+                    if not found_st:
+                        attr = sheet.get("attributes", {})
+                        val = attr.get(c_stat, attr.get(stat))
+                        if val is not None:
+                            try: mod = (int(val) - 10) // 2
+                            except Exception: pass
+                        prof_saves = [s_map.get(str(s).upper(), str(s).upper()) for s in sheet.get("saving_throw_proficiencies", [])]
+                        if c_stat in prof_saves:
+                            cr_or_lvl = sheet.get("cr", sheet.get("level", 1))
+                            try: num = float(cr_or_lvl)
+                            except Exception: num = 1.0
+                            pb = 2 + max(0, int(num - 1) // 4)
+                            mod += pb
                 mod_str = f"+{mod}" if mod >= 0 else str(mod)
                 save_result = roll_dice(f"1d20{mod_str}")
                 roll_tot = save_result["total"]
                 is_crit = save_result["rolls"][0] == 20
                 is_fail = save_result["rolls"][0] == 1
-                _process_save_result(p.name, stat, roll_tot, is_crit, is_fail, dc, damage_formula, half_on_success, player.name, game_state)
+                _process_save_result(p.name, stat, roll_tot, is_crit, is_fail, dc, resolved_dmg, half_on_success, player.name, game_state, damage_type=damage_type)
             except Exception as e:
                 game_state.log_dm_message(f"[AoE] Errore tiro automatico TS per {p.name}: {e}")
 

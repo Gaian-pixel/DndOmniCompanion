@@ -164,6 +164,19 @@ class HexMapCanvas(tk.Canvas):
 
         self.drawn_lines = []
 
+        def _on_canvas_destroyed(e=None):
+            if e and getattr(e, "widget", None) != self:
+                return
+            if getattr(self, "_configure_timer", None) is not None:
+                try: self.after_cancel(self._configure_timer)
+                except Exception: pass
+                self._configure_timer = None
+            if getattr(self, "_pan_redraw_timer", None) is not None:
+                try: self.after_cancel(self._pan_redraw_timer)
+                except Exception: pass
+                self._pan_redraw_timer = None
+        self.bind("<Destroy>", _on_canvas_destroyed, add="+")
+
     def set_on_hex_right_click_callback(self, func):
         self.on_hex_right_click_callback = func
 
@@ -215,6 +228,19 @@ class HexMapCanvas(tk.Canvas):
 
     def clear_drawings(self):
         self.drawn_lines = []
+
+        def _on_canvas_destroyed(e=None):
+            if e and getattr(e, "widget", None) != self:
+                return
+            if getattr(self, "_configure_timer", None) is not None:
+                try: self.after_cancel(self._configure_timer)
+                except Exception: pass
+                self._configure_timer = None
+            if getattr(self, "_pan_redraw_timer", None) is not None:
+                try: self.after_cancel(self._pan_redraw_timer)
+                except Exception: pass
+                self._pan_redraw_timer = None
+        self.bind("<Destroy>", _on_canvas_destroyed, add="+")
         self.delete("temp_draw")
         self.redraw()
 
@@ -533,9 +559,18 @@ class HexMapCanvas(tk.Canvas):
         self.dragging_token_name = None
         self._drag_start_hex = None
         if getattr(self, 'players_data', None):
+            is_dm = not bool(getattr(self, "player_name", None))
+            fow_active = getattr(self, 'fow_enabled', False) or (isinstance(getattr(self, 'map_data', None), dict) and self.map_data.get('fow_enabled', False))
+            visible = getattr(self, 'visible_hexes', set()) if fow_active else set()
             for name, pdata in self.players_data.items():
                 pos = pdata.get('position', [0, 0]) if isinstance(pdata, dict) else pdata
                 if Hex(*pos) == clicked_hex:
+                    if not is_dm and isinstance(pdata, dict):
+                        if pdata.get("layer", "token") == "gm" or pdata.get("is_hidden", False) or pdata.get("in_pocket_dimension"):
+                            continue
+                        if fow_active and name != self.player_name and not pdata.get("is_party_member", False) and not pdata.get("is_companion", False):
+                            if (clicked_hex.q, clicked_hex.r) not in visible and clicked_hex not in visible:
+                                continue
                     self.dragging_token_name = name
                     self._drag_start_hex = clicked_hex
                     break
@@ -699,15 +734,18 @@ class HexMapCanvas(tk.Canvas):
         
         token_name = None
         if getattr(self, 'players_data', None):
+            is_dm = not bool(getattr(self, "player_name", None))
+            fow_active = getattr(self, 'fow_enabled', False) or (isinstance(getattr(self, 'map_data', None), dict) and self.map_data.get('fow_enabled', False))
+            visible = getattr(self, 'visible_hexes', set()) if fow_active else set()
             for name, pdata in self.players_data.items():
                 pos = pdata.get('position', [0, 0]) if isinstance(pdata, dict) else pdata
                 if Hex(*pos) == hovered_hex:
-                    # Controlliamo la nebbia di guerra per il client
-                    fow_active = getattr(self, 'fow_enabled', False) or (isinstance(getattr(self, 'map_data', None), dict) and self.map_data.get('fow_enabled', False))
-                    if fow_active and getattr(self, 'player_name', None):
-                        visible = getattr(self, 'visible_hexes', set())
-                        if (hovered_hex.q, hovered_hex.r) not in visible and hovered_hex not in visible:
-                            continue # Non mostrare tooltip se non e' visibile
+                    if not is_dm and isinstance(pdata, dict):
+                        if pdata.get("layer", "token") == "gm" or pdata.get("is_hidden", False) or pdata.get("in_pocket_dimension"):
+                            continue
+                        if fow_active and name != self.player_name and not pdata.get("is_party_member", False) and not pdata.get("is_companion", False):
+                            if (hovered_hex.q, hovered_hex.r) not in visible and hovered_hex not in visible:
+                                continue
                     token_name = name
                     break
                     
@@ -943,7 +981,14 @@ class HexMapCanvas(tk.Canvas):
         ping_dot = self.create_oval(screen_x - 3, screen_y - 3, screen_x + 3, screen_y + 3, fill=color, outline="")
         
         ping_ids = [ping_outer, ping_inner, ping_dot]
-        self.after(2200, lambda: [self.delete(pid) for pid in ping_ids])
+        def _cleanup_ping():
+            try:
+                if hasattr(self, "winfo_exists") and self.winfo_exists():
+                    for pid in ping_ids:
+                        self.delete(pid)
+            except Exception:
+                pass
+        self.after(2200, _cleanup_ping)
 
     def center_view(self):
         """Centra la vista della mappa mantenendo lo zoom attuale."""
@@ -1072,11 +1117,14 @@ class HexMapCanvas(tk.Canvas):
             if o_elev != 0:
                 o_sy -= min(60, int((o_elev / 5.0) * 8 * self.zoom_level))
 
-            dist_hex = int(grid_distance(o_hex, t_hex, grid_type=grid_type))
+            d_rule = "standard"
+            if hasattr(self, "game_state") and hasattr(self.game_state, "automation_settings") and isinstance(self.game_state.automation_settings, dict):
+                d_rule = self.game_state.automation_settings.get("square_diagonal_rule", "standard")
+            dist_hex = int(grid_distance(o_hex, t_hex, grid_type=grid_type, diagonal_rule=d_rule))
             dist_str = format_distance_hexes(dist_hex, map_data=cur_map)
             if abs(o_elev - t_elev) > 0:
                 from common.hex_utils import grid_distance_3d
-                dist_3d = grid_distance_3d(o_hex, t_hex, o_elev, t_elev, grid_type=grid_type)
+                dist_3d = grid_distance_3d(o_hex, t_hex, o_elev, t_elev, grid_type=grid_type, diagonal_rule=d_rule)
                 dist_str += f" [3D: {int(dist_3d * 5)}ft]"
 
             walls = cur_map.get("walls", [])
@@ -1157,8 +1205,14 @@ class HexMapCanvas(tk.Canvas):
         if not getattr(self, "players_data", None) or not getattr(self, "hex_layout", None):
             return
 
+        is_dm = not bool(getattr(self, "player_name", None))
+        fow_active = getattr(self, 'fow_enabled', False) or (isinstance(getattr(self, 'map_data', None), dict) and self.map_data.get('fow_enabled', False))
+        visible = getattr(self, 'visible_hexes', set()) if fow_active else set()
+
         for c_name, c_data in self.players_data.items():
             if not isinstance(c_data, dict):
+                continue
+            if not is_dm and (c_data.get("layer", "token") == "gm" or c_data.get("is_hidden", False) or c_data.get("in_pocket_dimension")):
                 continue
             conds = c_data.get("conditions", [])
             if "Concentrazione" not in conds:
@@ -1167,6 +1221,10 @@ class HexMapCanvas(tk.Canvas):
             if not c_pos:
                 continue
             c_hex = Hex(c_pos[0], c_pos[1])
+            if not is_dm and fow_active and c_name != self.player_name and not c_data.get("is_party_member", False) and not c_data.get("is_companion", False):
+                if (c_hex.q, c_hex.r) not in visible and c_hex not in visible:
+                    continue
+
             cx, cy = self.hex_layout.hex_to_pixel(c_hex)
             csx = cx * self.zoom_level + self.pan_offset_x
             csy = cy * self.zoom_level + self.pan_offset_y
@@ -1178,12 +1236,17 @@ class HexMapCanvas(tk.Canvas):
             for t_name, t_data in self.players_data.items():
                 if not isinstance(t_data, dict):
                     continue
+                if not is_dm and (t_data.get("layer", "token") == "gm" or t_data.get("is_hidden", False) or t_data.get("in_pocket_dimension")):
+                    continue
                 fx_list = t_data.get("active_effects", [])
                 is_target = any(fx.get("concentration_caster") == c_name for fx in fx_list)
                 if is_target and t_name != c_name:
                     t_pos = t_data.get("position")
                     if t_pos:
                         t_hex = Hex(t_pos[0], t_pos[1])
+                        if not is_dm and fow_active and t_name != self.player_name and not t_data.get("is_party_member", False) and not t_data.get("is_companion", False):
+                            if (t_hex.q, t_hex.r) not in visible and t_hex not in visible:
+                                continue
                         tx, ty = self.hex_layout.hex_to_pixel(t_hex)
                         tsx = tx * self.zoom_level + self.pan_offset_x
                         tsy = ty * self.zoom_level + self.pan_offset_y
@@ -1718,6 +1781,10 @@ class HexMapCanvas(tk.Canvas):
             if is_gm_layer and not is_dm:
                 continue
 
+            # Token nascosto / invisibile dal DM
+            if isinstance(pdata, dict) and pdata.get("is_hidden") and not is_dm:
+                continue
+
             # Tasca dimensionale famiglio / Entità nascosta
             if isinstance(pdata, dict) and pdata.get("in_pocket_dimension"):
                 if not is_dm:
@@ -1739,7 +1806,7 @@ class HexMapCanvas(tk.Canvas):
             sx = cx * self.zoom_level + self.pan_offset_x
             sy = cy * self.zoom_level + self.pan_offset_y
 
-            radius = 12 * size_mult
+            radius = max(6.0, min(120.0, 12 * self.zoom_level * size_mult))
             step_dist = (hex_size * 1.5 if is_square else hex_size * 1.7320508075688772)
             screen_aura_r = (aura_radius * step_dist * self.zoom_level) if aura_radius > 0 else 0
             max_r = max(radius + 20, screen_aura_r + 10)
@@ -1829,8 +1896,13 @@ class HexMapCanvas(tk.Canvas):
 
             if avatar_b64:
                 target_size = max(16, int(radius * 2))
-                cache_key = f"{name}_{hash(avatar_b64[:64])}_{target_size}"
+                b64_sig = f"{len(avatar_b64)}_{hash(avatar_b64[:32] + avatar_b64[-32:])}"
+                cache_key = f"{name}_{b64_sig}_{target_size}"
                 if cache_key not in self._avatar_cache:
+                    if len(self._avatar_cache) > 200:
+                        for _ in range(50):
+                            try: self._avatar_cache.pop(next(iter(self._avatar_cache)))
+                            except Exception: break
                     try:
                         img_bytes = base64.b64decode(avatar_b64)
                         img = Image.open(BytesIO(img_bytes)).convert("RGBA")
@@ -1951,7 +2023,21 @@ class HexMapCanvas(tk.Canvas):
         # 4. Horizontal Initiative Carousel Ribbon (Foundry VTT / D&D Beyond modern style)
         self._initiative_ribbon_bboxes = []
         if getattr(self, "combat_active", False) and getattr(self, "combat_order", None):
-            order = [name for name in self.combat_order if name in self.players_data]
+            is_dm = not bool(getattr(self, "player_name", None))
+            fow_active = getattr(self, 'fow_enabled', False) or (isinstance(getattr(self, 'map_data', None), dict) and self.map_data.get('fow_enabled', False))
+            visible = getattr(self, 'visible_hexes', set()) if fow_active else set()
+            order = []
+            for name in self.combat_order:
+                if name in self.players_data:
+                    pdata = self.players_data[name]
+                    if not is_dm and isinstance(pdata, dict):
+                        if pdata.get("layer", "token") == "gm" or pdata.get("is_hidden", False) or pdata.get("in_pocket_dimension"):
+                            continue
+                        if fow_active and name != self.player_name and not pdata.get("is_party_member", False) and not pdata.get("is_companion", False):
+                            pos = pdata.get("position", [0, 0])
+                            if (pos[0], pos[1]) not in visible and Hex(*pos) not in visible:
+                                continue
+                    order.append(name)
             if order:
                 card_w = 72
                 card_h = 56
@@ -2518,19 +2604,23 @@ class ToastNotification:
     """Notifica non bloccante a scomparsa in stile dark fantasy."""
     _active_toasts = []
 
-    def __init__(self, parent, message, title=None, duration=3500, toast_type="info", icon=None):
+    def __init__(self, parent, message, title=None, duration=3500, toast_type="info", icon=None, color=None):
         self.parent = parent
         self.duration = duration
+        self._after_id = None
         
         type_styles = {
             "info": {"bg": "#1e232a", "fg": "#f0f6fc", "accent": "#d4af37", "icon": icon or "ℹ️"},
+            "secondary": {"bg": "#1e232a", "fg": "#f0f6fc", "accent": "#8b949e", "icon": icon or "📌"},
             "success": {"bg": "#13231b", "fg": "#f0f6fc", "accent": "#2ea043", "icon": icon or "✨"},
             "warning": {"bg": "#2b2111", "fg": "#f0f6fc", "accent": "#d29922", "icon": icon or "⚠️"},
             "danger": {"bg": "#2d1517", "fg": "#f0f6fc", "accent": "#f85149", "icon": icon or "💥"},
             "gold": {"bg": "#252112", "fg": "#f0f6fc", "accent": "#e3b341", "icon": icon or "💰"},
             "loot": {"bg": "#1c222d", "fg": "#f0f6fc", "accent": "#58a6ff", "icon": icon or "🎒"},
         }
-        style = type_styles.get(toast_type, type_styles["info"])
+        style = dict(type_styles.get(toast_type, type_styles["info"]))
+        if color:
+            style["accent"] = color
         
         self.win = tk.Toplevel(parent)
         self.win.overrideredirect(True)
@@ -2565,21 +2655,40 @@ class ToastNotification:
         lbl_msg.pack(anchor="w", pady=(2, 0))
 
         ToastNotification._active_toasts.append(self)
-        self.win.after(self.duration, self.destroy)
+        def _on_toast_destroyed(e=None):
+            if e and getattr(e, "widget", None) != self.win:
+                return
+            if getattr(self, "_after_id", None) is not None:
+                try: self.win.after_cancel(self._after_id)
+                except Exception: pass
+                self._after_id = None
+            if self in ToastNotification._active_toasts:
+                ToastNotification._active_toasts.remove(self)
+        try:
+            self.win.bind("<Destroy>", _on_toast_destroyed, add="+")
+        except Exception:
+            pass
+        self._after_id = self.win.after(self.duration, self.destroy)
 
     def destroy(self):
         if self in ToastNotification._active_toasts:
             ToastNotification._active_toasts.remove(self)
+        if getattr(self, "_after_id", None) is not None:
+            try:
+                self.win.after_cancel(self._after_id)
+            except Exception:
+                pass
+            self._after_id = None
         try:
             self.win.destroy()
         except Exception:
             pass
 
 
-def show_toast(parent, message, title=None, duration=3500, toast_type="info", icon=None):
+def show_toast(parent, message, title=None, duration=3500, toast_type="info", icon=None, color=None):
     """Funzione di utilità per mostrare un toast non bloccante."""
     try:
-        return ToastNotification(parent, message, title=title, duration=duration, toast_type=toast_type, icon=icon)
+        return ToastNotification(parent, message, title=title, duration=duration, toast_type=toast_type, icon=icon, color=color)
     except Exception:
         return None
 
@@ -2667,7 +2776,15 @@ class CommandPaletteDialog(tk.Toplevel):
         self.bind("<Down>", self._on_arrow_down)
         self.bind("<Return>", self._on_enter)
         
-        self.after(50, lambda: self.search_entry.focus_set())
+        self._focus_job = self.after(50, lambda: self.search_entry.focus_set() if self.winfo_exists() else None)
+        def _on_palette_destroyed(e=None):
+            if e and getattr(e, "widget", None) != self:
+                return
+            if getattr(self, "_focus_job", None) is not None:
+                try: self.after_cancel(self._focus_job)
+                except Exception: pass
+                self._focus_job = None
+        self.bind("<Destroy>", _on_palette_destroyed, add="+")
         self._perform_search("")
 
     def _setup_ui(self):
@@ -2824,7 +2941,20 @@ class CommandPaletteDialog(tk.Toplevel):
         # 2. TOKEN SULLA MAPPA
         if self.map_canvas and hasattr(self.map_canvas, "players_data"):
             p_data = self.map_canvas.players_data
+            cur_map = getattr(self.map_canvas, "map_data", {}) or {}
+            fow_enabled = bool(cur_map.get("fow_enabled", False))
+            rev_set = {(h[0], h[1]) for h in cur_map.get("fow_revealed", []) if isinstance(h, (list, tuple)) and len(h) >= 2}
+            my_name = getattr(self.map_canvas, "player_name", None)
+
             for name, data in p_data.items():
+                if not getattr(self, "is_dm", False) and isinstance(data, dict):
+                    if data.get("layer", "token") == "gm" or data.get("is_hidden", False) or data.get("in_pocket_dimension"):
+                        continue
+                    if fow_enabled and name != my_name and not data.get("is_party_member", False) and not data.get("is_companion", False):
+                        pos_t = data.get("position", [0, 0])
+                        if (pos_t[0], pos_t[1]) not in rev_set:
+                            continue
+
                 conds = data.get("conditions", []) if isinstance(data, dict) else []
                 pos = data.get("position", [0, 0]) if isinstance(data, dict) else (data or [0, 0])
                 hp = data.get("hp", "?") if isinstance(data, dict) else "?"
