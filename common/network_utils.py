@@ -177,7 +177,10 @@ def broadcast(game_state, message_data, exclude_player=None):
     if msg_type == "GAME_STATE" and isinstance(message_data.get("data"), dict):
         base_data = message_data["data"]
         raw_players = base_data.get("players", [])
-        filtered_players = [pl for pl in raw_players if pl.get("layer", "token") != "gm"]
+        filtered_players = [
+            pl for pl in raw_players
+            if pl.get("layer", "token") != "gm" and not pl.get("is_hidden", False)
+        ]
         copy_data = dict(base_data)
         copy_data["players"] = filtered_players
         if "map" in copy_data:
@@ -197,19 +200,20 @@ def broadcast(game_state, message_data, exclude_player=None):
         if not getattr(p, "conn", None):
             continue
 
-        # Non inviare aggiornamenti o stats di entità sul GM layer ai client regolari
+        # Non inviare aggiornamenti o stats di entità sul GM layer o nascoste ai client regolari
         if msg_type == "PLAYER_JOINED" and isinstance(message_data.get("data"), dict):
-            if message_data["data"].get("layer", "token") == "gm":
+            p_join = message_data["data"]
+            if p_join.get("layer", "token") == "gm" or (p_join.get("is_hidden", False) and p_join.get("name") != p.name):
                 continue
         elif msg_type == "PLAYER_MOVE" and isinstance(message_data.get("data"), dict):
             mv_name = message_data["data"].get("name")
             target_p = game_state.find_player(mv_name)
-            if target_p and getattr(target_p, "layer", "token") == "gm":
+            if target_p and (getattr(target_p, "layer", "token") == "gm" or (getattr(target_p, "is_hidden", False) and mv_name != p.name)):
                 continue
         elif msg_type == "PLAYER_STATS_UPDATE" and isinstance(message_data.get("data"), dict):
             stat_name = message_data["data"].get("name")
             target_p = game_state.find_player(stat_name)
-            if target_p and getattr(target_p, "layer", "token") == "gm":
+            if target_p and (getattr(target_p, "layer", "token") == "gm" or (getattr(target_p, "is_hidden", False) and stat_name != p.name)):
                 continue
 
         if player_filtered_game_state is not None:

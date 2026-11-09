@@ -181,8 +181,11 @@ def make_dice_roll_result(player_name, formula, reason, result):
     }}
 
 def make_update_stats_request(hp, max_hp, initiative, conditions=None, temp_hp=None, light_radius=None, light_color=None, name=None, elevation=None):
-    if conditions is None: conditions = []
-    d = {"hp": hp, "max_hp": max_hp, "initiative": initiative, "conditions": conditions}
+    if isinstance(hp, str) and not hp.lstrip("-").isdigit() and isinstance(conditions, int):
+        name, hp, max_hp, _ac, initiative, conditions, temp_hp = hp, max_hp, initiative, conditions, temp_hp, None, None
+    d = {"hp": hp, "max_hp": max_hp, "initiative": initiative}
+    if conditions is not None: d["conditions"] = conditions
+    else: d["conditions"] = []
     if temp_hp is not None: d["temp_hp"] = temp_hp
     if light_radius is not None: d["light_radius"] = light_radius
     if light_color is not None: d["light_color"] = light_color

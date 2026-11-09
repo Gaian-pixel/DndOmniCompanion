@@ -7,31 +7,31 @@ import tkinter as tk
 from tkinter import ttk
 import ttkbootstrap as tb
 
-# --- PALETTE DARK FANTASY MODERNA ---
-BG_COLOR = "#121316"           # Carbone profondo di fondo
-SURFACE_COLOR = "#1A1B1E"      # Card ed elementi rialzati
-SURFACE_COLOR_ALT = "#25262B"  # Superfici secondarie / stato hover
-SURFACE_LIGHT = "#2C2E33"      # Card evidenziate / slot
+# --- PALETTE DARK FANTASY MODERNA (Baldur's Gate 3 / Foundry VTT Inspired) ---
+BG_COLOR = "#0D0E12"           # Ossidiana profonda di fondo
+SURFACE_COLOR = "#15171E"      # Ardesia scura / card ed elementi rialzati
+SURFACE_COLOR_ALT = "#1E2029"  # Superfici secondarie / stato hover
+SURFACE_LIGHT = "#272A36"      # Card evidenziate / slot
 
-BORDER_COLOR = "#2C2E33"       # Bordi discreti
-BORDER_SUBTLE = "#373A40"
-BORDER_GOLD = "#A37F2C"        # Bordi rifiniti in oro
+BORDER_COLOR = "#282C37"       # Bordi discreti dark
+BORDER_SUBTLE = "#323745"
+BORDER_GOLD = "#C59B27"        # Bordi rifiniti in oro antico
 
 # Accenti tematici D&D
-ACCENT_GOLD = "#D4AF37"        # Oro classico D&D
-ACCENT_GOLD_LIGHT = "#F59E0B"  # Oro/Ambra accesa
-ACCENT_GOLD_HOVER = "#B89628"  # Oro hover scuro
+ACCENT_GOLD = "#E5C07B"        # Oro antico D&D
+ACCENT_GOLD_LIGHT = "#FAD38D"  # Oro/Ambra accesa
+ACCENT_GOLD_HOVER = "#C9A050"  # Oro hover scuro
 
-ACCENT_RED = "#C92A2A"         # Cremisi / D&D Crimson
-ACCENT_RED_HOVER = "#A61E1E"
+ACCENT_RED = "#E05252"         # Cremisi / D&D Crimson
+ACCENT_RED_HOVER = "#C53939"
 
-ACCENT_GREEN = "#2B8A3E"       # Smeraldo / Salute
-ACCENT_GREEN_HOVER = "#237032"
+ACCENT_GREEN = "#10B981"       # Smeraldo / Salute
+ACCENT_GREEN_HOVER = "#059669"
 
-ACCENT_BLUE = "#1971C2"        # Blu Arcano / Info
-ACCENT_BLUE_HOVER = "#1864AB"
+ACCENT_BLUE = "#38BDF8"        # Blu Arcano / Info
+ACCENT_BLUE_HOVER = "#0284C7"
 
-ACCENT_PURPLE = "#7950F2"      # Viola Mistico / PNG
+ACCENT_PURPLE = "#A855F7"      # Viola Mistico / PNG
 
 # Testo e tipografia
 TEXT_COLOR = "#ECEFF1"         # Bianco morbido leggibile
@@ -51,6 +51,9 @@ FONT_REGULAR = FONT_MAIN                    # Alias di compatibilità per FONT_M
 
 def setup_theme(root):
     """Inizializza e configura globalmente il tema Dark Fantasy."""
+    from common.ui_lifecycle import suppress_tk_bgerror
+    suppress_tk_bgerror(root)
+
     available_themes = tb.Style().theme_names()
     theme_name = "bootstrap-dark" if "bootstrap-dark" in available_themes else "darkly"
     style = tb.Style(theme=theme_name)
@@ -122,9 +125,33 @@ def setup_theme(root):
     style.configure('ToolActive.TButton', font=("Segoe UI", 11, "bold"), background=ACCENT_GOLD, foreground=TEXT_DARK, padding=(4, 4))
     style.map('ToolActive.TButton', background=[('active', ACCENT_GOLD_LIGHT), ('pressed', ACCENT_GOLD_HOVER)])
 
+    # Bottoni HUD Fluttuante VTT (Modern Dark Fantasy)
+    style.configure('Hud.TButton', font=("Segoe UI", 10, "bold"), background=SURFACE_COLOR, foreground=TEXT_COLOR, padding=(6, 4))
+    style.map('Hud.TButton', background=[('active', SURFACE_COLOR_ALT), ('pressed', ACCENT_GOLD)], foreground=[('pressed', TEXT_DARK)])
+    style.configure('HudGold.TButton', font=("Segoe UI", 10, "bold"), background=SURFACE_COLOR_ALT, foreground=ACCENT_GOLD, padding=(6, 4))
+    style.map('HudGold.TButton', background=[('active', ACCENT_GOLD), ('pressed', ACCENT_GOLD_HOVER)], foreground=[('active', TEXT_DARK)])
+    style.configure('HudActive.TButton', font=("Segoe UI", 10, "bold"), background=ACCENT_GOLD, foreground=TEXT_DARK, padding=(6, 4))
+    style.map('HudActive.TButton', background=[('active', ACCENT_GOLD_LIGHT), ('pressed', ACCENT_GOLD_HOVER)])
+
+    # Bottoni Action Economy (Stati Attivo / Speso)
+    style.configure('ActionActive.TButton', font=("Segoe UI", 8, "bold"), background=ACCENT_GREEN, foreground="#FFFFFF", padding=(4, 2))
+    style.map('ActionActive.TButton', background=[('active', ACCENT_GREEN_HOVER)])
+    style.configure('BonusActive.TButton', font=("Segoe UI", 8, "bold"), background="#3B82F6", foreground="#FFFFFF", padding=(4, 2))
+    style.map('BonusActive.TButton', background=[('active', "#2563EB")])
+    style.configure('ReactionActive.TButton', font=("Segoe UI", 8, "bold"), background="#F59E0B", foreground="#FFFFFF", padding=(4, 2))
+    style.map('ReactionActive.TButton', background=[('active', "#D97706")])
+    style.configure('ActionSpent.TButton', font=("Segoe UI", 8), background=SURFACE_COLOR_ALT, foreground=TEXT_MUTED, padding=(4, 2))
+    style.map('ActionSpent.TButton', background=[('active', SURFACE_LIGHT)])
+
     # Bottone Dado Rapido (Quick Roll Pill in chat)
     style.configure('QuickDie.TButton', font=("Segoe UI", 8, "bold"), background=SURFACE_COLOR_ALT, foreground=ACCENT_GOLD, padding=(4, 2), borderwidth=1)
     style.map('QuickDie.TButton', background=[('active', ACCENT_GOLD), ('pressed', ACCENT_GOLD_HOVER)], foreground=[('active', TEXT_DARK)])
+
+    # Hotbar Slot Buttons
+    style.configure('Hotbar.TButton', font=("Segoe UI", 8), background=SURFACE_COLOR_ALT, foreground=TEXT_MUTED, padding=(2, 2))
+    style.map('Hotbar.TButton', background=[('active', SURFACE_LIGHT)])
+    style.configure('HotbarAssigned.TButton', font=("Segoe UI", 8, "bold"), background=SURFACE_COLOR_ALT, foreground=ACCENT_GOLD, padding=(2, 2))
+    style.map('HotbarAssigned.TButton', background=[('active', ACCENT_GOLD), ('pressed', ACCENT_GOLD_HOVER)], foreground=[('active', TEXT_DARK)])
 
     # Slot Inventario
     style.configure('Slot.TButton', background=SURFACE_COLOR, foreground=TEXT_MUTED, padding=(4, 8), bordercolor=BORDER_COLOR)

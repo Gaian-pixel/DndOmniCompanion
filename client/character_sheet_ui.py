@@ -19,7 +19,9 @@ from common.i18n import (
     get_distance_unit, set_distance_unit, convert_speed_value,
     register_language_listener, unregister_language_listener
 )
+from common.ui_lifecycle import safe_after, cancel_all_after_timers
 from components.ui_components import ToolTip
+from client.sheet_panels import VitalsPanel, InventoryPanel, SpellsPanel, CombatPanel
 
 
 def get_item_icon(item):
@@ -368,7 +370,7 @@ class CharacterSheetFrame(ttk.Frame):
 
     def on_language_changed(self, lang_code):
         try:
-            self.after(0, self.refresh_ui_language)
+            safe_after(self, 0, self.refresh_ui_language)
         except Exception:
             pass
 
@@ -494,6 +496,7 @@ class CharacterSheetFrame(ttk.Frame):
             print(f"[character_sheet_ui] Error refreshing UI language: {e}")
 
     def destroy(self):
+        cancel_all_after_timers(self)
         try:
             unregister_language_listener(self.on_language_changed)
         except Exception:
@@ -1908,22 +1911,7 @@ class CharacterSheetFrame(ttk.Frame):
                     if hasattr(self, "currency_vars") and c_code in self.currency_vars:
                         self.currency_vars[c_code].set(self.character.currency[c_code])
     def update_currency_total(self, *args):
-        if not hasattr(self, "currency_vars") or not hasattr(self, "currency_total_lbl"):
-            return
-        try:
-            mr = self.currency_vars.get("MR", tk.IntVar(value=0)).get()
-            ma = self.currency_vars.get("MA", tk.IntVar(value=0)).get()
-            me = self.currency_vars.get("ME", tk.IntVar(value=0)).get()
-            mo = self.currency_vars.get("MO", tk.IntVar(value=0)).get()
-            mp = self.currency_vars.get("MP", tk.IntVar(value=0)).get()
-            total_gp = mo + (mp * 10.0) + (me * 0.5) + (ma * 0.1) + (mr * 0.01)
-            is_it = (get_language() == "it")
-            unit = "MO" if is_it else "gp"
-            self.currency_total_lbl.config(
-                text=f"{_t('sheet_currency_total')}: ≈ {total_gp:.2f} {unit}"
-            )
-        except (ValueError, tk.TclError, KeyError):
-            pass
+        InventoryPanel.update_currency_total(self)
 
     def open_request_currency_dialog(self):
         if not self.is_connected:
@@ -1985,80 +1973,7 @@ class CharacterSheetFrame(ttk.Frame):
         ttk.Button(btn_box, text="Annulla", command=win.destroy).pack(side=tk.RIGHT, padx=4)
 
     def calculate_total_weight(self):
-        if not hasattr(self, 'weight_vars') or not hasattr(self, 'weight_label'):
-            return
-        if getattr(self, '_suppress_weight_sync', False):
-            return
-            
-        from common.starter_equipment import lookup_standard_weight
-        # Sincronizza i pesi inseriti nella UI sugli oggetti
-        slot_limit = min(len(self.character.inventory_grid), len(self.weight_vars))
-        for i in range(slot_limit):
-            item = self.character.inventory_grid[i]
-            if item:
-                try:
-                    w_val = float(self.weight_vars[i].get())
-                    if w_val > 0:
-                        item["weight"] = w_val
-                    elif not item.get("weight") or float(item.get("weight", 0)) == 0:
-                        std_w = lookup_standard_weight(item.get("name", ""))
-                        if std_w > 0:
-                            item["weight"] = std_w
-                            self.weight_vars[i].set(std_w)
-                except (tk.TclError, ValueError):
-                    pass
-
-        enc = self.character.get_encumbrance_status()
-        total = enc["carried_weight"]
-        max_weight = enc["limit_max"]
-        tier = enc["tier"]
-
-        if hasattr(self, 'weight_bar'):
-            self.weight_bar['maximum'] = max(1.0, max_weight)
-            self.weight_bar['value'] = min(max_weight, total)
-
-        enc_text = {
-            "normal": _t("enc_normal"),
-            "encumbered": _t("enc_encumbered"),
-            "heavily_encumbered": _t("enc_heavily_encumbered"),
-            "overloaded": _t("enc_overloaded")
-        }.get(tier, _t("enc_normal"))
-
-        self.weight_label.config(
-            text=f"{_t('sheet_total_weight', current=f'{total:.1f}', max=f'{max_weight:.1f}')}  [{enc_text}]",
-            fg=enc["color"]
-        )
-
-        if hasattr(self, 'weight_details_lbl'):
-            details = []
-            coin_count = sum(int(v or 0) for v in self.character.currency.values() if str(v).isdigit()) if hasattr(self.character, "currency") and isinstance(self.character.currency, dict) else 0
-            coin_lbs = round(coin_count / 50.0, 1)
-            if coin_lbs > 0:
-                details.append(_t("lbl_coins_weight", weight=f"{coin_lbs:.1f}"))
-            
-            if enc.get("backpack_dropped"):
-                details.append(_t("lbl_backpack_ground_weight", weight=f"{enc['backpack_weight']:.1f}"))
-                
-            if enc.get("boh_weight", 0) > 0:
-                details.append(_t("lbl_boh_capacity", cur=f"{enc['boh_weight']:.1f}"))
-                
-            if enc.get("haversack_weight", 0) > 0:
-                details.append(_t("lbl_haversack_capacity", cur=f"{enc['haversack_weight']:.1f}"))
-                
-            if enc.get("mount_weight", 0) > 0:
-                details.append(_t("lbl_mount_capacity", cur=f"{enc['mount_weight']:.1f}"))
-
-            self.weight_details_lbl.config(
-                text=" • ".join(details) if details else ""
-            )
-
-        if hasattr(self, 'btn_drop_backpack') and hasattr(self, 'lbl_backpack_status'):
-            if enc.get("backpack_dropped"):
-                self.btn_drop_backpack.config(text=_t("btn_pickup_backpack"), style="Gold.TButton")
-                self.lbl_backpack_status.config(text=_t("status_backpack_ground"), fg="#F59E0B")
-            else:
-                self.btn_drop_backpack.config(text=_t("btn_drop_backpack"), style="Slot.TButton")
-                self.lbl_backpack_status.config(text=_t("status_backpack_worn"), fg=ACCENT_GREEN)
+        InventoryPanel.calculate_total_weight(self)
 
     def check_attunement(self, changed_idx=None):
         if not hasattr(self, 'attuned_vars'): return
@@ -2070,6 +1985,20 @@ class CharacterSheetFrame(ttk.Frame):
         max_attune = 3
         if "artefice" in char_class or "artificer" in char_class:
             max_attune = 6 if lvl >= 18 else (5 if lvl >= 14 else (4 if lvl >= 10 else 3))
+
+        if changed_idx is not None and 0 <= changed_idx < len(self.attuned_vars) and self.attuned_vars[changed_idx].get():
+            if hasattr(self.character, "inventory_grid") and changed_idx < len(self.character.inventory_grid):
+                cur_it = self.character.inventory_grid[changed_idx]
+                cur_name = str(cur_it.get("name", "")).strip().lower() if isinstance(cur_it, dict) else ""
+                if cur_name:
+                    for idx_i, var_i in enumerate(self.attuned_vars):
+                        if idx_i != changed_idx and var_i.get() and idx_i < len(self.character.inventory_grid):
+                            other_it = self.character.inventory_grid[idx_i]
+                            other_name = str(other_it.get("name", "")).strip().lower() if isinstance(other_it, dict) else ""
+                            if other_name == cur_name:
+                                messagebox.showwarning("Sintonia Duplicata", "Secondo le regole D&D 5e (PHB p. 138), una creatura non può sintonizzarsi con più di una copia dello stesso oggetto magico!")
+                                self.attuned_vars[changed_idx].set(False)
+                                return
 
         if hasattr(self, 'attunement_label'):
             color = ACCENT_RED if attuned_count > max_attune else (ACCENT_GOLD if attuned_count == max_attune else ACCENT_BLUE)
@@ -2087,56 +2016,123 @@ class CharacterSheetFrame(ttk.Frame):
                 if i < len(self.character.inventory_grid) and isinstance(self.character.inventory_grid[i], dict):
                     self.character.inventory_grid[i]["attuned"] = var.get()
 
-        if hasattr(self.character, "get_attunement_bonuses") and hasattr(self, "lbl_attunement_status"):
-            b = self.character.get_attunement_bonuses()
+        self.recalculate_and_refresh_derived_stats()
+
+    def recalculate_and_refresh_derived_stats(self, force_ac_recalc: bool = False):
+        """Ricalcola ed aggiorna in tempo reale tutti i parametri derivati dagli oggetti (CA, Statistiche, TS, Armi, Magia)."""
+        if not hasattr(self, "character") or not self.character:
+            return
+
+        is_loading = getattr(self, "_loading_data", False)
+
+        # 1. Ricalcolo CA
+        mods = getattr(self.character, "get_item_modifiers", lambda: {})()
+        has_defense_items = (
+            mods.get("equipped_armor") is not None or
+            mods.get("has_shield", False) or
+            mods.get("bonus_ac", 0) != 0 or
+            mods.get("special_ac_base") is not None
+        )
+        if has_defense_items or force_ac_recalc or not is_loading:
+            if hasattr(self.character, "recalculate_ac"):
+                new_ac = self.character.recalculate_ac()
+                if hasattr(self, "ac_var"):
+                    self.ac_var.set(new_ac)
+        elif hasattr(self, "ac_var"):
+            self.ac_var.set(getattr(self.character, "ac", 10))
+
+        # 2. Aggiornamento etichette modificatori attributi
+        if hasattr(self, "attr_vars") and hasattr(self, "attr_mod_labels"):
+            for attr, var in self.attr_vars.items():
+                eff_val = getattr(self.character, "get_effective_attribute", lambda a: var.get())(attr)
+                eff_mod = (eff_val - 10) // 2
+                mod_str = f"+{eff_mod}" if eff_mod >= 0 else str(eff_mod)
+                if attr in self.attr_mod_labels:
+                    try:
+                        base_val = int(var.get())
+                    except (ValueError, tk.TclError):
+                        base_val = 10
+                    if eff_val != base_val:
+                        self.attr_mod_labels[attr].config(text=f"{mod_str}★", fg=ACCENT_GOLD)
+                        ToolTip(self.attr_mod_labels[attr], f"Modificatore magico effettivo: {mod_str} (Punteggio: {eff_val})")
+                    else:
+                        self.attr_mod_labels[attr].config(text=mod_str, fg=TEXT_COLOR)
+
+        # 3. Tiri Salvezza & Abilità
+        if hasattr(self, "update_save_modifiers"):
+            self.update_save_modifiers()
+        if hasattr(self, "update_skill_modifiers"):
+            self.update_skill_modifiers()
+
+        # 4. Scheda Armi (TxC e Danni con bonus e attributi effettivi)
+        if hasattr(self, "refresh_weapons_list"):
+            self.refresh_weapons_list()
+
+        # 5. Statistiche Magiche (CD Incantesimi & Attacco Magico)
+        if hasattr(self, "update_spell_stats"):
+            self.update_spell_stats()
+
+        # 6. Carico, Ingombro e Velocità effettiva
+        if hasattr(self, "calculate_total_weight"):
+            self.calculate_total_weight()
+        if hasattr(self, "speed_var") and hasattr(self.character, "get_effective_speed"):
+            eff_spd = self.character.get_effective_speed()
+            self.speed_var.set(str(eff_spd))
+
+        # 7. Riepilogo Bonus Oggetti / Sintonia
+        if hasattr(self, "lbl_attunement_status"):
             parts = []
-            if b.get("bonus_ac", 0) > 0: parts.append(f"+{b['bonus_ac']} CA")
-            if b.get("bonus_saves", 0) > 0: parts.append(f"+{b['bonus_saves']} TS")
-            for s, v in b.get("set_stats", {}).items(): parts.append(f"{s}={v}")
+            if hasattr(self.character, "get_item_modifiers"):
+                mods = self.character.get_item_modifiers()
+                if mods.get("bonus_ac", 0) > 0:
+                    parts.append(f"+{mods['bonus_ac']} CA")
+                if mods.get("bonus_saves", 0) > 0:
+                    parts.append(f"+{mods['bonus_saves']} TS")
+                for s, v in mods.get("set_stats", {}).items():
+                    parts.append(f"{s}={v}")
+                for s, v in mods.get("bonus_stats", {}).items():
+                    parts.append(f"{s}+{v}")
+                if mods.get("bonus_spell_dc", 0) > 0:
+                    parts.append(f"+{mods['bonus_spell_dc']} CD")
+                if mods.get("bonus_speed", 0) > 0:
+                    parts.append(f"+{mods['bonus_speed']}ft Spd")
+            elif hasattr(self.character, "get_attunement_bonuses"):
+                b = self.character.get_attunement_bonuses()
+                if b.get("bonus_ac", 0) > 0: parts.append(f"+{b['bonus_ac']} CA")
+                if b.get("bonus_saves", 0) > 0: parts.append(f"+{b['bonus_saves']} TS")
+                for s, v in b.get("set_stats", {}).items(): parts.append(f"{s}={v}")
+
             if parts:
-                self.lbl_attunement_status.config(text=f"🔮 Bonus: {', '.join(parts)}")
+                self.lbl_attunement_status.config(text=f"🔮 Bonus Attivi: {', '.join(parts)}")
             else:
                 self.lbl_attunement_status.config(text="")
 
+        # 8. Sincronizzazione automatica (solo per modifiche interattive, non in fase di caricamento iniziale)
+        if not is_loading:
+            self._safe_update_character()
+            self._safe_save_characters()
+            if hasattr(self, "_capture_initial_state"):
+                self._capture_initial_state()
+            if getattr(self, "on_save_callback", None):
+                try:
+                    self.on_save_callback(self.character)
+                except Exception:
+                    pass
+            elif getattr(self, "is_connected", False) and getattr(self, "network", None):
+                try:
+                    from common.protocol import make_update_stats_request, make_update_full_sheet_request
+                    self.network.send(make_update_stats_request(
+                        self.character.hp_current,
+                        self.character.hp_max,
+                        self.character.initiative,
+                        getattr(self.character, "conditions", [])
+                    ))
+                    self.network.send(make_update_full_sheet_request(self.character.to_dict()))
+                except Exception:
+                    pass
+
     def update_spell_stats(self):
-        """Aggiorna la testata dinamica degli incantesimi (CD Salvezza, Bonus Attacco, Caratteristica chiave, PB)."""
-        if not hasattr(self, "lbl_spell_dc"):
-            return
-        level = 1
-        try:
-            level = int(self.level_var.get())
-        except (ValueError, AttributeError, tk.TclError):
-            if hasattr(self, "character") and getattr(self.character, "level", None):
-                level = self.character.level
-        level = max(1, level)
-        pb = ((level - 1) // 4) + 2
-
-        char_class = str(getattr(self.character, "char_class", "")).lower() if hasattr(self, "character") else ""
-        subclass = str(getattr(self.character, "subclass", "")).lower() if hasattr(self, "character") else ""
-        
-        stat = "INT"
-        if any(k in char_class for k in ["chierico", "cleric", "druido", "druid", "ranger"]):
-            stat = "SAG"
-        elif any(k in char_class for k in ["bardo", "bard", "paladino", "paladin", "stregone", "sorcerer", "warlock"]):
-            stat = "CAR"
-        elif any(k in char_class for k in ["mago", "wizard", "artefice", "artificer"]) or any(k in subclass for k in ["mistico", "eldritch", "arcane"]):
-            stat = "INT"
-
-        if hasattr(self, "character") and hasattr(self.character, "get_modifier"):
-            mod = self.character.get_modifier(stat)
-        else:
-            try: val = int(self.attr_vars[stat].get())
-            except Exception: val = 10
-            mod = (val - 10) // 2
-
-        dc = 8 + pb + mod
-        atk = pb + mod
-        atk_str = f"+{atk}" if atk >= 0 else str(atk)
-
-        self.lbl_spell_stat.config(text=f"🔮 Caratteristica: {stat} ({'+' if mod >= 0 else ''}{mod})")
-        self.lbl_spell_dc.config(text=f"🎯 CD Salvezza: {dc}")
-        self.lbl_spell_atk.config(text=f"⚔️ Attacco Magico: {atk_str}")
-        self.lbl_spell_pb.config(text=f"⭐ Competenza: +{pb}")
+        SpellsPanel.update_spell_stats(self)
 
     def build_spells_tab(self, parent_frame):
         # Testata Statistiche Magiche D&D 5e RAW (CD Salvezza & Bonus Attacco Incantesimi)
@@ -2205,17 +2201,10 @@ class CharacterSheetFrame(ttk.Frame):
         self.btn_cast_spell.pack(side=tk.RIGHT, padx=5)
 
     def sort_spells(self, col):
-        if not hasattr(self.character, "spellbook"): return
-        self.character.spellbook.sort(key=lambda s: int(s.get("level", 0)))
-        self.refresh_spell_list()
+        SpellsPanel.sort_spells(self, col)
 
     def refresh_spell_list(self):
-        if not hasattr(self, 'spell_tree'): return
-        for item in self.spell_tree.get_children(): self.spell_tree.delete(item)
-        for i, s in enumerate(getattr(self.character, "spellbook", [])):
-            lvl = s.get("level", 0)
-            lvl_str = _t("cantrip") if lvl == 0 else str(lvl)
-            self.spell_tree.insert("", tk.END, iid=str(i), values=(lvl_str, s.get("name", ""), s.get("time", ""), s.get("range", "")))
+        SpellsPanel.refresh_spell_list(self)
 
     def add_spell(self):
         if not self.is_connected:
@@ -2313,6 +2302,8 @@ class CharacterSheetFrame(ttk.Frame):
         btn_frame = ttk.Frame(win)
         btn_frame.pack(fill=tk.X, pady=10)
         
+        spell_stats = SpellsPanel.calculate_spell_stats(self.character) if hasattr(self, "character") else {"dc": 10, "attack_bonus": 2, "attack_str": "+2"}
+
         def do_cast():
             lvl = int(spell.get('level', 0))
             cast_level = lvl
@@ -2349,28 +2340,35 @@ class CharacterSheetFrame(ttk.Frame):
             self.manager.update_character(self.character)
             if hasattr(self.manager, 'save_characters'):
                 self.manager.save_characters()
+            if hasattr(self, "_capture_initial_state"):
+                self._capture_initial_state()
             if hasattr(self, "on_save_callback") and self.on_save_callback:
                 try: self.on_save_callback(self.character)
                 except Exception: pass
 
             if self.roll_callback:
                 upcast_info = f" (Potenziato al Livello {cast_level}!)" if cast_level > lvl else ""
-                chat_msg = f"{self.character.name} lancia {spell.get('name', '')}{upcast_info}!{conc_info}"
+                stats_tag = f" [CD Incantesimi: {spell_stats.get('dc', 10)} | Attacco Magico: {spell_stats.get('attack_str', '+2')}]"
+                chat_msg = f"{self.character.name} lancia {spell.get('name', '')}{upcast_info}!{stats_tag}{conc_info}"
                 self.roll_callback("0d0", chat_msg)
             win.destroy()
 
             
         def do_attack():
-            if not getattr(self, 'attack_callback', None): return
-            hit_bonus_str = tk.simpledialog.askstring("Bonus Colpire", "Inserisci bonus per colpire (es. 5):", parent=win)
-            if not hit_bonus_str: return
+            default_hit = str(spell_stats.get("attack_bonus", 0))
+            hit_bonus_str = tk.simpledialog.askstring("Bonus Colpire", "Inserisci bonus per colpire (es. 5):", initialvalue=default_hit, parent=win)
+            if hit_bonus_str is None: return
             try: hit_bonus = int(hit_bonus_str)
-            except (ValueError, TypeError): hit_bonus = 0
+            except (ValueError, TypeError): hit_bonus = int(spell_stats.get("attack_bonus", 0))
             
             dmg_str = tk.simpledialog.askstring("Danno", "Inserisci formula danno (es. 1d8+3):", parent=win)
             if not dmg_str: return
             
-            self.attack_callback(spell.get('name', ''), hit_bonus, dmg_str)
+            if getattr(self, 'attack_callback', None):
+                self.attack_callback(spell.get('name', ''), hit_bonus, dmg_str)
+            elif getattr(self, 'roll_callback', None):
+                sign = f"+{hit_bonus}" if hit_bonus >= 0 else str(hit_bonus)
+                self.roll_callback(f"1d20{sign}", f"Attacco Incantesimo {spell.get('name', '')} (Danno: {dmg_str})")
             win.destroy()
 
         ttk.Button(btn_frame, text="Lancia in Chat", command=do_cast).pack(side=tk.LEFT, padx=10)
@@ -2468,24 +2466,24 @@ class CharacterSheetFrame(ttk.Frame):
                     desc_list = spell_data.get("desc", [])
                     desc = "\n".join(desc_list) if isinstance(desc_list, list) else str(desc_list)
                     
-                    self.after(0, lambda: self._handle_found_spell(name, level, time, rng, desc))
+                    safe_after(self, 0, lambda: self._handle_found_spell(name, level, time, rng, desc))
                 else:
                     from common.srd_offline import search_spells_offline
                     local_hits = search_spells_offline(query_clean)
                     if local_hits:
                         sp = local_hits[0]
-                        self.after(0, lambda: self._handle_found_spell(sp["name"], sp["level"], sp["time"], sp["range"], sp["desc"]))
+                        safe_after(self, 0, lambda: self._handle_found_spell(sp["name"], sp["level"], sp["time"], sp["range"], sp["desc"]))
                     else:
-                        self.after(0, lambda: messagebox.showinfo("Nessun risultato", f"Incantesimo '{query}' non trovato nei manuali, nell'SRD locale o online."))
+                        safe_after(self, 0, lambda: messagebox.showinfo("Nessun risultato", f"Incantesimo '{query}' non trovato nei manuali, nell'SRD locale o online."))
             except Exception:
                 # Fallback trasparente offline su srd_data/open5e_spells.json
                 from common.srd_offline import search_spells_offline
                 local_hits = search_spells_offline(query_clean)
                 if local_hits:
                     sp = local_hits[0]
-                    self.after(0, lambda: self._handle_found_spell(sp["name"], sp["level"], sp["time"], sp["range"], sp["desc"]))
+                    safe_after(self, 0, lambda: self._handle_found_spell(sp["name"], sp["level"], sp["time"], sp["range"], sp["desc"]))
                 else:
-                    self.after(0, lambda: messagebox.showinfo("Nessun risultato", f"Incantesimo '{query}' non trovato nei manuali o nell'SRD locale (offline)."))
+                    safe_after(self, 0, lambda: messagebox.showinfo("Nessun risultato", f"Incantesimo '{query}' non trovato nei manuali o nell'SRD locale (offline)."))
                 
         threading.Thread(target=fetch_spell, daemon=True).start()
 
@@ -2661,6 +2659,7 @@ class CharacterSheetFrame(ttk.Frame):
                     
         self.refresh_spell_list()
         self.refresh_inventory_grid()
+        self.recalculate_and_refresh_derived_stats()
         self.refresh_weapons_list()
         self.update_inspiration_ui()
         self.update_exp_ui()
@@ -2749,6 +2748,7 @@ class CharacterSheetFrame(ttk.Frame):
     def set_container_filter(self, container_key: str):
         self.current_container_filter = container_key
         self.refresh_inventory_grid()
+        self.recalculate_and_refresh_derived_stats()
 
     def refresh_inventory_grid(self):
         backpack_dropped = getattr(self.character, "backpack_dropped", False)
@@ -3052,6 +3052,7 @@ class CharacterSheetFrame(ttk.Frame):
             self.manager.save_characters()
             
         self.refresh_inventory_grid()
+        self.recalculate_and_refresh_derived_stats()
         self.refresh_weapons_list()
         
         if self.is_connected and getattr(self, "network", None):
@@ -3126,6 +3127,7 @@ class CharacterSheetFrame(ttk.Frame):
         self._safe_save_characters()
             
         self.refresh_inventory_grid()
+        self.recalculate_and_refresh_derived_stats()
         self.refresh_weapons_list()
         
         if self.is_connected and getattr(self, "network", None):
@@ -3160,6 +3162,7 @@ class CharacterSheetFrame(ttk.Frame):
             self.manager.save_characters()
             
         self.refresh_inventory_grid()
+        self.recalculate_and_refresh_derived_stats()
         
         if self.is_connected and getattr(self, "network", None):
             from common.protocol import make_update_full_sheet_request
@@ -3435,6 +3438,7 @@ class CharacterSheetFrame(ttk.Frame):
             if hasattr(self.manager, 'save_characters'):
                 self.manager.save_characters()
             self.refresh_inventory_grid()
+            self.recalculate_and_refresh_derived_stats()
             win.destroy()
             messagebox.showinfo("Oggetto Creato", f"'{nm}' aggiunto allo slot #{target_idx+1}!")
             
@@ -3534,12 +3538,25 @@ class CharacterSheetFrame(ttk.Frame):
         
         def save_item():
             if attune_var.get() and not item.get("attuned", False):
+                char_class = str(getattr(self.character, "char_class", "")).lower() if hasattr(self, "character") else ""
+                lvl = int(getattr(self.character, "level", 1) or 1) if hasattr(self, "character") else 1
+                max_attune = 3
+                if "artefice" in char_class or "artificer" in char_class:
+                    max_attune = 6 if lvl >= 18 else (5 if lvl >= 14 else (4 if lvl >= 10 else 3))
+
+                cur_name = str(item.get("name", "")).strip().lower()
+                for idx_i, it_i in enumerate(self.character.inventory_grid):
+                    if it_i and idx_i != idx and it_i.get("attuned", False):
+                        if cur_name and str(it_i.get("name", "")).strip().lower() == cur_name:
+                            messagebox.showwarning("Sintonia Duplicata", "Secondo le regole D&D 5e (PHB p. 138), una creatura non può sintonizzarti con più di una copia dello stesso oggetto magico!", parent=win)
+                            return
+
                 current_attuned = sum(
                     1 for idx_i, it_i in enumerate(self.character.inventory_grid)
                     if it_i and idx_i != idx and it_i.get("attuned", False)
                 )
-                if current_attuned >= 3:
-                    messagebox.showwarning("Limite Sintonia", "Non puoi sintonizzarti con più di 3 oggetti magici contemporaneamente!", parent=win)
+                if current_attuned >= max_attune:
+                    messagebox.showwarning("Limite Sintonia", f"Non puoi sintonizzarti con più di {max_attune} oggetti magici contemporaneamente!", parent=win)
                     return
             item["qty"] = initial_qty
             item["attuned"] = attune_var.get()
@@ -3552,6 +3569,7 @@ class CharacterSheetFrame(ttk.Frame):
                     break
             item["container"] = c_code
             self.refresh_inventory_grid()
+            self.recalculate_and_refresh_derived_stats()
             self._safe_update_character()
             self._safe_save_characters()
             win.destroy()
@@ -3608,6 +3626,7 @@ class CharacterSheetFrame(ttk.Frame):
                 else:
                     item["qty"] = item_qty - donate_qty
                 self.refresh_inventory_grid()
+                self.recalculate_and_refresh_derived_stats()
                 self.manager.update_character(self.character)
                 if hasattr(self.manager, 'save_characters'):
                     self.manager.save_characters()
@@ -3731,6 +3750,7 @@ class CharacterSheetFrame(ttk.Frame):
             self.manager.save_characters()
             
         self.refresh_inventory_grid()
+        self.recalculate_and_refresh_derived_stats()
         self.calculate_total_weight()
         
         char_name = getattr(self.character, "name", "Eroe")
@@ -3934,7 +3954,10 @@ class CharacterSheetFrame(ttk.Frame):
     def roll_stat(self, stat_name, stat_val):
         if not self.roll_callback: return
         try:
-            val = int(stat_val)
+            if hasattr(self, "character") and hasattr(self.character, "get_effective_attribute"):
+                val = self.character.get_effective_attribute(stat_name)
+            else:
+                val = int(stat_val)
             mod = (val - 10) // 2
             mod_str = f"+{mod}" if mod >= 0 else str(mod)
             
@@ -3953,8 +3976,11 @@ class CharacterSheetFrame(ttk.Frame):
     def roll_skill(self, skill_name, stat_name):
         if not self.roll_callback: return
         try:
-            stat_val = int(self.attr_vars[stat_name].get())
-            stat_mod = (stat_val - 10) // 2
+            if hasattr(self, "character") and hasattr(self.character, "get_modifier"):
+                stat_mod = self.character.get_modifier(stat_name)
+            else:
+                stat_val = int(self.attr_vars[stat_name].get())
+                stat_mod = (stat_val - 10) // 2
             
             prof_level = self.skill_vars[skill_name].get()
             level = 1
@@ -3964,7 +3990,15 @@ class CharacterSheetFrame(ttk.Frame):
                 level = getattr(self.character, "level", 1) or 1
             prof_bonus = ((max(1, int(level)) - 1) // 4) + 2
             
-            total_mod = stat_mod + (prof_bonus * prof_level)
+            char_class = str(getattr(self.character, "char_class", "")).lower() if hasattr(self, "character") else ""
+            is_bard_jack = ("bardo" in char_class or "bard" in char_class) and int(level) >= 2
+
+            if prof_level > 0:
+                total_mod = stat_mod + (prof_bonus * prof_level)
+            elif is_bard_jack:
+                total_mod = stat_mod + (prof_bonus // 2)
+            else:
+                total_mod = stat_mod
             mod_str = f"+{total_mod}" if total_mod >= 0 else str(total_mod)
             
             formula = f"1d20{mod_str}"
@@ -4010,201 +4044,13 @@ class CharacterSheetFrame(ttk.Frame):
             pass
 
     def short_rest(self):
-        hd_cur = getattr(self.character, "hit_dice_current", 0)
-        win = tk.Toplevel(self)
-        win.transient(self)
-        win.grab_set()
-        apply_modern_window_style(win)
-        win.title("❤️ Riposo Breve - Spesa Dadi Vita 5e")
-        win.minsize(440, 480)
-
-        container = tk.Frame(win, bg=BG_COLOR, padx=16, pady=12)
-        container.pack(fill=tk.BOTH, expand=True)
-
-        tk.Label(container, text=f"❤️ {_t('sheet_short_rest')} (5e)", font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w")
-        tk.Label(container, text=_t("sheet_short_rest_subtitle"), font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 10))
-
-        # Status frame
-        st_frame = tk.Frame(container, bg=SURFACE_COLOR, padx=12, pady=10, highlightbackground=BORDER_COLOR, highlightthickness=1)
-        st_frame.pack(fill=tk.X, pady=(0, 10))
-
-        lbl_hp = tk.Label(st_frame, text=f"Punti Ferita: {self.character.hp_current} / {self.character.hp_max}", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR)
-        lbl_hp.pack(anchor="w")
-
-        # HP Bar
-        bar_bg = tk.Frame(st_frame, bg="#111827", height=12)
-        bar_bg.pack(fill=tk.X, pady=(4, 8))
-        ratio = max(0.0, min(1.0, self.character.hp_current / max(1, self.character.hp_max)))
-        bar_fill = tk.Frame(bar_bg, bg=ACCENT_GREEN if ratio > 0.5 else ("#F59E0B" if ratio > 0.25 else ACCENT_RED), height=12)
-        bar_fill.place(x=0, y=0, relwidth=ratio, relheight=1.0)
-
-        cos_mod = (int(self.character.attributes.get("COS", 10)) - 10) // 2
-        cos_str = f"+{cos_mod}" if cos_mod >= 0 else str(cos_mod)
-        lbl_hd = tk.Label(st_frame, text=f"🎲 Dadi Vita: {self.character.hit_dice_current} / {self.character.hit_dice_total} ({self.character.hit_dice_type})  |  COS: {cos_str}", font=FONT_SMALL, bg=SURFACE_COLOR, fg=ACCENT_GOLD)
-        lbl_hd.pack(anchor="w")
-
-        # Roll Log
-        tk.Label(container, text=_t("sheet_short_rest_log"), font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w", pady=(4, 2))
-        log_box = tk.Text(container, height=8, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=("Consolas", 9), relief=tk.FLAT, padx=8, pady=6)
-        log_box.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-        log_box.insert(tk.END, "Inizio riposo breve. Clicca su 'Tira 1 Dado Vita' per curarti.\n")
-        log_box.config(state=tk.DISABLED)
-
-        spent_dice = []
-
-        def update_dialog_ui():
-            lbl_hp.config(text=f"Punti Ferita: {self.character.hp_current} / {self.character.hp_max}")
-            r = max(0.0, min(1.0, self.character.hp_current / max(1, self.character.hp_max)))
-            c = ACCENT_GREEN if r > 0.5 else ("#F59E0B" if r > 0.25 else ACCENT_RED)
-            bar_fill.config(bg=c)
-            bar_fill.place(x=0, y=0, relwidth=r, relheight=1.0)
-            lbl_hd.config(text=f"🎲 Dadi Vita: {self.character.hit_dice_current} / {self.character.hit_dice_total} ({self.character.hit_dice_type})  |  COS: {cos_str}")
-            self.hp_cur_var.set(self.character.hp_current)
-            if self.character.hit_dice_current <= 0 or self.character.hp_current >= self.character.hp_max:
-                btn_roll_one.config(state=tk.DISABLED)
-                btn_roll_all.config(state=tk.DISABLED)
-
-        def log_msg(msg_text):
-            log_box.config(state=tk.NORMAL)
-            log_box.insert(tk.END, msg_text + "\n")
-            log_box.see(tk.END)
-            log_box.config(state=tk.DISABLED)
-
-        def roll_one():
-            if self.character.hit_dice_current <= 0:
-                messagebox.showinfo("Dadi Esauriti", "Non hai più Dadi Vita da spendere.", parent=win)
-                return
-            if self.character.hp_current >= self.character.hp_max:
-                messagebox.showinfo("PF al Massimo", "I tuoi Punti Ferita sono già al massimo!", parent=win)
-                return
-            res = self.character.spend_hit_die_single()
-            if res.get("success"):
-                spent_dice.append(res)
-                log_msg(f"• Tiro {len(spent_dice)}: {res['die']} ({res['roll']}) {cos_str} COS = +{res['healed']} PF (PF: {res['hp_current']}/{res['hp_max']})")
-                update_dialog_ui()
-
-        def roll_all():
-            while self.character.hit_dice_current > 0 and self.character.hp_current < self.character.hp_max:
-                res = self.character.spend_hit_die_single()
-                if res.get("success"):
-                    spent_dice.append(res)
-                    log_msg(f"• Tiro {len(spent_dice)}: {res['die']} ({res['roll']}) {cos_str} COS = +{res['healed']} PF (PF: {res['hp_current']}/{res['hp_max']})")
-            update_dialog_ui()
-
-        def finish_rest():
-            if not hasattr(self.character, "class_resources") or not isinstance(self.character.class_resources, dict):
-                self.character.class_resources = {}
-            self.character.class_resources["second_wind"] = True
-            self.character.class_resources["action_surge"] = True
-            for res in getattr(self.character, "custom_resources", []):
-                if isinstance(res, dict) and res.get("reset_on") == "short":
-                    res["current"] = res.get("max", 0)
-            c_class = str(getattr(self.character, "char_class", "")).strip().lower()
-            if "warlock" in c_class:
-                for lvl, slot in getattr(self.character, "spell_slots", {}).items():
-                    if isinstance(slot, dict) and "current" in slot:
-                        slot["current"] = slot.get("max", 0)
-                        if hasattr(self, "slot_vars") and str(lvl) in self.slot_vars:
-                            v = self.slot_vars[str(lvl)]
-                            if isinstance(v, dict) and "current" in v:
-                                v["current"].set(slot["current"])
-                            elif hasattr(v, "set"):
-                                v.set(slot["current"])
-            
-            self.manager.update_character(self.character)
-            if hasattr(self, "on_save_callback") and self.on_save_callback:
-                try: self.on_save_callback(self.character)
-                except Exception: pass
-                
-            tot_healed = sum(d.get("healed", 0) for d in spent_dice)
-            if self.roll_callback:
-                chat_msg = f"[RIPOSO BREVE] {self.character.name} conclude il riposo breve. Dadi spesi: {len(spent_dice)}. PF recuperati: +{tot_healed} (PF attuali: {self.character.hp_current}/{self.character.hp_max}, Dadi rimasti: {self.character.hit_dice_current}/{self.character.hit_dice_total})."
-                self.roll_callback("0d0", chat_msg)
-            win.destroy()
-
-        btn_row = tk.Frame(container, bg=BG_COLOR)
-        btn_row.pack(fill=tk.X, pady=(4, 0))
-
-        btn_roll_one = ttk.Button(btn_row, text=_t("sheet_short_rest_roll_hd"), command=roll_one, style="Gold.TButton")
-        btn_roll_one.pack(side=tk.LEFT, padx=(0, 6))
-
-        btn_roll_all = ttk.Button(btn_row, text=_t("sheet_short_rest_spend_all"), command=roll_all)
-        btn_roll_all.pack(side=tk.LEFT, padx=(0, 6))
-
-        btn_finish = ttk.Button(btn_row, text=_t("sheet_short_rest_finish"), command=finish_rest)
-        btn_finish.pack(side=tk.RIGHT)
-        win.protocol("WM_DELETE_WINDOW", finish_rest)
-
+        VitalsPanel.short_rest(self)
 
     def long_rest(self):
-        if hasattr(self, 'long_rest_callback') and self.long_rest_callback:
-            self.long_rest_callback()
-        else:
-            if messagebox.askyesno("Riposo Lungo", "Effettuare un riposo lungo?"):
-                self.character.long_rest()
-                self.load_data()
-                self.manager.update_character(self.character)
-                if hasattr(self, "on_save_callback") and self.on_save_callback:
-                    try: self.on_save_callback(self.character)
-                    except Exception: pass
-                messagebox.showinfo("Riposo Lungo", "Hai effettuato un riposo lungo! HP, Dadi Vita, Tiri contro la Morte e Slot Incantesimo sono stati recuperati.")
+        VitalsPanel.long_rest(self)
 
     def roll_death_save(self):
-        import random
-        roll = random.randint(1, 20)
-        if not hasattr(self.character, "death_saves"):
-            self.character.death_saves = {"successes": 0, "failures": 0}
-            
-        succ = self.character.death_saves.get("successes", 0)
-        fail = self.character.death_saves.get("failures", 0)
-        conds = getattr(self.character, "conditions", [])
-        
-        flavor = ""
-        if roll == 1:
-            fail += 2
-            flavor = "💀 FALLIMENTO CRITICO (1 Naturale)! (2 fallimenti)"
-        elif roll <= 9:
-            fail += 1
-            flavor = "❌ Fallimento."
-        elif roll <= 19:
-            succ += 1
-            flavor = "✅ Successo."
-        elif roll == 20:
-            self.character.hp_current = 1
-            self.hp_cur_var.set(1)
-            succ = 0
-            fail = 0
-            if "Incosciente" in conds:
-                conds.remove("Incosciente")
-            flavor = "🌟 SUCCESSO CRITICO (20 Naturale)! Ti risvegli con 1 HP."
-
-        if roll != 20:
-            succ = min(3, succ)
-            fail = min(3, fail)
-            if fail >= 3:
-                if "Morto" not in conds:
-                    conds.append("Morto")
-                flavor += " 💀 Sei MORTO!"
-            elif succ >= 3:
-                if "Stabilizzato" not in conds:
-                    conds.append("Stabilizzato")
-                flavor += " 🩹 Ti sei STABILIZZATO!"
-
-        self.character.conditions = conds
-        self.character.death_saves["successes"] = succ
-        self.character.death_saves["failures"] = fail
-        self.update_death_saves_ui()
-        self.manager.update_character(self.character)
-        if hasattr(self, "on_save_callback") and self.on_save_callback:
-            try: self.on_save_callback(self.character)
-            except Exception: pass
-            
-        if self.roll_callback:
-            chat_msg = f"💀 Tiro contro la Morte di {self.character.name}: [d20: {roll}] -> {flavor} (Successi: {succ}/3 | Fallimenti: {fail}/3)"
-            self.roll_callback("0d0", chat_msg)
-
-        msg = f"Tiro 1d20: {roll}. {flavor}\n(Successi: {succ}/3 | Fallimenti: {fail}/3)"
-        messagebox.showinfo("Tiro contro la Morte", msg, parent=self)
+        VitalsPanel.roll_death_save(self)
 
     def update_dynamic_stats(self):
         self.hp_cur_var.set(self.character.hp_current)
@@ -4314,94 +4160,28 @@ class CharacterSheetFrame(ttk.Frame):
         self.refresh_weapons_list()
 
     def refresh_weapons_list(self):
-        if not hasattr(self, 'weapons_cards_frame'): return
-        for child in self.weapons_cards_frame.winfo_children():
-            child.destroy()
-            
-        weapons = getattr(self.character, "weapons", [])
-        if not weapons:
-            empty_lbl = tk.Label(self.weapons_cards_frame, text=_t("sheet_weapons_empty"), font=FONT_MAIN, bg=BG_COLOR, fg=TEXT_MUTED, pady=25)
-            empty_lbl.pack(fill=tk.X)
-            return
-            
-        for i, w in enumerate(weapons):
-            card = tk.Frame(self.weapons_cards_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
-            card.pack(fill=tk.X, pady=4, padx=4)
-            
-            stat_key = w.get("ability", "FOR")
-            prop_str = str(w.get("properties", "")).lower()
-            name_str = str(w.get("name", "")).lower()
-            is_finesse = "accurat" in prop_str or "finesse" in prop_str or any(fn in name_str for fn in ["stocco", "rapier", "pugnale", "dagger", "scimitarra", "scimitar", "frusta", "whip"])
-            if is_finesse and stat_key in ("FOR", "DES"):
-                for_val = self.character.attributes.get("FOR", 10)
-                des_val = self.character.attributes.get("DES", 10)
-                stat_key = "DES" if des_val >= for_val else "FOR"
-            stat_val = self.character.attributes.get(stat_key, 10)
-            mod = (stat_val - 10) // 2
-            char_lvl = getattr(self.character, "level", 1) or 1
-            calc_pb = ((max(1, int(char_lvl)) - 1) // 4) + 2
-            prof_bonus = calc_pb if w.get("proficient", True) else 0
-            w_bonus = w.get("bonus", 0)
-            total_txc = mod + prof_bonus + w_bonus
-            txc_str = f"+{total_txc}" if total_txc >= 0 else str(total_txc)
-            
-            dmg_mod = mod + w_bonus
-            dmg_mod_str = f"+{dmg_mod}" if dmg_mod > 0 else (str(dmg_mod) if dmg_mod < 0 else "")
-            dice = w.get("damage_dice", "1d8")
-            dmg_formula = f"{dice}{dmg_mod_str}"
-            dmg_str = f"{dmg_formula} {w.get('damage_type', '')}"
-            
-            r1 = tk.Frame(card, bg=SURFACE_COLOR)
-            r1.pack(fill=tk.X)
-            name_lbl = tk.Label(r1, text=w.get("name", "Arma"), font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD)
-            name_lbl.pack(side=tk.LEFT)
-            type_lbl = tk.Label(r1, text=f"• {w.get('type', '')}", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
-            type_lbl.pack(side=tk.LEFT, padx=6)
-            
-            prof_badge = "Competente" if w.get("proficient", True) else "Non Comp."
-            r2 = tk.Frame(card, bg=SURFACE_COLOR)
-            r2.pack(fill=tk.X, pady=(2, 4))
-            tk.Label(r2, text=f"Modificatore: {stat_key} ({mod:+d}) | {prof_badge} (+{prof_bonus}) | Magico: +{w_bonus}", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(side=tk.LEFT)
-            
-            r3 = tk.Frame(card, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=4)
-            r3.pack(fill=tk.X, pady=(2, 6))
-            tk.Label(r3, text=f"TxC: {txc_str}", font=("Georgia", 11, "bold"), bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(side=tk.LEFT, padx=(0, 15))
-            tk.Label(r3, text=f"Danno: {dmg_str}", font=("Georgia", 11, "bold"), bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).pack(side=tk.LEFT)
-            
-            ammo_item, ammo_idx = self.character.find_ammunition(w.get("name", ""))
-            if ammo_item:
-                ammo_lbl = tk.Label(r3, text=f"🏹 Munizioni: {ammo_item.get('qty', 0)}x {ammo_item.get('name')}", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD)
-                ammo_lbl.pack(side=tk.RIGHT, padx=4)
-            
-            r4 = tk.Frame(card, bg=SURFACE_COLOR)
-            r4.pack(fill=tk.X)
-            
-            if ammo_item:
-                btn_ammo = ttk.Button(r4, text=f"🏹 -1 {ammo_item.get('name')}", command=lambda a_idx=ammo_idx: self.spend_consumable(a_idx, 1), style="Gold.TButton")
-                btn_ammo.pack(side=tk.LEFT, padx=(0, 4))
-            
-            if getattr(self, "attack_callback", None):
-                btn_target = ttk.Button(r4, text=f"🎯 Bersaglio ({txc_str})", command=lambda weapon=w, txc=total_txc, dmg=dmg_formula: self.execute_targeted_attack(weapon, txc, dmg), style="Gold.TButton")
-                btn_target.pack(side=tk.LEFT, padx=(0, 4))
-                btn_attack = ttk.Button(r4, text="🎲 Tira TxC", command=lambda weapon=w, txc=total_txc: self.execute_weapon_attack(weapon, txc), style="Primary.TButton")
-                btn_attack.pack(side=tk.LEFT, padx=(0, 4))
-            else:
-                btn_attack = ttk.Button(r4, text=f"🎯 Colpisci ({txc_str})", command=lambda weapon=w, txc=total_txc: self.execute_weapon_attack(weapon, txc), style="Gold.TButton")
-                btn_attack.pack(side=tk.LEFT, padx=(0, 4))
-            
-            btn_damage = ttk.Button(r4, text="💥 Danno", command=lambda weapon=w, dmod=dmg_mod: self.execute_weapon_damage(weapon, dmod), style="Primary.TButton")
-            btn_damage.pack(side=tk.LEFT, padx=(0, 4))
-            
-            btn_del = ttk.Button(r4, text="🗑️", width=3, command=lambda idx=i: self.remove_weapon(idx))
-            btn_del.pack(side=tk.RIGHT)
-
-            btn_edit = ttk.Button(r4, text="✏️", width=3, command=lambda weapon=w, idx=i: self.open_edit_weapon_dialog(weapon, idx))
-            btn_edit.pack(side=tk.RIGHT, padx=(0, 4))
+        CombatPanel.refresh_weapons_list(self)
 
     def execute_targeted_attack(self, weapon, total_txc, dmg_str):
         if getattr(self, "attack_callback", None):
             w_name = weapon.get("name", "Arma")
             d_type = weapon.get("damage_type", "Tagliente")
+            if hasattr(self, "character") and hasattr(self.character, "find_ammunition"):
+                ammo_item, _ = self.character.find_ammunition(w_name, include_empty=True)
+                if ammo_item:
+                    a_name = ammo_item.get("name", "Munizione")
+                    try:
+                        a_qty = int(ammo_item.get("qty", 1))
+                    except (ValueError, TypeError):
+                        a_qty = 1
+                    if a_qty <= 0:
+                        messagebox.showwarning("Munizioni Esaurite", f"⚠️ Non hai più {a_name} nello zaino per attaccare con {w_name}!", parent=self)
+                        return
+                    ammo_item["qty"] = a_qty - 1
+                    self._safe_save_characters()
+                    self.refresh_inventory_grid()
+                    self.recalculate_and_refresh_derived_stats()
+                    self.refresh_weapons_list()
             self.attack_callback(w_name, total_txc, dmg_str, d_type)
         else:
             self.execute_weapon_attack(weapon, total_txc)
@@ -4513,6 +4293,7 @@ class CharacterSheetFrame(ttk.Frame):
                 ammo_note = f"\n🏹 Consumata 1x {a_name} (Rimanenti nello zaino: {ammo_item['qty']})."
                 self.manager.save_characters()
                 self.refresh_inventory_grid()
+                self.recalculate_and_refresh_derived_stats()
                 self.refresh_weapons_list()
                 if self.is_connected and getattr(self, "network", None):
                     from common.protocol import make_update_full_sheet_request, make_chat_message

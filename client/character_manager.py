@@ -181,6 +181,13 @@ class Character:
         self.starting_kit_applied = False
         self.campaign_starter_received = False
         self.saving_throw_proficiencies = []
+        self.subrace = ""
+        self.origin_place = ""
+        self.half_elf_bonuses = []
+        self.has_darkvision = None
+        self.senses = ""
+        self.traits = []
+        self.inspiration = False
 
     def short_rest(self, hd_to_spend=1):
         """Spende Dadi Vita (XdY + Mod COS) per recuperare HP e ricarica i privilegi da riposo breve."""
@@ -189,11 +196,7 @@ class Character:
             actual_spend = min(hd_to_spend, self.hit_dice_current)
             self.hit_dice_current -= actual_spend
         
-        cos_val = self.attributes.get("COS", 10)
-        try:
-            cos_mod = (int(cos_val) - 10) // 2
-        except (ValueError, TypeError):
-            cos_mod = 0
+        cos_mod = self.get_modifier("COS")
             
         die_str = str(self.hit_dice_type).lower().replace("d", "")
         sides = int(die_str) if die_str.isdigit() else 8
@@ -202,7 +205,7 @@ class Character:
         import random
         for _ in range(actual_spend):
             roll = random.randint(1, sides)
-            total = max(0, roll + cos_mod)
+            total = max(1, roll + cos_mod)
             recovered += total
             
         self.hp_current = min(self.hp_max, self.hp_current + recovered)
@@ -303,157 +306,61 @@ class Character:
             if lvl >= 17:
                 self.custom_resources.append({"name": "Arcanum Mistico (9° liv)", "current": 1, "max": 1, "reset_on": "long"})
 
+    def get_item_modifiers(self):
+        """Calcola tutti i modificatori passivi derivanti dagli oggetti (equipaggiati e sintonizzati) secondo D&D 5e RAW."""
+        from common.item_modifiers import calculate_character_item_modifiers
+        return calculate_character_item_modifiers(self)
+
     def get_attunement_bonuses(self):
-        """Calcola i modificatori passivi derivanti dagli oggetti attualmente sintonizzati (🔮 max 3, fino a 6 per Artefice)."""
-        bonuses = {
-            "bonus_ac": 0,
-            "bonus_saves": 0,
-            "bonus_stats": {},
-            "set_stats": {}
+        """Calcola i modificatori passivi derivanti dagli oggetti sintonizzati (retrocompatibilità)."""
+        mods = self.get_item_modifiers()
+        return {
+            "bonus_ac": mods.get("bonus_ac", 0),
+            "bonus_saves": mods.get("bonus_saves", 0),
+            "bonus_stats": mods.get("bonus_stats", {}),
+            "set_stats": mods.get("set_stats", {})
         }
-        
-        char_cls = str(getattr(self, "char_class", "")).lower()
-        level = int(getattr(self, "level", 1) or 1)
-        max_attune = 3
-        if "artefice" in char_cls or "artificer" in char_cls:
-            max_attune = 6 if level >= 18 else (5 if level >= 14 else (4 if level >= 10 else 3))
 
-        attuned_items = []
-        for item in getattr(self, "inventory_grid", []):
-            if isinstance(item, dict) and item.get("attuned"):
-                attuned_items.append(item)
-                if len(attuned_items) >= max_attune:
-                    break
+    def get_spell_dc_bonus(self) -> int:
+        """Restituisce il bonus magico alla CD degli incantesimi conferito dagli oggetti."""
+        mods = self.get_item_modifiers()
+        return mods.get("bonus_spell_dc", 0)
 
-        has_equipped_armor = False
-        has_equipped_shield = False
-        for it in getattr(self, "inventory_grid", []):
-            if isinstance(it, dict) and it.get("container") == "equipped":
-                itype = str(it.get("type", "")).lower()
-                iname = str(it.get("name", "")).lower()
-                if "scudo" in iname or "shield" in iname or itype in ("scudo", "shield"):
-                    has_equipped_shield = True
-                elif itype in ("armatura", "armor") or any(k in iname for k in [
-                    "armatura", "armor", "cuoio", "leather", "corazza", "giaco", 
-                    "maglia", "chain", "piastre", "plate", "imbottita", "padded", 
-                    "scaglie", "scale", "pettorale", "breastplate", "strisce", 
-                    "splint", "anelli", "ring mail", "pelle", "hide"
-                ]):
-                    has_equipped_armor = True
-
-        for item in attuned_items:
-            name = str(item.get("name", "")).lower()
-            desc = str(item.get("desc", "")).lower()
-            
-            # Proprietà esplicite
-            has_explicit_ac = False
-            if "bonus_ac" in item:
-                try: 
-                    bonuses["bonus_ac"] += int(item["bonus_ac"])
-                    has_explicit_ac = True
-                except Exception: pass
-            if "bonus_saves" in item:
-                try: bonuses["bonus_saves"] += int(item["bonus_saves"])
-                except Exception: pass
-            if "set_str" in item:
-                try: bonuses["set_stats"]["FOR"] = max(bonuses["set_stats"].get("FOR", 0), int(item["set_str"]))
-                except Exception: pass
-            if "set_int" in item:
-                try: bonuses["set_stats"]["INT"] = max(bonuses["set_stats"].get("INT", 0), int(item["set_int"]))
-                except Exception: pass
-            if "set_con" in item:
-                try: bonuses["set_stats"]["COS"] = max(bonuses["set_stats"].get("COS", 0), int(item["set_con"]))
-                except Exception: pass
-
-            # Oggetti magici celebri 5e (evita duplicazione se bonus_ac già assegnato esplicitamente)
-            handled_by_name = False
-            if not has_explicit_ac:
-                if any(k in name for k in ["anello di protezione", "mantello della protezione", "ring of protection", "cloak of protection"]):
-                    bonuses["bonus_ac"] += 1
-                    handled_by_name = True
-                elif any(k in name for k in ["bracciali della difesa", "bracers of defense"]):
-                    # D&D 5e RAW: i Bracciali della Difesa danno +2 CA SOLO se NON si indossa armatura e NON si usa scudo
-                    if not has_equipped_armor and not has_equipped_shield:
-                        bonuses["bonus_ac"] += 2
-                    handled_by_name = True
-
-            if any(k in name for k in ["anello di protezione", "mantello della protezione", "ring of protection", "cloak of protection"]):
-                if "bonus_saves" not in item:
-                    bonuses["bonus_saves"] += 1
-            if any(k in name for k in ["guanti della forza dell'orco", "gauntlets of ogre power"]):
-                bonuses["set_stats"]["FOR"] = max(bonuses["set_stats"].get("FOR", 0), 19)
-            elif any(k in name for k in ["fascia dell'intelletto", "headband of intellect"]):
-                bonuses["set_stats"]["INT"] = max(bonuses["set_stats"].get("INT", 0), 19)
-            elif any(k in name for k in ["amuleto della salute", "amulet of health"]):
-                bonuses["set_stats"]["COS"] = max(bonuses["set_stats"].get("COS", 0), 19)
-            elif "cintura della forza dei giganti" in name or ("belt" in name and "giant strength" in name):
-                if any(k in name for k in ["tempesta", "storm"]):
-                    bonuses["set_stats"]["FOR"] = max(bonuses["set_stats"].get("FOR", 0), 29)
-                elif any(k in name for k in ["nuvole", "cloud"]):
-                    bonuses["set_stats"]["FOR"] = max(bonuses["set_stats"].get("FOR", 0), 27)
-                elif any(k in name for k in ["fuoco", "fire"]):
-                    bonuses["set_stats"]["FOR"] = max(bonuses["set_stats"].get("FOR", 0), 25)
-                elif any(k in name for k in ["pietra", "gelo", "frost", "stone"]):
-                    bonuses["set_stats"]["FOR"] = max(bonuses["set_stats"].get("FOR", 0), 23)
-                else:
-                    bonuses["set_stats"]["FOR"] = max(bonuses["set_stats"].get("FOR", 0), 21)
-            elif not handled_by_name:
-                import re
-                if not has_explicit_ac:
-                    ac_match = re.search(r'\+(\d+)\s*(?:alla\s*)?(?:ca|ac|armatura|classe armatura)', desc)
-                    if ac_match:
-                        try: bonuses["bonus_ac"] += int(ac_match.group(1))
-                        except Exception: pass
-                if "bonus_saves" not in item:
-                    save_match = re.search(r'\+(\d+)\s*(?:a\s*tutti\s*i\s*)?(?:tiri\s*salvezza|ts|saving\s*throws)', desc)
-                    if save_match:
-                        try: bonuses["bonus_saves"] += int(save_match.group(1))
-                        except Exception: pass
-
-        return bonuses
+    def get_spell_attack_bonus(self) -> int:
+        """Restituisce il bonus magico al tiro per colpire con incantesimi conferito dagli oggetti."""
+        mods = self.get_item_modifiers()
+        return mods.get("bonus_spell_attack", 0)
 
     def get_effective_attribute(self, attr_name):
-        base = int(self.attributes.get(attr_name, 10))
-        bonuses = self.get_attunement_bonuses()
-        if attr_name in bonuses["set_stats"]:
-            base = max(base, bonuses["set_stats"][attr_name])
-        if attr_name in bonuses["bonus_stats"]:
-            base += bonuses["bonus_stats"][attr_name]
+        from common.item_modifiers import canonical_stat_key
+        canon = canonical_stat_key(attr_name)
+        base = int(self.attributes.get(canon, 10))
+        mods = self.get_item_modifiers()
+        if canon in mods.get("set_stats", {}):
+            base = max(base, mods["set_stats"][canon])
+        if canon in mods.get("bonus_stats", {}):
+            base += mods["bonus_stats"][canon]
         return base
 
     def get_modifier(self, attr_name: str) -> int:
         """Calcola il modificatore d'abilità per la caratteristica richiesta considerando attributi effettivi (oggetti magici, sintonizzazione)."""
-        STAT_MAP = {
-            "STR": "FOR", "STRENGTH": "FOR", "FORZA": "FOR", "FOR": "FOR",
-            "DEX": "DES", "DEXTERITY": "DES", "DESTREZZA": "DES", "DES": "DES",
-            "CON": "COS", "CONSTITUTION": "COS", "COSTITUZIONE": "COS", "COS": "COS",
-            "INT": "INT", "INTELLIGENCE": "INT", "INTELLIGENZA": "INT",
-            "WIS": "SAG", "WISDOM": "SAG", "SAGGEZZA": "SAG", "SAG": "SAG",
-            "CHA": "CAR", "CHARISMA": "CAR", "CARISMA": "CAR", "CAR": "CAR"
-        }
-        canonical = STAT_MAP.get(str(attr_name).strip().upper(), str(attr_name).strip().upper())
+        from common.item_modifiers import canonical_stat_key
+        canonical = canonical_stat_key(attr_name)
         val = self.get_effective_attribute(canonical)
         return (val - 10) // 2
 
     def get_effective_ac(self):
-        """Restituisce la CA effettiva calcolata da recalculate_ac() senza duplicare i bonus di sintonizzazione."""
+        """Restituisce la CA effettiva calcolata da recalculate_ac() considerando armature magiche, scudi e sintonizzazioni."""
         return self.recalculate_ac()
 
     def get_effective_save_bonus(self, stat_name):
-        STAT_MAP = {
-            "STR": "FOR", "STRENGTH": "FOR", "FORZA": "FOR", "FOR": "FOR",
-            "DEX": "DES", "DEXTERITY": "DES", "DESTREZZA": "DES", "DES": "DES",
-            "CON": "COS", "CONSTITUTION": "COS", "COSTITUZIONE": "COS", "COS": "COS",
-            "INT": "INT", "INTELLIGENCE": "INT", "INTELLIGENZA": "INT",
-            "WIS": "SAG", "WISDOM": "SAG", "SAGGEZZA": "SAG", "SAG": "SAG",
-            "CHA": "CAR", "CHARISMA": "CAR", "CARISMA": "CAR", "CAR": "CAR"
-        }
-        canonical = STAT_MAP.get(str(stat_name).strip().upper(), str(stat_name).strip().upper())
+        from common.item_modifiers import canonical_stat_key
+        canonical = canonical_stat_key(stat_name)
         stat_val = self.get_effective_attribute(canonical)
         mod = (stat_val - 10) // 2
-        bonuses = self.get_attunement_bonuses()
-        save_bonus = mod + bonuses.get("bonus_saves", 0)
-        prof_saves = [STAT_MAP.get(str(s).strip().upper(), str(s).strip().upper()) for s in getattr(self, "saving_throw_proficiencies", [])]
+        mods = self.get_item_modifiers()
+        save_bonus = mod + mods.get("bonus_saves", 0)
+        prof_saves = [canonical_stat_key(s) for s in getattr(self, "saving_throw_proficiencies", [])]
         if canonical in prof_saves:
             lvl = getattr(self, "level", 1) or 1
             pb = 2 + (max(1, int(lvl)) - 1) // 4
@@ -461,119 +368,9 @@ class Character:
         return save_bonus
 
     def recalculate_ac(self):
-        """Ricalcola dinamicamente la CA conforme a D&D 5e RAW."""
-        des_mod = (self.get_effective_attribute("DES") - 10) // 2
-        cos_mod = (self.get_effective_attribute("COS") - 10) // 2
-        sag_mod = (self.get_effective_attribute("SAG") - 10) // 2
-
-        equipped_armor = None
-        has_shield = False
-
-        grid = getattr(self, "inventory_grid", []) or []
-        for it in grid:
-            if not it or not isinstance(it, dict):
-                continue
-            if it.get("container") == "equipped":
-                itype = str(it.get("type", "")).lower()
-                iname = str(it.get("name", "")).lower()
-                if "scudo" in iname or "shield" in iname or itype in ("scudo", "shield"):
-                    has_shield = True
-                elif itype in ("armatura", "armor") or any(k in iname for k in [
-                    "armatura", "armor", "cuoio", "leather", "corazza", "giaco", 
-                    "maglia", "chain", "piastre", "plate", "imbottita", "padded", 
-                    "scaglie", "scale", "pettorale", "breastplate", "strisce", 
-                    "splint", "anelli", "ring mail", "pelle", "hide"
-                ]):
-                    equipped_armor = it
-
-        base_ac = 10
-        char_cls = str(getattr(self, "char_class", "")).lower()
-        subclass = str(getattr(self, "subclass", "")).lower()
-
-        features_list = getattr(self, "features", [])
-        if isinstance(features_list, str):
-            features_list = [features_list]
-        elif not isinstance(features_list, (list, tuple, set)):
-            features_list = []
-        features_str = " ".join(str(f).lower() for f in features_list)
-
-        if equipped_armor:
-            aname = str(equipped_armor.get("name", "")).lower()
-            explicit_base = equipped_armor.get("ac_base", equipped_armor.get("base_ac"))
-            
-            # Heavy Armor (Armatura Pesante): Destrezza non modifica la CA (PHB p. 145)
-            if any(k in aname for k in ["armatura a piastre", "piastre complete", "full plate", "completa"]) or (aname.strip() in ("piastre", "plate")):
-                armor_base = 18
-                dex_allowed = 0
-            elif any(k in aname for k in ["corazza a strisce", "strisce", "splint"]):
-                armor_base = 17
-                dex_allowed = 0
-            elif any(k in aname for k in ["cotta di maglia", "chain mail"]):
-                armor_base = 16
-                dex_allowed = 0
-            elif any(k in aname for k in ["corazza ad anelli", "anelli", "ring mail"]):
-                armor_base = 14
-                dex_allowed = 0
-            # Medium Armor (Armatura Media): CA base + Mod DES (max +2, penalità negativa ammessa)
-            elif any(k in aname for k in ["mezza armatura", "half plate"]):
-                armor_base = 15
-                dex_allowed = min(2, des_mod)
-            elif any(k in aname for k in ["pettorale", "corazza pettorale", "breastplate"]):
-                armor_base = 14
-                dex_allowed = min(2, des_mod)
-            elif any(k in aname for k in ["scaglie", "corazza a scaglie", "scale mail"]):
-                armor_base = 14
-                dex_allowed = min(2, des_mod)
-            elif any(k in aname for k in ["giaco di maglia", "giaco", "chain shirt"]):
-                armor_base = 13
-                dex_allowed = min(2, des_mod)
-            elif any(k in aname for k in ["pelle", "armatura di pelle", "hide"]):
-                armor_base = 12
-                dex_allowed = min(2, des_mod)
-            # Light Armor (Armatura Leggera): CA base + Mod DES completo
-            elif any(k in aname for k in ["cuoio borchiato", "borchiato", "studded leather", "studded"]):
-                armor_base = 12
-                dex_allowed = des_mod
-            elif any(k in aname for k in ["cuoio", "leather"]):
-                armor_base = 11
-                dex_allowed = des_mod
-            elif any(k in aname for k in ["imbottita", "padded"]):
-                armor_base = 11
-                dex_allowed = des_mod
-            else:
-                if explicit_base is not None:
-                    try:
-                        armor_base = int(explicit_base)
-                    except (ValueError, TypeError):
-                        armor_base = 11
-                else:
-                    armor_base = 11
-                dex_allowed = min(2, des_mod)
-
-            base_ac = armor_base + dex_allowed
-
-            # Stile di Combattimento Difesa (PHB p. 72): +1 CA mentre si indossa un'armatura
-            if any(k in features_str for k in ["difesa", "defense"]):
-                base_ac += 1
-        else:
-            # Difesa senz'armatura (D&D 5e RAW)
-            if "monaco" in char_cls or "monk" in char_cls:
-                # 10 + Des + Sag (solo se NON si usa uno scudo, PHB p. 78)
-                base_ac = 10 + des_mod + (sag_mod if not has_shield else 0)
-            elif "barbaro" in char_cls or "barbarian" in char_cls:
-                # 10 + Des + Cos (può usare uno scudo, PHB p. 48)
-                base_ac = 10 + des_mod + cos_mod
-            elif "dracon" in subclass or "draconic" in subclass:
-                # Resilienza Draconica (Stregone, PHB p. 102): 13 + Des
-                base_ac = 13 + des_mod
-            else:
-                base_ac = 10 + des_mod
-
-        if has_shield:
-            base_ac += 2
-
-        bonuses = self.get_attunement_bonuses()
-        self.ac = base_ac + bonuses.get("bonus_ac", 0)
+        """Ricalcola dinamicamente la CA conforme a D&D 5e RAW considerando armature magiche (+1/+2/+3), scudi e oggetti."""
+        from common.item_modifiers import compute_effective_ac
+        self.ac = compute_effective_ac(self)
         return self.ac
 
     def check_has_darkvision(self) -> bool:
@@ -608,10 +405,6 @@ class Character:
         if any("scurovisione" in t or "darkvision" in t for t in traits):
             return True
         return getattr(self, "vision_radius", 6) > 6
-
-        bonuses = self.get_attunement_bonuses()
-        self.ac = base_ac + bonuses.get("bonus_ac", 0)
-        return self.ac
 
     def update_class_resources_for_level(self, new_level: int):
         """Aggiorna le risorse di classe scalabili in base al livello (Ki, Rage, Mani Curative, ecc. - D&D 5e RAW)."""
@@ -774,6 +567,8 @@ class Character:
         for item in getattr(self, "inventory_grid", []):
             if not item or not isinstance(item, dict):
                 continue
+            if item.get("_coins_synced") and hasattr(self, "currency") and isinstance(self.currency, dict) and sum(max(0, int(v)) for v in self.currency.values() if isinstance(v, (int, float, str)) and str(v).isdigit()) > 0:
+                continue
             c = item.get("container")
             if not c:
                 itype = str(item.get("type", "")).strip().lower()
@@ -781,6 +576,9 @@ class Character:
             if c == container_key:
                 try:
                     w = float(item.get("weight", 0.0) or 0.0)
+                    if w <= 0.0 and item.get("name"):
+                        from common.starter_equipment import lookup_standard_weight
+                        w = lookup_standard_weight(item.get("name", ""))
                     qty = int(item.get("qty", 1) or 1)
                     tot += w * qty
                 except (ValueError, TypeError):
@@ -796,14 +594,14 @@ class Character:
         - Sovraccarico: oltre FOR * 15 lbs (Velocità ridotta a 0)
         """
         size_mults = {
-            "tiny": 0.5,
-            "small": 1.0,
-            "medium": 1.0,
-            "large": 2.0,
-            "huge": 4.0,
-            "gargantuan": 8.0
+            "tiny": 0.5, "minuscola": 0.5, "piccolissima": 0.5,
+            "small": 1.0, "piccola": 1.0,
+            "medium": 1.0, "media": 1.0,
+            "large": 2.0, "grande": 2.0,
+            "huge": 4.0, "enorme": 4.0,
+            "gargantuan": 8.0, "mastodontica": 8.0
         }
-        sz = str(getattr(self, "size", "medium") or "medium").lower()
+        sz = str(getattr(self, "size", "medium") or "medium").lower().strip()
         size_mult = size_mults.get(sz, 1.0)
         
         strength = max(1, self.get_effective_attribute("FOR"))
@@ -866,10 +664,15 @@ class Character:
     def get_effective_speed(self) -> int | float:
         """
         Calcola la velocità di movimento effettiva del personaggio (in ft o m)
-        applicando le penalità dell'Ingombro (PHB p. 176) e dell'Affaticamento (Exhaustion).
+        applicando bonus magici degli oggetti, le penalità dell'Ingombro (PHB p. 176) e dell'Affaticamento (Exhaustion).
         """
         base_speed = float(getattr(self, "speed", 30) or 30)
         unit = getattr(self, "speed_unit", "ft")
+        mods = self.get_item_modifiers() if hasattr(self, "get_item_modifiers") else {}
+        bonus_spd = float(mods.get("bonus_speed", 0))
+        if unit == "m" and abs(bonus_spd) >= 5.0:
+            bonus_spd = round(bonus_spd * 0.3, 1)
+        base_speed += bonus_spd
         enc = self.get_encumbrance_status()
         
         if enc["tier"] == "overloaded":
@@ -919,11 +722,7 @@ class Character:
             return {"success": False, "reason": "Nessun Dado Vita rimasto"}
             
         self.hit_dice_current -= 1
-        cos_val = self.attributes.get("COS", 10)
-        try:
-            cos_mod = (int(cos_val) - 10) // 2
-        except (ValueError, TypeError):
-            cos_mod = 0
+        cos_mod = self.get_modifier("COS")
             
         die_str = str(getattr(self, "hit_dice_type", "d8")).lower().replace("d", "")
         sides = int(die_str) if die_str.isdigit() else 8
@@ -948,15 +747,92 @@ class Character:
             "hit_dice_total": self.hit_dice_total
         }
 
+    def sync_weapons_from_inventory(self):
+        """
+        Sincronizza automaticamente gli oggetti di tipo Arma presenti in inventory_grid
+        con la lista self.weapons per il pannello Combattimento, estraendo dadi danno,
+        tipo danno, caratteristica (FOR/DES) e bonus magico (+1/+2/+3).
+        """
+        import re
+        from common.item_modifiers import extract_magic_bonus
+
+        if not hasattr(self, "weapons") or not isinstance(self.weapons, list):
+            self.weapons = []
+
+        existing_by_name = {
+            str(w.get("name", "")).strip().lower(): w
+            for w in self.weapons
+            if isinstance(w, dict) and w.get("name")
+        }
+
+        for it in (getattr(self, "inventory_grid", []) or []):
+            if not it or not isinstance(it, dict):
+                continue
+            itype = str(it.get("type", "")).strip().lower()
+            iname = str(it.get("name", "")).strip()
+            if not iname:
+                continue
+            if itype not in ("arma", "weapon", "arma da mischia", "arma a distanza", "arma semplice", "arma da guerra"):
+                continue
+            norm_nm = iname.lower()
+            desc = str(it.get("desc", "") or "")
+            desc_l = desc.lower()
+
+            m_bonus = int(it.get("bonus", 0) or 0)
+            if m_bonus == 0:
+                m_bonus = extract_magic_bonus(iname) or extract_magic_bonus(desc)
+
+            if norm_nm in existing_by_name:
+                if m_bonus > 0 and int(existing_by_name[norm_nm].get("bonus", 0) or 0) == 0:
+                    existing_by_name[norm_nm]["bonus"] = m_bonus
+                continue
+
+            # Estrai dado danno dalla descrizione (es. '1d8', '2d6', '1d12')
+            d_match = re.search(r'\b(\d+d\d+)\b', desc_l)
+            dmg_dice = d_match.group(1) if d_match else str(it.get("damage_dice", "1d8"))
+
+            # Estrai tipo di danno
+            dmg_type = str(it.get("damage_type", ""))
+            if not dmg_type:
+                if "taglient" in desc_l or "slashing" in desc_l:
+                    dmg_type = "Tagliente"
+                elif "perforant" in desc_l or "piercing" in desc_l:
+                    dmg_type = "Perforante"
+                elif "contundent" in desc_l or "bludgeoning" in desc_l:
+                    dmg_type = "Contundente"
+                else:
+                    dmg_type = "Tagliente"
+
+            is_ranged = any(k in norm_nm or k in desc_l for k in ["arco", "balestra", "fionda", "cerbottana", "gittata", "munizioni", "ranged"])
+            is_finesse = any(k in norm_nm or k in desc_l for k in ["stocco", "pugnale", "scimitarra", "spada corta", "frusta", "accurata", "finesse"])
+            w_type = "Distanza (Munizioni)" if is_ranged else ("Mischia (Accurata)" if is_finesse else "Mischia")
+            ability = "DES" if (is_ranged or is_finesse) else "FOR"
+
+            new_w = {
+                "name": iname,
+                "type": w_type,
+                "ability": ability,
+                "damage_dice": dmg_dice,
+                "damage_type": dmg_type,
+                "bonus": m_bonus,
+                "proficient": True
+            }
+            self.weapons.append(new_w)
+            existing_by_name[norm_nm] = new_w
+
 
     def to_dict(self):
         import copy
-        return copy.deepcopy(self.__dict__)
+        from common.character_schema import normalize_character_dict
+        raw = copy.deepcopy(self.__dict__)
+        return normalize_character_dict(raw)
     
     @staticmethod
     def from_dict(data):
+        from common.character_schema import normalize_character_dict
+        norm_data = normalize_character_dict(data) if isinstance(data, dict) else {}
         c = Character()
-        for key, value in data.items():
+        for key, value in norm_data.items():
             if hasattr(c, key):
                 setattr(c, key, value)
         # Assicuriamoci che l'inventario a griglia esista anche se carichiamo un vecchio PG
@@ -1050,7 +926,15 @@ class Character:
             except (ValueError, TypeError):
                 c.speed_unit = "ft"
             
-        # Se la lista armi è vuota, crea armi base compatibili
+        if not getattr(c, "starting_kit_applied", False) and getattr(c, "char_class", None) and getattr(c, "level", 1) == 1:
+            has_real_items = any(it and it.get("name") != "Zaino Base" for it in c.inventory_grid)
+            if not has_real_items and len(getattr(c, "spellbook", [])) == 0:
+                from common.starter_equipment import apply_class_and_race_starter_kit
+                apply_class_and_race_starter_kit(c)
+
+        c.sync_weapons_from_inventory()
+
+        # Se la lista armi è ancora vuota, crea armi base compatibili
         if len(c.weapons) == 0:
             c_cls = getattr(c, "char_class", "").lower()
             if any(k in c_cls for k in ["mago", "wizard", "stregone", "sorcerer", "warlock"]):
@@ -1068,12 +952,6 @@ class Character:
                     {"name": "Spada Lunga", "type": "Mischia (Versatile 1d10)", "ability": "FOR", "damage_dice": "1d8", "damage_type": "Tagliente", "bonus": 0, "proficient": True},
                     {"name": "Balestra Leggera", "type": "Distanza (80/320 ft)", "ability": "DES", "damage_dice": "1d8", "damage_type": "Perforante", "bonus": 0, "proficient": True}
                 ]
-            
-        if not getattr(c, "starting_kit_applied", False) and getattr(c, "char_class", None) and getattr(c, "level", 1) == 1:
-            has_real_items = any(it and it.get("name") != "Zaino Base" for it in c.inventory_grid)
-            if not has_real_items and len(getattr(c, "spellbook", [])) == 0:
-                from common.starter_equipment import apply_class_and_race_starter_kit
-                apply_class_and_race_starter_kit(c)
 
         return c
 

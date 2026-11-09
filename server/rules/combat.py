@@ -7,6 +7,7 @@ from common.hex_utils import Hex, hex_distance, grid_distance, grid_distance_3d,
 from common.network_utils import send_message, broadcast
 from common.dice import roll_dice
 from common.i18n import is_condition_active
+from common.item_modifiers import get_effective_attribute_from_dict, get_effective_save_bonus_from_dict
 
 def has_effect_or_condition(entity, name_it, name_en=None):
     """Verifica se un'entità è soggetta a un effetto attivo o a una condizione (D&D 5e)."""
@@ -52,7 +53,12 @@ def _spawn_corpse_loot(target_player, game_state):
         sheet = getattr(target_player, "full_sheet", {}) or {}
         loot_items = []
         if isinstance(sheet.get("inventory_grid"), list):
-            loot_items = [dict(it) for it in sheet["inventory_grid"] if isinstance(it, dict) and it.get("name")]
+            for it in sheet["inventory_grid"]:
+                if isinstance(it, dict) and it.get("name"):
+                    it_copy = dict(it)
+                    it_copy["attuned"] = False
+                    it_copy["container"] = "backpack"
+                    loot_items.append(it_copy)
         
         coins = dict(sheet.get("wallet", {})) if isinstance(sheet.get("wallet"), dict) else {}
         if not coins and not sheet.get("gold"):
@@ -130,6 +136,11 @@ def recover_expended_ammunition(player, game_state):
 def drop_concentration(player, game_state, notify=True, reason=None):
     """Interrompe la concentrazione di un personaggio (5e RAW) e rimuove le sue AoE attive collegate."""
     had_conc = False
+    old_conc_spell = str(
+        getattr(player, "concentrating_on", "")
+        or (player.full_sheet.get("concentrating_on", "") if isinstance(getattr(player, "full_sheet", None), dict) else "")
+        or ""
+    ).lower()
     if getattr(player, "concentrating_on", None):
         player.concentrating_on = None
         had_conc = True
@@ -193,7 +204,7 @@ def drop_concentration(player, game_state, notify=True, reason=None):
 
         # D&D 5e RAW (PHB p. 191): La caduta per rottura di concentrazione avviene SOLO se l'effetto interrotto concedeva il volo
         flight_spells = ("volo", "volare", "fly", "flying", "levitazione", "levitate", "vento", "wind walk")
-        conc_spell = str(getattr(player, "concentrating_on", "") or "").lower()
+        conc_spell = old_conc_spell
         caster_flew_by_conc = any(fs in conc_spell for fs in flight_spells)
 
         for target_name, fx_name in removed_effects:
@@ -455,6 +466,13 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
         drop_concentration(target_player, game_state, notify=True)
     elif final_dmg > 0 and game_state:
         _trigger_concentration_check(target_player, final_dmg, game_state)
+
+    if isinstance(getattr(target_player, "full_sheet", None), dict):
+        target_player.full_sheet["hp_current"] = target_player.hp
+        target_player.full_sheet["hp"] = target_player.hp
+        target_player.full_sheet["current_hp"] = target_player.hp
+        target_player.full_sheet["temp_hp"] = getattr(target_player, "temp_hp", 0)
+        target_player.full_sheet["conditions"] = list(getattr(target_player, "conditions", []))
         
     return final_dmg, note, temp_absorbed, dmg_to_hp
 
@@ -519,6 +537,13 @@ def _apply_hp_change(target_player, new_hp_unbounded, game_state):
         if dmg_val > 0 and game_state:
             _trigger_concentration_check(target_player, dmg_val, game_state)
 
+    if isinstance(getattr(target_player, "full_sheet", None), dict):
+        target_player.full_sheet["hp_current"] = target_player.hp
+        target_player.full_sheet["hp"] = target_player.hp
+        target_player.full_sheet["current_hp"] = target_player.hp
+        target_player.full_sheet["temp_hp"] = getattr(target_player, "temp_hp", 0)
+        target_player.full_sheet["conditions"] = list(getattr(target_player, "conditions", []))
+
 def handle_start_combat_request(data, player, game_state):
     initiator_name = data.get("initiator")
     game_state.gui_queue.put({"type": "SHOW_COMBAT_CONFIG", "payload": {"initiator": initiator_name}})
@@ -538,14 +563,7 @@ def _trigger_concentration_check(target_player, dmg_val, game_state):
         if getattr(target_player, "conn", None):
             send_message(target_player.conn, make_prompt_save("COS", dc, "", False, "Sistema (Concentrazione)", "Contundente"))
         else:
-            mod = 0
-            if target_player.full_sheet:
-                attr = target_player.full_sheet.get("attributes", {})
-                if "COS" in attr:
-                    try:
-                        mod = (int(attr["COS"]) - 10) // 2
-                    except (ValueError, TypeError):
-                        pass
+            mod = get_effective_save_bonus_from_dict(target_player, "COS")
             mod_str = f"+{mod}" if mod >= 0 else str(mod)
             save_result = roll_dice(f"1d20{mod_str}")
             roll_tot = save_result["total"]
@@ -608,29 +626,7 @@ def advance_combat_turn(game_state, ending_player=None):
                             send_message(prev_p.conn, make_prompt_save(stat, dc, "", False, f"Save-Ends: {fx_name}", "Contundente"))
                         else:
                             # NPC/Mostro o non connesso: tiro automatico dal server
-                            mod = 0
-                            if getattr(prev_p, "full_sheet", None):
-                                attr = prev_p.full_sheet.get("attributes", {})
-                                stat_aliases = {
-                                    "FOR": "FOR", "STR": "FOR",
-                                    "DES": "DES", "DEX": "DES",
-                                    "COS": "COS", "CON": "COS",
-                                    "INT": "INT",
-                                    "SAG": "SAG", "WIS": "SAG",
-                                    "CAR": "CAR", "CHA": "CAR"
-                                }
-                                standard_stat = stat_aliases.get(stat, stat)
-                                raw_val = 10
-                                for k, v in attr.items():
-                                    if stat_aliases.get(k.upper(), k.upper()) == standard_stat:
-                                        try: raw_val = int(v); break
-                                        except (ValueError, TypeError): pass
-                                mod = (raw_val - 10) // 2
-                                saves = prev_p.full_sheet.get("saving_throw_proficiencies", []) or prev_p.full_sheet.get("saving_throws", [])
-                                if any(stat_aliases.get(str(s).upper(), str(s).upper()) == standard_stat for s in saves):
-                                    prof = prev_p.full_sheet.get("proficiency_bonus", 2)
-                                    try: mod += int(prof)
-                                    except (ValueError, TypeError): mod += 2
+                            mod = get_effective_save_bonus_from_dict(prev_p, stat)
                             mod_str = f"+{mod}" if mod >= 0 else str(mod)
                             res = roll_dice(f"1d20{mod_str}")
                             is_crit = res["rolls"][0] == 20
@@ -1041,13 +1037,20 @@ def handle_attack_request(data, player, game_state):
                     if in_magical_darkness_aoe:
                         conds = [str(c).lower() for c in getattr(entity_obj, "conditions", [])]
                         sheet = getattr(entity_obj, "full_sheet", None) or {}
-                        feats = [str(f).lower() for f in sheet.get("features", [])]
-                        traits = [str(t).lower() for t in sheet.get("traits", [])]
+                        raw_feats = sheet.get("features", [])
+                        feats = [raw_feats.lower()] if isinstance(raw_feats, str) else [str(f).lower() for f in (raw_feats or [])]
+                        raw_flist = sheet.get("features_list", [])
+                        if isinstance(raw_flist, list):
+                            feats.extend(str(f.get("name", "") if isinstance(f, dict) else f).lower() for f in raw_flist)
+                        raw_traits = sheet.get("traits", [])
+                        traits = [raw_traits.lower()] if isinstance(raw_traits, str) else [str(t).lower() for t in (raw_traits or [])]
                         all_text = " ".join(conds + feats + traits)
                         return "vista del diavolo" in all_text or "devil's sight" in all_text or "truesight" in all_text or "visione del vero" in all_text
                     
                     if getattr(entity_obj, "has_darkvision", None) is not None:
                         return bool(entity_obj.has_darkvision)
+                    if hasattr(entity_obj, "check_has_darkvision"):
+                        return bool(entity_obj.check_has_darkvision())
                     conds = [str(c).lower() for c in getattr(entity_obj, "conditions", [])]
                     if any("scurovisione" in c or "darkvision" in c for c in conds):
                         return True
@@ -1060,10 +1063,12 @@ def handle_attack_request(data, player, game_state):
                         senses = str(sheet.get("senses", "")).lower()
                         if "scurovisione" in senses or "darkvision" in senses:
                             return True
-                        traits = [str(t).lower() for t in sheet.get("traits", [])]
+                        raw_traits = sheet.get("traits", [])
+                        traits = [raw_traits.lower()] if isinstance(raw_traits, str) else [str(t).lower() for t in (raw_traits or [])]
                         if any("scurovisione" in t or "darkvision" in t for t in traits):
                             return True
-                        feats = [str(f).lower() for f in sheet.get("features", [])]
+                        raw_feats = sheet.get("features", [])
+                        feats = [raw_feats.lower()] if isinstance(raw_feats, str) else [str(f).lower() for f in (raw_feats or [])]
                         if any("scurovisione" in f or "darkvision" in f for f in feats):
                             return True
                     return getattr(entity_obj, "vision_radius", 6) > 6
@@ -1154,10 +1159,10 @@ def handle_attack_request(data, player, game_state):
             hit_roll -= anatema_penalty
         
         # 2. CA Bersaglio
-        target_ac = 10
+        target_ac = getattr(target_player, "ac", 10) or 10
         if target_player.full_sheet:
             try:
-                target_ac = int(target_player.full_sheet.get("ac", 10))
+                target_ac = int(target_player.full_sheet.get("ac", target_ac))
             except (ValueError, TypeError):
                 pass
                 
@@ -1597,36 +1602,9 @@ def handle_force_save_request(data, player, game_state):
             send_message(target_player.conn, make_prompt_save(stat, dc, target_formula, half_on_success, player.name if player else "DM", damage_type))
         else:
             try:
-                mod = 0
                 s_map = {"STR": "FOR", "DEX": "DES", "CON": "COS", "INT": "INT", "WIS": "SAG", "CHA": "CAR"}
                 c_stat = s_map.get(str(stat).upper(), str(stat).upper())
-                if target_player.full_sheet:
-                    sheet = target_player.full_sheet
-                    # Verifica esplicita tiri salvezza dei mostri (es. {"DES": "+5"} o {"dex": 5})
-                    st_dict = sheet.get("saving_throws", {})
-                    found_st = False
-                    if isinstance(st_dict, dict):
-                        for k, v in st_dict.items():
-                            if s_map.get(str(k).upper(), str(k).upper()) == c_stat:
-                                try:
-                                    mod = int(str(v).replace("+", "").strip())
-                                    found_st = True
-                                    break
-                                except Exception:
-                                    pass
-                    if not found_st:
-                        attr = sheet.get("attributes", {})
-                        val = attr.get(c_stat, attr.get(stat))
-                        if val is not None:
-                            try: mod = (int(val) - 10) // 2
-                            except (ValueError, TypeError): pass
-                        prof_saves = [s_map.get(str(s).upper(), str(s).upper()) for s in sheet.get("saving_throw_proficiencies", [])]
-                        if c_stat in prof_saves:
-                            cr_or_lvl = sheet.get("cr", sheet.get("level", 1))
-                            try: num = float(cr_or_lvl)
-                            except Exception: num = 1.0
-                            pb = 2 + max(0, int(num - 1) // 4)
-                            mod += pb
+                mod = get_effective_save_bonus_from_dict(target_player, c_stat)
                 
                 # Vantaggio ai TS su DES per Schivata
                 if c_stat == "DES" and is_condition_active(getattr(target_player, "conditions", []), "Schivata"):
@@ -1742,11 +1720,9 @@ def handle_help_request(data, player, game_state):
     game_state._trigger_gui_update()
 
 def _get_entity_ability_mod(entity, stat="FOR"):
-    sheet = getattr(entity, "full_sheet", None) or {}
-    attrs = sheet.get("attributes", {})
-    val = attrs.get(stat, attrs.get("STR" if stat=="FOR" else ("DEX" if stat=="DES" else stat), 10))
+    eff_val = get_effective_attribute_from_dict(entity, stat)
     try:
-        return (int(val) - 10) // 2
+        return (int(eff_val) - 10) // 2
     except (ValueError, TypeError):
         return 0
 
@@ -2402,7 +2378,6 @@ def handle_deliver_touch_spell_request(data, player, game_state):
     res = roll_dice(formula)
     val = res["total"]
     
-    from server.rules.character import _apply_hp_change
     if action_type in ["cura", "heal"]:
         _apply_hp_change(target, target.hp + val, game_state)
         msg = f"🦉 {player.name} eroga '{spell_name}' a contatto tramite il famiglio {familiar.name}: {target.name} recupera {val} PV! (HP: {target.hp}/{target.max_hp})"

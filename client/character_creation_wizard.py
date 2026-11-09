@@ -316,9 +316,21 @@ class CharacterCreationWizardFrame(ttk.Frame):
         if self.current_step == 2:
             if hasattr(self, "attr_vars"):
                 vals = [var.get() for var in self.attr_vars.values()]
-                if len(set(vals)) != len(STANDARD_ARRAY) or sorted(vals, reverse=True) != STANDARD_ARRAY:
-                    messagebox.showerror(_t("error"), _t("wizard_err_standard_array"))
-                    return
+                method = self.gen_method_var.get() if hasattr(self, "gen_method_var") else "Standard Array"
+                if "Point Buy" in method:
+                    pb_costs = {8: 0, 9: 1, 10: 2, 11: 3, 12: 4, 13: 5, 14: 7, 15: 9}
+                    if any(v < 8 or v > 15 for v in vals) or sum(pb_costs.get(v, 99) for v in vals) > 27:
+                        messagebox.showerror(_t("error"), "Con il metodo Point Buy (27 pt) i punteggi base devono essere compresi tra 8 e 15 e non superare 27 punti totali.")
+                        return
+                elif "4d6" in method:
+                    pool = getattr(self, "rolled_pool", None)
+                    if any(v < 3 or v > 18 for v in vals) or (pool and sorted(vals, reverse=True) != sorted(pool, reverse=True)):
+                        messagebox.showerror(_t("error"), "Assegna ciascuno dei 6 punteggi generati con i dadi (4d6) a una caratteristica diversa.")
+                        return
+                else:
+                    if len(set(vals)) != len(STANDARD_ARRAY) or sorted(vals, reverse=True) != STANDARD_ARRAY:
+                        messagebox.showerror(_t("error"), _t("wizard_err_standard_array"))
+                        return
                 self._save_current_step_data()
 
         # Salvataggio Passo 4: Background & Competenze
@@ -1341,7 +1353,8 @@ class CharacterCreationWizardFrame(ttk.Frame):
         method_frame.pack(pady=(0, 10))
         ttk.Label(method_frame, text="Metodo di Generazione:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
         
-        gen_method_var = tk.StringVar(value="Standard Array")
+        self.gen_method_var = tk.StringVar(value=self.char_data.get("gen_method", "Standard Array"))
+        gen_method_var = self.gen_method_var
         method_cb = ttk.Combobox(method_frame, textvariable=gen_method_var, values=["Standard Array", "Point Buy (27 pt)", "Tira 4d6 (Scarta il più basso)"], state="readonly", width=30)
         method_cb.pack(side=tk.LEFT)
 
@@ -1437,7 +1450,8 @@ class CharacterCreationWizardFrame(ttk.Frame):
             for w in content_frame.winfo_children(): w.destroy()
             instruction_lbl.config(text="Tira 4d6 scartando il dado più basso per generare i punteggi, poi assegnali.")
             
-            rolled_pool = [15, 14, 13, 12, 10, 8]
+            rolled_pool = list(getattr(self, "rolled_pool", [15, 14, 13, 12, 10, 8]))
+            self.rolled_pool = rolled_pool
             pool_lbl = ttk.Label(content_frame, text=f"Dadi generati: {rolled_pool}", font=("Segoe UI", 9, "italic"), foreground=ACCENT_GOLD)
             pool_lbl.grid(row=0, column=0, columnspan=2, pady=(0, 6))
 
@@ -1448,6 +1462,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
                     d4 = sorted([random.randint(1, 6) for _ in range(4)])
                     new_pool.append(sum(d4[1:])) # scarta il piu' basso
                 rolled_pool = sorted(new_pool, reverse=True)
+                self.rolled_pool = list(rolled_pool)
                 pool_lbl.config(text=f"Dadi generati: {rolled_pool}")
                 for idx, a in enumerate(ATTRIBUTES):
                     self.attr_vars[a].set(rolled_pool[idx])
@@ -1896,19 +1911,21 @@ class CharacterCreationWizardFrame(ttk.Frame):
         con_mod = get_mod(c.attributes["COS"])
         dex_mod = get_mod(c.attributes["DES"])
         
-        # Calcolo HP e Dado Vita (incluso eventuale bonus sottorazza es. Nano delle Colline +1 PF)
+        # Sottoclasse di Livello 1 (Chierico, Stregone, Warlock - D&D 5e RAW)
+        chosen_subclass = self.char_data.get("subclass", "")
+        if chosen_subclass:
+            c.subclass = chosen_subclass.split("(")[0].strip()
+
+        # Calcolo HP e Dado Vita (incluso eventuale bonus sottorazza es. Nano delle Colline +1 PF e Stregone Draconico +1 PF)
         class_info = CLASSES.get(c.char_class, CLASSES["Guerriero"])
         hp_sub_bonus = int(subrace_info.get("hp_bonus", 0))
+        if "dracon" in str(getattr(c, "subclass", "")).lower():
+            hp_sub_bonus += 1
         c.hp_max = class_info["hd"] + con_mod + hp_sub_bonus
         c.hp_current = c.hp_max
         c.hit_dice_type = f"d{class_info.get('hd', 8)}"
         c.hit_dice_total = 1
         c.hit_dice_current = 1
-
-        # Sottoclasse di Livello 1 (Chierico, Stregone, Warlock - D&D 5e RAW)
-        chosen_subclass = self.char_data.get("subclass", "")
-        if chosen_subclass:
-            c.subclass = chosen_subclass.split("(")[0].strip()
 
         # Taglia del Personaggio (D&D 5e RAW)
         small_races = ("halfling", "gnomo", "gnome", "coboldo", "kobold", "goblin")
@@ -1992,6 +2009,10 @@ class CharacterCreationWizardFrame(ttk.Frame):
         # Equipaggiamento iniziale di classe (armi, armature, scudi) e incantesimi
         from common.starter_equipment import apply_class_and_race_starter_kit
         apply_class_and_race_starter_kit(c)
+        if hasattr(c, "sync_weapons_from_inventory"):
+            c.sync_weapons_from_inventory()
+        if hasattr(c, "recalculate_ac"):
+            c.recalculate_ac()
         
         # Aggiungi oro iniziale del background e allinea lo slot monete
         bg_gold = int(self.char_data.get("background_gold", 10))

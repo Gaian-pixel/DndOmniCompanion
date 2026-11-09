@@ -51,21 +51,40 @@ def handle_give_item_request(data, player, game_state):
                 return
 
         # Inserisci nel primo slot libero o impila nel destinatario
+        donated_item = dict(item)
+        donated_item["qty"] = give_qty
+        donated_item["attuned"] = False
+        donated_item["container"] = "backpack"
         if recip_sheet:
             placed = False
             for s_idx, slot in enumerate(recip_sheet["inventory_grid"]):
-                if slot and isinstance(slot, dict) and slot.get("name") == item.get("name"):
+                if slot and isinstance(slot, dict) and slot.get("name") == donated_item.get("name"):
                     slot["qty"] = int(slot.get("qty", 1) or 1) + give_qty
                     placed = True
                     break
             if not placed:
                 for s_idx in range(len(recip_sheet["inventory_grid"])):
                     if recip_sheet["inventory_grid"][s_idx] is None:
-                        recip_sheet["inventory_grid"][s_idx] = dict(item)
+                        recip_sheet["inventory_grid"][s_idx] = dict(donated_item)
                         break
+            try:
+                from common.item_modifiers import compute_effective_ac, calculate_character_item_modifiers
+                r_mods = calculate_character_item_modifiers(recip_sheet)
+                if r_mods.get("equipped_armor") is not None or r_mods.get("has_shield", False) or r_mods.get("bonus_ac", 0) != 0 or r_mods.get("special_ac_base") is not None:
+                    recip_sheet["ac"] = compute_effective_ac(recip_sheet, r_mods)
+                    target_player.ac = recip_sheet["ac"]
+            except Exception:
+                pass
+        if sender_sheet:
+            try:
+                from common.item_modifiers import compute_effective_ac
+                sender_sheet["ac"] = compute_effective_ac(sender_sheet)
+                player.ac = sender_sheet["ac"]
+            except Exception:
+                pass
 
-    item["_sender"] = player.name
-    send_message(target_player.conn, make_receive_item(item))
+    donated_item["_sender"] = player.name
+    send_message(target_player.conn, make_receive_item(donated_item))
     log_msg = f"{player.name} ha donato '{item.get('name')}' a {target_name}."
     game_state.log_dm_message(f"[SISTEMA] {log_msg}")
     broadcast(game_state, make_chat_broadcast("Sistema", log_msg))
@@ -157,6 +176,8 @@ def handle_take_loot_request(data, player, game_state):
                     for extra_item in items:
                         placed_extra = False
                         item_copy = dict(extra_item) if isinstance(extra_item, dict) else {"name": str(extra_item), "qty": 1, "type": "Equipaggiamento", "weight": 1.0}
+                        item_copy["attuned"] = False
+                        item_copy["container"] = "backpack"
                         item_copy.setdefault("_sender", "Forziere")
                         for s_i in range(len(sheet["inventory_grid"])):
                             if sheet["inventory_grid"][s_i] is None:
@@ -285,6 +306,8 @@ def handle_buy_item_request(data, player, game_state):
         new_mo = player_mo - price
         if isinstance(curr, dict):
             curr["MO"] = new_mo
+        if isinstance(sheet.get("wallet"), dict):
+            sheet["wallet"]["MO"] = new_mo
         sheet["gp"] = str(new_mo)
         
         # Inserisci nella griglia inventario (preservando griglie > 25 slot)

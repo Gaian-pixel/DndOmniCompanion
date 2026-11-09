@@ -339,6 +339,7 @@ STRINGS = {
         "menu_file": "File",
         "menu_view": "Visualizza",
         "menu_fullscreen": "Schermo Intero (F11)",
+        "menu_toggle_sidebar": "Barra Laterale (Chat & Eroe) (Ctrl+B)",
         "menu_exit_fullscreen": "Esci da Schermo Intero",
         "toast_fullscreen_on": "Schermo Intero attivato (Premi F11 o Esc per uscire)",
         "toast_fullscreen_off": "Schermo Intero disattivato",
@@ -1469,6 +1470,7 @@ STRINGS = {
         "menu_file": "File",
         "menu_view": "View",
         "menu_fullscreen": "Fullscreen (F11)",
+        "menu_toggle_sidebar": "Toggle Sidebar (Chat & Hero) (Ctrl+B)",
         "menu_exit_fullscreen": "Exit Fullscreen",
         "toast_fullscreen_on": "Fullscreen enabled (Press F11 or Esc to exit)",
         "toast_fullscreen_off": "Fullscreen disabled",
@@ -2627,6 +2629,20 @@ def set_distance_unit(unit_code: str):
         listeners_copy = list(_unit_listeners)
     dead_listeners = []
     for cb in listeners_copy:
+        self_obj = getattr(cb, "__self__", None)
+        if self_obj is not None:
+            if getattr(self_obj, "_is_closing", False) or getattr(self_obj, "_destroyed", False):
+                dead_listeners.append(cb)
+                continue
+            w = self_obj if hasattr(self_obj, "winfo_exists") else getattr(self_obj, "master", None)
+            if w is not None and hasattr(w, "winfo_exists"):
+                try:
+                    if not w.winfo_exists():
+                        dead_listeners.append(cb)
+                        continue
+                except Exception:
+                    dead_listeners.append(cb)
+                    continue
         try:
             cb(_current_distance_unit)
         except Exception as e:
@@ -2868,6 +2884,20 @@ def set_language(lang_code: str):
         listeners_copy = list(_listeners)
     dead_listeners = []
     for cb in listeners_copy:
+        self_obj = getattr(cb, "__self__", None)
+        if self_obj is not None:
+            if getattr(self_obj, "_is_closing", False) or getattr(self_obj, "_destroyed", False):
+                dead_listeners.append(cb)
+                continue
+            w = self_obj if hasattr(self_obj, "winfo_exists") else getattr(self_obj, "master", None)
+            if w is not None and hasattr(w, "winfo_exists"):
+                try:
+                    if not w.winfo_exists():
+                        dead_listeners.append(cb)
+                        continue
+                except Exception:
+                    dead_listeners.append(cb)
+                    continue
         try:
             cb(_current_language)
         except Exception as e:

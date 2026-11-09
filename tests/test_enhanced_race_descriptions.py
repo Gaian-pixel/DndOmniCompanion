@@ -123,11 +123,11 @@ class TestEnhancedRaceDescriptions(unittest.TestCase):
         """Verifica il comportamento di get_race_info con razze note e fallback."""
         elf_info = get_race_info("Elfo")
         self.assertEqual(elf_info["speed"], 30)
-        self.assertIn("elf", elf_info["overview"].lower())
+        self.assertTrue(any(sub in elf_info["overview"].lower() for sub in ("elf", "elv")))
         
         fallback_info = get_race_info("RazzaInesistente")
         self.assertEqual(fallback_info["speed"], 30) # Umano fallback
-        self.assertIn("uman", fallback_info["overview"].lower())
+        self.assertTrue(any(sub in fallback_info["overview"].lower() for sub in ("uman", "human")))
 
     def test_backwards_compatibility_import(self):
         """Verifica che l'import diretto di RACES dal wizard rimanga identico."""

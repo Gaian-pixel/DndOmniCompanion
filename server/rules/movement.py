@@ -5,6 +5,7 @@ import random
 from common.hex_utils import Hex, hex_linedraw, get_visible_hexes, grid_distance_3d
 from common.network_utils import send_message, broadcast
 from common.i18n import is_condition_active
+from common.item_modifiers import get_effective_attribute_from_dict, get_effective_save_bonus_from_dict
 
 def get_effective_map_walls(current_map):
     """Restituisce l'insieme dei muri comprensivo di porte chiuse, serrate o segrete che bloccano LoS e passaggio."""
@@ -143,7 +144,7 @@ def handle_move_request(data, player, game_state):
             # Regola D&D 5e Ingombro (Variant Encumbrance PHB p. 176)
             if sheet and isinstance(sheet.get("attributes"), dict):
                 try:
-                    str_val = int(sheet["attributes"].get("FOR", sheet["attributes"].get("STR", 10)))
+                    str_val = get_effective_attribute_from_dict(player, "FOR")
                     inv_grid = sheet.get("inventory_grid", [])
                     tot_w = sum(float(it.get("weight", 0.0) or 0.0) * int(it.get("qty", 1) or 1) for it in inv_grid if it and isinstance(it, dict))
                     curr = sheet.get("currency", {})
@@ -300,20 +301,7 @@ def handle_move_request(data, player, game_state):
             t_type = diff_map[to_tup]
             if t_type in ("ghiaccio", "ice"):
                 # D&D 5e: Ghiaccio Scivoloso -> TS Destrezza CD 10 o cade prono
-                dex_mod = 0
-                if getattr(player, "full_sheet", None) and isinstance(player.full_sheet.get("attributes"), dict):
-                    try:
-                        dex_val = int(player.full_sheet["attributes"].get("DES", player.full_sheet["attributes"].get("DEX", 10)))
-                        dex_mod = (dex_val - 10) // 2
-                    except Exception:
-                        pass
-                    prof_saves = [str(s).upper() for s in player.full_sheet.get("saving_throw_proficiencies", [])]
-                    if "DES" in prof_saves or "DEX" in prof_saves:
-                        try:
-                            lvl = int(player.full_sheet.get("level", 1))
-                            dex_mod += 2 + (lvl - 1) // 4
-                        except (ValueError, TypeError):
-                            dex_mod += 2
+                dex_mod = get_effective_save_bonus_from_dict(player, "DES")
                 dex_roll = random.randint(1, 20) + dex_mod
                 if dex_roll < 10:
                     if "Prono" not in player.conditions:
@@ -363,21 +351,7 @@ def handle_move_request(data, player, game_state):
                     else:
                         from server.rules.combat import _process_save_result
                         from common.dice import roll_dice
-                        mod = 0
-                        if getattr(player, "full_sheet", None):
-                            attr = player.full_sheet.get("attributes", {})
-                            d_val = attr.get("DES", attr.get("DEX", 10))
-                            try:
-                                mod = (int(d_val) - 10) // 2
-                            except (ValueError, TypeError):
-                                mod = 0
-                            p_saves = [str(s).upper() for s in player.full_sheet.get("saving_throw_proficiencies", [])]
-                            if "DES" in p_saves or "DEX" in p_saves:
-                                try:
-                                    lvl = int(player.full_sheet.get("level", 1))
-                                    mod += 2 + (lvl - 1) // 4
-                                except (ValueError, TypeError):
-                                    mod += 2
+                        mod = get_effective_save_bonus_from_dict(player, "DES")
                         mod_str = f"+{mod}" if mod >= 0 else str(mod)
                         res = roll_dice(f"1d20{mod_str}")
                         is_crit = res["rolls"][0] == 20

@@ -3,6 +3,7 @@ import random
 from common.hex_utils import Hex, hex_distance, get_sphere_hexes, hex_linedraw, get_cone_hexes, get_line_hexes
 from common.network_utils import send_message, broadcast
 from common.protocol import *
+from common.item_modifiers import get_effective_attribute_from_dict, get_effective_save_bonus_from_dict
 import math
 def handle_create_aoe_request(data, player, game_state):
     aoe_data = data.get("aoe_data")
@@ -98,35 +99,7 @@ def handle_create_aoe_request(data, player, game_state):
                 stat = aoe_data.get("stat", "DES")
                 dc = aoe_data.get("dc", 10)
                 half_on_success = aoe_data.get("half", True)
-                mod = 0
-                s_map = {"STR": "FOR", "DEX": "DES", "CON": "COS", "INT": "INT", "WIS": "SAG", "CHA": "CAR"}
-                c_stat = s_map.get(str(stat).upper(), str(stat).upper())
-                if getattr(p, "full_sheet", None):
-                    sheet = p.full_sheet
-                    st_dict = sheet.get("saving_throws", {})
-                    found_st = False
-                    if isinstance(st_dict, dict):
-                        for k, v in st_dict.items():
-                            if s_map.get(str(k).upper(), str(k).upper()) == c_stat:
-                                try:
-                                    mod = int(str(v).replace("+", "").strip())
-                                    found_st = True
-                                    break
-                                except Exception:
-                                    pass
-                    if not found_st:
-                        attr = sheet.get("attributes", {})
-                        val = attr.get(c_stat, attr.get(stat))
-                        if val is not None:
-                            try: mod = (int(val) - 10) // 2
-                            except Exception: pass
-                        prof_saves = [s_map.get(str(s).upper(), str(s).upper()) for s in sheet.get("saving_throw_proficiencies", [])]
-                        if c_stat in prof_saves:
-                            cr_or_lvl = sheet.get("cr", sheet.get("level", 1))
-                            try: num = float(cr_or_lvl)
-                            except Exception: num = 1.0
-                            pb = 2 + max(0, int(num - 1) // 4)
-                            mod += pb
+                mod = get_effective_save_bonus_from_dict(p, stat)
                 mod_str = f"+{mod}" if mod >= 0 else str(mod)
                 save_result = roll_dice(f"1d20{mod_str}")
                 roll_tot = save_result["total"]
@@ -341,15 +314,11 @@ def handle_toggle_door_request(data, player, game_state):
             return
 
         elif method == "break":
-            str_mod = 0
+            str_mod = (get_effective_attribute_from_dict(player, "FOR") - 10) // 2
             pb = 2
             has_prof = False
             has_expertise = False
             if getattr(player, "full_sheet", None):
-                attrs = player.full_sheet.get("attributes", {})
-                str_val = attrs.get("FOR", attrs.get("STR", 10))
-                try: str_mod = (int(str_val) - 10) // 2
-                except Exception: str_mod = 0
                 lvl = player.full_sheet.get("level", 1)
                 pb = 2 + max(0, (int(lvl) - 1) // 4)
                 skills = player.full_sheet.get("skills", {})
@@ -399,16 +368,12 @@ def handle_toggle_door_request(data, player, game_state):
             return
 
         else: # "lockpick"
-            dex_mod = 0
+            dex_mod = (get_effective_attribute_from_dict(player, "DES") - 10) // 2
             pb = 2
             has_prof = False
             has_expertise = False
             if getattr(player, "full_sheet", None):
                 sheet = player.full_sheet
-                attrs = sheet.get("attributes", {})
-                dex_val = attrs.get("DES", attrs.get("DEX", 10))
-                try: dex_mod = (int(dex_val) - 10) // 2
-                except Exception: dex_mod = 0
                 lvl = sheet.get("level", 1)
                 pb = 2 + max(0, (int(lvl) - 1) // 4)
                 
@@ -555,10 +520,22 @@ def handle_resolve_aoe_request(data, player, game_state):
     game_state.log_dm_message(f"[AoE] {msg}")
 
     from common.protocol import make_prompt_save
+    resolved_dmg = damage_formula
+    if damage_formula:
+        clean_d = str(damage_formula).strip()
+        if clean_d.isdigit():
+            resolved_dmg = clean_d
+        else:
+            try:
+                from common.dice import roll_dice
+                resolved_dmg = str(roll_dice(clean_d)["total"])
+            except Exception:
+                resolved_dmg = damage_formula
+
     for p in affected_players:
         if getattr(p, "conn", None):
             send_message(p.conn, make_prompt_save(
-                stat=stat, dc=dc, damage_formula=damage_formula,
+                stat=stat, dc=dc, damage_formula=resolved_dmg,
                 half_on_success=half_on_success, source_name=caster_name,
                 damage_type=damage_type
             ))
@@ -566,17 +543,13 @@ def handle_resolve_aoe_request(data, player, game_state):
             try:
                 from server.rules.combat import _process_save_result
                 from common.dice import roll_dice
-                mod = 0
-                if getattr(p, "full_sheet", None):
-                    attr = p.full_sheet.get("attributes", {})
-                    if stat in attr:
-                        mod = (int(attr[stat]) - 10) // 2
+                mod = get_effective_save_bonus_from_dict(p, stat)
                 mod_str = f"+{mod}" if mod >= 0 else str(mod)
                 save_result = roll_dice(f"1d20{mod_str}")
                 roll_tot = save_result["total"]
                 is_crit = save_result["rolls"][0] == 20
                 is_fail = save_result["rolls"][0] == 1
-                _process_save_result(p.name, stat, roll_tot, is_crit, is_fail, dc, damage_formula, half_on_success, caster_name, game_state, damage_type)
+                _process_save_result(p.name, stat, roll_tot, is_crit, is_fail, dc, resolved_dmg, half_on_success, caster_name, game_state, damage_type)
             except Exception as e:
                 game_state.log_dm_message(f"[AoE] Errore tiro TS automatico per {p.name}: {e}")
 

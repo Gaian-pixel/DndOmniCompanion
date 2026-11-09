@@ -12,6 +12,7 @@ class Player:
         self.hp = 10
         self.max_hp = 10
         self.temp_hp = 0
+        self.ac = 10
         self.damage_resistances = []
         self.damage_immunities = []
         self.damage_vulnerabilities = []
@@ -69,10 +70,12 @@ class Player:
             senses = str(sheet.get("senses", "")).lower()
             if "scurovisione" in senses or "darkvision" in senses:
                 return True
-            traits = [str(t).lower() for t in sheet.get("traits", [])]
+            traits_raw = sheet.get("traits", [])
+            traits = [traits_raw.lower()] if isinstance(traits_raw, str) else [str(t).lower() for t in traits_raw]
             if any("scurovisione" in t or "darkvision" in t for t in traits):
                 return True
-            feats = [str(f).lower() for f in sheet.get("features", [])]
+            feats_raw = sheet.get("features", [])
+            feats = [feats_raw.lower()] if isinstance(feats_raw, str) else [str(f).lower() for f in feats_raw]
             if any("scurovisione" in f or "darkvision" in f for f in feats):
                 return True
         return getattr(self, "vision_radius", 6) > 6

@@ -21,12 +21,13 @@ from common.i18n import (
     _t, get_language, set_language, register_language_listener, unregister_language_listener,
     get_distance_unit, set_distance_unit, register_unit_listener, unregister_unit_listener, speed_to_hexes, format_distance_hexes
 )
+from common.ui_lifecycle import safe_after, cancel_all_after_timers, cancel_safe_timer
 
 from common.theme import (
     setup_theme, apply_modern_window_style,
-    BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT, BORDER_COLOR,
+    BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT, SURFACE_LIGHT, BORDER_COLOR, BORDER_GOLD,
     TEXT_COLOR, TEXT_MUTED, TEXT_DARK,
-    ACCENT_GOLD, ACCENT_RED, ACCENT_GREEN,
+    ACCENT_GOLD, ACCENT_GOLD_LIGHT, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, ACCENT_PURPLE,
     FONT_MAIN, FONT_HEADER, FONT_BOLD, FONT_SMALL, FONT_REGULAR
 )
 from .network import ClientNetwork
@@ -90,14 +91,15 @@ class ClientGUI:
         self.refresh_offline_characters()
         if initial_character:
             self.set_active_character_from_manager(initial_character)
-        self._process_queue_job = self.master.after(100, self.process_queue)
+        self._process_queue_job = safe_after(self.master, 100, self.process_queue)
         if self.auto_connect_ip and self.active_character:
-            self.master.after(150, lambda: self.perform_connect(self.auto_connect_ip, self.active_character))
+            safe_after(self.master, 150, lambda: self.perform_connect(self.auto_connect_ip, self.active_character))
 
     def _on_master_destroyed(self, event=None):
         if event and getattr(event, "widget", None) != self.master:
             return
         self._is_closing = True
+        cancel_all_after_timers(self.master)
         try:
             unregister_language_listener(self.on_language_changed)
         except Exception:
@@ -106,30 +108,15 @@ class ClientGUI:
             unregister_unit_listener(self.on_unit_changed)
         except Exception:
             pass
-        if getattr(self, "_process_queue_job", None):
-            try:
-                self.master.after_cancel(self._process_queue_job)
-            except Exception:
-                pass
-            self._process_queue_job = None
-        if getattr(self, "_char_save_timer", None):
-            try:
-                self.master.after_cancel(self._char_save_timer)
-                self._char_save_timer = None
-                if self.character_manager:
-                    self.character_manager.save_characters()
-            except Exception:
-                pass
+        self._process_queue_job = None
+        self._char_save_timer = None
 
     def schedule_save_characters(self, delay_ms: int = 1000):
         """Salva i personaggi su disco in modo debounced per evitare stuttering e freeze I/O durante il movimento."""
         if self._is_closing:
             return
         if getattr(self, "_char_save_timer", None):
-            try:
-                self.master.after_cancel(self._char_save_timer)
-            except Exception:
-                pass
+            cancel_safe_timer(self.master, self._char_save_timer)
             self._char_save_timer = None
 
         def _do_save():
@@ -141,7 +128,7 @@ class ClientGUI:
                     print(f"[ClientGUI] Errore salvataggio debounced personaggi: {e}")
 
         try:
-            self._char_save_timer = self.master.after(delay_ms, _do_save)
+            self._char_save_timer = safe_after(self.master, delay_ms, _do_save)
         except Exception:
             _do_save()
 
@@ -178,7 +165,7 @@ class ClientGUI:
 
     def on_language_changed(self, lang_code):
         if hasattr(self, 'master') and self.master.winfo_exists():
-            self.master.after(0, self.refresh_ui_language)
+            safe_after(self.master, 0, self.refresh_ui_language)
 
     def switch_distance_unit(self, unit_code):
         set_distance_unit(unit_code)
@@ -230,6 +217,7 @@ class ClientGUI:
 
         # Menu Visualizza / View
         view_menu = tk.Menu(menubar, tearoff=0)
+        view_menu.add_command(label=_t("menu_toggle_sidebar"), command=self.toggle_sidebar, accelerator="Ctrl+B")
         view_menu.add_command(label=_t("menu_fullscreen"), command=self.toggle_fullscreen, accelerator="F11")
         menubar.add_cascade(label=_t("menu_view"), menu=view_menu)
 
@@ -324,7 +312,8 @@ class ClientGUI:
         self.setup_menubar()
         
         # 2. LAYOUT PRINCIPALE (3 Colonne: Sinistra=Toolbar, Centro=Mappa, Destra=Notebook)
-        main_frame = ttk.Frame(self.master, padding="5")
+        self.main_frame = ttk.Frame(self.master, padding="4")
+        main_frame = self.main_frame
         main_frame.pack(fill=tk.BOTH, expand=True)
         main_frame.columnconfigure(0, weight=0) # Barra strumenti mappa a sinistra
         main_frame.columnconfigure(1, weight=1) # Mappa
@@ -332,8 +321,9 @@ class ClientGUI:
         main_frame.rowconfigure(0, weight=1)
         
         # --- COLONNA 0: LEFT TOOLBAR (Strumenti Mappa & Eroe Raggruppati) ---
-        left_panel = tk.Frame(main_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=6)
-        left_panel.grid(row=0, column=0, sticky="ns", padx=(0, 6))
+        self.left_panel = tk.Frame(main_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=6)
+        left_panel = self.left_panel
+        left_panel.grid(row=0, column=0, sticky="ns", padx=(0, 4))
         
         self.zoom_in_btn = None
         self.zoom_out_btn = None
@@ -398,11 +388,44 @@ class ClientGUI:
         
         # --- COLONNA 1: MAPPA ---
         self.map_outer_frame = ttk.Frame(main_frame)
-        self.map_outer_frame.grid(row=0, column=1, sticky="nsew", padx=4)
+        self.map_outer_frame.grid(row=0, column=1, sticky="nsew", padx=2)
         map_outer_frame = self.map_outer_frame
         
-        self.map_canvas = HexMapCanvas(self.map_outer_frame, bg="#121316")
+        self.map_canvas = HexMapCanvas(self.map_outer_frame, bg=BG_COLOR)
         self.map_canvas.pack(fill=tk.BOTH, expand=True)
+
+        # --- VTT FLOATING HUD BAR (Foundry VTT / BG3 Style) ---
+        self.vtt_hud_bar = tk.Frame(self.map_outer_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_GOLD, highlightthickness=1, padx=4, pady=3)
+        self.vtt_hud_bar.place(relx=1.0, y=10, x=-10, anchor="ne")
+
+        self.zoom_in_btn = ttk.Button(self.vtt_hud_bar, text="➕", width=3, style="Hud.TButton", command=lambda: self.map_canvas and self.map_canvas.zoom_in())
+        self.zoom_in_btn.pack(side=tk.LEFT, padx=1)
+        ToolTip(self.zoom_in_btn, "Ingrandisci Mappa (Zoom In: + / Rotella su)")
+        self.btn_hud_zoom_in = self.zoom_in_btn
+
+        self.zoom_out_btn = ttk.Button(self.vtt_hud_bar, text="➖", width=3, style="Hud.TButton", command=lambda: self.map_canvas and self.map_canvas.zoom_out())
+        self.zoom_out_btn.pack(side=tk.LEFT, padx=1)
+        ToolTip(self.zoom_out_btn, "Riduci Mappa (Zoom Out: - / Rotella giù)")
+        self.btn_hud_zoom_out = self.zoom_out_btn
+
+        self.btn_hud_center = ttk.Button(self.vtt_hud_bar, text="🎯", width=3, style="Hud.TButton", command=lambda: self.map_canvas and self.map_canvas.center_view())
+        self.btn_hud_center.pack(side=tk.LEFT, padx=1)
+        ToolTip(self.btn_hud_center, "Centra Mappa sul Personaggio")
+
+        self.btn_hud_ruler = ttk.Button(self.vtt_hud_bar, text="📏", width=3, style="Hud.TButton", command=self.toggle_ruler_mode)
+        self.btn_hud_ruler.pack(side=tk.LEFT, padx=1)
+        ToolTip(self.btn_hud_ruler, "Righello Tattico Distanze 5e")
+        self.btn_hud_measure = self.btn_hud_ruler
+
+        self.btn_hud_pan = ttk.Button(self.vtt_hud_bar, text="✋", width=3, style="Hud.TButton", command=self.toggle_pan_mode)
+        self.btn_hud_pan.pack(side=tk.LEFT, padx=1)
+        ToolTip(self.btn_hud_pan, "Sposta Mappa (Pan - Spazio)")
+
+        tk.Frame(self.vtt_hud_bar, bg=BORDER_COLOR, width=1, height=18).pack(side=tk.LEFT, padx=4)
+
+        self.btn_hud_toggle_sidebar = ttk.Button(self.vtt_hud_bar, text="▶", width=3, style="HudGold.TButton", command=self.toggle_sidebar)
+        self.btn_hud_toggle_sidebar.pack(side=tk.LEFT, padx=1)
+        ToolTip(self.btn_hud_toggle_sidebar, "Comprimi / Espandi Barra Laterale (Chat & Eroe - Ctrl+B)")
 
         # Overlay Centro-Schermo per la Scheda Personaggio (Mono-Finestra)
         self.center_overlay_frame = tk.Frame(self.map_outer_frame, bg=BG_COLOR, highlightbackground=ACCENT_GOLD, highlightthickness=2)
@@ -421,9 +444,25 @@ class ClientGUI:
         self.map_canvas.set_on_draw_callback(self.on_draw_request)
         
         # --- COLONNA 2: RIGHT SIDEBAR (Notebook Dark Fantasy) ---
-        right_panel = ttk.Frame(main_frame, width=360)
-        right_panel.grid(row=0, column=2, sticky="ns", padx=(6, 0))
-        right_panel.pack_propagate(False) # Mantieni la larghezza fissa a 360
+        self.sidebar_collapsed = False
+        self.right_panel = ttk.Frame(main_frame, width=370)
+        self.right_panel.grid(row=0, column=2, sticky="ns", padx=(4, 0))
+        self.right_panel.pack_propagate(False) # Mantieni la larghezza fissa
+        right_panel = self.right_panel
+
+        # Header Barra Laterale con pulsante rapido di compressione
+        self.right_panel_hdr = tk.Frame(right_panel, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=5)
+        self.right_panel_hdr.pack(fill=tk.X, pady=(0, 4))
+        
+        tk.Label(self.right_panel_hdr, text="🧭 VTT Console", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(side=tk.LEFT)
+        
+        self.btn_collapse_panel = tk.Button(
+            self.right_panel_hdr, text="▶ Comprimi", font=FONT_SMALL, relief=tk.FLAT, bd=0, padx=6, pady=2,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, activebackground=BORDER_COLOR, activeforeground=TEXT_COLOR,
+            command=self.toggle_sidebar
+        )
+        self.btn_collapse_panel.pack(side=tk.RIGHT)
+        ToolTip(self.btn_collapse_panel, "Comprimi pannello laterale per visualizzare la mappa a tutto schermo (Ctrl+B)")
         
         self.right_notebook = ttk.Notebook(right_panel)
         self.right_notebook.pack(fill=tk.BOTH, expand=True)
@@ -497,21 +536,25 @@ class ClientGUI:
         self.btn_quick_connect = ttk.Button(status_bar, text="🔗 Connetti", style="Info.TButton", command=self.connect_to_server)
         self.btn_quick_connect.pack(side=tk.RIGHT, padx=2)
         
-        # --- HERO SUMMARY CARD ---
-        hero_card = tk.Frame(controls_tab, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
+        # --- HERO SUMMARY CARD (Modern Dark Fantasy) ---
+        hero_card = tk.Frame(controls_tab, bg=SURFACE_COLOR, highlightbackground=BORDER_GOLD, highlightthickness=1, padx=10, pady=8)
         hero_card.pack(fill=tk.X, pady=(0, 8))
         
         hero_top = tk.Frame(hero_card, bg=SURFACE_COLOR)
         hero_top.pack(fill=tk.X, pady=(0, 6))
 
-        self.hero_token_canvas = tk.Canvas(hero_top, width=44, height=44, bg=SURFACE_COLOR, highlightthickness=0)
+        self.hero_token_canvas = tk.Canvas(hero_top, width=46, height=46, bg=SURFACE_COLOR_ALT, highlightthickness=1, highlightbackground=BORDER_GOLD, cursor="hand2")
         self.hero_token_canvas.pack(side=tk.LEFT, padx=(0, 8))
+        self.hero_token_canvas.bind("<Button-1>", lambda e: self.open_stats_dialog())
+        ToolTip(self.hero_token_canvas, "Clicca per aprire la Scheda Personaggio (Scorciatoia: C)")
 
         hero_text_col = tk.Frame(hero_top, bg=SURFACE_COLOR)
         hero_text_col.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self.hero_name_lbl = tk.Label(hero_text_col, text=self.name or _t("no_character"), font=FONT_HEADER, bg=SURFACE_COLOR, fg=ACCENT_GOLD)
+        self.hero_name_lbl = tk.Label(hero_text_col, text=self.name or _t("no_character"), font=FONT_HEADER, bg=SURFACE_COLOR, fg=ACCENT_GOLD, cursor="hand2")
         self.hero_name_lbl.pack(anchor="w")
+        self.hero_name_lbl.bind("<Button-1>", lambda e: self.open_stats_dialog())
+        ToolTip(self.hero_name_lbl, "Clicca per visualizzare la Scheda Personaggio (C)")
         
         self.hero_class_lbl = tk.Label(hero_text_col, text=_t("adventurer_lvl", lvl=1), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
         self.hero_class_lbl.pack(anchor="w")
@@ -522,19 +565,19 @@ class ClientGUI:
         self.hero_hp_lbl = tk.Label(hp_row, text="HP: -- / --", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR)
         self.hero_hp_lbl.pack(anchor="w")
         
-        self.hero_hp_bar_bg = tk.Frame(hero_card, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, height=12)
+        self.hero_hp_bar_bg = tk.Frame(hero_card, bg="#0D0E12", highlightbackground=BORDER_COLOR, highlightthickness=1, height=14)
         self.hero_hp_bar_bg.pack(fill=tk.X, pady=(2, 6))
-        self.hero_hp_bar_fill = tk.Frame(self.hero_hp_bar_bg, bg=ACCENT_GREEN, height=10)
+        self.hero_hp_bar_fill = tk.Frame(self.hero_hp_bar_bg, bg=ACCENT_GREEN, height=12)
         self.hero_hp_bar_fill.place(x=0, y=0, width=0, relwidth=0.0, relheight=1.0)
         
         # Badge Rapidi (CA, Velocità, Iniziativa)
         pill_row = tk.Frame(hero_card, bg=SURFACE_COLOR)
         pill_row.pack(fill=tk.X, pady=(4, 0))
-        self.hero_ac_badge = tk.Label(pill_row, text=f"🛡️ {_t('sheet_ac_badge')}: 10", bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_SMALL, padx=5, pady=2, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        self.hero_ac_badge = tk.Label(pill_row, text=f"🛡️ {_t('sheet_ac_badge')}: 10", bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD, font=FONT_SMALL, padx=6, pady=2, highlightbackground=BORDER_COLOR, highlightthickness=1)
         self.hero_ac_badge.pack(side=tk.LEFT, padx=(0, 4))
-        self.hero_speed_badge = tk.Label(pill_row, text=f"👟 {_t('sheet_speed_badge')}: 30ft", bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_SMALL, padx=5, pady=2, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        self.hero_speed_badge = tk.Label(pill_row, text=f"👟 {_t('sheet_speed_badge')}: 30ft", bg=SURFACE_COLOR_ALT, fg=ACCENT_BLUE, font=FONT_SMALL, padx=6, pady=2, highlightbackground=BORDER_COLOR, highlightthickness=1)
         self.hero_speed_badge.pack(side=tk.LEFT, padx=2)
-        self.hero_init_badge = tk.Label(pill_row, text=f"⚡ {_t('sheet_init_badge')}: +0", bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_SMALL, padx=5, pady=2, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        self.hero_init_badge = tk.Label(pill_row, text=f"⚡ {_t('sheet_init_badge')}: +0", bg=SURFACE_COLOR_ALT, fg=ACCENT_GREEN, font=FONT_SMALL, padx=6, pady=2, highlightbackground=BORDER_COLOR, highlightthickness=1)
         self.hero_init_badge.pack(side=tk.LEFT, padx=2)
         
         self.hero_backpack_btn = tk.Button(
@@ -674,19 +717,19 @@ class ClientGUI:
         ToolTip(self.btn_ammo, lambda: "Recupera il 50% delle munizioni impiegate in combattimento (PHB p. 146)")
 
         # Barra HUD Bersaglio Corrente (Target HUD)
-        self.target_hud_frame = tk.Frame(self.economy_frame, bg="#111827", highlightbackground=BORDER_COLOR, highlightthickness=1)
+        self.target_hud_frame = tk.Frame(self.economy_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1)
         self.target_hud_frame.pack(fill=tk.X, pady=(4, 0))
 
         self.lbl_target_hud = tk.Label(
             self.target_hud_frame, text="🎯 Bersaglio: Nessuno", font=FONT_SMALL,
-            bg="#111827", fg=TEXT_MUTED
+            bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED
         )
-        self.lbl_target_hud.pack(side=tk.LEFT, padx=(6, 2), pady=2, fill=tk.X, expand=True)
+        self.lbl_target_hud.pack(side=tk.LEFT, padx=(6, 2), pady=3, fill=tk.X, expand=True)
 
         self.btn_target_hud_clear = tk.Button(
-            self.target_hud_frame, text="✕", font=("Segoe UI", 7, "bold"), bd=0,
-            bg="#1F2937", fg="#9CA3AF", activebackground="#374151", activeforeground="white",
-            command=self.map_canvas.clear_target
+            self.target_hud_frame, text="✕", font=("Segoe UI", 8, "bold"), bd=0, relief=tk.FLAT,
+            bg=SURFACE_LIGHT, fg=TEXT_MUTED, activebackground=BORDER_COLOR, activeforeground=TEXT_COLOR,
+            cursor="hand2", command=self.map_canvas.clear_target
         )
         self.btn_target_hud_clear.pack(side=tk.RIGHT, padx=4, pady=2)
 
@@ -722,16 +765,16 @@ class ClientGUI:
         self.roll_button = ttk.Button(actions_grid, text=_t("btn_roll_dice"), command=getattr(self, "roll_dice_dialog", lambda: None), style="Primary.TButton")
         self.roll_button.grid(row=0, column=1, sticky="ew", padx=(2, 0), pady=2)
         
-        self.action_button = ttk.Button(actions_grid, text=_t("btn_action"), command=getattr(self, "open_action_dialog", lambda: None))
+        self.action_button = ttk.Button(actions_grid, text=_t("btn_action"), command=getattr(self, "open_action_dialog", lambda: None), style="Secondary.TButton")
         self.action_button.grid(row=1, column=0, sticky="ew", padx=(0, 2), pady=2)
 
         self.btn_short_rest = ttk.Button(actions_grid, text=_t("btn_short_rest"), command=self.open_short_rest_dialog, style='Info.TButton')
         self.btn_short_rest.grid(row=1, column=1, sticky="ew", padx=(2, 0), pady=2)
 
-        self.travel_button = ttk.Button(actions_grid, text=_t("btn_travel_actions"), command=getattr(self, "open_travel_dialog", lambda: None))
+        self.travel_button = ttk.Button(actions_grid, text=_t("btn_travel_actions"), command=getattr(self, "open_travel_dialog", lambda: None), style="Secondary.TButton")
         self.travel_button.grid(row=2, column=0, sticky="ew", padx=(0, 2), pady=2)
 
-        self.manuals_button = ttk.Button(actions_grid, text=_t("btn_manuals"), command=self.open_manuals_dialog)
+        self.manuals_button = ttk.Button(actions_grid, text=_t("btn_manuals"), command=self.open_manuals_dialog, style="Secondary.TButton")
         self.manuals_button.grid(row=2, column=1, sticky="ew", padx=(2, 0), pady=2)
 
         # Privilegi di Classe (Guerriero / Barbaro / ecc. - Riga Compatta 3 Colonne)
@@ -761,7 +804,7 @@ class ClientGUI:
         self.btn_rage.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
         ToolTip(self.btn_rage, lambda: _t("tooltip_rage"))
         
-        self.combat_btn = ttk.Button(controls_tab, text=_t("btn_request_combat"), command=lambda: getattr(self, "network", None) and self.network.send({"type": "COMBAT_TOGGLE_REQUEST", "data": {}}))
+        self.combat_btn = ttk.Button(controls_tab, text=_t("btn_request_combat"), command=lambda: getattr(self, "network", None) and self.network.send({"type": "COMBAT_TOGGLE_REQUEST", "data": {}}), style='Gold.TButton')
         self.combat_btn.pack(fill=tk.X, pady=2)
         
         self.end_turn_btn = ttk.Button(controls_tab, text=_t("btn_end_turn"), command=self.end_turn, style='Danger.TButton')
@@ -771,7 +814,7 @@ class ClientGUI:
         self.hotbar_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=6, padx=6)
         self.hotbar_buttons = []
         for i in range(10):
-            btn = ttk.Button(self.hotbar_frame, text=f"{i+1}", width=3)
+            btn = ttk.Button(self.hotbar_frame, text=f"{i+1}", width=3, style="Hotbar.TButton")
             btn.grid(row=0, column=i, padx=1)
             btn.bind("<Button-1>", lambda e, idx=i: getattr(self, "on_hotbar_click")(idx))
             btn.bind("<Button-3>", lambda e, idx=i: getattr(self, "on_hotbar_right_click")(idx))
@@ -786,6 +829,9 @@ class ClientGUI:
         # Scorciatoia universale Command Palette (Ctrl+K)
         self.master.bind("<Control-k>", self.open_command_palette)
         self.master.bind("<Control-K>", self.open_command_palette)
+        # Scorciatoia Collassa/Espandi Barra Laterale (Ctrl+B)
+        self.master.bind("<Control-b>", self.toggle_sidebar)
+        self.master.bind("<Control-B>", self.toggle_sidebar)
         # Scorciatoia Schermo Intero (F11 / Esc) & Scheda PG (C)
         self.master.bind("<F11>", self.toggle_fullscreen)
         self.master.bind("<Escape>", self._on_key_escape)
@@ -847,6 +893,25 @@ class ClientGUI:
         else:
             self.show_toast(_t("toast_fullscreen_off"), title=_t("menu_fullscreen"), toast_type="info")
 
+    def toggle_sidebar(self, event=None):
+        """Comprimi o espandi la barra laterale destra (Chat e Controlli Eroe) per massimizzare la mappa tattica."""
+        self.sidebar_collapsed = not getattr(self, "sidebar_collapsed", False)
+        if self.sidebar_collapsed:
+            if hasattr(self, "right_panel"):
+                self.right_panel.grid_remove()
+            if hasattr(self, "btn_hud_toggle_sidebar"):
+                self.btn_hud_toggle_sidebar.config(text="◀ Chat & Eroe", width=14, style="HudGold.TButton")
+            if hasattr(self, "btn_collapse_panel"):
+                self.btn_collapse_panel.config(text="◀ Espandi")
+            self.show_toast("Mappa ingrandita a tutto schermo (Premi Ctrl+B per riaprire)", title="VTT Tattico", toast_type="info")
+        else:
+            if hasattr(self, "right_panel"):
+                self.right_panel.grid()
+            if hasattr(self, "btn_hud_toggle_sidebar"):
+                self.btn_hud_toggle_sidebar.config(text="▶", width=3, style="HudGold.TButton")
+            if hasattr(self, "btn_collapse_panel"):
+                self.btn_collapse_panel.config(text="▶ Comprimi")
+
     def toggle_3d_dice(self):
         self.enable_3d_dice = not getattr(self, "enable_3d_dice", True)
         status_msg = _t("dice_3d_enabled_toast") if self.enable_3d_dice else _t("dice_3d_disabled_toast")
@@ -886,6 +951,8 @@ class ClientGUI:
             is_active = self.map_canvas.toggle_pan_mode()
             if hasattr(self, "pan_btn") and self.pan_btn:
                 self.pan_btn.configure(style="ToolActive.TButton" if is_active else "Tool.TButton")
+            if hasattr(self, "btn_hud_pan") and self.btn_hud_pan:
+                self.btn_hud_pan.configure(style="HudGold.TButton" if is_active else "Hud.TButton")
             if hasattr(self, "show_toast"):
                 if is_active:
                     self.show_toast("Modalità Navigazione Mappa attiva (Trascina con Tasto Sinistro)", title="✋ Pan Mappa", toast_type="info")
@@ -925,14 +992,21 @@ class ClientGUI:
         new_active = self.active_character_var.get()
         if not new_active: return
         self.name = new_active
+        char = getattr(self, "active_character", None)
         if self.character_manager:
-            char = self.character_manager.get_or_create(new_active)
+            if not char or char.name != new_active:
+                char = self.character_manager.get_or_create(new_active)
             self.active_character = char
             self.character_manager.active_character = char
         if getattr(self, "map_canvas", None):
             self.map_canvas.player_name = new_active
             self.map_canvas.redraw()
         self.update_hero_summary_card()
+        if hasattr(self, 'hotbar_buttons') and char and hasattr(char, 'hotbar') and isinstance(char.hotbar, list):
+            for i in range(min(10, len(char.hotbar))):
+                cmd = char.hotbar[i]
+                btn_style = "HotbarAssigned.TButton" if cmd else "Hotbar.TButton"
+                self.hotbar_buttons[i].config(text=cmd[:10] if cmd else f"{i+1}", style=btn_style)
 
     def update_hero_summary_card(self):
         if not hasattr(self, 'hero_name_lbl'): return
@@ -977,9 +1051,20 @@ class ClientGUI:
         self.hero_hp_bar_fill.config(bg=bar_color)
         self.hero_hp_bar_fill.place(x=0, y=0, width=0, relwidth=ratio, relheight=1.0)
         
-        ac = getattr(char, 'ac', 10) or 10
+        if hasattr(char, 'get_effective_ac'):
+            mods = getattr(char, 'get_item_modifiers', lambda: {})()
+            has_def = (
+                mods.get("equipped_armor") is not None or
+                mods.get("has_shield", False) or
+                mods.get("bonus_ac", 0) != 0 or
+                mods.get("special_ac_base") is not None
+            )
+            ac = char.get_effective_ac() if has_def else (getattr(char, 'ac', 10) or 10)
+        else:
+            ac = getattr(char, 'ac', 10) or 10
         self.hero_ac_badge.config(text=f"🛡️ {_t('sheet_ac_badge')}: {ac}")
-        speed = getattr(char, 'get_effective_speed', lambda: getattr(char, 'speed', 30))() or 30
+        eff_spd = getattr(char, 'get_effective_speed', lambda: None)()
+        speed = eff_spd if eff_spd is not None else (getattr(char, 'speed', 30) if getattr(char, 'speed', None) is not None else 30)
         char_unit = getattr(char, 'speed_unit', None)
         hexes = speed_to_hexes(speed, char_unit)
         spd_display = format_distance_hexes(hexes, pref_unit).replace(" ", "")
@@ -995,7 +1080,17 @@ class ClientGUI:
             enc_tag = " [⛔]"
 
         self.hero_speed_badge.config(text=f"👟 {_t('sheet_speed_badge')}: {spd_display}{enc_tag}")
-        init = getattr(char, 'initiative', 0) or 0
+        raw_init = getattr(char, 'initiative', 0) or 0
+        if raw_init != 0:
+            init = raw_init
+        elif hasattr(char, 'get_modifier'):
+            init = char.get_modifier("DES")
+            c_cls = str(getattr(char, 'char_class', '')).lower()
+            c_lvl = int(getattr(char, 'level', 1) or 1)
+            if ("bardo" in c_cls or "bard" in c_cls) and c_lvl >= 2:
+                init += (((c_lvl - 1) // 4) + 2) // 2
+        else:
+            init = 0
         init_str = f"+{init}" if init >= 0 else str(init)
         self.hero_init_badge.config(text=f"⚡ {_t('sheet_init_badge')}: {init_str}")
 
@@ -1013,6 +1108,12 @@ class ClientGUI:
                 self.hero_light_btn.config(text=f"{icon} {rad}h", bg="#F59E0B", fg="black")
             else:
                 self.hero_light_btn.config(text="🕯️", bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED)
+
+        if hasattr(self, 'hotbar_buttons') and char and hasattr(char, 'hotbar') and isinstance(char.hotbar, list):
+            for i in range(min(10, len(char.hotbar))):
+                cmd = char.hotbar[i]
+                btn_style = "HotbarAssigned.TButton" if cmd else "Hotbar.TButton"
+                self.hotbar_buttons[i].config(text=cmd[:10] if cmd else f"{i+1}", style=btn_style)
 
         if hasattr(self, 'hero_companion_btn'):
             my_companions = [
@@ -1489,24 +1590,24 @@ class ClientGUI:
         react_state = tk.NORMAL if (connected and in_combat) else tk.DISABLED
 
         if not in_combat:
-            self.btn_act_tracker.config(text=f"{_t('btn_act')} (-)", bg="#2A2D32", fg="#666666", state=act_state)
-            self.btn_bonus_tracker.config(text=f"{_t('btn_bonus')} (-)", bg="#2A2D32", fg="#666666", state=bonus_state)
-            self.btn_react_tracker.config(text=f"{_t('btn_react')} (-)", bg="#2A2D32", fg="#666666", state=react_state)
+            self.btn_act_tracker.config(text=f"{_t('btn_act')} (-)", bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, state=act_state)
+            self.btn_bonus_tracker.config(text=f"{_t('btn_bonus')} (-)", bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, state=bonus_state)
+            self.btn_react_tracker.config(text=f"{_t('btn_react')} (-)", bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, state=react_state)
         else:
             if self.action_spent:
-                self.btn_act_tracker.config(text=f"{_t('btn_act')} (❌)", bg="#33373B", fg="#888888", state=act_state)
+                self.btn_act_tracker.config(text=f"{_t('btn_act')} (❌)", bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, state=act_state)
             else:
-                self.btn_act_tracker.config(text=f"{_t('btn_act')} (✔)", bg=ACCENT_GREEN if my_turn else "#2E5A44", fg="white", state=act_state)
+                self.btn_act_tracker.config(text=f"{_t('btn_act')} (✔)", bg=ACCENT_GREEN if my_turn else "#1E3E2B", fg="white", state=act_state)
 
             if self.bonus_spent:
-                self.btn_bonus_tracker.config(text=f"{_t('btn_bonus')} (❌)", bg="#33373B", fg="#888888", state=bonus_state)
+                self.btn_bonus_tracker.config(text=f"{_t('btn_bonus')} (❌)", bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, state=bonus_state)
             else:
-                self.btn_bonus_tracker.config(text=f"{_t('btn_bonus')} (✔)", bg="#3B82F6" if my_turn else "#2B4C7E", fg="white", state=bonus_state)
+                self.btn_bonus_tracker.config(text=f"{_t('btn_bonus')} (✔)", bg="#2563EB" if my_turn else "#1E2E4E", fg="white", state=bonus_state)
 
             if self.reaction_spent:
-                self.btn_react_tracker.config(text=f"{_t('btn_react')} (❌)", bg="#33373B", fg="#888888", state=react_state)
+                self.btn_react_tracker.config(text=f"{_t('btn_react')} (❌)", bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, state=react_state)
             else:
-                self.btn_react_tracker.config(text=f"{_t('btn_react')} (✔)", bg="#F59E0B", fg="white", state=react_state)
+                self.btn_react_tracker.config(text=f"{_t('btn_react')} (✔)", bg="#D97706", fg="white", state=react_state)
 
         # 3. Velocità Base e Tracker Movimento (con calcolo effettivo Ingombro 5e)
         base_speed = 30
@@ -1843,7 +1944,7 @@ class ClientGUI:
         ttk.Label(win, text=f"HP Attuali: {char.hp_current} / {char.hp_max}").pack(pady=2)
         ttk.Label(win, text=f"Dadi Vita Disponibili: {hd_cur} / {hd_tot} ({hd_type})").pack(pady=2)
         
-        con_mod = (int(char.attributes.get("COS", 10)) - 10) // 2
+        con_mod = char.get_modifier("COS") if hasattr(char, "get_modifier") else (int(char.attributes.get("COS", 10)) - 10) // 2
         sign = f"+{con_mod}" if con_mod >= 0 else str(con_mod)
         ttk.Label(win, text=f"Bonus Costituzione per dado: {sign}", font=FONT_SMALL).pack(pady=2)
         
@@ -1919,7 +2020,8 @@ class ClientGUI:
         cmd = simpledialog.askstring("Hotbar", f"Imposta comando per lo slot {idx+1} (es: 1d20+5, oppure Ciao!)", initialvalue=initial_val)
         if cmd is not None:
             self.active_character.hotbar[idx] = cmd
-            self.hotbar_buttons[idx].config(text=cmd[:10] if cmd else f"{idx+1}")
+            btn_style = "HotbarAssigned.TButton" if cmd else "Hotbar.TButton"
+            self.hotbar_buttons[idx].config(text=cmd[:10] if cmd else f"{idx+1}", style=btn_style)
             self.character_manager.save_characters()
 
     def on_hotbar_click(self, idx):
@@ -2227,8 +2329,12 @@ class ClientGUI:
             return
         if not target_name:
             self.lbl_target_hud.config(text="🎯 Bersaglio: Nessuno", fg=TEXT_MUTED)
+            if hasattr(self, 'target_hud_frame'):
+                self.target_hud_frame.config(highlightbackground=BORDER_COLOR)
         else:
             self.lbl_target_hud.config(text=f"🎯 Bersaglio: {target_name}", fg=ACCENT_GOLD)
+            if hasattr(self, 'target_hud_frame'):
+                self.target_hud_frame.config(highlightbackground=BORDER_GOLD)
 
     def perform_grapple(self):
         target_name = getattr(self.map_canvas, "current_target_name", None)
@@ -2617,6 +2723,8 @@ class ClientGUI:
         style = "ToolActive.TButton" if active else "Tool.TButton"
         if hasattr(self, 'measure_btn') and self.measure_btn:
             self.measure_btn.configure(style=style)
+        if hasattr(self, 'btn_hud_ruler') and self.btn_hud_ruler:
+            self.btn_hud_ruler.configure(style="HudGold.TButton" if active else "Hud.TButton")
         msg = "Righello attivato: clicca due punti sulla mappa per misurare la distanza." if active else "Righello disattivato."
         self.show_toast(msg, title="📏 Righello", toast_type="info" if active else "secondary")
         return active
@@ -2649,14 +2757,18 @@ class ClientGUI:
         keys_in_bag = []
 
         if char:
-            attrs = getattr(char, "attributes", {})
-            dex_val = attrs.get("DES", attrs.get("DEX", 10))
-            try: dex_mod = (int(dex_val) - 10) // 2
-            except Exception: dex_mod = 0
+            if hasattr(char, "get_modifier"):
+                dex_mod = char.get_modifier("DES")
+                str_mod = char.get_modifier("FOR")
+            else:
+                attrs = getattr(char, "attributes", {})
+                dex_val = attrs.get("DES", attrs.get("DEX", 10))
+                try: dex_mod = (int(dex_val) - 10) // 2
+                except Exception: dex_mod = 0
 
-            str_val = attrs.get("FOR", attrs.get("STR", 10))
-            try: str_mod = (int(str_val) - 10) // 2
-            except Exception: str_mod = 0
+                str_val = attrs.get("FOR", attrs.get("STR", 10))
+                try: str_mod = (int(str_val) - 10) // 2
+                except Exception: str_mod = 0
 
             lvl = getattr(char, "level", 1) or 1
             pb = getattr(char, "proficiency_bonus", None) or (2 + max(0, (int(lvl) - 1) // 4))
@@ -2991,10 +3103,11 @@ class ClientGUI:
                 self.voice_status_lbl.config(text="🟢 Voice: Connesso", fg=ACCENT_GREEN)
             self.set_controls_state(tk.NORMAL)
             self.update_hero_summary_card()
-            if self.active_character and hasattr(self, 'hotbar_buttons'):
-                for i in range(10):
+            if self.active_character and hasattr(self, 'hotbar_buttons') and hasattr(self.active_character, 'hotbar') and isinstance(self.active_character.hotbar, list):
+                for i in range(min(10, len(self.active_character.hotbar))):
                     cmd = self.active_character.hotbar[i]
-                    self.hotbar_buttons[i].config(text=cmd[:10] if cmd else f"{i+1}")
+                    btn_style = "HotbarAssigned.TButton" if cmd else "Hotbar.TButton"
+                    self.hotbar_buttons[i].config(text=cmd[:10] if cmd else f"{i+1}", style=btn_style)
             if hasattr(self, "show_toast"):
                 self.show_toast(f"Connesso a {host}:{port}!", title="Connessione Riuscita", toast_type="success")
         except Exception as e:
@@ -3039,11 +3152,7 @@ class ClientGUI:
                     print(f"[CLIENT] Errore elaborazione messaggio: {e}")
         finally:
             if not getattr(self, "_is_closing", False) and hasattr(self, "master"):
-                try:
-                    if self.master.winfo_exists():
-                        self._process_queue_job = self.master.after(100, self.process_queue)
-                except Exception:
-                    pass
+                self._process_queue_job = safe_after(self.master, 100, self.process_queue)
 
     def redraw_map_and_players(self):
         # Pass the full players_data so UI components can access position, conditions, etc.
@@ -3290,7 +3399,7 @@ class ClientGUI:
             self.update_hero_summary_card()
             self.update_action_economy_ui()
             
-            if hasattr(self, 'stats_window') and self.stats_window.winfo_exists():
+            if getattr(self, 'stats_window', None) and self.stats_window.winfo_exists():
                 self.stats_window.update_dynamic_stats()
             
         self.update_player_listbox()
@@ -3432,18 +3541,15 @@ class ClientGUI:
         msg = _t("confirm_exit_connected") if self.is_connected else _t("confirm_exit_client")
         if messagebox.askokcancel(_t("menu_exit"), msg):
             self._is_closing = True
-            if getattr(self, "_process_queue_job", None):
-                try: self.master.after_cancel(self._process_queue_job)
-                except Exception: pass
-                self._process_queue_job = None
+            cancel_all_after_timers(self.master)
+            self._process_queue_job = None
             if getattr(self, "_char_save_timer", None):
-                try:
-                    self.master.after_cancel(self._char_save_timer)
-                    self._char_save_timer = None
-                    if self.character_manager:
+                self._char_save_timer = None
+                if self.character_manager:
+                    try:
                         self.character_manager.save_characters()
-                except Exception:
-                    pass
+                    except Exception:
+                        pass
             try:
                 unregister_language_listener(self.on_language_changed)
             except Exception:
@@ -4058,7 +4164,7 @@ class ClientGUI:
         if not hasattr(self, "map_canvas") or not self.map_canvas: return
         is_active = self.map_canvas.toggle_pen_mode()
         if hasattr(self, "pen_btn"):
-            self.pen_btn.config(style="Accent.TButton" if is_active else "Tool.TButton")
+            self.pen_btn.config(style="ToolActive.TButton" if is_active else "Tool.TButton")
         self.show_toast("Modalità Penna Disegno: " + ("Attiva" if is_active else "Disattivata"), title="Lavagna", toast_type="info")
 
     def clear_whiteboard_drawings(self):
@@ -4229,9 +4335,9 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         from common.protocol import make_update_full_sheet_request
         self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
         
-        if hasattr(self, "sheet_ui") and self.sheet_ui.winfo_exists():
+        if getattr(self, "sheet_ui", None) and self.sheet_ui.winfo_exists():
             self.sheet_ui.load_data()
-        elif hasattr(self, "stats_window") and self.stats_window and self.stats_window.winfo_exists():
+        elif getattr(self, "stats_window", None) and self.stats_window.winfo_exists():
             self.stats_window.load_data()
             
         self.show_toast(f"{sender} ti ha inviato {amount} MO!", title="Loot Ricevuto", toast_type="gold")
@@ -4355,13 +4461,15 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             pass
         
         # Includi tutti i giocatori visibili per vedere l'ordine di iniziativa
-        cur_map = getattr(self, "map_data", {}) or {}
+        cur_map = getattr(self, "local_map_data", None) or getattr(self, "map_data", None) or {}
         fow_enabled = bool(cur_map.get("fow_enabled", False))
         fow_revealed = set()
         if fow_enabled:
             for h in cur_map.get("fow_revealed", []):
                 if isinstance(h, (list, tuple)) and len(h) >= 2:
                     fow_revealed.add((h[0], h[1]))
+            if getattr(self, "map_canvas", None) and getattr(self.map_canvas, "visible_hexes", None):
+                fow_revealed.update(self.map_canvas.visible_hexes)
 
         filtered_players = []
         for p in self.players_data.values():
@@ -4745,6 +4853,9 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         self.name = char.name
         if hasattr(self, 'active_character_var'):
             self.active_character_var.set(char.name)
+        if getattr(self, 'character_manager', None):
+            self.character_manager.update_character(char)
+            self.character_manager.save_characters()
         self.update_hero_summary_card()
         if self.is_connected:
             self.network.send(make_update_stats_request(char.hp_current, char.hp_max, char.initiative, getattr(char, "conditions", [])))

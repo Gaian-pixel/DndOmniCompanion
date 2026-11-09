@@ -175,6 +175,10 @@ class HexMapCanvas(tk.Canvas):
                 try: self.after_cancel(self._pan_redraw_timer)
                 except Exception: pass
                 self._pan_redraw_timer = None
+            try:
+                self.hide_token_tooltip()
+            except Exception:
+                pass
         self.bind("<Destroy>", _on_canvas_destroyed, add="+")
 
     def set_on_hex_right_click_callback(self, func):
@@ -228,19 +232,6 @@ class HexMapCanvas(tk.Canvas):
 
     def clear_drawings(self):
         self.drawn_lines = []
-
-        def _on_canvas_destroyed(e=None):
-            if e and getattr(e, "widget", None) != self:
-                return
-            if getattr(self, "_configure_timer", None) is not None:
-                try: self.after_cancel(self._configure_timer)
-                except Exception: pass
-                self._configure_timer = None
-            if getattr(self, "_pan_redraw_timer", None) is not None:
-                try: self.after_cancel(self._pan_redraw_timer)
-                except Exception: pass
-                self._pan_redraw_timer = None
-        self.bind("<Destroy>", _on_canvas_destroyed, add="+")
         self.delete("temp_draw")
         self.redraw()
 
@@ -320,6 +311,8 @@ class HexMapCanvas(tk.Canvas):
             self._is_panning = True
 
         self.move("all", dx, dy)
+        for hud_tag in ("hud_controls", "hud_coords", "hud_initiative", "weather_overlay"):
+            self.move(hud_tag, -dx, -dy)
 
         cw = max(self.winfo_width(), 200)
         ch = max(self.winfo_height(), 200)
@@ -376,6 +369,8 @@ class HexMapCanvas(tk.Canvas):
         self.pan_offset_x += dx
         self.pan_offset_y += dy
         self.move("all", dx, dy)
+        for hud_tag in ("hud_controls", "hud_coords", "hud_initiative", "weather_overlay"):
+            self.move(hud_tag, -dx, -dy)
         self._schedule_pan_redraw()
 
     def _can_handle_key(self):
@@ -988,7 +983,7 @@ class HexMapCanvas(tk.Canvas):
                         self.delete(pid)
             except Exception:
                 pass
-        self.after(2200, _cleanup_ping)
+        safe_after(self, 2200, _cleanup_ping)
 
     def center_view(self):
         """Centra la vista della mappa mantenendo lo zoom attuale."""
@@ -1312,9 +1307,9 @@ class HexMapCanvas(tk.Canvas):
             self.hex_layout = HexLayout(size=hex_size, origin=(0, 0))
 
         # Viewport bounds in world coords with overdraw margin for smooth panning
-        margin = 0.2
-        scr_x1, scr_y1 = -cw * margin, -ch * margin
-        scr_x2, scr_y2 = cw * (1.0 + margin), ch * (1.0 + margin)
+        margin_px = max(cw, ch) * 0.5 + 120
+        scr_x1, scr_y1 = -margin_px, -margin_px
+        scr_x2, scr_y2 = cw + margin_px, ch + margin_px
 
         world_x1 = (scr_x1 - self.pan_offset_x) / self.zoom_level
         world_x2 = (scr_x2 - self.pan_offset_x) / self.zoom_level
@@ -1597,7 +1592,7 @@ class HexMapCanvas(tk.Canvas):
                     aoe_hexes = []
 
                 for h in aoe_hexes:
-                    if fow_enabled and not is_dm and (h.q, h.r) not in fow_revealed:
+                    if fow_enabled and not is_dm and (h.q, h.r) not in fow_revealed and (h.q, h.r) not in visible_now:
                         continue
                     cx, cy = self.hex_layout.hex_to_pixel(h)
                     margin_size = hex_size * 1.5 if is_square else hex_size
@@ -2531,7 +2526,7 @@ class HexMapCanvas(tk.Canvas):
         if w > 200 and h > 120:
             bx2 = w - 16
             bx1 = bx2 - badge_w
-            by1 = 12
+            by1 = 52
             # Se il nastro di iniziativa è visibile al centro-alto, abbassa la pillola per non sovrapporsi
             if getattr(self, "combat_active", False) and getattr(self, "combat_order", None):
                 by1 = 76

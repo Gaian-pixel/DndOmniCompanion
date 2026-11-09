@@ -7,12 +7,17 @@ from common.i18n import is_condition_active
 
 def handle_update_stats_request(data, player, game_state):
     try:
+        if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
+            data = data["data"]
         is_dm = (player is None or getattr(player, "role", "") == "DM" or getattr(player, "conn", None) is None)
+        req_name = data.get("name") or data.get("target_name") or data.get("token_name")
         target = player
-        if is_dm and data.get("name"):
-            target = game_state.find_player(data.get("name"))
-        elif not target and data.get("name"):
-            target = game_state.find_player(data.get("name"))
+        if is_dm and req_name:
+            target = game_state.find_player(req_name)
+        elif req_name:
+            found_t = game_state.find_player(req_name)
+            if found_t:
+                target = found_t
         if not target:
             return
         if not is_dm and player:
@@ -51,6 +56,14 @@ def handle_update_stats_request(data, player, game_state):
             from server.rules.combat import drop_concentration
             drop_concentration(target, game_state, notify=True)
         _apply_hp_change(target, hp, game_state)
+        if isinstance(getattr(target, "full_sheet", None), dict):
+            target.full_sheet["hp_current"] = target.hp
+            target.full_sheet["hp"] = target.hp
+            target.full_sheet["current_hp"] = target.hp
+            target.full_sheet["hp_max"] = target.max_hp
+            target.full_sheet["max_hp"] = target.max_hp
+            target.full_sheet["temp_hp"] = target.temp_hp
+            target.full_sheet["conditions"] = list(target.conditions)
         from server.rules.movement import auto_explore_fow
         if auto_explore_fow(target, game_state):
             broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
@@ -62,12 +75,10 @@ def handle_update_stats_request(data, player, game_state):
 
 def handle_set_elevation_request(data, player, game_state):
     """Imposta la quota 3D / altitudine in piedi di un personaggio o mostro."""
-    target_name = data.get("target_name") or player.name
-    target = None
-    for p in getattr(game_state, "players", []):
-        if p.name == target_name:
-            target = p
-            break
+    if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
+        data = data["data"]
+    target_name = data.get("target_name") or data.get("name") or (player.name if player else None)
+    target = game_state.find_player(target_name) if target_name else None
     if not target:
         return
 
@@ -102,6 +113,12 @@ def handle_set_elevation_request(data, player, game_state):
 def handle_update_full_sheet_request(data, player, game_state):
     char_data = data.get("character") or data.get("sheet")
     if char_data:
+        from common.character_schema import normalize_character_dict
+        norm = normalize_character_dict(char_data)
+        if isinstance(char_data, dict):
+            char_data.update(norm)
+        else:
+            char_data = norm
         from common.starter_equipment import apply_class_and_race_starter_kit, apply_campaign_starter_kit
         # Se il personaggio non ha ancora ricevuto il kit iniziale di classe/razza, assegnalo
         if not char_data.get("starting_kit_applied"):
@@ -119,7 +136,10 @@ def handle_update_full_sheet_request(data, player, game_state):
 
         # Protezione e vincoli di gioco: se il PG ha già un full_sheet registrato sul server,
         # impedisci aumenti unilaterali di valuta, attributi o spawn abusivo di oggetti senza approvazione del DM
-        if isinstance(getattr(player, "full_sheet", None), dict) and player.full_sheet:
+        had_existing_sheet = isinstance(getattr(player, "full_sheet", None), dict) and bool(player.full_sheet)
+        prev_server_ac = int(player.full_sheet.get("ac", getattr(player, "ac", 10)) or 10) if had_existing_sheet else None
+        stripped_unapproved_item = False
+        if had_existing_sheet:
             if hasattr(player, "hp") and isinstance(player.hp, (int, float)):
                 char_data["hp_current"] = player.hp
             elif "hp_current" in player.full_sheet:
@@ -128,6 +148,9 @@ def handle_update_full_sheet_request(data, player, game_state):
                 char_data["hp_max"] = player.max_hp
             elif "hp_max" in player.full_sheet:
                 char_data["hp_max"] = player.full_sheet["hp_max"]
+            char_data["hp"] = char_data["hp_current"]
+            char_data["current_hp"] = char_data["hp_current"]
+            char_data["max_hp"] = char_data["hp_max"]
 
             server_currency = player.full_sheet.get("currency", {})
             client_currency = char_data.get("currency", {})
@@ -142,6 +165,8 @@ def handle_update_full_sheet_request(data, player, game_state):
                         except (ValueError, TypeError):
                             client_currency[c_k] = s_val
                 char_data["currency"] = client_currency
+                char_data["wallet"] = dict(client_currency)
+                char_data["gp"] = str(client_currency.get("MO", 0))
 
             server_attrs = player.full_sheet.get("attributes", {})
             client_attrs = char_data.get("attributes", {})
@@ -196,6 +221,7 @@ def handle_update_full_sheet_request(data, player, game_state):
                         rem_allowed = allowed_counts.get(k, 0)
                         if rem_allowed <= 0:
                             client_inv[s_i] = None
+                            stripped_unapproved_item = True
                         else:
                             try:
                                 c_q = max(1, int(c_it.get("qty", 1) or 1))
@@ -232,6 +258,25 @@ def handle_update_full_sheet_request(data, player, game_state):
                 if int(char_data.get("level", 1) or 1) <= int(player.full_sheet.get("level", 1) or 1):
                     char_data["features"] = player.full_sheet["features"]
 
+        try:
+            from common.item_modifiers import calculate_character_item_modifiers, compute_effective_ac
+            item_mods = calculate_character_item_modifiers(char_data)
+            has_def_items = (
+                item_mods.get("equipped_armor") is not None or
+                item_mods.get("has_shield", False) or
+                item_mods.get("bonus_ac", 0) != 0 or
+                item_mods.get("special_ac_base") is not None
+            )
+            calc_ac = compute_effective_ac(char_data, item_mods)
+            if has_def_items or stripped_unapproved_item:
+                char_data["ac"] = calc_ac
+            elif had_existing_sheet and prev_server_ac is not None:
+                client_ac = int(char_data.get("ac", prev_server_ac) or prev_server_ac)
+                if client_ac > max(prev_server_ac, calc_ac):
+                    char_data["ac"] = max(prev_server_ac, calc_ac)
+        except Exception:
+            pass
+
         player.full_sheet = char_data
         player.avatar_b64 = char_data.get("avatar_b64") or getattr(player, "avatar_b64", None)
         try:
@@ -247,6 +292,11 @@ def handle_update_full_sheet_request(data, player, game_state):
                     conds.append(c)
             player.conditions = conds
         player.max_hp = char_data.get("hp_max", player.max_hp)
+        if "ac" in char_data:
+            try:
+                player.ac = int(char_data["ac"])
+            except (ValueError, TypeError):
+                pass
         if "temp_hp" in char_data and char_data.get("temp_hp") is not None:
             player.temp_hp = char_data.get("temp_hp")
         if char_data.get("initiative") is not None:

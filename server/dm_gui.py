@@ -36,6 +36,7 @@ from common.i18n import (
     translate_weather, translate_period,
     get_distance_unit, set_distance_unit, register_unit_listener, unregister_unit_listener
 )
+from common.ui_lifecycle import safe_after, cancel_all_after_timers
 from server.dm_dialogs import (
     TextHandoutDialog,
     CustomNPCDialog,
@@ -137,12 +138,13 @@ class DM_GUI:
         self.voice_client.start()
         register_language_listener(self.on_language_changed)
         register_unit_listener(self.on_unit_changed)
-        self._process_queue_job = self.master.after(100, self.process_queue)
+        self._process_queue_job = safe_after(self.master, 100, self.process_queue)
 
     def _on_master_destroyed(self, event=None):
         if event and getattr(event, "widget", None) != self.master:
             return
         self._is_closing = True
+        cancel_all_after_timers(self.master)
         try:
             unregister_language_listener(self.on_language_changed)
         except Exception:
@@ -151,12 +153,7 @@ class DM_GUI:
             unregister_unit_listener(self.on_unit_changed)
         except Exception:
             pass
-        if getattr(self, "_process_queue_job", None):
-            try:
-                self.master.after_cancel(self._process_queue_job)
-            except Exception:
-                pass
-            self._process_queue_job = None
+        self._process_queue_job = None
 
     def get_player_name_from_listbox(self, index=None):
         """Restituisce il nome dell'entità alla riga index (o selezione corrente) senza fragilità di string-splitting."""
@@ -198,7 +195,7 @@ class DM_GUI:
 
     def on_language_changed(self, lang_code):
         if hasattr(self, 'master') and self.master.winfo_exists():
-            self.master.after(0, self.refresh_ui_language)
+            safe_after(self.master, 0, self.refresh_ui_language)
 
     def switch_distance_unit(self, unit_code):
         set_distance_unit(unit_code)
@@ -1380,11 +1377,8 @@ class DM_GUI:
         self.log_to_chat(f"[SISTEMA] NPC '{npc.name}' importato dal SRD e aggiunto.")
 
     def remove_entity(self):
-        sel = self.player_listbox.curselection()
-        if not sel: return
-        display_text = self.player_listbox.get(sel[0])
-        if display_text.startswith('---'): return
-        player_name = display_text.split(" (HP")[0].replace("▶", "").strip()
+        player_name = self.get_player_name_from_listbox()
+        if not player_name: return
         player = self.server.game_state.find_player(player_name)
         if not player: return
         
@@ -1395,14 +1389,8 @@ class DM_GUI:
             self.server.game_state._trigger_gui_update()
 
     def toggle_player_combat_status(self):
-        sel = self.player_listbox.curselection()
-        if not sel: return
-        display_text = self.player_listbox.get(sel[0])
-        if display_text.startswith('---'): return
-        if display_text.startswith("---"): return
-        player_name = display_text.split(" (HP")[0].replace("▶", "").replace("➡️", "").strip()
-        if player_name.startswith("[N] "):
-            player_name = player_name[4:]
+        player_name = self.get_player_name_from_listbox()
+        if not player_name: return
         player = self.server.game_state.find_player(player_name)
         if not player: return
 
@@ -2100,12 +2088,8 @@ class DM_GUI:
                 self.redraw_map_and_players()
             return
 
-        sel_indices = self.player_listbox.curselection()
-        if not sel_indices: return
-        
-        display_text = self.player_listbox.get(sel_indices[0])
-        if display_text.startswith('---'): return
-        selected_name = display_text.split(" (HP")[0].replace("▶", "").strip()
+        selected_name = self.get_player_name_from_listbox()
+        if not selected_name: return
 
         if self.server.game_state.move_player(selected_name, [clicked_hex.q, clicked_hex.r]):
             broadcast(self.server.game_state, make_player_move(selected_name, [clicked_hex.q, clicked_hex.r]))
@@ -2982,9 +2966,9 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                 elif msg_type == "JOURNAL_APPROVAL_REQUEST":
                     self.prompt_journal_approval(msg.get("player"), msg.get("field_name"), msg.get("content"), msg.get("title"))
                 elif msg_type == "CURRENCY_REQUEST":
-                    self.master.after(10, self.prompt_currency_approval, msg.get("player"), msg.get("coin"), msg.get("amount"), msg.get("reason"))
+                    safe_after(self.master, 10, self.prompt_currency_approval, msg.get("player"), msg.get("coin"), msg.get("amount"), msg.get("reason"))
                 elif msg_type == "ITEM_APPROVAL_REQUEST":
-                    self.master.after(10, self.prompt_item_approval, msg.get("player"), msg.get("item"), msg.get("slot_idx"))
+                    safe_after(self.master, 10, self.prompt_item_approval, msg.get("player"), msg.get("item"), msg.get("slot_idx"))
                 elif msg_type == "DICE_ROLL_RESULT":
                     p = msg.get("payload", {})
                     self.trigger_3d_dice_roll(p.get("formula", "1d20"), p.get("result", {}), p.get("player", "Qualcuno"), p.get("reason", ""))
@@ -2995,7 +2979,7 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
 
         if not getattr(self, "_is_closing", False):
             try:
-                self._process_queue_job = self.master.after(100, self.process_queue)
+                self._process_queue_job = safe_after(self.master, 100, self.process_queue)
             except Exception:
                 pass
 
@@ -3027,8 +3011,12 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                 if not isinstance(sheet.get("currency"), dict):
                     sheet["currency"] = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
                 sheet["currency"][coin] = sheet["currency"].get(coin, 0) + amount
+                if not isinstance(sheet.get("wallet"), dict):
+                    sheet["wallet"] = dict(sheet["currency"])
+                else:
+                    sheet["wallet"][coin] = sheet["currency"][coin]
                 if coin in ["MO", "gp"]:
-                    sheet["gp"] = sheet.get("gp", 0) + amount
+                    sheet["gp"] = sheet["currency"].get("MO", 0)
             if player.conn:
                 send_message(player.conn, make_currency_response(p_name, coin, amount, approved=True, reason=reason))
             broadcast(self.server.game_state, make_chat_broadcast("Sistema", f"[VALUTA] Il Master ha APPROVATO e concesso +{amount} {coin_display} a {p_name}!"))
@@ -3117,6 +3105,21 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                         else:
                             grid.append(clean_item)
                             slot_idx = len(grid) - 1
+                    try:
+                        from common.item_modifiers import compute_effective_ac, calculate_character_item_modifiers
+                        mods = calculate_character_item_modifiers(sheet)
+                        if (
+                            is_remove or
+                            mods.get("equipped_armor") is not None or
+                            mods.get("has_shield", False) or
+                            mods.get("bonus_ac", 0) != 0 or
+                            mods.get("special_ac_base") is not None
+                        ):
+                            new_ac = compute_effective_ac(sheet, mods)
+                            sheet["ac"] = new_ac
+                            player.ac = new_ac
+                    except Exception:
+                        pass
             if player.conn:
                 send_message(player.conn, make_item_approval_response(p_name, item, slot_idx, approved=True))
             action_desc = "la rimozione di" if is_remove else "l'assegnazione di"
@@ -3239,10 +3242,8 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
     def on_closing(self):
         if messagebox.askokcancel(_t("menu_exit"), _t("confirm_exit_server")):
             self._is_closing = True
-            if getattr(self, "_process_queue_job", None):
-                try: self.master.after_cancel(self._process_queue_job)
-                except Exception: pass
-                self._process_queue_job = None
+            cancel_all_after_timers(self.master)
+            self._process_queue_job = None
             try:
                 unregister_language_listener(self.on_language_changed)
             except Exception:
@@ -3311,11 +3312,8 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         text_widget.tag_config("text", foreground=TEXT_COLOR, font=FONT_MAIN)
         
     def open_private_chat_from_list(self, event):
-        selected_indices = self.player_listbox.curselection()
-        if not selected_indices: return
-        display_text = self.player_listbox.get(selected_indices[0])
-        if display_text.startswith('---'): return
-        player_name = display_text.split(" (HP")[0].replace("▶", "").strip()
+        player_name = self.get_player_name_from_listbox()
+        if not player_name: return
         self.create_chat_tab(player_name)
         for i, tab in enumerate(self.notebook.tabs()):
             if self.notebook.tab(i, "text") == player_name: self.notebook.select(i); break
@@ -3336,11 +3334,8 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
             self.player_menu.grab_release()
 
     def view_player_sheet(self):
-        sel = self.player_listbox.curselection()
-        if not sel: return
-        display_text = self.player_listbox.get(sel[0])
-        if display_text.startswith('---'): return
-        player_name = display_text.split(" (HP")[0].replace("▶", "").strip()
+        player_name = self.get_player_name_from_listbox()
+        if not player_name: return
         player = self.server.game_state.find_player(player_name)
         
         if not player or not player.full_sheet:
@@ -3386,18 +3381,13 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
             if canvas_sel:
                 return next(iter(canvas_sel))
             return None
-        display_text = self.player_listbox.get(sel[0])
-        if display_text.startswith('---'): return None
-        name = display_text.split(" (HP")[0].replace("▶", "").replace("[N]", "").strip()
-        return name
+        return self.get_player_name_from_listbox(sel[0])
 
     def get_selected_player_names(self):
         sel = self.player_listbox.curselection()
         names = []
         for idx in sel:
-            display_text = self.player_listbox.get(idx)
-            if display_text.startswith('---'): continue
-            name = display_text.split(" (HP")[0].replace("▶", "").replace("[N]", "").strip()
+            name = self.get_player_name_from_listbox(idx)
             if name and name not in names:
                 names.append(name)
         canvas_sel = getattr(self.map_canvas, "selected_tokens", set())
@@ -3609,11 +3599,8 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
                 messagebox.showerror("Errore", "Funzione non supportata dal server attuale.")
 
     def open_action_dialog(self):
-        sel = self.player_listbox.curselection()
-        if not sel: return
-        display_text = self.player_listbox.get(sel[0])
-        if display_text.startswith('---'): return
-        target_name = display_text.split(" (HP")[0].replace("▶", "").strip()
+        target_name = self.get_player_name_from_listbox()
+        if not target_name: return
         target_player = self.server.game_state.find_player(target_name)
         if not target_player: return
 

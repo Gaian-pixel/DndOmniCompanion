@@ -875,8 +875,28 @@ class LevelUpDialog(tk.Toplevel):
         else:
             hp_inc = max(1, min(self.hit_die, hp_inc))
 
+        # 2. Sottoclasse (risolta prima del calcolo PF per supportare Stregone Draconico)
+        chosen_sub = getattr(self, "subclass_choice_var", None)
+        if chosen_sub and chosen_sub.get().strip():
+            self.character.subclass = chosen_sub.get().strip()
+
         cos_mod = (self.character.attributes.get("COS", 10) - 10) // 2
-        total_hp_inc = max(1, hp_inc + cos_mod)
+        extra_per_lvl = 0
+        subrace_str = (str(getattr(self.character, "subrace", "")) + " " + str(getattr(self.character, "race", ""))).lower()
+        feats_existing = str(getattr(self.character, "features", "")).lower()
+        if "colline" in subrace_str or "hill" in subrace_str or "robustezza nanica" in feats_existing:
+            extra_per_lvl += 1
+        if "dracon" in str(getattr(self.character, "subclass", "")).lower():
+            extra_per_lvl += 1
+        has_tough_already = (
+            "talento: robusto" in feats_existing or
+            "★ robusto" in feats_existing or
+            any("robusto" in str(f.get("name", "")).lower() or "tough" in str(f.get("name", "")).lower() for f in (getattr(self.character, "features_list", []) or []) if isinstance(f, dict))
+        )
+        if has_tough_already:
+            extra_per_lvl += 2
+
+        total_hp_inc = max(1, hp_inc + cos_mod) + extra_per_lvl
 
         self.character.level += 1
         self.character.hp_max += total_hp_inc
@@ -886,11 +906,6 @@ class LevelUpDialog(tk.Toplevel):
         if hasattr(self.character, "hit_dice_total"):
             self.character.hit_dice_total += 1
             self.character.hit_dice_current = getattr(self.character, "hit_dice_current", 0) + 1
-
-        # 2. Sottoclasse
-        chosen_sub = getattr(self, "subclass_choice_var", None)
-        if chosen_sub and chosen_sub.get().strip():
-            self.character.subclass = chosen_sub.get().strip()
 
         # 3. Privilegi di Classe & Sottoclasse
         if self.new_features:
@@ -905,7 +920,7 @@ class LevelUpDialog(tk.Toplevel):
                 desc = self.new_feature_details.get(feat_name, "")
                 self.character.features_list.append({
                     "name": feat_name,
-                    "category": f"Privilegio (Lv {self.character.level})",
+                    "category": "Privilegio di Classe",
                     "desc": desc
                 })
 
@@ -959,9 +974,13 @@ class LevelUpDialog(tk.Toplevel):
                     self.character.features_list = []
                 self.character.features_list.append({
                     "name": feat_name,
-                    "category": f"Talento (Lv {self.character.level})",
+                    "category": "Talento",
                     "desc": feat_desc
                 })
+                if ("robusto" in feat_name.lower() or "tough" in feat_name.lower()) and not has_tough_already:
+                    tough_hp = 2 * self.character.level
+                    self.character.hp_max += tough_hp
+                    self.character.hp_current += tough_hp
 
         self.character.proficiency_bonus = 2 + (self.character.level - 1) // 4
 
