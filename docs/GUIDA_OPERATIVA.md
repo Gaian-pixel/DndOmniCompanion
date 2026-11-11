@@ -112,13 +112,14 @@ flowchart TD
 * **`server/voice_server.py` & `client/voice_client.py`**: Server di broadcast e client streaming vocale UDP in tempo reale. Su sistemi Windows, il socket UDP è configurato con `SIO_UDP_CONNRESET` per intercettare gli errori ICMP Port Unreachable ed evitare che la disconnessione anomala di singoli client interrompa il loop `recvfrom` del server.
 * **`client/client.py`**: Interfaccia principale e loop messaggi asincrono protetto da blocco `try...finally` in `process_queue`, garantendo la riprogrammazione ininterrotta a intervalli regolari (`self.master.after(100, ...)`) a fronte di qualsiasi payload imprevisto.
 * **`server/rules/`**: Moduli di regole 5e disaccoppiati:
-  * `combat.py`: iniziativa, attacchi, critici automatici entro 5ft su bersagli Incoscienti/Paralizzati, copertura e linea di vista con porte chiuse (`get_effective_map_walls`), resistenze e vulnerabilità bilingue, prompt per reazioni (incantesimo *Scudo*, attacchi di opportunità) con bypass blocco turno (`is_reaction=True`), Evasione e Attacco Furtivo.
+  * `combat.py`: iniziativa, attacchi, critici automatici entro 5ft su bersagli Incoscienti/Paralizzati, copertura e linea di vista con porte chiuse (`get_effective_map_walls`), resistenze e vulnerabilità bilingue, aure dinamiche (*Aura di Protezione* del Paladino e *Spiriti Guardiani*), azione *Preparare* (`READY_ACTION_REQUEST` / `TRIGGER_READIED_ACTION_REQUEST`), sopravvivenza a 0 PV (*Tenacia Implacabile* e *Interdizione alla Morte*), prompt per reazioni (*Scudo*, *Assorbire Elementi*, *Controincantesimo*, *Deviare Proiettili*, attacchi di opportunità) con bypass blocco turno (`is_reaction=True`), Evasione e Attacco Furtivo.
   * `movement.py`: movimento esagonale, validazione anti-cheat (verifica privilegi DM con socket di rete attivo), salvaguardia condizioni e PF temporanei sulle trappole, FoW, terreni difficili e teletrasporti tra mappe.
   * `character.py`: assorbimento danni, PV temporanei, prove di concentrazione (TS COS), 0 HP, morte istantanea, TS morte e riposi.
   * `chat.py`: chat Discord-style, formule dadi, critici Nat20/Nat1, sussurri privati e blind rolls (`/broll`, `/gmroll`).
   * `map_interaction.py`: ping, righello, porte interattive, serrature/scasso con arnesi, spille di stanza (*Room Pins*) e narrazione al tavolo.
-  * `inventory.py` & `client/character_manager.py`: scambi P2P, negozi, valuta (50 monete = 1 lb), approvazione DM, sintonia magica (`🔮`), contenitori per singolo oggetto (`🎒 Zaino`, `⚔️ Addosso`, `🔮 Borsa Conservante`, `✨ Zaino Pratico`, `🐴 Cavalcatura`), tattica "Sfila lo Zaino a Terra" (PHB p. 190) e Regola Variante di Ingombro 5e (PHB p. 176) con penalità dinamica alla velocità effettiva.
+  * `inventory.py`, `common/item_modifiers.py` & `client/character_manager.py`: scambi P2P, negozi, valuta (50 monete = 1 lb), approvazione DM, sintonia magica (`🔮`), calcolo automatico dei modificatori di CA/statistiche/TS/CD degli oggetti magici equipaggiati e sintonizzati, gestione cariche e ricarica all'alba (DMG p. 141), contenitori per singolo oggetto (`🎒 Zaino`, `⚔️ Addosso`, `🔮 Borsa Conservante`, `✨ Zaino Pratico`, `🐴 Cavalcatura`), tattica "Sfila lo Zaino a Terra" (PHB p. 190) e Regola Variante di Ingombro 5e (PHB p. 176) con penalità dinamica alla velocità effettiva.
   * `audio.py`: gestione broadcast audio e soundboard.
+* **`common/character_schema.py` & `client/sheet_panels/*.py`**: Architettura modulare della Scheda Personaggio e schema dati 5e. Include il motore di validazione prerequisiti e calcolo slot per il **Multiclasse** (`check_multiclass_prerequisites`, `calculate_multiclass_spell_slots`), **Portento** del Mago Divinatore, talento **Fortunato** (*Lucky*), e i 6 pannelli specializzati (`combat_panel.py` con Attacco Poderoso `-5/+10` e Mano Secondaria TWF, `spells_panel.py` con scaling formule Upcast e Lancio Rituale, `inventory_panel.py`, `stats_panel.py`, `features_panel.py`, `notes_panel.py`).
 * **`components/statblock_view.py` (`StatblockCardView`)**: Componente grafico modulare per il rendering Dark Fantasy 5e fedele al formato cartaceo dei manuali. Gestisce tre modalità polimorfiche: **Mostri/PNG** (badge CA/PV/Velocità, tabella caratteristiche, tiri salvezza, abilità, resistenze, tratti, azioni, reazioni, azioni leggendarie), **Oggetti Magici** (rarità, categoria, sintonia e proprietà) e **Incantesimi** (livello, scuola, tempo di lancio, gittata, componenti, durata e scaling superiore). Include pulsanti di azione primari contestuali e scrollbar automatica.
 * **`common/srd_offline.py`**: Livello di normalizzazione dati e compendio offline. Include `normalize_ac_value` e `normalize_speed_value` per depurare i payload da artefatti e dizionari annidati (`[{}]`), parsing di stringhe complesse per movimenti multipli (volo, nuoto, scavo, scalata), conversione numerica di Gradi di Sfida frazionari (`"1/8"`, `"1/4"`, `"1/2"`), e arricchimento delle statistiche base di mostri importati da PDF o API esterne.
 * **`common/file_utils.py`**: Gestione trasparente e multipiattaforma dei percorsi di filesystem (`get_base_dir()`, `get_writable_dir()`, `ensure_writable_dir()`). Separa rigorosamente le risorse read-only bundled dell'applicazione (dataset SRD, manuali base, mappe e campagne) dai dati utente dinamici e persistenti (`client_data`, impostazioni, manuali indicizzati in runtime), garantendo compatibilità sia da sorgente Python che all'interno di pacchetti standalone compilati (PyInstaller).
@@ -375,20 +376,22 @@ Il server implementa un'architettura granulare per arbitrare il livello di autom
   * **Passo 5: Dettagli, Avatar & Token**: Assegnazione nome, divinità, note e caricamento dell'avatar.
 * **Avatar Personaggio & Generazione Automatica Token su Mappa**:
   * L'immagine caricata per il personaggio (o per PNG e mostri dal DM) viene automaticamente trasformata nel **Token Grafico Tattico renderizzato sul Canvas Mappa**, con ritaglio circolare antialiased, anello colorato coordinato alla fazione/classe e scalatura automatica in base alla Taglia della creatura (da *Minuscola* $0.5\times$ a *Mastodontica* $3.5\times$).
-* **Wizard di Level-Up**:
-  * Calcola l'aumento dei PV (tiro del Dado Vita o media fissa).
+* **Wizard di Level-Up & Multiclasse (PHB Cap. 6)**:
+  * Consente di salire di livello nella classe primaria o acquisire livelli in una qualsiasi delle 12 classi 5e previa verifica automatica dei prerequisiti di caratteristica (`min 13`).
+  * Calcola automaticamente la tabella degli **Slot Incantatore Multiclasse** (PHB p. 165) combinando incantatori pieni, mezzi e terzi, mantenendo separata la *Magia del Patto* del Warlock.
+  * Calcola l'aumento dei PV (tiro del Dado Vita della classe scelta o media fissa).
   * Recupera automaticamente dal compendio SRD i privilegi di classe del nuovo livello e popola sia `features` che `features_list` con sincronizzazione immediata sul modello dati per scongiurare qualsiasi perdita di capacità al salvataggio della scheda.
   * Gestisce gli Aumenti dei Punteggi di Caratteristica (ASI) o Talenti, imponendo il **tetto massimo di 20** per i punteggi di caratteristica ed escludendo la selezione duplicata nella modalità +1/+1.
-  * Ricalcola istantaneamente il bonus di competenza ($2 + \lfloor(\text{Livello}-1)/4\rfloor$) e aggiorna tiri salvezza, prove di abilità e attacchi.
+  * Ricalcola istantaneamente il bonus di competenza ($2 + \lfloor(\text{Livello Totale}-1)/4\rfloor$) e aggiorna tiri salvezza, prove di abilità e attacchi.
   * Sblocca le progressioni di slot incantesimo aggiornate, includendo le tabelle dedicate per **Artefice** (2 slot al 1° livello) e **Terzi Incantatori** (*Cavaliere Mistico* e *Mistificatore Arcano* dal 3° livello).
 
-### Scheda Personaggio Interattiva
-Organizzata in schede chiare:
-* **Tab Combattimento & Statistiche**: PV attuali/massimi con barra proporzionale, PV Temporanei, CA, Velocità, Iniziativa, Condizioni attive, Tiri contro la Morte, Dadi Vita, le 6 caratteristiche base, Tiri Salvezza e tutte le 18 Abilità con Competenza/Maestria.
-* **Tab Armi & Attacchi**: Gestione armi equipaggiate e tiri rapidi per colpire/danni.
-* **Tab Inventario**: Inventario con pesi, quantità, oggetti sintonizzati (`🔮` max 3), Borsa delle Monete e peso totale rispetto alla capacità di carico ($\text{FOR} \times 15\text{ lbs}$).
-* **Tab Grimorio**: Slot incantesimo di livello 1–9 con contatori attuali/massimi, ricerca incantesimi, dialog modale di **Upcasting** e lancio con 1 click.
-* **Tab Privilegi & Diario**: Tratti razziali, privilegi di classe, tracciatore **Risorse di Classe Speciali** e note personali.
+### Scheda Personaggio Interattiva (Pannelli Modulari)
+Organizzata in schede chiare coordinate da `CharacterSheetFrame`:
+* **Tab Combattimento & Statistiche (`stats_panel.py`)**: PV attuali/massimi con barra proporzionale, PV Temporanei, CA dinamica comprensiva di oggetti magici, Velocità, Iniziativa, Condizioni attive, Tiri contro la Morte, Dadi Vita, le 6 caratteristiche base (con eventuali override magici come *Amuleto della Salute* o *Cintura dei Giganti*), Tiri Salvezza e tutte le 18 Abilità con Competenza/Maestria, oltre a barra rapida per **Portento** (`2d20`/`3d20`) e **Fortunato** (`3/3`).
+* **Tab Armi & Attacchi (`combat_panel.py`)**: Gestione armi equipaggiate, tiri rapidi per colpire/danni (con *Fortuna dell'Halfling* e *Combattere con Armi Possenti*), toggle **Attacco Poderoso (`-5 TxC / +10 Danni`)** e pulsante **Mano Secondaria (`🗡️ 2ª Mano`)**.
+* **Tab Inventario (`inventory_panel.py`)**: Inventario con pesi, quantità, oggetti sintonizzati (`🔮` max 3), contatore e spesa **Cariche Oggetti Magici (`⚡ X/Y`)** con regola `1d20` sull'ultima carica (DMG p. 141), Borsa delle Monete e peso totale rispetto alla capacità di carico ($\text{FOR} \times 15\text{ lbs}$).
+* **Tab Grimorio (`spells_panel.py`)**: Slot incantesimo di livello 1–9 con contatori attuali/massimi, ricerca incantesimi, dialog modale di **Upcasting con scaling automatico delle formule di dado** e opzione **Lancio come Rituale (`+10 min, 0 slot`)**.
+* **Tab Privilegi & Diario (`features_panel.py`, `notes_panel.py`)**: Tratti razziali, privilegi di classe, tracciatore **Risorse di Classe Speciali** e note personali in Markdown.
 
 ### Sistema Risorse di Classe Speciali
 * **Automazione di Classe**: All'atto della creazione o level-up, il sistema popola automaticamente le risorse caratteristiche della classe scelta (es. *Punti Ki*, *Ira*, *Ispirazione Bardica*, *Forma Selvatica*, *Canale di Divinità*, *Azione Impetuosa*, *Secondo Fiato*, *Punti Stregoneria*, *Imposizione delle Mani*).
@@ -726,13 +729,19 @@ D&D OmniCompanion include un'infrastruttura completa di puntamento, calcolo geom
 
 ## 12. Suite di Test e Quality Assurance
 
-Il progetto include una suite consolidata nella cartella `tests/` con **378 test automatizzati** che passano al 100% con 0 errori, coprendo unit test headless, simulazione fisica dei dadi 3D, combattimento tattico, spazio 3D ed elevazione, flusso di login rapido, compagni/famigli, viaggi e accampamento, smoke test della GUI, architettura mono-finestra e simulazioni di campagna complete:
+Il progetto include una suite consolidata nella cartella `tests/` con **479 test automatizzati** che passano al 100% con 0 errori, coprendo unit test headless, meccaniche avanzate 5e RAW (Multiclasse, Aure, Azione Preparare, Attacco Poderoso, Reazioni, Portento, Cariche Oggetti Magici), modificatori automatici da equipaggiamento, simulazione fisica dei dadi 3D, combattimento tattico, spazio 3D ed elevazione, flusso di login rapido, compagni/famigli, viaggi e accampamento, smoke test della GUI, architettura mono-finestra e simulazioni di campagna complete:
 
 ```powershell
-# 1. Esegui l'intera suite di unit test (384 test con 0 fallimenti)
+# 1. Esegui l'intera suite di unit test (479 test con 0 fallimenti)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
-# 2. Esegui la suite per spoglie mostri, recupero 50% munizioni e multi-selezione
+# 2. Esegui la suite per meccaniche avanzate 5e RAW (Multiclasse, Aura Paladino, Spiriti Guardiani, Preparare, Attacco Poderoso, Reazioni, Portento, Cariche)
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_missing_5e_features.py
+
+# 3. Esegui la suite per il calcolo automatico dei modificatori degli oggetti magici
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_item_modifiers.py
+
+# 4. Esegui la suite per spoglie mostri, recupero 50% munizioni e multi-selezione
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_table_and_loot_automation.py
 
 # 2. Esegui la suite specifica per Quota 3D, Cadute RAW 5e e Concentration Tethers

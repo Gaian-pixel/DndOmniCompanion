@@ -218,11 +218,13 @@ You do not need to start a session or connect to a DM server to create, view, ed
   3. **Step 3: Ability Scores**: assign attributes via **Standard Array** (15, 14, 13, 12, 10, 8), **Point Buy** (27 points), or **Dice Roll** (4d6 drop lowest), with automatic, transparent application of racial bonuses to the final sheet.
   4. **Step 4: Background & Alignment**: select background origin, bonus skills, and personality traits.
   5. **Step 5: Details, Portrait & Finalization**: character name, deity, notes, and **Character Avatar Upload**.
-* **Leveling Up (`Level Up (+)`)**: Inside the Character Sheet, click `Level Up (+)`:
-  * Choose between the **fixed average** Hit Die value or **rolling**.
+* **Leveling Up (`Level Up (+)`) & Multiclassing (PHB Ch. 6)**: Inside the Character Sheet, click `Level Up (+)`:
+  * **Multiclass Selector**: Choose whether to advance in your primary class or gain a level in any of the **12 core 5e classes**. The engine automatically validates **RAW ability score prerequisites** (minimum score of 13 in the primary abilities of both your current and target classes).
+  * **Automatic Multiclass Spellcaster Slot Calculation**: Combines Full Caster (Bard, Cleric, Druid, Sorcerer, Wizard), Half Caster (Paladin, Ranger, Artificer), and Third Caster (Eldritch Knight, Arcane Trickster) levels using the official PHB p. 165 table, while maintaining Warlock *Pact Magic* slots separately.
+  * Choose between the **fixed average** Hit Die value of the selected class or **rolling**.
   * The wizard automatically fetches **new class features** and updates **spell slots** for your new level from the 5e SRD, including dedicated progression tables for **Artificer** (2 slots at 1st level) and **Third-Casters** (*Eldritch Knight* and *Arcane Trickster* starting at 3rd level).
   * **Feature Persistence & Integrity**: Acquired class features are saved into both `features` and `features_list` and synchronized with the server, ensuring no class traits are lost when saving or reloading the sheet.
-  * **Dynamic Proficiency Bonus**: Recalculated dynamically ($2 + \lfloor(\text{Level}-1)/4\rfloor$) and applied automatically to saving throws, skill checks, and weapon attack rolls.
+  * **Dynamic Proficiency Bonus**: Recalculated dynamically ($2 + \lfloor(\text{Total Level}-1)/4\rfloor$) and applied automatically to saving throws, skill checks, and weapon attack rolls.
   * **Ability Score Improvements (ASI)**: At ASI levels (4, 8, 12, 16, 19), choose an ASI or Feat. The system enforces the **20 ability score maximum cap** and prevents selecting the same attribute twice in +1/+1 mode.
 
 ### Character Avatar & Tactical Map Token
@@ -268,12 +270,24 @@ Under the **`🌟 Features`** tab of the Character Sheet you will find the **`�
 * **Custom Resources**: create custom tracking pools with **`+ Add Resource`** by specifying Name, Maximum Value, and Recovery Rule (*Short Rest* or *Long Rest*), or delete with `🗑️`.
 * **Smart Rest Recovery**: taking a *Short Rest* or *Long Rest* automatically replenishes only the resources appropriate for that rest type.
 
-### Magic Item Attunement (Attunement `🔮`) & DM Inspiration
+### Magic Item Attunement (`🔮`), Automatic Modifiers, Charges & DM Inspiration
 * **Magic Item Attunement (Attunement `🔮`)**:
   * As per official RAW 5e rules (DMG p. 136), a character can be attuned to a maximum of **3 magic items simultaneously**.
   * Under the **🎒 Inventory** tab of the Character Sheet, each item features an attunement toggle indicator `🔮 Attuned`.
   * The system dynamically counts occupied attunement slots (`🔮 Active Attunement: X / 3`) and prevents exceeding the limit without ending an existing attunement during a short rest.
-  * Passive stat bonuses (e.g., bonuses to AC, attack rolls, ability scores, or saving throws) are automatically calculated and applied directly to your character sheet.
+* **Automatic Magic Item Modifiers (`common/item_modifiers.py`)**:
+  * Equipped (`⚔️ Equipped`) and attuned (`🔮 Attuned`) magic items automatically apply their passive stat modifiers in real time:
+    * **Armor Class (AC)**: `+1 / +2 / +3` magic armor and shields, *Cloak of Protection*, *Ring of Protection*, *Ioun Stone of Protection*, *Bracers of Defense* (`+2 AC` when wearing no armor and holding no shield), *Robe of the Archmagi* (base AC `15 + DEX mod`), and *Staff of Power* (`+2 AC`).
+    * **Ability Score Overrides**: *Amulet of Health* (`CON = 19`), *Headband of Intellect* (`INT = 19`), *Gauntlets of Ogre Power* (`STR = 19`), and *Belts of Giant Strength* (`STR` `21` to `29`).
+    * **Saving Throws, Spell DC, Spell Attack & Speed Bonuses**: global saving throw bonuses, increased Spell Save DC and Spell Attack Bonus (*Rod of the Pact Keeper*, *Wand of the War Mage*, *Staff of Power*, *Robe of the Archmagi*), and movement speed bonuses (*Boots of Speed*, *Boots of Striding and Springing*).
+* **Magic Item Charges & Dawn Recharge (DMG p. 141)**:
+  * Charged magic items (*Staff of Power*, *Wand of Fireballs*, *Wand of Magic Missiles*) display their charge counter (`[⚡ X/Y]`) directly in the inventory row.
+  * **1-Click Charge Expenditure**: click `[⚡]` or use the right-click context menu (`⚡ Use 1 Charge`) to spend charges during play.
+  * **Last-Charge Depletion Check (DMG p. 141)**: expending the final charge (`0 / Max`) automatically rolls `1d20`; on a natural `1`, the system warns that the item risks crumbling into ashes or losing its magic!
+  * **Automatic Dawn Recharge on Long Rest**: during a Long Rest, charged items automatically roll their recharge dice formula (e.g., `1d6+4` or `1d6+1`) and restore charges.
+* **Divination Wizard Portent (`🔮 Portent`) & Lucky Feat (`🍀 Lucky`)**:
+  * **Portent (School of Divination)**: upon completing a Long Rest, the system automatically rolls `2d20` (`3d20` at 14th level) and displays them as interactive buttons in the Character Sheet header; click a Portent die to expend it and announce the substituted roll in chat.
+  * **Lucky Feat**: displays `3 / 3` Luck Points in the Character Sheet header; clicking **`[ 🍀 Use Luck Point ]`** spends 1 point and rolls a replacement `1d20` in chat (recharging on a Long Rest).
 * **Dungeon Master's Inspiration (`✨ Inspiration`)**:
   * Displayed prominently at the top of the Character Sheet and in the Hero Summary Card as an **`✨ Inspiration`** badge.
   * Can be granted by the DM with 1 click to reward exceptional roleplaying, clever ideas, or heroic sacrifices.
@@ -338,14 +352,23 @@ The **Turn Economy** section in the `Player Controls` tab automatically adapts t
 * **`[ 💥 ]` Button (Area of Effect)**:
   * Choose the geometric template (**Sphere**, **Cone**, **Line**), size in hexes, color, and optional Saving Throw (e.g., `DEX DC 15` with `8d6` fire damage).
   * Click on the map to place the template: the server automatically identifies affected targets, prompts Saving Throws (applying Half or 3/4 Cover save bonuses if applicable), and applies full or half damage.
-* **Spellcasting, Upcasting & Strict Concentration (PHB p. 201-204)**:
+* **Spellcasting, Upcast Formula Scaling, Ritual Casting & Strict Concentration (PHB p. 201-204)**:
   * When clicking **`Cast`** on a 1st+ level spell in your Spellbook, a modal dialog presents all available spell slots from the spell's base level up to level 9.
-  * Select a higher-level slot to **Upcast** the spell (e.g., casting 1st-level *Magic Missile* using a 3rd-level slot).
-  * The designated slot is deducted automatically, and chat broadcasts an announcement noting both the spell's base level and the effective upcast level.
+  * **Automatic Upcast Dice Scaling**: selecting a higher-level slot automatically scales the spell's damage or healing dice formula (`+1dX` per slot level above base).
+  * **Ritual Casting (`🕯️ Cast as Ritual (+10 min, 0 slots)`)**: if the spell carries the *Ritual* tag (e.g., *Detect Magic*, *Identify*, *Find Familiar*), the modal displays a checkbox allowing you to cast it as a ritual (`+10 minutes` casting time) **without expending any spell slot**.
   * **Strict Concentration**:
     * Concentration spells are automatically tracked.
     * Casting a new concentration spell automatically drops any existing concentration with a chat broadcast, preventing unauthorized dual-concentration.
     * Taking damage while concentrating triggers an automatic Constitution save ($\text{DC} \ge 10$); failure instantly removes the condition and linked persistent AoE zones.
+* **Martial Power Attack (`-5/+10`) & Off-Hand Two-Weapon Fighting (PHB p. 195)**:
+  * Under the **`⚔️ Weapons & Attacks`** tab of the Character Sheet:
+    * **Power Attack Toggle (`⚡ Power Attack -5/+10`)**: toggleable for *Great Weapon Master* and *Sharpshooter*; automatically subtracts `5` from attack rolls and adds `+10` to weapon damage rolls.
+    * **Off-Hand Bonus Attack (`🗡️ Off-Hand`)**: executes the Two-Weapon Fighting bonus action attack, omitting positive ability modifiers from damage unless the character possesses the *Two-Weapon Fighting* style.
+* **Ready Action (*Azione Preparare* - PHB p. 193)**:
+  * The VTT Turn Economy bar features a **`[ ⏱️ Ready ]`** button:
+    * Spend your turn's **Action** to declare a perceptible trigger (e.g., *"When the goblin steps through the doorway"*) and choose the readied response (**Attack**, **Movement**, or **Spell**).
+    * Per RAW 5e rules, readying a **Spell** immediately requires **Concentration**.
+    * When the trigger occurs out-of-turn, the button switches to **`[ ⚡ Trigger ]`**: clicking it expends your **`🛡️ Reaction`** and executes the readied action!
 * **`⏭️ End Turn` Button**: active during your combat turn; immediately advances initiative to the next combatant.
 
 ### Tactical Targeting Reticle, Flanking (DMG p. 251) & RAW Maneuvers (Grapple & Shove)
@@ -401,7 +424,7 @@ D&D OmniCompanion natively supports three-dimensional tactical aerial combat and
    * When a caster concentrates on an effect on another creature (e.g. *Bless*, *Hold Person*, *Fly*, *Hunter's Mark*) or an active AoE zone (e.g. *Wall of Fire*, *Spirit Guardians*), the canvas draws glowing **violet and emerald ethereal tethers** connecting the caster directly to the affected targets with a magic rune `✦`.
    * **Cascade Interruption**: If the caster's concentration breaks (from taking damage and failing the CON save, or dropping to 0 HP), linked effects and AoEs vanish instantly, and creatures held aloft by spells like *Fly* plummet to the ground, resolving RAW falling damage.
 
-### RAW Reactions & Shield Spell Prompt
+### RAW Reactions (*Shield*, *Absorb Elements*, *Counterspell*, *Deflect Missiles*)
 * **RAW Reaction Economy (PHB p. 190)**:
   * Each creature has exactly one `🛡️ Reaction` per round, which refreshes at the start of its turn.
   * The engine continuously monitors triggers occurring on other combatants' turns.
@@ -409,11 +432,24 @@ D&D OmniCompanion natively supports three-dimensional tactical aerial combat and
   * When an incoming enemy attack roll hits a character's Armor Class (or when targeted by *Magic Missile*), if the character knows or has prepared the *Shield* spell, holds an unspent `🛡️ Reaction`, and has at least one 1st+ level spell slot available, a countdown reaction prompt pops up:
     * If accepted: spends the round's `🛡️ Reaction`, expends a 1st-level spell slot, and adds **+5 to Armor Class (AC)** until the start of the caster's next turn.
     * **Retroactive Attack Recalculation**: If the improved AC ($AC + 5$) now equals or exceeds the enemy's attack roll, the attack is retroactively converted from a Hit into a Miss, completely sparing the character from damage!
+* **Absorb Elements, Counterspell & Monk Deflect Missiles**:
+  * **Absorb Elements**: triggered when taking *Acid, Cold, Fire, Lightning, or Thunder* damage; expends your reaction and a 1st-level slot to grant resistance against that damage type and add `+1d6` elemental damage to your next melee attack.
+  * **Counterspell**: interrupts an enemy's spellcasting within 60 feet by spending your reaction and a 3rd+ level spell slot.
+  * **Deflect Missiles (Monk Level 3+)**: reduces incoming ranged weapon attack damage by `1d10 + DEX mod + Monk Level` using your reaction.
 * **Dynamic Opportunity Attacks & Out-of-Turn Reactions**:
   * When an adjacent enemy (within 1 hex / $5\text{ ft}$) attempts to move away from melee range without taking the *Disengage* action, the server triggers an Opportunity Attack alert, allowing the defending player to spend their `🛡️ Reaction` to make an immediate melee attack.
   * **Turn-Lock Bypass (`is_reaction=True`)**: Legitimate reactions and Opportunity Attacks bypass the strict combat turn lock (`strict_turn_lock`), enabling instant reactions during enemy movement without breaking the initiative queue.
 
-### Special Traits: Evasion (Rogue/Monk) & Sneak Attack
+### Dynamic Auras (*Aura of Protection* & *Spirit Guardians*), Racial Traits & Zero-HP Survival
+* **Paladin Aura of Protection (PHB p. 85)**:
+  * Conscious Paladins of 6th level or higher automatically project a 10-foot / 2-hex protective aura (expanding to 30 feet / 6 hexes at 18th level) that adds the Paladin's **Charisma modifier** ($\min +1$) to all saving throws made by the Paladin and friendly allies within range.
+* **Spirit Guardians (PHB p. 278)**:
+  * While concentrating on *Spirit Guardians*, any hostile creature starting its turn within 15 feet (3 hexes) of the caster automatically makes a Wisdom saving throw against the caster's spell save DC, taking `3d8` radiant damage on a failed save (or half as much on a successful one).
+* **Relentless Endurance (Half-Orc) & Death Ward**:
+  * When a character possessing *Relentless Endurance* (1/Long Rest) or protected by *Death Ward* takes damage that would reduce them to `0 HP` without killing them outright, the engine automatically intercepts the drop and leaves them at **`1 HP`**, broadcasting the survival trigger in chat!
+* **Halfling Luck & Great Weapon Fighting (*GWF*)**:
+  * **Halfling Luck**: automatically rerolls any natural `1` rolled on a `d20` for an attack roll, ability check, or saving throw.
+  * **Great Weapon Fighting**: automatically rerolls `1`s and `2`s on weapon damage dice for two-handed or versatile melee weapons.
 * **Evasion (*PHB p. 79/96*)**:
   * For 7th-level Rogues and Monks, instinctive agility alters Dexterity saving throws against area effects (such as a *Fireball* spell or dragon breath):
     * **Successful Save**: takes **0 damage** (instead of half damage).

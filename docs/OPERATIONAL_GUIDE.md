@@ -113,13 +113,14 @@ flowchart TD
 * **`server/voice_server.py` & `client/voice_client.py`**: Real-time UDP audio broadcast and streaming. On Windows systems, the UDP socket is configured with `SIO_UDP_CONNRESET` to intercept ICMP Port Unreachable packets, ensuring client disconnects never crash the server's `recvfrom` loop.
 * **`client/client.py`**: Main graphical client and async message loop protected by a `try...finally` block in `process_queue`, ensuring uninterrupted scheduling at regular intervals (`self.master.after(100, ...)`) regardless of unexpected packet contents.
 * **`server/rules/`**: Decoupled 5e rule modules:
-  * `combat.py`: initiative, attacks, auto-criticals within 5ft on Unconscious/Paralyzed creatures, cover and line of sight accounting for closed doors (`get_effective_map_walls`), bilingual damage resistances/vulnerabilities, reaction prompts (*Shield* spell, opportunity attacks) with turn-lock bypass (`is_reaction=True`), Evasion, and Sneak Attack.
+  * `combat.py`: initiative, attacks, auto-criticals within 5ft on Unconscious/Paralyzed creatures, cover and line of sight accounting for closed doors (`get_effective_map_walls`), bilingual damage resistances/vulnerabilities, dynamic tactical auras (Paladin *Aura of Protection* and *Spirit Guardians*), *Ready Action* (`READY_ACTION_REQUEST` / `TRIGGER_READIED_ACTION_REQUEST`), zero-HP survival features (*Relentless Endurance* and *Death Ward*), reaction prompts (*Shield*, *Absorb Elements*, *Counterspell*, *Deflect Missiles*, opportunity attacks) with turn-lock bypass (`is_reaction=True`), Evasion, and Sneak Attack.
   * `movement.py`: hex movement, anti-cheat validation (DM privilege verification with active network socket), condition and temporary HP preservation on traps, FoW, difficult terrain, and map teleports.
   * `character.py`: damage absorption, temporary HP, concentration constitution saves, 0 HP, instant death, death saving throws, and rests.
   * `chat.py`: rich chat, dice expressions, Nat20/Nat1 detection, private whispers, and blind rolls (`/broll`, `/gmroll`).
   * `map_interaction.py`: pings, ruler, interactive doors, lockpicking with tools, room pins, and boxed text broadcast.
-  * `inventory.py` & `client/character_manager.py`: peer-to-peer trading, merchant shops, currency (50 coins = 1 lb), DM approval, magic item attunement (`🔮`), per-item storage containers (`🎒 Backpack`, `⚔️ Equipped`, `🔮 Bag of Holding`, `✨ Handy Haversack`, `🐴 Mount`), tactical "Drop Backpack" action (PHB p. 190), and 5e Variant: Encumbrance (PHB p. 176) with dynamic effective speed penalties.
+  * `inventory.py`, `common/item_modifiers.py` & `client/character_manager.py`: peer-to-peer trading, merchant shops, currency (50 coins = 1 lb), DM approval, magic item attunement (`🔮`), automatic calculation of AC/ability score/save/DC modifiers from equipped and attuned magic items, item charges and dawn recharge (DMG p. 141), per-item storage containers (`🎒 Backpack`, `⚔️ Equipped`, `🔮 Bag of Holding`, `✨ Handy Haversack`, `🐴 Mount`), tactical "Drop Backpack" action (PHB p. 190), and 5e Variant: Encumbrance (PHB p. 176) with dynamic effective speed penalties.
   * `audio.py`: synchronized audio broadcasts and soundboard.
+* **`common/character_schema.py` & `client/sheet_panels/*.py`**: Modular Character Sheet architecture and 5e data schema. Includes prerequisite validation and slot calculation for **Multiclassing** (`check_multiclass_prerequisites`, `calculate_multiclass_spell_slots`), Divination Wizard **Portent**, the **Lucky** feat, and the 6 specialized sheet panels (`combat_panel.py` with Power Attack `-5/+10` and Off-Hand TWF, `spells_panel.py` with Upcast formula scaling and Ritual Casting, `inventory_panel.py`, `stats_panel.py`, `features_panel.py`, `notes_panel.py`).
 * **`components/statblock_view.py` (`StatblockCardView`)**: Modular UI component for authentic Dark Fantasy D&D 5e statblock rendering. Supports three polymorphic modes: **Monsters/NPCs** (AC/HP/Speed badges, 6-stat table with calculated modifiers, saving throws, skills, damage/condition resistances, traits, actions with highlighted dice formulas, reactions, legendary actions), **Magic Items** (rarity, item type, attunement, properties), and **Spells** (level, school, casting time, range, components, duration, and upcast scaling). Features contextual primary action buttons and responsive canvas scrolling.
 * **`common/srd_offline.py`**: Offline compendium and data normalization layer. Provides `normalize_ac_value` and `normalize_speed_value` to sanitize incoming payloads from raw JSON nested dictionaries (`[{}]`), robust regex parsing for multi-movement modes (fly, swim, burrow, climb), numeric fractional CR conversion (`"1/8"`, `"1/4"`, `"1/2"`), and automated stat enrichment for entries extracted from offline PDF rulebooks.
 * **`common/file_utils.py`**: Cross-platform filesystem path abstraction (`get_base_dir()`, `get_writable_dir()`, `ensure_writable_dir()`). Strictly decouples read-only bundled application assets (SRD dataset, core manuals, maps, campaigns) from user-writable persistent storage (`client_data`, settings, runtime indexed manuals), ensuring full compatibility both when running from source and inside compiled standalone bundles (PyInstaller).
@@ -372,20 +373,22 @@ The server features a granular architecture for balancing 5e automation with hum
   * **Step 5: Details, Portrait & Token**: Character name, deity, notes, and avatar portrait upload.
 * **Character Avatar & Automatic Map Token**:
   * Uploaded character portraits (as well as NPC and monster art uploaded by the DM) automatically become the **Tactical Token rendered on the Map Canvas**, featuring antialiased circular framing, faction/class border coloring, condition badges, and dynamic size scaling (Tiny $0.5\times$ to Gargantuan $3.5\times$).
-* **Level-Up Wizard**:
-  * Calculates HP gain (Hit Die roll or fixed average).
+* **Level-Up Wizard & Multiclassing (PHB Ch. 6)**:
+  * Allows advancing in the character's primary class or taking a level in any of the 12 core 5e classes with automatic ability score prerequisite validation (`min 13`).
+  * Automatically computes the **Multiclass Spellcaster Slot Table** (PHB p. 165) combining full, half, and third casters while keeping Warlock *Pact Magic* slots separate.
+  * Calculates HP gain (Hit Die roll of the chosen class or fixed average).
   * Automatically fetches class features from the 5e SRD for the new level and populates both `features` and `features_list` with immediate model synchronization to prevent any class trait loss upon saving the sheet.
   * Handles Ability Score Improvements (ASI) or Feats, enforcing the **20 ability score maximum cap** and disallowing duplicate attribute selection in +1/+1 mode.
-  * Dynamically recalculates the proficiency bonus ($2 + \lfloor(\text{Level}-1)/4\rfloor$) and updates saving throws, skill checks, and weapon attack bonuses.
+  * Dynamically recalculates the proficiency bonus ($2 + \lfloor(\text{Total Level}-1)/4\rfloor$) and updates saving throws, skill checks, and weapon attack bonuses.
   * Unlocks updated spell slot progression tables, including dedicated support for **Artificer** (2 slots at 1st level) and **Third-Casters** (*Eldritch Knight* and *Arcane Trickster* starting at 3rd level).
 
-### Interactive Character Sheet
-Organized in clean tabs:
-* **Combat Tab**: Current/Max HP, Temp HP, Armor Class, Speed, Initiative bonus, Active Conditions with visual status badges, Death Saves, Hit Dice tracker.
-* **Stats & Skills Tab**: Six core ability scores, saving throw proficiencies, passive perception, and all 18 skill proficiencies with automatic modifier computation.
-* **Inventory Tab**: Grid-based inventory with item weights, quantity, attuned items, and total weight vs carrying capacity ($\text{STR} \times 15\text{ lbs}$).
-* **Spellbook Tab**: Level 1 to 9 spell slots with current/max counters, spell search, modal **Spell Upcasting**, and 1-click casting with automatic slot deduction.
-* **Features & Traits**: Racial traits, class privileges, **Special Class Resources** tracker, feats, and custom notes.
+### Interactive Character Sheet (Modular Panels)
+Organized in clean tabs coordinated by `CharacterSheetFrame`:
+* **Combat & Stats Tab (`stats_panel.py`)**: Current/Max HP, Temp HP, dynamic Armor Class (incorporating magic armor, shields, and protective items), Speed, Initiative bonus, Active Conditions with visual status badges, Death Saves, Hit Dice tracker, six core ability scores (with magic overrides like *Amulet of Health* or *Belt of Giant Strength*), saving throw proficiencies, all 18 skill proficiencies, plus quick header controls for **Portent** (`2d20`/`3d20`) and **Lucky** (`3/3`).
+* **Weapons & Attacks Tab (`combat_panel.py`)**: Equipped weapons, 1-click attack/damage rolls (incorporating *Halfling Luck* and *Great Weapon Fighting* rerolls), **Power Attack Toggle (`-5/+10`)**, and **Off-Hand Bonus Attack (`🗡️ Off-Hand`)**.
+* **Inventory Tab (`inventory_panel.py`)**: Grid-based inventory with item weights, quantity, attuned items (`🔮` max 3), **Magic Item Charges (`⚡ X/Y`)** with DMG p. 141 last-charge `1d20` check, and total weight vs carrying capacity ($\text{STR} \times 15\text{ lbs}$).
+* **Spellbook Tab (`spells_panel.py`)**: Level 1 to 9 spell slots with current/max counters, spell search, modal **Spell Upcasting with automatic dice formula scaling**, and **Ritual Casting (`+10 min, 0 slots`)**.
+* **Features & Journal (`features_panel.py`, `notes_panel.py`)**: Racial traits, class privileges, **Special Class Resources** tracker, feats, and Markdown campaign notes.
 
 ### Special Class Resources System
 * **Class Automation**: When creating a character or leveling up, standard 5e class resources are automatically populated (e.g., *Ki Points*, *Rage*, *Bardic Inspiration*, *Wild Shape*, *Channel Divinity*, *Action Surge*, *Second Wind*, *Sorcery Points*, *Lay on Hands*).
@@ -726,13 +729,19 @@ D&D OmniCompanion features comprehensive targeting infrastructure, dynamic rayca
 
 ## 12. Testing Suite & Quality Assurance
 
-The codebase includes a consolidated testing suite in the `tests/` directory with **384 automated tests** passing at 100% with 0 failures, covering headless unit tests, 3D dice physics and rendering, tactical combat, 3D space and elevation, join game flow and server history, companions/familiars, travel/camping, GUI smoke tests, single-window architecture, and full multiplayer campaign simulations:
+The codebase includes a consolidated testing suite in the `tests/` directory with **479 automated tests** passing at 100% with 0 failures, covering headless unit tests, advanced 5e RAW mechanics (Multiclassing, Auras, Ready Action, Power Attack, Reactions, Portent, Magic Item Charges), automatic magic item modifiers, 3D dice physics and rendering, tactical combat, 3D space and elevation, join game flow and server history, companions/familiars, travel/camping, GUI smoke tests, single-window architecture, and full multiplayer campaign simulations:
 
 ```powershell
-# 1. Run comprehensive unit tests (384 tests with 0 failures)
+# 1. Run comprehensive unit tests (479 tests with 0 failures)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
-# 2. Run monster corpse loot, 50% ammo recovery and multi-selection test suite
+# 2. Run Advanced 5e RAW Mechanics test suite (Multiclassing, Paladin Aura, Spirit Guardians, Ready Action, Power Attack, Reactions, Portent, Charges)
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_missing_5e_features.py
+
+# 3. Run Automatic Magic Item Modifiers test suite
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_item_modifiers.py
+
+# 4. Run monster corpse loot, 50% ammo recovery and multi-selection test suite
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_table_and_loot_automation.py
 
 # 2. Run 3D elevation, RAW falling and concentration tethers test suite

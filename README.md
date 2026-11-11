@@ -6,7 +6,7 @@
 [![Ruleset: D&D 5e](https://img.shields.io/badge/ruleset-D%26D%205e-red.svg)](https://dnd.wizards.com/)
 [![UI: ttkbootstrap](https://img.shields.io/badge/ui-ttkbootstrap-orange.svg)](https://ttkbootstrap.readthedocs.io/)
 [![Multiplayer: TCP/UDP](https://img.shields.io/badge/networking-TCP%20%2B%20UDP-green.svg)]()
-[![Tests: Passing](https://img.shields.io/badge/tests-356%2F356%20passing-brightgreen.svg)]()
+[![Tests: Passing](https://img.shields.io/badge/tests-479%2F479%20passing-brightgreen.svg)]()
 [![Localization: EN / IT](https://img.shields.io/badge/i18n-English%20%7C%20Italiano-blueviolet.svg)]()
 [![Units: Imperial / Metric](https://img.shields.io/badge/units-ft%2Fmi%20%7C%20m%2Fkm-informational.svg)]()
 [![Version](https://img.shields.io/badge/release-v0.2.0--alpha-gold.svg)](https://github.com/Gaian-pixel/DndOmniCompanion/releases)
@@ -119,6 +119,22 @@
   * **Legendary Actions**: Up to 3 actions per round spendable at the end of another creature's turn, automatic DM reminders, and full pool reset at the start of the boss's turn.
   * **Lair Actions (Initiative 20)**: Automatic round notification and DM prompt at Initiative count 20 for bosses with an active lair.
   * **Legendary Resistances**: Up to 3/day to turn a failed save into a success.
+* **Dynamic Tactical Auras (Paladin *Aura of Protection* & *Spirit Guardians*)**:
+  * **Paladin Aura of Protection (PHB p. 85)**: Conscious Paladins of level 6+ automatically grant $+\text{CHA mod}$ ($\ge +1$) to all saving throws for themselves and friendly allies within 10 ft / 2 hexes (expanding to 30 ft / 6 hexes at level 18).
+  * **Spirit Guardians (PHB p. 278)**: Hostile creatures starting their turn within 15 ft (3 hexes) of the concentrating caster automatically trigger a Wisdom saving throw for `3d8` radiant damage (half on a success).
+* **Ready Action (*Azione Preparare* - PHB p. 193)**:
+  * Dedicated **`[ ⏱️ Ready ]`** / **`[ ⚡ Trigger ]`** button in the VTT Turn Economy bar to declare a trigger and readied response (Attack, Movement, or Spell).
+  * Readying a spell automatically engages **Concentration**; triggering the readied action out-of-turn consumes the character's **`🛡️ Reaction`**.
+* **Advanced Defensive Reactions (*Shield*, *Absorb Elements*, *Counterspell*, *Deflect Missiles*)**:
+  * Interactive reaction prompts for **Shield** (`+5 AC` retroactive hit-to-miss recalculation), **Absorb Elements** (halves incoming elemental damage and grants `+1d6` elemental damage on the next melee attack), **Counterspell** (interrupts enemy spellcasting within 60 ft), and Monk **Deflect Missiles** (reduces ranged weapon damage by `1d10 + DEX mod + Monk Level`).
+* **Martial Power Attack (`-5/+10`) & Off-Hand Two-Weapon Fighting (PHB p. 195)**:
+  * **Power Attack Toggle (`[ ⚡ Power Attack -5/+10 ]`)**: Applies `-5` to attack rolls and `+10` to damage rolls for *Great Weapon Master* and *Sharpshooter*.
+  * **Off-Hand Bonus Attack (`[ 🗡️ Off-Hand ]`)**: Dedicated Two-Weapon Fighting button that omits positive ability modifiers from damage unless the character possesses the *Two-Weapon Fighting* style.
+* **Zero-HP Survival & Dice Manipulation Traits (RAW 5e)**:
+  * **Relentless Endurance (Half-Orc) & Death Ward**: Automatically prevents dropping to `0 HP` (leaving the target at `1 HP` instead) when not killed outright, consuming the trait/ward.
+  * **Halfling Luck (*Fortunato*)**: Automatically rerolls natural `1`s on `d20` attack rolls, ability checks, and saving throws (`reroll_ones_d20=True`).
+  * **Great Weapon Fighting (*Combattere con Armi Possenti*)**: Automatically rerolls `1`s and `2`s on damage dice for two-handed/versatile melee weapons (`gwf_reroll=True`).
+  * **Divination Wizard Portent (*Portento*) & Lucky Feat (*Fortunato*)**: Automatic Long Rest roll of `2d20` (`3d20` at level 14) Portent dice and `3` Luck Points, spendable with 1 click from the Character Sheet header.
 
 ### 🧙‍♂️ Character Creation, Sheet & Progression
 * **Baldur's Gate Styled Wizard with Master-Detail Compendiums**:
@@ -127,7 +143,13 @@
     * **Master-Detail Split-View Layout**: Left comparative table (6 columns: Race with icon, Stat Bonuses, Key Traits, Damage Resistances & Defenses, Size/Speed, Recommended Classes) with bidirectional scrolling, and right reactive preview card.
     * **Authentic 5e Rules & Lore**: Comprehensive defensive traits (Hellish Fire Resistance, Dwarven Resilience vs Poison, Fey Ancestry with Sleep Immunity, Gnome Cunning vs Mental Magic, Relentless Endurance at 1 HP, Lucky), Class Synergies, Lifespan, full mechanical trait descriptions, and subraces with double-click selection.
   * **Classes Comparison Compendium (12 Core 5e Classes)**: Accessible in Step 2 with category filters (`[All]`, `[Martial]`, `[Spellcaster]`, `[Hybrid]`, `[Expert]`), Hit Dice (d6–d12), Primary Abilities, Saving Throws, Party Role, Quick Build recommendations, starting equipment preview, and subclasses.
-  * **Assisted Level-Up**: Automatic retrieval of class features, hit dice, and spell slot progressions from the 5e SRD compendium, including Artificer (slots from 1st level) and 3rd-Casters (Eldritch Knight / Arcane Trickster starting at 3rd level). Enforces strict ASI ability score capping at 20, duplicate ability prevention, and automatic class feature synchronization into `features_list` preserving all traits upon saving.
+  * **Assisted Level-Up & Multiclassing (PHB Ch. 6)**: Automatic retrieval of class features, hit dice, and spell slot progressions from the 5e SRD compendium, including Artificer (slots from 1st level) and 3rd-Casters (Eldritch Knight / Arcane Trickster starting at 3rd level). Full **Multiclassing** support with class selector on Level-Up, ability score prerequisite validation (minimum 13 in primary stats of current and target classes), and automatic **Multiclass Spellcaster Slot Table** calculation alongside Warlock *Pact Magic*. Enforces strict ASI ability score capping at 20, duplicate ability prevention, and automatic class feature synchronization into `features_list`.
+* **Automatic Magic Item Modifiers & Charges (`common/item_modifiers.py` & DMG p. 141)**:
+  * **Real-Time Equipment & Attunement Calculation**: Automatically computes and applies bonuses from equipped and attuned magic items to AC (magic armor/shields `+1/+2/+3`, *Bracers of Defense*, *Cloak/Ring of Protection*, *Robe of the Archmagi*, *Staff of Power*), ability score overrides (*Amulet of Health* CON 19, *Headband of Intellect* INT 19, *Gauntlets of Ogre Power* STR 19, *Belt of Giant Strength* STR 21–29), spell save DC and spell attack rolls (*Rod of the Pact Keeper*, *Wand of the War Mage*), saving throws, and movement speed (*Boots of Speed*, *Boots of Striding and Springing*).
+  * **Magic Item Charges & Dawn Recharge**: Tracks item charges (`charges_current` / `charges_max`) directly in the inventory with 1-click expenditure (`⚡ Use 1 Charge`), automatic **DMG p. 141 `1d20` check** when spending the last charge, and automatic dawn recharge dice (e.g., `1d6+4`) on a Long Rest.
+* **Automatic Upcast Formula Scaling & Ritual Casting (PHB p. 201-202)**:
+  * **Upcast Dice Scaling**: Casting a spell using a higher-level slot automatically scales its damage/healing dice formula (`+1dX` per slot level above base).
+  * **Ritual Casting (`🕯️ Cast as Ritual`)**: Spells with the Ritual tag can be cast by adding `+10 minutes` to casting time **without expending any spell slot**.
 * **Character Avatar & Automatic Tactical Map Token**:
   * Players (and DMs for NPCs and monsters) can upload a portrait for their character.
   * The uploaded portrait automatically becomes the **tactical circular token on the map canvas** with high-definition antialiased rendering, faction/class color ring, and dynamic scale based on Creature Size (Tiny to Gargantuan).
@@ -274,10 +296,17 @@ DndOmniCompanion/
 ├── client/                         # Player VTT Client, Character Sheet UI & Voice Client
 │   ├── client.py                   # Main Player GUI, HUDs, and Turn Economy
 │   ├── character_manager_ui.py     # Standalone Offline Character Manager
-│   ├── character_sheet_ui.py       # Interactive 5e Character Sheet
-│   ├── character_manager.py        # Character persistence and serialization
+│   ├── character_sheet_ui.py       # Interactive 5e Character Sheet coordinator
+│   ├── sheet_panels/               # Modular Character Sheet tab panels
+│   │   ├── combat_panel.py         # Weapons, Power Attack (-5/+10) & Off-Hand TWF
+│   │   ├── spells_panel.py         # Spellbook, Upcast formula scaling & Ritual casting
+│   │   ├── inventory_panel.py      # Inventory, attunement, magic item charges & containers
+│   │   ├── stats_panel.py          # Ability scores, saving throws & 18 skills
+│   │   ├── features_panel.py       # Racial traits, class features & special resources
+│   │   └── notes_panel.py          # Markdown campaign journal & personal notes
+│   ├── character_manager.py        # Character persistence, multiclassing & rest logic
 │   ├── character_creation_wizard.py# Level 1 Character Creation Wizard
-│   ├── progression_ui.py           # Level-Up Wizard & SRD integration
+│   ├── progression_ui.py           # Level-Up Wizard, Multiclassing & SRD integration
 │   ├── pdf_sheet_generator.py      # Official 3-page 5e PDF character sheet generator
 │   ├── login_ui.py                 # Character selection & server connection dialog
 │   ├── manuals_ui.py               # Client-side rulebook & compendium browser
@@ -299,7 +328,7 @@ DndOmniCompanion/
 │   ├── compendium_ui.py            # Compendium & SRD interface
 │   ├── voice_server.py             # UDP voice broadcast server
 │   └── rules/                      # Modular D&D 5e rules engine
-│       ├── combat.py               # Initiative, attacks, criticals, cover, advantage, turn economy
+│       ├── combat.py               # Initiative, attacks, auras, reactions, Ready action, cover
 │       ├── movement.py             # Hex movement, FoW, traps, teleports
 │       ├── character.py            # Damage, temp HP, death saves, concentration, rests
 │       ├── chat.py                 # Chat routing, dice rolls, 1d20 criticals, whispers, manual lookup
@@ -308,10 +337,12 @@ DndOmniCompanion/
 │       └── audio.py                # Audio broadcast & soundboard management
 ├── common/                         # Shared protocols, hex math & i18n
 │   ├── game_state.py               # Central GameState and Player models
+│   ├── character_schema.py         # Character schema, Multiclassing & Spell Slot tables
+│   ├── item_modifiers.py           # Automatic magic item modifiers, charges & DMG p. 141 recharge
 │   ├── protocol.py                 # Network JSON packet builders
 │   ├── network_utils.py            # Length-prefixed TCP socket framing
 │   ├── hex_utils.py                # Cubic hex geometry, LoS, cones, lines, spheres
-│   ├── dice.py                     # Dice roller & Nat 20 / Nat 1 detection
+│   ├── dice.py                     # Dice roller, Nat 20/1, Halfling Luck & GWF rerolls
 │   ├── i18n.py                     # Live IT/EN translations, Imperial/Metric units & map scales
 │   ├── encounter_calc.py           # DMG p. 82 encounter difficulty calculator
 │   ├── pdf_manuals_indexer.py      # Offline PDF rulebook indexer & search engine
@@ -329,15 +360,17 @@ DndOmniCompanion/
 │   ├── GUIDA_ALL_UTILIZZO.md       # Manuale completo all'utilizzo (Italiano)
 │   ├── OPERATIONAL_GUIDE.md        # System & Operational Manual (English)
 │   └── GUIDA_OPERATIVA.md          # Manuale operativo e architettura (Italiano)
-├── tests/                          # Automated testing suite (356 passing tests)
+├── tests/                          # Automated testing suite (479 passing tests)
 │   ├── simulate_4player_campaign.py# Live 4-player + DM campaign simulation (11 phases)
 │   ├── simulate_game_session.py    # End-to-end multiplayer simulation (53 phases)
+│   ├── test_missing_5e_features.py # Multiclassing, Auras, Ready, Power Attack, Reactions, Portent
+│   ├── test_item_modifiers.py      # Automatic magic item modifiers & AC/stat overrides tests
 │   ├── test_3d_dice.py             # 3D polyhedral dice vector engine & non-obscuring overlay tests
 │   ├── test_join_game.py           # Join game dialog, server history & auto-connect tests
 │   ├── test_mono_finestra.py       # Single-window, overlay, and docking architecture tests
 │   ├── test_authentic_5e.py        # Authentic 5e RAW rules test suite
 │   ├── test_ui_smoke.py            # Smoke tests across all graphical windows
-│   └── ... (30 modular unit and integration test suites)
+│   └── ... (35+ modular unit and integration test suites)
 └── main.py                         # Unified launcher (DM Host / Player Client)
 ```
 
@@ -345,16 +378,22 @@ DndOmniCompanion/
 
 ## 🧪 Automated Testing & Verification
 
-All **356 automated tests** pass with 100% success and 0 failures:
+All **479 automated tests** pass with 100% success and 0 failures:
 
 ```powershell
-# 1. Comprehensive Unit Tests (356 tests: 3D dice, join flow, ruler, criticals, single-window, turn economy, units, inventory)
+# 1. Comprehensive Unit Tests (479 tests: 5e mechanics, magic item modifiers, 3D dice, join flow, ruler, criticals, single-window, turn economy, inventory)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
-# 2. Run specific 3D polyhedral dice test suite
+# 2. Run Advanced 5e RAW Mechanics test suite (Multiclassing, Paladin Aura, Spirit Guardians, Ready Action, Power Attack, Reactions, Portent, Lucky, Charges)
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_missing_5e_features.py
+
+# 3. Run Automatic Magic Item Modifiers test suite
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_item_modifiers.py
+
+# 4. Run specific 3D polyhedral dice test suite
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_3d_dice.py
 
-# 3. Run join game flow and server history tests
+# 5. Run join game flow and server history tests
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_join_game.py
 
 # 2. Authentic 5e RAW Rules Test Suite (Doors, Lockpicking, Room Pins, Reactions, Shield, Evasion, Sneak Attack, Blind Rolls)

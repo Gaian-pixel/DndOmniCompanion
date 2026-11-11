@@ -219,11 +219,13 @@ Non è necessario avviare una sessione o collegarsi a un server per creare, cons
   3. **Passo 3: Caratteristiche**: assegnazione punteggi con **Standard Array** (15, 14, 13, 12, 10, 8), **Point Buy** (27 punti) o **Tiro Dadi** (4d6 drop lowest), con somma trasparente e automatica dei bonus razziali alla scheda finale.
   4. **Passo 4: Background & Allineamento**: scelta dell'origine narrativa, competenze aggiuntive e tratti di personalità.
   5. **Passo 5: Dettagli, Avatar e Finalizzazione**: assegnazione nome, divinità, note e caricamento dell'immagine avatar del personaggio.
-* **Salita di Livello (`Level Up (+)`)**: Nella Scheda PG, clicca su `Level Up (+)`:
-  * Scegli se prendere il **valore medio** del Dado Vita o effettuare il **tiro**.
+* **Salita di Livello (`Level Up (+)`) e Multiclasse (PHB Cap. 6)**: Nella Scheda PG, clicca su `Level Up (+)`:
+  * **Selettore Multiclasse**: Scegli se avanzare nella tua classe principale o acquisire un livello in una qualsiasi delle **12 classi base 5e**. Il sistema verifica automaticamente i **prerequisiti di caratteristica RAW** (punteggio minimo 13 nelle caratteristiche primarie sia della classe attuale sia della nuova classe scelta).
+  * **Calcolo Automatico Slot Incantatore Multiclasse**: Combina automaticamente i livelli da Incantatore Pieno (Bardo, Chierico, Druido, Mago, Stregone), Mezzo Incantatore (Paladino, Ranger, Artefice) e Terzo Incantatore (Cavaliere Mistico, Mistificatore Arcano) secondo la tabella ufficiale PHB p. 165, mantenendo separati gli slot di *Magia del Patto* del Warlock.
+  * Scegli se prendere il **valore medio** del Dado Vita della classe selezionata o effettuare il **tiro**.
   * Il sistema scarica automaticamente dal Compendio SRD 5e i **nuovi privilegi di classe** e aggiorna gli **slot incantesimo** del nuovo livello, includendo le tabelle dedicate per **Artefice** (2 slot al 1° livello) e **Terzi Incantatori** (*Cavaliere Mistico* e *Mistificatore Arcano* a partire dal 3° livello).
   * **Persistenza e Integrità dei Privilegi**: I privilegi selezionati vengono salvati sia in `features` che in `features_list` e sincronizzati con il server, garantendo che nessuna capacità acquisita vada persa salvando o ricaricando la scheda.
-  * **Bonus di Competenza Dinamico**: Il bonus viene ricalcolato all'istante ($2 + \lfloor(\text{Livello}-1)/4\rfloor$) e applicato a tiri salvezza, prove di abilità e tiri per colpire delle armi.
+  * **Bonus di Competenza Dinamico**: Il bonus viene ricalcolato all'istante ($2 + \lfloor(\text{Livello Totale}-1)/4\rfloor$) e applicato a tiri salvezza, prove di abilità e tiri per colpire delle armi.
   * **Aumento Caratteristiche (ASI)**: Ai livelli previsti (4, 8, 12, 16, 19) puoi scegliere tra Talento e Incremento (+2 o +1/+1). Il sistema impone il **tetto massimo di 20** per i punteggi base e impedisce la selezione duplicata della stessa caratteristica in modalità +1/+1.
 
 ### Avatar Personaggio e Generazione Automatica Token su Mappa
@@ -270,12 +272,24 @@ Nel tab **`🌟 Privilegi`** della Scheda PG è presente il riquadro interattivo
 * **Risorse Personalizzate**: puoi aggiungere nuove risorse personalizzate tramite il pulsante **`+ Aggiungi Risorsa`** specificando Nome, Valore Massimo e Tipo di Recupero (*Riposo Breve* o *Riposo Lungo*), oppure eliminarle con `🗑️`.
 * **Ricarica Intelligente nei Riposi**: quando effettui un *Riposo Breve* o un *Riposo Lungo*, il sistema ripristina automaticamente solo le risorse che recuperano con quel tipo di riposo.
 
-### Sintonia con Oggetti Magici (Attunement `🔮`) e Ispirazione DM
+### Sintonia con Oggetti Magici (Attunement `🔮`), Modificatori Automatici, Cariche e Ispirazione DM
 * **Sintonia con Oggetti Magici (Attunement `🔮`)**:
   * Come da regole ufficiali RAW 5e (DMG p. 136), un personaggio può essere in sintonia con un massimo di **3 oggetti magici contemporaneamente**.
   * Nel tab **🎒 Inventario** della Scheda PG, ogni oggetto possiede un indicatore/selettore `🔮 Sintonizzato`.
   * Il sistema conteggia dinamicamente gli slot occupati (`🔮 Sintonie Attive: X / 3`) e impedisce di superare il limite delle 3 sintonie senza prima averne sciolta una (durante un riposo breve).
-  * Gli effetti passivi degli oggetti sintonizzati (bonus a CA, tiri per colpire, caratteristiche o tiri salvezza) si applicano istantaneamente alle statistiche calcolate del personaggio.
+* **Calcolo Automatico dei Modificatori degli Oggetti Magici (`common/item_modifiers.py`)**:
+  * Gli oggetti equipaggiati (`⚔️ Equipaggiato`) e sintonizzati (`🔮 Sintonizzato`) applicano in tempo reale tutti i propri modificatori passivi alla scheda del personaggio:
+    * **Classe Armatura (CA)**: armature e scudi magici `+1 / +2 / +3`, *Mantello della Protezione*, *Anello della Protezione*, *Pietra di Ioun della Protezione*, *Bracciali della Difesa* (`+2 CA` senza armatura né scudo), *Veste dell'Arcimago* (CA base `15 + Mod DES`) e *Bastone del Potere* (`+2 CA`).
+    * **Override dei Punteggi di Caratteristica**: *Amuleto della Salute* (`COS = 19`), *Fascia dell'Intelletto* (`INT = 19`), *Guanti del Potere Orchesco* (`FOR = 19`) e *Cinture della Forza dei Giganti* (`FOR` da `21` a `29`).
+    * **Bonus a Tiri Salvezza, CD Incantesimi, TxC e Velocità**: bonus globali ai Tiri Salvezza, incremento CD e Bonus Attacco Incantesimi (*Verga del Custode del Patto*, *Bacchetta del Mago da Guerra*, *Bastone del Potere*, *Veste dell'Arcimago*) e bonus alla velocità di movimento (*Stivali della Velocità*, *Stivali del Passo e del Balzo*).
+* **Cariche degli Oggetti Magici e Ricarica all'Alba (DMG p. 141)**:
+  * Oggetti come *Bastone del Potere*, *Bacchetta delle Palle di Fuoco* o *Bacchetta dei Dardi Incantati* mostrano il contatore delle cariche (`[⚡ X/Y]`) direttamente nella riga dell'inventario.
+  * **Spesa Carica a 1 Click**: tramite il pulsante `[⚡]` o il menu contestuale (`⚡ Usa 1 Carica`) puoi spendere cariche istantaneamente.
+  * **Regola dell'Ultima Carica (DMG p. 141)**: quando spendi l'ultima carica residua (`0 / Max`), il sistema tira automaticamente `1d20`; con un risultato di `1`, segnala il rischio di distruzione/esaurimento dell'oggetto magico!
+  * **Ricarica Automatica al Riposo Lungo**: all'alba (durante il *Riposo Lungo*), gli oggetti dotati di formula di ricarica (es. `1d6+4` o `1d6+1`) tirano automaticamente i dadi e ripristinano le cariche spese.
+* **Portento del Divinatore (`🔮 Portento`) e Talento Fortunato (`🍀 Fortunato`)**:
+  * **Portento (Scuola di Divinazione)**: al termine di ogni Riposo Lungo, il sistema tira automaticamente `2d20` (`3d20` dal 14° livello) e li mostra come pulsanti rapidi nella barra superiore della Scheda PG; cliccando su un dado Portento lo spendi e ne dichiari il valore sostitutivo in chat.
+  * **Talento Fortunato (*Lucky*)**: mostra i `3 / 3` Punti Fortuna nell'intestazione della Scheda PG; un click su **`[ 🍀 Usa Punto Fortuna ]`** spende 1 punto e tira immediatamente `1d20` sostitutivo in chat (con ricarica automatica al Riposo Lungo).
 * **Ispirazione del Dungeon Master (`✨ Ispirazione`)**:
   * Nella parte superiore della Scheda PG e nella Hero Summary Card è presente il badge **`✨ Ispirazione DM`**.
   * Può essere conferita dal DM con un click per premiare ottime interpretazioni di ruolo, decisioni audaci o fedeltà ai difetti/legami del personaggio.
@@ -340,13 +354,23 @@ La sezione **Economia Turno** nel tab `Controlli PG` si adatta automaticamente a
 * **Pulsante `[ 💥 ]` (Area d'Effetto)**:
   * Scegli la forma geometrica (**Sfera**, **Cono**, **Linea**), la dimensione in esagoni, il colore e (opzionalmente) il Tiro Salvezza richiesto (es. `DES CD 15` con `8d6` danni da fuoco).
   * Clicca sulla mappa per posizionare l'area: il server calcola automaticamente tutti i bersagli coinvolti, richiede i Tiri Salvezza (applicando i bonus di Mezza o 3/4 Copertura se specificati) e applica i danni (dimezzati in caso di successo).
-* **Lancio Incantesimi, Upcasting e Concentrazione Rigorosa (PHB p. 201-204)**:
+* **Lancio Incantesimi, Scaling Upcasting, Lancio Rituale e Concentrazione Rigorosa (PHB p. 201-204)**:
   * Quando clicchi su **`Lancia`** su un incantesimo dal Grimorio, se l'incantesimo è di 1° livello o superiore appare una finestra modale di scelta dello slot.
-  * Puoi scegliere di lanciarlo al suo livello base oppure effettuare l'**Upcast** spendendo uno slot di livello più alto disponibile (es. lanciare *Dardo Incantato* di 1° livello con uno slot di 3° livello).
+  * **Scaling Automatico dei Dadi in Upcast**: scegliendo uno slot di livello superiore al livello base dell'incantesimo, il sistema scala automaticamente la formula di danno o guarigione aggiungendo `+1dX` per ogni livello di slot superiore (es. *Palla di Fuoco* o *Cura Ferite* lanciati con slot superiori).
+  * **Lancio come Rituale (`🕯️ Lancia come Rituale (+10 min, 0 slot)`)**: se l'incantesimo possiede il tag *Rituale* (es. *Individuazione del Magico*, *Identificare*, *Trova Famiglio*), la finestra modale mostra una casella di spunta per lanciarlo come rituale aggiungendo 10 minuti al tempo di lancio e **senza consumare alcuno slot incantesimo**.
   * **Concentrazione Rigorosa**:
-    * Il sistema riconosce automaticamente gli incantesimi a concentrazione (es. *Benedizione*, *Volare*, *Invisibilità*, *Muro di Fuoco*).
+    * Il sistema riconosce automaticamente gli incantesimi a concentrazione (es. *Benedizione*, *Volare*, *Invisibilità*, *Muro di Fuoco*, *Spiriti Guardiani*).
     * Se lanci un incantesimo a concentrazione mentre ne stai già mantenendo un altro, la vecchia concentrazione cade all'istante con un annuncio pubblico in chat, evitando concentrazioni multiple non consentite dalle regole RAW.
     * Subire danni richiede automaticamente un TS Costituzione ($\text{CD} \ge 10$): in caso di fallimento, l'incantesimo crolla immediatamente.
+* **Attacco Poderoso (`-5/+10`) e Combattere con Due Armi (Mano Secondaria - PHB p. 195)**:
+  * Nel tab **`⚔️ Armi & Attacchi`** della Scheda PG:
+    * **Toggle `⚡ Attacco Poderoso (-5 TxC / +10 Danni)`**: attivabile per i talenti *Maestro d'Armi Possenti (Great Weapon Master)* e *Tiratore Scelto (Sharpshooter)*; sottrae automaticamente `5` al tiro per colpire e aggiunge `+10` ai danni dell'arma.
+    * **Pulsante `🗡️ 2ª Mano` (Off-Hand Bonus Attack)**: esegue l'attacco con l'arma secondaria come Azione Bonus omettendo il modificatore positivo di caratteristica dai danni, a meno che il personaggio non possieda lo Stile di Combattimento *Combattere con Due Armi*.
+* **Azione Preparare (*Ready Action* - PHB p. 193)**:
+  * Nella barra **Economia Turno** del VTT è presente il pulsante **`[ ⏱️ Prepara ]`**:
+    * Consente di spendere l'**Azione** del proprio turno per dichiarare una condizione di innesco (*trigger*, es. *"Appena il goblin entra nella stanza"*) e il tipo di risposta (**Attacco**, **Movimento** o **Incantesimo**).
+    * Come da regole RAW 5e, preparare un **Incantesimo** attiva immediatamente la **Concentrazione** dell'incantatore.
+    * Quando l'innesco si verifica fuori dal proprio turno, il pulsante diventa **`[ ⚡ Innesca ]`**: cliccandolo il personaggio spende la propria **`🛡️ Reazione`** ed esegue l'azione preparata!
 * **Pulsante `⏭️ Termina Turno`**: attivo durante il tuo turno di combattimento; passa immediatamente l'iniziativa al combattente successivo.
 
 ### Targeting Tattico con Mirino, Fiancheggiamento (DMG p. 251) e Manovre RAW (Lotta & Spinta)
@@ -402,7 +426,7 @@ D&D OmniCompanion gestisce nativamente la tridimensionalità dei combattimenti e
    * Quando un incantatore mantiene la concentrazione su un bersaglio (es. *Benedizione*, *Blocca Persone*, *Volare*, *Cacciatore di Nemici*) o su un'area AoE persistente (es. *Muro di Fuoco*, *Spiriti Guardiani*), il canvas disegna eleganti **fasci eterei violacei e smeraldo** (`Concentration Tethers`) che collegano visivamente l'incantatore ai suoi bersagli con una runa magica `✦`.
    * **Interruzione a Catena**: Se la concentrazione dell'incantatore crolla (subendo danni e fallendo il TS su Costituzione, o cadendo a 0 HP), tutti gli effetti legati e le aree AoE svaniscono all'istante, e qualsiasi creatura sorretta in volo dall'incantesimo cade immediatamente al suolo risolvendo la caduta RAW.
 
-### Reazioni RAW e Incantesimo Scudo (*Shield*)
+### Reazioni RAW (*Scudo*, *Assorbire Elementi*, *Controincantesimo*, *Deviare Proiettili*)
 * **Economia delle Reazioni RAW (PHB p. 190)**:
   * Ogni creatura dispone di una sola `🛡️ Reazione` per round, che si ripristina all'inizio del proprio turno.
   * Il sistema monitora in tempo reale gli eventi scatenanti (*triggers*) che avvengono durante i turni degli altri combattenti.
@@ -410,11 +434,24 @@ D&D OmniCompanion gestisce nativamente la tridimensionalità dei combattimenti e
   * Quando un attacco nemico supera la CA di un personaggio (o quando viene bersagliato da *Dardo Incantato*), se l'eroe conosce o ha preparato l'incantesimo *Scudo* e dispone della propria reazione e di almeno uno slot di 1° livello o superiore, il client visualizza un prompt interattivo con conto alla rovescia:
     * Se il giocatore accetta: consuma la `🛡️ Reazione` del round, scala uno slot di 1° livello e aggiunge un bonus invisibile di **+5 alla Classe Armatura (CA)** fino all'inizio del suo prossimo turno.
     * **Risoluzione Retroattiva**: Se il nuovo punteggio di CA ($CA + 5$) è superiore o uguale al tiro per colpire dell'avversario, l'attacco viene retroattivamente convertito da "Colpito" a "Mancato", salvando il personaggio dai danni!
+* **Assorbire Elementi (*Absorb Elements*), Controincantesimo (*Counterspell*) e Deviare Proiettili (*Deflect Missiles*)**:
+  * **Assorbire Elementi**: attivabile in reazione quando si subiscono danni da *Acido, Freddo, Fuoco, Fulmine o Tuono*; consuma la reazione e uno slot di 1° livello, conferisce resistenza al danno elementale e aggiunge `+1d6` danni al prossimo attacco in mischia.
+  * **Controincantesimo**: interrompe il lancio di un incantesimo nemico entro 60 piedi spendendo la reazione e uno slot di 3° livello o superiore.
+  * **Deviare Proiettili (Monaco liv. 3+)**: riduce i danni di un attacco con arma a distanza subito di `1d10 + Mod DES + Livello Monaco` spendendo la reazione.
 * **Attacchi di Opportunità Dinamici & Reazioni Fuori Turno**:
   * Quando un nemico adiacente (a distanza di 1 esagono / $5\text{ ft}$) si allontana uscendo dalla portata di mischia senza aver intrapreso l'azione di *Disimpegno (Disengage)*, il server rileva l'apertura e invia una notifica al difensore permettendogli di spendere la sua `🛡️ Reazione` per sferrare un attacco immediato in mischia.
   * **Bypass del Blocco Turno (`is_reaction=True`)**: Le reazioni legittime e gli Attacchi di Opportunità aggirano il blocco rigido del turno (`strict_turn_lock`), consentendo di agire istantaneamente durante il movimento del nemico senza interrompere la sequenza dell'iniziativa.
 
-### Tratti Speciali: Evasione (Ladro/Monaco) e Attacco Furtivo
+### Aure Dinamiche (*Aura di Protezione* & *Spiriti Guardiani*), Tratti Razziali e Sopravvivenza a 0 PV
+* **Aura di Protezione del Paladino (PHB p. 85)**:
+  * I Paladini coscienti di 6° livello o superiore proiettano automaticamente un'aura protettiva di 10 piedi / 2 esagoni (estesa a 30 piedi / 6 esagoni al 18° livello) che somma il **Modificatore di Carisma** del Paladino ($\min +1$) a tutti i Tiri Salvezza effettuati dal Paladino stesso e dagli alleati entro il raggio.
+* **Spiriti Guardiani (*Spirit Guardians*, PHB p. 278)**:
+  * Mantenendo la concentrazione su *Spiriti Guardiani*, qualsiasi creatura ostile che inizi il proprio turno entro 15 piedi (3 esagoni) dall'incantatore subisce automaticamente un Tiro Salvezza su Saggezza contro la CD incantesimi dell'incantatore, subendo `3d8` danni radiosi (o la metà in caso di successo).
+* **Tenacia Implacabile (Mezzorco) e Interdizione alla Morte (*Death Ward*)**:
+  * Se un personaggio dotato di *Tenacia Implacabile* (1/Riposo Lungo) o protetto da *Interdizione alla Morte* subisce danni che lo ridurrebbero a `0 PV` senza ucciderlo sul colpo, il motore intercetta l'evento e lo lascia automaticamente a **`1 PV`**, annunciando l'attivazione in chat!
+* **Fortuna dell'Halfling (*Fortunato*) e Combattere con Armi Possenti (*GWF*)**:
+  * **Fortuna dell'Halfling**: ritira automaticamente qualsiasi `1` naturale ottenuto su un tiro di `d20` (tiro per colpire, prova di caratteristica o tiro salvezza).
+  * **Combattere con Armi Possenti (*Great Weapon Fighting*)**: ritira automaticamente gli `1` e i `2` sui dadi di danno delle armi da mischia a due mani o versatili.
 * **Evasione (*Evasion*, PHB p. 79/96)**:
   * Per Ladri e Monaci di 7° livello o superiore, l'agilità istintiva trasforma la gestione degli effetti ad area che richiedono un Tiro Salvezza su Destrezza (es. *Palla di Fuoco*, soffio di drago):
     * **TS Superato**: subiscono **0 danni** (invece della metà normale).

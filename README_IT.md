@@ -6,7 +6,7 @@
 [![Ruleset: D&D 5e](https://img.shields.io/badge/ruleset-D%26D%205e-red.svg)](https://dnd.wizards.com/)
 [![UI: ttkbootstrap](https://img.shields.io/badge/ui-ttkbootstrap-orange.svg)](https://ttkbootstrap.readthedocs.io/)
 [![Multiplayer: TCP/UDP](https://img.shields.io/badge/networking-TCP%20%2B%20UDP-green.svg)]()
-[![Tests: Passing](https://img.shields.io/badge/tests-356%2F356%20superati-brightgreen.svg)]()
+[![Tests: Passing](https://img.shields.io/badge/tests-479%2F479%20superati-brightgreen.svg)]()
 [![Localization: IT / EN](https://img.shields.io/badge/i18n-Italiano%20%7C%20English-blueviolet.svg)]()
 [![Units: Imperial / Metric](https://img.shields.io/badge/units-ft%2Fmi%20%7C%20m%2Fkm-informational.svg)]()
 [![Version](https://img.shields.io/badge/release-v0.2.0--alpha-gold.svg)](https://github.com/Gaian-pixel/DndOmniCompanion/releases)
@@ -119,6 +119,22 @@
   * **Azioni Leggendarie**: Fino a 3 azioni a round spendibili al termine del turno di un'altra creatura, promemoria automatici al DM, e ripristino delle cariche all'inizio del turno del boss.
   * **Azioni di Tana (Iniziativa 20)**: Notifica e attivazione automatica all'Iniziativa 20 per i boss con tana attiva.
   * **Resistenze Leggendarie**: Fino a 3/giorno per trasformare un fallimento al TS in successo.
+* **Aure Tattiche Dinamiche (*Aura di Protezione* del Paladino & *Spiriti Guardiani*)**:
+  * **Aura di Protezione del Paladino (PHB p. 85)**: I Paladini coscienti di livello 6+ conferiscono automaticamente $+\text{Mod CAR}$ ($\ge +1$) a tutti i Tiri Salvezza a sé stessi e agli alleati entro 10 ft / 2 esagoni (estesa a 30 ft / 6 esagoni al livello 18).
+  * **Spiriti Guardiani (*Spirit Guardians*, PHB p. 278)**: Le creature ostili che iniziano il proprio turno entro 15 ft (3 esagoni) dall'incantatore in concentrazione subiscono automaticamente un Tiro Salvezza su Saggezza per `3d8` danni radiosi (metà se superato).
+* **Azione Preparare (*Ready Action* - PHB p. 193)**:
+  * Pulsante dedicato **`[ ⏱️ Prepara ]`** / **`[ ⚡ Innesca ]`** nella barra Economia Turno del VTT per dichiarare l'innesco (*trigger*) e l'azione preparata (Attacco, Movimento o Incantesimo).
+  * Preparare un incantesimo attiva automaticamente la **Concentrazione**; innescare l'azione preparata fuori turno consuma la **`🛡️ Reazione`** del personaggio.
+* **Reazioni Difensive Avanzate (*Scudo*, *Assorbire Elementi*, *Controincantesimo*, *Deviare Proiettili*)**:
+  * Prompt interattivi di reazione per **Scudo** (`+5 CA` con ricalcolo retroattivo da colpito a mancato), **Assorbire Elementi** (dimezza il danno elementale subito e conferisce `+1d6` danni elementali al prossimo attacco in mischia), **Controincantesimo** (interrompe il lancio nemico entro 60 ft) e **Deviare Proiettili** del Monaco (riduce il danno da armi a distanza di `1d10 + Mod DES + Livello Monaco`).
+* **Attacco Poderoso Marziale (`-5/+10`) & Combattere con Due Armi (PHB p. 195)**:
+  * **Toggle Attacco Poderoso (`[ ⚡ Attacco Poderoso -5/+10 ]`)**: Applica `-5` al tiro per colpire e `+10` ai danni per i talenti *Maestro d'Armi Possenti (GWM)* e *Tiratore Scelto (Sharpshooter)*.
+  * **Attacco Mano Secondaria (`[ 🗡️ 2ª Mano ]`)**: Pulsante dedicato per l'attacco con l'arma secondaria (Azione Bonus) che omette il modificatore positivo di caratteristica dai danni, salvo possesso dello stile *Combattere con Due Armi*.
+* **Sopravvivenza a 0 PV & Manipolazione Dadi (RAW 5e)**:
+  * **Tenacia Implacabile (Mezzorco) & Interdizione alla Morte (*Death Ward*)**: Impedisce automaticamente di scendere a `0 PV` (lasciando il personaggio a `1 PV`) se il colpo non uccide sul colpo, consumando il privilegio/incantesimo.
+  * **Fortuna dell'Halfling (*Fortunato*)**: Ritira automaticamente gli `1` naturali sui dadi `d20` di attacchi, prove e tiri salvezza (`reroll_ones_d20=True`).
+  * **Combattere con Armi Possenti (*Great Weapon Fighting*)**: Ritira automaticamente gli `1` e i `2` sui dadi di danno delle armi da mischia a due mani o versatili (`gwf_reroll=True`).
+  * **Portento del Mago Divinatore & Talento Fortunato (*Lucky*)**: Generazione automatica al Riposo Lungo di `2d20` (`3d20` al livello 14) dadi Portento e `3` Punti Fortuna, spendibili con 1 click dall'intestazione della Scheda PG.
 
 ### 🧙‍♂️ Creazione Personaggio, Scheda PG & Progressione
 * **Wizard Stile Baldur's Gate con Compendi Comparativi Master-Detail**:
@@ -127,7 +143,13 @@
     * **Layout Split-View Master-Detail**: Tabella comparativa a sinistra (6 colonne: Razza con icona, Bonus, Tratti Chiave, Resistenze & Difese, Taglia/Vel., Classi Consigliate) e Scheda Anteprima reattiva a destra.
     * **Dati Meccanici & Lore RAW 5e**: Censimento completo delle difese passive (Resistenza Infernale al Fuoco, Resilienza Nanica vs Veleno, Retaggio Fatato con Immunità al Sonno Magico, Astuzia Gnomesca vs Magia, Tenacia Implacabile a 1 PF, Fortunato), Sinergie e Classi ideali, longevità, tutti i tratti con spiegazione delle meccaniche e sottorazze con selezione rapida a doppio click.
   * **Compendio Comparativo Classi (12 Classi Canoniche 5e)**: Accessibile nel Passo 2 con filtri per categoria (`[Tutte]`, `[Marziali]`, `[Incantatori]`, `[Ibridi]`, `[Esperti]`), Dadi Vita (d6–d12), Caratteristiche Primarie, Tiri Salvezza, Ruolo nel party, consigli Quick Build, anteprima equipaggiamento iniziale e sottoclassi.
-  * **Level-Up Assistito**: Recupero automatico di privilegi di classe, dadi vita e progressioni slot incantesimo dal Compendio SRD 5e, inclusi Artefice (slot dal 1° livello) e Terzi Incantatori (Cavaliere Mistico / Mistificatore Arcano dal 3° livello). Include cap rigido a 20 per i punteggi di caratteristica ASI, controllo anti-duplicazione e sincronizzazione persistente dei privilegi in `features_list` per evitare perdite al salvataggio scheda.
+  * **Level-Up Assistito & Multiclasse (PHB Cap. 6)**: Recupero automatico di privilegi di classe, dadi vita e progressioni slot incantesimo dal Compendio SRD 5e, inclusi Artefice (slot dal 1° livello) e Terzi Incantatori (Cavaliere Mistico / Mistificatore Arcano dal 3° livello). Supporto **Multiclasse** completo con selettore classe al Level-Up, validazione automatica dei prerequisiti di caratteristica (minimo 13 nelle statistiche primarie della classe attuale e di quella scelta) e calcolo automatico della **Tabella Slot Incantatore Multiclasse** combinata con la *Magia del Patto* del Warlock. Include cap rigido a 20 per i punteggi di caratteristica ASI, controllo anti-duplicazione e sincronizzazione persistente dei privilegi in `features_list`.
+* **Modificatori Automatici degli Oggetti Magici & Cariche (`common/item_modifiers.py` & DMG p. 141)**:
+  * **Calcolo Automatico da Equipaggiamento e Sintonia**: Rileva e applica in tempo reale i bonus degli oggetti magici equipaggiati e sintonizzati alla CA (armature e scudi magici `+1/+2/+3`, *Bracciali della Difesa*, *Mantello/Anello della Protezione*, *Veste dell'Arcimago*, *Bastone del Potere*), i punteggi di caratteristica fissati (*Amuleto della Salute* COS 19, *Fascia dell'Intelletto* INT 19, *Guanti del Potere Orchesco* FOR 19, *Cintura della Forza dei Giganti* FOR 21–29), CD e bonus attacco incantesimi (*Verga del Custode del Patto*, *Bacchetta del Mago da Guerra*), Tiri Salvezza e velocità (*Stivali della Velocità*, *Stivali del Passo e del Balzo*).
+  * **Cariche degli Oggetti Magici & Ricarica all'Alba**: Tracciamento delle cariche (`charges_current` / `charges_max`) nell'inventario con spesa a 1 click (`⚡ Usa 1 Carica`), controllo automatico **`1d20` DMG p. 141** all'esaurimento dell'ultima carica (con rottura all'`1` naturale) e ricarica automatica tramite formula dadi (es. `1d6+4`) al Riposo Lungo.
+* **Scaling Automatico Formule in Upcast & Lancio Rituale (PHB p. 201-202)**:
+  * **Scaling Dadi in Upcast**: Lanciare un incantesimo di danno o cura con uno slot superiore scala automaticamente la formula dei dadi (`+1dX` per ogni livello di slot sopra il base).
+  * **Lancio come Rituale (`🕯️ Lancia come Rituale`)**: Gli incantesimi dotati del tag Rituale possono essere lanciati aggiungendo `+10 minuti` **senza consumare alcuno slot incantesimo**.
 * **Avatar Personaggio & Generazione Automatica Token sulla Mappa**:
   * Possibilità per i giocatori (e per il DM con PNG e mostri) di caricare un'immagine per il proprio personaggio.
   * L'immagine caricata diventa automaticamente il **Token visivo renderizzato sulla mappa tattica**, con ritaglio circolare ad alta definizione, bordo colorato coordinato e scalatura dinamica in base alla Taglia della creatura (da *Minuscola* a *Mastodontica*).
@@ -274,10 +296,17 @@ DndOmniCompanion/
 ├── client/                         # Client VTT Giocatore, Scheda PG e Voice Client
 │   ├── client.py                   # GUI principale del Giocatore, HUD ed economia turno
 │   ├── character_manager_ui.py     # Gestione autonoma dei personaggi (Offline)
-│   ├── character_sheet_ui.py       # Scheda personaggio interattiva 5e
-│   ├── character_manager.py        # Persistenza e serializzazione personaggi
+│   ├── character_sheet_ui.py       # Coordinatore scheda personaggio interattiva 5e
+│   ├── sheet_panels/               # Pannelli modulari dei tab della Scheda PG
+│   │   ├── combat_panel.py         # Armi, Attacco Poderoso (-5/+10) & 2ª Mano TWF
+│   │   ├── spells_panel.py         # Grimorio, scaling formule Upcast & Lancio Rituale
+│   │   ├── inventory_panel.py      # Inventario, sintonia, cariche oggetti magici e contenitori
+│   │   ├── stats_panel.py          # Caratteristiche, tiri salvezza e 18 abilità
+│   │   ├── features_panel.py       # Tratti razziali, privilegi di classe e risorse speciali
+│   │   └── notes_panel.py          # Diario di campagna Markdown e note personali
+│   ├── character_manager.py        # Persistenza personaggi, multiclasse e logica riposi
 │   ├── character_creation_wizard.py# Wizard di creazione personaggio (Livello 1)
-│   ├── progression_ui.py           # Wizard di Level-Up e integrazione SRD
+│   ├── progression_ui.py           # Wizard di Level-Up, Multiclasse e integrazione SRD
 │   ├── pdf_sheet_generator.py      # Generatore PDF ufficiale a 3 pagine
 │   ├── login_ui.py                 # Finestra di selezione PG e connessione
 │   ├── manuals_ui.py               # Consultazione manuali e compendio lato client
@@ -299,7 +328,7 @@ DndOmniCompanion/
 │   ├── compendium_ui.py            # Interfaccia Compendio & SRD
 │   ├── voice_server.py             # Server broadcast vocale UDP
 │   └── rules/                      # Motore modulare regole D&D 5e
-│       ├── combat.py               # Iniziativa, attacchi, critici, copertura, vantaggio, economia turno
+│       ├── combat.py               # Iniziativa, attacchi, aure, reazioni, azione Preparare, copertura
 │       ├── movement.py             # Movimento esagonale, FoW, trappole, teletrasporti
 │       ├── character.py            # Danni, PV temp, TS morte, concentrazione, riposi
 │       ├── chat.py                 # Chat, dadi, critici 1d20, sussurri, ricerca manuali
@@ -308,10 +337,12 @@ DndOmniCompanion/
 │       └── audio.py                # Gestione broadcast audio e soundboard
 ├── common/                         # Protocolli condivisi, matematica esagonale e i18n
 │   ├── game_state.py               # Modello centrale GameState e Player
+│   ├── character_schema.py         # Schema personaggio, Multiclasse e tabelle Slot Incantesimo
+│   ├── item_modifiers.py           # Modificatori automatici oggetti magici, cariche e ricarica DMG p. 141
 │   ├── protocol.py                 # Costruttori pacchetti JSON di rete
 │   ├── network_utils.py            # Framing TCP con prefisso di lunghezza
 │   ├── hex_utils.py                # Geometria esagonale cubica, LoS, coni, linee, sfere
-│   ├── dice.py                     # Motore di tiro dadi e rilevamento Nat 20 / Nat 1
+│   ├── dice.py                     # Motore di tiro dadi, Nat 20/1, Fortuna Halfling & GWF
 │   ├── i18n.py                     # Traduzioni IT/EN live, unità Imperiale/Metrica e scale mappa
 │   ├── encounter_calc.py           # Calcolatore difficoltà incontri DMG p. 82
 │   ├── pdf_manuals_indexer.py      # Indicizzatore e motore di ricerca PDF offline
@@ -329,15 +360,17 @@ DndOmniCompanion/
 │   ├── USER_GUIDE.md               # Complete User Guide (English)
 │   ├── GUIDA_OPERATIVA.md          # Manuale operativo e architettura (Italiano)
 │   └── OPERATIONAL_GUIDE.md        # System & Operational Manual (English)
-├── tests/                          # Suite di test automatizzati (356 test passati)
+├── tests/                          # Suite di test automatizzati (479 test passati)
 │   ├── simulate_4player_campaign.py# Simulazione live campagna 4 giocatori + DM (11 fasi)
 │   ├── simulate_game_session.py    # Simulazione multiplayer end-to-end (53 fasi)
+│   ├── test_missing_5e_features.py # Test Multiclasse, Aure, Preparare, Attacco Poderoso, Reazioni, Portento
+│   ├── test_item_modifiers.py      # Test modificatori automatici oggetti magici e override CA/statistiche
 │   ├── test_3d_dice.py             # Test motore dadi 3d vettoriali e overlay trasparente
 │   ├── test_join_game.py           # Test dialogo unione partita, storico server e auto-connessione
 │   ├── test_mono_finestra.py       # Test architettura single-window, overlay e docking
 │   ├── test_authentic_5e.py        # Test regole autentiche RAW 5e
 │   ├── test_ui_smoke.py            # Smoke test di tutte le schermate grafiche
-│   └── ... (30 moduli di test unitari e di integrazione)
+│   └── ... (35+ moduli di test unitari e di integrazione)
 └── main.py                         # Launcher unificato (DM Host / Player Client)
 ```
 
@@ -345,16 +378,22 @@ DndOmniCompanion/
 
 ## 🧪 Test e Verifica Automatica
 
-Tutti i **356 test automatizzati** passano al 100% con 0 errori:
+Tutti i **479 test automatizzati** passano al 100% con 0 errori:
 
 ```powershell
-# 1. Unit Test completi (356 test: dadi 3D, flusso connessione, righello, critici, mono-finestra, economia turno, unità, inventario)
+# 1. Unit Test completi (479 test: meccaniche 5e, modificatori oggetti magici, dadi 3D, flusso connessione, righello, critici, mono-finestra, economia turno, inventario)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
-# 2. Test specifico motore dadi 3D poliedrici
+# 2. Test specifico meccaniche avanzate RAW 5e (Multiclasse, Aura Paladino, Spiriti Guardiani, Azione Preparare, Attacco Poderoso, Reazioni, Portento, Fortunato, Cariche)
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_missing_5e_features.py
+
+# 3. Test specifico modificatori automatici oggetti magici
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_item_modifiers.py
+
+# 4. Test specifico motore dadi 3D poliedrici
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_3d_dice.py
 
-# 3. Test flusso unione a partita e storico IP server
+# 5. Test flusso unione a partita e storico IP server
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_join_game.py
 
 # 2. Test Meccaniche Autentiche RAW 5e (Porte, Lockpicking, Room Pins, Reazioni, Shield, Evasione, Furtivo, Blind Rolls)
