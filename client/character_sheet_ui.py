@@ -1269,7 +1269,44 @@ class CharacterSheetFrame(ttk.Frame):
             w.destroy()
         
         resources = getattr(self.character, "custom_resources", [])
-        if not resources:
+        portent_dice = getattr(self.character, "portent_dice", []) or []
+        has_lucky = getattr(self.character, "has_lucky_feat", lambda: False)() or int(getattr(self.character, "lucky_points", 0) or 0) > 0
+
+        if portent_dice:
+            p_row = tk.Frame(self.resources_container, bg=SURFACE_COLOR, highlightbackground=ACCENT_GOLD, highlightthickness=1, padx=6, pady=3)
+            p_row.pack(fill=tk.X, pady=2)
+            tk.Label(p_row, text="🔮 Portento (Divinazione)", font=FONT_BOLD, fg=ACCENT_GOLD, bg=SURFACE_COLOR, width=24, anchor="w").pack(side=tk.LEFT)
+            tk.Label(p_row, text="[Riposo Lungo]", font=FONT_SMALL, fg=TEXT_MUTED, bg=SURFACE_COLOR, width=14, anchor="w").pack(side=tk.LEFT)
+            for p_idx, p_val in enumerate(list(portent_dice)):
+                def _make_use_portent(idx_p=p_idx):
+                    def _use_p():
+                        used_v = self.character.use_portent_die(idx_p)
+                        if used_v is not None:
+                            self._safe_save_characters()
+                            self.refresh_custom_resources_ui()
+                            if self.roll_callback:
+                                self.roll_callback("0d0", f"🔮 [PORTENTO] {self.character.name} sostituisce un d20 con il dado pre-tirato di Portento: **{used_v}**!")
+                    return _use_p
+                ttk.Button(p_row, text=f"🎲 Usa [{p_val}]", command=_make_use_portent(p_idx), style="Gold.TButton").pack(side=tk.LEFT, padx=2)
+
+        if has_lucky:
+            l_pts = int(getattr(self.character, "lucky_points", 0) or 0)
+            l_row = tk.Frame(self.resources_container, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=3)
+            l_row.pack(fill=tk.X, pady=2)
+            tk.Label(l_row, text="🍀 Talento Fortunato", font=FONT_BOLD, fg=ACCENT_GREEN, bg=SURFACE_COLOR, width=24, anchor="w").pack(side=tk.LEFT)
+            tk.Label(l_row, text="[Riposo Lungo]", font=FONT_SMALL, fg=TEXT_MUTED, bg=SURFACE_COLOR, width=14, anchor="w").pack(side=tk.LEFT)
+            tk.Label(l_row, text=f"{l_pts} / 3", font=FONT_BOLD, fg=ACCENT_GOLD, bg=SURFACE_COLOR, width=8, anchor="center").pack(side=tk.LEFT, padx=2)
+            def _use_lucky():
+                if self.character.use_lucky_point():
+                    self._safe_save_characters()
+                    self.refresh_custom_resources_ui()
+                    if self.roll_callback:
+                        self.roll_callback("1d20", f"🍀 Punto Fortuna ({self.character.name} tira 1d20 aggiuntivo, {self.character.lucky_points}/3 rimasti)")
+                else:
+                    messagebox.showwarning("Punti Fortuna Esauriti", "Hai esaurito i 3 Punti Fortuna! Si ricaricano con un Riposo Lungo.", parent=self)
+            ttk.Button(l_row, text="🍀 Spendi 1 Punto", command=_use_lucky, style="Gold.TButton").pack(side=tk.LEFT, padx=4)
+
+        if not resources and not portent_dice and not has_lucky:
             tk.Label(self.resources_container, text=_t("sheet_features_no_resources"),
                      font=FONT_SMALL, fg=TEXT_MUTED, bg=SURFACE_COLOR_ALT).pack(anchor="w", pady=4)
             return
@@ -2276,10 +2313,19 @@ class CharacterSheetFrame(ttk.Frame):
         
         base_lvl = int(spell.get('level', 0))
         upcast_var = tk.IntVar(value=max(1, base_lvl) if base_lvl > 0 else 0)
+        ritual_var = tk.BooleanVar(value=False)
+        is_ritual_capable = SpellsPanel.is_ritual_spell(spell)
+
+        import re as _re
+        raw_dmg_f = str(spell.get("damage_formula", "") or "").strip()
+        if not raw_dmg_f:
+            m_f = _re.search(r"\b(\d+d\d+(?:\s*[+-]\s*\d+)?)\b", str(spell.get("desc", "")))
+            if m_f:
+                raw_dmg_f = m_f.group(1).replace(" ", "")
         
         if base_lvl > 0:
             upcast_row = tk.Frame(win, bg="#1e1e1e")
-            upcast_row.pack(fill=tk.X, padx=10, pady=(0, 6))
+            upcast_row.pack(fill=tk.X, padx=10, pady=(0, 4))
             tk.Label(upcast_row, text="⚡ Lancia a Livello (Upcasting):", font=FONT_BOLD, fg=ACCENT_GOLD, bg="#1e1e1e").pack(side=tk.LEFT, padx=(0, 6))
             
             levels_available = []
@@ -2299,6 +2345,13 @@ class CharacterSheetFrame(ttk.Frame):
                 upcast_var.set(base_lvl + sel_idx)
             upcast_combo.bind("<<ComboboxSelected>>", on_upcast_change)
 
+            ritual_row = tk.Frame(win, bg="#1e1e1e")
+            ritual_row.pack(fill=tk.X, padx=10, pady=(0, 6))
+            ritual_lbl = "🕯️ Lancia come Rituale (+10 min, 0 slot consumati)"
+            if is_ritual_capable:
+                ritual_lbl += " [★ Rituale Ufficiale 5e]"
+            ttk.Checkbutton(ritual_row, text=ritual_lbl, variable=ritual_var).pack(side=tk.LEFT)
+
         btn_frame = ttk.Frame(win)
         btn_frame.pack(fill=tk.X, pady=10)
         
@@ -2307,7 +2360,8 @@ class CharacterSheetFrame(ttk.Frame):
         def do_cast():
             lvl = int(spell.get('level', 0))
             cast_level = lvl
-            if lvl > 0:
+            is_ritual_cast = bool(lvl > 0 and ritual_var.get())
+            if lvl > 0 and not is_ritual_cast:
                 cast_level = upcast_var.get()
                 lvl_str = str(cast_level)
                 if lvl_str in self.slot_vars:
@@ -2347,7 +2401,15 @@ class CharacterSheetFrame(ttk.Frame):
                 except Exception: pass
 
             if self.roll_callback:
-                upcast_info = f" (Potenziato al Livello {cast_level}!)" if cast_level > lvl else ""
+                upcast_info = ""
+                if is_ritual_cast:
+                    upcast_info = " [🕯️ Lanciato come Rituale (+10 min, 0 slot spesi)]"
+                elif cast_level > lvl:
+                    scaled_note = ""
+                    if raw_dmg_f:
+                        scaled_f = SpellsPanel.scale_spell_formula_for_upcast(raw_dmg_f, lvl, cast_level, spell.get("name", ""))
+                        scaled_note = f" — Formula Scalata: {scaled_f}"
+                    upcast_info = f" (Potenziato al Livello {cast_level}{scaled_note}!)"
                 stats_tag = f" [CD Incantesimi: {spell_stats.get('dc', 10)} | Attacco Magico: {spell_stats.get('attack_str', '+2')}]"
                 chat_msg = f"{self.character.name} lancia {spell.get('name', '')}{upcast_info}!{stats_tag}{conc_info}"
                 self.roll_callback("0d0", chat_msg)
@@ -2361,7 +2423,9 @@ class CharacterSheetFrame(ttk.Frame):
             try: hit_bonus = int(hit_bonus_str)
             except (ValueError, TypeError): hit_bonus = int(spell_stats.get("attack_bonus", 0))
             
-            dmg_str = tk.simpledialog.askstring("Danno", "Inserisci formula danno (es. 1d8+3):", parent=win)
+            eff_cast_lvl = base_lvl if ritual_var.get() else upcast_var.get()
+            default_dmg = SpellsPanel.scale_spell_formula_for_upcast(raw_dmg_f, base_lvl, eff_cast_lvl, spell.get("name", "")) if raw_dmg_f else ""
+            dmg_str = tk.simpledialog.askstring("Danno", "Inserisci formula danno (es. 1d8+3):", initialvalue=default_dmg, parent=win)
             if not dmg_str: return
             
             if getattr(self, 'attack_callback', None):
@@ -3224,6 +3288,24 @@ class CharacterSheetFrame(ttk.Frame):
                 )
             menu.add_cascade(label="Sposta in Contenitore...", menu=c_menu)
             
+            from common.item_modifiers import detect_item_charges_defaults
+            detect_item_charges_defaults(item)
+            if int(item.get("charges_max", 0) or 0) > 0:
+                c_cur = int(item.get("charges_current", 0) or 0)
+                c_max = int(item.get("charges_max", 0) or 0)
+                def _ctx_use_charge(s_idx=slot_idx):
+                    ok_c, msg_c = self.character.use_item_charge(s_idx, 1)
+                    self.refresh_inventory_grid()
+                    self._safe_update_character()
+                    self._safe_save_characters()
+                    if self.roll_callback and ok_c:
+                        self.roll_callback("0d0", msg_c)
+                    messagebox.showinfo("Cariche Oggetto Magico", msg_c, parent=self)
+                menu.add_command(
+                    label=f"⚡ Usa 1 Carica ({c_cur}/{c_max} disponibili)",
+                    command=_ctx_use_charge
+                )
+
             if self.is_spendable_item(item):
                 qty = item.get("qty", 1)
                 menu.add_command(
@@ -3527,6 +3609,24 @@ class CharacterSheetFrame(ttk.Frame):
         attune_var = tk.BooleanVar(value=item.get("attuned", False))
         cb_attune = ttk.Checkbutton(body, text="Oggetto Sintonizzato 🔮", variable=attune_var)
         cb_attune.pack(anchor="w", pady=4)
+
+        from common.item_modifiers import detect_item_charges_defaults
+        detect_item_charges_defaults(item)
+        c_max_init = int(item.get("charges_max", 0) or 0)
+        c_cur_init = int(item.get("charges_current", c_max_init) or 0)
+        c_rec_init = str(item.get("recharge_dice", "") or "")
+
+        charges_row = tk.Frame(body, bg=SURFACE_COLOR)
+        charges_row.pack(fill=tk.X, pady=(2, 4))
+        tk.Label(charges_row, text="⚡ Cariche (Attuali / Max):", font=FONT_BOLD, fg=ACCENT_GOLD, bg=SURFACE_COLOR).pack(side=tk.LEFT, padx=(0, 4))
+        charges_cur_var = tk.IntVar(value=c_cur_init)
+        charges_max_var = tk.IntVar(value=c_max_init)
+        ttk.Spinbox(charges_row, from_=0, to=100, textvariable=charges_cur_var, width=4, justify="center").pack(side=tk.LEFT)
+        tk.Label(charges_row, text="/", font=FONT_BOLD, fg=TEXT_MUTED, bg=SURFACE_COLOR).pack(side=tk.LEFT, padx=2)
+        ttk.Spinbox(charges_row, from_=0, to=100, textvariable=charges_max_var, width=4, justify="center").pack(side=tk.LEFT, padx=(0, 10))
+        tk.Label(charges_row, text="Ricarica Alba:", font=FONT_SMALL, fg=TEXT_MUTED, bg=SURFACE_COLOR).pack(side=tk.LEFT, padx=(0, 4))
+        recharge_var = tk.StringVar(value=c_rec_init)
+        ttk.Entry(charges_row, textvariable=recharge_var, width=8, justify="center").pack(side=tk.LEFT)
         
         tk.Label(body, text="Descrizione / Proprietà:", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(anchor="w", pady=(4, 1))
         desc_text = tk.Text(body, height=5, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_MAIN, wrap=tk.WORD, highlightbackground=BORDER_COLOR, highlightthickness=1)
@@ -3561,6 +3661,19 @@ class CharacterSheetFrame(ttk.Frame):
             item["qty"] = initial_qty
             item["attuned"] = attune_var.get()
             item["desc"] = desc_text.get("1.0", tk.END).strip()
+            try:
+                mx_c = max(0, int(charges_max_var.get() or 0))
+                cur_c = max(0, min(mx_c, int(charges_cur_var.get() or 0)))
+                if mx_c > 0:
+                    item["charges_max"] = mx_c
+                    item["charges_current"] = cur_c
+                    item["recharge_dice"] = recharge_var.get().strip() or "1d6+1"
+                else:
+                    item.pop("charges_max", None)
+                    item.pop("charges_current", None)
+                    item.pop("recharge_dice", None)
+            except (ValueError, tk.TclError):
+                pass
             sel_c = container_combo.get()
             c_code = "backpack"
             for code, label in container_opts:
@@ -3635,6 +3748,18 @@ class CharacterSheetFrame(ttk.Frame):
             elif target:
                 messagebox.showerror("Errore", "Giocatore non trovato.", parent=win)
                 
+        if int(item.get("charges_max", 0) or 0) > 0:
+            def _use_charge():
+                ok_c, msg_c = self.character.use_item_charge(idx, 1)
+                charges_cur_var.set(int(item.get("charges_current", 0) or 0))
+                self.refresh_inventory_grid()
+                self._safe_update_character()
+                self._safe_save_characters()
+                if self.roll_callback and ok_c:
+                    self.roll_callback("0d0", msg_c)
+                messagebox.showinfo("Cariche Oggetto Magico", msg_c, parent=win)
+            ttk.Button(btn_frame, text="⚡ Usa 1 Carica", command=_use_charge, style="Gold.TButton").pack(side=tk.LEFT, padx=2)
+
         if self.is_spendable_item(item):
             def _use_one():
                 win.destroy()
@@ -3946,6 +4071,8 @@ class CharacterSheetFrame(ttk.Frame):
                 formula += " adv"
             elif adv_state in ("Svantaggio", _t("adv_disadvantage")):
                 formula += " dis"
+            if hasattr(self.character, "has_halfling_luck") and self.character.has_halfling_luck():
+                formula += " halfling"
             self.adv_dis_var.set(_t("adv_normal"))
             self.roll_callback(formula, f"TS {stat_name}")
         except Exception:
@@ -3967,6 +4094,8 @@ class CharacterSheetFrame(ttk.Frame):
                 formula += " adv"
             elif adv_state in ("Svantaggio", _t("adv_disadvantage")):
                 formula += " dis"
+            if hasattr(self.character, "has_halfling_luck") and self.character.has_halfling_luck():
+                formula += " halfling"
                 
             self.adv_dis_var.set(_t("adv_normal"))
             self.roll_callback(formula, f"Check {stat_name}")
@@ -4007,6 +4136,8 @@ class CharacterSheetFrame(ttk.Frame):
                 formula += " adv"
             elif adv_state in ("Svantaggio", _t("adv_disadvantage")):
                 formula += " dis"
+            if hasattr(self.character, "has_halfling_luck") and self.character.has_halfling_luck():
+                formula += " halfling"
                 
             self.adv_dis_var.set(_t("adv_normal"))
             self.roll_callback(formula, f"Check {skill_name}")
@@ -4037,6 +4168,8 @@ class CharacterSheetFrame(ttk.Frame):
                 formula += " adv"
             elif adv_state in ("Svantaggio", _t("adv_disadvantage")):
                 formula += " dis"
+            if hasattr(self.character, "has_halfling_luck") and self.character.has_halfling_luck():
+                formula += " halfling"
 
             self.adv_dis_var.set(_t("adv_normal"))
             self.roll_callback(formula, "Iniziativa")
@@ -4261,14 +4394,31 @@ class CharacterSheetFrame(ttk.Frame):
         adv_state = self.adv_dis_var.get()
         r1 = random.randint(1, 20)
         r2 = random.randint(1, 20)
+        halfling_note = ""
+        has_hl = hasattr(self.character, "has_halfling_luck") and self.character.has_halfling_luck()
         
         if adv_state in ("Vantaggio", _t("adv_advantage")):
+            if has_hl and (r1 == 1 or r2 == 1):
+                if r1 == 1:
+                    r1 = random.randint(1, 20)
+                elif r2 == 1:
+                    r2 = random.randint(1, 20)
+                halfling_note = " [🍀 Fortuna dell'Halfling: 1 ritirato!]"
             base_roll = max(r1, r2)
             rolls_str = f"max({r1}, {r2})"
         elif adv_state in ("Svantaggio", _t("adv_disadvantage")):
+            if has_hl and (r1 == 1 or r2 == 1):
+                if r1 == 1:
+                    r1 = random.randint(1, 20)
+                elif r2 == 1:
+                    r2 = random.randint(1, 20)
+                halfling_note = " [🍀 Fortuna dell'Halfling: 1 ritirato!]"
             base_roll = min(r1, r2)
             rolls_str = f"min({r1}, {r2})"
         else:
+            if has_hl and r1 == 1:
+                r1 = random.randint(1, 20)
+                halfling_note = " [🍀 Fortuna dell'Halfling: 1 ritirato!]"
             base_roll = r1
             rolls_str = str(r1)
             
@@ -4306,13 +4456,13 @@ class CharacterSheetFrame(ttk.Frame):
         adv_text = f" ({adv_state})" if adv_state not in ("Normale", _t("adv_normal"), "") else ""
         
         if is_crit:
-            msg = f"⚔️ {self.character.name} attacca con {w_name}{adv_text}: [d20: {rolls_str}] {txc_sign} = {total} 🌟 COLPO CRITICO (20 Naturale)!"
+            msg = f"⚔️ {self.character.name} attacca con {w_name}{adv_text}: [d20: {rolls_str}] {txc_sign} = {total} 🌟 COLPO CRITICO (20 Naturale)!{halfling_note}"
             messagebox.showinfo("COLPO CRITICO!", f"🌟 COLPO CRITICO!\nUn 20 Naturale con {w_name}!\nIl prossimo tiro dei danni raddoppierà automaticamente i dadi!")
         elif is_fail:
-            msg = f"⚔️ {self.character.name} attacca con {w_name}{adv_text}: [d20: {rolls_str}] {txc_sign} = {total} 💀 FALLIMENTO CRITICO (1 Naturale)! Mancato automatico!"
+            msg = f"⚔️ {self.character.name} attacca con {w_name}{adv_text}: [d20: {rolls_str}] {txc_sign} = {total} 💀 FALLIMENTO CRITICO (1 Naturale)! Mancato automatico!{halfling_note}"
             messagebox.showwarning("FALLIMENTO CRITICO!", f"💀 FALLIMENTO CRITICO!\nUn 1 Naturale con {w_name}: l'attacco manca automaticamente il bersaglio!")
         else:
-            msg = f"⚔️ {self.character.name} attacca con {w_name}{adv_text}: [d20: {rolls_str}] {txc_sign} = {total}"
+            msg = f"⚔️ {self.character.name} attacca con {w_name}{adv_text}: [d20: {rolls_str}] {txc_sign} = {total}{halfling_note}"
             
         msg += ammo_note
         self.adv_dis_var.set(_t("adv_normal"))
@@ -4338,6 +4488,27 @@ class CharacterSheetFrame(ttk.Frame):
             num_dice *= 2
             
         rolls = [random.randint(1, die_sides) for _ in range(num_dice)]
+        gwf_note = ""
+        if hasattr(self.character, "has_great_weapon_fighting") and self.character.has_great_weapon_fighting():
+            w_meta = (str(weapon.get("type", "")) + " " + str(weapon.get("name", ""))).lower()
+            is_two_handed_or_versatile = any(
+                k in w_meta
+                for k in (
+                    "due mani", "two-handed", "versatile", "pesante", "heavy",
+                    "spadone", "greatsword", "bipenne", "greataxe", "maglio", "maul",
+                    "alabarda", "halberd", "falcione", "glaive", "picca", "pike",
+                    "spada lunga", "longsword", "bastone ferrato", "quarterstaff",
+                    "martello da guerra", "warhammer", "ascia da battaglia", "battleaxe"
+                )
+            )
+            if is_two_handed_or_versatile:
+                rerolled_any = False
+                for i_r, val_r in enumerate(rolls):
+                    if val_r in (1, 2):
+                        rolls[i_r] = random.randint(1, die_sides)
+                        rerolled_any = True
+                if rerolled_any:
+                    gwf_note = " [⚔️ Armi Possenti: ritirati 1/2]"
         dice_sum = sum(rolls)
         total = max(0, dice_sum + dmg_mod)
         
@@ -4346,7 +4517,7 @@ class CharacterSheetFrame(ttk.Frame):
         crit_text = " ⭐ CRITICO (Dadi Raddoppiati!)" if is_crit else ""
         mod_sign = f"+{dmg_mod}" if dmg_mod >= 0 else str(dmg_mod)
         
-        msg = f"💥 Danni {w_name}{crit_text}: [{'+'.join(map(str, rolls))}] {mod_sign} = {total} danni {dmg_type} ({num_dice}d{die_sides}{mod_sign})"
+        msg = f"💥 Danni {w_name}{crit_text}: [{'+'.join(map(str, rolls))}] {mod_sign} = {total} danni {dmg_type} ({num_dice}d{die_sides}{mod_sign}){gwf_note}"
         if self.roll_callback:
             self.roll_callback("0d0", msg)
         else:

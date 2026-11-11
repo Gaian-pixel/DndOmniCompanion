@@ -775,3 +775,140 @@ def compute_effective_ac(character_or_dict: Any) -> int:
     # Oggetti meravigliosi, anelli, mantelli (+1 CA Anello di Protezione, +2 Bracciali della Difesa, ecc.)
     final_ac = base_ac + mods["bonus_ac"]
     return final_ac
+
+
+def detect_item_charges_defaults(item_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Rileva o inizializza i valori predefiniti D&D 5e RAW per le cariche di un oggetto magico
+    (es. Bastone del Potere, Bacchetta delle Palle di Fuoco, Bacchetta dei Dardi Incantati).
+    Ritorna un dizionario con 'charges_max', 'charges_current', 'recharge_dice'.
+    """
+    if not isinstance(item_dict, dict):
+        return {"charges_max": 0, "charges_current": 0, "recharge_dice": ""}
+
+    if "charges_max" in item_dict and int(item_dict.get("charges_max") or 0) > 0:
+        c_max = int(item_dict["charges_max"])
+        c_cur = int(item_dict.get("charges_current", c_max))
+        rec = str(item_dict.get("recharge_dice", "1d6+1"))
+        return {"charges_max": c_max, "charges_current": max(0, min(c_max, c_cur)), "recharge_dice": rec}
+
+    iname = str(item_dict.get("name", "")).strip().lower()
+    desc = str(item_dict.get("desc", "")).strip().lower()
+
+    res = {"charges_max": 0, "charges_current": 0, "recharge_dice": ""}
+    if any(k in iname for k in ("bastone dei magi", "staff of the magi")):
+        res = {"charges_max": 50, "charges_current": 50, "recharge_dice": "4d6+2"}
+    elif any(k in iname for k in ("bastone del potere", "staff of power")):
+        res = {"charges_max": 20, "charges_current": 20, "recharge_dice": "2d8+4"}
+    elif any(k in iname for k in (
+        "bastone della guarigione", "staff of healing",
+        "bastone dei boschi", "staff of the woodlands",
+        "bastone del fuoco", "staff of fire",
+        "bastone del gelo", "staff of frost",
+        "bastone dello sciame", "staff of swarming insects"
+    )):
+        res = {"charges_max": 10, "charges_current": 10, "recharge_dice": "1d6+4"}
+    elif any(k in iname for k in (
+        "bacchetta delle palle di fuoco", "wand of fireballs",
+        "bacchetta dei fulmini", "wand of lightning bolts",
+        "bacchetta dei dardi incantati", "wand of magic missiles",
+        "bacchetta della paralisi", "wand of paralysis",
+        "bacchetta delle ragnatele", "wand of web",
+        "bacchetta della paura", "wand of fear",
+        "bacchetta di metamorfosi", "wand of polymorph"
+    )):
+        res = {"charges_max": 7, "charges_current": 7, "recharge_dice": "1d6+1"}
+    elif any(k in iname for k in ("anello dell'ariete", "ring of the ram")):
+        res = {"charges_max": 3, "charges_current": 3, "recharge_dice": "1d3"}
+    else:
+        # Fallback regex sulla descrizione es. "ha 7 cariche" o "has 10 charges"
+        m = re.search(r'\b(\d+)\s*(?:cariche|charges)\b', desc)
+        if m:
+            c_max = int(m.group(1))
+            rec_m = re.search(r'(\d+d\d+(?:\s*\+\s*\d+)?)', desc)
+            rec = rec_m.group(1).replace(" ", "") if rec_m else "1d6+1"
+            res = {"charges_max": c_max, "charges_current": c_max, "recharge_dice": rec}
+
+    if res["charges_max"] > 0:
+        item_dict.setdefault("charges_max", res["charges_max"])
+        item_dict.setdefault("charges_current", res["charges_current"])
+        item_dict.setdefault("recharge_dice", res["recharge_dice"])
+    return res
+
+
+def use_item_charge_dict(item_dict: Dict[str, Any], cost: int = 1) -> tuple:
+    """
+    Spende 'cost' cariche da un oggetto magico (5e RAW).
+    Se l'oggetto scende a 0 cariche, effettua il tiro di 1d20 previsto dalla DMG (p. 141):
+    con un risultato di 1, avvisa del rischio di esaurimento/sbriciolamento in cenere.
+    Ritorna: (success: bool, message: str)
+    """
+    if not isinstance(item_dict, dict):
+        return False, "Oggetto non valido."
+    defaults = detect_item_charges_defaults(item_dict)
+    if "charges_max" not in item_dict and defaults["charges_max"] > 0:
+        item_dict["charges_max"] = defaults["charges_max"]
+        item_dict["charges_current"] = defaults["charges_current"]
+        item_dict["recharge_dice"] = defaults["recharge_dice"]
+
+    c_max = int(item_dict.get("charges_max") or 0)
+    if c_max <= 0:
+        return False, f"'{item_dict.get('name', 'Oggetto')}' non possiede cariche magiche."
+
+    c_cur = int(item_dict.get("charges_current", c_max))
+    cost = max(1, int(cost))
+    if c_cur < cost:
+        return False, f"Cariche insufficienti su '{item_dict.get('name', 'Oggetto')}' ({c_cur}/{c_max} disponibili, richieste {cost})."
+
+    item_dict["charges_current"] = c_cur - cost
+    rem = item_dict["charges_current"]
+    name = item_dict.get("name", "Oggetto Magico")
+    msg = f"⚡ Usate {cost} carica/he di **{name}** (Cariche rimaste: **{rem}/{c_max}**)."
+
+    if rem == 0:
+        from common.dice import roll_dice
+        d20_res = roll_dice("1d20")["total"]
+        if d20_res == 1:
+            msg += f" ⚠️ **ULTIMA CARICA SPESA (1d20 = 1)!** Secondo il DMG (p. 141), {name} rischia di sgretolarsi in cenere o perdere la sua magia!"
+        else:
+            msg += f" (Ultima carica spesa: tiro conservazione 1d20 = {d20_res}, l'oggetto resta intatto)."
+
+    return True, msg
+
+
+def recharge_item_dict(item_dict: Dict[str, Any]) -> Optional[str]:
+    """
+    Ricarica un oggetto magico all'alba / al termine di un Riposo Lungo (5e RAW).
+    Ritorna una stringa di riepilogo se l'oggetto ha recuperato cariche, altrimenti None.
+    """
+    if not isinstance(item_dict, dict):
+        return None
+    defaults = detect_item_charges_defaults(item_dict)
+    if "charges_max" not in item_dict and defaults["charges_max"] > 0:
+        item_dict["charges_max"] = defaults["charges_max"]
+        item_dict["charges_current"] = defaults["charges_current"]
+        item_dict["recharge_dice"] = defaults["recharge_dice"]
+
+    c_max = int(item_dict.get("charges_max") or 0)
+    if c_max <= 0:
+        return None
+    c_cur = int(item_dict.get("charges_current", c_max))
+    if c_cur >= c_max:
+        return None
+
+    rec_formula = str(item_dict.get("recharge_dice") or defaults.get("recharge_dice") or "1d6+1").strip().lower()
+    if rec_formula in ("all", "tutte", "max"):
+        gained = c_max - c_cur
+        item_dict["charges_current"] = c_max
+        return f"✨ **{item_dict.get('name', 'Oggetto')}** recupera tutte le cariche ({c_max}/{c_max})."
+
+    from common.dice import roll_dice
+    try:
+        rolled = max(1, int(roll_dice(rec_formula)["total"]))
+    except Exception:
+        rolled = 1
+    new_cur = min(c_max, c_cur + rolled)
+    actual_gain = new_cur - c_cur
+    item_dict["charges_current"] = new_cur
+    return f"✨ **{item_dict.get('name', 'Oggetto')}** recupera +{actual_gain} cariche all'alba [{rec_formula} = {rolled}] ({new_cur}/{c_max})."
+

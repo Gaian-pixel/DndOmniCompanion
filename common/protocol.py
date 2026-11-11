@@ -239,6 +239,22 @@ def make_dodge_request():
 def make_help_request(target_name):
     return {"type": "HELP_REQUEST", "data": {"target_name": target_name}}
 
+def make_ready_action_request(trigger_text, readied_action, is_spell=False):
+    return {
+        "type": "READY_ACTION_REQUEST",
+        "data": {
+            "trigger_text": str(trigger_text or ""),
+            "readied_action": str(readied_action or ""),
+            "is_spell": bool(is_spell)
+        }
+    }
+
+def make_trigger_readied_action_request(target_name=None):
+    return {
+        "type": "TRIGGER_READIED_ACTION_REQUEST",
+        "data": {"target_name": target_name}
+    }
+
 def make_short_rest_request(hd_spent=1, hp_recovered=0):
     return {"type": "SHORT_REST_REQUEST", "data": {"hd_spent": hd_spent, "hp_recovered": hp_recovered}}
 

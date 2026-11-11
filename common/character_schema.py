@@ -295,5 +295,172 @@ def normalize_character_dict(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if not isinstance(clean.get("death_saves"), dict):
         clean["death_saves"] = {"successes": 0, "failures": 0}
 
+    # 13. Multiclasse & Risorse Speciali 5e (Portento, Fortunato, Tenacia Implacabile)
+    raw_classes = clean.get("classes")
+    if isinstance(raw_classes, dict) and raw_classes:
+        norm_classes = {}
+        for c_name, c_lvl in raw_classes.items():
+            if c_name:
+                try:
+                    norm_classes[str(c_name).strip()] = max(1, int(c_lvl))
+                except (ValueError, TypeError):
+                    pass
+        if norm_classes:
+            clean["classes"] = norm_classes
+            total_c_lvl = sum(norm_classes.values())
+            if total_c_lvl >= 1:
+                clean["level"] = max(1, min(20, total_c_lvl))
+                clean["proficiency_bonus"] = 2 + (clean["level"] - 1) // 4
+    else:
+        primary_cls = clean.get("char_class", "").split("/")[0].strip()
+        if primary_cls:
+            clean["classes"] = {primary_cls: clean["level"]}
+        else:
+            clean["classes"] = {}
+
+    if not isinstance(clean.get("portent_dice"), list):
+        clean["portent_dice"] = []
+    try:
+        clean["lucky_points"] = max(0, int(clean.get("lucky_points") or 0))
+    except (ValueError, TypeError):
+        clean["lucky_points"] = 0
+    clean["relentless_endurance_used"] = bool(clean.get("relentless_endurance_used", False))
+
     return clean
+
+
+# Tabella Slot Incantesimo Multiclasse (PHB p. 165)
+MULTICLASS_SPELL_SLOTS_TABLE = {
+    1:  {1: 2},
+    2:  {1: 3},
+    3:  {1: 4, 2: 2},
+    4:  {1: 4, 2: 3},
+    5:  {1: 4, 2: 3, 3: 2},
+    6:  {1: 4, 2: 3, 3: 3},
+    7:  {1: 4, 2: 3, 3: 3, 4: 1},
+    8:  {1: 4, 2: 3, 3: 3, 4: 2},
+    9:  {1: 4, 2: 3, 3: 3, 4: 3, 5: 1},
+    10: {1: 4, 2: 3, 3: 3, 4: 3, 5: 2},
+    11: {1: 4, 2: 3, 3: 3, 4: 3, 5: 2, 6: 1},
+    12: {1: 4, 2: 3, 3: 3, 4: 3, 5: 2, 6: 1},
+    13: {1: 4, 2: 3, 3: 3, 4: 3, 5: 2, 6: 1, 7: 1},
+    14: {1: 4, 2: 3, 3: 3, 4: 3, 5: 2, 6: 1, 7: 1},
+    15: {1: 4, 2: 3, 3: 3, 4: 3, 5: 2, 6: 1, 7: 1, 8: 1},
+    16: {1: 4, 2: 3, 3: 3, 4: 3, 5: 2, 6: 1, 7: 1, 8: 1},
+    17: {1: 4, 2: 3, 3: 3, 4: 3, 5: 2, 6: 1, 7: 1, 8: 1, 9: 1},
+    18: {1: 4, 2: 3, 3: 3, 4: 3, 5: 3, 6: 1, 7: 1, 8: 1, 9: 1},
+    19: {1: 4, 2: 3, 3: 3, 4: 3, 5: 3, 6: 2, 7: 1, 8: 1, 9: 1},
+    20: {1: 4, 2: 3, 3: 3, 4: 3, 5: 3, 6: 2, 7: 2, 8: 1, 9: 1},
+}
+
+
+def check_class_multiclass_prereq(class_name: str, attrs: Dict[str, int]) -> bool:
+    """Verifica i prerequisiti di caratteristica 5e RAW (PHB p. 163) per una singola classe."""
+    c_low = str(class_name or "").strip().lower()
+    str_v = int(attrs.get("FOR", attrs.get("STR", 10)))
+    dex_v = int(attrs.get("DES", attrs.get("DEX", 10)))
+    int_v = int(attrs.get("INT", 10))
+    wis_v = int(attrs.get("SAG", attrs.get("WIS", 10)))
+    cha_v = int(attrs.get("CAR", attrs.get("CHA", 10)))
+
+    if any(k in c_low for k in ("barbaro", "barbarian")):
+        return str_v >= 13
+    if any(k in c_low for k in ("bardo", "bard", "stregone", "sorcerer", "warlock")):
+        return cha_v >= 13
+    if any(k in c_low for k in ("chierico", "cleric", "druido", "druid")):
+        return wis_v >= 13
+    if any(k in c_low for k in ("guerriero", "fighter")):
+        return str_v >= 13 or dex_v >= 13
+    if any(k in c_low for k in ("monaco", "monk", "ranger")):
+        return dex_v >= 13 and wis_v >= 13
+    if any(k in c_low for k in ("paladino", "paladin")):
+        return str_v >= 13 and cha_v >= 13
+    if any(k in c_low for k in ("ladro", "rogue")):
+        return dex_v >= 13
+    if any(k in c_low for k in ("mago", "wizard", "artefice", "artificer")):
+        return int_v >= 13
+    return True
+
+
+def check_multiclass_prerequisites(character_or_dict: Any, target_class: str) -> tuple:
+    """
+    Verifica i prerequisiti di Multiclasse D&D 5e (PHB p. 163):
+    Per qualificarsi in una nuova classe, il personaggio deve soddisfare i prerequisiti
+    di punteggio di caratteristica sia per la classe attuale sia per la nuova classe.
+    Ritorna: (ok: bool, messaggio: str)
+    """
+    if isinstance(character_or_dict, dict):
+        attrs = character_or_dict.get("attributes", {})
+        cur_classes = list((character_or_dict.get("classes") or {}).keys())
+        if not cur_classes and character_or_dict.get("char_class"):
+            cur_classes = [character_or_dict["char_class"]]
+    else:
+        attrs = getattr(character_or_dict, "attributes", {})
+        cur_classes = list((getattr(character_or_dict, "classes", None) or {}).keys())
+        if not cur_classes and getattr(character_or_dict, "char_class", ""):
+            cur_classes = [getattr(character_or_dict, "char_class")]
+
+    target_norm = str(target_class or "").strip()
+    # Se sta salendo di livello in una classe che possiede già, non serve il controllo multiclasse
+    if any(target_norm.lower() == str(c).strip().lower() for c in cur_classes):
+        return True, "Avanzamento nella classe già posseduta."
+
+    for existing_cls in cur_classes:
+        if not check_class_multiclass_prereq(existing_cls, attrs):
+            return False, f"Prerequisiti di caratteristica (min 13) non soddisfatti per la classe attuale '{existing_cls}' (PHB p. 163)."
+
+    if not check_class_multiclass_prereq(target_norm, attrs):
+        return False, f"Prerequisiti di caratteristica (min 13) non soddisfatti per la nuova classe '{target_norm}' (PHB p. 163)."
+
+    return True, "Prerequisiti Multiclasse soddisfatti."
+
+
+def calculate_multiclass_spell_slots(classes_dict: Dict[str, int], subclass_str: str = "") -> Dict[str, Dict[str, int]]:
+    """
+    Calcola gli slot incantesimo totali per un personaggio (singola classe o multiclasse)
+    secondo le regole D&D 5e RAW (PHB p. 164-165), combinando Incantesimi e Magia del Patto.
+    """
+    eff_caster_level = 0
+    warlock_level = 0
+    sub_low = str(subclass_str or "").lower()
+
+    for cls_name, lvl in (classes_dict or {}).items():
+        c_low = str(cls_name).strip().lower()
+        c_lvl = max(0, int(lvl or 0))
+        if c_lvl <= 0:
+            continue
+        if any(k in c_low for k in ("bardo", "bard", "chierico", "cleric", "druido", "druid", "mago", "wizard", "stregone", "sorcerer")):
+            eff_caster_level += c_lvl
+        elif any(k in c_low for k in ("paladino", "paladin", "ranger")):
+            # In singola classe Paladino/Ranger ottengono incantesimi dal liv. 2; in multiclasse contano metà per difetto
+            if len(classes_dict) == 1 and c_lvl == 1:
+                eff_caster_level += 0
+            else:
+                eff_caster_level += (c_lvl // 2)
+        elif any(k in c_low for k in ("artefice", "artificer")):
+            eff_caster_level += ((c_lvl + 1) // 2)
+        elif any(k in c_low for k in ("guerriero", "fighter", "ladro", "rogue")):
+            if any(k in sub_low for k in ("cavaliere mistico", "eldritch knight", "mistificatore arcano", "arcane trickster")):
+                eff_caster_level += (c_lvl // 3)
+        elif "warlock" in c_low:
+            warlock_level += c_lvl
+
+    eff_caster_level = min(20, eff_caster_level)
+    base_slots = MULTICLASS_SPELL_SLOTS_TABLE.get(eff_caster_level, {})
+
+    result = {}
+    for s_lvl in range(1, 10):
+        max_s = int(base_slots.get(s_lvl, 0))
+        result[str(s_lvl)] = {"max": max_s, "current": max_s}
+
+    # Magia del Patto (Warlock) si somma agli slot del livello del patto (max 5° livello)
+    if warlock_level > 0:
+        pact_slot_lvl = min(5, (warlock_level + 1) // 2)
+        pact_count = 1 if warlock_level == 1 else (2 if warlock_level <= 10 else (3 if warlock_level <= 16 else 4))
+        k_str = str(pact_slot_lvl)
+        result[k_str]["max"] += pact_count
+        result[k_str]["current"] += pact_count
+
+    return result
+
 

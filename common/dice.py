@@ -3,15 +3,26 @@
 import re
 import random
 
-def roll_dice(formula, is_crit=False):
+def roll_dice(formula, is_crit=False, reroll_ones_d20=False, gwf_reroll=False):
     """
     Parsing semplice e composto formule tipo '3d6+2', '1d20', '1d20+3 adv', '2d6+1d8+3', '1d8+4 Tagliente'
     Se is_crit=True (es. danno critico 5e), raddoppia il numero di dadi tirati
     mantenendo invariato il modificatore fisso.
     Per i tiri di 1d20, rileva automaticamente Successo Critico (20 naturale)
     e Fallimento Critico (1 naturale).
+    Supporta inoltre:
+    - reroll_ones_d20=True (Fortuna dell'Halfling, PHB p. 28: ritira 1 naturale sul d20 una volta)
+    - gwf_reroll=True (Combattere con Armi Possenti, PHB p. 72: ritira 1 e 2 sui dadi di danno una volta)
     """
-    formula = formula.strip().lower()
+    formula = str(formula).strip().lower()
+
+    if re.search(r'\b(halfling|halfling_luck)\b', formula):
+        reroll_ones_d20 = True
+        formula = re.sub(r'\b(halfling|halfling_luck)\b', '', formula).strip()
+
+    if re.search(r'\b(gwf|great_weapon_fighting)\b', formula):
+        gwf_reroll = True
+        formula = re.sub(r'\b(gwf|great_weapon_fighting)\b', '', formula).strip()
     
     # Rilevamento vantaggio / svantaggio (italiano e inglese) e loro annullamento reciproco (D&D 5e RAW)
     has_adv = False
@@ -117,6 +128,19 @@ def roll_dice(formula, is_crit=False):
 
     d20_group_idx = next((i for i, dg in enumerate(dice_groups) if dg["sides"] == 20 and dg["orig_count"] == 1), None)
     is_d20_check = (d20_group_idx is not None) and not is_crit
+    rerolled_notes = []
+
+    def _roll_single_die(sides, is_d20_primary=False):
+        val = random.randint(1, sides)
+        if is_d20_primary and sides == 20 and reroll_ones_d20 and val == 1:
+            new_val = random.randint(1, 20)
+            rerolled_notes.append(f"Fortuna dell'Halfling (1->{new_val})")
+            return new_val
+        if not is_d20_primary and sides != 20 and gwf_reroll and val in (1, 2):
+            new_val = random.randint(1, sides)
+            rerolled_notes.append(f"Armi Possenti ({val}->{new_val})")
+            return new_val
+        return val
 
     if adv or dis:
         if d20_group_idx is not None:
@@ -124,12 +148,21 @@ def roll_dice(formula, is_crit=False):
             d20_dg = dice_groups[d20_group_idx]
             d20_val_1 = random.randint(1, d20_dg["sides"])
             d20_val_2 = random.randint(1, d20_dg["sides"])
+            if reroll_ones_d20:
+                if d20_val_1 == 1:
+                    new_v = random.randint(1, d20_dg["sides"])
+                    rerolled_notes.append(f"Fortuna dell'Halfling (1->{new_v})")
+                    d20_val_1 = new_v
+                elif d20_val_2 == 1:
+                    new_v = random.randint(1, d20_dg["sides"])
+                    rerolled_notes.append(f"Fortuna dell'Halfling (1->{new_v})")
+                    d20_val_2 = new_v
 
             shared_rolls = []
             shared_tot = modifier
             for i, dg in enumerate(dice_groups):
                 if i != d20_group_idx:
-                    r = [random.randint(1, dg["sides"]) for _ in range(dg["count"])]
+                    r = [_roll_single_die(dg["sides"], False) for _ in range(dg["count"])]
                     shared_rolls.extend(r)
                     shared_tot += dg["sign"] * sum(r)
 
@@ -145,14 +178,14 @@ def roll_dice(formula, is_crit=False):
             rolls_1 = []
             tot_1 = modifier
             for dg in dice_groups:
-                r = [random.randint(1, dg["sides"]) for _ in range(dg["count"])]
+                r = [_roll_single_die(dg["sides"], False) for _ in range(dg["count"])]
                 rolls_1.extend(r)
                 tot_1 += dg["sign"] * sum(r)
 
             rolls_2 = []
             tot_2 = modifier
             for dg in dice_groups:
-                r = [random.randint(1, dg["sides"]) for _ in range(dg["count"])]
+                r = [_roll_single_die(dg["sides"], False) for _ in range(dg["count"])]
                 rolls_2.extend(r)
                 tot_2 += dg["sign"] * sum(r)
 
@@ -175,15 +208,17 @@ def roll_dice(formula, is_crit=False):
             "is_crit": crit_succ,
             "is_fumble": crit_fail,
             "is_crit_fail": crit_fail,
-            "crit_status": "crit_success" if crit_succ else ("crit_fail" if crit_fail else "normal")
+            "crit_status": "crit_success" if crit_succ else ("crit_fail" if crit_fail else "normal"),
+            "rerolled_notes": rerolled_notes
         }
     else:
         all_rolls = []
         total = modifier
         d20_val = None
         for i, dg in enumerate(dice_groups):
-            r = [random.randint(1, dg["sides"]) for _ in range(dg["count"])]
-            if i == d20_group_idx and r:
+            is_primary_d20 = (i == d20_group_idx)
+            r = [_roll_single_die(dg["sides"], is_primary_d20) for _ in range(dg["count"])]
+            if is_primary_d20 and r:
                 d20_val = r[0]
             all_rolls.extend(r)
             total += dg["sign"] * sum(r)
@@ -201,5 +236,6 @@ def roll_dice(formula, is_crit=False):
             "is_crit": crit_succ,
             "is_fumble": crit_fail,
             "is_crit_fail": crit_fail,
-            "crit_status": "crit_success" if crit_succ else ("crit_fail" if crit_fail else "normal")
+            "crit_status": "crit_success" if crit_succ else ("crit_fail" if crit_fail else "normal"),
+            "rerolled_notes": rerolled_notes
         }

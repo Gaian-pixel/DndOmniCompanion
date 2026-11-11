@@ -94,9 +94,19 @@ class LevelUpDialog(tk.Toplevel):
         self.selected_spells = []
         self.all_eligible_spells = []
 
-        # Risolvi classe e dado vita
-        raw_cls = (getattr(self.character, "char_class", "") or "").lower().strip()
-        base_cls = raw_cls.split("(")[0].split("/")[0].strip()
+        # Risolvi classe e dado vita (con supporto Multiclasse PHB Cap. 6)
+        raw_cls = (getattr(self.character, "char_class", "") or "").strip()
+        base_cls_raw = raw_cls.split("(")[0].split("/")[0].strip()
+        import re as _re
+        base_cls_clean = _re.sub(r"\s+\d+$", "", base_cls_raw).strip() or "Guerriero"
+        base_cls = base_cls_clean.lower()
+
+        existing_classes = getattr(self.character, "classes", None)
+        if not isinstance(existing_classes, dict) or not existing_classes:
+            existing_classes = {base_cls_clean.title(): max(1, int(getattr(self.character, "level", 1) or 1))}
+        self.classes_snapshot = dict(existing_classes)
+        self.target_class_it = next(iter(self.classes_snapshot.keys()), base_cls_clean.title())
+
         self.char_class_en = CLASS_MAP.get(base_cls, base_cls if base_cls in HIT_DICE_MAP else None)
         if not self.char_class_en:
             for k_it, k_en in CLASS_MAP.items():
@@ -117,6 +127,7 @@ class LevelUpDialog(tk.Toplevel):
             self.destroy()
             return
         self.new_level = self.character.level + 1
+        self.target_class_new_level = int(self.classes_snapshot.get(self.target_class_it, self.character.level)) + 1
 
         try:
             self.transient(master)
@@ -129,21 +140,41 @@ class LevelUpDialog(tk.Toplevel):
 
     def setup_ui(self):
         # Header superiore
-        header_frame = ttk.Frame(self, padding=(12, 10, 12, 6))
+        header_frame = ttk.Frame(self, padding=(12, 10, 12, 4))
         header_frame.pack(fill=tk.X)
 
         title_lbl = ttk.Label(
             header_frame,
-            text=f"✨ Sali di Livello: {self.character.name} (Livello {self.character.level} ➔ {self.new_level})",
+            text=f"✨ Sali di Livello: {self.character.name} (Livello Totale {self.character.level} ➔ {self.new_level})",
             font=("Georgia", 14, "bold"),
             foreground="#D4AF37"
         )
         title_lbl.pack(side=tk.LEFT)
 
-        sub_info = f"Classe: {self.character.char_class.title()} | Dado Vita: d{self.hit_die}"
+        sub_info = f"Classe: {self.character.char_class} | Dado Vita: d{self.hit_die}"
         if getattr(self.character, "subclass", ""):
             sub_info += f" | {self.character.subclass}"
-        ttk.Label(header_frame, text=sub_info, font=("Segoe UI", 9, "italic")).pack(side=tk.RIGHT)
+        self.lbl_header_sub = ttk.Label(header_frame, text=sub_info, font=("Segoe UI", 9, "italic"))
+        self.lbl_header_sub.pack(side=tk.RIGHT)
+
+        # Barra Multiclasse (PHB Cap. 6, p. 163)
+        mc_bar = ttk.Frame(self, padding=(12, 2, 12, 6))
+        mc_bar.pack(fill=tk.X)
+        ttk.Label(mc_bar, text="🔀 Classe in cui salire di livello (Multiclasse PHB p. 163):", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
+        all_it_classes = ["Barbaro", "Bardo", "Chierico", "Druido", "Guerriero", "Ladro", "Mago", "Monaco", "Paladino", "Ranger", "Stregone", "Warlock", "Artefice"]
+        if self.target_class_it not in all_it_classes:
+            all_it_classes.insert(0, self.target_class_it)
+        self.target_class_var = tk.StringVar(value=self.target_class_it)
+        self.mc_combo = ttk.Combobox(mc_bar, textvariable=self.target_class_var, values=all_it_classes, width=18, state="readonly")
+        self.mc_combo.pack(side=tk.LEFT, padx=(0, 8))
+        self.lbl_mc_info = ttk.Label(
+            mc_bar,
+            text=f"Livello in {self.target_class_it}: {self.target_class_new_level - 1} ➔ {self.target_class_new_level}",
+            font=("Segoe UI", 9),
+            foreground="#40C057"
+        )
+        self.lbl_mc_info.pack(side=tk.LEFT)
+        self.mc_combo.bind("<<ComboboxSelected>>", self._on_multiclass_selected)
 
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
@@ -586,6 +617,37 @@ class LevelUpDialog(tk.Toplevel):
             self.txt_feat_preview.insert(tk.END, f"Requisito: {prereq} | Fonte: {src}\n{desc}")
             self.txt_feat_preview.configure(state="disabled")
 
+    def _on_multiclass_selected(self, event=None):
+        chosen_it = self.target_class_var.get().strip()
+        if not chosen_it:
+            return
+        from common.character_schema import check_multiclass_prerequisites
+        ok, msg = check_multiclass_prerequisites(self.character, chosen_it)
+        if not ok:
+            messagebox.showwarning("Prerequisiti Multiclasse Non Soddisfatti", msg, parent=self)
+            self.target_class_var.set(self.target_class_it)
+            return
+
+        self.target_class_it = chosen_it
+        c_low = chosen_it.lower()
+        self.char_class_en = CLASS_MAP.get(c_low, c_low if c_low in HIT_DICE_MAP else "fighter")
+        self.hit_die = HIT_DICE_MAP.get(self.char_class_en, 8)
+        self.avg_hp = (self.hit_die // 2) + 1
+
+        matched_k = next((k for k in self.classes_snapshot if k.lower() == c_low), None)
+        cur_cls_lvl = int(self.classes_snapshot.get(matched_k, 0)) if matched_k else 0
+        self.target_class_new_level = cur_cls_lvl + 1
+
+        if hasattr(self, "lbl_mc_info"):
+            self.lbl_mc_info.config(text=f"Livello in {self.target_class_it}: {cur_cls_lvl} ➔ {self.target_class_new_level} (Dado Vita: d{self.hit_die})")
+        if hasattr(self, "lbl_header_sub"):
+            self.lbl_header_sub.config(text=f"Classe Scelta: {self.target_class_it} | Dado Vita: d{self.hit_die}")
+
+        if hasattr(self, "hp_choice") and self.hp_choice.get() == "media":
+            self.hp_add_var.set(self.avg_hp)
+        self._update_hp_preview()
+        self.fetch_level_data()
+
     def _safe_ui(self, callback):
         try:
             if hasattr(self, "winfo_exists") and not self.winfo_exists():
@@ -609,16 +671,18 @@ class LevelUpDialog(tk.Toplevel):
                 )
             )
             self._preview_subclass = active_sub
-            off_data = get_class_level_features_offline(self.character.char_class, self.new_level, active_sub)
+            cls_for_lookup = getattr(self, "target_class_it", self.character.char_class)
+            lvl_for_lookup = getattr(self, "target_class_new_level", self.new_level)
+            off_data = get_class_level_features_offline(cls_for_lookup, lvl_for_lookup, active_sub)
             features_list = [{"name": f} if isinstance(f, str) else f for f in off_data.get("features", [])]
             spellcasting = {}
             for lvl_str, count in off_data.get("spell_slots", {}).items():
                 spellcasting[f"spell_slots_level_{lvl_str}"] = count
 
-            asi_flag = 1 if self.new_level in ASI_LEVELS.get(self.char_class_en, ASI_LEVELS["default"]) else 0
+            asi_flag = 1 if lvl_for_lookup in ASI_LEVELS.get(self.char_class_en, ASI_LEVELS["default"]) else 0
 
             data = {
-                "level": self.new_level,
+                "level": lvl_for_lookup,
                 "ability_score_bonuses": asi_flag,
                 "features": features_list,
                 "spellcasting": spellcasting if spellcasting else None,
@@ -898,13 +962,20 @@ class LevelUpDialog(tk.Toplevel):
 
         total_hp_inc = max(1, hp_inc + cos_mod) + extra_per_lvl
 
-        self.character.level += 1
+        chosen_cls_it = getattr(self, "target_class_it", None) or str(getattr(self.character, "char_class", "Guerriero")).split("/")[0].strip()
+        if hasattr(self.character, "add_class_level"):
+            ok_mc, msg_mc = self.character.add_class_level(chosen_cls_it, 1)
+            if not ok_mc:
+                messagebox.showwarning("Requisiti Multiclasse", msg_mc, parent=self)
+                return
+        else:
+            self.character.level += 1
         self.character.hp_max += total_hp_inc
         self.character.hp_current += total_hp_inc
 
         # Incremento Dadi Vita
         if hasattr(self.character, "hit_dice_total"):
-            self.character.hit_dice_total += 1
+            self.character.hit_dice_total = self.character.level
             self.character.hit_dice_current = getattr(self.character, "hit_dice_current", 0) + 1
 
         # 3. Privilegi di Classe & Sottoclasse
@@ -984,8 +1055,21 @@ class LevelUpDialog(tk.Toplevel):
 
         self.character.proficiency_bonus = 2 + (self.character.level - 1) // 4
 
-        # 5. Slot Incantesimo (D&D 5e: Warlock sostituisce slot inferiori con slot superiori)
-        if self.api_data and isinstance(self.api_data.get("spellcasting"), dict):
+        # 5. Slot Incantesimo (D&D 5e: Tabella Multiclasse se >1 classe, altrimenti progressione classe singola)
+        is_multiclassed = isinstance(getattr(self.character, "classes", None), dict) and len(self.character.classes) > 1
+        if is_multiclassed:
+            from common.character_schema import calculate_multiclass_spell_slots
+            mc_slots = calculate_multiclass_spell_slots(self.character.classes, getattr(self.character, "subclass", ""))
+            if any(v["max"] > 0 for v in mc_slots.values()):
+                for i in range(1, 10):
+                    lvl_s = str(i)
+                    new_mx = mc_slots[lvl_s]["max"]
+                    old_entry = self.character.spell_slots.get(lvl_s, {"max": 0, "current": 0})
+                    old_mx = int(old_entry.get("max", 0)) if isinstance(old_entry, dict) else 0
+                    old_cur = int(old_entry.get("current", 0)) if isinstance(old_entry, dict) else 0
+                    diff = max(0, new_mx - old_mx)
+                    self.character.spell_slots[lvl_s] = {"max": new_mx, "current": min(new_mx, old_cur + diff)}
+        elif self.api_data and isinstance(self.api_data.get("spellcasting"), dict):
             sc = self.api_data["spellcasting"]
             is_warlock = "warlock" in str(getattr(self.character, "char_class", "")).lower()
             if is_warlock:

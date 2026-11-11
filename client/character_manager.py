@@ -96,14 +96,15 @@ LIGHT_PRESETS = {
 
 class Character:
 
-    def __init__(self, name="Nuovo Personaggio", campaign="Nessuna Campagna"):
+    def __init__(self, name="Nuovo Personaggio", campaign="Nessuna Campagna", race="", char_class="", subclass="", level=1):
         self.id = os.urandom(4).hex() # Unique ID
         self.name = name
         self.campaign = campaign
-        self.race = ""
-        self.char_class = ""
-        self.subclass = ""
-        self.level = 1
+        self.race = race
+        self.char_class = char_class
+        self.subclass = subclass
+        self.level = int(level or 1)
+        self.proficiency_bonus = 2 + (max(1, self.level) - 1) // 4
         self.exp = 0
         self.alignment = ""
         self.background = ""
@@ -133,9 +134,9 @@ class Character:
         from common.i18n import get_distance_unit
         self.speed_unit = get_distance_unit()
         self.speed = 9 if self.speed_unit == "m" else 30
-        self.proficiency_bonus = 2
-        self.hit_dice_total = 1
-        self.hit_dice_current = 1
+        self.proficiency_bonus = 2 + (max(1, self.level) - 1) // 4
+        self.hit_dice_total = max(1, self.level)
+        self.hit_dice_current = max(1, self.level)
         self.hit_dice_type = "d8"
         self.exhaustion_level = 0
         self.damage_resistances = []
@@ -188,6 +189,10 @@ class Character:
         self.senses = ""
         self.traits = []
         self.inspiration = False
+        self.classes = {}
+        self.portent_dice = []
+        self.lucky_points = 0
+        self.relentless_endurance_used = False
 
     def short_rest(self, hd_to_spend=1):
         """Spende Dadi Vita (XdY + Mod COS) per recuperare HP e ricarica i privilegi da riposo breve."""
@@ -257,6 +262,126 @@ class Character:
         for res in getattr(self, "custom_resources", []):
             if isinstance(res, dict):
                 res["current"] = res.get("max", 0)
+
+        # Ripristina Tenacia Implacabile (Mezzorco), Talento Fortunato, Portento (Divinatore) e Cariche Oggetti Magici
+        self.relentless_endurance_used = False
+        if self.has_lucky_feat():
+            self.lucky_points = 3
+        sub_low = str(getattr(self, "subclass", "")).lower()
+        feats_str = self._get_all_features_text()
+        if any(k in sub_low or k in feats_str for k in ("divinazione", "divination", "portento", "portent")) and lvl >= 2:
+            import random
+            num_portent = 3 if lvl >= 14 else 2
+            self.portent_dice = [random.randint(1, 20) for _ in range(num_portent)]
+        self.recharge_magic_items()
+
+    def _get_all_features_text(self) -> str:
+        parts = [str(getattr(self, "features", "") or "")]
+        for f in (getattr(self, "features_list", []) or []):
+            if isinstance(f, dict):
+                parts.append(f"{f.get('name', '')} {f.get('desc', '')}")
+            else:
+                parts.append(str(f))
+        for t in (getattr(self, "traits", []) or []):
+            parts.append(str(t))
+        return " ".join(parts).lower()
+
+    def has_halfling_luck(self) -> bool:
+        """Verifica se il personaggio possiede il tratto razziale Fortuna dell'Halfling (ritira gli 1 naturali sul d20)."""
+        race_low = str(getattr(self, "race", "") or "").lower()
+        if "halfling" in race_low:
+            return True
+        txt = self._get_all_features_text()
+        return any(k in txt for k in ("fortuna dell'halfling", "fortunato (halfling)", "halfling luck"))
+
+    def has_great_weapon_fighting(self) -> bool:
+        """Verifica se il personaggio possiede lo Stile di Combattimento: Combattere con Armi Possenti (ritira 1 e 2 ai danni)."""
+        txt = self._get_all_features_text()
+        return any(k in txt for k in ("combattere con armi possenti", "great weapon fighting", "armi possenti:"))
+
+    def has_two_weapon_fighting_style(self) -> bool:
+        """Verifica se il personaggio possiede lo Stile di Combattimento: Combattere con Due Armi (+Mod ai danni secondari)."""
+        txt = self._get_all_features_text()
+        return any(k in txt for k in ("combattere con due armi", "two-weapon fighting", "due armi:"))
+
+    def has_lucky_feat(self) -> bool:
+        """Verifica se il personaggio possiede il talento Fortunato (Lucky - 3 punti fortuna per riposo lungo)."""
+        for f in (getattr(self, "features_list", []) or []):
+            if isinstance(f, dict):
+                nm = str(f.get("name", "")).strip().lower()
+                if nm in ("fortunato", "lucky", "talento: fortunato"):
+                    return True
+        txt = self._get_all_features_text()
+        return "punti fortuna" in txt or "luck points" in txt or "talento: fortunato" in txt
+
+    def use_portent_die(self, index: int = 0):
+        """Consuma e restituisce uno dei dadi di Portento pre-tirati dal Mago Divinatore (PHB p. 116)."""
+        if not hasattr(self, "portent_dice") or not isinstance(self.portent_dice, list) or not self.portent_dice:
+            return None
+        if 0 <= index < len(self.portent_dice):
+            return self.portent_dice.pop(index)
+        return self.portent_dice.pop(0)
+
+    def use_lucky_point(self) -> bool:
+        """Spende 1 Punto Fortuna del talento Fortunato (PHB p. 167)."""
+        pts = int(getattr(self, "lucky_points", 0) or 0)
+        if pts <= 0:
+            return False
+        self.lucky_points = pts - 1
+        return True
+
+    def use_item_charge(self, slot_index: int, cost: int = 1) -> tuple:
+        """Spende cariche da un oggetto magico nell'inventario a griglia."""
+        from common.item_modifiers import use_item_charge_dict
+        grid = getattr(self, "inventory_grid", []) or []
+        if not (0 <= slot_index < len(grid)) or not isinstance(grid[slot_index], dict):
+            return False, "Slot inventario vuoto o non valido."
+        return use_item_charge_dict(grid[slot_index], cost=cost)
+
+    def recharge_magic_items(self) -> list:
+        """Ricarica tutti gli oggetti magici dotati di cariche nell'inventario (es. al Riposo Lungo)."""
+        from common.item_modifiers import recharge_item_dict
+        messages = []
+        for it in (getattr(self, "inventory_grid", []) or []):
+            if isinstance(it, dict):
+                msg = recharge_item_dict(it)
+                if msg:
+                    messages.append(msg)
+        return messages
+
+    def add_class_level(self, target_class: str, add_levels: int = 1) -> tuple:
+        """
+        Aggiunge livelli nella classe specificata gestendo il Multiclasse D&D 5e RAW (PHB p. 163-165):
+        - Verifica prerequisiti di caratteristica (min 13 nella classe attuale e nella nuova)
+        - Aggiorna il dizionario 'classes', la stringa 'char_class' e il livello totale
+        - Ricalcola gli slot incantesimo secondo la Tabella Multiclasse se applicabile
+        """
+        from common.character_schema import check_multiclass_prerequisites, calculate_multiclass_spell_slots
+        t_cls = str(target_class or self.char_class or "Guerriero").strip()
+        if not hasattr(self, "classes") or not isinstance(self.classes, dict) or not self.classes:
+            base_c = str(self.char_class or t_cls).split("/")[0].strip()
+            self.classes = {base_c: max(1, int(getattr(self, "level", 1) or 1))}
+
+        ok, msg = check_multiclass_prerequisites(self, t_cls)
+        if not ok:
+            return False, msg
+
+        matched_key = next((k for k in self.classes if k.lower() == t_cls.lower()), t_cls)
+        self.classes[matched_key] = int(self.classes.get(matched_key, 0)) + max(1, int(add_levels))
+        self.level = min(20, sum(self.classes.values()))
+        self.proficiency_bonus = 2 + (self.level - 1) // 4
+        self.hit_dice_total = self.level
+
+        if len(self.classes) > 1:
+            self.char_class = " / ".join(f"{k} {v}" for k, v in self.classes.items())
+        else:
+            self.char_class = matched_key
+
+        mc_slots = calculate_multiclass_spell_slots(self.classes, getattr(self, "subclass", ""))
+        if any(v["max"] > 0 for v in mc_slots.values()):
+            self.spell_slots = mc_slots
+
+        return True, f"Livello acquisito in {matched_key} (Totale: Liv. {self.level})."
 
     def auto_populate_class_resources(self):
         """Popola le risorse 5e note in base alla classe se custom_resources è vuota (D&D 5e RAW)."""

@@ -713,8 +713,15 @@ class ClientGUI:
             econ_quick_actions_3, text="🏹 Munizioni", font=FONT_SMALL, relief=tk.FLAT, bd=0,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_ammo_recovery
         )
-        self.btn_ammo.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
+        self.btn_ammo.pack(side=tk.LEFT, padx=(2, 2), fill=tk.X, expand=True)
         ToolTip(self.btn_ammo, lambda: "Recupera il 50% delle munizioni impiegate in combattimento (PHB p. 146)")
+
+        self.btn_ready = tk.Button(
+            econ_quick_actions_3, text="⏱️ Prepara", font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_ready_action
+        )
+        self.btn_ready.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
+        ToolTip(self.btn_ready, lambda: "Prepara un'Azione (Ready Action - PHB p. 193) o innesca l'azione preparata con la tua Reazione")
 
         # Barra HUD Bersaglio Corrente (Target HUD)
         self.target_hud_frame = tk.Frame(self.economy_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1)
@@ -1694,6 +1701,17 @@ class ClientGUI:
         _cfg_tactical_btn("btn_disengage", can_std or can_cunning)
         _cfg_tactical_btn("btn_dodge", can_std)
         _cfg_tactical_btn("btn_help", can_std)
+        has_readied = False
+        if self.name in getattr(self, "players_data", {}):
+            has_readied = "Azione Preparata" in self.players_data[self.name].get("conditions", [])
+        elif self.active_character and hasattr(self.active_character, "conditions"):
+            has_readied = "Azione Preparata" in getattr(self.active_character, "conditions", [])
+        _cfg_tactical_btn("btn_ready", can_std or (connected and in_combat and has_readied and not self.reaction_spent))
+        if hasattr(self, "btn_ready") and self.btn_ready:
+            if has_readied:
+                self.btn_ready.config(text="⚡ Innesca", fg=ACCENT_GOLD if not self.reaction_spent else "#666666")
+            else:
+                self.btn_ready.config(text="⏱️ Prepara")
 
         res = getattr(self.active_character, "class_resources", {}) if self.active_character else {}
         has_sw = res.get("second_wind", True)
@@ -1843,6 +1861,81 @@ class ClientGUI:
             return
         self.help_targeting_mode = True
         self.show_toast("Clicca sulla mappa il token del bersaglio da distrarre per Aiutare un alleato.", title="🤝 Aiuto", toast_type="info")
+
+    def perform_ready_action(self):
+        if not self.is_connected:
+            self.show_toast("Non sei connesso al server.", toast_type="warning")
+            return
+        if not self.combat_active:
+            self.show_toast("Puoi preparare un'azione solo durante il combattimento!", title="🧭 Modalità Esplorazione", toast_type="warning")
+            return
+
+        has_readied = False
+        if self.name in getattr(self, "players_data", {}):
+            has_readied = "Azione Preparata" in self.players_data[self.name].get("conditions", [])
+        elif self.active_character and hasattr(self.active_character, "conditions"):
+            has_readied = "Azione Preparata" in getattr(self.active_character, "conditions", [])
+
+        if has_readied:
+            if self.reaction_spent:
+                self.show_toast("Hai già consumato la tua Reazione in questo round!", title="⚠️ Reazione Esaurita", toast_type="warning")
+                return
+            if messagebox.askyesno("Innesca Azione Preparata", "L'innesco si è verificato! Vuoi spendere la tua REAZIONE ora per eseguire l'Azione Preparata?", parent=self.master):
+                from common.protocol import make_trigger_readied_action_request
+                t_name = getattr(self.map_canvas, "selected_target_name", None) if hasattr(self, "map_canvas") else None
+                self.network.send(make_trigger_readied_action_request(t_name))
+                self.reaction_spent = True
+                self.update_action_economy_ui()
+                self.show_toast("Azione Preparata innescata! Reazione consumata.", title="⚡ Azione Preparata", toast_type="gold")
+            return
+
+        if self.action_spent:
+            self.show_toast("Hai già speso la tua Azione Standard in questo turno!", title="⚠️ Azione Esaurita", toast_type="warning")
+            return
+
+        win = tk.Toplevel(self.master)
+        win.transient(self.master)
+        win.grab_set()
+        win.title("⏱️ Prepara un'Azione (Ready Action - PHB p. 193)")
+        win.minsize(420, 260)
+        from common.theme import apply_modern_window_style
+        apply_modern_window_style(win)
+
+        body = ttk.Frame(win, padding=14)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(body, text="⏱️ Azione 'Preparare' (PHB p. 193)", font=("Georgia", 12, "bold"), foreground="#D4AF37").pack(anchor="w", pady=(0, 6))
+        ttk.Label(body, text="1. Circostanza d'Innesco percepibile (es. 'Appena il goblin entra nella stanza'):").pack(anchor="w")
+        trig_var = tk.StringVar(value="Appena un nemico entra a portata")
+        ttk.Entry(body, textvariable=trig_var, width=48).pack(fill=tk.X, pady=(2, 8))
+
+        ttk.Label(body, text="2. Azione o Movimento da eseguire in risposta (consuma la Reazione):").pack(anchor="w")
+        act_var = tk.StringVar(value="Attacco con l'arma equipaggiata")
+        ttk.Entry(body, textvariable=act_var, width=48).pack(fill=tk.X, pady=(2, 8))
+
+        is_spell_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            body,
+            text="🔮 È un Incantesimo (richiede Concentrazione fino all'innesco — PHB p. 193)",
+            variable=is_spell_var
+        ).pack(anchor="w", pady=(2, 10))
+
+        def _confirm_ready():
+            t_str = trig_var.get().strip()
+            a_str = act_var.get().strip()
+            if not t_str or not a_str:
+                return
+            from common.protocol import make_ready_action_request
+            self.network.send(make_ready_action_request(t_str, a_str, is_spell_var.get()))
+            self.action_spent = True
+            self.update_action_economy_ui()
+            win.destroy()
+            self.show_toast(f"Azione Preparata: «{a_str}» (Innesco: {t_str})", title="⏱️ Azione Preparata", toast_type="info")
+
+        btn_f = ttk.Frame(body)
+        btn_f.pack(fill=tk.X)
+        ttk.Button(btn_f, text="⏱️ Conferma Azione Preparata", command=_confirm_ready, style="Primary.TButton").pack(side=tk.RIGHT, padx=4)
+        ttk.Button(btn_f, text="Annulla", command=win.destroy).pack(side=tk.RIGHT)
 
     def use_second_wind(self):
         if not self.active_character:

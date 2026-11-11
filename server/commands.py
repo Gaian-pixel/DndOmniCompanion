@@ -45,6 +45,8 @@ command_handlers = {
     "DISENGAGE_REQUEST": handle_disengage_request,
     "DODGE_REQUEST": handle_dodge_request,
     "HELP_REQUEST": handle_help_request,
+    "READY_ACTION_REQUEST": handle_ready_action_request,
+    "TRIGGER_READIED_ACTION_REQUEST": handle_trigger_readied_action_request,
     "SHORT_REST_REQUEST": handle_short_rest_request,
     "SPEND_LEGENDARY_ACTION_REQUEST": handle_spend_legendary_action_request,
     "CURRENCY_REQUEST": handle_currency_request,

@@ -17,8 +17,8 @@ class CombatPanel:
     """Gestisce la logica di calcolo dei tiri per colpire, danni e rendering della scheda armi."""
 
     @staticmethod
-    def calculate_weapon_txc(character, weapon):
-        """Calcola il bonus di attacco (TxC) totale per un'arma secondo D&D 5e RAW considerando attributi e bonus magici."""
+    def calculate_weapon_txc(character, weapon, power_attack: bool = False):
+        """Calcola il bonus di attacco (TxC) totale per un'arma secondo D&D 5e RAW considerando attributi, bonus magici e Attacco Poderoso (-5/+10)."""
         stat_key = weapon.get("ability", "FOR")
         prop_str = f"{weapon.get('properties', '')} {weapon.get('type', '')} {weapon.get('desc', '')}".lower()
         name_str = str(weapon.get("name", "")).lower()
@@ -75,15 +75,25 @@ class CombatPanel:
                 elif any(k in name_str for k in ["vendicatrice sacra", "holy avenger", "vorpal", "difensore", "defender"]):
                     w_bonus = 3
 
-        total_txc = mod + prof_bonus + w_bonus
+        total_txc = mod + prof_bonus + w_bonus - (5 if power_attack else 0)
         return total_txc, mod, prof_bonus, w_bonus, stat_key
 
     @staticmethod
-    def calculate_weapon_damage(character, weapon, mod=None, w_bonus=None):
-        """Calcola la formula del danno e la stringa leggibile per un'arma."""
+    def calculate_weapon_damage(character, weapon, mod=None, w_bonus=None, power_attack: bool = False, is_offhand: bool = False):
+        """
+        Calcola la formula del danno e la stringa leggibile per un'arma:
+        - power_attack=True: aggiunge +10 ai danni (Maestro d'Armi Possenti / Tiratore Scelto).
+        - is_offhand=True: Combattere con Due Armi (PHB p. 195): non somma il modificatore di caratteristica
+          positivo al danno a meno che il personaggio possieda lo Stile di Combattimento: Combattere con Due Armi.
+        """
         if mod is None or w_bonus is None:
-            _, mod, _, w_bonus, _ = CombatPanel.calculate_weapon_txc(character, weapon)
-        dmg_mod = mod + w_bonus
+            _, mod, _, w_bonus, _ = CombatPanel.calculate_weapon_txc(character, weapon, power_attack=power_attack)
+        eff_mod = mod
+        if is_offhand and mod > 0:
+            has_twf = getattr(character, "has_two_weapon_fighting_style", lambda: False)()
+            if not has_twf:
+                eff_mod = 0
+        dmg_mod = eff_mod + w_bonus + (10 if power_attack else 0)
         dmg_mod_str = f"+{dmg_mod}" if dmg_mod > 0 else (str(dmg_mod) if dmg_mod < 0 else "")
         dice = weapon.get("damage_dice", "1d8")
         dmg_formula = f"{dice}{dmg_mod_str}"
@@ -110,13 +120,29 @@ class CombatPanel:
             empty_lbl.pack(fill=tk.X)
             return
 
+        if not hasattr(sheet, "_power_attack_var"):
+            sheet._power_attack_var = tk.BooleanVar(value=False)
+
+        power_bar = tk.Frame(sheet.weapons_cards_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=4)
+        power_bar.pack(fill=tk.X, pady=(0, 6), padx=4)
+        chk_pwr = ttk.Checkbutton(
+            power_bar,
+            text="⚡ Attacco Poderoso (-5 TxC / +10 Danni — Maestro d'Armi Possenti / Tiratore Scelto)",
+            variable=sheet._power_attack_var,
+            command=lambda: CombatPanel.refresh_weapons_list(sheet)
+        )
+        chk_pwr.pack(side=tk.LEFT)
+
+        is_pwr = bool(sheet._power_attack_var.get())
+
         for i, w in enumerate(weapons):
             card = tk.Frame(sheet.weapons_cards_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
             card.pack(fill=tk.X, pady=4, padx=4)
 
-            total_txc, mod, prof_bonus, w_bonus, stat_key = CombatPanel.calculate_weapon_txc(sheet.character, w)
+            total_txc, mod, prof_bonus, w_bonus, stat_key = CombatPanel.calculate_weapon_txc(sheet.character, w, power_attack=is_pwr)
             txc_str = f"+{total_txc}" if total_txc >= 0 else str(total_txc)
-            dmg_formula, dmg_str, dmg_mod = CombatPanel.calculate_weapon_damage(sheet.character, w, mod, w_bonus)
+            dmg_formula, dmg_str, dmg_mod = CombatPanel.calculate_weapon_damage(sheet.character, w, mod, w_bonus, power_attack=is_pwr)
+            off_formula, off_str, off_mod = CombatPanel.calculate_weapon_damage(sheet.character, w, mod, w_bonus, power_attack=is_pwr, is_offhand=True)
 
             r1 = tk.Frame(card, bg=SURFACE_COLOR)
             r1.pack(fill=tk.X)
@@ -160,6 +186,23 @@ class CombatPanel:
 
             btn_damage = ttk.Button(r4, text="💥 Danno", command=lambda weapon=w, dmod=dmg_mod: sheet.execute_weapon_damage(weapon, dmod), style="Primary.TButton")
             btn_damage.pack(side=tk.LEFT, padx=(0, 4))
+
+            if "distanza" not in str(w.get("type", "")).lower():
+                if getattr(sheet, "attack_callback", None):
+                    btn_offhand = ttk.Button(
+                        r4,
+                        text=f"🗡️ 2ª Mano ({off_formula})",
+                        command=lambda weapon=w, txc=total_txc, dmg=off_formula: sheet.execute_targeted_attack(weapon, txc, dmg),
+                        style="Tool.TButton"
+                    )
+                else:
+                    btn_offhand = ttk.Button(
+                        r4,
+                        text=f"🗡️ 2ª Mano ({off_formula})",
+                        command=lambda weapon=w, dmod=off_mod: sheet.execute_weapon_damage(weapon, dmod),
+                        style="Tool.TButton"
+                    )
+                btn_offhand.pack(side=tk.LEFT, padx=(0, 4))
 
             btn_del = ttk.Button(r4, text="🗑️", width=3, command=lambda idx=i: sheet.remove_weapon(idx))
             btn_del.pack(side=tk.RIGHT)
