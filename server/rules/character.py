@@ -29,6 +29,9 @@ def handle_update_stats_request(data, player, game_state):
         max_hp = int(data.get("max_hp", target.max_hp)) if data.get("max_hp") is not None else target.max_hp
         initiative = int(data.get("initiative", target.initiative)) if data.get("initiative") is not None else target.initiative
         conditions = data.get("conditions", getattr(target, "conditions", []))
+        if isinstance(conditions, list):
+            from server.dm_monster_engine import filter_swarm_condition
+            conditions = [c for c in conditions if filter_swarm_condition(target, c)]
         if "temp_hp" in data and data.get("temp_hp") is not None:
             temp_hp = int(data.get("temp_hp"))
         else:
@@ -347,9 +350,19 @@ def handle_targeted_action(data, player, game_state):
                 note_str += f" [{temp_absorbed} assorbiti da Temp HP]"
             val = final_dmg
         elif action_type in ["cura", "heal"]:
+            t_fs_h = getattr(target_player, "full_sheet", None) or {}
+            t_type_h = (str(t_fs_h.get("type", "")) + " " + str(target_player.name)).lower()
+            is_spell_heal = bool(data.get("is_spell") or data.get("spell_name"))
+            if getattr(target_player, "is_object", False) or (
+                is_spell_heal and any(k in t_type_h for k in ("costrutto", "construct", "non morto", "non-morto", "undead", "golem"))
+            ):
+                msg_err = f"❌ Le cure magiche non hanno effetto su {target_player.name} (Oggetto/Costrutto/Non Morto)."
+                broadcast(game_state, make_chat_broadcast("Sistema", msg_err))
+                return
             _apply_hp_change(target_player, target_player.hp + val, game_state)
         elif action_type in ["temp_hp", "temp"]:
-            target_player.temp_hp = max(getattr(target_player, "temp_hp", 0), val)
+            from server.rules.reaction_magic import apply_temp_hp
+            apply_temp_hp(target_player, val, game_state, choice=data.get("temp_hp_choice"))
             
         temp_disp = f" (+{target_player.temp_hp} Temp)" if getattr(target_player, "temp_hp", 0) > 0 else ""
         p_name = player.name if player else "DM"
@@ -471,9 +484,19 @@ def handle_resolve_night_camp_request(data, player, game_state):
                 continue
             if "Morto" in getattr(p, "conditions", []) or "Dead" in getattr(p, "conditions", []):
                 continue
-            p.hp = p.max_hp
+            _dm_s_camp = getattr(game_state, "automation_settings", {}) or {}
+            if not _dm_s_camp.get("opt_slow_natural_healing", False):
+                p.hp = p.max_hp
             p.temp_hp = 0
-            p.exhaustion_level = max(0, getattr(p, "exhaustion_level", 0) - 1)
+            from common.feats_and_classes import evaluate_armor_sleep, init_or_get_arcane_ward_hp
+            from common.dnd5e_tables import entity_get_class_level as _cls_lvl, entity_get_attr_mod as _attr_m
+            _sleep_res = evaluate_armor_sleep(p, game_state)
+            if not _sleep_res["blocks_exhaustion_recovery"]:
+                p.exhaustion_level = max(0, getattr(p, "exhaustion_level", 0) - 1)
+            elif getattr(p, "exhaustion_level", 0) > 0:
+                broadcast(game_state, make_chat_broadcast("Sistema", _sleep_res["note"]))
+            elif _sleep_res["penalized"]:
+                broadcast(game_state, make_chat_broadcast("Sistema", _sleep_res["note"]))
             conds = [c for c in getattr(p, "conditions", []) if not c.startswith("Sfinimento") and c not in ("Incosciente", "Prono", "Avvelenato")]
             if p.exhaustion_level > 0:
                 conds.append(f"Sfinimento (Liv. {p.exhaustion_level})")
@@ -490,9 +513,17 @@ def handle_resolve_night_camp_request(data, player, game_state):
                             sl_data["current"] = sl_data.get("max", 0)
                 # D&D 5e RAW: Ripristina metà dei Dadi Vita (minimo 1)
                 lvl = int(p.full_sheet.get("level", 1) or 1)
-                hd_rec = max(1, lvl // 2)
+                _hd_frac = _sleep_res["hd_fraction"] if "_sleep_res" in locals() else 0.5
+                hd_rec = max(1, int(lvl * _hd_frac)) if _hd_frac < 0.5 else max(1, lvl // 2)
                 cur_hd = int(p.full_sheet.get("hit_dice_current", lvl) or 0)
                 p.full_sheet["hit_dice_current"] = min(lvl, cur_hd + hd_rec)
+                # Talento Fortunato (Lucky, PHB p. 167): ricarica 3 Punti Fortuna
+                p.full_sheet["lucky_points"] = 3
+                # Mago Abiuratore: ripristina Interdizione Arcana al massimo
+                _wiz_l = _cls_lvl(p, "mago", "wizard")
+                _sub_w = str(p.full_sheet.get("subclass", "") or "").lower()
+                if _wiz_l >= 2 and ("abiuraz" in _sub_w or "abjur" in _sub_w):
+                    p.full_sheet["arcane_ward_hp"] = max(1, 2 * _wiz_l + max(0, _attr_m(p, "INT")))
                 sp_max = int(p.full_sheet.get("spell_points_max", 0) or 0)
                 if sp_max > 0:
                     p.full_sheet["spell_points_current"] = sp_max
@@ -561,9 +592,19 @@ def trigger_group_long_rest(game_state, reason="Il gruppo si è accampato per un
                 continue
             if "Morto" in getattr(p, "conditions", []) or "Dead" in getattr(p, "conditions", []):
                 continue
-            p.hp = p.max_hp
+            _dm_s_camp = getattr(game_state, "automation_settings", {}) or {}
+            if not _dm_s_camp.get("opt_slow_natural_healing", False):
+                p.hp = p.max_hp
             p.temp_hp = 0
-            p.exhaustion_level = max(0, getattr(p, "exhaustion_level", 0) - 1)
+            from common.feats_and_classes import evaluate_armor_sleep, init_or_get_arcane_ward_hp
+            from common.dnd5e_tables import entity_get_class_level as _cls_lvl, entity_get_attr_mod as _attr_m
+            _sleep_res = evaluate_armor_sleep(p, game_state)
+            if not _sleep_res["blocks_exhaustion_recovery"]:
+                p.exhaustion_level = max(0, getattr(p, "exhaustion_level", 0) - 1)
+            elif getattr(p, "exhaustion_level", 0) > 0:
+                broadcast(game_state, make_chat_broadcast("Sistema", _sleep_res["note"]))
+            elif _sleep_res["penalized"]:
+                broadcast(game_state, make_chat_broadcast("Sistema", _sleep_res["note"]))
             conds = [c for c in getattr(p, "conditions", []) if not c.startswith("Sfinimento") and c not in ("Incosciente", "Prono", "Avvelenato")]
             if p.exhaustion_level > 0:
                 conds.append(f"Sfinimento (Liv. {p.exhaustion_level})")
@@ -578,9 +619,17 @@ def trigger_group_long_rest(game_state, reason="Il gruppo si è accampato per un
                         if isinstance(sl_data, dict):
                             sl_data["current"] = sl_data.get("max", 0)
                 lvl = int(p.full_sheet.get("level", 1) or 1)
-                hd_rec = max(1, lvl // 2)
+                _hd_frac = _sleep_res["hd_fraction"] if "_sleep_res" in locals() else 0.5
+                hd_rec = max(1, int(lvl * _hd_frac)) if _hd_frac < 0.5 else max(1, lvl // 2)
                 cur_hd = int(p.full_sheet.get("hit_dice_current", lvl) or 0)
                 p.full_sheet["hit_dice_current"] = min(lvl, cur_hd + hd_rec)
+                # Talento Fortunato (Lucky, PHB p. 167): ricarica 3 Punti Fortuna
+                p.full_sheet["lucky_points"] = 3
+                # Mago Abiuratore: ripristina Interdizione Arcana al massimo
+                _wiz_l = _cls_lvl(p, "mago", "wizard")
+                _sub_w = str(p.full_sheet.get("subclass", "") or "").lower()
+                if _wiz_l >= 2 and ("abiuraz" in _sub_w or "abjur" in _sub_w):
+                    p.full_sheet["arcane_ward_hp"] = max(1, 2 * _wiz_l + max(0, _attr_m(p, "INT")))
                 sp_max = int(p.full_sheet.get("spell_points_max", 0) or 0)
                 if sp_max > 0:
                     p.full_sheet["spell_points_current"] = sp_max

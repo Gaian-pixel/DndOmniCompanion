@@ -3792,26 +3792,37 @@ class ClientGUI:
             btn_frame.pack(pady=12)
             
             available_slot_lvl = None
-            if self.active_character and hasattr(self.active_character, "spell_slots"):
-                for s_lvl in range(1, 10):
-                    sl = self.active_character.spell_slots.get(str(s_lvl), {})
-                    cur_val = sl.get("current", 0) if isinstance(sl, dict) else (sl[0] if isinstance(sl, list) and sl else 0)
-                    if cur_val > 0:
-                        available_slot_lvl = str(s_lvl)
-                        break
+            use_pact_shield = False
+            if self.active_character:
+                if hasattr(self.active_character, "spell_slots"):
+                    for s_lvl in range(1, 10):
+                        sl = self.active_character.spell_slots.get(str(s_lvl), {})
+                        cur_val = sl.get("current", 0) if isinstance(sl, dict) else (sl[0] if isinstance(sl, list) and sl else 0)
+                        if cur_val > 0:
+                            available_slot_lvl = str(s_lvl)
+                            break
+                if not available_slot_lvl and isinstance(getattr(self.active_character, "pact_slots", None), dict):
+                    if self.active_character.pact_slots.get("current", 0) > 0:
+                        use_pact_shield = True
 
             def accept():
-                if available_slot_lvl and self.active_character and hasattr(self.active_character, "spell_slots"):
-                    sl = self.active_character.spell_slots.get(available_slot_lvl)
-                    if isinstance(sl, dict):
-                        sl["current"] = max(0, sl.get("current", 1) - 1)
-                    elif isinstance(sl, list) and sl:
-                        sl[0] = max(0, sl[0] - 1)
+                send_details = dict(details) if isinstance(details, dict) else {}
+                if (available_slot_lvl or use_pact_shield) and self.active_character:
+                    if use_pact_shield and isinstance(getattr(self.active_character, "pact_slots", None), dict):
+                        self.active_character.pact_slots["current"] = max(0, self.active_character.pact_slots.get("current", 1) - 1)
+                        send_details["slot_consumed"] = True
+                    elif available_slot_lvl and hasattr(self.active_character, "spell_slots"):
+                        sl = self.active_character.spell_slots.get(available_slot_lvl)
+                        if isinstance(sl, dict):
+                            sl["current"] = max(0, sl.get("current", 1) - 1)
+                        elif isinstance(sl, list) and sl:
+                            sl[0] = max(0, sl[0] - 1)
+                        send_details["slot_consumed"] = True
                     self.character_manager.save_characters()
                     from common.protocol import make_update_full_sheet_request
                     self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
                 from common.protocol import make_reaction_response
-                self.network.send(make_reaction_response("SHIELD_SPELL", True, self.name, source_name, details))
+                self.network.send(make_reaction_response("SHIELD_SPELL", True, self.name, source_name, send_details))
                 self.show_toast("Incantesimo Scudo attivato! (+5 CA)", title="🛡️ Scudo", toast_type="success")
                 win.destroy()
 
@@ -3821,7 +3832,7 @@ class ClientGUI:
                 win.destroy()
 
             win.protocol("WM_DELETE_WINDOW", decline)
-            shield_btn_state = "normal" if available_slot_lvl else "disabled"
+            shield_btn_state = "normal" if (available_slot_lvl or use_pact_shield) else "disabled"
             ttk.Button(btn_frame, text="🛡️ Lancia Scudo (+5 CA)", command=accept, style="Primary.TButton", state=shield_btn_state).pack(side=tk.LEFT, padx=6)
             ttk.Button(btn_frame, text="Subisci Attacco", command=decline).pack(side=tk.LEFT, padx=6)
 
@@ -3852,6 +3863,94 @@ class ClientGUI:
                 win.destroy()
             ttk.Button(btn_frame, text="🗡️ Dimezza Danni (Reazione)", command=accept_ud, style="Primary.TButton").pack(side=tk.LEFT, padx=6)
             ttk.Button(btn_frame, text="Subisci Tutti i Danni", command=decline_ud).pack(side=tk.LEFT, padx=6)
+
+        elif reaction_type == "COUNTERSPELL":
+            spell_name_cs = details.get("spell_name", "Incantesimo")
+            spell_lvl_cs = int(details.get("spell_level", 3) or 3)
+            win = tk.Toplevel(self.master)
+            win.title("✋ Reazione: Controincantesimo")
+            win.geometry("440x230")
+            win.transient(self.master)
+            win.grab_set()
+            apply_modern_window_style(win)
+            ttk.Label(
+                win,
+                text=f"{source_name} sta lanciando {spell_name_cs} (Liv. {spell_lvl_cs})!\nVuoi usare la tua Reazione per lanciare Controincantesimo?",
+                wraplength=400,
+                justify="center"
+            ).pack(pady=14, padx=14)
+            slot_choices = []
+            if self.active_character and hasattr(self.active_character, "spell_slots"):
+                for sl_n in range(3, 10):
+                    sl_d = self.active_character.spell_slots.get(str(sl_n), {})
+                    cv = sl_d.get("current", 0) if isinstance(sl_d, dict) else (sl_d[0] if isinstance(sl_d, list) and sl_d else 0)
+                    if cv > 0:
+                        slot_choices.append(sl_n)
+            pact = getattr(self.active_character, "pact_slots", None) if self.active_character else None
+            if isinstance(pact, dict) and pact.get("current", 0) > 0 and pact.get("level", 0) >= 3:
+                if pact["level"] not in slot_choices:
+                    slot_choices.append(pact["level"])
+            slot_var = tk.IntVar(value=slot_choices[0] if slot_choices else 3)
+            btn_frame = ttk.Frame(win)
+            btn_frame.pack(pady=10)
+            def accept_cs():
+                use_lvl = int(slot_var.get() or 3)
+                cs_details = dict(details) if isinstance(details, dict) else {}
+                cs_details["slot_level"] = use_lvl
+                if self.active_character:
+                    consumed_local = False
+                    if isinstance(pact, dict) and pact.get("current", 0) > 0 and pact.get("level", 0) == use_lvl:
+                        pact["current"] = max(0, pact.get("current", 1) - 1)
+                        consumed_local = True
+                    elif hasattr(self.active_character, "spell_slots"):
+                        sl = self.active_character.spell_slots.get(str(use_lvl))
+                        if isinstance(sl, dict) and sl.get("current", 0) > 0:
+                            sl["current"] -= 1
+                            consumed_local = True
+                        elif isinstance(sl, list) and sl and sl[0] > 0:
+                            sl[0] -= 1
+                            consumed_local = True
+                    if consumed_local:
+                        cs_details["slot_consumed"] = True
+                        self.character_manager.save_characters()
+                        from common.protocol import make_update_full_sheet_request
+                        self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
+                self.reaction_spent = True
+                self.update_action_economy_ui()
+                self.network.send(make_reaction_response("COUNTERSPELL", True, self.name, source_name, cs_details))
+                win.destroy()
+            def decline_cs():
+                self.network.send(make_reaction_response("COUNTERSPELL", False, self.name, source_name, details))
+                win.destroy()
+            ttk.Button(btn_frame, text=f"✋ Lancia Controincantesimo (Liv. {slot_var.get()})", command=accept_cs, style="Primary.TButton", state=("normal" if slot_choices else "disabled")).pack(side=tk.LEFT, padx=6)
+            ttk.Button(btn_frame, text="Lascia Lanciare", command=decline_cs).pack(side=tk.LEFT, padx=6)
+
+        elif reaction_type == "DEFLECT_MISSILES":
+            inc_dmg = int(details.get("incoming_damage", 0) or 0)
+            win = tk.Toplevel(self.master)
+            win.title("🥋 Reazione: Deflettere Missili")
+            win.geometry("420x210")
+            win.transient(self.master)
+            win.grab_set()
+            apply_modern_window_style(win)
+            ttk.Label(
+                win,
+                text=f"{source_name} ti ha colpito a distanza infliggendo {inc_dmg} danni!\nVuoi usare la tua Reazione per Deflettere Missili (1d10 + DES + Liv. Monaco)?",
+                wraplength=390,
+                justify="center"
+            ).pack(pady=16, padx=14)
+            btn_frame = ttk.Frame(win)
+            btn_frame.pack(pady=8)
+            def accept_dm():
+                self.reaction_spent = True
+                self.update_action_economy_ui()
+                self.network.send(make_reaction_response("DEFLECT_MISSILES", True, self.name, source_name, details))
+                win.destroy()
+            def decline_dm():
+                self.network.send(make_reaction_response("DEFLECT_MISSILES", False, self.name, source_name, details))
+                win.destroy()
+            ttk.Button(btn_frame, text="🥋 Defletti Missile (Reazione)", command=accept_dm, style="Primary.TButton").pack(side=tk.LEFT, padx=6)
+            ttk.Button(btn_frame, text="Subisci Danni", command=decline_dm).pack(side=tk.LEFT, padx=6)
 
     def handle_handout_broadcast(self, data):
         title = data.get("title", "Documento Condiviso")
@@ -5141,6 +5240,32 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             return True
         if cmd in ("/submerged", "/immerso"):
             self.network.send(make_submerged_breath_request("toggle_submerged"))
+            return True
+        if cmd in ("/escape", "/libera", "/liberati"):
+            from common.protocol import make_escape_grapple_request
+            self.network.send(make_escape_grapple_request(arg1 or None))
+            return True
+        if cmd in ("/dispel", "/dissolvi"):
+            from common.protocol import make_dispel_magic_request
+            sl_lvl = int(arg2) if arg2.isdigit() else (int(arg1) if arg1.isdigit() else 3)
+            t_disp = arg1 if (arg1 and not arg1.isdigit()) else tgt
+            self.network.send(make_dispel_magic_request(target_name=t_disp, slot_level=sl_lvl))
+            return True
+        if cmd in ("/identify", "/identificaincantesimo"):
+            from common.protocol import make_identify_spell_request
+            sp_n = " ".join(parts[1:]) if len(parts) > 1 else "Incantesimo Sconosciuto"
+            self.network.send(make_identify_spell_request(sp_n))
+            return True
+        if cmd in ("/downtime", "/ozio"):
+            from common.protocol import make_downtime_request
+            act = arg1 or "lavorare"
+            days = int(arg2) if arg2.isdigit() else 5
+            self.network.send(make_downtime_request(act, days=days))
+            return True
+        if cmd in ("/feature", "/classe"):
+            from common.protocol import make_class_feature_request
+            feat_n = arg1 or "countercharm"
+            self.network.send(make_class_feature_request(feat_n, target_name=arg2 or None))
             return True
         return False
 

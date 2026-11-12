@@ -137,7 +137,12 @@ def entity_get_class_level(entity: Any, *class_aliases: str) -> int:
         if best > 0:
             return best
 
-    cls_s = str(_extract_attr_or_key(entity, "char_class", "") or (fs.get("char_class", "") if isinstance(fs, dict) else "")).lower()
+    cls_s = str(
+        _extract_attr_or_key(entity, "char_class", "")
+        or (fs.get("char_class", "") if isinstance(fs, dict) else "")
+        or _extract_attr_or_key(entity, "class", "")
+        or (fs.get("class", "") if isinstance(fs, dict) else "")
+    ).lower()
     if any(a in cls_s for a in aliases):
         lvl_raw = _extract_attr_or_key(entity, "level", None)
         if lvl_raw is None and isinstance(fs, dict):

@@ -23,11 +23,19 @@ def auto_explore_fow(player, game_state):
     pos = getattr(player, "position", None)
     if not pos:
         return False
-    
+    conds = getattr(player, "conditions", []) or []
+    from server.rules.reaction_magic import _parse_sense_range_hexes
+    if is_condition_active(conds, "Accecato") or is_condition_active(conds, "Blinded"):
+        blind_r = _parse_sense_range_hexes(player, "vista cieca", "blindsight", "visione del vero", "truesight")
+        if blind_r <= 0:
+            return False
+        effective_rad = blind_r
+    else:
+        vision_rad = getattr(player, 'vision_radius', 6)
+        light_rad = getattr(player, 'light_radius', 0)
+        effective_rad = max(vision_rad, light_rad)
+
     h = Hex(pos[0], pos[1])
-    vision_rad = getattr(player, 'vision_radius', 6)
-    light_rad = getattr(player, 'light_radius', 0)
-    effective_rad = max(vision_rad, light_rad)
     grid_type = game_state.current_map.get("grid_type", "hex")
     walls = get_effective_map_walls(game_state.current_map)
     visible_hexes = get_visible_hexes(h, effective_rad, walls, grid_type=grid_type)
@@ -89,10 +97,21 @@ def handle_move_request(data, player, game_state):
                 if player.conn:
                     send_message(player.conn, make_error_reply("Mappa di esplorazione: movimento libero disabilitato. Usa il Viaggio o aspetta il DM."))
                 return
+
+        if not is_dm and not bool(data.get("is_forced", False)):
+            from server.rules.reaction_magic import check_fear_source_movement_block
+            fear_blocked, fear_msg = check_fear_source_movement_block(player, to_pos, game_state)
+            if fear_blocked:
+                from common.protocol import make_error_reply
+                if getattr(player, "conn", None):
+                    send_message(player.conn, make_error_reply(fear_msg))
+                return
                 
         walls_list_pos = get_effective_map_walls(game_state.current_map) if getattr(game_state, "current_map", None) else []
+        from server.dm_monster_engine import is_incorporeal_entity, has_spider_climb
+        is_incorporeal = is_incorporeal_entity(player)
         from_pos = getattr(player, "position", None)
-        if not is_dm and walls_list_pos:
+        if not is_dm and walls_list_pos and not is_incorporeal:
             if from_pos:
                 p_start = Hex(from_pos[0], from_pos[1])
                 p_end = Hex(to_pos[0], to_pos[1])
@@ -140,6 +159,14 @@ def handle_move_request(data, player, game_state):
             speed = getattr(player, "speed", 30)
             speed_unit = getattr(player, "speed_unit", None)
             sheet = getattr(player, "full_sheet", None)
+            if not (isinstance(sheet, dict) and sheet.get("_speed_bonuses_applied")):
+                from common.feats_and_classes import get_entity_speed_bonus_ft, get_armor_nonproficiency_penalties
+                _spd_bonus = get_entity_speed_bonus_ft(player)
+                _str_pen = get_armor_nonproficiency_penalties(player).get("str_speed_penalty", 0)
+                if str(speed_unit or "").lower() == "m":
+                    speed = max(0, float(speed or 9) + round((_spd_bonus - _str_pen) * 0.3, 1))
+                else:
+                    speed = max(0, int(speed or 30) + _spd_bonus - _str_pen)
             if sheet and not speed_unit:
                 speed_unit = sheet.get("speed_unit")
             from common.i18n import speed_to_hexes, format_distance_hexes
@@ -167,6 +194,12 @@ def handle_move_request(data, player, game_state):
             exh = getattr(player, "exhaustion_level", 0)
             if exh >= 2:
                 base_hexes = max(1, base_hexes // 2)
+            from server.dm_optional_tools import get_lingering_injury_penalties
+            _inj_pen = get_lingering_injury_penalties(player)
+            if _inj_pen.get("speed_halved"):
+                base_hexes = max(1, base_hexes // 2)
+            elif _inj_pen.get("speed_penalty_ft", 0) > 0:
+                base_hexes = max(1, base_hexes - max(1, _inj_pen["speed_penalty_ft"] // 5))
             is_dashed = is_condition_active(conds, "Scatto")
             max_hexes = base_hexes * 2 if is_dashed else base_hexes
             eff_names = [str(e.get("name", "")).lower() for e in getattr(player, "active_effects", []) if isinstance(e, dict)]
@@ -204,6 +237,17 @@ def handle_move_request(data, player, game_state):
                 if is_step_diff:
                     has_diff_terrain_in_path = True
                 step_cost = 2 if is_step_diff else 1
+                # Movimento Incorporeo (MM): attraversare oggetti/muri conta come terreno difficile
+                if is_incorporeal and [step.q, step.r] in walls_list_pos:
+                    step_cost = max(step_cost, 2)
+                # Ranger Lv 8 Passo Naturale (Land's Stride, PHB p. 92) o Spider Climb (MM): terreno difficile non magico non costa movimento extra
+                if step_cost > 1:
+                    from common.dnd5e_tables import entity_get_class_level as _m_cls, entity_has_keyword as _m_kw
+                    if _m_cls(player, "ranger") >= 8 or _m_kw(player, "passo naturale", "land's stride", "andatura del terreno") or has_spider_climb(player):
+                        _dt_val = diff_map.get(step_tup)
+                        _dt_str = str(_dt_val or "").lower() if isinstance(_dt_val, (str, dict)) else ""
+                        if "magic" not in _dt_str and not (is_incorporeal and [step.q, step.r] in walls_list_pos):
+                            step_cost = 1
                 if is_condition_active(conds, "Prono"):
                     step_cost += 1
                 req_hexes += step_cost
@@ -219,8 +263,17 @@ def handle_move_request(data, player, game_state):
                 req_hexes *= 2
 
             # Combattimento Subacqueo (PHB p. 198): muoversi immersi senza velocità di nuoto costa movimento doppio
-            from common.dnd5e_tables import entity_has_keyword as _ehk_mv
-            if (getattr(player, "is_submerged", False) or is_condition_active(conds, "Immerso")) and not _ehk_mv(player, "nuotare", "swim"):
+            from common.dnd5e_tables import entity_has_keyword as _ehk_mv, entity_get_class_level as _ecls_mv
+            p_fs = getattr(player, "full_sheet", None) or {}
+            _monk_l_mv = _ecls_mv(player, "monaco", "monk")
+            _rogue_l_mv = _ecls_mv(player, "ladro", "rogue")
+            _sub_mv = str(p_fs.get("subclass", "") or "").lower()
+            has_monk_water_wall = _monk_l_mv >= 9
+            has_second_story_climb = (_rogue_l_mv >= 3 and ("furfante" in _sub_mv or "thief" in _sub_mv)) or _ehk_mv(player, "secondo piano", "second-story work")
+            has_swim_spd = bool(p_fs.get("speed_swim", 0) or (getattr(player, "speed_swim", 0) or 0)) or _ehk_mv(player, "nuotare", "nuoto", "swim", "tritone", "triton") or has_monk_water_wall
+            if (getattr(player, "is_submerged", False) or is_condition_active(conds, "Immerso")) and not has_swim_spd:
+                req_hexes *= 2
+            elif getattr(player, "is_climbing", False) and not (has_monk_water_wall or has_second_story_climb or _ehk_mv(player, "scalare", "climb")):
                 req_hexes *= 2
 
             spent = getattr(player, "movement_spent_this_turn", 0)
@@ -296,8 +349,11 @@ def handle_move_request(data, player, game_state):
                         if provoke_exit or provoke_enter:
                             incaps = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto", "Incapacitato", "Incapacitated"]
                             o_conds = getattr(other, "conditions", [])
-                            is_blind = any(is_condition_active(o_conds, c) for c in ["Cieco", "Blinded"])
-                            if not is_blind and not any(is_condition_active(o_conds, c) for c in incaps):
+                            is_blind = any(is_condition_active(o_conds, c) for c in ["Cieco", "Accecato", "Blinded"])
+                            is_mover_invis = is_condition_active(conds, "Invisibile")
+                            from server.rules.reaction_magic import check_special_senses_see_target
+                            can_perceive_special, _ = check_special_senses_see_target(other, player, reach)
+                            if (not is_blind or can_perceive_special) and (not is_mover_invis or can_perceive_special) and not any(is_condition_active(o_conds, c) for c in incaps):
                                 reason_oa = "entra nella portata (Maestro d'Armi Astate)" if provoke_enter and not provoke_exit else f"esce dalla portata di mischia ({reach * 1.5}m)"
                                 opp_alert = f"⚠️ [OPPORTUNITÀ] {player.name} {reason_oa} di {other.name}! {other.name} può usare la Reazione per un Attacco d'Opportunità!"
                                 game_state.log_dm_message(f"[COMBAT] {opp_alert}")
@@ -308,6 +364,15 @@ def handle_move_request(data, player, game_state):
 
         prev_pos = list(player.position) if hasattr(player, "position") and player.position else None
         game_state.move_player(player.name, to_pos)
+        if prev_pos and to_pos and prev_pos != to_pos and not is_teleport:
+            _dm_s_mv = getattr(game_state, "automation_settings", {}) or {}
+            if _dm_s_mv.get("opt_facing", False):
+                from server.dm_optional_tools import update_facing_from_move
+                _gt_mv = (getattr(game_state, "current_map", {}) or {}).get("grid_type", "hex")
+                update_facing_from_move(player, prev_pos, to_pos, grid_type=_gt_mv)
+        if is_teleport or data.get("is_forced", False):
+            from server.rules.reaction_magic import break_grapple_if_out_of_reach
+            break_grapple_if_out_of_reach(player, game_state)
 
         # Tracciamento movimento rettilineo per Charge/Pounce (MM)
         if prev_pos and prev_pos != to_pos and not is_teleport:
@@ -481,6 +546,14 @@ def handle_stand_up_request(data, player, game_state):
         return
 
     in_combat = getattr(game_state, "combat_active", False)
+    speed = getattr(player, "speed", 30)
+    if speed <= 0 or getattr(player, "exhaustion_level", 0) >= 5 or any(
+        is_condition_active(conds, c) for c in ("Afferrato", "Grappled", "Trattenuto", "Restrained", "Paralizzato", "Incosciente", "Stordito", "Pietrificato", "Incapacitato")
+    ):
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Impossibile rialzarsi: velocità pari a 0 o condizione che impedisce il movimento (PHB p. 190)!"))
+        return
+
     if in_combat:
         speed = getattr(player, "speed", 30)
         speed_unit = getattr(player, "speed_unit", None)

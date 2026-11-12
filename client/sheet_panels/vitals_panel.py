@@ -116,17 +116,29 @@ class VitalsPanel:
             if hasattr(sheet, "refresh_custom_resources_ui"):
                 try: sheet.refresh_custom_resources_ui()
                 except Exception: pass
-            c_class = str(getattr(sheet.character, "char_class", "")).strip().lower()
-            if "warlock" in c_class:
-                for lvl, slot in getattr(sheet.character, "spell_slots", {}).items():
-                    if isinstance(slot, dict) and "current" in slot:
-                        slot["current"] = slot.get("max", 0)
-                        if hasattr(sheet, "slot_vars") and str(lvl) in sheet.slot_vars:
-                            v = sheet.slot_vars[str(lvl)]
-                            if isinstance(v, dict) and "current" in v:
-                                v["current"].set(slot["current"])
-                            elif hasattr(v, "set"):
-                                v.set(slot["current"])
+            pact = getattr(sheet.character, "pact_slots", None)
+            if isinstance(pact, dict) and pact.get("max", 0) > 0:
+                pact["current"] = pact.get("max", 0)
+            else:
+                from common.dnd5e_tables import entity_get_class_level
+                war_lvl = entity_get_class_level(sheet.character, "warlock")
+                other_caster = any(
+                    entity_get_class_level(sheet.character, *keys) > 0
+                    for keys in (("mago", "wizard"), ("chierico", "cleric"), ("stregone", "sorcerer"), ("bardo", "bard"), ("druido", "druid"), ("paladino", "paladin"), ("ranger",), ("artefice", "artificer"))
+                )
+                c_class = str(getattr(sheet.character, "char_class", "")).strip().lower()
+                if (war_lvl > 0 or "warlock" in c_class) and not other_caster:
+                    for lvl, slot in getattr(sheet.character, "spell_slots", {}).items():
+                        try: sl_int = int(lvl)
+                        except (ValueError, TypeError): sl_int = 1
+                        if sl_int <= 5 and isinstance(slot, dict) and "current" in slot:
+                            slot["current"] = slot.get("max", 0)
+                            if hasattr(sheet, "slot_vars") and str(lvl) in sheet.slot_vars:
+                                v = sheet.slot_vars[str(lvl)]
+                                if isinstance(v, dict) and "current" in v:
+                                    v["current"].set(slot["current"])
+                                elif hasattr(v, "set"):
+                                    v.set(slot["current"])
             
             if sheet.manager:
                 sheet.manager.update_character(sheet.character)

@@ -678,6 +678,45 @@ def make_submerged_breath_request(action: str = "toggle_submerged", submerged: O
     if actor_name: d["actor_name"] = actor_name
     return {"type": "SUBMERGED_BREATH_REQUEST", "data": d}
 
+def make_escape_grapple_request(grappler_name: Optional[str] = None) -> ProtocolMessage:
+    return {"type": "ESCAPE_GRAPPLE_REQUEST", "data": {"grappler_name": grappler_name} if grappler_name else {}}
+
+def make_dispel_magic_request(target_name: Optional[str] = None, slot_level: int = 3, dispel_aoe: bool = False, aoe_index: int = 0) -> ProtocolMessage:
+    d: Dict[str, Any] = {"slot_level": int(slot_level), "dispel_aoe": bool(dispel_aoe), "aoe_index": int(aoe_index)}
+    if target_name: d["target_name"] = target_name
+    return {"type": "DISPEL_MAGIC_REQUEST", "data": d}
+
+def make_identify_spell_request(spell_name: str, spell_level: int = 1, on_class_spell_list: bool = False) -> ProtocolMessage:
+    return {"type": "IDENTIFY_SPELL_REQUEST", "data": {"spell_name": spell_name, "spell_level": int(spell_level), "on_class_spell_list": bool(on_class_spell_list)}}
+
+
+def make_downtime_request(activity: str, days: int = 5, skill_bonus: int = 0, cost_gp: float = 0.0, **extra: Any) -> ProtocolMessage:
+    payload: Dict[str, Any] = {
+        "activity": activity,
+        "days": int(days),
+        "skill_bonus": int(skill_bonus),
+        "cost_gp": float(cost_gp),
+    }
+    payload.update(extra)
+    return {"type": "DOWNTIME_REQUEST", "data": payload}
+
+
+def make_class_feature_request(feature: str, action: str = "activate", **extra: Any) -> ProtocolMessage:
+    payload: Dict[str, Any] = {"feature": feature, "action": action}
+    payload.update(extra)
+    return {"type": "CLASS_FEATURE_REQUEST", "data": payload}
+
+
+def make_optional_rule_action_request(action: str, **extra: Any) -> ProtocolMessage:
+    payload: Dict[str, Any] = {"action": action}
+    payload.update(extra)
+    return {"type": "OPTIONAL_RULE_ACTION_REQUEST", "data": payload}
+
+
+def make_resolve_legendary_resistance_request(pending_id: str, decision: str = "use") -> ProtocolMessage:
+    return {"type": "RESOLVE_LEGENDARY_RESISTANCE_REQUEST", "data": {"pending_id": pending_id, "decision": decision}}
+
+
 
 
 

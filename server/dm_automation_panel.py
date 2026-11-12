@@ -71,7 +71,7 @@ def open_automation_settings_dialog(dm_gui):
     day_night_var = tk.BooleanVar(value=cur_settings.get("auto_day_night_cycle", True))
     auto_xp_var = tk.BooleanVar(value=cur_settings.get("auto_distribute_xp", True))
 
-    # Regole Opzionali DMG (Selezionabili dal DM)
+    # Regole Opzionali DMG / XGtE / TCE (Selezionabili dal DM)
     opt_cleaving_var = tk.BooleanVar(value=cur_settings.get("opt_cleaving", False))
     opt_massive_var = tk.BooleanVar(value=cur_settings.get("opt_massive_damage", False))
     opt_injuries_var = tk.BooleanVar(value=cur_settings.get("opt_lingering_injuries", False))
@@ -79,6 +79,19 @@ def open_automation_settings_dialog(dm_gui):
     opt_dmg_maneuvers_var = tk.BooleanVar(value=cur_settings.get("opt_dmg_maneuvers", False))
     opt_spell_points_var = tk.BooleanVar(value=cur_settings.get("opt_spell_points", False))
     opt_survival_var = tk.BooleanVar(value=cur_settings.get("opt_hunger_thirst_weather", False))
+    opt_facing_var = tk.BooleanVar(value=cur_settings.get("opt_facing", False))
+    opt_morale_var = tk.BooleanVar(value=cur_settings.get("opt_morale", False))
+    opt_hero_points_var = tk.BooleanVar(value=cur_settings.get("opt_hero_points", False))
+    opt_honor_sanity_var = tk.BooleanVar(value=cur_settings.get("opt_honor_sanity", False))
+    opt_fear_horror_var = tk.BooleanVar(value=cur_settings.get("opt_fear_horror", False))
+    opt_marking_var = tk.BooleanVar(value=cur_settings.get("opt_marking", False))
+    opt_climb_bigger_var = tk.BooleanVar(value=cur_settings.get("opt_climb_bigger", False))
+    opt_hitting_cover_var = tk.BooleanVar(value=cur_settings.get("opt_hitting_cover", False))
+    opt_healing_surges_var = tk.BooleanVar(value=cur_settings.get("opt_healing_surges", False))
+    opt_slow_heal_var = tk.BooleanVar(value=cur_settings.get("opt_slow_natural_healing", False))
+    opt_falling_xge_tce_var = tk.BooleanVar(value=cur_settings.get("opt_falling_xge_tce", False))
+    opt_armor_sleep_xge_var = tk.BooleanVar(value=cur_settings.get("opt_armor_sleep_xge", False))
+    opt_leg_res_prompt_var = tk.BooleanVar(value=cur_settings.get("opt_legendary_res_prompt", False))
     cur_rest_var = cur_settings.get("opt_rest_variant", "standard")
     rest_var_labels = {
         "standard": "standard (1h Breve / 8h Lungo - PHB)",
@@ -86,6 +99,13 @@ def open_automation_settings_dialog(dm_gui):
         "gritty_realism": "gritty_realism (8h Breve / 7g Lungo - DMG p.267)",
     }
     rest_variant_var = tk.StringVar(value=rest_var_labels.get(cur_rest_var, rest_var_labels["standard"]))
+    cur_init_var = cur_settings.get("opt_init_variant", "standard")
+    init_var_labels = {
+        "standard": "standard (Iniziativa Individuale PHB)",
+        "side": "side (Iniziativa di Squadra d20 - DMG p.270)",
+        "speed_factor": "speed_factor (Fattore Velocità - DMG p.270)",
+    }
+    init_variant_var = tk.StringVar(value=init_var_labels.get(cur_init_var, init_var_labels["standard"]))
 
     def on_preset_selected():
         m = mode_var.get()
@@ -260,6 +280,50 @@ def open_automation_settings_dialog(dm_gui):
     ttk.Checkbutton(sec5, text="Sopravvivenza Rigida: Fame, Sete & Clima Estremo (DMG p. 110-111)", variable=opt_survival_var).pack(anchor="w", pady=2)
     tk.Label(sec5, text="  ↳ Traccia razioni giornaliere, acqua e TS orari da Caldo/Freddo Estremo con penalità cumulative di Sfinimento.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
 
+    dmg_extra_toggles = [
+        ("Direzione Tattica / Facing (DMG p. 252)", opt_facing_var,
+         "Traccia l'orientamento dei token: fianchi/schiena influiscono su Vantaggio e Scudi."),
+        ("Colpire la Copertura (Hitting Cover - DMG p. 272)", opt_hitting_cover_var,
+         "Se un attacco manca solo per il bonus di copertura (+2/+5 CA), può colpire l'ostacolo o l'alleato che fornisce copertura."),
+        ("Marchiare i Nemici (Marking - DMG p. 271)", opt_marking_var,
+         "Un colpo in mischia marchia il bersaglio: AdO su di lui con Vantaggio senza spendere la Reazione (max 1 extra/turno)."),
+        ("Scalare Creature Più Grandi (Climb Onto Bigger Creature - DMG p. 271)", opt_climb_bigger_var,
+         "Permette di salire su creature di taglia superiore (Acrobazia/Atletica) con Vantaggio ai tiri per colpire finché aggrappato."),
+        ("Morale Mostri e PNG (DMG p. 273)", opt_morale_var,
+         "Tiro Saggezza CD 10 automatico/guidato su prima ferita grave o dimezzamento gruppo (fuga o resa)."),
+        ("Punti Eroe (Hero Points - DMG p. 264)", opt_hero_points_var,
+         "Fornisce un pool di 5 + livello/2 Punti Eroe per livello da spendere (+1d6 su tiri d20 o stabilizzazione)."),
+        ("Caratteristiche Onore & Sanità (DMG p. 264-266)", opt_honor_sanity_var,
+         "Abilita i punteggi opzionali Onore e Sanità sulle schede dei personaggi e nei relativi tiri salvezza."),
+        ("Paura e Orrore (Fear and Horror - DMG p. 266)", opt_fear_horror_var,
+         "Attiva i TS su Saggezza/Carisma per Paura/Orrore da traumi con possibile Follia a Breve Termine."),
+        ("Impulsi Curativi in Azione (Healing Surges - DMG p. 266)", opt_healing_surges_var,
+         "Permette di spendere Dadi Vita come Azione in combattimento (o Azione Bonus eroica) fino a metà dei DV massimi."),
+        ("Guarigione Naturale Lenta (Slow Natural Healing - DMG p. 267)", opt_slow_heal_var,
+         "Al Riposo Lungo i PG non recuperano tutti i PF automaticamente ma solo spendendo i Dadi Vita disponibili."),
+        ("Caduta 500ft/round & Impatto su Creature (XGtE p. 77 / TCE p. 170)", opt_falling_xge_tce_var,
+         "Limita la caduta a 500 ft per round (cadute enormi) e divide i danni se si cade sopra un'altra creatura (TS DES CD 15)."),
+        ("Penalità Dormire in Armatura Media/Pesante (XGtE p. 77)", opt_armor_sleep_xge_var,
+         "Dormire con armatura media/pesante dimezza il recupero di Dadi Vita e non rimuove Sfinimento (se già presente)."),
+        ("Conferma DM per Resistenza Leggendaria", opt_leg_res_prompt_var,
+         "Se attivo, al fallimento di un TS di un boss il DM conferma la spesa della Resistenza Leggendaria invece dell'uso automatico."),
+    ]
+    for lbl, var, hint in dmg_extra_toggles:
+        ttk.Checkbutton(sec5, text=lbl, variable=var).pack(anchor="w", pady=2)
+        tk.Label(sec5, text=f"  ↳ {hint}", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
+
+    init_frame = tk.Frame(sec5, bg=SURFACE_COLOR)
+    init_frame.pack(fill=tk.X, pady=(6, 2))
+    tk.Label(init_frame, text="Variante Iniziativa (DMG p. 270):", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+    init_cb = ttk.Combobox(
+        init_frame,
+        textvariable=init_variant_var,
+        values=list(init_var_labels.values()),
+        state="readonly",
+        width=46
+    )
+    init_cb.pack(anchor="w", pady=(2, 2))
+
     rv_frame = tk.Frame(sec5, bg=SURFACE_COLOR)
     rv_frame.pack(fill=tk.X, pady=(6, 2))
     tk.Label(rv_frame, text="Variante Ritmo Riposi (DMG p. 267):", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(anchor="w")
@@ -280,6 +344,12 @@ def open_automation_settings_dialog(dm_gui):
             rv_key = "epic_heroism"
         elif "gritty_realism" in rv_raw:
             rv_key = "gritty_realism"
+        iv_raw = init_variant_var.get()
+        iv_key = "standard"
+        if "side" in iv_raw:
+            iv_key = "side"
+        elif "speed_factor" in iv_raw:
+            iv_key = "speed_factor"
         new_settings = {
             "auto_apply_damage": bool(auto_dmg_var.get()),
             "auto_apply_aoe_damage": bool(auto_aoe_var.get()),
@@ -304,6 +374,20 @@ def open_automation_settings_dialog(dm_gui):
             "opt_dmg_maneuvers": bool(opt_dmg_maneuvers_var.get()),
             "opt_spell_points": bool(opt_spell_points_var.get()),
             "opt_hunger_thirst_weather": bool(opt_survival_var.get()),
+            "opt_facing": bool(opt_facing_var.get()),
+            "opt_init_variant": iv_key,
+            "opt_morale": bool(opt_morale_var.get()),
+            "opt_hero_points": bool(opt_hero_points_var.get()),
+            "opt_honor_sanity": bool(opt_honor_sanity_var.get()),
+            "opt_fear_horror": bool(opt_fear_horror_var.get()),
+            "opt_marking": bool(opt_marking_var.get()),
+            "opt_climb_bigger": bool(opt_climb_bigger_var.get()),
+            "opt_hitting_cover": bool(opt_hitting_cover_var.get()),
+            "opt_healing_surges": bool(opt_healing_surges_var.get()),
+            "opt_slow_natural_healing": bool(opt_slow_heal_var.get()),
+            "opt_falling_xge_tce": bool(opt_falling_xge_tce_var.get()),
+            "opt_armor_sleep_xge": bool(opt_armor_sleep_xge_var.get()),
+            "opt_legendary_res_prompt": bool(opt_leg_res_prompt_var.get()),
             "opt_rest_variant": rv_key,
         }
         from server.rules.combat import handle_set_automation_mode_request
@@ -327,8 +411,9 @@ def update_pending_actions_ui(dm_gui):
     gs = dm_gui.server.game_state
     p_damages = getattr(gs, "pending_damages", {})
     p_doors = getattr(gs, "pending_doors", {})
+    p_leg_res = getattr(gs, "pending_legendary_resistances", {})
     
-    if not p_damages and not p_doors:
+    if not p_damages and not p_doors and not p_leg_res:
         dm_gui.pending_actions_container.pack_forget()
         return
         
@@ -417,6 +502,39 @@ def update_pending_actions_ui(dm_gui):
         btn_trap = ttk.Button(btns, text="Scatta Trappola", style="Danger.TButton", command=lambda i=p_id: dm_gui.resolve_pending_door_gui(i, "trap"))
         btn_trap.pack(side=tk.LEFT, padx=2)
         ToolTip(btn_trap, "Il tentativo goffo fa scattare una trappola o allarme")
+
+    # Schede Resistenze Leggendarie in sospeso
+    for lr_id, lr_info in list(p_leg_res.items()):
+        card = tk.Frame(dm_gui.pending_actions_container, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=4)
+        card.pack(fill=tk.X, pady=2)
+
+        t_name = lr_info.get("target", "Boss")
+        stat_n = lr_info.get("stat", "TS")
+        dc_v = lr_info.get("dc", 15)
+        r_tot = lr_info.get("roll_total", 0)
+        rem = lr_info.get("remaining", 0)
+        src_n = lr_info.get("source", "Effetto")
+
+        txt_info = f"👑 {t_name} fallisce TS {stat_n} ({r_tot} vs CD {dc_v}, {src_n}) — Resistenze: {rem}"
+        tk.Label(card, text=txt_info, font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD, anchor="w").pack(fill=tk.X)
+
+        btns = tk.Frame(card, bg=SURFACE_COLOR)
+        btns.pack(fill=tk.X, pady=(3, 0))
+
+        btn_use = ttk.Button(btns, text="Usa Resistenza Leggendaria", style="Gold.TButton", command=lambda i=lr_id: dm_gui.resolve_pending_legendary_resistance_gui(i, "use"))
+        btn_use.pack(side=tk.LEFT, padx=(0, 4))
+        ToolTip(btn_use, f"Consuma 1 Resistenza Leggendaria di {t_name} per superare automaticamente il TS")
+
+        btn_dec = ttk.Button(btns, text="Accetta Fallimento", style="Danger.TButton", command=lambda i=lr_id: dm_gui.resolve_pending_legendary_resistance_gui(i, "decline"))
+        btn_dec.pack(side=tk.LEFT, padx=2)
+        ToolTip(btn_dec, "Non spendere cariche: il boss subisce il fallimento del TS")
+
+
+def resolve_pending_legendary_resistance_gui(dm_gui, pending_id, decision):
+    """Invia al rules engine la decisione DM su una Resistenza Leggendaria in sospeso."""
+    from server.dm_monster_engine import handle_resolve_legendary_resistance_request
+    handle_resolve_legendary_resistance_request({"pending_id": pending_id, "decision": decision}, None, dm_gui.server.game_state)
+    dm_gui.update_pending_actions_ui()
 
 
 def apply_pending_damage_gui(dm_gui, pending_id, action):

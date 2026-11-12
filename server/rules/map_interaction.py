@@ -105,7 +105,7 @@ def handle_create_aoe_request(data, player, game_state):
                 roll_tot = save_result["total"]
                 is_crit = save_result["rolls"][0] == 20
                 is_fail = save_result["rolls"][0] == 1
-                _process_save_result(p.name, stat, roll_tot, is_crit, is_fail, dc, resolved_dmg, half_on_success, player.name, game_state, damage_type=damage_type)
+                _process_save_result(p.name, stat, roll_tot, is_crit, is_fail, dc, resolved_dmg, half_on_success, player.name, game_state, damage_type=damage_type, spell_school=str(aoe_data.get("school", "") or ""))
             except Exception as e:
                 game_state.log_dm_message(f"[AoE] Errore tiro automatico TS per {p.name}: {e}")
 
@@ -519,6 +519,12 @@ def handle_resolve_aoe_request(data, player, game_state):
     broadcast(game_state, make_chat_broadcast("Sistema", msg))
     game_state.log_dm_message(f"[AoE] {msg}")
 
+    caster_obj = game_state.find_player(caster_name)
+    aoe_spell_lvl = int(aoe_data.get("spell_level") or data.get("spell_level") or (1 if aoe_data.get("spell_name") else 0) or 0)
+    if caster_obj and aoe_spell_lvl >= 1:
+        from server.rules.reaction_magic import maybe_prompt_counterspell_reactions
+        maybe_prompt_counterspell_reactions(caster_obj, aoe_data.get("spell_name", "Incantesimo ad Area"), aoe_spell_lvl, game_state)
+
     from common.protocol import make_prompt_save
     resolved_dmg = damage_formula
     if damage_formula:
@@ -549,7 +555,7 @@ def handle_resolve_aoe_request(data, player, game_state):
                 roll_tot = save_result["total"]
                 is_crit = save_result["rolls"][0] == 20
                 is_fail = save_result["rolls"][0] == 1
-                _process_save_result(p.name, stat, roll_tot, is_crit, is_fail, dc, resolved_dmg, half_on_success, caster_name, game_state, damage_type)
+                _process_save_result(p.name, stat, roll_tot, is_crit, is_fail, dc, resolved_dmg, half_on_success, caster_name, game_state, damage_type, spell_school=str(data.get("school", "") or ""))
             except Exception as e:
                 game_state.log_dm_message(f"[AoE] Errore tiro TS automatico per {p.name}: {e}")
 

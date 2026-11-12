@@ -62,7 +62,8 @@ from server.dm_automation_panel import (
     update_pending_actions_ui as dm_update_pending_actions_ui,
     apply_pending_damage_gui as dm_apply_pending_damage_gui,
     apply_pending_damage_custom_gui as dm_apply_pending_damage_custom_gui,
-    resolve_pending_door_gui as dm_resolve_pending_door_gui
+    resolve_pending_door_gui as dm_resolve_pending_door_gui,
+    resolve_pending_legendary_resistance_gui as dm_resolve_pending_legendary_resistance_gui
 )
 from server.dm_travel_dialog import (
     open_travel_panel as dm_open_travel_panel
@@ -1586,15 +1587,17 @@ class DM_GUI:
             gs.travel_hours_today = 0
             self.log_to_chat(f"Il party ha completato un Riposo Lungo! (Giorno {gs.time_day})")
             gs.add_calendar_event("Il party ha completato un Riposo Lungo")
+            slow_heal = bool((getattr(gs, "automation_settings", {}) or {}).get("opt_slow_natural_healing", False))
             for p in gs.players:
-                p.hp = p.max_hp
+                if not slow_heal:
+                    p.hp = p.max_hp
                 p.exhaustion_level = max(0, getattr(p, "exhaustion_level", 0) - 1)
                 conds = [c for c in getattr(p, "conditions", []) if not c.startswith("Sfinimento")]
                 if p.exhaustion_level > 0:
                     conds.append(f"Sfinimento (Liv. {p.exhaustion_level})")
                 p.conditions = conds
                 if p.full_sheet:
-                    p.full_sheet["hp_current"] = p.max_hp
+                    p.full_sheet["hp_current"] = p.hp
                     p.full_sheet["exhaustion_level"] = p.exhaustion_level
                     p.full_sheet["conditions"] = conds
         else:
@@ -2947,7 +2950,7 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                 if msg_type == "UPDATE_STATE":
                     self.update_player_list()
                     self.redraw_map_and_players()
-                elif msg_type in ("PENDING_DAMAGE_PROMPT", "PENDING_DOOR_PROMPT"):
+                elif msg_type in ("PENDING_DAMAGE_PROMPT", "PENDING_DOOR_PROMPT", "PENDING_LEGENDARY_RES_PROMPT"):
                     self.update_pending_actions_ui()
                 elif msg_type == "LOG_MESSAGE":
                     self.log_to_chat(msg.get("payload"))
@@ -3367,6 +3370,9 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
     def resolve_pending_door_gui(self, pending_id, outcome):
         return dm_resolve_pending_door_gui(self, pending_id, outcome)
 
+    def resolve_pending_legendary_resistance_gui(self, pending_id, decision):
+        return dm_resolve_pending_legendary_resistance_gui(self, pending_id, decision)
+
     def open_assign_item_dialog(self, prefill_item=None):
         return dm_open_assign_item_dialog(self, prefill_item=prefill_item)
 
@@ -3751,19 +3757,72 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
                 player.full_sheet["actions"] = actions
                 if "features" not in player.full_sheet and srd_rec.get("special_abilities"):
                     player.full_sheet["features"] = srd_rec.get("special_abilities")
-        
-        if not actions:
+
+        from server.dm_monster_engine import sync_monster_spellcasting_to_sheet
+        if "innate_spells" not in player.full_sheet and "spell_slots" not in player.full_sheet:
+            sync_monster_spellcasting_to_sheet(player)
+
+        innate_sp = player.full_sheet.get("innate_spells") or {}
+        slot_sp = player.full_sheet.get("spell_slots") or {}
+        lair_acts = player.full_sheet.get("lair_actions") or []
+        mythic_acts = player.full_sheet.get("mythic_actions") or []
+
+        if not actions and not innate_sp and not slot_sp and not getattr(player, "has_lair_actions", False) and not mythic_acts:
             ttk.Label(self.npc_actions_frame, text="Nessuna azione SRD registrata", font=FONT_SMALL).pack(pady=2)
             return
-            
+
         for act in actions:
             act_name = act.get("name", "Azione") if isinstance(act, dict) else str(act).split(".")[0].strip()
-            btn = ttk.Button(self.npc_actions_frame, text=act_name, 
+            btn = ttk.Button(self.npc_actions_frame, text=act_name,
                              command=lambda a=act, n=player_name: self.roll_npc_action(n, a))
             btn.pack(fill=tk.X, pady=1)
-            # Tooltip al passaggio del mouse con le caratteristiche complete dell'azione (TpC, Danni, Gittata, TS, ecc.)
             tip_text = format_monster_action_tooltip(act, player_name)
             ToolTip(btn, tip_text)
+
+        if isinstance(innate_sp, dict) and innate_sp:
+            ttk.Label(self.npc_actions_frame, text="✨ Incantesimi Innati:", font=FONT_SMALL).pack(anchor="w", pady=(4, 1))
+            for sp_name, sp_val in innate_sp.items():
+                if isinstance(sp_val, dict):
+                    mx_i = int(sp_val.get("max", 0) or 0)
+                    cur_i = sp_val.get("current", sp_val.get("cur", mx_i))
+                    freq = "A Volontà" if mx_i <= 0 else f"{cur_i}/{mx_i}"
+                else:
+                    freq = str(sp_val)
+                btn_sp = ttk.Button(self.npc_actions_frame, text=f"✨ {sp_name} ({freq})",
+                                    command=lambda s=sp_name, n=player_name: self.cast_monster_spell_gui(n, s, None))
+                btn_sp.pack(fill=tk.X, pady=1)
+
+        if isinstance(slot_sp, dict) and slot_sp:
+            ttk.Label(self.npc_actions_frame, text="📜 Slot Incantesimi Mostro:", font=FONT_SMALL).pack(anchor="w", pady=(4, 1))
+            for lvl_k, s_info in sorted(slot_sp.items(), key=lambda x: str(x[0])):
+                if not isinstance(s_info, dict):
+                    continue
+                cur_sl = s_info.get("current", s_info.get("cur", 0))
+                max_sl = s_info.get("max", 0)
+                for sp_name in (s_info.get("spells") or [])[:6]:
+                    btn_sl = ttk.Button(self.npc_actions_frame, text=f"Lv{lvl_k} ({cur_sl}/{max_sl}): {sp_name}",
+                                        command=lambda s=sp_name, lv=int(lvl_k) if str(lvl_k).isdigit() else 1, n=player_name: self.cast_monster_spell_gui(n, s, lv))
+                    btn_sl.pack(fill=tk.X, pady=1)
+
+        if getattr(player, "has_lair_actions", False) or lair_acts:
+            ttk.Label(self.npc_actions_frame, text="🏰 Azioni di Tana:", font=FONT_SMALL).pack(anchor="w", pady=(4, 1))
+            if lair_acts:
+                for la in lair_acts:
+                    la_name = la.get("name", "Azione di Tana") if isinstance(la, dict) else str(la).split(".")[0].strip()
+                    btn_la = ttk.Button(self.npc_actions_frame, text=f"🏰 {la_name}",
+                                        command=lambda l_n=la_name, n=player_name: self.execute_lair_action_gui(n, l_n))
+                    btn_la.pack(fill=tk.X, pady=1)
+            else:
+                ttk.Button(self.npc_actions_frame, text="🏰 Attiva Azione di Tana (Init 20)",
+                           command=lambda n=player_name: self.execute_lair_action_gui(n, "Impulso della Tana")).pack(fill=tk.X, pady=1)
+
+        if getattr(player, "mythic_phase_active", False) and mythic_acts:
+            ttk.Label(self.npc_actions_frame, text="🔱 Azioni Mitiche (Sbloccate):", font=FONT_SMALL).pack(anchor="w", pady=(4, 1))
+            for ma in mythic_acts:
+                ma_name = ma.get("name", "Azione Mitica") if isinstance(ma, dict) else str(ma).split(".")[0].strip()
+                btn_ma = ttk.Button(self.npc_actions_frame, text=f"🔱 {ma_name}",
+                                    command=lambda a=ma, n=player_name: self.roll_npc_action(n, a))
+                btn_ma.pack(fill=tk.X, pady=1)
             
     def roll_npc_action(self, npc_name, action_dict):
         from common.dice import roll_dice
@@ -3812,6 +3871,32 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         self.log_to_chat(f"[COMBAT] {msg}")
         from common.protocol import make_chat_broadcast
         broadcast(self.server.game_state, make_chat_broadcast("DM", msg))
+
+    def cast_monster_spell_gui(self, monster_name, spell_name, slot_level=None):
+        gs = getattr(getattr(self, "server", None), "game_state", None)
+        if not gs:
+            return
+        monster = gs.find_player(monster_name)
+        if not monster:
+            return
+        from server.dm_monster_engine import cast_monster_spell
+        ok, msg = cast_monster_spell(monster, spell_name, gs, slot_level=slot_level)
+        if not ok:
+            messagebox.showwarning("Incantesimo Mostro", msg, parent=self.master)
+        else:
+            self.on_player_selected()
+
+    def execute_lair_action_gui(self, boss_name, action_name):
+        gs = getattr(getattr(self, "server", None), "game_state", None)
+        if not gs:
+            return
+        boss = gs.find_player(boss_name)
+        if not boss:
+            return
+        from server.dm_monster_engine import execute_lair_action
+        ok, msg = execute_lair_action(boss, action_name, gs)
+        if not ok:
+            messagebox.showwarning("Azione di Tana", msg, parent=self.master)
 
     def toggle_mute(self):
         if not hasattr(self, 'voice_client'):

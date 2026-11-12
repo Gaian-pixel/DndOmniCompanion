@@ -9,7 +9,7 @@ stats vs attributes, currency vs gp) garantendo retrocompatibilità al 100%.
 """
 
 import copy
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 
 # Mapping Caratteristiche IT <-> EN
 STAT_IT_TO_EN = {
@@ -261,6 +261,25 @@ def normalize_character_dict(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if not isinstance(clean.get("saving_throw_proficiencies"), list):
         clean["saving_throw_proficiencies"] = []
 
+    # 5b. PHB: Ladro Lv 15+ Mente Sfuggente (Slippery Mind -> Competenza TS SAG)
+    #     e Barbaro Lv 20 Campione Primordiale (+4 FOR/+4 COS fino a 24, una tantum)
+    _cls_map = clean.get("classes") if isinstance(clean.get("classes"), dict) else {}
+    if not _cls_map and clean.get("char_class"):
+        _cls_map = {str(clean.get("char_class")): int(clean.get("level", 1) or 1)}
+    _rogue_lvl = sum(int(v or 0) for k, v in _cls_map.items() if "ladr" in str(k).lower() or "rogue" in str(k).lower())
+    _barb_lvl = sum(int(v or 0) for k, v in _cls_map.items() if "barbar" in str(k).lower())
+    if _rogue_lvl >= 15:
+        _profs_upper = {str(p).upper() for p in clean["saving_throw_proficiencies"]}
+        if "SAG" not in _profs_upper and "WIS" not in _profs_upper:
+            clean["saving_throw_proficiencies"].append("SAG")
+    if _barb_lvl >= 20 and not clean.get("primal_champion_applied"):
+        clean["primal_champion_applied"] = True
+        for _it_k, _en_k in (("FOR", "STR"), ("COS", "CON")):
+            _cur_v = int(clean["attributes"].get(_it_k, clean["stats"].get(_en_k, 10)) or 10)
+            _new_v = min(24, _cur_v + 4)
+            clean["attributes"][_it_k] = _new_v
+            clean["stats"][_en_k] = _new_v
+
     # 12. Tratti, Condizioni e Risorse
     if not isinstance(clean.get("conditions"), list):
         clean["conditions"] = []
@@ -417,6 +436,30 @@ def normalize_character_dict(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if not isinstance(clean.get("feats"), list):
         clean["feats"] = []
 
+    # 15. Slot Magia del Patto (Warlock) separati dagli slot Incantesimi (PHB p. 164)
+    raw_pact = clean.get("pact_slots")
+    calc_pact = calculate_pact_magic_slots(clean.get("classes", {}))
+    if isinstance(raw_pact, dict) and (raw_pact.get("max", 0) or calc_pact["max"] == 0):
+        p_max = max(0, int(raw_pact.get("max", 0) or 0))
+        p_cur = max(0, min(p_max, int(raw_pact.get("current", p_max) if raw_pact.get("current") is not None else p_max)))
+        p_lvl = max(0, min(5, int(raw_pact.get("level", calc_pact.get("level", 1) if p_max > 0 else 0) or 0)))
+        if calc_pact["max"] > p_max:
+            p_max = calc_pact["max"]
+            p_lvl = calc_pact["level"]
+            p_cur = min(p_max, max(0, p_cur))
+        clean["pact_slots"] = {"max": p_max, "current": p_cur, "level": p_lvl}
+    else:
+        clean["pact_slots"] = dict(calc_pact)
+
+    # 16. Competenze Armature, Armi e Strumenti derivate (PHB p. 164 Multiclasse & Razze/Sottoclassi)
+    computed_profs = compute_character_proficiencies(clean)
+    for pk, sk in (("armor", "armor_proficiencies"), ("weapons", "weapon_proficiencies"), ("tools", "tool_proficiencies")):
+        existing_list = clean.get(sk)
+        if not isinstance(existing_list, list):
+            existing_list = []
+        merged = list(dict.fromkeys([str(x) for x in existing_list if x] + computed_profs[pk]))
+        clean[sk] = merged
+
     return clean
 
 
@@ -506,19 +549,31 @@ def check_multiclass_prerequisites(character_or_dict: Any, target_class: str) ->
     return True, "Prerequisiti Multiclasse soddisfatti."
 
 
-def calculate_multiclass_spell_slots(classes_dict: Dict[str, int], subclass_str: str = "") -> Dict[str, Dict[str, int]]:
+def calculate_pact_magic_slots(classes_dict: Dict[str, int]) -> Dict[str, int]:
+    """Calcola separatamente gli slot di Magia del Patto del Warlock (ricarica a Riposo Breve, PHB p. 106/164)."""
+    warlock_level = 0
+    for cls_name, lvl in (classes_dict or {}).items():
+        if "warlock" in str(cls_name or "").strip().lower():
+            warlock_level += max(0, int(lvl or 0))
+    if warlock_level <= 0:
+        return {"max": 0, "current": 0, "level": 0}
+    pact_slot_lvl = min(5, (warlock_level + 1) // 2)
+    pact_count = 1 if warlock_level == 1 else (2 if warlock_level <= 10 else (3 if warlock_level <= 16 else 4))
+    return {"max": pact_count, "current": pact_count, "level": pact_slot_lvl}
+
+
+def calculate_multiclass_spell_slots(classes_dict: Dict[str, int], subclass_str: str = "", include_pact: bool = False) -> Dict[str, Dict[str, int]]:
     """
-    Calcola gli slot incantesimo totali per un personaggio (singola classe o multiclasse)
-    secondo le regole D&D 5e RAW (PHB p. 164-165), combinando Incantesimi e Magia del Patto.
+    Calcola gli slot incantesimo tradizionali (Incantesimi / Riposo Lungo) per un personaggio
+    secondo le regole D&D 5e RAW (PHB p. 164-165), mantenendo separata la Magia del Patto Warlock.
     """
     eff_caster_level = 0
-    warlock_level = 0
     sub_low = str(subclass_str or "").lower()
 
     for cls_name, lvl in (classes_dict or {}).items():
         c_low = str(cls_name).strip().lower()
         c_lvl = max(0, int(lvl or 0))
-        if c_lvl <= 0:
+        if c_lvl <= 0 or "warlock" in c_low:
             continue
         if any(k in c_low for k in ("bardo", "bard", "chierico", "cleric", "druido", "druid", "mago", "wizard", "stregone", "sorcerer")):
             eff_caster_level += c_lvl
@@ -533,8 +588,6 @@ def calculate_multiclass_spell_slots(classes_dict: Dict[str, int], subclass_str:
         elif any(k in c_low for k in ("guerriero", "fighter", "ladro", "rogue")):
             if any(k in sub_low for k in ("cavaliere mistico", "eldritch knight", "mistificatore arcano", "arcane trickster")):
                 eff_caster_level += (c_lvl // 3)
-        elif "warlock" in c_low:
-            warlock_level += c_lvl
 
     eff_caster_level = min(20, eff_caster_level)
     base_slots = MULTICLASS_SPELL_SLOTS_TABLE.get(eff_caster_level, {})
@@ -544,14 +597,161 @@ def calculate_multiclass_spell_slots(classes_dict: Dict[str, int], subclass_str:
         max_s = int(base_slots.get(s_lvl, 0))
         result[str(s_lvl)] = {"max": max_s, "current": max_s}
 
-    # Magia del Patto (Warlock) si somma agli slot del livello del patto (max 5° livello)
-    if warlock_level > 0:
-        pact_slot_lvl = min(5, (warlock_level + 1) // 2)
-        pact_count = 1 if warlock_level == 1 else (2 if warlock_level <= 10 else (3 if warlock_level <= 16 else 4))
-        k_str = str(pact_slot_lvl)
-        result[k_str]["max"] += pact_count
-        result[k_str]["current"] += pact_count
+    if include_pact:
+        pact = calculate_pact_magic_slots(classes_dict)
+        if pact["max"] > 0 and str(pact["level"]) in result:
+            result[str(pact["level"])]["max"] += pact["max"]
+            result[str(pact["level"])]["current"] += pact["max"]
 
     return result
+
+
+# Tabella Competenze Iniziali vs Multiclasse (PHB p. 45-119, p. 164)
+_CLASS_START_PROFS = {
+    "barbar": {"armor": ["light", "medium", "shields"], "weapons": ["simple", "martial"], "tools": []},
+    "bard": {"armor": ["light"], "weapons": ["simple", "hand crossbow", "longsword", "rapier", "shortsword"], "tools": ["Strumento Musicale"]},
+    "chieric": {"armor": ["light", "medium", "shields"], "weapons": ["simple"], "tools": []},
+    "cleric": {"armor": ["light", "medium", "shields"], "weapons": ["simple"], "tools": []},
+    "druid": {"armor": ["light", "medium", "shields"], "weapons": ["club", "dagger", "dart", "javelin", "mace", "quarterstaff", "scimitar", "sickle", "sling", "spear"], "tools": ["Borsa da Erborista"]},
+    "guerrier": {"armor": ["light", "medium", "heavy", "shields"], "weapons": ["simple", "martial"], "tools": []},
+    "fighter": {"armor": ["light", "medium", "heavy", "shields"], "weapons": ["simple", "martial"], "tools": []},
+    "monac": {"armor": [], "weapons": ["simple", "shortsword"], "tools": ["Strumento Artigiano o Musicale"]},
+    "monk": {"armor": [], "weapons": ["simple", "shortsword"], "tools": ["Strumento Artigiano o Musicale"]},
+    "paladin": {"armor": ["light", "medium", "heavy", "shields"], "weapons": ["simple", "martial"], "tools": []},
+    "ranger": {"armor": ["light", "medium", "shields"], "weapons": ["simple", "martial"], "tools": []},
+    "ladr": {"armor": ["light"], "weapons": ["simple", "hand crossbow", "longsword", "rapier", "shortsword"], "tools": ["Arnesi da Scasso"]},
+    "rogue": {"armor": ["light"], "weapons": ["simple", "hand crossbow", "longsword", "rapier", "shortsword"], "tools": ["Arnesi da Scasso"]},
+    "stregon": {"armor": [], "weapons": ["dagger", "dart", "sling", "quarterstaff", "light crossbow"], "tools": []},
+    "sorcerer": {"armor": [], "weapons": ["dagger", "dart", "sling", "quarterstaff", "light crossbow"], "tools": []},
+    "warlock": {"armor": ["light"], "weapons": ["simple"], "tools": []},
+    "mag": {"armor": [], "weapons": ["dagger", "dart", "sling", "quarterstaff", "light crossbow"], "tools": []},
+    "wizard": {"armor": [], "weapons": ["dagger", "dart", "sling", "quarterstaff", "light crossbow"], "tools": []},
+    "artef": {"armor": ["light", "medium", "shields"], "weapons": ["simple"], "tools": ["Arnesi da Scasso", "Arnesi da Inventore"]},
+    "artificer": {"armor": ["light", "medium", "shields"], "weapons": ["simple"], "tools": ["Arnesi da Scasso", "Arnesi da Inventore"]},
+}
+
+_CLASS_MULTICLASS_PROFS = {
+    "barbar": {"armor": ["shields"], "weapons": ["simple", "martial"], "tools": []},
+    "bard": {"armor": ["light"], "weapons": [], "tools": ["Strumento Musicale"]},
+    "chieric": {"armor": ["light", "medium", "shields"], "weapons": [], "tools": []},
+    "cleric": {"armor": ["light", "medium", "shields"], "weapons": [], "tools": []},
+    "druid": {"armor": ["light", "medium", "shields"], "weapons": [], "tools": []},
+    "guerrier": {"armor": ["light", "medium", "shields"], "weapons": ["simple", "martial"], "tools": []},
+    "fighter": {"armor": ["light", "medium", "shields"], "weapons": ["simple", "martial"], "tools": []},
+    "monac": {"armor": [], "weapons": ["simple", "shortsword"], "tools": []},
+    "monk": {"armor": [], "weapons": ["simple", "shortsword"], "tools": []},
+    "paladin": {"armor": ["light", "medium", "shields"], "weapons": ["simple", "martial"], "tools": []},
+    "ranger": {"armor": ["light", "medium", "shields"], "weapons": ["simple", "martial"], "tools": []},
+    "ladr": {"armor": ["light"], "weapons": [], "tools": ["Arnesi da Scasso"]},
+    "rogue": {"armor": ["light"], "weapons": [], "tools": ["Arnesi da Scasso"]},
+    "warlock": {"armor": ["light"], "weapons": ["simple"], "tools": []},
+    "artef": {"armor": ["light", "medium", "shields"], "weapons": [], "tools": ["Arnesi da Scasso"]},
+    "artificer": {"armor": ["light", "medium", "shields"], "weapons": [], "tools": ["Arnesi da Scasso"]},
+}
+
+
+def compute_character_proficiencies(char_or_dict: Any) -> Dict[str, list]:
+    """Calcola competenze in armature, armi e strumenti (Classe iniziale, Multiclasse PHB p.164, Sottoclasse, Razza, Talenti)."""
+    def _g(k, default=None):
+        if isinstance(char_or_dict, dict):
+            return char_or_dict.get(k, default)
+        return getattr(char_or_dict, k, default)
+
+    armor = set()
+    weapons = set()
+    tools = []
+
+    classes = _g("classes", {})
+    if not isinstance(classes, dict) or not classes:
+        cls_primary = str(_g("char_class", "") or "").split("/")[0].strip()
+        classes = {cls_primary: int(_g("level", 1) or 1)} if cls_primary else {}
+
+    for idx, cls_name in enumerate(classes.keys()):
+        c_low = str(cls_name or "").lower()
+        table = _CLASS_START_PROFS if idx == 0 else _CLASS_MULTICLASS_PROFS
+        for key, profs in table.items():
+            if key in c_low:
+                armor.update(profs["armor"])
+                weapons.update(profs["weapons"])
+                for tl in profs["tools"]:
+                    if tl not in tools:
+                        tools.append(tl)
+                break
+
+    sub_low = str(_g("subclass", "") or "").lower()
+    if any(k in sub_low for k in ("vita", "life", "tempesta", "tempest", "guerra", "war", "natura", "nature", "forgia", "forge", "ordine", "order")):
+        armor.update(["light", "medium", "heavy"])
+        if any(k in sub_low for k in ("tempesta", "tempest", "guerra", "war")):
+            weapons.add("martial")
+    if any(k in sub_low for k in ("valore", "valor", "lama", "swords", "hexblade", "lama maledetta")):
+        armor.update(["medium", "shields"])
+        weapons.add("martial")
+    if any(k in sub_low for k in ("cantore della lama", "bladesing")):
+        armor.add("light")
+
+    race_low = str(_g("race", "") or "").lower()
+    subrace_low = str(_g("subrace", "") or "").lower()
+    if "nano" in race_low or "dwarf" in race_low:
+        weapons.update(["battleaxe", "handaxe", "light hammer", "warhammer"])
+        if "montagn" in race_low or "mountain" in race_low or "montagn" in subrace_low or "mountain" in subrace_low:
+            armor.update(["light", "medium"])
+    if "elf" in race_low or "drow" in race_low:
+        if "drow" in race_low or "drow" in subrace_low or "oscuro" in subrace_low:
+            weapons.update(["rapier", "shortsword", "hand crossbow"])
+        else:
+            weapons.update(["longsword", "shortsword", "shortbow", "longbow"])
+    if "hobgoblin" in race_low:
+        armor.add("light")
+
+    feats = _g("feats", []) or []
+    feat_txt = " ".join(str(f.get("name", f) if isinstance(f, dict) else f).lower() for f in feats)
+    feat_txt += " " + str(_g("features", "") or "").lower()
+    if "lightly armored" in feat_txt or "armature leggere" in feat_txt:
+        armor.add("light")
+    if "moderately armored" in feat_txt or "armature medie" in feat_txt:
+        armor.update(["medium", "shields"])
+    if "heavily armored" in feat_txt or "armature pesanti" in feat_txt:
+        armor.add("heavy")
+    if "weapon master" in feat_txt or "maestro d'armi" in feat_txt:
+        weapons.add("martial")
+
+    return {"armor": sorted(armor), "weapons": sorted(weapons), "tools": tools}
+
+
+def consume_spell_or_pact_slot(sheet_or_char: Any, min_level: int, prefer_pact: bool = True) -> Tuple[bool, str]:
+    """Consuma uno slot Incantesimo o Magia del Patto di livello >= min_level (PHB p. 164)."""
+    lvl_req = max(1, min(9, int(min_level or 1)))
+    is_dict = isinstance(sheet_or_char, dict)
+    pact = sheet_or_char.get("pact_slots") if is_dict else getattr(sheet_or_char, "pact_slots", None)
+    slots = sheet_or_char.get("spell_slots") if is_dict else getattr(sheet_or_char, "spell_slots", None)
+
+    def _try_pact():
+        if isinstance(pact, dict) and pact.get("current", 0) > 0 and pact.get("level", 0) >= lvl_req:
+            pact["current"] -= 1
+            return True, f"Slot Patto Warlock (Lv {pact['level']}°, rimasti {pact['current']}/{pact['max']})"
+        return False, ""
+
+    def _try_standard():
+        if isinstance(slots, dict):
+            for s_lvl in range(lvl_req, 10):
+                s_info = slots.get(str(s_lvl))
+                if isinstance(s_info, dict) and s_info.get("current", 0) > 0:
+                    s_info["current"] -= 1
+                    return True, f"Slot Incantesimo {s_lvl}° livello (rimasti {s_info['current']}/{s_info.get('max', 0)})"
+                elif isinstance(s_info, list) and len(s_info) >= 2 and s_info[0] > 0:
+                    s_info[0] -= 1
+                    return True, f"Slot Incantesimo {s_lvl}° livello (rimasti {s_info[0]}/{s_info[1]})"
+        return False, ""
+
+    if prefer_pact:
+        ok, msg = _try_pact()
+        if ok:
+            return True, msg
+        return _try_standard()
+    else:
+        ok, msg = _try_standard()
+        if ok:
+            return True, msg
+        return _try_pact()
 
 

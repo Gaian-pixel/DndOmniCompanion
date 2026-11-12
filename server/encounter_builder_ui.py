@@ -88,25 +88,11 @@ class EncounterBuilderDialog(tk.Toplevel):
                     lvl = int(p.full_sheet.get("level", 1))
                 levels.append(lvl)
         
-        total_easy = 0
-        total_medium = 0
-        total_hard = 0
-        total_deadly = 0
-        
-        for lvl in levels:
-            if lvl == 1: e, m, h, d = 25, 50, 75, 100
-            elif lvl == 2: e, m, h, d = 50, 100, 150, 200
-            elif lvl == 3: e, m, h, d = 75, 150, 225, 400
-            elif lvl == 4: e, m, h, d = 125, 250, 375, 500
-            elif lvl == 5: e, m, h, d = 250, 500, 750, 1100
-            else:
-                e, m, h, d = lvl * 200, lvl * 400, lvl * 600, lvl * 800
-                
-            total_easy += e
-            total_medium += m
-            total_hard += h
-            total_deadly += d
-            
+        from common.encounter_calc import calculate_encounter_difficulty
+        self.party_levels = list(levels) if levels else [1]
+        res = calculate_encounter_difficulty(self.party_levels, [])
+        t = res["thresholds"]
+        total_easy, total_medium, total_hard, total_deadly = t["easy"], t["medium"], t["hard"], t["deadly"]
         self.party_thresholds = {
             "Facile": total_easy,
             "Medio": total_medium,
@@ -218,23 +204,20 @@ class EncounterBuilderDialog(tk.Toplevel):
             self.refresh_list()
 
     def update_difficulty(self):
-        total_xp = 0
-        total_count = 0
+        from common.encounter_calc import calculate_encounter_difficulty
+        monster_xps = []
         for m in self.monsters:
-            total_xp += m["xp"] * m["count"]
-            total_count += m["count"]
+            monster_xps.extend([int(m.get("xp", 0))] * int(m.get("count", 0)))
             
-        if total_count == 0:
+        if not monster_xps:
             self.lbl_difficulty.config(text="Difficoltà: -- (0 XP)", foreground="white")
             return
             
-        if total_count == 1: mult = 1.0
-        elif total_count == 2: mult = 1.5
-        elif 3 <= total_count <= 6: mult = 2.0
-        elif 7 <= total_count <= 10: mult = 2.5
-        else: mult = 3.0
-        
-        adj_xp = int(total_xp * mult)
+        levels = getattr(self, "party_levels", None) or [1]
+        res = calculate_encounter_difficulty(levels, monster_xps)
+        adj_xp = res["adjusted_xp"]
+        raw_xp = res["raw_xp"]
+        mult = res["multiplier"]
         
         diff_str = "Facile"
         color = "green"
@@ -248,7 +231,7 @@ class EncounterBuilderDialog(tk.Toplevel):
             diff_str = "Medio"
             color = "yellow"
             
-        self.lbl_difficulty.config(text=f"Difficoltà: {diff_str} ({adj_xp} XP Adattati)", foreground=color)
+        self.lbl_difficulty.config(text=f"Difficoltà: {diff_str} ({adj_xp} XP Adattati | Base {raw_xp} x{mult})", foreground=color)
         
     def deploy_encounter(self):
         if not self.monsters:

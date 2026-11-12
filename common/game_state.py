@@ -1,5 +1,6 @@
 # game_state.py
 import os
+import re
 import threading
 import json
 
@@ -76,6 +77,33 @@ class Player:
         self.is_submerged = False
         self.is_object = False
         self.damage_threshold = 0
+        self.frightened_sources = {}
+        self.charmed_by = []
+        self.hero_points = 0
+        self.honor = 10
+        self.sanity = 10
+        self.facing = 0
+        self.lair_last_action = None
+        self.petrification_stage = 0
+        self.regenerated_blocked_types = []
+        self.swallow_damage_taken = 0
+        self.grappled_by = None
+        self.sleeping_in_armor = False
+        self.concentration_rounds_remaining = None
+        self.hero_points = None
+        self.facing = None
+        self.climbing_on_target = None
+        self.is_mythic = False
+        self.mythic_phase_active = False
+        self.mythic_actions_unlocked = False
+        self.lair_last_action = None
+        self.damage_transfer_target = None
+        self.petrification_stage = 0
+        self.regional_effects = []
+        self.pact_slots_max = 0
+        self.pact_slots_current = 0
+        self.pact_slot_level = 0
+        self.temp_hp_pending = None
 
 
 
@@ -278,6 +306,32 @@ class Player:
             "is_submerged": getattr(self, "is_submerged", False),
             "is_object": getattr(self, "is_object", False),
             "damage_threshold": getattr(self, "damage_threshold", 0),
+            "frightened_sources": getattr(self, "frightened_sources", {}),
+            "charmed_by": getattr(self, "charmed_by", []),
+            "hero_points": getattr(self, "hero_points", 0),
+            "honor": getattr(self, "honor", 10),
+            "sanity": getattr(self, "sanity", 10),
+            "facing": getattr(self, "facing", 0),
+            "lair_last_action": getattr(self, "lair_last_action", None),
+            "petrification_stage": getattr(self, "petrification_stage", 0),
+            "regenerated_blocked_types": getattr(self, "regenerated_blocked_types", []),
+            "swallow_damage_taken": getattr(self, "swallow_damage_taken", 0),
+            "grappled_by": getattr(self, "grappled_by", None),
+            "sleeping_in_armor": getattr(self, "sleeping_in_armor", False),
+            "concentration_rounds_remaining": getattr(self, "concentration_rounds_remaining", None),
+            "hero_points": getattr(self, "hero_points", None),
+            "facing": getattr(self, "facing", None),
+            "climbing_on_target": getattr(self, "climbing_on_target", None),
+            "is_mythic": getattr(self, "is_mythic", False),
+            "mythic_phase_active": getattr(self, "mythic_phase_active", False),
+            "mythic_actions_unlocked": getattr(self, "mythic_actions_unlocked", False),
+            "lair_last_action": getattr(self, "lair_last_action", None),
+            "damage_transfer_target": getattr(self, "damage_transfer_target", None),
+            "petrification_stage": getattr(self, "petrification_stage", 0),
+            "regional_effects": list(getattr(self, "regional_effects", []) or []),
+            "pact_slots_max": getattr(self, "pact_slots_max", 0),
+            "pact_slots_current": getattr(self, "pact_slots_current", 0),
+            "pact_slot_level": getattr(self, "pact_slot_level", 0),
         }
 
     @classmethod
@@ -354,6 +408,32 @@ class Player:
         p.is_submerged = data.get("is_submerged", False)
         p.is_object = data.get("is_object", False)
         p.damage_threshold = data.get("damage_threshold", 0)
+        p.frightened_sources = data.get("frightened_sources", {})
+        p.charmed_by = data.get("charmed_by", [])
+        p.hero_points = data.get("hero_points", 0)
+        p.honor = data.get("honor", 10)
+        p.sanity = data.get("sanity", 10)
+        p.facing = data.get("facing", 0)
+        p.lair_last_action = data.get("lair_last_action", None)
+        p.petrification_stage = data.get("petrification_stage", 0)
+        p.regenerated_blocked_types = data.get("regenerated_blocked_types", [])
+        p.swallow_damage_taken = data.get("swallow_damage_taken", 0)
+        p.grappled_by = data.get("grappled_by", None)
+        p.sleeping_in_armor = data.get("sleeping_in_armor", False)
+        p.concentration_rounds_remaining = data.get("concentration_rounds_remaining", None)
+        p.hero_points = data.get("hero_points", None)
+        p.facing = data.get("facing", None)
+        p.climbing_on_target = data.get("climbing_on_target", None)
+        p.is_mythic = bool(data.get("is_mythic", False))
+        p.mythic_phase_active = bool(data.get("mythic_phase_active", False))
+        p.mythic_actions_unlocked = bool(data.get("mythic_actions_unlocked", False))
+        p.lair_last_action = data.get("lair_last_action", None)
+        p.damage_transfer_target = data.get("damage_transfer_target", None)
+        p.petrification_stage = int(data.get("petrification_stage", 0) or 0)
+        p.regional_effects = list(data.get("regional_effects", []) or [])
+        p.pact_slots_max = data.get("pact_slots_max", 0)
+        p.pact_slots_current = data.get("pact_slots_current", 0)
+        p.pact_slot_level = data.get("pact_slot_level", 0)
         return p
 
 
@@ -417,7 +497,7 @@ class GameState:
             "auto_day_night_cycle": True,
             "auto_distribute_xp": True,
             "square_diagonal_rule": "standard",
-            # Regole Opzionali DMG (Selezionabili dal DM nel pannello automazioni)
+            # Regole Opzionali DMG / XGtE / TCE (Selezionabili dal DM nel pannello automazioni)
             "opt_cleaving": False,
             "opt_massive_damage": False,
             "opt_lingering_injuries": False,
@@ -426,9 +506,26 @@ class GameState:
             "opt_dmg_maneuvers": False,
             "opt_spell_points": False,
             "opt_hunger_thirst_weather": False,
+            "opt_facing": False,
+            "opt_init_variant": "standard",
+            "opt_morale": False,
+            "opt_hero_points": False,
+            "opt_honor_sanity": False,
+            "opt_fear_horror": False,
+            "opt_marking": False,
+            "opt_climb_bigger": False,
+            "opt_hitting_cover": False,
+            "opt_healing_surges": False,
+            "opt_slow_natural_healing": False,
+            "opt_falling_xge_tce": False,
+            "opt_armor_sleep_xge": False,
+            "opt_legendary_res_prompt": False,
         }
         self.pending_damages = {} # id -> dict
         self.pending_doors = {}   # id -> dict
+        self.pending_legendary_resistances = {} # id -> dict
+        self.active_complex_traps = []
+        self.active_regional_effects = []
 
     def set_automation_mode(self, mode: str, custom_settings: dict = None):
         """Imposta il profilo di automazione della campagna (manual, hybrid, full) e aggiorna i flag."""
@@ -443,6 +540,20 @@ class GameState:
             "opt_dmg_maneuvers": bool(cur.get("opt_dmg_maneuvers", False)),
             "opt_spell_points": bool(cur.get("opt_spell_points", False)),
             "opt_hunger_thirst_weather": bool(cur.get("opt_hunger_thirst_weather", False)),
+            "opt_facing": bool(cur.get("opt_facing", False)),
+            "opt_init_variant": cur.get("opt_init_variant", "standard"),
+            "opt_morale": bool(cur.get("opt_morale", False)),
+            "opt_hero_points": bool(cur.get("opt_hero_points", False)),
+            "opt_honor_sanity": bool(cur.get("opt_honor_sanity", False)),
+            "opt_fear_horror": bool(cur.get("opt_fear_horror", False)),
+            "opt_marking": bool(cur.get("opt_marking", False)),
+            "opt_climb_bigger": bool(cur.get("opt_climb_bigger", False)),
+            "opt_hitting_cover": bool(cur.get("opt_hitting_cover", False)),
+            "opt_healing_surges": bool(cur.get("opt_healing_surges", False)),
+            "opt_slow_natural_healing": bool(cur.get("opt_slow_natural_healing", False)),
+            "opt_falling_xge_tce": bool(cur.get("opt_falling_xge_tce", False)),
+            "opt_armor_sleep_xge": bool(cur.get("opt_armor_sleep_xge", False)),
+            "opt_legendary_res_prompt": bool(cur.get("opt_legendary_res_prompt", False)),
         }
         with self.lock:
             self.automation_mode = mode
@@ -575,7 +686,15 @@ class GameState:
                     p.spell_cast_action_level_this_turn = None
                     
             # Ordina i giocatori in combattimento per iniziativa decrescente, e sposta gli altri in fondo
-            self.players.sort(key=lambda p: (getattr(p, 'in_combat', True), p.initiative), reverse=True)
+            iv_mode = (getattr(self, "automation_settings", {}) or {}).get("opt_init_variant", "standard")
+            if iv_mode in ("side", "speed_factor"):
+                try:
+                    from server.dm_optional_tools import apply_initiative_variant
+                    apply_initiative_variant(self)
+                except Exception:
+                    self.players.sort(key=lambda p: (getattr(p, 'in_combat', True), p.initiative), reverse=True)
+            else:
+                self.players.sort(key=lambda p: (getattr(p, 'in_combat', True), p.initiative), reverse=True)
             active = self.get_current_turn_player()
             if active:
                 active.movement_spent_this_turn = 0
@@ -745,9 +864,26 @@ class GameState:
                 for c_p in combatants:
                     c_p.sneak_attack_used_this_turn = False
                 if hasattr(active, "conditions") and active.conditions:
-                    active.conditions = [c for c in active.conditions if c not in start_of_turn_conds and c not in ("Scudo", "Shield")]
+                    active.conditions = [c for c in active.conditions if c not in start_of_turn_conds and c not in ("Scudo", "Shield", "Azione Preparata")]
+                if getattr(active, "readied_action_data", None):
+                    # PHB p. 193: L'azione preparata non innescata prima dell'inizio del turno successivo scade (incantesimo preparato svanisce!)
+                    if active.readied_action_data.get("is_spell") and getattr(active, "concentrating_on", None):
+                        if str(active.concentrating_on).startswith("Preparato:"):
+                            active.concentrating_on = None
+                    active.readied_action_data = None
+                # Scadenza Azione di Aiuto all'inizio del turno successivo dell'aiutante (PHB p. 192)
+                for h_tgt_name in list(getattr(active, "helped_targets_this_turn", []) or []):
+                    h_tgt = self.find_player(h_tgt_name)
+                    if h_tgt and hasattr(h_tgt, "conditions"):
+                        h_tgt.conditions = [c for c in h_tgt.conditions if c not in ("Aiutato", "Helped")]
+                active.helped_targets_this_turn = []
+                # Scadenza Sfinimento Livello 6 = Morte Istantanea (PHB p. 291)
+                if getattr(active, "exhaustion_level", 0) >= 6 and active.hp > 0:
+                    active.hp = 0
+                    if "Morto" not in active.conditions:
+                        active.conditions.append("Morto")
                 if getattr(active, "full_sheet", None) and isinstance(active.full_sheet.get("conditions"), list):
-                    active.full_sheet["conditions"] = [c for c in active.full_sheet["conditions"] if c not in start_of_turn_conds and c not in ("Scudo", "Shield")]
+                    active.full_sheet["conditions"] = list(active.conditions)
                 if hasattr(active, "active_effects") and isinstance(active.active_effects, list):
                     expired_start_fx = []
                     for fx in active.active_effects:
@@ -792,30 +928,52 @@ class GameState:
                                 broadcast(self, make_chat_broadcast("Sistema", msg))
                                 self.log_dm_message(f"[RECHARGE] {msg}")
 
-                    # 2. Rigenerazione (MM p. 11: Troll 10 PV, Vampiro 20 PV)
-                    traits_str = ""
+                    # 2. Rigenerazione (MM p. 11: Troll 10 PV, Vampiro 20 PV, legge traits, special_abilities e features)
+                    traits_chunks = []
                     if isinstance(fs, dict):
-                        traits_raw = fs.get("traits", []) + fs.get("special_abilities", [])
-                        traits_str = " ".join(
-                            f"{t.get('name', '')} {t.get('desc', '')}" if isinstance(t, dict) else str(t)
-                            for t in traits_raw
-                        ).lower()
-                    
+                        for key_t in ("traits", "special_abilities", "features", "features_list"):
+                            val_t = fs.get(key_t)
+                            if isinstance(val_t, str):
+                                traits_chunks.append(val_t)
+                            elif isinstance(val_t, (list, tuple, set)):
+                                for item_t in val_t:
+                                    traits_chunks.append(f"{item_t.get('name', '')} {item_t.get('desc', '')}" if isinstance(item_t, dict) else str(item_t))
+                    traits_str = " ".join(traits_chunks).lower()
+
                     if "rigenerazione" in traits_str or "regeneration" in traits_str:
+                        conds = [str(c).lower() for c in getattr(active, "conditions", [])]
+                        blocked_types = [str(b).lower() for b in (getattr(active, "regenerated_blocked_types", []) or [])]
+                        is_vamp = "vampir" in str(active.name).lower() or "vampire" in traits_str or "radioso" in traits_str or "radiant" in traits_str or "radiante" in traits_str
+                        is_troll = "troll" in str(active.name).lower() or "acido" in traits_str or "acid" in traits_str or "fuoco" in traits_str or "fire" in traits_str
+                        chill_touch_block = any("tocco gelido" in c or "chill touch" in c for c in conds)
+                        inhibited = chill_touch_block
+                        if is_vamp and (
+                            any(b in ("radioso", "radiant", "radiante", "luce solare", "sunlight", "acqua corrente", "running water") for b in blocked_types)
+                            or any(k in c for c in conds for k in ("danno radioso", "radiant damage", "luce solare", "sunlight", "acqua corrente"))
+                        ):
+                            inhibited = True
+                        if is_troll and (
+                            any(b in ("fuoco", "fire", "acido", "acid") for b in blocked_types)
+                            or any(k in c for c in conds for k in ("danno da fuoco", "danno da acido", "fire damage", "acid damage", "bruciatura", "acido"))
+                        ):
+                            inhibited = True
+                        if not is_vamp and not is_troll and (
+                            any(b in ("fuoco", "fire", "acido", "acid", "radioso", "radiant", "radiante") for b in blocked_types)
+                            or any(k in c for c in conds for k in ("danno da fuoco", "danno da acido", "danno radioso", "fire damage", "acid damage", "radiant damage", "rigenerazione bloccata"))
+                        ):
+                            inhibited = True
+                        active.regenerated_blocked_types = []
+
                         if active.hp > 0 and active.hp < active.max_hp:
-                            conds = [str(c).lower() for c in getattr(active, "conditions", [])]
-                            # Se ha subito fuoco o acido (Troll), la rigenerazione è inibita fino al prossimo turno
-                            fire_acid_inhibited = any(k in conds for k in ("danno da fuoco subito", "danno da acido subito", "bruciatura", "acido"))
-                            if not fire_acid_inhibited:
-                                regen_val = 10
-                                if "20" in traits_str or "vampiro" in str(active.name).lower() or "vampire" in str(active.name).lower():
-                                    regen_val = 20
+                            if not inhibited:
+                                m_regen = re.search(r"(?:rigenera|regains)\s+(\d+)\s*(?:pf|pv|hp|hit points)", traits_str)
+                                regen_val = int(m_regen.group(1)) if m_regen else (20 if is_vamp else 10)
                                 active.hp = min(active.max_hp, active.hp + regen_val)
                                 msg = f"💚 [RIGENERAZIONE] {active.name} rigenera {regen_val} PV all'inizio del proprio turno ({active.hp}/{active.max_hp} PV)!"
                                 broadcast(self, make_chat_broadcast("Sistema", msg))
                                 broadcast(self, make_player_stats_update(active.name, active.hp, active.max_hp, active.initiative, active.conditions, getattr(active, "temp_hp", 0)))
                             else:
-                                msg = f"⚠️ [RIGENERAZIONE] La rigenerazione di {active.name} è inibita dai danni da fuoco o acido subiti!"
+                                msg = f"⚠️ [RIGENERAZIONE] La rigenerazione di {active.name} è inibita dai danni subiti o dal tratto specifico!"
                                 broadcast(self, make_chat_broadcast("Sistema", msg))
 
                     # 3. Danno Continuo (es. In Fiamme, Veleno Attivo)
@@ -853,14 +1011,54 @@ class GameState:
                             active.swallowed_by = None
                             if hasattr(active, "conditions"):
                                 active.conditions = [c for c in active.conditions if c not in ("Inghiottito", "Swallowed", "Accecato", "Blinded", "Trattenuto", "Restrained")]
+
+                    # 5. Champion Fighter Survivor (Lv 18+, PHB p. 73): all'inizio del turno, se 0 < PF <= MaxPF//2, recupera 5 + Mod COS
+                    if not getattr(active, "is_monster", False) and 0 < active.hp <= (active.max_hp // 2):
+                        from common.dnd5e_tables import entity_get_class_level, entity_get_attr_mod, entity_has_keyword
+                        from server.rules.reaction_magic import is_incapacitated_entity
+                        if not is_incapacitated_entity(active):
+                            f_lvl = entity_get_class_level(active, "guerriero", "fighter")
+                            fs_act = getattr(active, "full_sheet", None) or {}
+                            sub_act = str(fs_act.get("subclass", "") or "").lower()
+                            has_surv = (f_lvl >= 18 and ("campione" in sub_act or "champion" in sub_act)) or entity_has_keyword(active, "sopravvissuto", "survivor")
+                            if has_surv:
+                                con_m = entity_get_attr_mod(active, "COS")
+                                surv_heal = max(0, 5 + con_m)
+                                if surv_heal > 0:
+                                    old_hp = active.hp
+                                    active.hp = min(active.max_hp, active.hp + surv_heal)
+                                    gained = active.hp - old_hp
+                                    if gained > 0:
+                                        msg = f"⚔️ [SOPRAVVISSUTO] {active.name} recupera {gained} PF (5 + {con_m} COS) a inizio turno! (PV: {active.hp}/{active.max_hp})"
+                                        broadcast(self, make_chat_broadcast("Sistema", msg))
+                                        broadcast(self, make_player_stats_update(active.name, active.hp, active.max_hp, active.initiative, active.conditions, getattr(active, "temp_hp", 0)))
+
+                    # 6. Paladino Aura of Courage (Lv 10+): sopprimi Spaventato se protetto dall'aura
+                    if any(str(c).lower().startswith(("spaventat", "frightened")) for c in getattr(active, "conditions", [])):
+                        from server.rules.class_abilities import is_immune_to_frightened_by_aura
+                        imm, aura_src = is_immune_to_frightened_by_aura(active, self)
+                        if imm:
+                            active.conditions = [c for c in active.conditions if not str(c).lower().startswith(("spaventat", "frightened"))]
+                            if hasattr(active, "frightened_sources"):
+                                active.frightened_sources = []
+                            msg = f"🛡️ [AURA DI CORAGGIO - {aura_src}] {active.name} non può essere Spaventato finché si trova nell'aura!"
+                            broadcast(self, make_chat_broadcast("Sistema", msg))
+                            broadcast(self, make_player_stats_update(active.name, active.hp, active.max_hp, active.initiative, active.conditions, getattr(active, "temp_hp", 0)))
                 except Exception:
                     pass
 
             if round_advanced:
+                from common.dnd5e_tables import entity_get_class_level as _get_cls_lvl, entity_has_keyword as _has_kw
                 for p in self.players:
+                    p_conds_low = [str(c).lower() for c in getattr(p, "conditions", [])]
+                    is_unconscious = getattr(p, "hp", 0) <= 0 or any(k in c for c in p_conds_low for k in ("incosci", "unconsc", "privo di sensi", "morto", "dead"))
+                    barb_lvl = _get_cls_lvl(p, "barbaro", "barbarian")
+                    persistent_rage = (not is_unconscious) and (barb_lvl >= 15 or _has_kw(p, "ira persistente", "persistent rage"))
                     if hasattr(p, "condition_durations") and isinstance(p.condition_durations, dict):
                         expired = []
                         for cond, rounds_left in list(p.condition_durations.items()):
+                            if persistent_rage and str(cond).lower() in ("ira", "rage"):
+                                continue
                             p.condition_durations[cond] = rounds_left - 1
                             if p.condition_durations[cond] <= 0:
                                 expired.append(cond)
@@ -871,12 +1069,27 @@ class GameState:
                     if hasattr(p, "active_effects") and isinstance(p.active_effects, list):
                         exp_round_fx = []
                         for fx in p.active_effects:
+                            fx_name_low = f"{fx.get('id', '')} {fx.get('name', '')}".lower()
+                            if persistent_rage and ("ira" in fx_name_low.split() or "rage" in fx_name_low.split() or fx_name_low.strip() in ("ira", "rage")):
+                                continue
                             if fx.get("decrement_timing", "round_end") == "round_end" and fx.get("duration_rounds") is not None:
                                 fx["duration_rounds"] -= 1
                                 if fx["duration_rounds"] <= 0:
                                     exp_round_fx.append(fx.get("id") or fx.get("name"))
                         for fx_id in exp_round_fx:
                             p.remove_effect(fx_id)
+                    if getattr(p, "concentrating_on", None) and getattr(p, "concentration_rounds_remaining", None) is not None:
+                        try:
+                            p.concentration_rounds_remaining = int(p.concentration_rounds_remaining) - 1
+                            if p.concentration_rounds_remaining <= 0:
+                                ended_spell = p.concentrating_on
+                                p.concentrating_on = None
+                                p.concentration_rounds_remaining = None
+                                msg_c = f"⏱️ [CONCENTRAZIONE SCADUTA] La durata massima di '{ended_spell}' ({p.name}) è terminata."
+                                broadcast(self, make_chat_broadcast("Sistema", msg_c))
+                                broadcast(self, make_player_stats_update(p.name, p.hp, p.max_hp, p.initiative, p.conditions, getattr(p, "temp_hp", 0)))
+                        except Exception:
+                            pass
         self._trigger_gui_update()
 
     def advance_game_time(self, seconds=0, minutes=0, hours=0, days=0):
@@ -1092,6 +1305,8 @@ class GameState:
                 "automation_settings": getattr(self, "automation_settings", {}),
                 "pending_damages": getattr(self, "pending_damages", {}) if is_dm else {},
                 "pending_doors": getattr(self, "pending_doors", {}) if is_dm else {},
+                "active_complex_traps": getattr(self, "active_complex_traps", []),
+                "active_regional_effects": getattr(self, "active_regional_effects", []),
                 "campaign_journal": self.campaign_journal.to_dict(include_dm_notes=True) if is_dm and hasattr(self, "campaign_journal") and self.campaign_journal else (self.campaign_journal.sanitize_for_players() if hasattr(self, "campaign_journal") and self.campaign_journal else None)
             }
 
@@ -1156,6 +1371,8 @@ class GameState:
             self.travel_miles_today = state.get("travel_miles_today", 0)
             self.camp_watch_shifts = state.get("camp_watch_shifts", {})
             self.camp_has_campfire = state.get("camp_has_campfire", True)
+            self.active_complex_traps = state.get("active_complex_traps", [])
+            self.active_regional_effects = state.get("active_regional_effects", [])
             if "automation_mode" in state:
                 self.automation_mode = state.get("automation_mode", "hybrid")
             if "automation_settings" in state and isinstance(state["automation_settings"], dict):
@@ -1228,6 +1445,17 @@ class GameState:
                     existing.size = p_data.get("size", 1)
                     existing.is_hidden = p_data.get("is_hidden", False)
                     existing.concentrating_on = p_data.get("concentrating_on", None)
+                    existing.concentration_rounds_remaining = p_data.get("concentration_rounds_remaining", None)
+                    existing.hero_points = p_data.get("hero_points", None)
+                    existing.facing = p_data.get("facing", None)
+                    existing.climbing_on_target = p_data.get("climbing_on_target", None)
+                    existing.is_mythic = bool(p_data.get("is_mythic", False))
+                    existing.mythic_phase_active = bool(p_data.get("mythic_phase_active", False))
+                    existing.mythic_actions_unlocked = bool(p_data.get("mythic_actions_unlocked", False))
+                    existing.lair_last_action = p_data.get("lair_last_action", None)
+                    existing.damage_transfer_target = p_data.get("damage_transfer_target", None)
+                    existing.petrification_stage = int(p_data.get("petrification_stage", 0) or 0)
+                    existing.regional_effects = list(p_data.get("regional_effects", []) or [])
                     existing.in_combat = p_data.get("in_combat", False)
                     existing.death_save_successes = p_data.get("death_save_successes", 0)
                     existing.death_save_failures = p_data.get("death_save_failures", 0)

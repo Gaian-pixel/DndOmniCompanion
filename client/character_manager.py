@@ -162,6 +162,10 @@ class Character:
         self.inventory = []
         self.features = ""
         self.spell_slots = {str(i): {"max": 0, "current": 0} for i in range(1, 10)}
+        self.pact_slots = {"max": 0, "current": 0, "level": 0}
+        self.armor_proficiencies = []
+        self.weapon_proficiencies = []
+        self.tool_proficiencies = []
         self.spellbook = []
         self.weapons = []
         self.has_inspiration = False
@@ -194,6 +198,8 @@ class Character:
         self.lucky_points = 0
         self.relentless_endurance_used = False
         self.arcane_recovery_used = False
+        self.arcane_ward_hp = 0
+        self.active_metamagic = None
         self.wild_shape = {
             "active": False,
             "beast_name": "",
@@ -216,8 +222,10 @@ class Character:
         self.bardic_inspiration_die = None
         self.relentless_rage_uses = 0
 
-    def short_rest(self, hd_to_spend=1):
-        """Spende Dadi Vita (XdY + Mod COS) per recuperare HP e ricarica i privilegi da riposo breve."""
+    def short_rest(self, hd_to_spend=1, attune_idx: int = None):
+        """Spende Dadi Vita (XdY + Mod COS) per recuperare HP e ricarica i privilegi da riposo breve (inclusa sintonia DMG p.138)."""
+        if attune_idx is not None:
+            self.attune_on_short_rest(attune_idx)
         actual_spend = 0
         if hd_to_spend > 0 and getattr(self, "hit_dice_current", 0) > 0:
             actual_spend = min(hd_to_spend, self.hit_dice_current)
@@ -259,34 +267,58 @@ class Character:
 
         self.relentless_rage_uses = 0
         
-        # Regola D&D 5e: I Warlock (Magia del Patto) ricaricano tutti gli slot incantesimo con un Riposo Breve!
-        c_class = str(getattr(self, "char_class", "")).strip().lower()
-        if "warlock" in c_class:
-            for lvl, slot in getattr(self, "spell_slots", {}).items():
-                try: slot_lvl = int(lvl)
-                except (ValueError, TypeError): slot_lvl = 1
-                if slot_lvl <= 5:
-                    if isinstance(slot, dict) and "current" in slot:
-                        slot["current"] = slot.get("max", 0)
-                    elif isinstance(slot, list) and len(slot) >= 2:
-                        slot[0] = slot[1]
+        # Regola D&D 5e RAW (PHB p. 164): Warlock ricarica gli slot di Magia del Patto a Riposo Breve,
+        # SENZA mai ricaricare gli slot tradizionali (Mago/Chierico/Stregone/ecc.) in caso di multiclasse.
+        pact = getattr(self, "pact_slots", None)
+        if isinstance(pact, dict) and pact.get("max", 0) > 0:
+            pact["current"] = pact.get("max", 0)
+        else:
+            from common.dnd5e_tables import entity_get_class_level
+            war_lvl = entity_get_class_level(self, "warlock")
+            other_caster = any(
+                entity_get_class_level(self, *keys) > 0
+                for keys in (("mago", "wizard"), ("chierico", "cleric"), ("stregone", "sorcerer"), ("bardo", "bard"), ("druido", "druid"), ("paladino", "paladin"), ("ranger",), ("artefice", "artificer"))
+            )
+            c_class = str(getattr(self, "char_class", "")).strip().lower()
+            if (war_lvl > 0 or "warlock" in c_class) and not other_caster:
+                for lvl, slot in getattr(self, "spell_slots", {}).items():
+                    try: slot_lvl = int(lvl)
+                    except (ValueError, TypeError): slot_lvl = 1
+                    if slot_lvl <= 5:
+                        if isinstance(slot, dict) and "current" in slot:
+                            slot["current"] = slot.get("max", 0)
+                        elif isinstance(slot, list) and len(slot) >= 2:
+                            slot[0] = slot[1]
                     
         return recovered
 
     def long_rest(self):
         self.hp_current = self.hp_max
         self.temp_hp = 0
-        regained = max(1, self.hit_dice_total // 2) if self.hit_dice_total > 0 else 0
+        from common.feats_and_classes import evaluate_armor_sleep, init_or_get_arcane_ward_hp
+        sleep_eval = evaluate_armor_sleep(self)
+        _hd_frac = sleep_eval["hd_fraction"]
+        if sleep_eval["penalized"] and self.hit_dice_total > 0:
+            regained = max(1, int(self.hit_dice_total * _hd_frac))
+        else:
+            regained = max(1, self.hit_dice_total // 2) if self.hit_dice_total > 0 else 0
         self.hit_dice_current = min(self.hit_dice_total, self.hit_dice_current + regained)
         self.death_saves = {"successes": 0, "failures": 0}
-        self.exhaustion_level = max(0, getattr(self, "exhaustion_level", 0) - 1)
+        if not sleep_eval["blocks_exhaustion_recovery"]:
+            self.exhaustion_level = max(0, getattr(self, "exhaustion_level", 0) - 1)
+        self.arcane_ward_hp = None
+        init_or_get_arcane_ward_hp(self)
         for lvl in self.spell_slots:
             if isinstance(self.spell_slots[lvl], dict) and "current" in self.spell_slots[lvl]:
                 self.spell_slots[lvl]["current"] = self.spell_slots[lvl]["max"]
             elif isinstance(self.spell_slots[lvl], list) and len(self.spell_slots[lvl]) > 1:
                 self.spell_slots[lvl][0] = self.spell_slots[lvl][1]
+        if isinstance(getattr(self, "pact_slots", None), dict) and self.pact_slots.get("max", 0) > 0:
+            self.pact_slots["current"] = self.pact_slots["max"]
         lvl = getattr(self, "level", 1) or 1
-        max_rage = 2 if lvl < 3 else (3 if lvl < 6 else (4 if lvl < 12 else 5))
+        from common.dnd5e_tables import entity_get_class_level
+        barb_lvl = entity_get_class_level(self, "barbar", "barbarian") or lvl
+        max_rage = 2 if barb_lvl < 3 else (3 if barb_lvl < 6 else (4 if barb_lvl < 12 else (5 if barb_lvl < 17 else (6 if barb_lvl < 20 else 99))))
         self.class_resources = {
             "second_wind": True,
             "action_surge": True,
@@ -352,10 +384,13 @@ class Character:
         return 0
 
     def get_effective_max_hp(self) -> int:
-        """Restituisce i PF massimi effettivi includendo Robusto (Tough) se attivo e non ancora applicato."""
+        """Restituisce i PF massimi effettivi includendo Robusto (Tough) e Sfinimento Lv 4+ (PHB p. 291)."""
         base = int(getattr(self, "hp_max", 10) or 10)
         if self.has_feat("robusto", "tough") and not getattr(self, "_tough_applied", False):
-            return base + self.get_tough_bonus_hp()
+            base += self.get_tough_bonus_hp()
+        exh = int(getattr(self, "exhaustion_level", 0) or 0)
+        if exh >= 4:
+            base = max(1, base // 2)
         return base
 
     def get_alert_initiative_bonus(self) -> int:
@@ -622,7 +657,13 @@ class Character:
         if sp_cur < c:
             return False, f"Punti Stregoneria insufficienti per {metamagic_name} (richiesti: {c}, attuali: {sp_cur})."
         self.sorcery_points_current = sp_cur - c
+        self.active_metamagic = str(metamagic_name or "").strip().lower()
         return True, f"Metamagia '{metamagic_name}' attivata (-{c} Punti Stregoneria, rimasti: {self.sorcery_points_current})."
+
+    def attune_on_short_rest(self, slot_index: int) -> tuple:
+        """DMG p. 138: Completa la sintonia con un oggetto in inventario durante il Riposo Breve."""
+        from common.feats_and_classes import attune_item_short_rest
+        return attune_item_short_rest(self, int(slot_index))
 
     def arcane_recovery(self, slots_to_regain: dict) -> tuple:
         """Recupero Arcano (Mago PHB p. 115): Recupera slot incantesimo fino a ceil(Livello Mago / 2) al Riposo Breve 1/giorno."""
@@ -732,7 +773,12 @@ class Character:
         - Aggiorna il dizionario 'classes', la stringa 'char_class' e il livello totale
         - Ricalcola gli slot incantesimo secondo la Tabella Multiclasse se applicabile
         """
-        from common.character_schema import check_multiclass_prerequisites, calculate_multiclass_spell_slots
+        from common.character_schema import (
+            check_multiclass_prerequisites,
+            calculate_multiclass_spell_slots,
+            calculate_pact_magic_slots,
+            compute_character_proficiencies,
+        )
         t_cls = str(target_class or self.char_class or "Guerriero").strip()
         if not hasattr(self, "classes") or not isinstance(self.classes, dict) or not self.classes:
             base_c = str(self.char_class or t_cls).split("/")[0].strip()
@@ -756,59 +802,70 @@ class Character:
         mc_slots = calculate_multiclass_spell_slots(self.classes, getattr(self, "subclass", ""))
         if any(v["max"] > 0 for v in mc_slots.values()):
             self.spell_slots = mc_slots
+        pact_info = calculate_pact_magic_slots(self.classes)
+        if pact_info.get("max", 0) > 0:
+            self.pact_slots = pact_info
+
+        profs = compute_character_proficiencies(self)
+        self.armor_proficiencies = list(dict.fromkeys(list(getattr(self, "armor_proficiencies", []) or []) + profs["armor"]))
+        self.weapon_proficiencies = list(dict.fromkeys(list(getattr(self, "weapon_proficiencies", []) or []) + profs["weapons"]))
+        self.tool_proficiencies = list(dict.fromkeys(list(getattr(self, "tool_proficiencies", []) or []) + profs["tools"]))
 
         return True, f"Livello acquisito in {matched_key} (Totale: Liv. {self.level})."
 
     def auto_populate_class_resources(self):
-        """Popola le risorse 5e note in base alla classe se custom_resources è vuota (D&D 5e RAW)."""
+        """Popola le risorse 5e note per ogni classe posseduta (multiclasse e singola) secondo PHB p. 164."""
         if getattr(self, "custom_resources", None):
             return
         self.custom_resources = []
-        c_cls = str(getattr(self, "char_class", "")).lower()
-        lvl = max(1, int(getattr(self, "level", 1) or 1))
+        from common.dnd5e_tables import entity_get_class_level
         car_val = self.get_effective_attribute("CAR") if hasattr(self, "get_effective_attribute") else int(self.attributes.get("CAR", self.attributes.get("CHA", 10)))
         car_mod = max(1, (car_val - 10) // 2)
-        
-        if any(k in c_cls for k in ["barbar", "barbarian"]):
-            rage = 2 if lvl < 3 else (3 if lvl < 6 else (4 if lvl < 12 else (5 if lvl < 17 else (6 if lvl < 20 else 99))))
+
+        barb_lvl = entity_get_class_level(self, "barbar", "barbarian")
+        monk_lvl = entity_get_class_level(self, "monac", "monk")
+        bard_lvl = entity_get_class_level(self, "bard", "bardo")
+        druid_lvl = entity_get_class_level(self, "druid", "druido")
+        pal_lvl = entity_get_class_level(self, "paladin", "paladino")
+        cler_lvl = entity_get_class_level(self, "cleric", "chierico")
+        f_lvl = entity_get_class_level(self, "fighter", "guerrier")
+        sorc_lvl = entity_get_class_level(self, "sorcerer", "stregon")
+        war_lvl = entity_get_class_level(self, "warlock")
+
+        if barb_lvl >= 1:
+            rage = 2 if barb_lvl < 3 else (3 if barb_lvl < 6 else (4 if barb_lvl < 12 else (5 if barb_lvl < 17 else (6 if barb_lvl < 20 else 99))))
             self.custom_resources.append({"name": "Ira (Rage)", "current": rage, "max": rage, "reset_on": "long"})
-        elif any(k in c_cls for k in ["monk", "monaco"]):
-            if lvl >= 2:
-                self.custom_resources.append({"name": "Punti Ki", "current": lvl, "max": lvl, "reset_on": "short"})
-        elif any(k in c_cls for k in ["bard", "bardo"]):
-            rst = "short" if lvl >= 5 else "long"
+        if monk_lvl >= 2:
+            self.custom_resources.append({"name": "Punti Ki", "current": monk_lvl, "max": monk_lvl, "reset_on": "short"})
+        if bard_lvl >= 1:
+            rst = "short" if bard_lvl >= 5 else "long"
             self.custom_resources.append({"name": "Ispirazione Bardica", "current": car_mod, "max": car_mod, "reset_on": rst})
-        elif any(k in c_cls for k in ["druid", "druido"]):
-            if lvl >= 2:
-                self.custom_resources.append({"name": "Forma Selvatica", "current": 2, "max": 2, "reset_on": "short"})
-        elif any(k in c_cls for k in ["paladin", "paladino"]):
-            self.custom_resources.append({"name": "Mani Curative (Lay on Hands)", "current": lvl * 5, "max": lvl * 5, "reset_on": "long"})
-            if lvl >= 3:
-                self.custom_resources.append({"name": "Canale di Divinità", "current": 1, "max": 1, "reset_on": "short"})
-        elif any(k in c_cls for k in ["cleric", "chierico"]):
-            if lvl >= 2:
-                ch_uses = 1 if lvl < 6 else (2 if lvl < 18 else 3)
-                self.custom_resources.append({"name": "Canale di Divinità", "current": ch_uses, "max": ch_uses, "reset_on": "short"})
-        elif any(k in c_cls for k in ["fighter", "guerriero"]):
+        if druid_lvl >= 2:
+            self.custom_resources.append({"name": "Forma Selvatica", "current": 2, "max": 2, "reset_on": "short"})
+        if pal_lvl >= 1:
+            self.custom_resources.append({"name": "Mani Curative (Lay on Hands)", "current": pal_lvl * 5, "max": pal_lvl * 5, "reset_on": "long"})
+
+        # Canale di Divinità condiviso in multiclasse Chierico + Paladino (PHB p. 164: max non si somma!)
+        cd_cler = (1 if cler_lvl < 6 else (2 if cler_lvl < 18 else 3)) if cler_lvl >= 2 else 0
+        cd_pal = 1 if pal_lvl >= 3 else 0
+        cd_uses = max(cd_cler, cd_pal)
+        if cd_uses > 0:
+            self.custom_resources.append({"name": "Canale di Divinità", "current": cd_uses, "max": cd_uses, "reset_on": "short"})
+
+        if f_lvl >= 1:
             self.custom_resources.append({"name": "Secondo Fiato (Second Wind)", "current": 1, "max": 1, "reset_on": "short"})
-            if lvl >= 2:
-                act = 2 if lvl >= 17 else 1
+            if f_lvl >= 2:
+                act = 2 if f_lvl >= 17 else 1
                 self.custom_resources.append({"name": "Azione Impetuosa (Action Surge)", "current": act, "max": act, "reset_on": "short"})
-            if lvl >= 9:
-                ind_uses = 1 if lvl < 13 else (2 if lvl < 17 else 3)
+            if f_lvl >= 9:
+                ind_uses = 1 if f_lvl < 13 else (2 if f_lvl < 17 else 3)
                 self.custom_resources.append({"name": "Indomito (Indomitable)", "current": ind_uses, "max": ind_uses, "reset_on": "long"})
-        elif any(k in c_cls for k in ["sorcerer", "stregone"]):
-            if lvl >= 2:
-                self.custom_resources.append({"name": "Punti Stregoneria", "current": lvl, "max": lvl, "reset_on": "long"})
-        elif any(k in c_cls for k in ["warlock"]):
-            if lvl >= 11:
-                self.custom_resources.append({"name": "Arcanum Mistico (6° liv)", "current": 1, "max": 1, "reset_on": "long"})
-            if lvl >= 13:
-                self.custom_resources.append({"name": "Arcanum Mistico (7° liv)", "current": 1, "max": 1, "reset_on": "long"})
-            if lvl >= 15:
-                self.custom_resources.append({"name": "Arcanum Mistico (8° liv)", "current": 1, "max": 1, "reset_on": "long"})
-            if lvl >= 17:
-                self.custom_resources.append({"name": "Arcanum Mistico (9° liv)", "current": 1, "max": 1, "reset_on": "long"})
+        if sorc_lvl >= 2:
+            self.custom_resources.append({"name": "Punti Stregoneria", "current": sorc_lvl, "max": sorc_lvl, "reset_on": "long"})
+        if war_lvl >= 11:
+            for min_l, s_l in ((11, 6), (13, 7), (15, 8), (17, 9)):
+                if war_lvl >= min_l:
+                    self.custom_resources.append({"name": f"Arcanum Mistico ({s_l}° liv)", "current": 1, "max": 1, "reset_on": "long"})
 
     def get_item_modifiers(self):
         """Calcola tutti i modificatori passivi derivanti dagli oggetti (equipaggiati e sintonizzati) secondo D&D 5e RAW."""
@@ -913,78 +970,93 @@ class Character:
         return getattr(self, "vision_radius", 6) > 6
 
     def update_class_resources_for_level(self, new_level: int):
-        """Aggiorna le risorse di classe scalabili in base al livello (Ki, Rage, Mani Curative, ecc. - D&D 5e RAW)."""
-        cls_name = str(getattr(self, "char_class", "")).lower()
+        """Aggiorna le risorse di classe scalabili usando i livelli reali per singola classe (PHB p. 164)."""
+        from common.dnd5e_tables import entity_get_class_level
+        if new_level and (not getattr(self, "classes", None)):
+            self.level = int(new_level)
+        elif new_level and isinstance(getattr(self, "classes", None), dict) and len(self.classes) == 1:
+            sole_cls = next(iter(self.classes))
+            self.classes[sole_cls] = max(int(self.classes[sole_cls] or 1), int(new_level))
+            self.level = sum(int(v or 0) for v in self.classes.values())
         if not hasattr(self, "custom_resources") or not isinstance(self.custom_resources, list):
             self.custom_resources = []
 
         res_dict = {r.get("name"): r for r in self.custom_resources if isinstance(r, dict)}
+        monk_lvl = entity_get_class_level(self, "monaco", "monk")
+        barb_lvl = entity_get_class_level(self, "barbar", "barbarian")
+        pal_lvl = entity_get_class_level(self, "paladin", "paladino")
+        cler_lvl = entity_get_class_level(self, "chieric", "cleric")
+        f_lvl = entity_get_class_level(self, "guerrier", "fighter")
+        druid_lvl = entity_get_class_level(self, "druid", "druido")
+        bard_lvl = entity_get_class_level(self, "bard", "bardo")
+        sorc_lvl = entity_get_class_level(self, "stregon", "sorcerer")
+        war_lvl = entity_get_class_level(self, "warlock")
 
-        if "monaco" in cls_name or "monk" in cls_name:
+        if monk_lvl > 0:
             ki = res_dict.get("Punti Ki") or res_dict.get("Ki")
             if ki:
-                ki["max"] = new_level
-                ki["current"] = min(ki["max"], ki.get("current", new_level))
-            elif new_level >= 2:
-                self.custom_resources.append({"name": "Punti Ki", "current": new_level, "max": new_level, "reset_on": "short"})
-        elif "barbaro" in cls_name or "barbarian" in cls_name:
-            max_r = 2 if new_level < 3 else (3 if new_level < 6 else (4 if new_level < 12 else (5 if new_level < 17 else (6 if new_level < 20 else 99))))
+                ki["max"] = monk_lvl
+                ki["current"] = min(ki["max"], ki.get("current", monk_lvl))
+            elif monk_lvl >= 2:
+                self.custom_resources.append({"name": "Punti Ki", "current": monk_lvl, "max": monk_lvl, "reset_on": "short"})
+        if barb_lvl > 0:
+            max_r = 2 if barb_lvl < 3 else (3 if barb_lvl < 6 else (4 if barb_lvl < 12 else (5 if barb_lvl < 17 else (6 if barb_lvl < 20 else 99))))
             rage = res_dict.get("Ire") or res_dict.get("Ira") or res_dict.get("Rage") or res_dict.get("Ira (Rage)")
             if rage:
                 rage["max"] = max_r
                 rage["current"] = min(max_r, rage.get("current", max_r))
             else:
                 self.custom_resources.append({"name": "Ira (Rage)", "current": max_r, "max": max_r, "reset_on": "long"})
-        elif "paladino" in cls_name or "paladin" in cls_name:
+        if pal_lvl > 0:
             loh = res_dict.get("Imposizione delle Mani") or res_dict.get("Mani Curative") or res_dict.get("Mani Curative (Lay on Hands)")
             if loh:
-                loh["max"] = new_level * 5
+                loh["max"] = pal_lvl * 5
                 loh["current"] = min(loh["max"], loh.get("current", loh["max"]))
             else:
-                self.custom_resources.append({"name": "Mani Curative (Lay on Hands)", "current": new_level * 5, "max": new_level * 5, "reset_on": "long"})
-            if new_level >= 3 and not (res_dict.get("Canale di Divinità") or res_dict.get("Incanalare Divinità")):
-                self.custom_resources.append({"name": "Canale di Divinità", "current": 1, "max": 1, "reset_on": "short"})
-        elif "chierico" in cls_name or "cleric" in cls_name:
-            ch_uses = 1 if new_level < 6 else (2 if new_level < 18 else 3)
+                self.custom_resources.append({"name": "Mani Curative (Lay on Hands)", "current": pal_lvl * 5, "max": pal_lvl * 5, "reset_on": "long"})
+
+        cd_cler = (1 if cler_lvl < 6 else (2 if cler_lvl < 18 else 3)) if cler_lvl >= 2 else 0
+        cd_pal = 1 if pal_lvl >= 3 else 0
+        cd_uses = max(cd_cler, cd_pal)
+        if cd_uses > 0:
             ch = res_dict.get("Canale di Divinità") or res_dict.get("Incanalare Divinità")
             if ch:
-                ch["max"] = ch_uses
-                ch["current"] = min(ch_uses, ch.get("current", ch_uses))
-            elif new_level >= 2:
-                self.custom_resources.append({"name": "Canale di Divinità", "current": ch_uses, "max": ch_uses, "reset_on": "short"})
-        elif "guerriero" in cls_name or "fighter" in cls_name:
-            act = 2 if new_level >= 17 else 1
+                ch["max"] = cd_uses
+                ch["current"] = min(cd_uses, ch.get("current", cd_uses))
+            else:
+                self.custom_resources.append({"name": "Canale di Divinità", "current": cd_uses, "max": cd_uses, "reset_on": "short"})
+
+        if f_lvl > 0:
+            act = 2 if f_lvl >= 17 else 1
             asurge = res_dict.get("Azione Impetuosa (Action Surge)") or res_dict.get("Azione Impetuosa") or res_dict.get("Action Surge")
             if asurge:
                 asurge["max"] = act
                 asurge["current"] = min(act, asurge.get("current", act))
-            elif new_level >= 2:
+            elif f_lvl >= 2:
                 self.custom_resources.append({"name": "Azione Impetuosa (Action Surge)", "current": act, "max": act, "reset_on": "short"})
-            ind_uses = 1 if new_level < 13 else (2 if new_level < 17 else 3)
+            ind_uses = 1 if f_lvl < 13 else (2 if f_lvl < 17 else 3)
             ind = res_dict.get("Indomito (Indomitable)") or res_dict.get("Indomito") or res_dict.get("Indomitable")
             if ind:
                 ind["max"] = ind_uses
                 ind["current"] = min(ind_uses, ind.get("current", ind_uses))
-            elif new_level >= 9:
+            elif f_lvl >= 9:
                 self.custom_resources.append({"name": "Indomito (Indomitable)", "current": ind_uses, "max": ind_uses, "reset_on": "long"})
-        elif "druido" in cls_name or "druid" in cls_name:
-            if new_level >= 2 and not res_dict.get("Forma Selvatica"):
-                self.custom_resources.append({"name": "Forma Selvatica", "current": 2, "max": 2, "reset_on": "short"})
-        elif "bardo" in cls_name or "bard" in cls_name:
+        if druid_lvl >= 2 and not res_dict.get("Forma Selvatica"):
+            self.custom_resources.append({"name": "Forma Selvatica", "current": 2, "max": 2, "reset_on": "short"})
+        if bard_lvl >= 5:
             binsp = res_dict.get("Ispirazione Bardica") or res_dict.get("Bardic Inspiration")
-            if binsp and new_level >= 5:
+            if binsp:
                 binsp["reset_on"] = "short"
-        elif "stregone" in cls_name or "sorcerer" in cls_name:
+        if sorc_lvl >= 2:
             sp = res_dict.get("Punti Stregoneria") or res_dict.get("Sorcery Points")
-            if sp and new_level >= 2:
-                sp["max"] = new_level
+            if sp:
+                sp["max"] = sorc_lvl
                 sp["current"] = min(sp["max"], sp.get("current", sp["max"]))
-            elif new_level >= 2:
-                self.custom_resources.append({"name": "Punti Stregoneria", "current": new_level, "max": new_level, "reset_on": "long"})
-        elif "warlock" in cls_name:
-            arcanum_levels = [(11, 6), (13, 7), (15, 8), (17, 9)]
-            for min_lvl, slot_lvl in arcanum_levels:
-                if new_level >= min_lvl:
+            else:
+                self.custom_resources.append({"name": "Punti Stregoneria", "current": sorc_lvl, "max": sorc_lvl, "reset_on": "long"})
+        if war_lvl >= 11:
+            for min_lvl, slot_lvl in ((11, 6), (13, 7), (15, 8), (17, 9)):
+                if war_lvl >= min_lvl:
                     name = f"Arcanum Mistico ({slot_lvl}° liv)"
                     if name not in res_dict:
                         self.custom_resources.append({"name": name, "current": 1, "max": 1, "reset_on": "long"})
@@ -1186,6 +1258,15 @@ class Character:
         if unit == "m" and abs(bonus_spd) >= 5.0:
             bonus_spd = round(bonus_spd * 0.3, 1)
         base_speed += bonus_spd
+        from common.feats_and_classes import get_entity_speed_bonus_ft, get_armor_nonproficiency_penalties
+        class_feat_ft = get_entity_speed_bonus_ft(self)
+        str_pen_ft = get_armor_nonproficiency_penalties(self).get("str_speed_penalty", 0)
+        net_ft = class_feat_ft - str_pen_ft
+        if unit == "m":
+            base_speed += round(net_ft * 0.3, 1)
+        else:
+            base_speed += net_ft
+        self._speed_bonuses_applied = bool(net_ft != 0)
         enc = self.get_encumbrance_status()
         
         if enc["tier"] == "overloaded":

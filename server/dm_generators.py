@@ -86,75 +86,232 @@ class LootGenerator:
     ]
     MAGIC_RARE = MAGIC_RARE_IT
 
+    GEMS_1000_IT = ["Opale Nero (1.000 MO)", "Zaffiro Stellare (1.000 MO)", "Rubino Stellare (1.000 MO)", "Smeraldo (1.000 MO)", "Zaffiro Blu (1.000 MO)"]
+    GEMS_1000_EN = ["Black Opal (1,000 GP)", "Star Sapphire (1,000 GP)", "Star Ruby (1,000 GP)", "Emerald (1,000 GP)", "Blue Sapphire (1,000 GP)"]
+    GEMS_5000_IT = ["Diamante Perfetto (5.000 MO)", "Rubino Reale (5.000 MO)", "Smeraldo Imperiale (5.000 MO)"]
+    GEMS_5000_EN = ["Flawless Diamond (5,000 GP)", "Royal Ruby (5,000 GP)", "Imperial Emerald (5,000 GP)"]
+
+    ART_25_IT = ["Brocca d'argento (25 MO)", "Idolo in osso intagliato (25 MO)", "Bracciale d'oro (25 MO)", "Maschera in velluto dorato (25 MO)"]
+    ART_25_EN = ["Silver ewer (25 GP)", "Carved bone statuette (25 GP)", "Small gold bracelet (25 GP)", "Velvet mask stitched with gold (25 GP)"]
+    ART_250_IT = ["Anello d'oro con rubino sanguigno (250 MO)", "Corona in argento cesellato (250 MO)", "Arazzo in seta tessuta con filo d'oro (250 MO)", "Statuetta d'avorio con intarsi in platino (250 MO)"]
+    ART_250_EN = ["Gold ring set with bloodstones (250 GP)", "Carved harp of exotic wood with ivory (250 GP)", "Silk tapestry with gold thread (250 GP)", "Small bronze idol adorned with rubies (250 GP)"]
+    ART_750_IT = ["Calice d'argento gemmato (750 MO)", "Spada cerimoniale con elsa in platino (750 MO)", "Dipinto di un grande maestro (750 MO)", "Tiara d'argento e opali (750 MO)"]
+    ART_750_EN = ["Silver chalice set with moonstones (750 GP)", "Ceremonial sword with platinum hilt (750 GP)", "Painting by an old master (750 GP)", "Silver tiara set with opals (750 GP)"]
+    ART_2500_IT = ["Corona reale in platino e rubini (2.500 MO)", "Collana di diamanti e smeraldi (2.500 MO)", "Pettorale d'oro tempestato di perle (2.500 MO)"]
+    ART_2500_EN = ["Platinum crown set with rubies (2,500 GP)", "Necklace of diamonds and emeralds (2,500 GP)", "Gold breastplate encrusted with pearls (2,500 GP)"]
+    ART_7500_IT = ["Scettro imperiale in adamantio e rubini (7.500 MO)", "Corazza cerimoniale del Re-Sacerdote (7.500 MO)", "Calice antico della Prima Era in mitril puro (7.500 MO)"]
+    ART_7500_EN = ["Imperial scepter of adamantine and rubies (7,500 GP)", "Ceremonial breastplate of the High Priest (7,500 GP)", "Ancient mithral chalice of the First Age (7,500 GP)"]
+
+    @classmethod
+    def _roll_magic_from_dmg_table(cls, table_key: str) -> Dict[str, Any]:
+        """Pesca un oggetto magico dalla tabella DMG A-I ufficiale in common/srd_items_complete.py."""
+        try:
+            from common.srd_items_complete import DMG_TREASURE_HOARDS_A_I
+            t_data = DMG_TREASURE_HOARDS_A_I.get(table_key) or {}
+            rolls = t_data.get("rolls") or []
+            if rolls:
+                pick = random.choice(rolls)
+                return {
+                    "name": pick.get("item", "Oggetto Magico"),
+                    "type": f"Magico ({table_key})",
+                    "weight": 1.0,
+                    "desc": f"Rarità: {pick.get('rarity', 'Non Comune')} [{table_key}]",
+                }
+        except Exception:
+            pass
+        return random.choice(cls.MAGIC_UNCOMMON_IT).copy()
+
     @classmethod
     def generate(cls, tier: str = "GS 0-4", loot_type: str = "Tesoro della Tana") -> Dict[str, Any]:
         result = {
             "coins": {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0},
             "gems": [],
+            "art_objects": [],
             "items": [],
             "total_value_gp": 0
         }
-        
+
         lang = get_language()
         is_en = (lang == "en")
         pool_gems_50 = cls.GEMS_50_EN if is_en else cls.GEMS_50_IT
         pool_gems_100 = cls.GEMS_100_EN if is_en else cls.GEMS_100_IT
         pool_gems_500 = cls.GEMS_500_EN if is_en else cls.GEMS_500_IT
-        pool_common = cls.MAGIC_COMMON_EN if is_en else cls.MAGIC_COMMON_IT
-        pool_uncommon = cls.MAGIC_UNCOMMON_EN if is_en else cls.MAGIC_UNCOMMON_IT
-        pool_rare = cls.MAGIC_RARE_EN if is_en else cls.MAGIC_RARE_IT
+        pool_gems_1000 = cls.GEMS_1000_EN if is_en else cls.GEMS_1000_IT
+        pool_gems_5000 = cls.GEMS_5000_EN if is_en else cls.GEMS_5000_IT
+        pool_art_25 = cls.ART_25_EN if is_en else cls.ART_25_IT
+        pool_art_250 = cls.ART_250_EN if is_en else cls.ART_250_IT
+        pool_art_750 = cls.ART_750_EN if is_en else cls.ART_750_IT
+        pool_art_2500 = cls.ART_2500_EN if is_en else cls.ART_2500_IT
+        pool_art_7500 = cls.ART_7500_EN if is_en else cls.ART_7500_IT
 
         is_individual = ("indiv" in str(loot_type).lower())
-        
-        if "0-4" in str(tier):
+        tier_str = str(tier)
+        gem_unit_gp = 50
+        art_unit_gp = 0
+
+        if "0-4" in tier_str:
             if is_individual:
                 roll = random.randint(1, 100)
                 if roll <= 30:
-                    result["coins"]["MR"] = random.randint(4, 24) * 10
+                    result["coins"]["MR"] = sum(random.randint(1, 6) for _ in range(5))
                 elif roll <= 60:
-                    result["coins"]["MA"] = random.randint(3, 18) * 10
+                    result["coins"]["MA"] = sum(random.randint(1, 6) for _ in range(4))
+                elif roll <= 70:
+                    result["coins"]["ME"] = sum(random.randint(1, 6) for _ in range(3))
                 elif roll <= 95:
-                    result["coins"]["MO"] = random.randint(2, 12) * 5
+                    result["coins"]["MO"] = sum(random.randint(1, 6) for _ in range(3))
                 else:
                     result["coins"]["MP"] = random.randint(1, 6)
-            else: # Tana / Hoard
+            else:
                 result["coins"]["MR"] = random.randint(6, 36) * 100
                 result["coins"]["MA"] = random.randint(3, 18) * 100
-                result["coins"]["MO"] = random.randint(2, 16) * 10
-                gem_count = random.randint(2, 6)
-                result["gems"] = [random.choice(pool_gems_50) for _ in range(gem_count)]
-                item_count = random.randint(1, 2)
-                result["items"] = [random.choice(pool_common).copy() for _ in range(item_count)]
+                result["coins"]["MO"] = random.randint(2, 12) * 10
+                gem_unit_gp = 50
+                result["gems"] = [random.choice(pool_gems_50) for _ in range(random.randint(2, 6))]
+                art_unit_gp = 25
+                result["art_objects"] = [random.choice(pool_art_25) for _ in range(random.randint(1, 3))]
+                tbl = random.choice(["Table A", "Table B", "Table F"])
+                result["items"] = [cls._roll_magic_from_dmg_table(tbl) for _ in range(random.randint(1, 2))]
 
-        elif "5-10" in str(tier):
+        elif "5-10" in tier_str:
             if is_individual:
-                result["coins"]["MA"] = random.randint(4, 24) * 100
-                result["coins"]["MO"] = random.randint(2, 16) * 10
-                result["coins"]["MP"] = random.randint(1, 8) * 2
+                roll = random.randint(1, 100)
+                if roll <= 30:
+                    result["coins"]["MR"] = sum(random.randint(1, 6) for _ in range(4)) * 100
+                    result["coins"]["ME"] = random.randint(1, 6) * 10
+                elif roll <= 60:
+                    result["coins"]["MA"] = sum(random.randint(1, 6) for _ in range(6)) * 10
+                    result["coins"]["MO"] = sum(random.randint(1, 6) for _ in range(2)) * 10
+                elif roll <= 70:
+                    result["coins"]["ME"] = sum(random.randint(1, 6) for _ in range(3)) * 10
+                    result["coins"]["MO"] = sum(random.randint(1, 6) for _ in range(2)) * 10
+                elif roll <= 95:
+                    result["coins"]["MO"] = sum(random.randint(1, 6) for _ in range(4)) * 10
+                else:
+                    result["coins"]["MO"] = sum(random.randint(1, 6) for _ in range(2)) * 10
+                    result["coins"]["MP"] = sum(random.randint(1, 6) for _ in range(3))
             else:
-                result["coins"]["MA"] = random.randint(4, 24) * 200
+                result["coins"]["MR"] = random.randint(2, 12) * 100
+                result["coins"]["MA"] = random.randint(2, 12) * 1000
                 result["coins"]["MO"] = random.randint(6, 36) * 100
                 result["coins"]["MP"] = random.randint(3, 18) * 10
-                gem_count = random.randint(3, 8)
-                result["gems"] = [random.choice(pool_gems_100) for _ in range(gem_count)]
-                item_count = random.randint(1, 3)
-                result["items"] = [random.choice(pool_uncommon).copy() for _ in range(item_count)]
+                gem_unit_gp = 100
+                result["gems"] = [random.choice(pool_gems_100) for _ in range(random.randint(2, 8))]
+                art_unit_gp = 250
+                result["art_objects"] = [random.choice(pool_art_250) for _ in range(random.randint(1, 3))]
+                result["items"] = [cls._roll_magic_from_dmg_table(random.choice(["Table B", "Table C", "Table F", "Table G"])) for _ in range(random.randint(1, 4))]
 
-        else: # 11-16
-            result["coins"]["MO"] = random.randint(10, 60) * 100
-            result["coins"]["MP"] = random.randint(5, 30) * 100
-            gem_count = random.randint(4, 10)
-            result["gems"] = [random.choice(pool_gems_500) for _ in range(gem_count)]
-            item_count = random.randint(2, 4)
-            result["items"] = [random.choice(pool_rare).copy() for _ in range(item_count)]
-            
-        # Calcolo valore approssimativo in MO/GP
+        elif "11-16" in tier_str:
+            if is_individual:
+                roll = random.randint(1, 100)
+                if roll <= 20:
+                    result["coins"]["MA"] = sum(random.randint(1, 6) for _ in range(4)) * 100
+                    result["coins"]["MO"] = random.randint(1, 6) * 100
+                elif roll <= 35:
+                    result["coins"]["ME"] = random.randint(1, 6) * 100
+                    result["coins"]["MO"] = random.randint(1, 6) * 100
+                elif roll <= 75:
+                    result["coins"]["MO"] = sum(random.randint(1, 6) for _ in range(2)) * 100
+                    result["coins"]["MP"] = random.randint(1, 6) * 10
+                else:
+                    result["coins"]["MO"] = sum(random.randint(1, 6) for _ in range(2)) * 100
+                    result["coins"]["MP"] = sum(random.randint(1, 6) for _ in range(2)) * 10
+            else:
+                result["coins"]["MO"] = sum(random.randint(1, 6) for _ in range(4)) * 1000
+                result["coins"]["MP"] = sum(random.randint(1, 6) for _ in range(5)) * 100
+                gem_unit_gp = 1000
+                result["gems"] = [random.choice(pool_gems_1000) for _ in range(random.randint(2, 6))]
+                art_unit_gp = 750
+                result["art_objects"] = [random.choice(pool_art_750) for _ in range(random.randint(1, 3))]
+                result["items"] = [cls._roll_magic_from_dmg_table(random.choice(["Table C", "Table D", "Table G", "Table H"])) for _ in range(random.randint(2, 4))]
+
+        else:  # 17+ (GS/CR 17+ DMG p. 136 & p. 139)
+            if is_individual:
+                roll = random.randint(1, 100)
+                if roll <= 15:
+                    result["coins"]["ME"] = sum(random.randint(1, 6) for _ in range(2)) * 1000
+                    result["coins"]["MO"] = sum(random.randint(1, 6) for _ in range(8)) * 100
+                elif roll <= 55:
+                    result["coins"]["MO"] = random.randint(1, 6) * 1000
+                    result["coins"]["MP"] = random.randint(1, 6) * 100
+                else:
+                    result["coins"]["MO"] = random.randint(1, 6) * 1000
+                    result["coins"]["MP"] = sum(random.randint(1, 6) for _ in range(2)) * 100
+            else:
+                result["coins"]["MO"] = sum(random.randint(1, 6) for _ in range(12)) * 1000
+                result["coins"]["MP"] = sum(random.randint(1, 6) for _ in range(8)) * 1000
+                gem_unit_gp = 5000
+                result["gems"] = [random.choice(pool_gems_5000) for _ in range(random.randint(1, 6))]
+                art_unit_gp = 2500 if random.random() < 0.7 else 7500
+                art_pool = pool_art_2500 if art_unit_gp == 2500 else pool_art_7500
+                result["art_objects"] = [random.choice(art_pool) for _ in range(random.randint(1, 3))]
+                result["items"] = [cls._roll_magic_from_dmg_table(random.choice(["Table D", "Table E", "Table G", "Table H", "Table I"])) for _ in range(random.randint(2, 5))]
+
         c = result["coins"]
         tot_gp = (c["MR"] / 100) + (c["MA"] / 10) + (c["ME"] / 2) + c["MO"] + (c["MP"] * 10)
-        tot_gp += len(result["gems"]) * (50 if "0-4" in str(tier) else (100 if "5-10" in str(tier) else 500))
+        tot_gp += len(result["gems"]) * gem_unit_gp
+        tot_gp += len(result["art_objects"]) * art_unit_gp
         result["total_value_gp"] = int(tot_gp)
-        
+
         return result
+
+
+class RandomDungeonGenerator:
+    """Generatore Procedurale di Dungeon (DMG Appendice A, p. 290-299)."""
+    LOCATIONS_IT = ["Sotto una città in rovina", "In profondità dentro una catena montuosa", "Nelle viscere di una palude antica", "Sotto un tempio sconsacrato", "In un'isola vulcanica sommersa"]
+    CREATORS_IT = ["Culto del Drago / Demoni", "Nani della Prima Era", "Mago Folle / Lich", "Civiltà Flayer / Aberrazioni", "Giganti della Pietra"]
+    PURPOSES_IT = ["Cripta Funeraria Reale", "Complesso Minerario Abbandonato", "Tempio Segreto Proibito", "Fortezza Militare Sconosciuta", "Cassaforte di Artefatti Arcani"]
+    HAZARDS_IT = ["Fossa Coperta (CD 15 Percezione, 2d10 perforanti)", "Dardi Avvelenati dal Muro (CD 14 DES, 2d6 + Veleno)", "Glifo Esplosivo di Guardiano (CD 16 DES, 5d8 fuoco)", "Gas Allucinogeno (CD 13 COS, Stordito 1 round)", "Nessuna trappola rilevata"]
+    DRESSINGS_IT = ["Fumo freddo e odore di ozono", "Ossa antiche spezzate lungo i bordi", "Scritti runici incandescenti in lingua Primordiale", "Acqua gocciolante e muschio bioluminescente", "Catene arrugginite appese al soffitto"]
+
+    @classmethod
+    def generate(cls, rooms_count: int = 5) -> Dict[str, Any]:
+        rooms_count = max(2, min(15, int(rooms_count or 5)))
+        rooms = []
+        for idx in range(1, rooms_count + 1):
+            role = "Ingresso" if idx == 1 else ("Santuario / Boss" if idx == rooms_count else random.choice(["Corridoio", "Sala di Guardia", "Libreria / Archivio", "Altare", "Tesoro / Armeria"]))
+            rooms.append({
+                "number": idx,
+                "name": f"Stanza {idx}: {role}",
+                "dimensions_ft": f"{random.choice([20, 30, 40, 50])}x{random.choice([20, 30, 40, 60])} ft",
+                "door": random.choice(["Legno rinforzato", "Pietra scorrevole", "Porta chiusa a chiave (CD 15)", "Passaggio Segreto (CD 16 Percezione)", "Arco aperto"]),
+                "hazard": random.choice(cls.HAZARDS_IT),
+                "dressing": random.choice(cls.DRESSINGS_IT),
+            })
+        return {
+            "location": random.choice(cls.LOCATIONS_IT),
+            "creator": random.choice(cls.CREATORS_IT),
+            "purpose": random.choice(cls.PURPOSES_IT),
+            "rooms": rooms,
+        }
+
+
+class SettlementGenerator:
+    """Generatore Procedurale di Insediamenti (DMG p. 112-114)."""
+    PREFIXES = ["Val", "Monte", "Rocca", "Ponte", "Porto", "Borgo", "Bosco", "Torre", "Quercia", "Fiume"]
+    SUFFIXES = ["bianco", "scuro", "chiaro", "ferro", "oro", "freddo", "antico", "verde", "rosso", "vento"]
+    SIZES = [
+        ("Villaggio (Village)", 80, 900),
+        ("Cittadina (Town)", 950, 5500),
+        ("Città (City)", 6500, 24000),
+        ("Metropoli (Metropolis)", 26000, 80000),
+    ]
+    GOVERNMENTS = ["Consiglio Cittadino", "Monarchia / Feudalesimo", "Plutocrazia Mercantile", "Teocrazia", "Magocrazia", "Gilda dei Ladri nell'ombra"]
+    TRAITS = ["Canali navigabili e ponti levatoi", "Enorme biblioteca / Accademia Arcana", "Mura ciclopiche di pietra nera", "Mercato notturno famoso in tutto il regno", "Tante statue di eroi dimenticati"]
+    CALAMITIES = ["Nessuna imminente", "Peste misteriosa nei bassifondi", "Assedio imminente di mostri delle colline", "Scomparsa di mercanti sulla strada nord", "Guerra civile fredda tra due casate"]
+
+    @classmethod
+    def generate(cls) -> Dict[str, Any]:
+        s_label, p_min, p_max = random.choice(cls.SIZES)
+        return {
+            "name": f"{random.choice(cls.PREFIXES)}{random.choice(cls.SUFFIXES)}",
+            "size": s_label,
+            "population": random.randint(p_min, p_max),
+            "government": random.choice(cls.GOVERNMENTS),
+            "notable_trait": random.choice(cls.TRAITS),
+            "current_calamity": random.choice(cls.CALAMITIES),
+            "tavern": random.choice(["Il Cinghiale Zoppo", "La Lanterna d'Argento", "Il Calice Spezzato", "L'Ancora del Drago"]),
+        }
 
 
 class LootGeneratorDialog(tk.Toplevel):
@@ -192,7 +349,7 @@ class LootGeneratorDialog(tk.Toplevel):
         
         tk.Label(row1, text=_t("loot_gen_cr", default="Grado Sfida (CR):"), font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(side=tk.LEFT, padx=(0, 6))
         is_en = (get_language() == "en")
-        tier_vals = ["CR 0-4", "CR 5-10", "CR 11-16"] if is_en else ["GS 0-4", "GS 5-10", "GS 11-16"]
+        tier_vals = ["CR 0-4", "CR 5-10", "CR 11-16", "CR 17+"] if is_en else ["GS 0-4", "GS 5-10", "GS 11-16", "GS 17+"]
         self.tier_var = tk.StringVar(value=tier_vals[0])
         tier_combo = ttk.Combobox(row1, textvariable=self.tier_var, values=tier_vals, state="readonly", width=10)
         tier_combo.pack(side=tk.LEFT, padx=(0, 15))
@@ -271,7 +428,12 @@ class LootGeneratorDialog(tk.Toplevel):
         gem_desc_lbl = "Valuable gemstone" if is_en else "Prezioso da rivendita"
         for g in self.current_loot["gems"]:
             self.tree_loot.insert("", tk.END, values=(gem_type_lbl, g, gem_desc_lbl))
-            
+
+        art_type_lbl = "Art" if is_en else "Arte"
+        art_desc_lbl = "Art object" if is_en else "Oggetto d'arte"
+        for a in self.current_loot.get("art_objects", []):
+            self.tree_loot.insert("", tk.END, values=(art_type_lbl, a, art_desc_lbl))
+
         for item in self.current_loot["items"]:
             self.tree_loot.insert("", tk.END, values=(item.get("type", "Magico"), item.get("name", "Oggetto"), item.get("desc", "")))
 

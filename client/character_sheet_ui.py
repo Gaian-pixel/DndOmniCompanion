@@ -2267,6 +2267,15 @@ class CharacterSheetFrame(ttk.Frame):
                         return
 
         if changed_idx is not None and 0 <= changed_idx < len(self.attuned_vars) and self.attuned_vars[changed_idx].get():
+            if hasattr(self, "character") and 0 <= changed_idx < len(getattr(self.character, "inventory_grid", [])):
+                cand_it = self.character.inventory_grid[changed_idx]
+                if isinstance(cand_it, dict):
+                    from common.feats_and_classes import check_attunement_prerequisites
+                    ok_pr, reason_pr = check_attunement_prerequisites(self.character, cand_it)
+                    if not ok_pr:
+                        messagebox.showwarning("Prerequisiti di Sintonia", reason_pr)
+                        self.attuned_vars[changed_idx].set(False)
+                        return
             if hasattr(self.character, "inventory_grid") and changed_idx < len(self.character.inventory_grid):
                 cur_it = self.character.inventory_grid[changed_idx]
                 cur_name = str(cur_it.get("name", "")).strip().lower() if isinstance(cur_it, dict) else ""
@@ -2606,6 +2615,11 @@ class CharacterSheetFrame(ttk.Frame):
         spell_stats = SpellsPanel.calculate_spell_stats(self.character) if hasattr(self, "character") else {"dc": 10, "attack_bonus": 2, "attack_str": "+2"}
 
         def do_cast():
+            from common.feats_and_classes import check_spell_material_components, parse_spell_duration_rounds
+            ok_mat, mat_consumed, mat_gp, mat_note = check_spell_material_components(self.character, spell)
+            if not ok_mat:
+                messagebox.showwarning("Componente Materiale Mancante", mat_note, parent=win)
+                return
             lvl = int(spell.get('level', 0))
             cast_level = lvl
             is_ritual_cast = bool(lvl > 0 and ritual_var.get())
@@ -2659,7 +2673,14 @@ class CharacterSheetFrame(ttk.Frame):
                         scaled_note = f" — Formula Scalata: {scaled_f}"
                     upcast_info = f" (Potenziato al Livello {cast_level}{scaled_note}!)"
                 stats_tag = f" [CD Incantesimi: {spell_stats.get('dc', 10)} | Attacco Magico: {spell_stats.get('attack_str', '+2')}]"
-                chat_msg = f"{self.character.name} lancia {spell.get('name', '')}{upcast_info}!{stats_tag}{conc_info}"
+                dur_r = parse_spell_duration_rounds(str(spell.get("duration", "") or ""))
+                dur_tag = f" [⏳ Durata: ~{dur_r} round]" if dur_r and dur_r > 0 else ""
+                meta_act = getattr(self.character, "active_metamagic", None)
+                meta_tag = ""
+                if meta_act:
+                    meta_tag = f" [✨ Metamagia: {meta_act.upper()}]"
+                    self.character.active_metamagic = None
+                chat_msg = f"{self.character.name} lancia {spell.get('name', '')}{upcast_info}!{stats_tag}{conc_info}{dur_tag}{meta_tag}{mat_note}"
                 self.roll_callback("0d0", chat_msg)
             win.destroy()
 
@@ -3897,6 +3918,12 @@ class CharacterSheetFrame(ttk.Frame):
                     attune_var.set(True)
                     return
             if attune_var.get() and not item.get("attuned", False):
+                from common.feats_and_classes import check_attunement_prerequisites
+                ok_pr, reason_pr = check_attunement_prerequisites(self.character, item)
+                if not ok_pr:
+                    messagebox.showwarning("Prerequisiti di Sintonia", reason_pr, parent=win)
+                    attune_var.set(False)
+                    return
                 char_class = str(getattr(self.character, "char_class", "")).lower() if hasattr(self, "character") else ""
                 lvl = int(getattr(self.character, "level", 1) or 1) if hasattr(self, "character") else 1
                 max_attune = 3
@@ -4576,7 +4603,14 @@ class CharacterSheetFrame(ttk.Frame):
                     self.refresh_inventory_grid()
                     self.recalculate_and_refresh_derived_stats()
                     self.refresh_weapons_list()
-            extra_attack_args = {}
+            _w_prof = True
+            if hasattr(self, "character"):
+                try:
+                    _, _, _pb_w, _, _ = CombatPanel.calculate_weapon_txc(self.character, weapon)
+                    _w_prof = bool(_pb_w > 0)
+                except Exception:
+                    _w_prof = True
+            extra_attack_args = {"weapon_proficient": _w_prof}
             if hasattr(self, "_divine_smite_var"):
                 try:
                     smite_raw = str(self._divine_smite_var.get()).split()[0]
@@ -4699,7 +4733,8 @@ class CharacterSheetFrame(ttk.Frame):
         txc_sign = f"+{total_txc}" if total_txc >= 0 else str(total_txc)
         w_name = weapon.get("name", "Arma")
         
-        is_crit = (base_roll == 20)
+        crit_thr = self.character.get_crit_threshold() if hasattr(self.character, "get_crit_threshold") else 20
+        is_crit = (base_roll >= crit_thr)
         is_fail = (base_roll == 1)
         weapon["_last_crit"] = is_crit
         

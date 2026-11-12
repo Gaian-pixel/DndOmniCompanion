@@ -634,6 +634,63 @@ DMG_TREASURE_HOARDS_A_I = {
             }
         ]
     },
+    "Table C": {
+        "title": "Tabella Oggetti Magici C (Consumabili Rari)",
+        "rolls": [
+            {"range": "01-15", "item": "Pozione di Guarigione Eccellente (Superior Healing)", "rarity": "Raro"},
+            {"range": "16-22", "item": "Pergamena di Incantesimo (4° Livello)", "rarity": "Raro"},
+            {"range": "23-27", "item": "Munizioni +2 (Ammunition +2)", "rarity": "Raro"},
+            {"range": "28-32", "item": "Pozione di Chiaroveggenza (Potion of Clairvoyance)", "rarity": "Raro"},
+            {"range": "33-37", "item": "Pozione di Rimpicciolimento (Potion of Diminution)", "rarity": "Raro"},
+            {"range": "38-42", "item": "Pozione di Forma Gassosa (Potion of Gaseous Form)", "rarity": "Raro"},
+            {"range": "43-47", "item": "Pozione della Forza del Gigante del Gelo (Forza 23)", "rarity": "Raro"},
+            {"range": "48-52", "item": "Pozione della Forza del Gigante di Pietra (Forza 23)", "rarity": "Raro"},
+            {"range": "53-57", "item": "Pozione dell'Eroismo (Potion of Heroism)", "rarity": "Raro"},
+            {"range": "58-62", "item": "Pozione dell'Invulnerabilità (Potion of Invulnerability)", "rarity": "Raro"},
+            {"range": "63-67", "item": "Pozione della Lettura del Pensiero (Potion of Mind Reading)", "rarity": "Raro"},
+            {"range": "68-72", "item": "Pergamena di Incantesimo (5° Livello)", "rarity": "Raro"},
+            {"range": "73-75", "item": "Elisir di Salute (Elixir of Health)", "rarity": "Raro"},
+            {"range": "76-78", "item": "Olio dell'Affilatura (Oil of Sharpness)", "rarity": "Molto Raro"},
+            {"range": "79-81", "item": "Seme dell'Albero di Quaal (Quaal's Feather Token)", "rarity": "Raro"},
+            {"range": "82-84", "item": "Pergamena della Protezione (Scroll of Protection)", "rarity": "Raro"},
+            {"range": "85-87", "item": "Borsa dei Fagioli (Bag of Beans)", "rarity": "Raro"},
+            {"range": "88-90", "item": "Gemma dell'Eterno Sonno / Collana delle Palle di Fuoco", "rarity": "Raro"},
+            {"range": "91-95", "item": "Campanella dell'Apertura (Chime of Opening)", "rarity": "Raro"},
+            {"range": "96-00", "item": "Fabbricatore Pieghevole / Barca Pieghevole (Folding Boat)", "rarity": "Raro"},
+        ]
+    },
+    "Table D": {
+        "title": "Tabella Oggetti Magici D (Consumabili Molto Rari)",
+        "rolls": [
+            {"range": "01-20", "item": "Pozione di Guarigione Suprema (Supreme Healing)", "rarity": "Molto Raro"},
+            {"range": "21-30", "item": "Pozione di Invisibilità (Potion of Invisibility)", "rarity": "Molto Raro"},
+            {"range": "31-40", "item": "Pozione di Velocità (Potion of Speed)", "rarity": "Molto Raro"},
+            {"range": "41-50", "item": "Pergamena di Incantesimo (6° Livello)", "rarity": "Molto Raro"},
+            {"range": "51-57", "item": "Pergamena di Incantesimo (7° Livello)", "rarity": "Molto Raro"},
+            {"range": "58-62", "item": "Munizioni +3 (Ammunition +3)", "rarity": "Molto Raro"},
+            {"range": "63-67", "item": "Olio di Acutezza (Oil of Sharpness)", "rarity": "Molto Raro"},
+            {"range": "68-72", "item": "Pozione di Volo (Potion of Flying)", "rarity": "Molto Raro"},
+            {"range": "73-77", "item": "Pozione della Forza del Gigante delle Nuvole (Forza 27)", "rarity": "Molto Raro"},
+            {"range": "78-82", "item": "Pozione della Longevità (Potion of Longevity)", "rarity": "Molto Raro"},
+            {"range": "83-87", "item": "Pozione della Vitalità (Potion of Vitality)", "rarity": "Molto Raro"},
+            {"range": "88-92", "item": "Pergamena di Incantesimo (8° Livello)", "rarity": "Molto Raro"},
+            {"range": "93-95", "item": "Ferro di Cavallo dello Zefiro", "rarity": "Molto Raro"},
+            {"range": "96-98", "item": "Unguento di Nolzur (Marvelous Pigments)", "rarity": "Molto Raro"},
+            {"range": "99-00", "item": "Buco Portatile (Portable Hole)", "rarity": "Raro"},
+        ]
+    },
+    "Table E": {
+        "title": "Tabella Oggetti Magici E (Consumabili Leggendari)",
+        "rolls": [
+            {"range": "01-30", "item": "Pergamena di Incantesimo (8° Livello)", "rarity": "Molto Raro"},
+            {"range": "31-55", "item": "Pozione della Forza del Gigante delle Tempeste (Forza 29)", "rarity": "Leggendario"},
+            {"range": "56-70", "item": "Pozione di Guarigione Suprema (Supreme Healing)", "rarity": "Molto Raro"},
+            {"range": "71-85", "item": "Pergamena di Incantesimo (9° Livello)", "rarity": "Leggendario"},
+            {"range": "86-93", "item": "Solvente Universale (Universal Solvent)", "rarity": "Leggendario"},
+            {"range": "94-98", "item": "Freccia dello Stordimento / Slaying Arrow", "rarity": "Molto Raro"},
+            {"range": "99-00", "item": "Colla Sovrana (Sovereign Glue)", "rarity": "Leggendario"},
+        ]
+    },
     "Table F": {
         "title": "Tabella Oggetti Magici F (Armi, Armature e Utilità Permanenti Non Comuni)",
         "rolls": [

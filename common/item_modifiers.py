@@ -13,6 +13,8 @@ Gestisce:
 import re
 from typing import Dict, Any, List, Tuple, Optional
 
+from common.dnd5e_tables import entity_has_keyword, entity_get_class_level, entity_get_total_level
+
 
 STAT_MAP = {
     "STR": "FOR", "STRENGTH": "FOR", "FORZA": "FOR", "FOR": "FOR",
@@ -20,12 +22,14 @@ STAT_MAP = {
     "CON": "COS", "CONSTITUTION": "COS", "COSTITUZIONE": "COS", "COS": "COS",
     "INT": "INT", "INTELLIGENCE": "INT", "INTELLIGENZA": "INT",
     "WIS": "SAG", "WISDOM": "SAG", "SAGGEZZA": "SAG", "SAG": "SAG",
-    "CHA": "CAR", "CHARISMA": "CAR", "CARISMA": "CAR", "CAR": "CAR"
+    "CHA": "CAR", "CHARISMA": "CAR", "CARISMA": "CAR", "CAR": "CAR",
+    "HON": "ONO", "HONOR": "ONO", "ONORE": "ONO", "ONO": "ONO",
+    "SAN": "SAN", "SANITY": "SAN", "SANITÀ": "SAN", "SANITA": "SAN",
 }
 
 
 def canonical_stat_key(stat_name: str) -> str:
-    """Restituisce la chiave canonica a 3 lettere (FOR, DES, COS, INT, SAG, CAR)."""
+    """Restituisce la chiave canonica (FOR, DES, COS, INT, SAG, CAR, ONO, SAN)."""
     if not stat_name:
         return "FOR"
     return STAT_MAP.get(str(stat_name).strip().upper(), "FOR")
@@ -650,6 +654,14 @@ def get_effective_save_bonus_from_dict(character_or_dict: Any, stat_name: str, m
     mod = (eff_score - 10) // 2
 
     profs = _get("saving_throw_proficiencies", None)
+    # Ladro Lv 15+ Mente Sfuggente (Slippery Mind, PHB p. 96): competenza ai TS su Saggezza
+    if str(stat_name or "").upper().strip() in ("SAG", "WIS", "SAGGEZZA", "WISDOM"):
+        if entity_get_class_level(character_or_dict, "ladro", "rogue") >= 15 or entity_has_keyword(character_or_dict, "mente sfuggente", "slippery mind"):
+            if isinstance(profs, (list, tuple, set)):
+                if not any(str(x).upper().strip() in ("SAG", "WIS", "SAGGEZZA", "WISDOM") for x in profs):
+                    profs = list(profs) + ["SAG"]
+            elif profs is None:
+                profs = ["SAG"]
     if not isinstance(profs, (list, tuple, set)):
         profs = st_dict if isinstance(st_dict, (list, tuple, set)) else []
     norm_profs = {canonical_stat_key(p) for p in profs if p}
@@ -665,7 +677,6 @@ def get_effective_save_bonus_from_dict(character_or_dict: Any, stat_name: str, m
     else:
         # Anima di Diamante (Monaco Liv 14+, PHB p. 79): competenza in TUTTI i Tiri Salvezza
         try:
-            from common.dnd5e_tables import entity_get_class_level, entity_has_keyword, entity_get_total_level
             monk_lvl = entity_get_class_level(character_or_dict, "monaco", "monk")
             if monk_lvl >= 14 or entity_has_keyword(character_or_dict, "anima di diamante", "diamond soul"):
                 tot_lvl = entity_get_total_level(character_or_dict)
@@ -793,6 +804,9 @@ def compute_effective_ac(character_or_dict: Any) -> int:
     if armor_item and armor_props:
         # Calcolo destrezza applicabile
         max_dex = armor_props["max_dex"]
+        # Talento Maestro delle Armature Medie (PHB p. 168): max +3 DES con armature medie
+        if max_dex == 2 and entity_has_keyword(character_or_dict, "maestro delle armature medie", "medium armor master"):
+            max_dex = 3
         if max_dex is None:
             dex_allowed = des_mod
         elif max_dex == 0:
@@ -807,14 +821,30 @@ def compute_effective_ac(character_or_dict: Any) -> int:
         if _has_fighting_style_defense(features_str):
             base_ac += 1
     else:
-        # Difesa senz'armatura (D&D 5e RAW)
+        # Difesa senz'armatura (D&D 5e RAW: in multiclasse NON si cumulano né si riottengono dopo la prima, PHB p. 164)
+        classes_dict = _get("classes", {})
+        ordered_classes = [str(k).lower() for k in classes_dict.keys()] if isinstance(classes_dict, dict) and classes_dict else [char_cls]
+        first_unarmored_source = None
+        for cls_entry in ordered_classes:
+            if "monaco" in cls_entry or "monk" in cls_entry:
+                first_unarmored_source = "monk"
+                break
+            if "barbaro" in cls_entry or "barbarian" in cls_entry:
+                first_unarmored_source = "barbarian"
+                break
+        if first_unarmored_source is None:
+            if "monaco" in char_cls or "monk" in char_cls:
+                first_unarmored_source = "monk"
+            elif "barbaro" in char_cls or "barbarian" in char_cls:
+                first_unarmored_source = "barbarian"
+
         if mods["special_ac_base"] is not None:
             # Es. Veste dell'Arcimago: 15 + Des
             base_ac = mods["special_ac_base"] + des_mod
-        elif "monaco" in char_cls or "monk" in char_cls:
+        elif first_unarmored_source == "monk":
             # 10 + Des + Sag (solo se NON si usa uno scudo, PHB p. 78)
             base_ac = 10 + des_mod + (sag_mod if not has_shield else 0)
-        elif "barbaro" in char_cls or "barbarian" in char_cls:
+        elif first_unarmored_source == "barbarian":
             # 10 + Des + Cos (può usare uno scudo, PHB p. 48)
             base_ac = 10 + des_mod + cos_mod
         elif "dracon" in subclass or "draconic" in subclass:
@@ -829,6 +859,22 @@ def compute_effective_ac(character_or_dict: Any) -> int:
 
     # Oggetti meravigliosi, anelli, mantelli (+1 CA Anello di Protezione, +2 Bracciali della Difesa, ecc.)
     final_ac = base_ac + mods["bonus_ac"]
+    # Talento Combattente a Due Armi (Dual Wielder, PHB p. 165): +1 CA mentre si impugna un'arma da mischia in ciascuna mano (senza scudo)
+    if not shield_item and entity_has_keyword(character_or_dict, "combattente a due armi", "dual wielder"):
+        is_dw = bool(_get("dual_wielding", False))
+        if not is_dw:
+            inv_items = _get("inventory", []) or []
+            eq_melee = 0
+            for it in inv_items:
+                if isinstance(it, dict) and it.get("equipped") and not it.get("is_shield"):
+                    it_cat = str(it.get("category", "") or it.get("type", "")).lower()
+                    it_name = str(it.get("name", "")).lower()
+                    if any(k in it_cat or k in it_name for k in ("spada", "ascia", "pugnale", "mazza", "martello", "lancia", "stocco", "scimitarra", "flagello", "piccone", "sword", "axe", "dagger", "mace", "hammer", "spear", "rapier", "scimitar", "weapon", "arma")) and not any(rk in it_name for rk in ("arco", "balestra", "fionda", "cerbottana", "bow", "crossbow", "sling", "blowgun", "scudo", "shield")):
+                        eq_melee += 1
+            if eq_melee >= 2:
+                is_dw = True
+        if is_dw:
+            final_ac += 1
     return final_ac
 
 

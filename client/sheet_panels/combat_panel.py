@@ -55,7 +55,12 @@ class CombatPanel:
         mod = (stat_val - 10) // 2
         char_lvl = getattr(character, "level", 1) or 1
         calc_pb = ((max(1, int(char_lvl)) - 1) // 4) + 2
-        prof_bonus = calc_pb if weapon.get("proficient", True) else 0
+        if "proficient" in weapon:
+            prof_bonus = calc_pb if weapon.get("proficient") else 0
+        else:
+            from common.feats_and_classes import is_proficient_with_weapon
+            w_props = [p.strip() for p in str(weapon.get("properties", "")).split(",") if p.strip()]
+            prof_bonus = calc_pb if is_proficient_with_weapon(character, weapon.get("name", ""), w_props) else 0
 
         # Bonus magico dell'arma (esplicito o dedotto automaticamente dal nome/descrizione)
         w_bonus = 0
@@ -74,6 +79,20 @@ class CombatPanel:
                     w_bonus = 2
                 elif any(k in name_str for k in ["vendicatrice sacra", "holy avenger", "vorpal", "difensore", "defender"]):
                     w_bonus = 3
+
+        # DMG p. 150: Munizioni magiche (+1/+2/+3) si cumulano con armi a distanza magiche
+        is_ammo_ranged = any(k in name_str or k in prop_str for k in ("arco", "bow", "balestra", "crossbow", "fionda", "sling", "cerbottana", "blowgun"))
+        if is_ammo_ranged and hasattr(character, "find_ammunition"):
+            try:
+                ammo_it, _ = character.find_ammunition(name_str)
+                if isinstance(ammo_it, dict):
+                    from common.item_modifiers import extract_magic_bonus as _ext_mb
+                    ammo_b = int(ammo_it.get("bonus") or ammo_it.get("bonus_attack") or 0)
+                    if ammo_b == 0:
+                        ammo_b = _ext_mb(str(ammo_it.get("name", ""))) or _ext_mb(str(ammo_it.get("desc", "")))
+                    w_bonus += ammo_b
+            except Exception:
+                pass
 
         total_txc = mod + prof_bonus + w_bonus - (5 if power_attack else 0)
         return total_txc, mod, prof_bonus, w_bonus, stat_key

@@ -826,7 +826,12 @@ def open_boss_config_dialog(dm_gui):
     tk.Label(container, text="Azioni Leggendarie Attuali:", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
     act_cur_entry = ttk.Entry(container)
     act_cur_entry.insert(0, str(getattr(player, "legendary_actions_current", getattr(player, "legendary_actions_max", 3))))
-    act_cur_entry.pack(fill=tk.X, pady=(2, 12))
+    act_cur_entry.pack(fill=tk.X, pady=(2, 8))
+
+    lair_var = tk.BooleanVar(value=bool(getattr(player, "has_lair_actions", False)))
+    mythic_var = tk.BooleanVar(value=bool(getattr(player, "is_mythic", False)))
+    ttk.Checkbutton(container, text="🏰 Ha Azioni di Tana (Iniziativa 20)", variable=lair_var).pack(anchor="w", pady=2)
+    ttk.Checkbutton(container, text="🔱 Creatura Mitica (Risveglio Fase 2 a 0 PF)", variable=mythic_var).pack(anchor="w", pady=(2, 10))
 
     def save_boss():
         try:
@@ -838,9 +843,14 @@ def open_boss_config_dialog(dm_gui):
             player.legendary_resistances_current = max(0, min(rmax, rcur))
             player.legendary_actions_max = max(0, amax)
             player.legendary_actions_current = max(0, min(amax, acur))
+            player.has_lair_actions = bool(lair_var.get())
+            player.is_mythic = bool(mythic_var.get())
+            if isinstance(getattr(player, "full_sheet", None), dict):
+                player.full_sheet["has_lair_actions"] = player.has_lair_actions
+                player.full_sheet["is_mythic"] = player.is_mythic
             dm_gui.server.game_state._trigger_gui_update()
             dm_gui.redraw_map_and_players()
-            dm_gui.log_to_chat(f"[BOSS] {player.name} configurato: {rmax} Resistenze, {amax} Azioni.")
+            dm_gui.log_to_chat(f"[BOSS] {player.name} configurato: {rmax} Resistenze, {amax} Azioni, Tana={player.has_lair_actions}, Mitico={player.is_mythic}.")
             win.destroy()
         except ValueError:
             messagebox.showerror("Errore", "Tutti i valori devono essere numeri interi.", parent=win)

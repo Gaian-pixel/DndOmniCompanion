@@ -6,7 +6,7 @@
 [![Ruleset: D&D 5e](https://img.shields.io/badge/ruleset-D%26D%205e-red.svg)](https://dnd.wizards.com/)
 [![UI: ttkbootstrap](https://img.shields.io/badge/ui-ttkbootstrap-orange.svg)](https://ttkbootstrap.readthedocs.io/)
 [![Multiplayer: TCP/UDP](https://img.shields.io/badge/networking-TCP%20%2B%20UDP-green.svg)]()
-[![Tests: Passing](https://img.shields.io/badge/tests-508%2F508%20passing-brightgreen.svg)]()
+[![Tests: Passing](https://img.shields.io/badge/tests-522%2F522%20passing-brightgreen.svg)]()
 [![Localization: EN / IT](https://img.shields.io/badge/i18n-English%20%7C%20Italiano-blueviolet.svg)]()
 [![Units: Imperial / Metric](https://img.shields.io/badge/units-ft%2Fmi%20%7C%20m%2Fkm-informational.svg)]()
 [![Version](https://img.shields.io/badge/release-v0.3.0--alpha-gold.svg)](https://github.com/Gaian-pixel/DndOmniCompanion/releases)
@@ -235,8 +235,9 @@ The DM can adjust the automation level in real time from **Tools ➔ ⚙️ Camp
 * **⚡ Full Automation (Fast Tactical / CRPG Style)**: Direct instant HP deductions, doors unlock immediately upon passing DC, strict combat turn locking, and instantaneous reaction/save prompts.
 * **Granular Coverage Across All Mechanics**:
   * **⚔️ Combat & Damage**: Direct attack damage, AoE spell/save damage, 2d20 advantage/disadvantage auto-calculation, reaction prompts (Opportunity Attacks, Shield, Uncanny Dodge), concentration constitution saves, 0 HP / massive instant death / Relentless Rage & Non-Lethal KO handling, Surprise Round 1 blocking, Underwater combat & suffocation, Mounted sync, and **Selectable Automatic Experience Point (XP) Distribution** at combat end with CR calculation and level-up notifications (PHB p. 15 / DMG p. 82).
-  * **🛡️ Complete PHB Class Features, Feats & Monster Traits**: Full server-side enforcement for *Reckless Attack*, *Danger Sense*, *Bear Totem Spirit*, *Bardic Inspiration*, *Song of Rest*, *Turn/Destroy Undead*, *Divine Intervention*, *Indomitable*, *Battle Master Maneuvers*, *Cunning Action & Hide*, *Ki Abilities & Diamond Soul*, *Lay on Hands*, *Aura of Courage*, *Improved Divine Smite*, *Mystic Arcanum*, *Agonizing/Repelling Blast*, plus key PHB Feats (*Sentinel*, *Polearm Master*, *War Caster*, *Tough*, *Alert*, *Elemental Adept*, *Crossbow Expert*, *Spell Sniper*, *Healer*, *Inspiring Leader*) and MM Traits (*Pack Tactics*, *Magic Resistance*, *Flyby*, *Charge/Pounce*, *Frightful Presence*, *Swallow/Regurgitation*, *Ooze Split*).
-  * **📕 Selectable DMG Optional Rules**: Independently toggleable in **DM Automation Settings** (`opt_cleaving`, `opt_massive_damage`, `opt_lingering_injuries`, `opt_madness`, `opt_rest_variant` Standard/Epic Heroism/Gritty Realism, `opt_dmg_maneuvers`, `opt_spell_points`, `opt_hunger_thirst_weather`), alongside Cursed Items, DMG Poisons & Diseases, Objects/Damage Threshold, and Chases (`Tools ➔ 📕 5e Rules Tools`).
+  * **🛡️ Complete PHB Class Capstones, Subclasses, Feats & Equipment**: Full server-side enforcement for PHB base classes & subclasses (*Reckless Attack*, *Danger Sense*, *Bear Totem Spirit*, *Persistent Rage*, *Primal Champion*, *Bardic Inspiration*, *Song of Rest*, *Turn/Destroy Undead*, *Divine Intervention*, *Destructive Wrath*, *Guided Strike*, *Indomitable*, *Survivor*, *Battle Master Maneuvers*, *Colossus Slayer*, *Cunning Action & Hide*, *Slippery Mind*, *Ki & Diamond Soul*, *Lay on Hands*, *Aura of Courage/Warding*, *Improved Divine Smite*, *Arcane Ward*, *Sculpt Spells*, Warlock Short-Rest Pact Magic separation, *Dark One's Blessing*, *Mystic Arcanum*, *Agonizing/Repelling Blast*), full PHB Feats (*Sentinel*, *Polearm Master*, *War Caster*, *Heavy Armor Master*, *Tough*, *Alert*, *Lucky*, *Defensive Duelist*, *Savage Attacker*, *Elemental Adept*, *Crossbow Expert*, *Spell Sniper*, *Healer*, *Inspiring Leader*), Armor Non-Proficiency penalties, Short Rest Attunement (`<= 3` / Artificer scaling, prerequisites, anti-duplicate), magic ammo stacking, and Downtime & Lifestyle expenses (`server/rules/downtime.py`).
+  * **🐉 Monster Manual Boss & Trait Engine (`server/dm_monster_engine.py`)**: Lair Actions at Initiative count 20 (losing ties, anti-repeat tracking) & Regional Effects, Incapacitated guard for Legendary Actions, interactive DM Legendary Resistance confirmation prompt (`RESOLVE_LEGENDARY_RESISTANCE_REQUEST`), Mythic Boss Phase 2 Awakening, Innate & Slot Monster Spellcasting parser/UI, Swarm traits (condition immunities & half-HP damage divisor), Incorporeal Movement (wall traversal & `1d10` Force end-of-turn damage), Shapechanger Polymorph immunity, Damage Transfer, Death Burst, 2-stage Petrification, Spider Climb, Water Breathing, Pack Tactics, Magic Resistance, Flyby, Charge/Pounce, Frightful Presence, Swallow/Regurgitation, and Ooze Split.
+  * **📕 Selectable DMG, XGtE & TCE Optional Rules & Generators**: 22 independently toggleable options in **DM Automation Settings** (`opt_cleaving`, `opt_massive_damage`, `opt_lingering_injuries`, `opt_madness`, `opt_rest_variant` Standard/Epic Heroism/Gritty Realism, `opt_dmg_maneuvers`, `opt_spell_points`, `opt_hunger_thirst_weather`, `opt_facing`, `opt_init_variant` Standard/Side/Speed Factor, `opt_morale`, `opt_hero_points`, `opt_honor_sanity`, `opt_fear_horror`, `opt_marking`, `opt_climb_bigger`, `opt_hitting_cover`, `opt_healing_surges`, `opt_slow_natural_healing`, `opt_falling_xge_tce`, `opt_armor_sleep_xge`, `opt_legendary_res_prompt`), plus party-size encounter multipliers, Treasure Tables C/D/E & CR 17+ Art Objects, Random Dungeon & Settlement generators (`server/dm_generators.py`), Complex Traps (Init 20/10), Siege Equipment, Sentient Items & Ego Conflict, Artifact Properties, Poison Harvesting, TCE Sidekicks, Renown/Piety, Bastions, Cursed Items, Poisons/Diseases, Objects/Damage Threshold, and Chases (`Tools ➔ 📕 5e Rules Tools`).
   * **🗺️ Map & Movement**: Strict combat turn enforcement, speed limit & difficult terrain blocking, automatic door DC resolution, and dynamic Fog of War auto-exploration.
   * **⛺ Rest & Resources**: Instant rest recovery (HP, Hit Dice, Spell Slots) vs DM approval with random encounter checks.
 
@@ -387,7 +388,7 @@ DndOmniCompanion/
 │   ├── GUIDA_ALL_UTILIZZO.md       # Manuale completo all'utilizzo (Italiano)
 │   ├── OPERATIONAL_GUIDE.md        # System & Operational Manual (English)
 │   └── GUIDA_OPERATIVA.md          # Manuale operativo e architettura (Italiano)
-├── tests/                          # Automated testing suite (508 passing tests)
+├── tests/                          # Automated testing suite (522 passing tests)
 │   ├── test_phb_dmg_mm_complete.py # Complete PHB/DMG/MM class powers, feats, monster traits & selectable DMG rules
 │   ├── test_raw_5e_advanced_features.py # Smite, Wild Shape, Font of Magic, Arcane Recovery, Reliable Talent, Auto XP
 │   ├── simulate_4player_campaign.py# Live 4-player + DM campaign simulation (11 phases)
@@ -407,14 +408,14 @@ DndOmniCompanion/
 
 ## 🧪 Automated Testing & Verification
 
-All **508 automated tests** pass with 100% success and 0 failures:
+All **522 automated tests** pass with 100% success and 0 failures:
 
 ```powershell
-# 1. Comprehensive Unit Tests (508 tests: complete PHB/DMG/MM rules, selectable DMG options, magic items, 3D dice, join flow, tactical combat, UI)
+# 1. Comprehensive Unit Tests (522 tests: complete PHB/DMG/MM & XGtE/TCE rules, 22 selectable DM options, magic items, 3D dice, join flow, tactical combat, UI)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
-# 1b. Run Complete PHB/DMG/MM & Selectable DMG Rules test suite
-$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_phb_dmg_mm_complete.py
+# 1b. Run Complete PHB/DMG/MM & XGtE/TCE Selectable Rules test suites
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_phb_dmg_mm_complete.py tests/test_full_5e_phb_dmg_mm.py
 
 # 2. Run Advanced 5e RAW Mechanics test suite (Divine Smite, Wild Shape, Font of Magic, Arcane Recovery, Reliable Talent, Jack of All Trades, Brutal Critical, Stunning Strike, Superiority Dice, Cantrip Scaling, Monster Recharge, Auto XP)
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_raw_5e_advanced_features.py

@@ -5,6 +5,14 @@ from server.rules.map_interaction import *
 from server.rules.inventory import *
 from server.rules.character import *
 from server.rules.chat import *
+from server.rules.reaction_magic import (
+    handle_escape_grapple_request,
+    handle_dispel_magic_request,
+    handle_identify_spell_reaction_request,
+)
+from server.rules.downtime import handle_downtime_request
+from server.dm_optional_tools import handle_optional_rule_action_request
+from server.dm_monster_engine import handle_resolve_legendary_resistance_request
 from server.rules.audio import handle_audio_track_request
 from server.rules.journal import (
     handle_journal_update_request,
@@ -105,6 +113,13 @@ command_handlers = {
     "MOUNT_REQUEST": handle_mount_request,
     "SURPRISE_REQUEST": handle_surprise_request,
     "SUBMERGED_BREATH_REQUEST": handle_submerged_breath_request,
+    "ESCAPE_GRAPPLE_REQUEST": handle_escape_grapple_request,
+    "DISPEL_MAGIC_REQUEST": handle_dispel_magic_request,
+    "IDENTIFY_SPELL_REQUEST": handle_identify_spell_reaction_request,
+    "DOWNTIME_REQUEST": handle_downtime_request,
+    "CLASS_FEATURE_REQUEST": handle_class_feature_request,
+    "OPTIONAL_RULE_ACTION_REQUEST": handle_optional_rule_action_request,
+    "RESOLVE_LEGENDARY_RESISTANCE_REQUEST": handle_resolve_legendary_resistance_request,
 }
 
 

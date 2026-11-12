@@ -14,6 +14,7 @@ from common.protocol import (
 )
 from common.hex_utils import Hex, hex_distance, grid_distance
 from common.network_utils import send_message, broadcast
+from common.i18n import is_condition_active
 from common.dice import roll_dice
 from common.item_modifiers import get_effective_attribute_from_dict, get_effective_save_bonus_from_dict
 from common.dnd5e_tables import (
@@ -151,6 +152,12 @@ def handle_lay_on_hands_request(data, player, game_state):
         _sync_sheet_conditions(target)
         msg = f"🙏 [IMPOSIZIONE DELLE MANI] {actor.name} spende 5 PF dal pool ({new_cur}/{mx} rimasti) su {target.name} per neutralizzare Veleno/Malattia ({', '.join(removed) if removed else 'purificato'})!"
     else:
+        t_fs_lh = getattr(target, "full_sheet", None) or {}
+        t_type_lh = (str(t_fs_lh.get("type", "")) + " " + str(target.name)).lower()
+        if getattr(target, "is_object", False) or any(k in t_type_lh for k in ("costrutto", "construct", "non morto", "non-morto", "undead", "golem", "scheletro", "skeleton", "zombie")):
+            if getattr(actor, "conn", None):
+                send_message(actor.conn, make_error_reply("Imposizione delle Mani non ha effetto su Non Morti o Costrutti (PHB p. 84)."))
+            return
         amount = max(1, int(data.get("amount", 5) or 5))
         if cur_pool < amount:
             if getattr(actor, "conn", None):
@@ -561,7 +568,13 @@ def handle_hide_request(data, player, game_state):
     as_bonus = bool(data.get("as_bonus_action", False))
     if as_bonus:
         rogue_lvl = entity_get_class_level(actor, "ladro", "rogue")
-        if rogue_lvl < 2 and not entity_has_keyword(actor, "azione scaltra", "cunning action"):
+        ranger_lvl = entity_get_class_level(actor, "ranger")
+        can_ba_hide = (
+            rogue_lvl >= 2
+            or ranger_lvl >= 14
+            or entity_has_keyword(actor, "azione scaltra", "cunning action", "svanire", "vanish")
+        )
+        if not can_ba_hide:
             if getattr(actor, "conn", None):
                 send_message(actor.conn, make_error_reply("Nascondersi come Azione Bonus richiede Azione Scaltra (Ladro Lv 2+)."))
             return
@@ -576,13 +589,22 @@ def handle_hide_request(data, player, game_state):
     pb = ((entity_get_total_level(actor) - 1) // 4) + 2
     stealth_bonus = dex_mod + (pb * stealth_prof)
     forced_roll = data.get("forced_roll")
+    p_conds = getattr(actor, "conditions", []) or []
+    is_invis = is_condition_active(p_conds, "Invisibile")
+    has_dis = getattr(actor, "exhaustion_level", 0) >= 1 or is_condition_active(p_conds, "Avvelenato") or is_condition_active(p_conds, "Spaventato")
     if forced_roll is not None:
         stealth_total = int(forced_roll)
     else:
-        formula = f"1d20{'+' if stealth_bonus >= 0 else ''}{stealth_bonus}"
+        r1 = roll_dice(f"1d20{'+' if stealth_bonus >= 0 else ''}{stealth_bonus}")
+        r2 = roll_dice(f"1d20{'+' if stealth_bonus >= 0 else ''}{stealth_bonus}")
+        if is_invis and not has_dis:
+            stealth_total = max(r1["total"], r2["total"])
+        elif has_dis and not is_invis:
+            stealth_total = min(r1["total"], r2["total"])
+        else:
+            stealth_total = r1["total"]
         if stealth_prof > 0 and entity_get_class_level(actor, "ladro", "rogue") >= 11:
-            formula += " reliable"
-        stealth_total = roll_dice(formula)["total"]
+            stealth_total = max(stealth_total, 10 + stealth_bonus)
 
     actor.stealth_score = stealth_total
     actor.is_hidden = True
@@ -590,20 +612,28 @@ def handle_hide_request(data, player, game_state):
         actor.conditions.append("Nascosto")
     _sync_sheet_conditions(actor)
 
-    # Verifica Percezione Passiva dei nemici
+    # Verifica Percezione Passiva dei nemici (incl. Accecato, Scurovisione/Luce Fioca -5, Keen Senses, Blindsight/Truesight)
     is_actor_party = getattr(actor, "is_party_member", False) or getattr(actor, "is_companion", False)
     spotted_by = []
+    from server.rules.reaction_magic import check_passive_perception, check_special_senses_see_target
+    cur_map = getattr(game_state, "current_map", {}) or {}
+    g_type = cur_map.get("grid_type", "hex")
+    from common.hex_utils import Hex, grid_distance_3d
     for p in getattr(game_state, "players", []):
         if p.name == actor.name or getattr(p, "hp", 0) <= 0:
             continue
         p_party = getattr(p, "is_party_member", False) or getattr(p, "is_companion", False)
         if p_party == is_actor_party:
             continue
-        wis_m = entity_get_attr_mod(p, "SAG")
-        p_skills = (getattr(p, "full_sheet", None) or {}).get("skills", {})
-        perc_prof = int(p_skills.get("Percezione", p_skills.get("Perception", 0)) or 0)
-        p_pb = ((entity_get_total_level(p) - 1) // 4) + 2
-        pass_perc = 10 + wis_m + (p_pb * perc_prof)
+        dist_p = 1.0
+        if getattr(actor, "position", None) and getattr(p, "position", None):
+            dist_p = grid_distance_3d(Hex(actor.position[0], actor.position[1]), Hex(p.position[0], p.position[1]), getattr(actor, "elevation", 0), getattr(p, "elevation", 0), grid_type=g_type)
+        special_see, special_why = check_special_senses_see_target(p, actor, dist_p)
+        if is_invis and not special_see:
+            # Una creatura invisibile resta occultata alla vista, salvo sensi speciali o rumore (se percepita acusticamente via sight_based=False)
+            pass_perc = check_passive_perception(p, game_state, sight_based=False)
+        else:
+            pass_perc = check_passive_perception(p, game_state, sight_based=not special_see)
         if stealth_total < pass_perc:
             spotted_by.append(f"{p.name} (Perc. Passiva {pass_perc})")
 
@@ -674,10 +704,50 @@ def handle_ki_ability_request(data, player, game_state):
             send_message(actor.conn, make_error_reply("Le tecniche Ki richiedono Monaco Lv 2+."))
         return
 
-    ok, new_cur, mx = entity_spend_resource(actor, ("punti ki", "ki"), 1)
+    # Quietare la Mente (Stillness of Mind, Monaco Lv 7+, PHB p. 79): Azione (0 Ki) per terminare Affascinato/Spaventato
+    if "stillness" in ability or "quiet" in ability:
+        if monk_lvl < 7 and not entity_has_keyword(actor, "quietare la mente", "stillness of mind"):
+            if getattr(actor, "conn", None):
+                send_message(actor.conn, make_error_reply("Quietare la Mente richiede Monaco Lv 7+."))
+            return
+        removed_s = []
+        if hasattr(actor, "conditions"):
+            new_c = []
+            for c in actor.conditions:
+                cl = str(c).lower()
+                if cl.startswith(("affascinat", "charmed", "spaventat", "frightened")):
+                    removed_s.append(c)
+                else:
+                    new_c.append(c)
+            actor.conditions = new_c
+        if hasattr(actor, "frightened_sources"):
+            actor.frightened_sources = []
+        if hasattr(actor, "charmed_by"):
+            actor.charmed_by = None
+        actor.has_acted_this_turn = True
+        _sync_sheet_conditions(actor)
+        msg_s = f"🧘 [QUIETARE LA MENTE] {actor.name} usa la propria Azione per liberarsi da {', '.join(removed_s) if removed_s else 'Affascinato/Spaventato'}!"
+        broadcast(game_state, make_chat_broadcast("Sistema", msg_s))
+        broadcast(game_state, make_player_stats_update(actor.name, actor.hp, actor.max_hp, actor.initiative, actor.conditions, getattr(actor, "temp_hp", 0)))
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        return
+
+    # Corpo Vuoto (Empty Body, Monaco Lv 18+, PHB p. 79): 4 Ki -> Invisibile + Resistenza a tutti i danni eccetto Forza per 1 min (10 round)
+    is_empty_body = ("empty" in ability or "vuoto" in ability)
+    if is_empty_body and monk_lvl < 18 and not entity_has_keyword(actor, "corpo vuoto", "empty body"):
+        if getattr(actor, "conn", None):
+            send_message(actor.conn, make_error_reply("Corpo Vuoto richiede Monaco Lv 18+."))
+        return
+
+    ki_cost = 4 if is_empty_body else 1
+    ok, new_cur, mx = entity_spend_resource(actor, ("punti ki", "ki"), ki_cost)
     if not ok:
         if entity_find_resource(actor, "punti ki", "ki") is None and monk_lvl >= 2:
-            res = {"name": "Punti Ki", "current": max(0, monk_lvl - 1), "max": monk_lvl, "reset_on": "short"}
+            if monk_lvl < ki_cost:
+                if getattr(actor, "conn", None):
+                    send_message(actor.conn, make_error_reply(f"Servono {ki_cost} Punti Ki."))
+                return
+            res = {"name": "Punti Ki", "current": max(0, monk_lvl - ki_cost), "max": monk_lvl, "reset_on": "short"}
             if isinstance(getattr(actor, "full_sheet", None), dict):
                 actor.full_sheet.setdefault("custom_resources", []).append(res)
             new_cur, mx = res["current"], res["max"]
@@ -686,7 +756,21 @@ def handle_ki_ability_request(data, player, game_state):
                 send_message(actor.conn, make_error_reply("Punti Ki esauriti (ricaricali con Riposo Breve)!"))
             return
 
-    if "patient" in ability or "difesa" in ability:
+    if is_empty_body:
+        actor.has_acted_this_turn = True
+        if not hasattr(actor, "conditions"):
+            actor.conditions = []
+        if "Invisibile" not in actor.conditions:
+            actor.conditions.append("Invisibile")
+        if hasattr(actor, "add_effect"):
+            actor.add_effect({
+                "id": "empty_body",
+                "name": "Corpo Vuoto",
+                "duration_rounds": 10,
+                "source": actor.name,
+            })
+        msg = f"👻 [CORPO VUOTO - 4 Ki] {actor.name} diventa Invisibile e ottiene Resistenza a tutti i danni (eccetto Forza) per 1 minuto! ({new_cur}/{mx} Ki rimasti)"
+    elif "patient" in ability or "difesa" in ability:
         actor.bonus_action_used_this_turn = True
         if "Schivata" not in actor.conditions:
             actor.conditions.append("Schivata")
@@ -788,6 +872,10 @@ def validate_spell_casting_rules(actor, spell_level: int, casting_time: str = "a
     """
     if has_verbal and _is_silenced_for_verbal(actor, game_state):
         return False, f"🔇 {actor.name} è in area di SILENZIO / Silenziato e non può lanciare incantesimi con componente Verbale (V)!"
+    from common.feats_and_classes import get_armor_nonproficiency_penalties
+    _armor_pen = get_armor_nonproficiency_penalties(actor)
+    if _armor_pen.get("cannot_cast_spells"):
+        return False, f"🛡️ {actor.name} indossa armatura/scudo senza competenza ({', '.join(_armor_pen.get('missing', []))}) e non può lanciare incantesimi (PHB p. 144)!"
 
     ct = str(casting_time or "action").lower()
     is_bonus = ("bonus" in ct)
@@ -841,6 +929,33 @@ def handle_cast_special_spell_request(data, player, game_state):
     else:
         actor.spell_cast_action_level_this_turn = base_lvl
         actor.has_acted_this_turn = True
+
+    # Rituale PHB p. 201: aggiunge +10 minuti all'orologio di gioco
+    if bool(data.get("is_ritual", False)):
+        if hasattr(game_state, "advance_game_time"):
+            game_state.advance_game_time(minutes=10)
+        broadcast(game_state, make_chat_broadcast("Sistema", f"🕯️ [RITUALE +10 min] {actor.name} officia il lancio rituale di '{spell_name}'."))
+
+    # Durata Concentrazione in round (PHB p. 203)
+    if bool(data.get("concentration", False)):
+        from common.feats_and_classes import parse_spell_duration_rounds
+        dur_r = parse_spell_duration_rounds(str(data.get("duration", "") or ""))
+        actor.concentrating_on = spell_name
+        actor.concentration_rounds_remaining = dur_r if (dur_r and dur_r > 0) else None
+        if str(data.get("metamagic", "") or "").lower() == "extended" and getattr(actor, "concentration_rounds_remaining", None):
+            actor.concentration_rounds_remaining = min(14400, actor.concentration_rounds_remaining * 2)
+
+    # Abiuratore Lv 2+: incantesimo di Abiurazione di 1°+ liv. ricarica Interdizione Arcana
+    _sch_l = str(data.get("school", "") or "").lower()
+    if base_lvl >= 1 and ("abiuraz" in _sch_l or "abjur" in _sch_l):
+        from common.feats_and_classes import recharge_arcane_ward_hp
+        gained_w = recharge_arcane_ward_hp(actor, cast_level)
+        if gained_w > 0:
+            broadcast(game_state, make_chat_broadcast("Sistema", f"🛡️ [INTERDIZIONE ARCANA] {actor.name} ricarica +{gained_w} PF alla propria Interdizione Arcana!"))
+
+    if base_lvl >= 1:
+        from server.rules.reaction_magic import maybe_prompt_counterspell_reactions
+        maybe_prompt_counterspell_reactions(actor, spell_name, cast_level, game_state)
 
     from server.rules.combat import apply_damage
     target = _get_target_or_self(data, actor, game_state)
@@ -970,6 +1085,12 @@ def handle_healer_feat_request(data, player, game_state):
             send_message(actor.conn, make_error_reply("Richiede il talento Guaritore (Healer)."))
         return
     target = _get_target_or_self(data, actor, game_state) or actor
+    t_fs_hl = getattr(target, "full_sheet", None) or {}
+    t_type_hl = (str(t_fs_hl.get("type", "")) + " " + str(target.name)).lower()
+    if getattr(target, "is_object", False) or any(k in t_type_hl for k in ("costrutto", "construct", "non morto", "non-morto", "undead", "golem")):
+        if getattr(actor, "conn", None):
+            send_message(actor.conn, make_error_reply("Il talento Guaritore non può curare Oggetti, Costrutti o Non Morti (PHB p. 167)."))
+        return
     t_lvl = entity_get_total_level(target)
     heal_val = roll_dice("1d6+4")["total"] + t_lvl
     old_hp = target.hp
@@ -1159,14 +1280,20 @@ def _is_dmg_opt_enabled(game_state, key: str) -> bool:
 
 
 def handle_dmg_maneuver_request(data, player, game_state):
-    """DMG p. 271-272: Disarm (Disarmare), Overrun (Oltrepassare), Tumble (Capovolta), Shove Aside (Spinta Laterale)."""
-    if not _is_dmg_opt_enabled(game_state, "opt_dmg_maneuvers"):
+    """DMG p. 271-272: Disarm (Disarmare), Overrun (Oltrepassare), Tumble (Capovolta), Shove Aside (Spinta Laterale), Climb Onto Bigger Creature."""
+    man = str(data.get("maneuver", "disarm")).strip().lower()
+    is_climb_man = any(k in man for k in ("climb", "scal", "bigger", "grande"))
+    climb_enabled = _is_dmg_opt_enabled(game_state, "opt_climb_bigger") or _is_dmg_opt_enabled(game_state, "opt_dmg_maneuvers")
+    if is_climb_man and not climb_enabled:
+        if player and getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Scalare Creature Più Grandi (DMG p.271) è disabilitata dal Master."))
+        return
+    if not is_climb_man and not _is_dmg_opt_enabled(game_state, "opt_dmg_maneuvers"):
         if player and getattr(player, "conn", None):
             send_message(player.conn, make_error_reply("Le Manovre Opzionali DMG sono disabilitate dal Master nel pannello automazioni."))
         return
     actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
     target = _get_target_or_self(data, player, game_state)
-    man = str(data.get("maneuver", "disarm")).strip().lower()
     if not actor or not target:
         return
     if _check_surprised_block(actor, game_state, "usare una Manovra DMG"):
@@ -1176,23 +1303,70 @@ def handle_dmg_maneuver_request(data, player, game_state):
     atk_dex = entity_get_attr_mod(actor, "DES")
     pb = ((entity_get_total_level(actor) - 1) // 4) + 2
 
-    if "overrun" in man or "oltrepass" in man:
+    if is_climb_man:
+        def _dmg_size_rank(ent):
+            sh = getattr(ent, "full_sheet", None) or {}
+            raw = sh.get("size", getattr(ent, "size", 1))
+            if isinstance(raw, (int, float)):
+                return 0 if raw < 1 else int(raw) + 1
+            s_low = str(raw or "").strip().lower()
+            if s_low.isdigit():
+                v = int(s_low)
+                return 0 if v < 1 else v + 1
+            smap = {"tiny": 0, "minuscol": 0, "piccolissim": 0, "small": 1, "piccol": 1, "medium": 2, "media": 2, "large": 3, "grand": 3, "huge": 4, "enorm": 4, "gargantuan": 5, "mastodontic": 5}
+            for k, r in smap.items():
+                if k in s_low:
+                    return r
+            return 2
+
+        a_sz = _dmg_size_rank(actor)
+        t_sz = _dmg_size_rank(target)
+        if t_sz < a_sz + 2:
+            if getattr(actor, "conn", None):
+                send_message(actor.conn, make_error_reply(f"{target.name} deve essere almeno 2 taglie più grande per scalarla (DMG p. 271)!"))
+            return
+        atk_bonus = max(atk_str, atk_dex) + pb
+        r_a = roll_dice(f"1d20{'+' if atk_bonus >= 0 else ''}{atk_bonus}")["total"]
+        t_dex = entity_get_attr_mod(target, "DES") + ((entity_get_total_level(target) - 1) // 4 + 2)
+        r_t = roll_dice(f"1d20{'+' if t_dex >= 0 else ''}{t_dex}")["total"]
+        ok = r_a >= r_t
+        if ok:
+            actor.climbing_on_target = target.name
+            if getattr(target, "position", None):
+                actor.position = list(target.position)
+        msg = f"🧗 [SCALARE CREATURA GRANDE (DMG p.271)] {actor.name} ({r_a}) vs {target.name} Acrobazia ({r_t}): {'✅ Si aggrappa sopra! (Vantaggio agli attacchi in mischia contro di essa)' if ok else '❌ Scivola giù!'}"
+    elif "overrun" in man or "oltrepass" in man:
         r_a = roll_dice(f"1d20+{atk_str + pb}")["total"]
         t_str = entity_get_attr_mod(target, "FOR") + ((entity_get_total_level(target) - 1) // 4 + 2)
         r_t = roll_dice(f"1d20+{t_str}")["total"]
         ok = r_a >= r_t
+        if ok and getattr(actor, "position", None) and getattr(target, "position", None):
+            dq = target.position[0] - actor.position[0]
+            dr = target.position[1] - actor.position[1]
+            actor.position = [target.position[0] + (1 if dq > 0 else (-1 if dq < 0 else 0)), target.position[1] + (1 if dr > 0 else (-1 if dr < 0 else 0))]
         msg = f"🐂 [OLTREPASSARE (DMG)] {actor.name} ({r_a}) vs {target.name} ({r_t}): {'✅ Oltrepassa lo spazio nemico!' if ok else '❌ Bloccato!'}"
     elif "tumble" in man or "capovolt" in man:
         r_a = roll_dice(f"1d20+{atk_dex + pb}")["total"]
         t_dex = entity_get_attr_mod(target, "DES") + ((entity_get_total_level(target) - 1) // 4 + 2)
         r_t = roll_dice(f"1d20+{t_dex}")["total"]
         ok = r_a >= r_t
+        if ok and getattr(actor, "position", None) and getattr(target, "position", None):
+            dq = target.position[0] - actor.position[0]
+            dr = target.position[1] - actor.position[1]
+            actor.position = [target.position[0] + (1 if dq > 0 else (-1 if dq < 0 else 0)), target.position[1] + (1 if dr > 0 else (-1 if dr < 0 else 0))]
         msg = f"🤸 [CAPOVOLTA (DMG)] {actor.name} Acrobazia ({r_a}) vs {target.name} ({r_t}): {'✅ Attraversa lo spazio ostile!' if ok else '❌ Fermato!'}"
     elif "shove_aside" in man or "laterale" in man:
         r_a = roll_dice(f"1d20+{atk_str + pb}")["total"]
         t_def = max(entity_get_attr_mod(target, "FOR"), entity_get_attr_mod(target, "DES"))
         r_t = roll_dice(f"1d20+{t_def}")["total"]
         ok = r_a >= r_t
+        if ok and getattr(actor, "position", None) and getattr(target, "position", None):
+            dq = target.position[0] - actor.position[0]
+            dr = target.position[1] - actor.position[1]
+            # Spinta laterale: ruota di 90 gradi rispetto alla congiungente
+            lat_q = -1 if dr > 0 else (1 if dr < 0 else 1)
+            lat_r = 1 if dq > 0 else (-1 if dq < 0 else 0)
+            target.position = [target.position[0] + lat_q, target.position[1] + lat_r]
         msg = f"💨 [SPINTA LATERALE (DMG)] {actor.name} ({r_a}) vs {target.name} ({r_t}): {'✅ Spinto di lato di 1,5 m (5 ft)!' if ok else '❌ Spinta respinta!'}"
     else:  # Disarm DMG p. 271 (TxC vs Atletica/Acrobazia bersaglio)
         r_a = roll_dice(f"1d20+{max(atk_str, atk_dex) + pb}")["total"]
@@ -1377,6 +1551,10 @@ def handle_mount_request(data, player, game_state):
     mount_name = data.get("mount_name")
     if not mount_name or data.get("dismount"):
         prev = getattr(actor, "mount_name", None)
+        if getattr(game_state, "combat_active", False) and prev:
+            from common.i18n import speed_to_hexes
+            half_cost = max(1, speed_to_hexes(getattr(actor, "speed", 30), getattr(actor, "speed_unit", None)) // 2)
+            actor.movement_spent_this_turn = getattr(actor, "movement_spent_this_turn", 0) + half_cost
         actor.mount_name = None
         msg = f"🐎 {actor.name} scende di sella{f' da {prev}' if prev else ''}."
     else:
@@ -1385,10 +1563,30 @@ def handle_mount_request(data, player, game_state):
             if getattr(actor, "conn", None):
                 send_message(actor.conn, make_error_reply(f"Cavalcatura '{mount_name}' non trovata."))
             return
+        from server.rules.combat import _get_entity_size_rank
+        a_sz = _get_entity_size_rank(actor)
+        m_sz = _get_entity_size_rank(mount)
+        # Se m_sz e' impostata esplicitamente (es. Media vs Cavallo non indicato, default Large se ha horse/cavallo/worg/drake/griffon nel nome)
+        m_name_low = str(mount.name).lower()
+        if m_sz <= a_sz and any(kw in m_name_low for kw in ("cavallo", "horse", "destriero", "steed", "pon", "worg", "grifone", "griffon", "orso", "bear", "pantera", "elk", "cervo", "mulo", "mule")):
+            m_sz = max(m_sz, 3)
+        if m_sz < a_sz + 1:
+            if getattr(actor, "conn", None):
+                send_message(actor.conn, make_error_reply(f"{mount.name} non è abbastanza grande per essere cavalcata da {actor.name} (serve almeno 1 taglia superiore, PHB p. 198)!"))
+            return
+        if getattr(game_state, "combat_active", False):
+            from common.i18n import speed_to_hexes
+            max_h = speed_to_hexes(getattr(actor, "speed", 30), getattr(actor, "speed_unit", None))
+            half_cost = max(1, max_h // 2)
+            if (getattr(actor, "movement_spent_this_turn", 0) + half_cost) > max_h and (getattr(game_state, "automation_settings", {}) or {}).get("strict_movement_limits", True):
+                if getattr(actor, "conn", None):
+                    send_message(actor.conn, make_error_reply("Movimento insufficiente per montare in sella (costa metà velocità, PHB p. 198)!"))
+                return
+            actor.movement_spent_this_turn = getattr(actor, "movement_spent_this_turn", 0) + half_cost
         actor.mount_name = mount.name
         if getattr(mount, "position", None):
             actor.position = list(mount.position)
-        msg = f"🐎 [IN SELLA] {actor.name} monta in sella a {mount.name} (i movimenti verranno sincronizzati)."
+        msg = f"🐎 [IN SELLA] {actor.name} monta in sella a {mount.name} (costo metà movimento, movimenti sincronizzati)."
     broadcast(game_state, make_chat_broadcast("Sistema", msg))
     broadcast(game_state, make_game_state(game_state.get_state_dict()))
 
@@ -1420,18 +1618,31 @@ def handle_submerged_breath_request(data, player, game_state):
         return
     action = str(data.get("action", "toggle_submerged")).lower()
     con_mod = entity_get_attr_mod(actor, "COS")
+    from server.dm_monster_engine import has_water_breathing
+    can_breathe_water = has_water_breathing(actor)
     if action == "toggle_submerged":
         actor.is_submerged = bool(data.get("submerged", not getattr(actor, "is_submerged", False)))
         if actor.is_submerged:
-            actor.breath_rounds_left = get_breath_hold_rounds(con_mod)
+            actor.breath_rounds_left = None if can_breathe_water else get_breath_hold_rounds(con_mod)
             if "Immerso" not in actor.conditions:
                 actor.conditions.append("Immerso")
-            msg = f"🌊 {actor.name} è ora IMMERSO sott'acqua (Resistenza al Fuoco attiva; Apnea: {actor.breath_rounds_left} round)."
+            if can_breathe_water:
+                msg = f"🌊 {actor.name} è ora IMMERSO sott'acqua (Respirare Sott'Acqua/Anfibio: nessun rischio di soffocamento!)."
+            else:
+                msg = f"🌊 {actor.name} è ora IMMERSO sott'acqua (Resistenza al Fuoco attiva; Apnea: {actor.breath_rounds_left} round)."
         else:
             actor.breath_rounds_left = None
             actor.conditions = [c for c in actor.conditions if c != "Immerso"]
             msg = f"🌬️ {actor.name} riemerge in superficie e respira normalmente."
     else:  # tick_round
+        if can_breathe_water:
+            actor.breath_rounds_left = None
+            msg = f"🌊 {actor.name} respira liberamente sott'acqua (Anfibio / Respirare Sott'Acqua)."
+            _sync_sheet_conditions(actor)
+            broadcast(game_state, make_chat_broadcast("Sistema", msg))
+            broadcast(game_state, make_player_stats_update(actor.name, actor.hp, actor.max_hp, actor.initiative, actor.conditions, getattr(actor, "temp_hp", 0)))
+            broadcast(game_state, make_game_state(game_state.get_state_dict()))
+            return
         cur = getattr(actor, "breath_rounds_left", None)
         if cur is None:
             cur = get_breath_hold_rounds(con_mod)
@@ -1451,3 +1662,243 @@ def handle_submerged_breath_request(data, player, game_state):
     broadcast(game_state, make_chat_broadcast("Sistema", msg))
     broadcast(game_state, make_player_stats_update(actor.name, actor.hp, actor.max_hp, actor.initiative, actor.conditions, getattr(actor, "temp_hp", 0)))
     broadcast(game_state, make_game_state(game_state.get_state_dict()))
+
+
+def handle_class_feature_request(data, player, game_state):
+    """
+    Gestore unificato privilegi di classe PHB mancanti:
+    - Bard Countercharm (Lv 6+)
+    - Paladin Cleansing Touch (Lv 14+)
+    - Druid Natural Recovery (Lv 2 Land) & Moon Combat Wild Shape Heal
+    - Cleric Domain Channel Divinity (Preserve Life, Radiance of the Dawn, Destructive Wrath, Guided Strike)
+    - Sorcerer Font of Magic & Metamagic active selection
+    """
+    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    if not actor:
+        return
+    if _check_surprised_block(actor, game_state, "usare un privilegio di classe"):
+        return
+
+    feat = str(data.get("feature", "") or "").strip().lower()
+    target = _get_target_or_self(data, actor, game_state) or actor
+    fs = getattr(actor, "full_sheet", None)
+    if not isinstance(fs, dict):
+        fs = {}
+        actor.full_sheet = fs
+
+    # 1. Bard Countercharm (PHB p. 54, Lv 6+)
+    if feat in ("countercharm", "controfascino", "contro-fascino"):
+        bard_l = entity_get_class_level(actor, "bardo", "bard")
+        if bard_l < 6 and not entity_has_keyword(actor, "controfascino", "countercharm"):
+            if getattr(actor, "conn", None):
+                send_message(actor.conn, make_error_reply("Controfascino richiede Bardo Lv 6+."))
+            return
+        actor.has_acted_this_turn = True
+        pos_a = getattr(actor, "position", None)
+        gtype = (getattr(game_state, "current_map", {}) or {}).get("grid_type", "hex")
+        buffed = []
+        for p in getattr(game_state, "players", []):
+            if getattr(p, "hp", 0) <= 0:
+                continue
+            if getattr(p, "is_party_member", False) != getattr(actor, "is_party_member", False):
+                continue
+            in_range = (p.name == actor.name)
+            if not in_range and pos_a and getattr(p, "position", None):
+                in_range = grid_distance(Hex(pos_a[0], pos_a[1]), Hex(p.position[0], p.position[1]), gtype) <= 6
+            if in_range:
+                if hasattr(p, "add_effect"):
+                    p.add_effect({"id": "countercharm", "name": "Controfascino (Vant. TS Spaventato/Affascinato)", "duration_rounds": 1, "source": actor.name})
+                buffed.append(p.name)
+        msg = f"🎼 [CONTROFASCINO] {actor.name} intona una melodia protettiva: {', '.join(buffed) or actor.name} ottengono Vantaggio ai TS contro Spaventato/Affascinato fino al termine del prossimo turno!"
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        return
+
+    # 2. Paladin Cleansing Touch (PHB p. 85, Lv 14+)
+    if feat in ("cleansing_touch", "tocco_purificatore", "tocco purificatore"):
+        pal_l = entity_get_class_level(actor, "paladino", "paladin")
+        if pal_l < 14 and not entity_has_keyword(actor, "tocco purificatore", "cleansing touch"):
+            if getattr(actor, "conn", None):
+                send_message(actor.conn, make_error_reply("Tocco Purificatore richiede Paladino Lv 14+."))
+            return
+        cha_uses = max(1, entity_get_attr_mod(actor, "CAR"))
+        if entity_find_resource(actor, "tocco purificatore", "cleansing touch") is None:
+            fs.setdefault("custom_resources", []).append({"name": "Tocco Purificatore", "current": cha_uses, "max": cha_uses, "reset_on": "long"})
+        ok, new_c, mx = entity_spend_resource(actor, ("tocco purificatore", "cleansing touch"), 1)
+        if not ok:
+            if getattr(actor, "conn", None):
+                send_message(actor.conn, make_error_reply("Usi di Tocco Purificatore esauriti."))
+            return
+        actor.has_acted_this_turn = True
+        spell_to_end = str(data.get("spell_name", "") or "").strip()
+        ended = []
+        if spell_to_end:
+            ended.append(spell_to_end)
+            if hasattr(target, "remove_effect"):
+                target.remove_effect(spell_to_end)
+        elif hasattr(target, "active_effects") and target.active_effects:
+            last_fx = target.active_effects.pop()
+            ended.append(str(last_fx.get("name", last_fx.get("id", "Incantesimo"))))
+        if not ended and getattr(target, "conditions", None):
+            for c in list(target.conditions):
+                if any(k in str(c).lower() for k in ("affascinat", "spaventat", "paralizz", "accec", "assord", "malat", "charm", "fright", "paralyz")):
+                    target.conditions.remove(c)
+                    ended.append(c)
+                    break
+        _sync_sheet_conditions(target)
+        msg = f"✨ [TOCCO PURIFICATORE] {actor.name} tocca {target.name} e termina: {', '.join(ended) if ended else 'un effetto magico attivo'} ({new_c}/{mx} usi)."
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        broadcast(game_state, make_player_stats_update(target.name, target.hp, target.max_hp, target.initiative, target.conditions, getattr(target, "temp_hp", 0)))
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        return
+
+    # 3. Druid Natural Recovery (Lv 2+ Circolo della Terra, PHB p. 68)
+    if feat in ("natural_recovery", "recupero_naturale", "recupero naturale"):
+        dr_l = entity_get_class_level(actor, "druido", "druid")
+        if dr_l < 2:
+            if getattr(actor, "conn", None):
+                send_message(actor.conn, make_error_reply("Recupero Naturale richiede Druido Lv 2+."))
+            return
+        if entity_find_resource(actor, "recupero naturale", "natural recovery") is None:
+            fs.setdefault("custom_resources", []).append({"name": "Recupero Naturale", "current": 1, "max": 1, "reset_on": "long"})
+        ok, new_c, mx = entity_spend_resource(actor, ("recupero naturale", "natural recovery"), 1)
+        if not ok:
+            if getattr(actor, "conn", None):
+                send_message(actor.conn, make_error_reply("Recupero Naturale già utilizzato oggi."))
+            return
+        budget = max(1, (dr_l + 1) // 2)
+        slots = fs.get("spell_slots", {})
+        rec = []
+        rem = budget
+        for sl_k in sorted([int(k) for k in slots.keys() if str(k).isdigit() and int(k) <= 5], reverse=True):
+            s_obj = slots.get(str(sl_k))
+            if isinstance(s_obj, dict):
+                while rem >= sl_k and s_obj.get("current", 0) < s_obj.get("max", 0):
+                    s_obj["current"] += 1
+                    rem -= sl_k
+                    rec.append(f"{sl_k}°")
+        msg = f"🌿 [RECUPERO NATURALE] {actor.name} medita durante il Riposo Breve (budget {budget} liv.): recupera slot [{', '.join(rec) if rec else 'nessuno mancante'}]."
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        return
+
+    # 4. Moon Druid Combat Wild Shape Heal (Azione Bonus: 1d8/livello slot)
+    if feat in ("combat_wild_shape_heal", "cura_forma_selvatica", "combat wild shape heal"):
+        dr_l = entity_get_class_level(actor, "druido", "druid")
+        if dr_l < 2:
+            if getattr(actor, "conn", None):
+                send_message(actor.conn, make_error_reply("Richiede Druido della Luna Lv 2+."))
+            return
+        slot_l = max(1, min(9, int(data.get("slot_level", 1) or 1)))
+        from common.character_schema import consume_spell_or_pact_slot
+        ok, s_desc = consume_spell_or_pact_slot(fs, slot_l, prefer_pact=False)
+        if not ok:
+            if getattr(actor, "conn", None):
+                send_message(actor.conn, make_error_reply(f"Nessuno slot incantesimo di {slot_l}°+ disponibile."))
+            return
+        heal_r = roll_dice(f"{slot_l}d8")
+        old_hp = actor.hp
+        actor.hp = min(actor.max_hp, actor.hp + heal_r["total"])
+        actor.bonus_action_used_this_turn = True
+        msg = f"🐾 [FORMA SELVATICA DA COMBATTIMENTO] {actor.name} spende {s_desc} (Azione Bonus) e si cura di {actor.hp - old_hp} PF ({heal_r['total']} tirato)!"
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        broadcast(game_state, make_player_stats_update(actor.name, actor.hp, actor.max_hp, actor.initiative, actor.conditions, getattr(actor, "temp_hp", 0)))
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        return
+
+    # 5. Cleric Domain Channel Divinity (Preserve Life / Radiance of the Dawn / Destructive Wrath / Guided Strike)
+    if feat in ("preserve_life", "preserva_vita", "radiance_dawn", "radianza_alba", "destructive_wrath", "ira_distruttiva", "guided_strike", "colpo_guidato"):
+        cl_l = entity_get_class_level(actor, "chierico", "cleric")
+        if cl_l < 2:
+            if getattr(actor, "conn", None):
+                send_message(actor.conn, make_error_reply("Incanalare Divinità richiede Chierico Lv 2+."))
+            return
+        max_cd = 1 if cl_l < 6 else (2 if cl_l < 18 else 3)
+        if entity_find_resource(actor, "incanalare divinit", "channel divinity") is None:
+            fs.setdefault("custom_resources", []).append({"name": "Incanalare Divinità", "current": max_cd, "max": max_cd, "reset_on": "short"})
+        ok, new_c, mx = entity_spend_resource(actor, ("incanalare divinit", "channel divinity"), 1)
+        if not ok:
+            if getattr(actor, "conn", None):
+                send_message(actor.conn, make_error_reply("Incanalare Divinità esaurito."))
+            return
+        if feat in ("preserve_life", "preserva_vita"):
+            pool = 5 * cl_l
+            cap = max(1, target.max_hp // 2)
+            healed = max(0, min(pool, cap - max(0, target.hp)))
+            target.hp = min(target.max_hp, target.hp + healed)
+            actor.has_acted_this_turn = True
+            msg = f"☀️ [PRESERVA VITA] {actor.name} invoca il Dominio della Vita su {target.name}: +{healed} PF (fino a metà PV max, {target.hp}/{target.max_hp})! ({new_c}/{mx} usi)"
+            broadcast(game_state, make_player_stats_update(target.name, target.hp, target.max_hp, target.initiative, target.conditions, getattr(target, "temp_hp", 0)))
+        elif feat in ("radiance_dawn", "radianza_alba"):
+            actor.has_acted_this_turn = True
+            dc = 8 + ((entity_get_total_level(actor) - 1) // 4 + 2) + entity_get_attr_mod(actor, "SAG")
+            dmg_r = roll_dice(f"2d10+{cl_l}")
+            from server.rules.combat import apply_damage
+            hit_logs = []
+            for p in getattr(game_state, "players", []):
+                if p.name == actor.name or getattr(p, "is_party_member", False) == getattr(actor, "is_party_member", False) or getattr(p, "hp", 0) <= 0:
+                    continue
+                con_m = get_effective_save_bonus_from_dict(p, "COS")
+                sr = roll_dice(f"1d20{'+' if con_m >= 0 else ''}{con_m}")["total"]
+                raw = (dmg_r["total"] // 2) if sr >= dc else dmg_r["total"]
+                fd, _, _, _ = apply_damage(p, raw, damage_type="Radioso", game_state=game_state, is_spell=True)
+                hit_logs.append(f"{p.name} ({fd} {'[1/2]' if sr >= dc else '[pieno]'})")
+            msg = f"🌅 [RADIANZA DELL'ALBA - CD {dc} COS] {actor.name} scaccia oscurità e infligge {dmg_r['total']} Radiosi: {', '.join(hit_logs) if hit_logs else 'nessun nemico colpito'}. ({new_c}/{mx} usi)"
+        elif feat in ("destructive_wrath", "ira_distruttiva"):
+            actor.destructive_wrath_active = True
+            msg = f"⚡ [IRA DISTRUTTIVA] Il prossimo tiro di danni da Fulmine o Tuono di {actor.name} sarà MASSIMIZZATO! ({new_c}/{mx} usi)"
+        else:  # guided_strike
+            actor.guided_strike_bonus = 10
+            msg = f"⚔️ [COLPO GUIDATO] {actor.name} ottiene +10 al prossimo Tiro per Colpire! ({new_c}/{mx} usi)"
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        return
+
+    # 6. Sorcerer Font of Magic / Metamagic state
+    if feat in ("font_of_magic", "fonte_di_magia", "metamagic", "metamagia"):
+        sorc_l = entity_get_class_level(actor, "stregone", "sorcerer")
+        if sorc_l < 2:
+            if getattr(actor, "conn", None):
+                send_message(actor.conn, make_error_reply("Fonte di Magia richiede Stregone Lv 2+."))
+            return
+        mode = str(data.get("mode", "to_slot")).lower()
+        slot_l = max(1, min(5, int(data.get("slot_level", 1) or 1)))
+        slot_costs = {1: 2, 2: 3, 3: 5, 4: 6, 5: 7}
+        if entity_find_resource(actor, "punti stregoneria", "sorcery points") is None:
+            fs.setdefault("custom_resources", []).append({"name": "Punti Stregoneria", "current": sorc_l, "max": sorc_l, "reset_on": "long"})
+        slots = fs.setdefault("spell_slots", {})
+        if mode == "to_points":
+            from common.character_schema import consume_spell_or_pact_slot
+            ok_s, s_desc = consume_spell_or_pact_slot(fs, slot_l, prefer_pact=False)
+            if not ok_s:
+                if getattr(actor, "conn", None):
+                    send_message(actor.conn, make_error_reply(f"Nessuno slot di {slot_l}° disponibile."))
+                return
+            res_sp = entity_find_resource(actor, "punti stregoneria", "sorcery points")
+            if res_sp:
+                res_sp["current"] = min(int(res_sp.get("max", sorc_l)), int(res_sp.get("current", 0)) + slot_l)
+            msg = f"✨ [FONTE DI MAGIA] {actor.name} converte {s_desc} in +{slot_l} Punti Stregoneria!"
+        elif mode == "set_metamagic":
+            meta_name = str(data.get("metamagic", "quickened") or "quickened").lower()
+            meta_cost = int(data.get("cost", 1) or 1)
+            ok_m, new_c, mx = entity_spend_resource(actor, ("punti stregoneria", "sorcery points"), meta_cost)
+            if not ok_m:
+                if getattr(actor, "conn", None):
+                    send_message(actor.conn, make_error_reply("Punti Stregoneria insufficienti."))
+                return
+            actor.active_metamagic = meta_name
+            msg = f"🔮 [METAMAGIA - {meta_name.upper()}] {actor.name} attiva {meta_name} ({new_c}/{mx} PS rimasti)."
+        else:
+            cost_sp = slot_costs[slot_l]
+            ok_sp, new_c, mx = entity_spend_resource(actor, ("punti stregoneria", "sorcery points"), cost_sp)
+            if not ok_sp:
+                if getattr(actor, "conn", None):
+                    send_message(actor.conn, make_error_reply(f"Servono {cost_sp} Punti Stregoneria per creare uno slot {slot_l}°."))
+                return
+            sl_entry = slots.setdefault(str(slot_l), {"max": 0, "current": 0})
+            if isinstance(sl_entry, dict):
+                sl_entry["current"] = int(sl_entry.get("current", 0)) + 1
+            msg = f"✨ [FONTE DI MAGIA] {actor.name} spende {cost_sp} Punti Stregoneria e crea 1 Slot di {slot_l}° livello ({new_c}/{mx} PS rimasti)!"
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        return

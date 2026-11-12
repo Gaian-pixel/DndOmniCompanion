@@ -346,6 +346,8 @@ class DMBestiaryPanel(ttk.Frame):
         npc.legendary_actions_max = leg_act
         npc.legendary_actions_current = leg_act
         npc.has_lair_actions = has_lair
+        npc.is_mythic = bool(mdata.get("is_mythic") or mdata.get("mythic_actions"))
+        npc.regional_effects = list(mdata.get("regional_effects", []) or [])
         npc.has_darkvision = extract_darkvision_flag(mdata)
         npc.avatar_b64 = mdata.get("avatar_b64") or (mdata.get("full_sheet", {}).get("avatar_b64") if isinstance(mdata.get("full_sheet"), dict) else None)
 
@@ -364,6 +366,11 @@ class DMBestiaryPanel(ttk.Frame):
             "size": mdata.get("size", "Medium"),
             "actions": mdata.get("actions", []),
             "features": mdata.get("special_abilities", mdata.get("features", [])),
+            "legendary_actions": mdata.get("legendary_actions", []),
+            "mythic_actions": mdata.get("mythic_actions", []),
+            "lair_actions": mdata.get("lair_actions", []),
+            "regional_effects": list(npc.regional_effects),
+            "is_mythic": npc.is_mythic,
             "languages": mdata.get("languages", ""),
             "senses": mdata.get("senses", ""),
             "damage_resistances": npc.damage_resistances,
@@ -373,6 +380,10 @@ class DMBestiaryPanel(ttk.Frame):
             "legendary_actions_max": leg_act,
             "has_lair_actions": has_lair
         }
+        from server.dm_monster_engine import sync_monster_spellcasting_to_sheet, register_regional_effects
+        sync_monster_spellcasting_to_sheet(npc)
+        if npc.regional_effects and getattr(getattr(self, "dm_gui", None), "server", None):
+            register_regional_effects(npc, npc.regional_effects, self.dm_gui.server.game_state)
         return npc
 
     def _spawn_bestiario_thread(self, index_selezionato, spawn_pos=None):
