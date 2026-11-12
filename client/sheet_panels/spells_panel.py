@@ -75,7 +75,12 @@ class SpellsPanel:
         sheet.lbl_spell_stat.config(text=f"🔮 Caratteristica: {stat} ({'+' if mod >= 0 else ''}{mod})")
         sheet.lbl_spell_dc.config(text=f"🎯 CD Salvezza: {dc}")
         sheet.lbl_spell_atk.config(text=f"⚔️ Attacco Magico: {atk_str}")
-        sheet.lbl_spell_pb.config(text=f"⭐ Competenza: +{pb}")
+        max_prep = SpellsPanel.get_max_prepared_spells(sheet.character)
+        prep_txt = f" | Preparabili: {max_prep}" if max_prep > 0 else ""
+        sp_cur = getattr(sheet.character, "sorcery_points_current", 0)
+        sp_max = getattr(sheet.character, "sorcery_points_max", 0)
+        sorc_txt = f" | Punti Stregoneria: {sp_cur}/{sp_max}" if sp_max > 0 else ""
+        sheet.lbl_spell_pb.config(text=f"⭐ Competenza: +{pb}{prep_txt}{sorc_txt}")
 
     @staticmethod
     def refresh_spell_list(sheet):
@@ -180,5 +185,81 @@ class SpellsPanel:
             "forbiddance", "proibizione"
         )
         return any(rn in txt for rn in ritual_names)
+
+    @staticmethod
+    def scale_cantrip_formula(base_formula: str, total_level: int, spell_name: str = "") -> str:
+        """
+        Scala automaticamente i dadi di danno dei Trucchetti (Cantrips) secondo D&D 5e RAW (PHB p. 201):
+        - Livello 1-4: 1 dado (formula base)
+        - Livello 5-10: 2 dadi
+        - Livello 11-16: 3 dadi
+        - Livello 17-20: 4 dadi
+        """
+        import re
+        f_clean = str(base_formula or "").strip()
+        if not f_clean:
+            return f_clean
+        try:
+            lvl = int(total_level)
+        except (ValueError, TypeError):
+            lvl = 1
+
+        if lvl >= 17:
+            mult = 4
+        elif lvl >= 11:
+            mult = 3
+        elif lvl >= 5:
+            mult = 2
+        else:
+            mult = 1
+
+        if mult == 1:
+            return f_clean
+
+        def _repl(match):
+            cnt_str = match.group(1)
+            sides_str = match.group(2)
+            cnt = int(cnt_str) if cnt_str else 1
+            return f"{cnt * mult}d{sides_str}"
+
+        return re.sub(r'(\d*)d(\d+)', _repl, f_clean, count=1)
+
+    @staticmethod
+    def get_max_prepared_spells(character) -> int:
+        """
+        Calcola il numero massimo di incantesimi preparabili giornalmente (D&D 5e RAW PHB p. 201):
+        - Chierico / Druido: Livello + Mod SAG (minimo 1)
+        - Mago: Livello + Mod INT (minimo 1)
+        - Paladino: max(1, Livello // 2 + Mod CAR)
+        - Artefice: max(1, Livello // 2 + Mod INT)
+        - Bardi, Stregoni, Ranger, Warlock: 0 (gestiti con Spells Known fissi).
+        """
+        c_class = str(getattr(character, "char_class", "")).lower()
+        classes = getattr(character, "classes", {})
+        get_mod = getattr(character, "get_modifier", lambda s: 0)
+
+        # Controlla classi singole o multiclasse
+        for ck, cv in classes.items():
+            ck_l = str(ck).lower()
+            lvl = int(cv)
+            if "chierico" in ck_l or "cleric" in ck_l or "druido" in ck_l or "druid" in ck_l:
+                return max(1, lvl + get_mod("SAG"))
+            if "mago" in ck_l or "wizard" in ck_l:
+                return max(1, lvl + get_mod("INT"))
+            if "paladino" in ck_l or "paladin" in ck_l:
+                return max(1, (lvl // 2) + get_mod("CAR"))
+            if "artefice" in ck_l or "artificer" in ck_l:
+                return max(1, (lvl // 2) + get_mod("INT"))
+
+        lvl = max(1, int(getattr(character, "level", 1) or 1))
+        if "chierico" in c_class or "cleric" in c_class or "druido" in c_class or "druid" in c_class:
+            return max(1, lvl + get_mod("SAG"))
+        if "mago" in c_class or "wizard" in c_class:
+            return max(1, lvl + get_mod("INT"))
+        if "paladino" in c_class or "paladin" in c_class:
+            return max(1, (lvl // 2) + get_mod("CAR"))
+        if "artefice" in c_class or "artificer" in c_class:
+            return max(1, (lvl // 2) + get_mod("INT"))
+        return 0
 
 

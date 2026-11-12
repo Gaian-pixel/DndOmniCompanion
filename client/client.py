@@ -2329,11 +2329,14 @@ class ClientGUI:
             if target_name:
                 self.attack_targeting_mode = False
                 self.map_canvas.set_target(target_name)
-                params = self.attack_params
+                params = dict(self.attack_params or {})
                 from common.protocol import make_attack_request
+                w_nm = params.pop("weapon_name", "Attacco")
+                h_bn = params.pop("hit_bonus", 0)
+                d_fm = params.pop("damage_formula", "1d8")
+                d_tp = params.pop("damage_type", "Tagliente")
                 self.network.send(make_attack_request(
-                    target_name, params["weapon_name"], params["hit_bonus"],
-                    params["damage_formula"], params.get("damage_type", "Tagliente")
+                    target_name, w_nm, h_bn, d_fm, d_tp, **params
                 ))
                 self.action_spent = True
                 self.update_action_economy_ui()
@@ -2396,12 +2399,12 @@ class ClientGUI:
             else:
                 self.request_move(clicked_hex)
 
-    def on_attack_action(self, weapon_name, hit_bonus, damage_formula, damage_type="Tagliente"):
+    def on_attack_action(self, weapon_name, hit_bonus, damage_formula, damage_type="Tagliente", **kwargs):
         target_name = getattr(self.map_canvas, "current_target_name", None)
         if target_name and target_name in self.players_data:
             from common.protocol import make_attack_request
             self.network.send(make_attack_request(
-                target_name, weapon_name, hit_bonus, damage_formula, damage_type
+                target_name, weapon_name, hit_bonus, damage_formula, damage_type, **kwargs
             ))
             self.action_spent = True
             self.update_action_economy_ui()
@@ -2415,6 +2418,7 @@ class ClientGUI:
             "damage_formula": damage_formula,
             "damage_type": damage_type
         }
+        self.attack_params.update(kwargs)
         self.show_toast(f"Seleziona un bersaglio sulla mappa per attaccare con {weapon_name} ({damage_type})!", title="Modalità Bersaglio", toast_type="info")
 
     def on_target_changed(self, target_name):

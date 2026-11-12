@@ -127,11 +127,35 @@ class CombatPanel:
         power_bar.pack(fill=tk.X, pady=(0, 6), padx=4)
         chk_pwr = ttk.Checkbutton(
             power_bar,
-            text="⚡ Attacco Poderoso (-5 TxC / +10 Danni — Maestro d'Armi Possenti / Tiratore Scelto)",
+            text="⚡ Attacco Poderoso (-5 TxC / +10 Danni)",
             variable=sheet._power_attack_var,
             command=lambda: CombatPanel.refresh_weapons_list(sheet)
         )
         chk_pwr.pack(side=tk.LEFT)
+
+        char_cls = str(getattr(sheet.character, "char_class", "")).lower()
+        if any(k in char_cls for k in ("paladino", "paladin")):
+            if not hasattr(sheet, "_divine_smite_var"):
+                sheet._divine_smite_var = tk.StringVar(value="0")
+            smite_f = tk.Frame(power_bar, bg=SURFACE_COLOR_ALT)
+            smite_f.pack(side=tk.RIGHT, padx=4)
+            tk.Label(smite_f, text="⚡ Punizione:", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(side=tk.LEFT, padx=(2, 2))
+            cb_smite = ttk.Combobox(
+                smite_f, textvariable=sheet._divine_smite_var,
+                values=["0", "1 (+2d8)", "2 (+3d8)", "3 (+4d8)", "4 (+5d8)", "5 (+5d8)"],
+                width=10, state="readonly"
+            )
+            cb_smite.pack(side=tk.LEFT)
+
+        if any(k in char_cls for k in ("monaco", "monk")) and getattr(sheet.character, "level", 1) >= 5:
+            if not hasattr(sheet, "_stunning_strike_var"):
+                sheet._stunning_strike_var = tk.BooleanVar(value=False)
+            chk_stun = ttk.Checkbutton(
+                power_bar,
+                text="🥋 Stordente",
+                variable=sheet._stunning_strike_var
+            )
+            chk_stun.pack(side=tk.RIGHT, padx=4)
 
         is_pwr = bool(sheet._power_attack_var.get())
 

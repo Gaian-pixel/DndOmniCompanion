@@ -193,6 +193,23 @@ class Character:
         self.portent_dice = []
         self.lucky_points = 0
         self.relentless_endurance_used = False
+        self.arcane_recovery_used = False
+        self.wild_shape = {
+            "active": False,
+            "beast_name": "",
+            "beast_hp": 0,
+            "beast_max_hp": 0,
+            "original_hp": 10,
+            "original_max_hp": 10,
+            "original_ac": 10,
+            "original_speed": 30,
+            "original_attributes": {}
+        }
+        self.sorcery_points_current = 0
+        self.sorcery_points_max = 0
+        self.superiority_dice_current = 0
+        self.superiority_dice_max = 0
+        self.superiority_die_type = "d8"
 
     def short_rest(self, hd_to_spend=1):
         """Spende Dadi Vita (XdY + Mod COS) per recuperare HP e ricarica i privilegi da riposo breve."""
@@ -218,6 +235,7 @@ class Character:
             self.class_resources = {}
         self.class_resources["second_wind"] = True
         self.class_resources["action_surge"] = True
+        self.superiority_dice_current = self.superiority_dice_max
         
         # Reset custom class resources configured for Short Rest
         for res in getattr(self, "custom_resources", []):
@@ -265,6 +283,11 @@ class Character:
 
         # Ripristina Tenacia Implacabile (Mezzorco), Talento Fortunato, Portento (Divinatore) e Cariche Oggetti Magici
         self.relentless_endurance_used = False
+        self.arcane_recovery_used = False
+        self.sorcery_points_current = self.sorcery_points_max
+        self.superiority_dice_current = self.superiority_dice_max
+        if self.is_in_wild_shape():
+            self.revert_wild_shape()
         if self.has_lucky_feat():
             self.lucky_points = 3
         sub_low = str(getattr(self, "subclass", "")).lower()
@@ -303,6 +326,250 @@ class Character:
         """Verifica se il personaggio possiede lo Stile di Combattimento: Combattere con Due Armi (+Mod ai danni secondari)."""
         txt = self._get_all_features_text()
         return any(k in txt for k in ("combattere con due armi", "two-weapon fighting", "due armi:"))
+
+    # --- D&D 5e RAW Class & Race Features ---
+    def has_jack_of_all_trades(self) -> bool:
+        """Tuttofare (Jack of All Trades - Bardo 2+ PHB p. 54)."""
+        c_class = str(getattr(self, "char_class", "")).lower()
+        classes = getattr(self, "classes", {})
+        lvl = getattr(self, "level", 1) or 1
+        for ck, cv in classes.items():
+            if any(k in str(ck).lower() for k in ("bardo", "bard")):
+                return int(cv) >= 2
+        return any(k in c_class for k in ("bardo", "bard")) and int(lvl) >= 2
+
+    def has_reliable_talent(self) -> bool:
+        """Talento Affidabile (Reliable Talent - Ladro 11+ PHB p. 96)."""
+        c_class = str(getattr(self, "char_class", "")).lower()
+        classes = getattr(self, "classes", {})
+        lvl = getattr(self, "level", 1) or 1
+        for ck, cv in classes.items():
+            if any(k in str(ck).lower() for k in ("ladro", "rogue")):
+                return int(cv) >= 11
+        return any(k in c_class for k in ("ladro", "rogue")) and int(lvl) >= 11
+
+    def get_crit_threshold(self) -> int:
+        """Restituisce la soglia minima del d20 per il colpo critico (Campione 19-20 / 18-20 PHB p. 72)."""
+        sub_low = str(getattr(self, "subclass", "")).lower()
+        feats_txt = self._get_all_features_text()
+        lvl = getattr(self, "level", 1) or 1
+        is_champion = any(k in sub_low or k in feats_txt for k in ("campione", "champion", "critico migliorato", "improved critical"))
+        if is_champion:
+            f_lvl = lvl
+            for ck, cv in getattr(self, "classes", {}).items():
+                if any(k in str(ck).lower() for k in ("guerriero", "fighter")):
+                    f_lvl = int(cv)
+            if f_lvl >= 15:
+                return 18
+            elif f_lvl >= 3:
+                return 19
+        return 20
+
+    def get_brutal_critical_dice(self) -> int:
+        """Restituisce il numero di dadi danno arma aggiuntivi sui colpi critici in mischia (Barbaro / Mezzorco)."""
+        extra_dice = 0
+        race_low = str(getattr(self, "race", "")).lower()
+        feats_txt = self._get_all_features_text()
+        if "mezzorco" in race_low or "half-orc" in race_low or "attacchi selvaggi" in feats_txt or "savage attacks" in feats_txt:
+            extra_dice += 1
+
+        c_class = str(getattr(self, "char_class", "")).lower()
+        barb_lvl = 0
+        for ck, cv in getattr(self, "classes", {}).items():
+            if any(k in str(ck).lower() for k in ("barbaro", "barbarian")):
+                barb_lvl = max(barb_lvl, int(cv))
+        if barb_lvl == 0 and any(k in c_class for k in ("barbaro", "barbarian")):
+            barb_lvl = int(getattr(self, "level", 1) or 1)
+        if barb_lvl >= 17:
+            extra_dice += 3
+        elif barb_lvl >= 13:
+            extra_dice += 2
+        elif barb_lvl >= 9:
+            extra_dice += 1
+        return extra_dice
+
+    def is_in_wild_shape(self) -> bool:
+        """Verifica se il personaggio è attualmente trasformato in Forma Selvatica."""
+        ws = getattr(self, "wild_shape", None)
+        return isinstance(ws, dict) and bool(ws.get("active", False))
+
+    def enter_wild_shape(self, beast_name: str, beast_hp: int, beast_ac: int, beast_speed: int = 30, beast_attributes: dict = None) -> tuple:
+        """Trasforma il Druido in Forma Selvatica secondo D&D 5e RAW (PHB p. 66)."""
+        if self.is_in_wild_shape():
+            return False, "Il personaggio è già in Forma Selvatica."
+        if beast_hp <= 0:
+            return False, "I PV della bestia devono essere maggiori di 0."
+        
+        orig_attrs = dict(self.attributes)
+        ws_data = {
+            "active": True,
+            "beast_name": beast_name,
+            "beast_hp": int(beast_hp),
+            "beast_max_hp": int(beast_hp),
+            "original_hp": int(self.hp_current),
+            "original_max_hp": int(self.hp_max),
+            "original_ac": int(self.ac),
+            "original_speed": int(self.speed),
+            "original_attributes": orig_attrs
+        }
+        self.wild_shape = ws_data
+        self.hp_current = int(beast_hp)
+        self.hp_max = int(beast_hp)
+        self.ac = int(beast_ac)
+        self.speed = int(beast_speed)
+        if beast_attributes and isinstance(beast_attributes, dict):
+            for k in ("FOR", "DES", "COS", "STR", "DEX", "CON"):
+                if k in beast_attributes:
+                    self.attributes[k] = beast_attributes[k]
+        return True, f"Trasformazione in {beast_name} completata ({beast_hp} PV, CA {beast_ac})."
+
+    def revert_wild_shape(self, excess_damage: int = 0) -> tuple:
+        """Ritorna alla forma normale del Druido gestendo il danno in eccesso (PHB p. 66)."""
+        if not self.is_in_wild_shape():
+            return False, "Il personaggio non è in Forma Selvatica."
+        ws = self.wild_shape
+        orig_hp = ws.get("original_hp", self.hp_current)
+        orig_max = ws.get("original_max_hp", self.hp_max)
+        orig_ac = ws.get("original_ac", 10)
+        orig_speed = ws.get("original_speed", 30)
+        orig_attrs = ws.get("original_attributes", {})
+        
+        if orig_attrs:
+            self.attributes.update(orig_attrs)
+        self.hp_max = orig_max
+        self.ac = orig_ac
+        self.speed = orig_speed
+        
+        eff_excess = max(0, int(excess_damage))
+        self.hp_current = max(0, orig_hp - eff_excess)
+        beast_name = ws.get("beast_name", "Bestia")
+        ws["active"] = False
+        ws["beast_hp"] = 0
+        return True, f"Ritorno alla forma originale da {beast_name}. PV attuali: {self.hp_current}/{self.hp_max}."
+
+    def convert_slot_to_sorcery_points(self, slot_level: int) -> tuple:
+        """Fonte di Magia (Stregone PHB p. 101): Converte uno slot incantesimo (1-5) in Punti Stregoneria."""
+        s_lvl = int(slot_level)
+        if not (1 <= s_lvl <= 5):
+            return False, "È possibile convertire solo slot incantesimo dal 1° al 5° cerchio."
+        lvl_str = str(s_lvl)
+        cur_slots = 0
+        if isinstance(self.spell_slots.get(lvl_str), dict):
+            cur_slots = self.spell_slots[lvl_str].get("current", 0)
+        elif isinstance(self.spell_slots.get(lvl_str), list) and len(self.spell_slots[lvl_str]) >= 2:
+            cur_slots = self.spell_slots[lvl_str][0]
+        if cur_slots <= 0:
+            return False, f"Nessuno slot incantesimo di {s_lvl}° cerchio disponibile."
+        
+        sp_cur = getattr(self, "sorcery_points_current", 0) or 0
+        sp_max = getattr(self, "sorcery_points_max", 0) or getattr(self, "level", 1) or 1
+        if sp_cur >= sp_max:
+            return False, f"Punti Stregoneria già al massimo ({sp_max}/{sp_max})."
+
+        if isinstance(self.spell_slots.get(lvl_str), dict):
+            self.spell_slots[lvl_str]["current"] -= 1
+        elif isinstance(self.spell_slots.get(lvl_str), list):
+            self.spell_slots[lvl_str][0] -= 1
+
+        new_sp = min(sp_max, sp_cur + s_lvl)
+        gained = new_sp - sp_cur
+        self.sorcery_points_current = new_sp
+        self.sorcery_points_max = sp_max
+        return True, f"Slot di {s_lvl}° cerchio convertito in {gained} Punti Stregoneria (Totale: {new_sp}/{sp_max})."
+
+    def convert_sorcery_points_to_slot(self, slot_level: int) -> tuple:
+        """Fonte di Magia (Stregone PHB p. 101): Crea uno slot incantesimo (1-5) spendendo Punti Stregoneria."""
+        s_lvl = int(slot_level)
+        cost_map = {1: 2, 2: 3, 3: 5, 4: 6, 5: 7}
+        if s_lvl not in cost_map:
+            return False, "È possibile creare slot solo dal 1° al 5° cerchio."
+        cost = cost_map[s_lvl]
+        sp_cur = getattr(self, "sorcery_points_current", 0) or 0
+        if sp_cur < cost:
+            return False, f"Punti Stregoneria insufficienti: necessari {cost} PE, disponibili {sp_cur}."
+        
+        lvl_str = str(s_lvl)
+        if not hasattr(self, "spell_slots"):
+            self.spell_slots = {str(i): {"max": 0, "current": 0} for i in range(1, 10)}
+        slot_obj = self.spell_slots.get(lvl_str)
+        if isinstance(slot_obj, dict):
+            slot_obj["current"] = slot_obj.get("current", 0) + 1
+            if slot_obj["current"] > slot_obj.get("max", 0):
+                slot_obj["max"] = slot_obj["current"]
+        elif isinstance(slot_obj, list) and len(slot_obj) >= 2:
+            slot_obj[0] += 1
+            if slot_obj[0] > slot_obj[1]:
+                slot_obj[1] = slot_obj[0]
+        else:
+            self.spell_slots[lvl_str] = {"max": 1, "current": 1}
+
+        self.sorcery_points_current = sp_cur - cost
+        return True, f"Creato 1 slot incantesimo di {s_lvl}° cerchio (Spesi {cost} Punti Stregoneria, residui: {self.sorcery_points_current})."
+
+    def use_metamagic(self, metamagic_name: str, cost: int) -> tuple:
+        """Spende Punti Stregoneria per applicare un'opzione di Metamagia (PHB p. 101)."""
+        c = max(1, int(cost))
+        sp_cur = getattr(self, "sorcery_points_current", 0) or 0
+        if sp_cur < c:
+            return False, f"Punti Stregoneria insufficienti per {metamagic_name} (richiesti: {c}, attuali: {sp_cur})."
+        self.sorcery_points_current = sp_cur - c
+        return True, f"Metamagia '{metamagic_name}' attivata (-{c} Punti Stregoneria, rimasti: {self.sorcery_points_current})."
+
+    def arcane_recovery(self, slots_to_regain: dict) -> tuple:
+        """Recupero Arcano (Mago PHB p. 115): Recupera slot incantesimo fino a ceil(Livello Mago / 2) al Riposo Breve 1/giorno."""
+        if getattr(self, "arcane_recovery_used", False):
+            return False, "Recupero Arcano è già stato utilizzato oggi (si ricarica al Riposo Lungo)."
+        
+        w_lvl = getattr(self, "level", 1) or 1
+        for ck, cv in getattr(self, "classes", {}).items():
+            if any(k in str(ck).lower() for k in ("mago", "wizard", "druido", "druid")):
+                w_lvl = int(cv)
+        import math
+        max_total_levels = math.ceil(w_lvl / 2)
+        
+        total_requested = 0
+        for lvl_k, count in slots_to_regain.items():
+            try:
+                l_int = int(lvl_k)
+                cnt = int(count)
+            except (ValueError, TypeError):
+                continue
+            if l_int >= 6:
+                return False, "Recupero Arcano non può ripristinare slot di 6° cerchio o superiore."
+            if cnt > 0:
+                total_requested += l_int * cnt
+
+        if total_requested <= 0:
+            return False, "Nessuno slot selezionato per il recupero."
+        if total_requested > max_total_levels:
+            return False, f"Livelli slot richiesti ({total_requested}) superano il massimo consentito ({max_total_levels})."
+
+        for lvl_k, count in slots_to_regain.items():
+            l_int = int(lvl_k)
+            cnt = int(count)
+            if cnt > 0:
+                lvl_str = str(l_int)
+                slot = self.spell_slots.get(lvl_str)
+                if isinstance(slot, dict):
+                    slot["current"] = min(slot.get("max", 0), slot.get("current", 0) + cnt)
+                elif isinstance(slot, list) and len(slot) >= 2:
+                    slot[0] = min(slot[1], slot[0] + cnt)
+
+        self.arcane_recovery_used = True
+        return True, f"Recupero Arcano completato: recuperati {total_requested} livelli di slot."
+
+    def spend_superiority_die(self) -> tuple:
+        """Spende e tira 1 Dado di Superiorità (Maestro della Battaglia PHB p. 73)."""
+        cur = getattr(self, "superiority_dice_current", 0) or 0
+        if cur <= 0:
+            return False, 0, "Dadi di Superiorità esauriti."
+        self.superiority_dice_current = cur - 1
+        die_type = getattr(self, "superiority_die_type", "d8")
+        sides = int(str(die_type).replace("d", "")) if str(die_type).replace("d", "").isdigit() else 8
+        import random
+        roll_res = random.randint(1, sides)
+        return True, roll_res, f"Speso 1 dado [{die_type}]: risultato {roll_res} (Rimasti: {self.superiority_dice_current}/{getattr(self, 'superiority_dice_max', 4)})."
+
 
     def has_lucky_feat(self) -> bool:
         """Verifica se il personaggio possiede il talento Fortunato (Lucky - 3 punti fortuna per riposo lungo)."""

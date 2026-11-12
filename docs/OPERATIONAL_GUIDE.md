@@ -724,16 +724,28 @@ D&D OmniCompanion features comprehensive targeting infrastructure, dynamic rayca
 * **Concentration Tethers & Cascade Cleanup**:
   * Non-blocking vector canvas rendering (`_draw_concentration_tethers`): glowing violet and emerald ethereal beams with magic runes connecting concentrating casters to affected targets and persistent AoE zones.
   * Cascade cleanup in `drop_concentration`: instant removal of linked effects, dissolution of persistent AoEs, and plummeting falls for creatures suspended by concentration flight.
+* **Advanced 5e RAW Mechanics & Selectable Automatic XP Distribution**:
+  * **Paladin Divine Smite**: `make_attack_request` network payload (`smite_slot`), dynamic computation in `server/rules/combat.py` (`+2d8` base + `1d8`/slot, +`1d8` vs Undead/Fiend, doubled on critical hits).
+  * **Druid Wild Shape**: `beast_hp_current`/`max` pool tracking in `Character` and character schema; in `apply_damage`, hits deplete beast HP pool first, spilling excess over to Druid's normal HP without invalid unconsciousness.
+  * **Sorcerer Font of Magic & Metamagic**: `sorcery_points_current`/`max` pool management with official RAW conversion rates (slot $\leftrightarrow$ SP) and `open_font_of_magic_dialog()`.
+  * **Arcane Recovery**: Integrated into `vitals_panel.py` and `ShortRestDialog` recovering slots up to $\lceil \text{Level}/2 \rceil$ (max 5th level).
+  * **Jack of All Trades & Reliable Talent**: Integrated into `dice.roll_dice(..., reliable_talent=True)` (floors d20 rolls $\le 9$ to 10 for proficient skill checks) and `has_jack_of_all_trades()` ($+\lfloor\text{PB}/2\rfloor$).
+  * **Monk Stunning Strike & Battle Master Superiority Dice**: `use_stunning_strike` attack parameter forcing target CON save vs Ki DC ($8 + \text{PB} + \text{WIS}$) and `superiority_dice_current`/`max` pool tracking.
+  * **Monster Recharge Abilities (*Recharge X-6*), Ongoing Damage & Regeneration**: Automated start-of-turn `1d6` rolls in `GameState.next_turn()` to recharge monster powers, persistent damage ticks, and Troll/Vampire regeneration inhibited by fire or acid.
+  * **Selectable Automatic XP Distribution (`auto_distribute_xp`)**: Configurable toggle in DM automation settings (`dm_automation_panel.py`) and `GameState.automation_settings`. At combat conclusion (`end_combat`), calculates XP from defeated monsters' Challenge Ratings (CR), splits evenly among living party members, updates sheets, and broadcasts level-up notices upon reaching 5e official thresholds (PHB p. 15, `XP_LEVEL_THRESHOLDS`).
 
 ---
 
 ## 12. Testing Suite & Quality Assurance
 
-The codebase includes a consolidated testing suite in the `tests/` directory with **479 automated tests** passing at 100% with 0 failures, covering headless unit tests, advanced 5e RAW mechanics (Multiclassing, Auras, Ready Action, Power Attack, Reactions, Portent, Magic Item Charges), automatic magic item modifiers, 3D dice physics and rendering, tactical combat, 3D space and elevation, join game flow and server history, companions/familiars, travel/camping, GUI smoke tests, single-window architecture, and full multiplayer campaign simulations:
+The codebase includes a consolidated testing suite in the `tests/` directory with **492 automated tests** passing at 100% with 0 failures, covering headless unit tests, advanced 5e RAW mechanics (Smite, Wild Shape, Font of Magic, Arcane Recovery, Reliable Talent, Jack of All Trades, Brutal Critical, Stunning Strike, Superiority Dice, Cantrip Scaling, Monster Recharge, Auto XP), automatic magic item modifiers, 3D dice physics and rendering, tactical combat, 3D space and elevation, join game flow and server history, companions/familiars, travel/camping, GUI smoke tests, single-window architecture, and full multiplayer campaign simulations:
 
 ```powershell
-# 1. Run comprehensive unit tests (479 tests with 0 failures)
+# 1. Run comprehensive unit tests (492 tests with 0 failures)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
+
+# 2. Run Advanced 5e RAW Mechanics and Automatic XP test suite
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_raw_5e_advanced_features.py
 
 # 2. Run Advanced 5e RAW Mechanics test suite (Multiclassing, Paladin Aura, Spirit Guardians, Ready Action, Power Attack, Reactions, Portent, Charges)
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_missing_5e_features.py

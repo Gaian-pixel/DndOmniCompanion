@@ -271,6 +271,24 @@ Nel tab **`🌟 Privilegi`** della Scheda PG è presente il riquadro interattivo
 * **Contatori Rapidi `[-]` / `[+]`**: spendi o ricarica le tue cariche con un click durante la sessione.
 * **Risorse Personalizzate**: puoi aggiungere nuove risorse personalizzate tramite il pulsante **`+ Aggiungi Risorsa`** specificando Nome, Valore Massimo e Tipo di Recupero (*Riposo Breve* o *Riposo Lungo*), oppure eliminarle con `🗑️`.
 * **Ricarica Intelligente nei Riposi**: quando effettui un *Riposo Breve* o un *Riposo Lungo*, il sistema ripristina automaticamente solo le risorse che recuperano con quel tipo di riposo.
+* **Forma Selvatica del Druido (*Wild Shape* - PHB p. 66)**:
+  * Pulsante dedicato **`[ 🌿 Forma Selvatica ]`** nella Scheda PG. Permette di scegliere tra una forma predefinita (Lupo, Orso Bruno, Cinghiale, Falco, Pantera, ecc.) o inserire valori custom.
+  * Durante la trasformazione, il Druido ottiene un pool di Punti Ferita della Bestia separato (`beast_hp`), CA, velocità e caratteristiche fisiche dell'animale.
+  * **Assorbimento Danni & Spillover**: I danni in arrivo intaccano unicamente i PV della bestia. Quando la bestia scende a 0 PV, la forma decade istantaneamente e il danno eccedente si trasferisce sui normali PV del Druido senza provocare svenimento se la sua salute residua rimane superiore a 0.
+* **Fonte di Magia & Metamagia dello Stregone (PHB p. 101)**:
+  * Pulsante **`[ ✨ Fonte di Magia ]`** nel tab Grimorio. Consente la conversione flessibile tra Slot Incantesimo e Punti Stregoneria:
+    * *Slot $\to$ Punti*: 1 slot di 1° livello dà 1 SP, 2° dà 2 SP, 3° dà 3 SP, ecc.
+    * *Punti $\to$ Slot*: creazione di slot secondo la tabella ufficiale RAW (1° liv = 2 SP, 2° liv = 3 SP, 3° liv = 5 SP, 4° liv = 6 SP, 5° liv = 7 SP).
+  * Gestione e spesa per Metamagia (*Incantesimo Rapido*, *Raddoppiato*, *Accurato*, *Celato*, *Esteso*, ecc.) con ricarica totale al Riposo Lungo.
+* **Recupero Arcano (*Arcane Recovery* - PHB p. 115)**:
+  * Nel dialogo di **Riposo Breve** (`ShortRestDialog`), per Maghi e Druidi del Circolo della Terra appare il pulsante **`[ ✨ Recupero Arcano ]`**.
+  * Permette di recuperare slot incantesimo spesi fino a un livello complessivo pari a $\lceil \text{Livello}/2 \rceil$ (con nessun singolo slot superiore al 5° livello) una volta al giorno, resettandosi al Riposo Lungo.
+* **Tuttofare del Bardo (*Jack of All Trades* - PHB p. 54) & Talento Affidabile del Ladro (*Reliable Talent* - PHB p. 96)**:
+  * **Tuttofare**: I Bardi di 2° livello o superiore applicano automaticamente metà del loro Bonus di Competenza arrotondato per difetto ($+\lfloor\text{PB}/2\rfloor$) a qualsiasi prova di abilità o caratteristica in cui non siano competenti, compreso il tiro di Iniziativa.
+  * **Talento Affidabile**: Per i Ladri di 11° livello o superiore, qualsiasi tiro di d20 pari a 9 o inferiore su una prova di abilità competente viene automaticamente elevato a 10 prima dell'applicazione del modificatore.
+* **Scaling Danni dei Trucchetti & Limite Incantesimi Preparati (PHB p. 201)**:
+  * I dadi di danno dei cantrip d'attacco scalano automaticamente in base al livello complessivo del personaggio (1 dado ai liv 1–4, 2 dadi ai liv 5–10, 3 dadi ai liv 11–16, 4 dadi ai liv 17+).
+  * Il Grimorio calcola e mostra chiaramente il numero massimo di incantesimi preparabili ($\text{Livello} + \text{Modificatore Caratteristica}$) per Chierici, Druidi, Maghi, Paladini e Artefici.
 
 ### Sintonia con Oggetti Magici (Attunement `🔮`), Modificatori Automatici, Cariche e Ispirazione DM
 * **Sintonia con Oggetti Magici (Attunement `🔮`)**:
@@ -366,6 +384,19 @@ La sezione **Economia Turno** nel tab `Controlli PG` si adatta automaticamente a
   * Nel tab **`⚔️ Armi & Attacchi`** della Scheda PG:
     * **Toggle `⚡ Attacco Poderoso (-5 TxC / +10 Danni)`**: attivabile per i talenti *Maestro d'Armi Possenti (Great Weapon Master)* e *Tiratore Scelto (Sharpshooter)*; sottrae automaticamente `5` al tiro per colpire e aggiunge `+10` ai danni dell'arma.
     * **Pulsante `🗡️ 2ª Mano` (Off-Hand Bonus Attack)**: esegue l'attacco con l'arma secondaria come Azione Bonus omettendo il modificatore positivo di caratteristica dai danni, a meno che il personaggio non possieda lo Stile di Combattimento *Combattere con Due Armi*.
+* **Punizione Divina del Paladino (*Divine Smite* - PHB p. 85)**:
+  * Nel tab armi, per i Paladini è presente il selettore a tendina dello slot (1°–5° livello).
+  * Quando selezionato, all'impatto con un attacco con arma da mischia, il server consuma lo slot e aggiunge automaticamente `+2d8` danni radiosi per il 1° livello, più `+1d8` per ogni livello di slot superiore (max `5d8`).
+  * Se il bersaglio appartiene alla categoria **Non Morti** (*Undead*) o **Immondi** (*Fiend*), il danno incrementa automaticamente di un ulteriore `+1d8` (max `6d8`).
+  * In caso di Colpo Critico, tutti i dadi di Punizione Divina vengono raddoppiati (`4d8`–`12d8`).
+* **Colpo Stordente del Monaco (PHB p. 79) & Dadi di Superiorità del Battle Master (PHB p. 73)**:
+  * **Colpo Stordente**: Checkbox dedicato nella barra armi. Spendendo 1 Punto Ki all'impatto, forza il bersaglio a un Tiro Salvezza su Costituzione contro la CD Ki del Monaco ($8 + \text{PB} + \text{Mod SAG}$); in caso di fallimento, la creatura subisce lo status **Stordito (Stunned)** fino al termine del turno successivo del monaco.
+  * **Dadi di Superiorità**: Pool spendibile (`d8`, `d10`, `d12`) con pulsante rapido `[ 🎲 Spendi Dado Superiorità ]` per l'esecuzione di manovre marziali, con notifica in chat e ricarica a riposo breve o lungo.
+* **Critico Migliorato (Campione 19-20 / 18-20) & Dadi Critico Brutale (PHB p. 49, 72, 73)**:
+  * Riconoscimento automatico del colpo critico espanso a 19–20 (livello 3) o 18–20 (livello 15) per il Guerriero Campione.
+  * Dadi aggiuntivi di danno dell'arma sui colpi critici in mischia per il *Critico Brutale* del Barbaro e gli *Attacchi Selvaggi* del Mezzorco.
+* **Tracciamento Attacco Extra nell'Economia del Turno (PHB p. 72, 79, 85, 91)**:
+  * I combattenti dotati del privilegio *Attacco Extra* (fino a 4 attacchi per il Guerriero di 20° livello) possono eseguire attacchi multipli all'interno della stessa Azione senza consumare anticipatamente l'azione di turno prima di aver completato tutti i colpi a disposizione.
 * **Azione Preparare (*Ready Action* - PHB p. 193)**:
   * Nella barra **Economia Turno** del VTT è presente il pulsante **`[ ⏱️ Prepara ]`**:
     * Consente di spendere l'**Azione** del proprio turno per dichiarare una condizione di innesco (*trigger*, es. *"Appena il goblin entra nella stanza"*) e il tipo di risposta (**Attacco**, **Movimento** o **Incantesimo**).
@@ -565,7 +596,7 @@ D&D OmniCompanion offre al Dungeon Master il pieno controllo sull'equilibrio tra
 * **Come Cambiare Profilo al Volo**:
   * Clicca sul badge colorato **`🎲 Tavolo`**, **`⚖️ Ibrido`** o **`⚡ Full Auto`** posizionato nella barra superiore della mappa.
   * Oppure apri il pannello completo da **`Strumenti -> ⚙️ Stile Gestione Campagna (Automazioni)...`**.
-* **11 Switch Granulari Indipendenti**:
+* **12 Switch Granulari Indipendenti**:
   * Dalla finestra di configurazione il DM può personalizzare singolarmente ciascun aspetto:
     1. `auto_attack_damage`: applicazione automatica danni da attacchi con armi.
     2. `auto_aoe_damage`: applicazione automatica danni da magie AoE.
@@ -578,6 +609,7 @@ D&D OmniCompanion offre al Dungeon Master il pieno controllo sull'equilibrio tra
     9. `auto_encumbrance`: blocco del movimento in caso di sovraccarico di peso.
     10. `auto_death_saves`: gestione automatica TS morte a 0 PV.
     11. `auto_weather_effects`: applicazione automatica svantaggi da tempesta, nebbia e pioggia.
+    12. `auto_distribute_xp`: calcolo e ripartizione automatica dei Punti Esperienza (XP) dai mostri sconfitti a fine scontro con notifiche di avanzamento livello (PHB p. 15). Disattivabile per campagne a Milestone o calcoli manuali.
 * **Barra Fluttuante delle Decisioni DM in Sospeso (*Pending Actions Dock*)**:
   * Quando è attivo il profilo Tradizionale o Ibrido e un evento richiede l'intervento del Master (es. danno in arrivo, richiesta di riposo, scasso o trappola), in basso al centro appare un dock ergonomico non invasivo:
   * Mostra il dettaglio dell'evento (es. `Attacco su Gildor: 14 Danni Taglienti`) e offre comodi pulsanti:

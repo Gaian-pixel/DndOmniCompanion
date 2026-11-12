@@ -724,16 +724,28 @@ D&D OmniCompanion include un'infrastruttura completa di puntamento, calcolo geom
 * **Concentration Tethers & Interruzione a Catena**:
   * Rendering canvas vettoriale non bloccante (`_draw_concentration_tethers`): fasci eterei violacei e smeraldo con rune magiche collegati tra caster in Concentrazione e bersagli/AoE attivi.
   * Pulizia a cascata in `drop_concentration`: rimozione istantanea degli effetti collegati, dissoluzione AoE persistenti e precipitazione al suolo di creature sorrette in volo dall'incantesimo.
+* **Integrazione Meccaniche Avanzate RAW 5e & Distribuzione Automatica XP**:
+  * **Punizione Divina (*Divine Smite*)**: integrazione nel protocollo `make_attack_request` (`smite_slot`), calcolo dinamico in `server/rules/combat.py` (`+2d8` base + `1d8`/slot, +`1d8` vs Undead/Fiend, raddoppiato sui colpi critici).
+  * **Forma Selvatica (*Wild Shape*)**: tracking pool `beast_hp_current`/`max` in `Character` e schema JSON; in `apply_damage` i colpi intaccano per primi i PV della bestia, con spillover automatico dell'eccesso sui PV del Druido e annullamento della forma senza svenimento ingiustificato.
+  * **Fonte di Magia & Metamagia**: gestione pool `sorcery_points_current`/`max` con tassi di cambio RAW (slot $\leftrightarrow$ SP) e dialogo `open_font_of_magic_dialog()`.
+  * **Recupero Arcano (*Arcane Recovery*)**: integrazione in `vitals_panel.py` e `ShortRestDialog` con calcolo slot recuperabili fino a $\lceil \text{Livello}/2 \rceil$ (max 5° livello).
+  * **Tuttofare (*Jack of All Trades*) & Talento Affidabile (*Reliable Talent*)**: integrazione in `dice.roll_dice(..., reliable_talent=True)` (floor del d20 a 10 per prove competenti) e `has_jack_of_all_trades()` ($+\lfloor\text{PB}/2\rfloor$).
+  * **Colpo Stordente (*Stunning Strike*) & Dadi di Superiorità**: parametro `use_stunning_strike` in attacco con TS COS vs Ki DC ($8 + \text{PB} + \text{SAG}$) e tracciamento pool `superiority_dice_current`/`max`.
+  * **Ricarica Mostri (*Recharge X-6*), Danni Periodici & Rigenerazione**: roll automatico `1d6` all'inizio del turno in `GameState.next_turn()` per ripristinare le abilità dei mostri, tick danni persistenti e rigenerazione tipo Troll/Vampiro inibita da fuoco o acido.
+  * **Distribuzione Automatica XP Selezionabile (`auto_distribute_xp`)**: opzione configurabile nel pannello automazioni del DM (`dm_automation_panel.py`) e in `GameState.automation_settings`. Al termine del combattimento (`end_combat`), calcola il bottino XP dai Gradi di Sfida (CR) dei mostri sconfitti, divide la ricompensa tra i membri coscienti/vivi del party, aggiorna le schede e invia avviso in chat se viene raggiunta la soglia per il nuovo livello (PHB p. 15, `XP_LEVEL_THRESHOLDS`).
 
 ---
 
 ## 12. Suite di Test e Quality Assurance
 
-Il progetto include una suite consolidata nella cartella `tests/` con **479 test automatizzati** che passano al 100% con 0 errori, coprendo unit test headless, meccaniche avanzate 5e RAW (Multiclasse, Aure, Azione Preparare, Attacco Poderoso, Reazioni, Portento, Cariche Oggetti Magici), modificatori automatici da equipaggiamento, simulazione fisica dei dadi 3D, combattimento tattico, spazio 3D ed elevazione, flusso di login rapido, compagni/famigli, viaggi e accampamento, smoke test della GUI, architettura mono-finestra e simulazioni di campagna complete:
+Il progetto include una suite consolidata nella cartella `tests/` con **492 test automatizzati** che passano al 100% con 0 errori, coprendo unit test headless, meccaniche avanzate 5e RAW (Smite, Wild Shape, Fonte di Magia, Recupero Arcano, Reliable Talent, Tuttofare, Critici Brutali, Colpo Stordente, Dadi Superiorità, Scaling Trucchetti, Ricarica Mostri, Auto XP), modificatori automatici da equipaggiamento, simulazione fisica dei dadi 3D, combattimento tattico, spazio 3D ed elevazione, flusso di login rapido, compagni/famigli, viaggi e accampamento, smoke test della GUI, architettura mono-finestra e simulazioni di campagna complete:
 
 ```powershell
-# 1. Esegui l'intera suite di unit test (479 test con 0 fallimenti)
+# 1. Esegui l'intera suite di unit test (492 test con 0 fallimenti)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
+
+# 2. Esegui la suite specifica per meccaniche avanzate RAW 5e e distribuzione automatica XP
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_raw_5e_advanced_features.py
 
 # 2. Esegui la suite per meccaniche avanzate 5e RAW (Multiclasse, Aura Paladino, Spiriti Guardiani, Preparare, Attacco Poderoso, Reazioni, Portento, Cariche)
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_missing_5e_features.py

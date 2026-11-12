@@ -69,6 +69,7 @@ def open_automation_settings_dialog(dm_gui):
     rest_var = tk.BooleanVar(value=cur_settings.get("auto_apply_rest_recovery", True))
     advance_time_var = tk.BooleanVar(value=cur_settings.get("auto_advance_time", True))
     day_night_var = tk.BooleanVar(value=cur_settings.get("auto_day_night_cycle", True))
+    auto_xp_var = tk.BooleanVar(value=cur_settings.get("auto_distribute_xp", True))
 
     def on_preset_selected():
         m = mode_var.get()
@@ -87,6 +88,7 @@ def open_automation_settings_dialog(dm_gui):
             rest_var.set(False)
             advance_time_var.set(False)
             day_night_var.set(False)
+            auto_xp_var.set(False)
         elif m == "hybrid":
             auto_dmg_var.set(False)
             auto_aoe_var.set(False)
@@ -102,6 +104,7 @@ def open_automation_settings_dialog(dm_gui):
             rest_var.set(True)
             advance_time_var.set(True)
             day_night_var.set(True)
+            auto_xp_var.set(True)
         elif m == "full":
             auto_dmg_var.set(True)
             auto_aoe_var.set(True)
@@ -117,6 +120,7 @@ def open_automation_settings_dialog(dm_gui):
             rest_var.set(True)
             advance_time_var.set(True)
             day_night_var.set(True)
+            auto_xp_var.set(True)
 
     tk.Label(scrollable_frame, text="PROFILI DI GESTIONE PREDEFINITI:", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w", pady=(2, 6))
 
@@ -162,6 +166,9 @@ def open_automation_settings_dialog(dm_gui):
 
     ttk.Checkbutton(sec1, text="Risoluzione automatica 0 HP, Morte Istantanea e KO mostri", variable=death_var).pack(anchor="w", pady=2)
     tk.Label(sec1, text="  ↳ Se disattivato, il DM arbitra se una creatura a 0 HP viene uccisa, resa incosciente o si arrende narrativamente.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
+
+    ttk.Checkbutton(sec1, text="Distribuzione automatica Punti Esperienza (XP) a fine combattimento", variable=auto_xp_var).pack(anchor="w", pady=2)
+    tk.Label(sec1, text="  ↳ Se attivo, al termine dello scontro calcola i PE dei mostri sconfitti (GS), li divide equamente nel gruppo, aggiorna le schede e notifica i passaggi di livello.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
 
     # Sezione 2: Mappa, Movimento & Esplorazione
     sec2 = tk.LabelFrame(scrollable_frame, text=" 🗺️ Mappa, Movimento & Esplorazione ", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_BLUE, padx=10, pady=8)
@@ -229,6 +236,7 @@ def open_automation_settings_dialog(dm_gui):
             "auto_apply_rest_recovery": bool(rest_var.get()),
             "auto_advance_time": bool(advance_time_var.get()),
             "auto_day_night_cycle": bool(day_night_var.get()),
+            "auto_distribute_xp": bool(auto_xp_var.get()),
             "square_diagonal_rule": "tactical" if "tactical" in diag_rule_var.get() else "standard"
         }
         from server.rules.combat import handle_set_automation_mode_request

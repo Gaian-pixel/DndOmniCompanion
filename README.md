@@ -6,7 +6,7 @@
 [![Ruleset: D&D 5e](https://img.shields.io/badge/ruleset-D%26D%205e-red.svg)](https://dnd.wizards.com/)
 [![UI: ttkbootstrap](https://img.shields.io/badge/ui-ttkbootstrap-orange.svg)](https://ttkbootstrap.readthedocs.io/)
 [![Multiplayer: TCP/UDP](https://img.shields.io/badge/networking-TCP%20%2B%20UDP-green.svg)]()
-[![Tests: Passing](https://img.shields.io/badge/tests-479%2F479%20passing-brightgreen.svg)]()
+[![Tests: Passing](https://img.shields.io/badge/tests-492%2F492%20passing-brightgreen.svg)]()
 [![Localization: EN / IT](https://img.shields.io/badge/i18n-English%20%7C%20Italiano-blueviolet.svg)]()
 [![Units: Imperial / Metric](https://img.shields.io/badge/units-ft%2Fmi%20%7C%20m%2Fkm-informational.svg)]()
 [![Version](https://img.shields.io/badge/release-v0.3.0--alpha-gold.svg)](https://github.com/Gaian-pixel/DndOmniCompanion/releases)
@@ -135,6 +135,23 @@
   * **Halfling Luck (*Fortunato*)**: Automatically rerolls natural `1`s on `d20` attack rolls, ability checks, and saving throws (`reroll_ones_d20=True`).
   * **Great Weapon Fighting (*Combattere con Armi Possenti*)**: Automatically rerolls `1`s and `2`s on damage dice for two-handed/versatile melee weapons (`gwf_reroll=True`).
   * **Divination Wizard Portent (*Portento*) & Lucky Feat (*Fortunato*)**: Automatic Long Rest roll of `2d20` (`3d20` at level 14) Portent dice and `3` Luck Points, spendable with 1 click from the Character Sheet header.
+* **Paladin Divine Smite (*Punizione Divina* - PHB p. 85)**:
+  * Dedicated spell slot level selector dropdown (1st–5th level) in the weapon combat interface before rolling an attack.
+  * On a melee hit, consumes the chosen slot to deal `+2d8` radiant damage for a 1st-level slot plus `+1d8` per level above 1st (max `5d8`).
+  * Additional `+1d8` radiant damage against **Undead** and **Fiends** (max `6d8`).
+  * Automatically doubles all Divine Smite dice on a Critical Hit (`4d8`–`12d8`).
+* **Monk Stunning Strike (PHB p. 79) & Battle Master Superiority Dice (PHB p. 73)**:
+  * **Stunning Strike**: Quick checkbox in the weapon toolbar to spend 1 Ki point on a melee weapon hit, forcing the target to succeed on a Constitution saving throw vs Ki DC ($8 + \text{PB} + \text{WIS mod}$) or become *Stunned* until the end of the monk's next turn.
+  * **Superiority Dice & Maneuvers**: Dedicated pool tracking (`d8`, `d10`, `d12`), 1-click expenditure button with chat broadcasting, and automatic restoration on both Short and Long Rests.
+* **Improved Critical (Champion 19-20 / 18-20) & Brutal Critical / Savage Attacks (PHB p. 49, 72, 73)**:
+  * **Champion Fighter Improved Critical**: Automatic critical hit detection on 19–20 at level 3 and 18–20 at level 15.
+  * **Barbarian Brutal Critical & Half-Orc Savage Attacks**: Automatically appends 1, 2, or 3 extra weapon damage dice on melee critical hits.
+* **Turn Economy Extra Attack Tracking (PHB p. 72, 79, 85, 91)**:
+  * Automatically recognizes extra attacks per Action by class and level (up to 4 attacks for 20th-level Fighters).
+  * Scales remaining attack counters during the active turn before consuming the full turn Action.
+* **Monster Recharge Abilities (MM p. 11), Ongoing Damage & Regeneration**:
+  * **Automatic Turn-Start Recharge Rolls**: Rolls `1d6` at the start of a monster's turn for threshold-based powers (e.g., Dragon Breath *Recharge 5-6* or *Recharge 6*) with public chat announcements.
+  * **Ongoing Damage & Regeneration**: Automatic start-of-turn persistent damage ticks and monster regeneration (e.g., Troll 10 HP, Vampire 20 HP) with intelligent fire/acid damage suppression.
 
 ### 🧙‍♂️ Character Creation, Sheet & Progression
 * **Baldur's Gate Styled Wizard with Master-Detail Compendiums**:
@@ -167,7 +184,15 @@
   * Single-click button to **spend 1 Hit Die at a time** ($1\text{dY} + \text{CON Mod}$, min 1 healed), instantly updating sheet and chat log.
   * "Spend All" button to spend all available dice or finish rest.
   * Long Rest automatically restores full HP and regains half of the character's total Hit Dice ($\max(1, \lfloor\text{Total}/2\rfloor)$).
-* **Special Class Resources System**: Automatic population and tracking of Ki Points, Rage, Bardic Inspiration, Wild Shape, Channel Divinity, Action Surge, Second Wind, Sorcery Points, etc., with automated Short/Long Rest recovery.
+* **Special Class Resources System (RAW 5e)**:
+  * Dynamic tracking and Short/Long Rest replenishment of Ki Points, Rage charges, Bardic Inspiration, Wild Shape uses, Channel Divinity, Action Surge, and Second Wind.
+  * **Druid Wild Shape (*Forma Selvatica* - PHB p. 66)**: Dedicated transformation modal with beast presets (Wolf, Brown Bear, Boar, Hawk, or custom beasts). Grants a separate temporary beast HP pool (`beast_hp`), AC, speed, and beast physical stats. Incoming damage is absorbed first by the beast form; reaching 0 beast HP reverts the shape and carries any excess damage over to the Druid's normal HP, avoiding unconsciousness unless the carryover damage drops the Druid's true HP to 0.
+  * **Sorcerer Flexible Casting & Metamagic (PHB p. 101)**: Interactive `✨ Font of Magic` dialog for bidirectional conversion between spell slots and Sorcery Points (SP) using official RAW costs (1st=2, 2nd=3, 3rd=5, 4th=6, 5th=7 SP), alongside Metamagic feature costs and Long Rest replenishment.
+  * **Arcane Recovery (*Recupero Arcano* - PHB p. 115)**: Integrated Short Rest button for Wizards and Circle of the Land Druids allowing recovery of expended spell slots with combined level up to $\lceil \text{Level}/2 \rceil$ (max 5th-level slot) once per day, resetting on a Long Rest.
+  * **Bard Jack of All Trades (*Tuttofare* - PHB p. 54)**: Automatically adds half Proficiency Bonus rounded down ($+\lfloor\text{PB}/2\rfloor$) to all non-proficient ability checks and Initiative rolls for Bards of 2nd level or higher.
+  * **Rogue Reliable Talent (*Talento Affidabile* - PHB p. 96)**: For Rogues of 11th level or higher, any d20 roll of 9 or lower on proficient skill checks is automatically treated as a 10 before applying modifiers.
+  * **Cantrip Damage Scaling (PHB p. 201)**: Automatic multiplier scaling for damaging cantrips based on total character level (1 die at levels 1–4, 2 dice at levels 5–10, 3 dice at levels 11–16, 4 dice at levels 17+).
+  * **Prepared Spells Count Validation (PHB p. 201)**: Calculates and displays the maximum prepared spells limit ($\text{Level} + \text{Spellcasting Mod}$) for Cleric, Druid, Wizard, Paladin, and Artificer, while keeping Spells Known classes distinct.
 * **Hero Summary Card & Interactive Character Sheet**:
   * Always-visible sidebar summary card with responsive HP bar, AC, effective Speed (`ft` or `m`), Initiative, light toggle `[ 🕯️ ]`, companion manager `[ 🐾 ]`, and quick `[ 🎒 ]` button to drop backpack.
   * Full tabbed sheet: **Combat**, **Stats & Skills** (with Proficiency & Expertise $2\times\text{PB}$), **Weapons & Attacks**, **Inventory & Encumbrance** ($\text{STR} \times 15\text{ lbs}$), **Spellbook & Spell Slots (1–9)** with **Spell Upcasting** modal, **Features & Journal**.
@@ -209,7 +234,7 @@ The DM can adjust the automation level in real time from **Tools ➔ ⚙️ Camp
 * **⚖️ Assisted Hybrid (Recommended for Fluid Sessions)**: The digital assistant handles complex 5e bookkeeping (resistances, covers, visibility, conditions, DCs), while providing the DM with 1-click floating action cards (`[Full]`, `[Half]`, `[Custom]`, `[Cancel]`) to effortlessly confirm or modulate damage.
 * **⚡ Full Automation (Fast Tactical / CRPG Style)**: Direct instant HP deductions, doors unlock immediately upon passing DC, strict combat turn locking, and instantaneous reaction/save prompts.
 * **Granular Coverage Across All Mechanics**:
-  * **⚔️ Combat & Damage**: Direct attack damage, AoE spell/save damage, 2d20 advantage/disadvantage auto-calculation, reaction prompts (Opportunity Attacks, Shield spell), concentration constitution saves, and 0 HP / massive instant death handling.
+  * **⚔️ Combat & Damage**: Direct attack damage, AoE spell/save damage, 2d20 advantage/disadvantage auto-calculation, reaction prompts (Opportunity Attacks, Shield spell), concentration constitution saves, 0 HP / massive instant death handling, and **Selectable Automatic Experience Point (XP) Distribution** at combat end with CR calculation and level-up notifications (PHB p. 15 / DMG p. 82).
   * **🗺️ Map & Movement**: Strict combat turn enforcement, speed limit & difficult terrain blocking, automatic door DC resolution, and dynamic Fog of War auto-exploration.
   * **⛺ Rest & Resources**: Instant rest recovery (HP, Hit Dice, Spell Slots) vs DM approval with random encounter checks.
 
@@ -360,7 +385,8 @@ DndOmniCompanion/
 │   ├── GUIDA_ALL_UTILIZZO.md       # Manuale completo all'utilizzo (Italiano)
 │   ├── OPERATIONAL_GUIDE.md        # System & Operational Manual (English)
 │   └── GUIDA_OPERATIVA.md          # Manuale operativo e architettura (Italiano)
-├── tests/                          # Automated testing suite (479 passing tests)
+├── tests/                          # Automated testing suite (492 passing tests)
+│   ├── test_raw_5e_advanced_features.py # Smite, Wild Shape, Font of Magic, Arcane Recovery, Reliable Talent, Auto XP
 │   ├── simulate_4player_campaign.py# Live 4-player + DM campaign simulation (11 phases)
 │   ├── simulate_game_session.py    # End-to-end multiplayer simulation (53 phases)
 │   ├── test_missing_5e_features.py # Multiclassing, Auras, Ready, Power Attack, Reactions, Portent
@@ -378,11 +404,14 @@ DndOmniCompanion/
 
 ## 🧪 Automated Testing & Verification
 
-All **479 automated tests** pass with 100% success and 0 failures:
+All **492 automated tests** pass with 100% success and 0 failures:
 
 ```powershell
-# 1. Comprehensive Unit Tests (479 tests: 5e mechanics, magic item modifiers, 3D dice, join flow, ruler, criticals, single-window, turn economy, inventory)
+# 1. Comprehensive Unit Tests (492 tests: 5e mechanics, magic item modifiers, 3D dice, join flow, ruler, criticals, single-window, turn economy, inventory)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
+
+# 2. Run Advanced 5e RAW Mechanics test suite (Divine Smite, Wild Shape, Font of Magic, Arcane Recovery, Reliable Talent, Jack of All Trades, Brutal Critical, Stunning Strike, Superiority Dice, Cantrip Scaling, Monster Recharge, Auto XP)
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_raw_5e_advanced_features.py
 
 # 2. Run Advanced 5e RAW Mechanics test suite (Multiclassing, Paladin Aura, Spirit Guardians, Ready Action, Power Attack, Reactions, Portent, Lucky, Charges)
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_missing_5e_features.py

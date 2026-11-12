@@ -269,6 +269,24 @@ Under the **`🌟 Features`** tab of the Character Sheet you will find the **`�
 * **Quick Adjusters `[-]` / `[+]`**: spend or restore charges with 1 click during gameplay.
 * **Custom Resources**: create custom tracking pools with **`+ Add Resource`** by specifying Name, Maximum Value, and Recovery Rule (*Short Rest* or *Long Rest*), or delete with `🗑️`.
 * **Smart Rest Recovery**: taking a *Short Rest* or *Long Rest* automatically replenishes only the resources appropriate for that rest type.
+* **Druid Wild Shape (*Forma Selvatica* - PHB p. 66)**:
+  * Dedicated **`[ 🌿 Forma Selvatica ]`** button in the Character Sheet. Select from official beast templates (Wolf, Brown Bear, Boar, Hawk, Panther, etc.) or input custom beast stats.
+  * During Wild Shape, the Druid receives a separate beast temporary HP pool (`beast_hp`), AC, speed, and physical ability scores.
+  * **Damage Absorption & Carryover**: Damage taken depletes beast HP first. Dropping to 0 beast HP reverts the form, carrying over excess damage to normal HP without knocking the Druid unconscious (unless excess damage depletes true HP to 0).
+* **Sorcerer Font of Magic & Metamagic (PHB p. 101)**:
+  * Dedicated **`[ ✨ Fonte di Magia ]`** button in the Spellbook tab. Provides bidirectional conversion between spell slots and Sorcery Points (SP) using official RAW rates:
+    * *Slot $\to$ Points*: 1st-level slot gives 1 SP, 2nd gives 2 SP, 3rd gives 3 SP, etc.
+    * *Points $\to$ Slot*: creating slots costs 1st=2 SP, 2nd=3 SP, 3rd=5 SP, 4th=6 SP, 5th=7 SP.
+  * Metamagic feature options (Quickened Spell, Twinned Spell, Subtle Spell, Heightened Spell, Extended Spell, etc.) and complete SP recovery on a Long Rest.
+* **Arcane Recovery (*Recupero Arcano* - PHB p. 115)**:
+  * In the **Short Rest** dialog (`ShortRestDialog`), Wizards and Circle of the Land Druids get an active **`[ ✨ Recupero Arcano ]`** button.
+  * Recovers expended spell slots with combined level up to $\lceil \text{Level}/2 \rceil$ (maximum 5th-level slot) once per day, resetting on a Long Rest.
+* **Bard Jack of All Trades (*Tuttofare* - PHB p. 54) & Rogue Reliable Talent (*Talento Affidabile* - PHB p. 96)**:
+  * **Jack of All Trades**: 2nd-level+ Bards automatically add half their Proficiency Bonus rounded down ($+\lfloor\text{PB}/2\rfloor$) to all non-proficient ability/skill checks and Initiative rolls.
+  * **Reliable Talent**: 11th-level+ Rogues treat any d20 roll of 9 or lower on proficient skill checks as a 10 before applying modifiers.
+* **Cantrip Damage Scaling & Prepared Spells Limit (PHB p. 201)**:
+  * Damage cantrips scale their dice counts automatically based on total character level (1 die at levels 1–4, 2 dice at levels 5–10, 3 dice at levels 11–16, 4 dice at levels 17+).
+  * The Spellbook calculates and displays maximum prepared spells ($\text{Level} + \text{Spellcasting Mod}$) for Cleric, Druid, Wizard, Paladin, and Artificer.
 
 ### Magic Item Attunement (`🔮`), Automatic Modifiers, Charges & DM Inspiration
 * **Magic Item Attunement (Attunement `🔮`)**:
@@ -364,6 +382,19 @@ The **Turn Economy** section in the `Player Controls` tab automatically adapts t
   * Under the **`⚔️ Weapons & Attacks`** tab of the Character Sheet:
     * **Power Attack Toggle (`⚡ Power Attack -5/+10`)**: toggleable for *Great Weapon Master* and *Sharpshooter*; automatically subtracts `5` from attack rolls and adds `+10` to weapon damage rolls.
     * **Off-Hand Bonus Attack (`🗡️ Off-Hand`)**: executes the Two-Weapon Fighting bonus action attack, omitting positive ability modifiers from damage unless the character possesses the *Two-Weapon Fighting* style.
+* **Paladin Divine Smite (*Punizione Divina* - PHB p. 85)**:
+  * In the weapon interface, Paladins have access to a slot selector dropdown (1st–5th level).
+  * Upon hitting with a melee weapon, the chosen spell slot is expended, dealing `+2d8` radiant damage for a 1st-level slot plus `+1d8` for each slot level above 1st (max `5d8`).
+  * If the target is an **Undead** or **Fiend**, damage automatically increases by an additional `+1d8` (max `6d8`).
+  * On a Critical Hit, all Divine Smite damage dice are doubled (`4d8`–`12d8`).
+* **Monk Stunning Strike (PHB p. 79) & Battle Master Superiority Dice (PHB p. 73)**:
+  * **Stunning Strike**: Dedicated checkbox in the weapons toolbar. By spending 1 Ki Point upon hitting with a melee weapon, the target must make a Constitution saving throw against the Monk's Ki DC ($8 + \text{PB} + \text{WIS mod}$); failure imposes the **Stunned** condition until the end of the monk's next turn.
+  * **Superiority Dice**: Manage your maneuver dice pool (`d8`, `d10`, `d12`) with the quick `[ 🎲 Spendi Dado Superiorità ]` button, broadcasting the spend to chat, with full recovery on both Short and Long Rests.
+* **Improved Critical (Champion 19-20 / 18-20) & Brutal Critical / Savage Attacks (PHB p. 49, 72, 73)**:
+  * Automatic critical hit detection on 19–20 (level 3) or 18–20 (level 15) for Champion Fighters.
+  * Automatic extra weapon damage dice on melee critical hits for Barbarian *Brutal Critical* and Half-Orc *Savage Attacks*.
+* **Turn Economy Extra Attack Tracking (PHB p. 72, 79, 85, 91)**:
+  * Characters with *Extra Attack* (up to 4 attacks for 20th-level Fighters) can make multiple attacks within a single Action without pre-emptively locking the turn action before all attacks are completed.
 * **Ready Action (*Azione Preparare* - PHB p. 193)**:
   * The VTT Turn Economy bar features a **`[ ⏱️ Ready ]`** button:
     * Spend your turn's **Action** to declare a perceptible trigger (e.g., *"When the goblin steps through the doorway"*) and choose the readied response (**Attack**, **Movement**, or **Spell**).
@@ -563,7 +594,7 @@ D&D OmniCompanion empowers the Dungeon Master with total control over the balanc
 * **Switching Profiles on the Fly**:
   * Click the colored badge **`🎲 Table`**, **`⚖️ Hybrid`**, or **`⚡ Full Auto`** on the map's top ribbon.
   * Or navigate to **`Tools -> ⚙️ Campaign Management Style (Automations)...`**.
-* **11 Independent Granular Switches**:
+* **12 Independent Granular Switches**:
   * From the automation settings dialog, the DM can toggle each system independently:
     1. `auto_attack_damage`: automatic HP deduction from weapon attacks.
     2. `auto_aoe_damage`: automatic damage resolution from AoE spells and saving throws.
@@ -576,6 +607,7 @@ D&D OmniCompanion empowers the Dungeon Master with total control over the balanc
     9. `auto_encumbrance`: movement restriction when carrying capacity is exceeded.
     10. `auto_death_saves`: automatic turn-start Death Saving Throw prompts.
     11. `auto_weather_effects`: automatic ranged attack penalties in storms, fog, and rain.
+    12. `auto_distribute_xp`: automatic calculation and distribution of Experience Points (XP) from defeated monsters at the end of combat, including level-up threshold notifications (PHB p. 15). Can be disabled for milestone campaigns or manual XP bookkeeping.
 * **Floating DM Pending Actions Dock**:
   * When running in Traditional or Hybrid mode, whenever an event requires DM oversight (e.g., incoming damage, rest request, lockpicking attempt, or trap trigger), a non-intrusive floating dock appears at the bottom-center of the DM screen:
   * Shows event details (e.g., `Attack on Gildor: 14 Slashing Damage`) with 1-click action buttons:

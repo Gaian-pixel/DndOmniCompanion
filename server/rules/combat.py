@@ -529,11 +529,55 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
         dmg_to_hp = final_dmg - temp_absorbed
     else:
         dmg_to_hp = final_dmg
-        
-    old_hp = target_player.hp
-    new_hp_unbounded = old_hp - dmg_to_hp
-    excess_damage = abs(new_hp_unbounded) if new_hp_unbounded < 0 else 0
-    target_player.hp = max(0, new_hp_unbounded)
+
+    # Forma Selvatica (Druido D&D 5e RAW PHB p. 66): il danno consuma i PV della bestia prima di intaccare i PV reali
+    ws = getattr(target_player, "wild_shape", None) or (target_player.full_sheet.get("wild_shape") if isinstance(getattr(target_player, "full_sheet", None), dict) else None)
+    if isinstance(ws, dict) and ws.get("active", False):
+        beast_hp = int(ws.get("beast_hp", target_player.hp))
+        if dmg_to_hp < beast_hp:
+            ws["beast_hp"] = beast_hp - dmg_to_hp
+            target_player.hp = ws["beast_hp"]
+            if getattr(target_player, "full_sheet", None) and isinstance(target_player.full_sheet, dict):
+                target_player.full_sheet["hp_current"] = target_player.hp
+            note += f" (Assorbito da Forma Selvatica: {target_player.hp}/{ws.get('beast_max_hp', beast_hp)} PV bestia)"
+            return final_dmg, note, temp_absorbed, dmg_to_hp
+        else:
+            # La Forma Selvatica cede: il danno in eccesso si trasferisce ai PV normali del Druido!
+            excess_to_druid = dmg_to_hp - beast_hp
+            orig_hp = int(ws.get("original_hp", target_player.max_hp))
+            orig_max = int(ws.get("original_max_hp", target_player.max_hp))
+            orig_ac = int(ws.get("original_ac", 10))
+            orig_speed = int(ws.get("original_speed", 30))
+            orig_attrs = ws.get("original_attributes", {})
+
+            target_player.max_hp = orig_max
+            target_player.ac = orig_ac
+            target_player.speed = orig_speed
+            if orig_attrs and hasattr(target_player, "attributes") and isinstance(target_player.attributes, dict):
+                target_player.attributes.update(orig_attrs)
+
+            ws["active"] = False
+            ws["beast_hp"] = 0
+
+            old_hp = orig_hp
+            new_hp_unbounded = old_hp - excess_to_druid
+            excess_damage = abs(new_hp_unbounded) if new_hp_unbounded < 0 else 0
+            target_player.hp = max(0, new_hp_unbounded)
+            if getattr(target_player, "full_sheet", None) and isinstance(target_player.full_sheet, dict):
+                target_player.full_sheet["hp_current"] = target_player.hp
+                target_player.full_sheet["hp_max"] = target_player.max_hp
+                target_player.full_sheet["ac"] = target_player.ac
+                target_player.full_sheet["wild_shape"] = ws
+
+            note += f" 🌿 (Forma Selvatica infranta! {excess_to_druid} danno residuo trasferito ai PV del Druido: {target_player.hp}/{target_player.max_hp})"
+            if game_state:
+                broadcast(game_state, make_chat_broadcast("Sistema", f"🌿 La Forma Selvatica di {target_player.name} è stata infranta! Ritorna alla forma umanoide subendo {excess_to_druid} danni residui (PV: {target_player.hp}/{target_player.max_hp})."))
+            dmg_to_hp = excess_to_druid
+    else:
+        old_hp = target_player.hp
+        new_hp_unbounded = old_hp - dmg_to_hp
+        excess_damage = abs(new_hp_unbounded) if new_hp_unbounded < 0 else 0
+        target_player.hp = max(0, new_hp_unbounded)
     survival_note = _check_zero_hp_survival_features(target_player, old_hp, excess_damage, game_state)
     if survival_note:
         note += survival_note
@@ -1077,6 +1121,23 @@ def handle_attack_request(data, player, game_state):
             if player and getattr(player, "conn", None):
                 send_message(player.conn, make_error_reply(f"Non è il tuo turno in combattimento! È il turno di {curr_turn.name}."))
             return
+
+    # Attacco Extra & Risoluzione Azione di Attacco (D&D 5e RAW PHB p. 72)
+    if not is_reaction:
+        p_sheet = getattr(player, "full_sheet", None) or {}
+        p_cls = str(p_sheet.get("char_class", getattr(player, "char_class", ""))).lower()
+        p_lvl = int(p_sheet.get("level", getattr(player, "level", 1)) or 1)
+        max_attacks = 1
+        if any(k in p_cls for k in ("guerriero", "fighter")):
+            max_attacks = 4 if p_lvl >= 20 else (3 if p_lvl >= 11 else (2 if p_lvl >= 5 else 1))
+        elif any(k in p_cls for k in ("barbaro", "barbarian", "paladino", "paladin", "ranger", "monaco", "monk")) and p_lvl >= 5:
+            max_attacks = 2
+
+        if not hasattr(player, "attacks_made_this_turn"):
+            player.attacks_made_this_turn = 0
+        player.attacks_made_this_turn += 1
+        if player.attacks_made_this_turn >= max_attacks:
+            player.has_acted_this_turn = True
     
     try:
         # 1. Roll to Hit
@@ -1371,6 +1432,18 @@ def handle_attack_request(data, player, game_state):
         elif hasattr(player, "crit_threshold"):
             try: crit_thresh = int(player.crit_threshold)
             except (ValueError, TypeError): crit_thresh = 20
+
+        # Critico Migliorato (Campione 19-20 / 18-20 PHB p. 72)
+        if crit_thresh == 20:
+            p_sheet = getattr(player, "full_sheet", None) or {}
+            sub_str = str(p_sheet.get("subclass", getattr(player, "subclass", ""))).lower()
+            feats_str = str(p_sheet.get("features", getattr(player, "features", ""))).lower()
+            if any(k in sub_str or k in feats_str for k in ("campione", "champion", "critico migliorato", "improved critical")):
+                f_lvl = int(p_sheet.get("level", getattr(player, "level", 1)) or 1)
+                for ck, cv in p_sheet.get("classes", {}).items():
+                    if any(k in str(ck).lower() for k in ("guerriero", "fighter")):
+                        f_lvl = int(cv)
+                crit_thresh = 18 if f_lvl >= 15 else 19
         is_crit = (base_roll >= crit_thresh)
         is_fail = (base_roll == 1)
         
@@ -1574,6 +1647,101 @@ def handle_attack_request(data, player, game_state):
                         dmg_val += sneak_dmg
                         player.sneak_attack_used_this_turn = True
                         log_msg += f" 🗡️ (+{sneak_dmg} Attacco Furtivo [{sneak_formula}])"
+
+                # Punizione Divina del Paladino (Divine Smite PHB p. 85)
+                # Spende uno slot 1°-5°: +2d8 (+1d8/livello sopra il 1°, max 5d8), +1d8 vs Non Morti/Immondi (max 6d8). Raddoppiato su critico!
+                smite_slot = data.get("smite_slot") or data.get("divine_smite_slot")
+                if smite_slot and not is_ranged_att:
+                    try:
+                        s_lvl = int(smite_slot)
+                        if 1 <= s_lvl <= 5:
+                            p_sheet = getattr(player, "full_sheet", None) or {}
+                            p_slots = p_sheet.get("spell_slots", {})
+                            lvl_str = str(s_lvl)
+                            if isinstance(p_slots.get(lvl_str), dict) and p_slots[lvl_str].get("current", 0) > 0:
+                                p_slots[lvl_str]["current"] -= 1
+                            elif isinstance(p_slots.get(lvl_str), list) and len(p_slots[lvl_str]) >= 2 and p_slots[lvl_str][0] > 0:
+                                p_slots[lvl_str][0] -= 1
+
+                            base_smite_dice = min(5, 1 + s_lvl)
+                            t_fs = getattr(target_player, "full_sheet", None) or {}
+                            t_type_str = (str(t_fs.get("type", "")) + " " + str(target_player.name) + " " + " ".join(getattr(target_player, "conditions", []))).lower()
+                            undead_fiend_kws = ("non morto", "non-morto", "undead", "immondo", "fiend", "zombie", "scheletro", "skeleton", "demone", "demon", "diavolo", "devil", "ghoul", "ghast", "mummia", "mummy", "spettro", "specter", "fantasma", "ghost", "wraith", "vampiro", "vampire", "lich")
+                            if any(k in t_type_str for k in undead_fiend_kws):
+                                base_smite_dice = min(6, base_smite_dice + 1)
+
+                            smite_formula = f"{base_smite_dice}d8"
+                            smite_res = roll_dice(smite_formula, is_crit=is_crit)
+                            smite_dmg = smite_res["total"]
+                            dmg_val += smite_dmg
+                            log_msg += f" ⚡ (+{smite_dmg} Punizione Divina [{smite_formula} radiante])"
+                    except Exception:
+                        pass
+
+                # Critico Brutale (Barbaro PHB p. 49) & Attacchi Selvaggi (Mezzorco PHB p. 41)
+                if is_crit and not is_ranged_att:
+                    p_sheet = getattr(player, "full_sheet", None) or {}
+                    p_race = str(p_sheet.get("race", getattr(player, "race", ""))).lower()
+                    p_feats = str(p_sheet.get("features", getattr(player, "features", ""))).lower()
+                    extra_crit_dice = 0
+                    if "mezzorco" in p_race or "half-orc" in p_race or "attacchi selvaggi" in p_feats:
+                        extra_crit_dice += 1
+
+                    barb_lvl = 0
+                    classes_dict = p_sheet.get("classes", {})
+                    for ck, cv in classes_dict.items():
+                        if any(k in str(ck).lower() for k in ("barbaro", "barbarian")):
+                            barb_lvl = max(barb_lvl, int(cv))
+                    if barb_lvl == 0 and any(k in str(p_sheet.get("char_class", "")).lower() for k in ("barbaro", "barbarian")):
+                        barb_lvl = int(p_sheet.get("level", getattr(player, "level", 1)) or 1)
+
+                    if barb_lvl >= 17:
+                        extra_crit_dice += 3
+                    elif barb_lvl >= 13:
+                        extra_crit_dice += 2
+                    elif barb_lvl >= 9:
+                        extra_crit_dice += 1
+
+                    if extra_crit_dice > 0:
+                        import re
+                        m_die = re.search(r'd(\d+)', str(damage_formula))
+                        sides = m_die.group(1) if m_die else "8"
+                        crit_bonus_formula = f"{extra_crit_dice}d{sides}"
+                        bc_res = roll_dice(crit_bonus_formula, is_crit=False)
+                        bc_dmg = bc_res["total"]
+                        dmg_val += bc_dmg
+                        log_msg += f" 💥 (+{bc_dmg} Critico Brutale/Attacchi Selvaggi [{crit_bonus_formula}])"
+
+                # Colpo Stordente del Monaco (Stunning Strike PHB p. 79)
+                if data.get("use_stunning_strike") and not is_ranged_att:
+                    p_sheet = getattr(player, "full_sheet", None) or {}
+                    if "ki_current" in p_sheet and p_sheet["ki_current"] > 0:
+                        p_sheet["ki_current"] -= 1
+                    char_lvl = max(1, int(p_sheet.get("level", getattr(player, "level", 1)) or 1))
+                    pb = ((char_lvl - 1) // 4) + 2
+                    wis_val = 10
+                    if "attributes" in p_sheet and isinstance(p_sheet["attributes"], dict):
+                        wis_val = p_sheet["attributes"].get("SAG", p_sheet["attributes"].get("WIS", 10))
+                    wis_mod = (int(wis_val) - 10) // 2
+                    ki_dc = 8 + pb + wis_mod
+
+                    t_con_mod = 0
+                    t_fs = getattr(target_player, "full_sheet", None) or {}
+                    if "attributes" in t_fs and isinstance(t_fs["attributes"], dict):
+                        c_val = t_fs["attributes"].get("COS", t_fs["attributes"].get("CON", 10))
+                        t_con_mod = (int(c_val) - 10) // 2
+                    save_roll = random.randint(1, 20) + t_con_mod
+                    if save_roll < ki_dc:
+                        if not hasattr(target_player, "conditions") or not isinstance(target_player.conditions, list):
+                            target_player.conditions = []
+                        if "Stordito" not in target_player.conditions:
+                            target_player.conditions.append("Stordito")
+                        if not hasattr(target_player, "condition_durations") or not isinstance(target_player.condition_durations, dict):
+                            target_player.condition_durations = {}
+                        target_player.condition_durations["Stordito"] = 2
+                        log_msg += f" 🥋 [Colpo Stordente! {target_name} fallisce TS COS ({save_roll} vs CD {ki_dc}) ed è STORDITO!]"
+                    else:
+                        log_msg += f" 🥋 [Colpo Stordente: {target_name} supera TS COS ({save_roll} vs CD {ki_dc})]"
                     
                 auto_apply = True
                 if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):

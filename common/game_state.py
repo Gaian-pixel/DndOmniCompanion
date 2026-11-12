@@ -341,7 +341,8 @@ class GameState:
             "auto_explore_fow": True,
             "auto_apply_rest_recovery": True,
             "auto_advance_time": True,
-            "auto_day_night_cycle": True
+            "auto_day_night_cycle": True,
+            "auto_distribute_xp": True
         }
         self.pending_damages = {} # id -> dict
         self.pending_doors = {}   # id -> dict
@@ -365,7 +366,8 @@ class GameState:
                 "auto_explore_fow": False,
                 "auto_apply_rest_recovery": False,
                 "auto_advance_time": False,
-                "auto_day_night_cycle": False
+                "auto_day_night_cycle": False,
+                "auto_distribute_xp": False
             }
         elif mode == "full":
             self.automation_settings = {
@@ -382,7 +384,8 @@ class GameState:
                 "auto_explore_fow": True,
                 "auto_apply_rest_recovery": True,
                 "auto_advance_time": True,
-                "auto_day_night_cycle": True
+                "auto_day_night_cycle": True,
+                "auto_distribute_xp": True
             }
         else: # "hybrid" (predefinito)
             self.automation_mode = "hybrid"
@@ -400,7 +403,8 @@ class GameState:
                 "auto_explore_fow": True,
                 "auto_apply_rest_recovery": True,
                 "auto_advance_time": True,
-                "auto_day_night_cycle": True
+                "auto_day_night_cycle": True,
+                "auto_distribute_xp": True
             }
         if custom_settings and isinstance(custom_settings, dict):
             self.automation_settings.update(custom_settings)
@@ -483,6 +487,7 @@ class GameState:
                 p.in_combat = False
                 p.movement_spent_this_turn = 0
                 p.has_acted_this_turn = False
+                p.attacks_made_this_turn = 0
                 if hasattr(p, "conditions") and p.conditions:
                     p.conditions = [c for c in p.conditions if c not in temp_combat_conds]
                 if getattr(p, "full_sheet", None) and isinstance(p.full_sheet.get("conditions"), list):
@@ -497,6 +502,70 @@ class GameState:
                 self.record_journal_event("combat", "Fine Combattimento", f"Scontro risolto dopo {self.round_number} round.", actor="Party")
             except Exception:
                 pass
+
+            # Distribuzione Automatica Punti Esperienza (XP) RAW 5e se abilitata dal DM
+            auto_xp = False
+            if hasattr(self, "automation_settings") and isinstance(self.automation_settings, dict):
+                auto_xp = self.automation_settings.get("auto_distribute_xp", True)
+            if auto_xp:
+                try:
+                    from common.encounter_calc import CR_TO_XP, get_xp_for_level
+                    from common.network_utils import broadcast
+                    from common.protocol import make_chat_broadcast, make_player_stats_update
+
+                    defeated_monsters = []
+                    total_combat_xp = 0
+                    for p in self.players:
+                        is_party = getattr(p, "is_party_member", False) or getattr(p, "conn", None) is not None
+                        if not is_party:
+                            conds = [str(c).lower() for c in getattr(p, "conditions", [])]
+                            if "morto" in conds or "dead" in conds or getattr(p, "hp", 1) <= 0:
+                                cr_val = "1"
+                                if getattr(p, "full_sheet", None) and isinstance(p.full_sheet, dict):
+                                    cr_val = str(p.full_sheet.get("cr", "1")).strip()
+                                m_xp = CR_TO_XP.get(cr_val, 0)
+                                if m_xp == 0:
+                                    try:
+                                        m_xp = CR_TO_XP.get(str(float(cr_val)), 0)
+                                    except Exception:
+                                        m_xp = 200
+                                total_combat_xp += m_xp
+                                defeated_monsters.append((p.name, cr_val, m_xp))
+
+                    living_party = [
+                        p for p in self.players
+                        if (getattr(p, "is_party_member", False) or getattr(p, "conn", None) is not None)
+                        and "morto" not in [str(c).lower() for c in getattr(p, "conditions", [])]
+                    ]
+
+                    if total_combat_xp > 0 and living_party:
+                        share_xp = total_combat_xp // len(living_party)
+                        lvl_up_alerts = []
+                        for p in living_party:
+                            if not p.full_sheet or not isinstance(p.full_sheet, dict):
+                                p.full_sheet = {"exp": 0, "level": getattr(p, "level", 1)}
+                            old_xp = int(p.full_sheet.get("exp", 0) or 0)
+                            new_xp = old_xp + share_xp
+                            p.full_sheet["exp"] = new_xp
+                            p_lvl = int(p.full_sheet.get("level", getattr(p, "level", 1)) or 1)
+                            if p_lvl < 20:
+                                next_lvl_req = get_xp_for_level(p_lvl + 1)
+                                if new_xp >= next_lvl_req:
+                                    lvl_up_alerts.append(f"🎉 {p.name}: {new_xp}/{next_lvl_req} PE — Pronto per il Livello {p_lvl + 1}!")
+
+                        xp_msg = (
+                            f"🏆 [ESPERIENZA] Fine Scontro: {len(defeated_monsters)} mostri sconfitti "
+                            f"({total_combat_xp} PE totali).\n"
+                            f"Ciascun eroe ({len(living_party)}) ottiene +{share_xp} PE!"
+                        )
+                        if lvl_up_alerts:
+                            xp_msg += "\n" + "\n".join(lvl_up_alerts)
+                        broadcast(self, make_chat_broadcast("Sistema", xp_msg))
+                        self.log_dm_message(f"[XP] {xp_msg}")
+                        for p in living_party:
+                            broadcast(self, make_player_stats_update(p.name, p.hp, p.max_hp, p.initiative, p.conditions, getattr(p, "temp_hp", 0)))
+                except Exception:
+                    pass
         self._trigger_gui_update()
         
     def _get_combatants(self):
@@ -539,6 +608,7 @@ class GameState:
                 active = combatants[self.turn_index]
                 active.movement_spent_this_turn = 0
                 active.has_acted_this_turn = False
+                active.attacks_made_this_turn = 0
                 active.has_reacted_this_turn = False
                 active.sneak_attack_used_this_turn = False
                 for c_p in combatants:
@@ -556,6 +626,79 @@ class GameState:
                                 expired_start_fx.append(fx.get("id") or fx.get("name"))
                     for fx_id in expired_start_fx:
                         active.remove_effect(fx_id)
+
+                # Gestione Inizio Turno: Ricarica Abilità Mostro (Recharge 5-6) & Rigenerazione / Danni Continui (D&D 5e RAW)
+                try:
+                    import random
+                    from common.network_utils import broadcast
+                    from common.protocol import make_chat_broadcast, make_player_stats_update
+                    
+                    fs = getattr(active, "full_sheet", None) or {}
+                    
+                    # 1. Ricarica Abilità Mostri (Recharge 5-6 / 6)
+                    actions = fs.get("actions", []) if isinstance(fs, dict) else []
+                    special_abs = fs.get("special_abilities", []) if isinstance(fs, dict) else []
+                    recharge_candidates = getattr(active, "recharge_abilities", []) or []
+                    all_abilities = list(recharge_candidates)
+                    if isinstance(actions, list):
+                        all_abilities.extend(actions)
+                    if isinstance(special_abs, list):
+                        all_abilities.extend(special_abs)
+                        
+                    for ab in all_abilities:
+                        if isinstance(ab, dict) and ab.get("expended", False):
+                            ab_desc = f"{ab.get('name', '')} {ab.get('desc', '')}".lower()
+                            thresh = 6
+                            if "5-6" in ab_desc or "5–6" in ab_desc or "recharge 5" in ab_desc:
+                                thresh = 5
+                            elif "6" in ab_desc or "recharge 6" in ab_desc:
+                                thresh = 6
+                            d6_roll = random.randint(1, 6)
+                            if d6_roll >= thresh:
+                                ab["expended"] = False
+                                ab_name = ab.get("name", "Abilità")
+                                msg = f"🎲 [RICARICA] {active.name} tira un {d6_roll} sul d6! L'abilità '{ab_name}' è di nuovo RICARICATA e pronta all'uso!"
+                                broadcast(self, make_chat_broadcast("Sistema", msg))
+                                self.log_dm_message(f"[RECHARGE] {msg}")
+
+                    # 2. Rigenerazione (MM p. 11: Troll 10 PV, Vampiro 20 PV)
+                    traits_str = ""
+                    if isinstance(fs, dict):
+                        traits_raw = fs.get("traits", []) + fs.get("special_abilities", [])
+                        traits_str = " ".join(
+                            f"{t.get('name', '')} {t.get('desc', '')}" if isinstance(t, dict) else str(t)
+                            for t in traits_raw
+                        ).lower()
+                    
+                    if "rigenerazione" in traits_str or "regeneration" in traits_str:
+                        if active.hp > 0 and active.hp < active.max_hp:
+                            conds = [str(c).lower() for c in getattr(active, "conditions", [])]
+                            # Se ha subito fuoco o acido (Troll), la rigenerazione è inibita fino al prossimo turno
+                            fire_acid_inhibited = any(k in conds for k in ("danno da fuoco subito", "danno da acido subito", "bruciatura", "acido"))
+                            if not fire_acid_inhibited:
+                                regen_val = 10
+                                if "20" in traits_str or "vampiro" in str(active.name).lower() or "vampire" in str(active.name).lower():
+                                    regen_val = 20
+                                active.hp = min(active.max_hp, active.hp + regen_val)
+                                msg = f"💚 [RIGENERAZIONE] {active.name} rigenera {regen_val} PV all'inizio del proprio turno ({active.hp}/{active.max_hp} PV)!"
+                                broadcast(self, make_chat_broadcast("Sistema", msg))
+                                broadcast(self, make_player_stats_update(active.name, active.hp, active.max_hp, active.initiative, active.conditions, getattr(active, "temp_hp", 0)))
+                            else:
+                                msg = f"⚠️ [RIGENERAZIONE] La rigenerazione di {active.name} è inibita dai danni da fuoco o acido subiti!"
+                                broadcast(self, make_chat_broadcast("Sistema", msg))
+
+                    # 3. Danno Continuo (es. In Fiamme, Veleno Attivo)
+                    for eff in getattr(active, "active_effects", []):
+                        if isinstance(eff, dict) and eff.get("periodic_damage"):
+                            p_dmg = int(eff.get("periodic_damage", 0))
+                            p_type = eff.get("damage_type", "Fuoco")
+                            if p_dmg > 0 and active.hp > 0:
+                                active.hp = max(0, active.hp - p_dmg)
+                                msg = f"🔥 [DANNO CONTINUO] {active.name} subisce {p_dmg} danni da {p_type} ({eff.get('name', 'Effetto')}) all'inizio del turno! (PV: {active.hp}/{active.max_hp})"
+                                broadcast(self, make_chat_broadcast("Sistema", msg))
+                                broadcast(self, make_player_stats_update(active.name, active.hp, active.max_hp, active.initiative, active.conditions, getattr(active, "temp_hp", 0)))
+                except Exception:
+                    pass
 
             if round_advanced:
                 for p in self.players:

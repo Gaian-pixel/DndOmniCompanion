@@ -149,6 +149,35 @@ class VitalsPanel:
         btn_roll_all = ttk.Button(btn_row, text=_t("sheet_short_rest_spend_all"), command=roll_all)
         btn_roll_all.pack(side=tk.LEFT, padx=(0, 6))
 
+        char_cls = str(getattr(sheet.character, "char_class", "")).lower()
+        if any(k in char_cls for k in ("mago", "wizard")) and not getattr(sheet.character, "arcane_recovery_used", False):
+            def do_arcane_rec():
+                import math
+                lvl = int(getattr(sheet.character, "level", 1) or 1)
+                max_rec = math.ceil(lvl / 2)
+                rec_dict = {}
+                remaining = max_rec
+                for s_i in range(1, 6):
+                    s_str = str(s_i)
+                    slot = sheet.character.spell_slots.get(s_str, {})
+                    cur = slot.get("current", 0) if isinstance(slot, dict) else (slot[0] if isinstance(slot, list) and len(slot) >= 2 else 0)
+                    mx = slot.get("max", 0) if isinstance(slot, dict) else (slot[1] if isinstance(slot, list) and len(slot) >= 2 else 0)
+                    missing = max(0, mx - cur)
+                    while missing > 0 and remaining >= s_i:
+                        rec_dict[s_i] = rec_dict.get(s_i, 0) + 1
+                        missing -= 1
+                        remaining -= s_i
+                if rec_dict:
+                    ok, msg = sheet.character.arcane_recovery(rec_dict)
+                    if ok:
+                        log_msg(f"✨ {msg}")
+                        btn_arcane.config(state=tk.DISABLED)
+                else:
+                    messagebox.showinfo("Recupero Arcano", f"Nessuno slot incantesimo (1°-5°) da recuperare (Max recuperabile: {max_rec} livelli).", parent=win)
+
+            btn_arcane = ttk.Button(btn_row, text="✨ Recupero Arcano", command=do_arcane_rec, style="Gold.TButton")
+            btn_arcane.pack(side=tk.LEFT, padx=(0, 6))
+
         btn_finish = ttk.Button(btn_row, text=_t("sheet_short_rest_finish"), command=finish_rest)
         btn_finish.pack(side=tk.RIGHT)
         win.protocol("WM_DELETE_WINDOW", finish_rest)

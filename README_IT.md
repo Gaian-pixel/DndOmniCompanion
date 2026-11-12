@@ -6,7 +6,7 @@
 [![Ruleset: D&D 5e](https://img.shields.io/badge/ruleset-D%26D%205e-red.svg)](https://dnd.wizards.com/)
 [![UI: ttkbootstrap](https://img.shields.io/badge/ui-ttkbootstrap-orange.svg)](https://ttkbootstrap.readthedocs.io/)
 [![Multiplayer: TCP/UDP](https://img.shields.io/badge/networking-TCP%20%2B%20UDP-green.svg)]()
-[![Tests: Passing](https://img.shields.io/badge/tests-479%2F479%20superati-brightgreen.svg)]()
+[![Tests: Passing](https://img.shields.io/badge/tests-492%2F492%20superati-brightgreen.svg)]()
 [![Localization: IT / EN](https://img.shields.io/badge/i18n-Italiano%20%7C%20English-blueviolet.svg)]()
 [![Units: Imperial / Metric](https://img.shields.io/badge/units-ft%2Fmi%20%7C%20m%2Fkm-informational.svg)]()
 [![Version](https://img.shields.io/badge/release-v0.3.0--alpha-gold.svg)](https://github.com/Gaian-pixel/DndOmniCompanion/releases)
@@ -135,6 +135,23 @@
   * **Fortuna dell'Halfling (*Fortunato*)**: Ritira automaticamente gli `1` naturali sui dadi `d20` di attacchi, prove e tiri salvezza (`reroll_ones_d20=True`).
   * **Combattere con Armi Possenti (*Great Weapon Fighting*)**: Ritira automaticamente gli `1` e i `2` sui dadi di danno delle armi da mischia a due mani o versatili (`gwf_reroll=True`).
   * **Portento del Mago Divinatore & Talento Fortunato (*Lucky*)**: Generazione automatica al Riposo Lungo di `2d20` (`3d20` al livello 14) dadi Portento e `3` Punti Fortuna, spendibili con 1 click dall'intestazione della Scheda PG.
+* **Punizione Divina del Paladino (*Divine Smite* - PHB p. 85)**:
+  * Menu a tendina dedicato nell'interfaccia armi per selezionare lo slot incantesimo (1°–5° livello) prima di sferrare l'attacco.
+  * All'impatto con arma da mischia, consuma lo slot selezionato aggiungendo `+2d8` danni radiosi per uno slot di 1° livello, più `+1d8` per ogni livello di slot superiore (massimo `5d8`).
+  * Bonus addizionale di `+1d8` danni radiosi contro **Non Morti** (*Undead*) e **Immondi** (*Fiend*) (massimo `6d8`).
+  * In caso di Colpo Critico, tutti i dadi di Punizione Divina vengono raddoppiati (`4d8`–`12d8`).
+* **Colpo Stordente del Monaco (PHB p. 79) & Dadi di Superiorità del Battle Master (PHB p. 73)**:
+  * **Colpo Stordente**: Checkbox rapido nella barra armi per spendere 1 Punto Ki su un colpo a segno con arma da mischia; il bersaglio deve superare un TS su Costituzione contro la CD Ki del Monaco ($8 + \text{PB} + \text{Mod SAG}$) o subire la condizione *Stordito* fino alla fine del turno successivo del monaco.
+  * **Dadi di Superiorità & Manovre**: Tracciamento nativo del pool di dadi (`d8`, `d10`, `d12`), pulsante rapido di spesa con notifica in chat e recupero completo sia al Riposo Breve sia al Riposo Lungo.
+* **Critico Migliorato (Campione 19-20 / 18-20) & Dadi Critico Brutale (PHB p. 49, 72, 73)**:
+  * **Critico Migliorato del Guerriero Campione**: Riconoscimento automatico del colpo critico su un risultato di 19–20 al 3° livello e 18–20 al 15° livello.
+  * **Critico Brutale del Barbaro & Attacchi Selvaggi del Mezzorco**: Aggiunta automatica di 1, 2 o 3 dadi di danno dell'arma addizionali quando si mette a segno un colpo critico con un'arma da mischia.
+* **Tracciamento Attacco Extra nell'Economia del Turno (PHB p. 72, 79, 85, 91)**:
+  * Riconoscimento automatico del numero di attacchi concessi per Azione in base alla classe e al livello (fino a 4 attacchi per il Guerriero di 20° livello).
+  * L'azione di attacco scala il contatore di attacchi residui per il turno attivo prima di consumare l'Azione complessiva.
+* **Ricarica Abilità Mostri (Monster Recharge X-6, MM p. 11), Danni Continui & Rigenerazione**:
+  * **Ricarica Automatica a Inizio Turno**: Tiro automatico di `1d6` all'inizio del turno del mostro per ricaricare soffi e abilità speciali con soglia (es. *Recharge 5-6* o *Recharge 6*), con annuncio pubblico nella chat di combattimento.
+  * **Danni Continui & Rigenerazione Mostri**: Applicazione automatica a inizio turno dei tick di danno periodico e gestione della rigenerazione (Troll 10 PF, Vampiro 20 PF) con sospensione intelligente se la creatura ha subito danni da fuoco o acido.
 
 ### 🧙‍♂️ Creazione Personaggio, Scheda PG & Progressione
 * **Wizard Stile Baldur's Gate con Compendi Comparativi Master-Detail**:
@@ -167,7 +184,15 @@
   * Pulsante per **spendere 1 singolo Dado Vita** alla volta ($1\text{dY} + \text{Mod COS}$, min 1 recuperato), aggiornando istantaneamente la scheda e la chat.
   * Pulsante per spendere tutti i dadi vita disponibili o concludere il riposo.
   * Al Riposo Lungo vengono ripristinati tutti i PV e recuperati fino a metà dei Dadi Vita massimi ($\max(1, \lfloor\text{Totale}/2\rfloor)$).
-* **Sistema Risorse di Classe Speciali**: Popolazione e tracciamento automatico di Punti Ki, Ira, Ispirazione Bardica, Forma Selvatica, Canale di Divinità, Azione Impetuosa, Secondo Fiato, Punti Stregoneria, ecc., con ricarica intelligente al Riposo Breve/Lungo.
+* **Sistema Risorse di Classe Speciali (RAW 5e)**:
+  * Tracciamento dinamico e ricarica automatica al Riposo Breve/Lungo di Punti Ki, Cariche di Ira barbarica, Ispirazione Bardica, Usi di Forma Selvatica, Canale di Divinità, Azione Impetuosa e Secondo Fiato.
+  * **Forma Selvatica del Druido (*Wild Shape* - PHB p. 66)**: Dialogo dedicato con selezione forma bestiale (Lupo, Orso, Cinghiale, Falco o bestie custom). Assegna un pool di Punti Ferita temporanei separato (`beast_hp`), CA, velocità e statistiche fisiche della bestia. I danni vengono assorbiti prioritariamente dalla forma animale; al raggiungimento di 0 PV, la forma decade e i danni eccedenti si trasferiscono automaticamente ai PV reali del Druido, prevenendo lo svenimento a meno che i danni residui non azzerino anche la salute base del druido.
+  * **Fonte di Magia & Metamagia dello Stregone (PHB p. 101)**: Finestra di dialogo interattiva `✨ Fonte di Magia` per la conversione bidirezionale tra slot incantesimo e Punti Stregoneria (SP) secondo i costi RAW (1°=2, 2°=3, 3°=5, 4°=6, 5°=7 SP), oltre alla spesa punti per le opzioni di Metamagia con ripristino al Riposo Lungo.
+  * **Recupero Arcano (*Arcane Recovery* - PHB p. 115)**: Pulsante dedicato nel dialogo di Riposo Breve per Maghi e Druidi del Circolo della Terra, consentendo di recuperare slot incantesimo spesi fino a un livello combinato pari a $\lceil \text{Livello}/2 \rceil$ (massimo slot di 5° livello) una volta al giorno, resettandosi al Riposo Lungo.
+  * **Tuttofare del Bardo (*Jack of All Trades* - PHB p. 54)**: Aggiunta automatica di metà del Bonus di Competenza arrotondato per difetto ($+\lfloor\text{PB}/2\rfloor$) a tutte le prove di abilità e caratteristica prive di competenza e al tiro di Iniziativa per Bardi di 2° livello o superiore.
+  * **Talento Affidabile del Ladro (*Reliable Talent* - PHB p. 96)**: Per Ladri di livello 11+, qualsiasi tiro di d20 pari a 9 o inferiore su prove di abilità in cui il personaggio è competente viene automaticamente convertito in un 10 prima dell'applicazione dei modificatori.
+  * **Scaling Danni dei Trucchetti per Livello (PHB p. 201)**: Moltiplicazione automatica dei dadi di danno dei cantrip d'attacco in base al livello complessivo del personaggio (1 dado ai liv 1–4, 2 dadi ai liv 5–10, 3 dadi ai liv 11–16, 4 dadi ai liv 17+).
+  * **Validazione Limite Incantesimi Preparati (PHB p. 201)**: Calcolo ed esposizione nel Grimorio del tetto massimo di magie preparabili ($\text{Livello} + \text{Modificatore Caratteristica}$) per Chierico, Druido, Mago, Paladino e Artefice, differenziati dalle classi a incantesimi conosciuti.
 * **Hero Summary Card & Scheda Interattiva**:
   * Card riassuntiva sempre visibile nella sidebar con barra PV reattiva, CA, Velocità effettiva (in `ft` o `m`), Iniziativa, toggle luce `[ 🕯️ ]`, gestione compagni `[ 🐾 ]` e pulsante rapido `[ 🎒 ]` per sfilare lo zaino a terra.
   * Scheda completa divisa in tab: **Combattimento**, **Statistiche & Abilità** (con Competenza e Maestria $2\times\text{PB}$), **Armi & Attacchi**, **Inventario & Ingombro** ($\text{FOR} \times 15\text{ lbs}$), **Grimorio & Slot Incantesimo (1–9)** con dialog di **Upcasting**, **Privilegi & Diario**.
@@ -209,7 +234,7 @@ Il DM può impostare in tempo reale il grado di automazione dell'applicativo da 
 * **⚖️ Ibrido Assistito (Consigliato per Sessioni Fluide)**: Il sistema gestisce matematicamente la contabilità 5e (resistenze, coperture, visibilità, condizioni, CD), ma fornisce al DM comode schede fluttuanti a 1-click (`[Pieno]`, `[Dimezza]`, `[Modifica]`, `[Annulla]`) per convalidare i danni a colpo sicuro.
 * **⚡ Full Automation (Tattico Rapido / CRPG)**: Danni sottratti istantaneamente agli HP, porte aperte immediatamente su successo della CD, turni rigorosamente bloccati per chi non è attivo e prompt reazioni/TS automatici.
 * **Estensione Granulare a Ogni Singola Meccanica**:
-  * **⚔️ Combattimento & Danni**: Danni singoli da attacchi, Danni da magie/TS AoE, Calcolo automatico Vantaggio/Svantaggio (2d20), Prompt automatici per reazioni (AdO, Scudo), Verifica e rottura Concentrazione (TS Cos), Risoluzione 0 HP / Morte Istantanea e KO.
+  * **⚔️ Combattimento & Danni**: Danni singoli da attacchi, Danni da magie/TS AoE, Calcolo automatico Vantaggio/Svantaggio (2d20), Prompt automatici per reazioni (AdO, Scudo), Verifica e rottura Concentrazione (TS Cos), Risoluzione 0 HP / Morte Istantanea e KO, **Distribuzione Automatica Punti Esperienza (XP)** a fine scontro con calcolo dai Gradi di Sfida (CR) e notifiche di avanzamento livello (PHB p. 15 / DMG p. 82).
   * **🗺️ Mappa & Movimento**: Blocco rigido turni in combattimento, Blocco velocità massima e costo terreni difficili, Risoluzione porte/scasso CD, Svelamento dinamico Nebbia di Guerra (FoW).
   * **⛺ Riposo & Risorse**: Recupero automatico istantaneo risorse al riposo lungo (HP, Slot, Dadi Vita) vs convalida e verifica incontri casuali DM.
 
@@ -360,7 +385,8 @@ DndOmniCompanion/
 │   ├── USER_GUIDE.md               # Complete User Guide (English)
 │   ├── GUIDA_OPERATIVA.md          # Manuale operativo e architettura (Italiano)
 │   └── OPERATIONAL_GUIDE.md        # System & Operational Manual (English)
-├── tests/                          # Suite di test automatizzati (479 test passati)
+├── tests/                          # Suite di test automatizzati (492 test passati)
+│   ├── test_raw_5e_advanced_features.py # Test Smite, Wild Shape, Fonte di Magia, Recupero Arcano, Reliable Talent, Auto XP
 │   ├── simulate_4player_campaign.py# Simulazione live campagna 4 giocatori + DM (11 fasi)
 │   ├── simulate_game_session.py    # Simulazione multiplayer end-to-end (53 fasi)
 │   ├── test_missing_5e_features.py # Test Multiclasse, Aure, Preparare, Attacco Poderoso, Reazioni, Portento
@@ -378,11 +404,14 @@ DndOmniCompanion/
 
 ## 🧪 Test e Verifica Automatica
 
-Tutti i **479 test automatizzati** passano al 100% con 0 errori:
+Tutti i **492 test automatizzati** passano al 100% con 0 errori:
 
 ```powershell
-# 1. Unit Test completi (479 test: meccaniche 5e, modificatori oggetti magici, dadi 3D, flusso connessione, righello, critici, mono-finestra, economia turno, inventario)
+# 1. Unit Test completi (492 test: meccaniche 5e, modificatori oggetti magici, dadi 3D, flusso connessione, righello, critici, mono-finestra, economia turno, inventario)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
+
+# 2. Test specifico meccaniche avanzate RAW 5e (Punizione Divina, Forma Selvatica, Fonte di Magia, Recupero Arcano, Talento Affidabile, Tuttofare, Critici Brutali, Colpo Stordente, Dadi Superiorità, Scaling Trucchetti, Ricarica Mostri, Auto XP)
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_raw_5e_advanced_features.py
 
 # 2. Test specifico meccaniche avanzate RAW 5e (Multiclasse, Aura Paladino, Spiriti Guardiani, Azione Preparare, Attacco Poderoso, Reazioni, Portento, Fortunato, Cariche)
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_missing_5e_features.py

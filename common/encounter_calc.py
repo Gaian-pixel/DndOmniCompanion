@@ -159,3 +159,45 @@ def calculate_encounter_difficulty(party_levels: list[int], monster_xps: list) -
         "party_size": len(party_levels),
         "monster_count": num_monsters
     }
+
+
+# Tabella Avanzamento di Livello per Punti Esperienza (D&D 5e PHB p. 15)
+XP_LEVEL_THRESHOLDS = {
+    1: 0,
+    2: 300,
+    3: 900,
+    4: 2700,
+    5: 6500,
+    6: 14000,
+    7: 23000,
+    8: 34000,
+    9: 48000,
+    10: 64000,
+    11: 85000,
+    12: 100000,
+    13: 120000,
+    14: 140000,
+    15: 165000,
+    16: 195000,
+    17: 225000,
+    18: 265000,
+    19: 305000,
+    20: 355000
+}
+
+def get_xp_for_level(level: int) -> int:
+    """Restituisce la soglia di punti esperienza necessaria per raggiungere il livello indicato."""
+    lvl = max(1, min(20, int(level)))
+    return XP_LEVEL_THRESHOLDS.get(lvl, 0)
+
+def get_level_for_xp(xp: int) -> int:
+    """Restituisce il livello corrispondente ai punti esperienza accumulati (D&D 5e RAW)."""
+    current_xp = max(0, int(xp or 0))
+    achieved = 1
+    for lvl in sorted(XP_LEVEL_THRESHOLDS.keys()):
+        if current_xp >= XP_LEVEL_THRESHOLDS[lvl]:
+            achieved = lvl
+        else:
+            break
+    return achieved
+

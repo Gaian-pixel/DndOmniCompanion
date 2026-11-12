@@ -325,6 +325,78 @@ def normalize_character_dict(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     except (ValueError, TypeError):
         clean["lucky_points"] = 0
     clean["relentless_endurance_used"] = bool(clean.get("relentless_endurance_used", False))
+    clean["arcane_recovery_used"] = bool(clean.get("arcane_recovery_used", False))
+
+    # 14. Risorse e Privilegi di Classe Specifici 5e RAW
+    # Forma Selvatica (Wild Shape - Druido PHB p. 66)
+    ws = clean.get("wild_shape")
+    if not isinstance(ws, dict):
+        ws = {
+            "active": False,
+            "beast_name": "",
+            "beast_hp": 0,
+            "beast_max_hp": 0,
+            "original_attributes": {},
+            "original_ac": clean.get("ac", 10),
+            "original_speed": clean.get("speed", 30)
+        }
+    else:
+        ws.setdefault("active", False)
+        ws.setdefault("beast_name", "")
+        ws.setdefault("beast_hp", 0)
+        ws.setdefault("beast_max_hp", 0)
+        ws.setdefault("original_attributes", {})
+        ws.setdefault("original_ac", clean.get("ac", 10))
+        ws.setdefault("original_speed", clean.get("speed", 30))
+    clean["wild_shape"] = ws
+
+    # Punti Stregoneria (Fonte di Magia - Stregone PHB p. 101)
+    cls_str_low = str(clean.get("char_class", "")).lower()
+    sub_str_low = str(clean.get("subclass", "")).lower()
+    classes_map = clean.get("classes", {})
+    sorc_lvl = 0
+    for c_k, c_v in classes_map.items():
+        if any(k in str(c_k).lower() for k in ("stregone", "sorcerer")):
+            sorc_lvl = max(sorc_lvl, int(c_v))
+    if sorc_lvl == 0 and any(k in cls_str_low for k in ("stregone", "sorcerer")):
+        sorc_lvl = clean["level"]
+
+    if sorc_lvl >= 2:
+        sp_max = max(sorc_lvl, int(clean.get("sorcery_points_max") or sorc_lvl))
+        raw_sp_cur = clean.get("sorcery_points_current")
+        raw_sp_max = clean.get("sorcery_points_max")
+        if raw_sp_cur is None or (raw_sp_cur == 0 and (raw_sp_max is None or raw_sp_max == 0)):
+            sp_cur = sp_max
+        else:
+            sp_cur = int(raw_sp_cur)
+        clean["sorcery_points_max"] = sp_max
+        clean["sorcery_points_current"] = max(0, min(sp_max, sp_cur))
+    else:
+        clean["sorcery_points_max"] = int(clean.get("sorcery_points_max") or 0)
+        clean["sorcery_points_current"] = int(clean.get("sorcery_points_current") or 0)
+
+    # Dadi di Superiorità (Maestro della Battaglia - Guerriero PHB p. 73)
+    is_battlemaster = any(k in sub_str_low for k in ("maestro della battaglia", "battle master", "battlemaster"))
+    if is_battlemaster:
+        f_lvl = clean["level"]
+        for c_k, c_v in classes_map.items():
+            if any(k in str(c_k).lower() for k in ("guerriero", "fighter")):
+                f_lvl = int(c_v)
+        sup_max = 4 if f_lvl < 7 else (5 if f_lvl < 15 else 6)
+        sup_die = "d8" if f_lvl < 10 else ("d10" if f_lvl < 18 else "d12")
+        raw_sup_cur = clean.get("superiority_dice_current")
+        raw_sup_max = clean.get("superiority_dice_max")
+        if raw_sup_cur is None or (raw_sup_cur == 0 and (raw_sup_max is None or raw_sup_max == 0)):
+            sup_cur = sup_max
+        else:
+            sup_cur = int(raw_sup_cur)
+        clean["superiority_dice_max"] = sup_max
+        clean["superiority_dice_current"] = max(0, min(sup_max, sup_cur))
+        clean["superiority_die_type"] = sup_die
+    else:
+        clean["superiority_dice_max"] = int(clean.get("superiority_dice_max") or 0)
+        clean["superiority_dice_current"] = int(clean.get("superiority_dice_current") or 0)
+        clean["superiority_die_type"] = clean.get("superiority_die_type", "d8")
 
     return clean
 

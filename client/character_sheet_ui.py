@@ -1015,6 +1015,14 @@ class CharacterSheetFrame(ttk.Frame):
         self.lbl_resources_hdr.pack(side=tk.LEFT)
         self.btn_add_resource = ttk.Button(hdr_row, text=_t("sheet_features_new_resource"), command=self.add_custom_resource_dialog, style="Success.TButton")
         self.btn_add_resource.pack(side=tk.RIGHT)
+
+        char_cls = str(getattr(self.character, "char_class", "")).lower()
+        if any(k in char_cls for k in ("druido", "druid")) or self.character.is_in_wild_shape():
+            btn_wild = ttk.Button(hdr_row, text="🌿 Forma Selvatica", command=self.open_wild_shape_dialog, style="Gold.TButton")
+            btn_wild.pack(side=tk.RIGHT, padx=3)
+        if any(k in char_cls for k in ("guerriero", "fighter")) or getattr(self.character, "superiority_dice_max", 0) > 0:
+            btn_sup = ttk.Button(hdr_row, text="🎲 Spendi Dado Superiorità", command=self.spend_superiority_die_action, style="Info.TButton")
+            btn_sup.pack(side=tk.RIGHT, padx=3)
         
         self.resources_container = tk.Frame(res_card, bg=SURFACE_COLOR_ALT)
         self.resources_container.pack(fill=tk.X, pady=2)
@@ -1379,6 +1387,230 @@ class CharacterSheetFrame(ttk.Frame):
         })
         self.manager.save_characters()
         self.refresh_custom_resources_ui()
+
+    def spend_superiority_die_action(self):
+        """Spende 1 dado di superiorità e notifica in chat/log (Maestro della Battaglia PHB p. 73)."""
+        ok, roll_val, msg = self.character.spend_superiority_die()
+        if not ok:
+            messagebox.showinfo("Dadi di Superiorità", msg, parent=self)
+            return
+        if self.roll_callback:
+            self.roll_callback("0d0", f"🎲 {self.character.name}: {msg}")
+        self._safe_save_characters()
+        self.refresh_custom_resources_ui()
+        messagebox.showinfo("Dado di Superiorità Speso", msg, parent=self)
+
+    def open_wild_shape_dialog(self):
+        """Apre il dialogo di gestione Forma Selvatica per Druidi (D&D 5e RAW PHB p. 66)."""
+        win = tk.Toplevel(self)
+        win.transient(self)
+        win.grab_set()
+        apply_modern_window_style(win)
+        win.title("🌿 Forma Selvatica (Druido 5e RAW)")
+        win.minsize(440, 420)
+
+        container = tk.Frame(win, bg=BG_COLOR, padx=16, pady=12)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(container, text="🌿 Forma Selvatica", font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w")
+        tk.Label(
+            container,
+            text="Assumi la forma di una bestia. I tuoi PV diventano quelli della bestia;\nquando scendono a 0, il danno residuo passa ai tuoi PV normali.",
+            font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED, justify=tk.LEFT
+        ).pack(anchor="w", pady=(0, 10))
+
+        if self.character.is_in_wild_shape():
+            ws = self.character.wild_shape
+            b_name = ws.get("beast_name", "Bestia")
+            b_hp = ws.get("beast_hp", 0)
+            b_max = ws.get("beast_max_hp", 0)
+            status_box = tk.Frame(container, bg=SURFACE_COLOR, padx=12, pady=10, highlightbackground=BORDER_COLOR, highlightthickness=1)
+            status_box.pack(fill=tk.X, pady=(0, 12))
+            tk.Label(status_box, text=f"🟢 Attualmente Trasformato: {b_name}", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GREEN).pack(anchor="w")
+            tk.Label(status_box, text=f"Punti Ferita Bestia: {b_hp} / {b_max}  |  CA Bestia: {self.character.ac}", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(anchor="w", pady=(4, 8))
+
+            def do_revert():
+                ok, msg = self.character.revert_wild_shape()
+                self._safe_save_characters()
+                self.load_data()
+                if self.roll_callback:
+                    self.roll_callback("0d0", f"🌿 {self.character.name} ritorna alla sua forma umanoide naturale. PV: {self.character.hp_current}/{self.character.hp_max}.")
+                messagebox.showinfo("Forma Naturale", msg, parent=win)
+                win.destroy()
+
+            ttk.Button(container, text="↩️ Ritorna alla Forma Umanoide", command=do_revert, style="Gold.TButton").pack(fill=tk.X, pady=8)
+            ttk.Button(container, text="Chiudi", command=win.destroy).pack(fill=tk.X)
+            return
+
+        presets = {
+            "Lupo (Wolf) [GS 1/4 - PV 11, CA 13, Vel 40 ft]": {"name": "Lupo", "hp": 11, "ac": 13, "speed": 40, "attrs": {"FOR": 12, "DES": 15, "COS": 12}},
+            "Orso Bruno (Brown Bear) [GS 1 - PV 34, CA 11, Vel 40 ft]": {"name": "Orso Bruno", "hp": 34, "ac": 11, "speed": 40, "attrs": {"FOR": 19, "DES": 10, "COS": 16}},
+            "Ragno Gigante (Giant Spider) [GS 1 - PV 26, CA 14, Vel 30 ft]": {"name": "Ragno Gigante", "hp": 26, "ac": 14, "speed": 30, "attrs": {"FOR": 14, "DES": 16, "COS": 12}},
+            "Gatto (Cat) [GS 0 - PV 2, CA 12, Vel 40 ft]": {"name": "Gatto", "hp": 2, "ac": 12, "speed": 40, "attrs": {"FOR": 3, "DES": 15, "COS": 10}},
+            "Aquila (Eagle) [GS 0 - PV 3, CA 12, Vel 10 ft]": {"name": "Aquila", "hp": 3, "ac": 12, "speed": 10, "attrs": {"FOR": 6, "DES": 15, "COS": 10}},
+            "Cinghiale (Boar) [GS 1/4 - PV 11, CA 11, Vel 40 ft]": {"name": "Cinghiale", "hp": 11, "ac": 11, "speed": 40, "attrs": {"FOR": 13, "DES": 11, "COS": 12}},
+            "Custom (Personalizzato)": {"name": "", "hp": 15, "ac": 12, "speed": 30, "attrs": {}}
+        }
+
+        form_box = tk.Frame(container, bg=SURFACE_COLOR, padx=12, pady=10, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        form_box.pack(fill=tk.X, pady=(0, 10))
+
+        tk.Label(form_box, text="Scegli Archetipo Bestia o Personalizza:", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(anchor="w", pady=(0, 4))
+        preset_var = tk.StringVar(value=list(presets.keys())[0])
+        name_var = tk.StringVar(value="Lupo")
+        hp_var = tk.IntVar(value=11)
+        ac_var = tk.IntVar(value=13)
+        spd_var = tk.IntVar(value=40)
+
+        def on_preset_change(e=None):
+            p = presets.get(preset_var.get())
+            if p:
+                if p["name"]:
+                    name_var.set(p["name"])
+                hp_var.set(p["hp"])
+                ac_var.set(p["ac"])
+                spd_var.set(p["speed"])
+
+        cb_preset = ttk.Combobox(form_box, textvariable=preset_var, values=list(presets.keys()), state="readonly")
+        cb_preset.pack(fill=tk.X, pady=(0, 6))
+        cb_preset.bind("<<ComboboxSelected>>", on_preset_change)
+
+        f_grid = tk.Frame(form_box, bg=SURFACE_COLOR)
+        f_grid.pack(fill=tk.X, pady=4)
+        tk.Label(f_grid, text="Nome:", bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=0, column=0, sticky="w", padx=4, pady=2)
+        ttk.Entry(f_grid, textvariable=name_var, width=16).grid(row=0, column=1, padx=4, pady=2)
+        tk.Label(f_grid, text="PV:", bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=0, column=2, sticky="w", padx=4, pady=2)
+        ttk.Entry(f_grid, textvariable=hp_var, width=6).grid(row=0, column=3, padx=4, pady=2)
+
+        tk.Label(f_grid, text="CA:", bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=1, column=0, sticky="w", padx=4, pady=2)
+        ttk.Entry(f_grid, textvariable=ac_var, width=6).grid(row=1, column=1, sticky="w", padx=4, pady=2)
+        tk.Label(f_grid, text="Velocità:", bg=SURFACE_COLOR, fg=TEXT_MUTED).grid(row=1, column=2, sticky="w", padx=4, pady=2)
+        ttk.Entry(f_grid, textvariable=spd_var, width=6).grid(row=1, column=3, padx=4, pady=2)
+
+        def do_transform():
+            b_n = str(name_var.get()).strip() or "Bestia"
+            b_h = max(1, hp_var.get())
+            b_a = max(1, ac_var.get())
+            b_s = max(5, spd_var.get())
+            sel_p = presets.get(preset_var.get(), {})
+            attrs = sel_p.get("attrs", {})
+            ok, msg = self.character.enter_wild_shape(b_n, b_h, b_a, b_s, beast_attributes=attrs)
+            if not ok:
+                messagebox.showerror("Errore Trasformazione", msg, parent=win)
+                return
+            self._safe_save_characters()
+            self.load_data()
+            if self.roll_callback:
+                self.roll_callback("0d0", f"🌿 {self.character.name} si trasforma in {b_n}! (PV Bestia: {b_h}, CA: {b_a}, Velocità: {b_s} ft)")
+            messagebox.showinfo("Forma Selvatica Attiva", msg, parent=win)
+            win.destroy()
+
+        ttk.Button(container, text="🌿 Assumi Forma Selvatica", command=do_transform, style="Gold.TButton").pack(fill=tk.X, pady=6)
+        ttk.Button(container, text="Annulla", command=win.destroy).pack(fill=tk.X)
+
+    def open_font_of_magic_dialog(self):
+        """Apre il dialogo Fonte di Magia e Metamagia per Stregoni (D&D 5e RAW PHB p. 101)."""
+        win = tk.Toplevel(self)
+        win.transient(self)
+        win.grab_set()
+        apply_modern_window_style(win)
+        win.title("✨ Fonte di Magia & Metamagia (Stregone 5e)")
+        win.minsize(460, 480)
+
+        container = tk.Frame(win, bg=BG_COLOR, padx=16, pady=12)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(container, text="✨ Fonte di Magia & Metamagia", font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w")
+        tk.Label(
+            container,
+            text="Converti slot incantesimo in Punti Stregoneria (PE) e viceversa, oppure\nspendi PE per applicare opzioni di Metamagia al lancio.",
+            font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED, justify=tk.LEFT
+        ).pack(anchor="w", pady=(0, 10))
+
+        status_box = tk.Frame(container, bg=SURFACE_COLOR, padx=12, pady=8, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        status_box.pack(fill=tk.X, pady=(0, 8))
+        lbl_sp = tk.Label(
+            status_box,
+            text=f"🔮 Punti Stregoneria: {getattr(self.character, 'sorcery_points_current', 0)} / {getattr(self.character, 'sorcery_points_max', 0)}",
+            font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD
+        )
+        lbl_sp.pack(anchor="w")
+
+        def refresh_sp_ui():
+            lbl_sp.config(text=f"🔮 Punti Stregoneria: {self.character.sorcery_points_current} / {self.character.sorcery_points_max}")
+            self.load_data()
+
+        sec1 = tk.LabelFrame(container, text=" 🔄 Converti Slot in Punti Stregoneria ", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_BLUE, padx=10, pady=6)
+        sec1.pack(fill=tk.X, pady=4)
+        tk.Label(sec1, text="Cede 1 slot di livello X per ottenere X Punti Stregoneria (Bonus Action):", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+        r1 = tk.Frame(sec1, bg=SURFACE_COLOR)
+        r1.pack(fill=tk.X, pady=4)
+        slot_to_sp_var = tk.StringVar(value="1")
+        cb_s2p = ttk.Combobox(r1, textvariable=slot_to_sp_var, values=["1", "2", "3", "4", "5"], width=6, state="readonly")
+        cb_s2p.pack(side=tk.LEFT, padx=(0, 8))
+        def do_s2p():
+            s = int(slot_to_sp_var.get())
+            ok, msg = self.character.convert_slot_to_sorcery_points(s)
+            if not ok:
+                messagebox.showwarning("Conversione Non Riuscita", msg, parent=win)
+                return
+            self._safe_save_characters()
+            refresh_sp_ui()
+            if self.roll_callback:
+                self.roll_callback("0d0", f"✨ {self.character.name}: {msg}")
+            messagebox.showinfo("Conversione Eseguita", msg, parent=win)
+        ttk.Button(r1, text="Converti Slot ➔ Punti", command=do_s2p, style="Primary.TButton").pack(side=tk.LEFT)
+
+        sec2 = tk.LabelFrame(container, text=" 🌟 Crea Slot Incantesimo da Punti Stregoneria ", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GREEN, padx=10, pady=6)
+        sec2.pack(fill=tk.X, pady=4)
+        tk.Label(sec2, text="Crea 1 slot incantesimo spendendo PE (1°: 2 PE, 2°: 3 PE, 3°: 5 PE, 4°: 6 PE, 5°: 7 PE):", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+        r2 = tk.Frame(sec2, bg=SURFACE_COLOR)
+        r2.pack(fill=tk.X, pady=4)
+        p2s_choices = ["1 (Costo: 2 PE)", "2 (Costo: 3 PE)", "3 (Costo: 5 PE)", "4 (Costo: 6 PE)", "5 (Costo: 7 PE)"]
+        p2s_var = tk.StringVar(value=p2s_choices[0])
+        cb_p2s = ttk.Combobox(r2, textvariable=p2s_var, values=p2s_choices, width=16, state="readonly")
+        cb_p2s.pack(side=tk.LEFT, padx=(0, 8))
+        def do_p2s():
+            s = int(p2s_var.get().split()[0])
+            ok, msg = self.character.convert_sorcery_points_to_slot(s)
+            if not ok:
+                messagebox.showwarning("Creazione Non Riuscita", msg, parent=win)
+                return
+            self._safe_save_characters()
+            refresh_sp_ui()
+            if self.roll_callback:
+                self.roll_callback("0d0", f"✨ {self.character.name}: {msg}")
+            messagebox.showinfo("Slot Creato", msg, parent=win)
+        ttk.Button(r2, text="Punti ➔ Crea Slot", command=do_p2s, style="Success.TButton").pack(side=tk.LEFT)
+
+        sec3 = tk.LabelFrame(container, text=" ⚡ Attiva Opzione di Metamagia ", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD, padx=10, pady=6)
+        sec3.pack(fill=tk.X, pady=4)
+        meta_options = {
+            "Incantesimo Rapido (Quickened Spell) - 2 PE": ("Incantesimo Rapido", 2),
+            "Incantesimo Raddoppiato (Twinned Spell) - 1 PE": ("Incantesimo Raddoppiato", 1),
+            "Incantesimo Intensificato (Heightened Spell) - 3 PE": ("Incantesimo Intensificato", 3),
+            "Incantesimo Potenziato (Empowered Spell) - 1 PE": ("Incantesimo Potenziato", 1),
+            "Incantesimo Celato (Subtle Spell) - 1 PE": ("Incantesimo Celato", 1),
+            "Incantesimo Distante (Distant Spell) - 1 PE": ("Incantesimo Distante", 1),
+            "Incantesimo Esteso (Extended Spell) - 1 PE": ("Incantesimo Esteso", 1)
+        }
+        meta_var = tk.StringVar(value=list(meta_options.keys())[0])
+        cb_meta = ttk.Combobox(sec3, textvariable=meta_var, values=list(meta_options.keys()), state="readonly")
+        cb_meta.pack(fill=tk.X, pady=(2, 6))
+        def do_meta():
+            meta_name, meta_cost = meta_options.get(meta_var.get(), ("Metamagia", 1))
+            ok, msg = self.character.use_metamagic(meta_name, meta_cost)
+            if not ok:
+                messagebox.showwarning("Punti Insufficienti", msg, parent=win)
+                return
+            self._safe_save_characters()
+            refresh_sp_ui()
+            if self.roll_callback:
+                self.roll_callback("0d0", f"⚡ {self.character.name} attiva {meta_name}! (-{meta_cost} PE, rimasti: {self.character.sorcery_points_current})")
+            messagebox.showinfo("Metamagia Attivata", msg, parent=win)
+        ttk.Button(sec3, text="Spendi PE per Metamagia", command=do_meta, style="Gold.TButton").pack(fill=tk.X)
+
+        ttk.Button(container, text="Chiudi", command=win.destroy).pack(fill=tk.X, pady=(10, 0))
 
     def export_character_dialog(self):
         CharacterSheetUI.open_export_character_dialog(self, self.character)
@@ -2237,6 +2469,11 @@ class CharacterSheetFrame(ttk.Frame):
         self.btn_cast_spell = ttk.Button(btn_frame, text=_t("sheet_spellbook_cast_btn"), command=self.cast_spell)
         self.btn_cast_spell.pack(side=tk.RIGHT, padx=5)
 
+        char_cls = str(getattr(self.character, "char_class", "")).lower()
+        if any(k in char_cls for k in ("stregone", "sorcerer")) or getattr(self.character, "sorcery_points_max", 0) > 0:
+            btn_font = ttk.Button(btn_frame, text="✨ Fonte di Magia", command=self.open_font_of_magic_dialog, style="Gold.TButton")
+            btn_font.pack(side=tk.RIGHT, padx=5)
+
     def sort_spells(self, col):
         SpellsPanel.sort_spells(self, col)
 
@@ -2424,7 +2661,11 @@ class CharacterSheetFrame(ttk.Frame):
             except (ValueError, TypeError): hit_bonus = int(spell_stats.get("attack_bonus", 0))
             
             eff_cast_lvl = base_lvl if ritual_var.get() else upcast_var.get()
-            default_dmg = SpellsPanel.scale_spell_formula_for_upcast(raw_dmg_f, base_lvl, eff_cast_lvl, spell.get("name", "")) if raw_dmg_f else ""
+            if base_lvl == 0 and raw_dmg_f:
+                char_lvl = int(getattr(self.character, "level", 1) or 1)
+                default_dmg = SpellsPanel.scale_cantrip_formula(raw_dmg_f, char_lvl, spell.get("name", ""))
+            else:
+                default_dmg = SpellsPanel.scale_spell_formula_for_upcast(raw_dmg_f, base_lvl, eff_cast_lvl, spell.get("name", "")) if raw_dmg_f else ""
             dmg_str = tk.simpledialog.askstring("Danno", "Inserisci formula danno (es. 1d8+3):", initialvalue=default_dmg, parent=win)
             if not dmg_str: return
             
@@ -4138,6 +4379,8 @@ class CharacterSheetFrame(ttk.Frame):
                 formula += " dis"
             if hasattr(self.character, "has_halfling_luck") and self.character.has_halfling_luck():
                 formula += " halfling"
+            if prof_level > 0 and hasattr(self.character, "has_reliable_talent") and self.character.has_reliable_talent():
+                formula += " reliable"
                 
             self.adv_dis_var.set(_t("adv_normal"))
             self.roll_callback(formula, f"Check {skill_name}")
@@ -4170,6 +4413,8 @@ class CharacterSheetFrame(ttk.Frame):
                 formula += " dis"
             if hasattr(self.character, "has_halfling_luck") and self.character.has_halfling_luck():
                 formula += " halfling"
+            if prof_level > 0 and hasattr(self.character, "has_reliable_talent") and self.character.has_reliable_talent():
+                formula += " reliable"
 
             self.adv_dis_var.set(_t("adv_normal"))
             self.roll_callback(formula, "Iniziativa")
@@ -4315,7 +4560,19 @@ class CharacterSheetFrame(ttk.Frame):
                     self.refresh_inventory_grid()
                     self.recalculate_and_refresh_derived_stats()
                     self.refresh_weapons_list()
-            self.attack_callback(w_name, total_txc, dmg_str, d_type)
+            extra_attack_args = {}
+            if hasattr(self, "_divine_smite_var"):
+                try:
+                    smite_raw = str(self._divine_smite_var.get()).split()[0]
+                    smite_val = int(smite_raw)
+                    if smite_val > 0:
+                        extra_attack_args["smite_slot"] = smite_val
+                except Exception:
+                    pass
+            if hasattr(self, "_stunning_strike_var") and bool(self._stunning_strike_var.get()):
+                extra_attack_args["use_stunning_strike"] = True
+
+            self.attack_callback(w_name, total_txc, dmg_str, d_type, **extra_attack_args)
         else:
             self.execute_weapon_attack(weapon, total_txc)
 

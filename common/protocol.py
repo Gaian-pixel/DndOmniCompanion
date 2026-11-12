@@ -267,12 +267,14 @@ def make_request_initiative():
 def make_submit_initiative(initiative_total):
     return {"type": "SUBMIT_INITIATIVE", "data": {"initiative": initiative_total}}
 
-def make_attack_request(target_name, weapon_name, hit_bonus, damage_formula, damage_type="Tagliente", cover="auto"):
-    return {"type": "ATTACK_REQUEST", "data": {
+def make_attack_request(target_name, weapon_name, hit_bonus, damage_formula, damage_type="Tagliente", cover="auto", **kwargs):
+    d = {
         "target_name": target_name, "weapon_name": weapon_name,
         "hit_bonus": hit_bonus, "damage_formula": damage_formula,
         "damage_type": damage_type, "cover": cover
-    }}
+    }
+    d.update(kwargs)
+    return {"type": "ATTACK_REQUEST", "data": d}
 
 
 def make_force_save_request(targets, stat, dc, damage_formula, half_on_success, damage_type="Fuoco"):

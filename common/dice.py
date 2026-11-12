@@ -3,7 +3,7 @@
 import re
 import random
 
-def roll_dice(formula, is_crit=False, reroll_ones_d20=False, gwf_reroll=False):
+def roll_dice(formula, is_crit=False, reroll_ones_d20=False, gwf_reroll=False, reliable_talent=False):
     """
     Parsing semplice e composto formule tipo '3d6+2', '1d20', '1d20+3 adv', '2d6+1d8+3', '1d8+4 Tagliente'
     Se is_crit=True (es. danno critico 5e), raddoppia il numero di dadi tirati
@@ -13,6 +13,7 @@ def roll_dice(formula, is_crit=False, reroll_ones_d20=False, gwf_reroll=False):
     Supporta inoltre:
     - reroll_ones_d20=True (Fortuna dell'Halfling, PHB p. 28: ritira 1 naturale sul d20 una volta)
     - gwf_reroll=True (Combattere con Armi Possenti, PHB p. 72: ritira 1 e 2 sui dadi di danno una volta)
+    - reliable_talent=True (Talento Affidabile, Ladro 11+ PHB p. 96: d20 < 10 diventa 10 nelle prove competenti)
     """
     formula = str(formula).strip().lower()
 
@@ -23,6 +24,10 @@ def roll_dice(formula, is_crit=False, reroll_ones_d20=False, gwf_reroll=False):
     if re.search(r'\b(gwf|great_weapon_fighting)\b', formula):
         gwf_reroll = True
         formula = re.sub(r'\b(gwf|great_weapon_fighting)\b', '', formula).strip()
+
+    if re.search(r'\b(reliable|reliable_talent)\b', formula):
+        reliable_talent = True
+        formula = re.sub(r'\b(reliable|reliable_talent)\b', '', formula).strip()
     
     # Rilevamento vantaggio / svantaggio (italiano e inglese) e loro annullamento reciproco (D&D 5e RAW)
     has_adv = False
@@ -195,6 +200,13 @@ def roll_dice(formula, is_crit=False, reroll_ones_d20=False, gwf_reroll=False):
             total = tot_1 if pick_first else tot_2
             nat_roll = rolls[0] if rolls else 0
 
+        if reliable_talent and is_d20_check and nat_roll < 10:
+            rerolled_notes.append(f"Talento Affidabile ({nat_roll}->10)")
+            total += (10 - nat_roll)
+            nat_roll = 10
+            if rolls:
+                rolls[0] = 10
+
         roll_type = "Vantaggio" if adv else "Svantaggio"
         crit_succ = is_d20_check and (nat_roll == 20)
         crit_fail = is_d20_check and (nat_roll == 1)
@@ -224,6 +236,13 @@ def roll_dice(formula, is_crit=False, reroll_ones_d20=False, gwf_reroll=False):
             total += dg["sign"] * sum(r)
 
         nat_roll = d20_val if d20_val is not None else (all_rolls[0] if all_rolls else modifier)
+        if reliable_talent and is_d20_check and nat_roll < 10:
+            rerolled_notes.append(f"Talento Affidabile ({nat_roll}->10)")
+            total += (10 - nat_roll)
+            nat_roll = 10
+            if all_rolls:
+                all_rolls[0] = 10
+
         crit_succ = is_d20_check and (nat_roll == 20)
         crit_fail = is_d20_check and (nat_roll == 1)
 
