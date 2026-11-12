@@ -9,7 +9,7 @@
 [![Tests: Passing](https://img.shields.io/badge/tests-479%2F479%20superati-brightgreen.svg)]()
 [![Localization: IT / EN](https://img.shields.io/badge/i18n-Italiano%20%7C%20English-blueviolet.svg)]()
 [![Units: Imperial / Metric](https://img.shields.io/badge/units-ft%2Fmi%20%7C%20m%2Fkm-informational.svg)]()
-[![Version](https://img.shields.io/badge/release-v0.2.0--alpha-gold.svg)](https://github.com/Gaian-pixel/DndOmniCompanion/releases)
+[![Version](https://img.shields.io/badge/release-v0.3.0--alpha-gold.svg)](https://github.com/Gaian-pixel/DndOmniCompanion/releases)
 
 **D&D OmniCompanion** è un Virtual Tabletop (VTT) Client-Server all-in-one e un motore di gestione campagne per **Dungeons & Dragons 5a Edizione**, sviluppato in Python. Progettato sia per sessioni al tavolo in presenza sia per il gioco online da remoto, unisce l'automazione completa delle regole D&D 5e, una mappa esagonale interattiva ad alte prestazioni, chat vocale UDP in tempo reale e una suite completa di strumenti per il Dungeon Master.
 
