@@ -204,6 +204,7 @@ class ClientGUI:
         char_menu.add_command(label=_t("menu_create_manual_character"), command=self.create_manual_character)
         char_menu.add_separator()
         char_menu.add_command(label=_t("menu_active_sheet"), command=self.open_stats_dialog)
+        char_menu.add_command(label="⚔️ Poteri & Azioni Speciali 5e...", command=self.open_special_abilities_dialog)
         menubar.add_cascade(label=_t("menu_character"), menu=char_menu)
         
         library_menu = tk.Menu(menubar, tearoff=0)
@@ -3824,6 +3825,34 @@ class ClientGUI:
             ttk.Button(btn_frame, text="🛡️ Lancia Scudo (+5 CA)", command=accept, style="Primary.TButton", state=shield_btn_state).pack(side=tk.LEFT, padx=6)
             ttk.Button(btn_frame, text="Subisci Attacco", command=decline).pack(side=tk.LEFT, padx=6)
 
+        elif reaction_type == "UNCANNY_DODGE":
+            dmg_taken = int(details.get("damage_taken", 0) or 0)
+            wep_name = details.get("weapon_name", "Attacco")
+            win = tk.Toplevel(self.master)
+            win.title("🗡️ Schivata Prodigiosa (Reazione)")
+            win.geometry("420x210")
+            win.transient(self.master)
+            win.grab_set()
+            apply_modern_window_style(win)
+            ttk.Label(
+                win,
+                text=f"{source_name} ti ha colpito con {wep_name} infliggendo {dmg_taken} danni!\nVuoi usare la tua Reazione per Schivata Prodigiosa (danni dimezzati a {dmg_taken // 2})?",
+                wraplength=390,
+                justify="center"
+            ).pack(pady=16, padx=14)
+            btn_frame = ttk.Frame(win)
+            btn_frame.pack(pady=8)
+            def accept_ud():
+                self.reaction_spent = True
+                self.update_action_economy_ui()
+                self.network.send(make_reaction_response("UNCANNY_DODGE", True, self.name, source_name, details))
+                win.destroy()
+            def decline_ud():
+                self.network.send(make_reaction_response("UNCANNY_DODGE", False, self.name, source_name, details))
+                win.destroy()
+            ttk.Button(btn_frame, text="🗡️ Dimezza Danni (Reazione)", command=accept_ud, style="Primary.TButton").pack(side=tk.LEFT, padx=6)
+            ttk.Button(btn_frame, text="Subisci Tutti i Danni", command=decline_ud).pack(side=tk.LEFT, padx=6)
+
     def handle_handout_broadcast(self, data):
         title = data.get("title", "Documento Condiviso")
         content = data.get("content", "")
@@ -4671,6 +4700,11 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                 self.entry.delete(0, tk.END)
             return
 
+        if self._try_dispatch_special_slash_command(text):
+            if not isinstance(message_or_event, str):
+                self.entry.delete(0, tk.END)
+            return
+
         try: active_tab_name=self.notebook.tab(self.notebook.select(), "text")
         except tk.TclError: return
         if active_tab_name == "Globale": self.network.send(make_chat(text))
@@ -5030,6 +5064,138 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             win.grab_set()
         except ImportError as e:
             messagebox.showerror("Errore", f"Impossibile aprire il Compendio: {e}")
+
+    def _try_dispatch_special_slash_command(self, text: str) -> bool:
+        """Gestisce i comandi slash per Privilegi di Classe, Talenti, Incantesimi Speciali e Manovre 5e."""
+        if not text.startswith("/"):
+            return False
+        parts = text.strip().split()
+        cmd = parts[0].lower()
+        arg1 = parts[1] if len(parts) > 1 else ""
+        arg2 = parts[2] if len(parts) > 2 else ""
+        tgt = (getattr(self.map_canvas, "selected_target_name", None) if hasattr(self, "map_canvas") else None) or self.name
+
+        if cmd in ("/nonlethal", "/nonletale"):
+            self.network.send(make_toggle_non_lethal_request())
+            return True
+        if cmd in ("/reckless", "/irruento"):
+            self.network.send(make_reckless_attack_request(True))
+            return True
+        if cmd in ("/layonhands", "/imposizione"):
+            amt = int(arg2) if arg2.isdigit() else (int(arg1) if arg1.isdigit() else 5)
+            target_n = arg1 if (arg1 and not arg1.isdigit()) else tgt
+            self.network.send(make_lay_on_hands_request(target_n, amount=amt))
+            return True
+        if cmd in ("/inspire", "/ispirazione"):
+            if arg1.lower() in ("use", "usa", "spend"):
+                self.network.send(make_bardic_inspiration_request("use"))
+            else:
+                self.network.send(make_bardic_inspiration_request("grant", target_name=arg1 or tgt))
+            return True
+        if cmd in ("/turnundead", "/scaccianonmorti"):
+            self.network.send(make_turn_undead_request())
+            return True
+        if cmd in ("/divine", "/interventodivino"):
+            self.network.send(make_divine_intervention_request())
+            return True
+        if cmd in ("/indomitable", "/indomito"):
+            self.network.send(make_indomitable_request(stat=arg1 or "COS", dc=int(arg2) if arg2.isdigit() else 12))
+            return True
+        if cmd in ("/maneuver", "/manovra"):
+            self.network.send(make_maneuver_request(arg1 or "trip", target_name=arg2 or tgt))
+            return True
+        if cmd in ("/hide", "/nasconditi"):
+            self.network.send(make_hide_request(as_bonus_action=(arg1.lower() == "bonus")))
+            return True
+        if cmd in ("/cunning", "/scaltro"):
+            self.network.send(make_cunning_action_request(arg1 or "dash"))
+            return True
+        if cmd == "/ki":
+            self.network.send(make_ki_ability_request(arg1 or "flurry", target_name=arg2 or tgt))
+            return True
+        if cmd in ("/arcanum", "/arcanomistico"):
+            lvl = int(arg1) if arg1.isdigit() else 6
+            self.network.send(make_mystic_arcanum_request(lvl, spell_name=arg2 or None, target_name=tgt))
+            return True
+        if cmd in ("/castspecial", "/lanciaspeciale"):
+            sp_name = " ".join(parts[1:]) if len(parts) > 1 else "Dardo Incantato"
+            self.network.send(make_cast_special_spell_request(sp_name, target_name=tgt))
+            return True
+        if cmd in ("/healer", "/guaritore"):
+            self.network.send(make_healer_feat_request(arg1 or tgt))
+            return True
+        if cmd in ("/leader", "/ispiratore"):
+            self.network.send(make_inspiring_leader_request())
+            return True
+        if cmd in ("/mount", "/monta"):
+            self.network.send(make_mount_request(mount_name=arg1 or tgt, dismount=False))
+            return True
+        if cmd in ("/dismount", "/smonta"):
+            self.network.send(make_mount_request(dismount=True))
+            return True
+        if cmd in ("/chasedash", "/inseguimento"):
+            self.network.send(make_chase_dash_request())
+            return True
+        if cmd in ("/dmgmaneuver", "/manovradmg"):
+            self.network.send(make_dmg_maneuver_request(arg1 or "disarm", target_name=arg2 or tgt))
+            return True
+        if cmd in ("/submerged", "/immerso"):
+            self.network.send(make_submerged_breath_request("toggle_submerged"))
+            return True
+        return False
+
+    def open_special_abilities_dialog(self):
+        """Apre un pannello rapido 1-click per Privilegi di Classe, Talenti, Incantesimi Speciali e Manovre."""
+        if not getattr(self, "is_connected", False):
+            messagebox.showinfo("Offline", "Connettiti al server per usare le azioni speciali in partita.")
+            return
+        win = tk.Toplevel(self.master)
+        win.title("⚔️ Poteri, Privilegi & Azioni Speciali 5e")
+        win.geometry("500x480")
+        win.transient(self.master)
+        apply_modern_window_style(win)
+
+        tgt = (getattr(self.map_canvas, "selected_target_name", None) if hasattr(self, "map_canvas") else None) or self.name
+        tgt_var = tk.StringVar(value=tgt)
+        players_list = list(getattr(self, "players_data", {}).keys()) or [self.name]
+
+        top_f = ttk.Frame(win, padding=10)
+        top_f.pack(fill=tk.X)
+        ttk.Label(top_f, text="Bersaglio:").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Combobox(top_f, textvariable=tgt_var, values=players_list, width=22).pack(side=tk.LEFT)
+
+        grid_f = ttk.LabelFrame(win, text="Attivazioni Rapide 5e (PHB / DMG)", padding=10)
+        grid_f.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+
+        buttons = [
+            ("🥊 Colpo Non Letale (Toggle)", lambda: self.network.send(make_toggle_non_lethal_request())),
+            ("💢 Attacco Irruento (Reckless)", lambda: self.network.send(make_reckless_attack_request(True))),
+            ("✋ Imposizione Mani (+5 HP)", lambda: self.network.send(make_lay_on_hands_request(tgt_var.get(), 5))),
+            ("🎵 Ispirazione Bardica (Concedi)", lambda: self.network.send(make_bardic_inspiration_request("grant", tgt_var.get()))),
+            ("🎵 Usa Dado Ispirazione Bardica", lambda: self.network.send(make_bardic_inspiration_request("use"))),
+            ("✝️ Scacciare Non Morti", lambda: self.network.send(make_turn_undead_request())),
+            ("🛐 Intervento Divino", lambda: self.network.send(make_divine_intervention_request())),
+            ("🛡️ Indomito (Reroll TS COS)", lambda: self.network.send(make_indomitable_request("COS", 12))),
+            ("⚔️ Manovra: Sbilanciare (Trip)", lambda: self.network.send(make_maneuver_request("trip", tgt_var.get()))),
+            ("💨 Azione Scaltra: Scatto (Bonus)", lambda: self.network.send(make_cunning_action_request("dash"))),
+            ("🌑 Azione Scaltra: Nascondersi", lambda: self.network.send(make_hide_request(True))),
+            ("🥋 Ki: Raffica di Colpi", lambda: self.network.send(make_ki_ability_request("flurry", tgt_var.get()))),
+            ("🥋 Ki: Difesa Paziente (Schivata)", lambda: self.network.send(make_ki_ability_request("patient_defense"))),
+            ("✨ Dardo Incantato (Auto-Hit)", lambda: self.network.send(make_cast_special_spell_request("Dardo Incantato", 1, tgt_var.get()))),
+            ("⚡ Deflagrazione Occulta (Multi)", lambda: self.network.send(make_cast_special_spell_request("Deflagrazione Occulta", 1, tgt_var.get(), base_level=0))),
+            ("✝️ Rimuovi Maledizione", lambda: self.network.send(make_cast_special_spell_request("Rimuovi Maledizione", 3, tgt_var.get()))),
+            ("🩹 Talento: Guaritore (+HP)", lambda: self.network.send(make_healer_feat_request(tgt_var.get()))),
+            ("🚩 Talento: Condottiero Ispiratore", lambda: self.network.send(make_inspiring_leader_request())),
+            ("🐴 Monta su Bersaglio", lambda: self.network.send(make_mount_request(tgt_var.get(), False))),
+            ("🚶 Scendi da Cavalcatura", lambda: self.network.send(make_mount_request(dismount=True))),
+        ]
+        for idx, (lbl, fn) in enumerate(buttons):
+            r, c = divmod(idx, 2)
+            ttk.Button(grid_f, text=lbl, command=fn).grid(row=r, column=c, sticky="ew", padx=4, pady=3)
+        grid_f.columnconfigure(0, weight=1)
+        grid_f.columnconfigure(1, weight=1)
+
+        ttk.Button(win, text="Chiudi", command=win.destroy).pack(pady=(0, 8))
 
 if __name__ == "__main__":
     root=tk.Tk()

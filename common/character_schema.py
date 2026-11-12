@@ -398,6 +398,25 @@ def normalize_character_dict(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         clean["superiority_dice_current"] = int(clean.get("superiority_dice_current") or 0)
         clean["superiority_die_type"] = clean.get("superiority_die_type", "d8")
 
+    # Punti Incantesimo Opzionali (Spell Points - DMG p. 288)
+    from common.dnd5e_tables import calculate_spell_points_max
+    sp_opt_max = calculate_spell_points_max(clean)
+    if sp_opt_max > 0:
+        raw_opt_cur = clean.get("spell_points_current")
+        raw_opt_max = clean.get("spell_points_max")
+        if raw_opt_cur is None or (raw_opt_cur == 0 and (raw_opt_max is None or raw_opt_max == 0)):
+            opt_cur = sp_opt_max
+        else:
+            opt_cur = int(raw_opt_cur or 0)
+        clean["spell_points_max"] = sp_opt_max
+        clean["spell_points_current"] = max(0, min(sp_opt_max, opt_cur))
+    else:
+        clean["spell_points_max"] = int(clean.get("spell_points_max") or 0)
+        clean["spell_points_current"] = int(clean.get("spell_points_current") or 0)
+
+    if not isinstance(clean.get("feats"), list):
+        clean["feats"] = []
+
     return clean
 
 

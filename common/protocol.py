@@ -547,6 +547,137 @@ def make_new_journal_session_request(title: str = "") -> ProtocolMessage:
 def make_conclude_journal_session_request() -> ProtocolMessage:
     return {"type": "CONCLUDE_JOURNAL_SESSION_REQUEST", "data": {}}
 
+def make_lay_on_hands_request(target_name: str, amount: int = 5, mode: str = "heal", cure_condition: Optional[str] = None, actor_name: Optional[str] = None) -> ProtocolMessage:
+    d: Dict[str, Any] = {"target_name": target_name, "amount": amount, "mode": mode}
+    if cure_condition: d["cure_condition"] = cure_condition
+    if actor_name: d["actor_name"] = actor_name
+    return {"type": "LAY_ON_HANDS_REQUEST", "data": d}
+
+def make_reckless_attack_request(active: bool = True, actor_name: Optional[str] = None) -> ProtocolMessage:
+    d: Dict[str, Any] = {"active": bool(active)}
+    if actor_name: d["actor_name"] = actor_name
+    return {"type": "RECKLESS_ATTACK_REQUEST", "data": d}
+
+def make_bardic_inspiration_request(action: str = "grant", target_name: Optional[str] = None, actor_name: Optional[str] = None) -> ProtocolMessage:
+    d: Dict[str, Any] = {"action": action}
+    if target_name: d["target_name"] = target_name
+    if actor_name: d["actor_name"] = actor_name
+    return {"type": "BARDIC_INSPIRATION_REQUEST", "data": d}
+
+def make_turn_undead_request(dc: Optional[int] = None, actor_name: Optional[str] = None) -> ProtocolMessage:
+    d: Dict[str, Any] = {}
+    if dc is not None: d["dc"] = int(dc)
+    if actor_name: d["actor_name"] = actor_name
+    return {"type": "TURN_UNDEAD_REQUEST", "data": d}
+
+def make_divine_intervention_request(actor_name: Optional[str] = None) -> ProtocolMessage:
+    return {"type": "DIVINE_INTERVENTION_REQUEST", "data": {"actor_name": actor_name} if actor_name else {}}
+
+def make_indomitable_request(stat: str = "COS", dc: int = 10, actor_name: Optional[str] = None) -> ProtocolMessage:
+    d: Dict[str, Any] = {"stat": stat, "dc": int(dc)}
+    if actor_name: d["actor_name"] = actor_name
+    return {"type": "INDOMITABLE_REQUEST", "data": d}
+
+def make_maneuver_request(maneuver: str, target_name: Optional[str] = None, actor_name: Optional[str] = None) -> ProtocolMessage:
+    d: Dict[str, Any] = {"maneuver": maneuver}
+    if target_name: d["target_name"] = target_name
+    if actor_name: d["actor_name"] = actor_name
+    return {"type": "MANEUVER_REQUEST", "data": d}
+
+def make_hide_request(as_bonus_action: bool = False, actor_name: Optional[str] = None) -> ProtocolMessage:
+    d: Dict[str, Any] = {"as_bonus_action": bool(as_bonus_action)}
+    if actor_name: d["actor_name"] = actor_name
+    return {"type": "HIDE_REQUEST", "data": d}
+
+def make_cunning_action_request(sub_action: str = "dash", actor_name: Optional[str] = None) -> ProtocolMessage:
+    d: Dict[str, Any] = {"sub_action": sub_action}
+    if actor_name: d["actor_name"] = actor_name
+    return {"type": "CUNNING_ACTION_REQUEST", "data": d}
+
+def make_ki_ability_request(ability: str = "flurry", target_name: Optional[str] = None, sub_mode: str = "dash", actor_name: Optional[str] = None) -> ProtocolMessage:
+    d: Dict[str, Any] = {"ability": ability, "sub_mode": sub_mode}
+    if target_name: d["target_name"] = target_name
+    if actor_name: d["actor_name"] = actor_name
+    return {"type": "KI_ABILITY_REQUEST", "data": d}
+
+def make_mystic_arcanum_request(level: int, spell_name: Optional[str] = None, target_name: Optional[str] = None, actor_name: Optional[str] = None) -> ProtocolMessage:
+    d: Dict[str, Any] = {"level": int(level)}
+    if spell_name: d["spell_name"] = spell_name
+    if target_name: d["target_name"] = target_name
+    if actor_name: d["actor_name"] = actor_name
+    return {"type": "MYSTIC_ARCANUM_REQUEST", "data": d}
+
+def make_cast_special_spell_request(spell_name: str, cast_level: int = 1, target_name: Optional[str] = None, targets: Optional[List[str]] = None, casting_time: str = "action", has_verbal: bool = True, base_level: Optional[int] = None, actor_name: Optional[str] = None) -> ProtocolMessage:
+    d: Dict[str, Any] = {"spell_name": spell_name, "cast_level": int(cast_level), "casting_time": casting_time, "has_verbal": bool(has_verbal)}
+    if base_level is not None: d["base_level"] = int(base_level)
+    if target_name: d["target_name"] = target_name
+    if targets: d["targets"] = targets
+    if actor_name: d["actor_name"] = actor_name
+    return {"type": "CAST_SPECIAL_SPELL_REQUEST", "data": d}
+
+def make_toggle_non_lethal_request(non_lethal: Optional[bool] = None, actor_name: Optional[str] = None) -> ProtocolMessage:
+    d: Dict[str, Any] = {}
+    if non_lethal is not None: d["non_lethal"] = bool(non_lethal)
+    if actor_name: d["actor_name"] = actor_name
+    return {"type": "TOGGLE_NON_LETHAL_REQUEST", "data": d}
+
+def make_healer_feat_request(target_name: str, mode: str = "heal", actor_name: Optional[str] = None) -> ProtocolMessage:
+    d: Dict[str, Any] = {"target_name": target_name, "mode": mode}
+    if actor_name: d["actor_name"] = actor_name
+    return {"type": "HEALER_FEAT_REQUEST", "data": d}
+
+def make_inspiring_leader_request(actor_name: Optional[str] = None) -> ProtocolMessage:
+    return {"type": "INSPIRING_LEADER_REQUEST", "data": {"actor_name": actor_name} if actor_name else {}}
+
+def make_frightful_presence_request(dc: int = 16, actor_name: Optional[str] = None) -> ProtocolMessage:
+    d: Dict[str, Any] = {"dc": int(dc)}
+    if actor_name: d["actor_name"] = actor_name
+    return {"type": "FRIGHTFUL_PRESENCE_REQUEST", "data": d}
+
+def make_swallow_request(target_name: str, release: bool = False, damage_formula: Optional[str] = None, actor_name: Optional[str] = None) -> ProtocolMessage:
+    d: Dict[str, Any] = {"target_name": target_name, "release": bool(release)}
+    if damage_formula: d["damage_formula"] = damage_formula
+    if actor_name: d["actor_name"] = actor_name
+    return {"type": "SWALLOW_REQUEST", "data": d}
+
+def make_dmg_maneuver_request(maneuver: str, target_name: str, actor_name: Optional[str] = None) -> ProtocolMessage:
+    d: Dict[str, Any] = {"maneuver": maneuver, "target_name": target_name}
+    if actor_name: d["actor_name"] = actor_name
+    return {"type": "DMG_MANEUVER_REQUEST", "data": d}
+
+def make_madness_request(target_name: str, tier: str = "short", actor_name: Optional[str] = None) -> ProtocolMessage:
+    d: Dict[str, Any] = {"target_name": target_name, "tier": tier}
+    if actor_name: d["actor_name"] = actor_name
+    return {"type": "MADNESS_REQUEST", "data": d}
+
+def make_apply_poison_disease_request(target_name: str, kind: str = "poison", name: str = "", dc: Optional[int] = None) -> ProtocolMessage:
+    d: Dict[str, Any] = {"target_name": target_name, "kind": kind, "name": name}
+    if dc is not None: d["dc"] = int(dc)
+    return {"type": "APPLY_POISON_DISEASE_REQUEST", "data": d}
+
+def make_chase_dash_request(actor_name: Optional[str] = None) -> ProtocolMessage:
+    return {"type": "CHASE_DASH_REQUEST", "data": {"actor_name": actor_name} if actor_name else {}}
+
+def make_survival_tick_request(event: str = "day_pass", fed_players: Optional[List[str]] = None, watered_players: Optional[List[str]] = None, dc: Optional[int] = None) -> ProtocolMessage:
+    d: Dict[str, Any] = {"event": event, "fed_players": fed_players or [], "watered_players": watered_players or []}
+    if dc is not None: d["dc"] = int(dc)
+    return {"type": "SURVIVAL_TICK_REQUEST", "data": d}
+
+def make_mount_request(mount_name: Optional[str] = None, dismount: bool = False, actor_name: Optional[str] = None) -> ProtocolMessage:
+    d: Dict[str, Any] = {"dismount": bool(dismount)}
+    if mount_name: d["mount_name"] = mount_name
+    if actor_name: d["actor_name"] = actor_name
+    return {"type": "MOUNT_REQUEST", "data": d}
+
+def make_surprise_request(target_name: str, surprised: bool = True) -> ProtocolMessage:
+    return {"type": "SURPRISE_REQUEST", "data": {"target_name": target_name, "surprised": bool(surprised)}}
+
+def make_submerged_breath_request(action: str = "toggle_submerged", submerged: Optional[bool] = None, rounds: int = 1, actor_name: Optional[str] = None) -> ProtocolMessage:
+    d: Dict[str, Any] = {"action": action, "rounds": int(rounds)}
+    if submerged is not None: d["submerged"] = bool(submerged)
+    if actor_name: d["actor_name"] = actor_name
+    return {"type": "SUBMERGED_BREATH_REQUEST", "data": d}
+
 
 
 

@@ -210,6 +210,11 @@ class Character:
         self.superiority_dice_current = 0
         self.superiority_dice_max = 0
         self.superiority_die_type = "d8"
+        self.feats = []
+        self.spell_points_current = 0
+        self.spell_points_max = 0
+        self.bardic_inspiration_die = None
+        self.relentless_rage_uses = 0
 
     def short_rest(self, hd_to_spend=1):
         """Spende Dadi Vita (XdY + Mod COS) per recuperare HP e ricarica i privilegi da riposo breve."""
@@ -241,6 +246,18 @@ class Character:
         for res in getattr(self, "custom_resources", []):
             if isinstance(res, dict) and res.get("reset_on") == "short":
                 res["current"] = res.get("max", 0)
+
+        # Canto di Riposo (Song of Rest - Bardo Lv 2+, PHB p. 54): cura extra se spende almeno 1 Dado Vita
+        if actual_spend > 0:
+            from common.dnd5e_tables import entity_get_class_level
+            bard_lvl = entity_get_class_level(self, "bardo", "bard")
+            if bard_lvl >= 2:
+                sor_sides = 6 if bard_lvl < 9 else (8 if bard_lvl < 13 else (10 if bard_lvl < 17 else 12))
+                sor_heal = random.randint(1, sor_sides)
+                recovered += sor_heal
+                self.hp_current = min(self.hp_max, self.hp_current + sor_heal)
+
+        self.relentless_rage_uses = 0
         
         # Regola D&D 5e: I Warlock (Magia del Patto) ricaricano tutti gli slot incantesimo con un Riposo Breve!
         c_class = str(getattr(self, "char_class", "")).strip().lower()
@@ -284,7 +301,15 @@ class Character:
         # Ripristina Tenacia Implacabile (Mezzorco), Talento Fortunato, Portento (Divinatore) e Cariche Oggetti Magici
         self.relentless_endurance_used = False
         self.arcane_recovery_used = False
+        self.relentless_rage_uses = 0
         self.sorcery_points_current = self.sorcery_points_max
+        from common.dnd5e_tables import calculate_spell_points_max
+        sp_m = calculate_spell_points_max(self)
+        if sp_m > 0:
+            self.spell_points_max = sp_m
+            self.spell_points_current = sp_m
+        else:
+            self.spell_points_current = getattr(self, "spell_points_max", 0)
         self.superiority_dice_current = self.superiority_dice_max
         if self.is_in_wild_shape():
             self.revert_wild_shape()
@@ -305,9 +330,93 @@ class Character:
                 parts.append(f"{f.get('name', '')} {f.get('desc', '')}")
             else:
                 parts.append(str(f))
+        for ft in (getattr(self, "feats", []) or []):
+            if isinstance(ft, dict):
+                parts.append(f"{ft.get('name', '')} {ft.get('desc', '')}")
+            else:
+                parts.append(str(ft))
         for t in (getattr(self, "traits", []) or []):
             parts.append(str(t))
         return " ".join(parts).lower()
+
+    def has_feat(self, *aliases: str) -> bool:
+        """Verifica se il personaggio possiede un talento specifico per alias."""
+        txt = self._get_all_features_text()
+        return any(str(a).lower() in txt for a in aliases if a)
+
+    def get_tough_bonus_hp(self) -> int:
+        """Talento Robusto (Tough, PHB p. 170): +2 PF Max per livello."""
+        if self.has_feat("robusto", "tough"):
+            lvl = max(1, int(getattr(self, "level", 1) or 1))
+            return 2 * lvl
+        return 0
+
+    def get_effective_max_hp(self) -> int:
+        """Restituisce i PF massimi effettivi includendo Robusto (Tough) se attivo e non ancora applicato."""
+        base = int(getattr(self, "hp_max", 10) or 10)
+        if self.has_feat("robusto", "tough") and not getattr(self, "_tough_applied", False):
+            return base + self.get_tough_bonus_hp()
+        return base
+
+    def get_alert_initiative_bonus(self) -> int:
+        """Talento Allerta (Alert, PHB p. 165): +5 all'Iniziativa."""
+        return 5 if self.has_feat("allerta", "alert") else 0
+
+    def get_initiative_bonus(self) -> int:
+        """Calcola il modificatore di Iniziativa RAW (mod DES + Factotum Bardo Lv2+ + Allerta +5)."""
+        mod = self.get_modifier("DES")
+        from common.dnd5e_tables import entity_get_class_level, entity_get_total_level
+        bard_lvl = entity_get_class_level(self, "bardo", "bard")
+        if bard_lvl >= 2:
+            pb = ((max(1, entity_get_total_level(self)) - 1) // 4) + 2
+            mod += pb // 2
+        mod += self.get_alert_initiative_bonus()
+        return mod
+
+    def has_elemental_adept(self, damage_type: str = "") -> bool:
+        """Talento Adepto Elementale (Elemental Adept, PHB p. 166)."""
+        txt = self._get_all_features_text()
+        if "adepto elementale" not in txt and "elemental adept" not in txt:
+            return False
+        dt = str(damage_type or "").lower()
+        if not dt:
+            return True
+        elem_aliases = {
+            "fuoco": ("fuoco", "fire"),
+            "freddo": ("freddo", "cold"),
+            "fulmine": ("fulmine", "lightning"),
+            "acido": ("acido", "acid"),
+            "tuono": ("tuono", "thunder"),
+        }
+        matched_elem = None
+        for _, al_tuple in elem_aliases.items():
+            if any(a in dt for a in al_tuple):
+                matched_elem = al_tuple
+                break
+        if matched_elem is None:
+            return False
+        # Se ha specificato un elemento (es. Adepto Elementale (Fuoco)), verifica corrispondenza;
+        # se non ha specificato alcun elemento nel testo, vale sull'elemento dell'incantesimo
+        any_spec = any(a in txt for pair in elem_aliases.values() for a in pair if ("adepto" in txt or "adept" in txt))
+        if not any_spec:
+            return True
+        return any(a in txt for a in matched_elem)
+
+    def spend_spell_points(self, spell_level: int) -> tuple:
+        """Spende Punti Incantesimo (DMG p. 288) per lanciare un incantesimo di livello 1-9."""
+        from common.dnd5e_tables import SPELL_POINT_COST, calculate_spell_points_max
+        s_lvl = int(spell_level or 1)
+        if s_lvl <= 0:
+            return True, "Trucchetto: 0 punti incantesimo spesi."
+        cost = SPELL_POINT_COST.get(s_lvl, 99)
+        if getattr(self, "spell_points_max", 0) <= 0:
+            self.spell_points_max = calculate_spell_points_max(self)
+            self.spell_points_current = self.spell_points_max
+        cur = int(getattr(self, "spell_points_current", 0) or 0)
+        if cur < cost:
+            return False, f"Punti Incantesimo insufficienti ({cur}/{cost} richiesti per liv. {s_lvl})."
+        self.spell_points_current = cur - cost
+        return True, f"Spesi {cost} Punti Incantesimo (Liv. {s_lvl}). Rimasti: {self.spell_points_current}/{self.spell_points_max}."
 
     def has_halfling_luck(self) -> bool:
         """Verifica se il personaggio possiede il tratto razziale Fortuna dell'Halfling (ritira gli 1 naturali sul d20)."""
@@ -685,6 +794,9 @@ class Character:
             if lvl >= 2:
                 act = 2 if lvl >= 17 else 1
                 self.custom_resources.append({"name": "Azione Impetuosa (Action Surge)", "current": act, "max": act, "reset_on": "short"})
+            if lvl >= 9:
+                ind_uses = 1 if lvl < 13 else (2 if lvl < 17 else 3)
+                self.custom_resources.append({"name": "Indomito (Indomitable)", "current": ind_uses, "max": ind_uses, "reset_on": "long"})
         elif any(k in c_cls for k in ["sorcerer", "stregone"]):
             if lvl >= 2:
                 self.custom_resources.append({"name": "Punti Stregoneria", "current": lvl, "max": lvl, "reset_on": "long"})
@@ -753,7 +865,9 @@ class Character:
         mods = self.get_item_modifiers()
         save_bonus = mod + mods.get("bonus_saves", 0)
         prof_saves = [canonical_stat_key(s) for s in getattr(self, "saving_throw_proficiencies", [])]
-        if canonical in prof_saves:
+        from common.dnd5e_tables import entity_get_class_level
+        has_diamond_soul = (entity_get_class_level(self, "monaco", "monk") >= 14) or self.has_feat("anima di diamante", "diamond soul")
+        if canonical in prof_saves or has_diamond_soul:
             lvl = getattr(self, "level", 1) or 1
             pb = 2 + (max(1, int(lvl)) - 1) // 4
             save_bonus += pb
@@ -846,6 +960,13 @@ class Character:
                 asurge["current"] = min(act, asurge.get("current", act))
             elif new_level >= 2:
                 self.custom_resources.append({"name": "Azione Impetuosa (Action Surge)", "current": act, "max": act, "reset_on": "short"})
+            ind_uses = 1 if new_level < 13 else (2 if new_level < 17 else 3)
+            ind = res_dict.get("Indomito (Indomitable)") or res_dict.get("Indomito") or res_dict.get("Indomitable")
+            if ind:
+                ind["max"] = ind_uses
+                ind["current"] = min(ind_uses, ind.get("current", ind_uses))
+            elif new_level >= 9:
+                self.custom_resources.append({"name": "Indomito (Indomitable)", "current": ind_uses, "max": ind_uses, "reset_on": "long"})
         elif "druido" in cls_name or "druid" in cls_name:
             if new_level >= 2 and not res_dict.get("Forma Selvatica"):
                 self.custom_resources.append({"name": "Forma Selvatica", "current": 2, "max": 2, "reset_on": "short"})

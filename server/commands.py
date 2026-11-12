@@ -1,4 +1,5 @@
 from server.rules.combat import *
+from server.rules.class_abilities import *
 from server.rules.movement import *
 from server.rules.map_interaction import *
 from server.rules.inventory import *
@@ -79,6 +80,31 @@ command_handlers = {
     "JOURNAL_UPDATE_REQUEST": handle_journal_update_request,
     "NEW_JOURNAL_SESSION_REQUEST": handle_new_journal_session_request,
     "CONCLUDE_JOURNAL_SESSION_REQUEST": handle_conclude_journal_session_request,
+    "LAY_ON_HANDS_REQUEST": handle_lay_on_hands_request,
+    "RECKLESS_ATTACK_REQUEST": handle_reckless_attack_request,
+    "BARDIC_INSPIRATION_REQUEST": handle_bardic_inspiration_request,
+    "TURN_UNDEAD_REQUEST": handle_turn_undead_request,
+    "DIVINE_INTERVENTION_REQUEST": handle_divine_intervention_request,
+    "INDOMITABLE_REQUEST": handle_indomitable_request,
+    "MANEUVER_REQUEST": handle_maneuver_request,
+    "HIDE_REQUEST": handle_hide_request,
+    "CUNNING_ACTION_REQUEST": handle_cunning_action_request,
+    "KI_ABILITY_REQUEST": handle_ki_ability_request,
+    "MYSTIC_ARCANUM_REQUEST": handle_mystic_arcanum_request,
+    "CAST_SPECIAL_SPELL_REQUEST": handle_cast_special_spell_request,
+    "TOGGLE_NON_LETHAL_REQUEST": handle_toggle_non_lethal_request,
+    "HEALER_FEAT_REQUEST": handle_healer_feat_request,
+    "INSPIRING_LEADER_REQUEST": handle_inspiring_leader_request,
+    "FRIGHTFUL_PRESENCE_REQUEST": handle_frightful_presence_request,
+    "SWALLOW_REQUEST": handle_swallow_request,
+    "DMG_MANEUVER_REQUEST": handle_dmg_maneuver_request,
+    "MADNESS_REQUEST": handle_madness_request,
+    "APPLY_POISON_DISEASE_REQUEST": handle_apply_poison_or_disease_request,
+    "CHASE_DASH_REQUEST": handle_chase_dash_request,
+    "SURVIVAL_TICK_REQUEST": handle_survival_tick_request,
+    "MOUNT_REQUEST": handle_mount_request,
+    "SURPRISE_REQUEST": handle_surprise_request,
+    "SUBMERGED_BREATH_REQUEST": handle_submerged_breath_request,
 }
 
 

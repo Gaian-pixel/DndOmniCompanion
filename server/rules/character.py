@@ -493,6 +493,11 @@ def handle_resolve_night_camp_request(data, player, game_state):
                 hd_rec = max(1, lvl // 2)
                 cur_hd = int(p.full_sheet.get("hit_dice_current", lvl) or 0)
                 p.full_sheet["hit_dice_current"] = min(lvl, cur_hd + hd_rec)
+                sp_max = int(p.full_sheet.get("spell_points_max", 0) or 0)
+                if sp_max > 0:
+                    p.full_sheet["spell_points_current"] = sp_max
+                p.relentless_rage_uses = 0
+                p.frightful_immune_list = []
             if getattr(p, "conn", None):
                 from common.network_utils import send_message
                 send_message(p.conn, {"type": "DO_LONG_REST", "data": {}})
@@ -576,7 +581,21 @@ def trigger_group_long_rest(game_state, reason="Il gruppo si è accampato per un
                 hd_rec = max(1, lvl // 2)
                 cur_hd = int(p.full_sheet.get("hit_dice_current", lvl) or 0)
                 p.full_sheet["hit_dice_current"] = min(lvl, cur_hd + hd_rec)
-    broadcast(game_state, make_chat_broadcast("Sistema", f"{reason} Tutti recuperano HP e Slot."))
+                sp_max = int(p.full_sheet.get("spell_points_max", 0) or 0)
+                if sp_max > 0:
+                    p.full_sheet["spell_points_current"] = sp_max
+                p.relentless_rage_uses = 0
+                p.frightful_immune_list = []
+    dm_settings = getattr(game_state, "automation_settings", {}) or {}
+    rest_key = dm_settings.get("opt_rest_variant", "standard")
+    from common.dnd5e_tables import REST_VARIANTS
+    r_info = REST_VARIANTS.get(rest_key, REST_VARIANTS["standard"])
+    rest_note = f" [Variante DMG {r_info.get('label', rest_key)}: {r_info.get('long_hours', 8)}h]" if rest_key != "standard" else ""
+    if dm_settings.get("auto_advance_time", True) and hasattr(game_state, "advance_game_time"):
+        long_hours = int(r_info.get("long_hours", 8))
+        if long_hours > 0:
+            game_state.advance_game_time(hours=long_hours)
+    broadcast(game_state, make_chat_broadcast("Sistema", f"{reason} Tutti recuperano HP e Slot.{rest_note}"))
     for p in getattr(game_state, "players", []):
         if getattr(p, "conn", None):
             send_message(p.conn, {"type": "DO_LONG_REST", "data": {}})

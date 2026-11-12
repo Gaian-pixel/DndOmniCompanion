@@ -6,7 +6,7 @@
 [![Ruleset: D&D 5e](https://img.shields.io/badge/ruleset-D%26D%205e-red.svg)](https://dnd.wizards.com/)
 [![UI: ttkbootstrap](https://img.shields.io/badge/ui-ttkbootstrap-orange.svg)](https://ttkbootstrap.readthedocs.io/)
 [![Multiplayer: TCP/UDP](https://img.shields.io/badge/networking-TCP%20%2B%20UDP-green.svg)]()
-[![Tests: Passing](https://img.shields.io/badge/tests-492%2F492%20superati-brightgreen.svg)]()
+[![Tests: Passing](https://img.shields.io/badge/tests-508%2F508%20superati-brightgreen.svg)]()
 [![Localization: IT / EN](https://img.shields.io/badge/i18n-Italiano%20%7C%20English-blueviolet.svg)]()
 [![Units: Imperial / Metric](https://img.shields.io/badge/units-ft%2Fmi%20%7C%20m%2Fkm-informational.svg)]()
 [![Version](https://img.shields.io/badge/release-v0.3.0--alpha-gold.svg)](https://github.com/Gaian-pixel/DndOmniCompanion/releases)
@@ -234,7 +234,9 @@ Il DM può impostare in tempo reale il grado di automazione dell'applicativo da 
 * **⚖️ Ibrido Assistito (Consigliato per Sessioni Fluide)**: Il sistema gestisce matematicamente la contabilità 5e (resistenze, coperture, visibilità, condizioni, CD), ma fornisce al DM comode schede fluttuanti a 1-click (`[Pieno]`, `[Dimezza]`, `[Modifica]`, `[Annulla]`) per convalidare i danni a colpo sicuro.
 * **⚡ Full Automation (Tattico Rapido / CRPG)**: Danni sottratti istantaneamente agli HP, porte aperte immediatamente su successo della CD, turni rigorosamente bloccati per chi non è attivo e prompt reazioni/TS automatici.
 * **Estensione Granulare a Ogni Singola Meccanica**:
-  * **⚔️ Combattimento & Danni**: Danni singoli da attacchi, Danni da magie/TS AoE, Calcolo automatico Vantaggio/Svantaggio (2d20), Prompt automatici per reazioni (AdO, Scudo), Verifica e rottura Concentrazione (TS Cos), Risoluzione 0 HP / Morte Istantanea e KO, **Distribuzione Automatica Punti Esperienza (XP)** a fine scontro con calcolo dai Gradi di Sfida (CR) e notifiche di avanzamento livello (PHB p. 15 / DMG p. 82).
+  * **⚔️ Combattimento & Danni**: Danni singoli da attacchi, Danni da magie/TS AoE, Calcolo automatico Vantaggio/Svantaggio (2d20), Prompt automatici per reazioni (AdO, Scudo, Schivata Prodigiosa), Verifica e rottura Concentrazione (TS Cos), Risoluzione 0 HP / Morte Istantanea / Ira Implacabile / Colpo Non Letale KO, Sorpresa Round 1, Combattimento Subacqueo & Soffocamento, Cavalcatura sincronizzata e **Distribuzione Automatica Punti Esperienza (XP)** a fine scontro con calcolo dai Gradi di Sfida (CR) e notifiche di avanzamento livello (PHB p. 15 / DMG p. 82).
+  * **🛡️ Privilegi di Classe PHB, Talenti & Tratti Mostri Completi**: Gestione server-side per *Attacco Irruento*, *Percezione del Pericolo*, *Totem dell'Orso*, *Ispirazione Bardica*, *Canto di Riposo*, *Scacciare/Distruggere Non Morti*, *Intervento Divino*, *Indomito*, *Manovre Maestro di Battaglia*, *Azione Scaltra & Nascondersi*, *Ki & Anima di Diamante*, *Imposizione delle Mani*, *Aura di Coraggio*, *Punizione Divina Migliorata*, *Arcanum Mistico*, *Esplosione Agonizzante/Respingente*, i principali Talenti PHB (*Sentinella*, *Maestro d'Armi Astate*, *Incantatore da Guerra*, *Robusto*, *Allerta*, *Adepto Elementale*, *Esperto di Balestre*, *Cecchino Magico*, *Guaritore*, *Condottiero Ispiratore*) e Tratti MM (*Tattiche di Branco*, *Resistenza alla Magia*, *Volo Radente*, *Carica/Balzo*, *Presenza Terrificante*, *Inghiottire/Rigurgito*, *Scissione Melme*).
+  * **📕 Regole Opzionali DMG Selezionabili**: Attivabili singolarmente nelle **Automazioni DM** (`opt_cleaving`, `opt_massive_damage`, `opt_lingering_injuries`, `opt_madness`, `opt_rest_variant` Standard/Eroismo Epico/Realismo Crudo, `opt_dmg_maneuvers`, `opt_spell_points`, `opt_hunger_thirst_weather`), oltre a Oggetti Maledetti, Veleni & Malattie DMG, Oggetti/Soglia Danno e Inseguimenti (`Strumenti ➔ 📕 Strumenti Regole 5e`).
   * **🗺️ Mappa & Movimento**: Blocco rigido turni in combattimento, Blocco velocità massima e costo terreni difficili, Risoluzione porte/scasso CD, Svelamento dinamico Nebbia di Guerra (FoW).
   * **⛺ Riposo & Risorse**: Recupero automatico istantaneo risorse al riposo lungo (HP, Slot, Dadi Vita) vs convalida e verifica incontri casuali DM.
 
@@ -385,7 +387,8 @@ DndOmniCompanion/
 │   ├── USER_GUIDE.md               # Complete User Guide (English)
 │   ├── GUIDA_OPERATIVA.md          # Manuale operativo e architettura (Italiano)
 │   └── OPERATIONAL_GUIDE.md        # System & Operational Manual (English)
-├── tests/                          # Suite di test automatizzati (492 test passati)
+├── tests/                          # Suite di test automatizzati (508 test passati)
+│   ├── test_phb_dmg_mm_complete.py # Test completi PHB/DMG/MM, talenti, tratti mostri e regole DMG opzionali
 │   ├── test_raw_5e_advanced_features.py # Test Smite, Wild Shape, Fonte di Magia, Recupero Arcano, Reliable Talent, Auto XP
 │   ├── simulate_4player_campaign.py# Simulazione live campagna 4 giocatori + DM (11 fasi)
 │   ├── simulate_game_session.py    # Simulazione multiplayer end-to-end (53 fasi)
@@ -404,11 +407,14 @@ DndOmniCompanion/
 
 ## 🧪 Test e Verifica Automatica
 
-Tutti i **492 test automatizzati** passano al 100% con 0 errori:
+Tutti i **508 test automatizzati** passano al 100% con 0 errori:
 
 ```powershell
-# 1. Unit Test completi (492 test: meccaniche 5e, modificatori oggetti magici, dadi 3D, flusso connessione, righello, critici, mono-finestra, economia turno, inventario)
+# 1. Unit Test completi (508 test: regole complete PHB/DMG/MM, opzioni DMG selezionabili, oggetti magici, dadi 3D, connessione, combattimento, UI)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
+
+# 1b. Suite completa PHB/DMG/MM e Regole Opzionali DMG Selezionabili
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_phb_dmg_mm_complete.py
 
 # 2. Test specifico meccaniche avanzate RAW 5e (Punizione Divina, Forma Selvatica, Fonte di Magia, Recupero Arcano, Talento Affidabile, Tuttofare, Critici Brutali, Colpo Stordente, Dadi Superiorità, Scaling Trucchetti, Ricarica Mostri, Auto XP)
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_raw_5e_advanced_features.py

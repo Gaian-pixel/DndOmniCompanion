@@ -608,6 +608,10 @@ D&D OmniCompanion empowers the Dungeon Master with total control over the balanc
     10. `auto_death_saves`: automatic turn-start Death Saving Throw prompts.
     11. `auto_weather_effects`: automatic ranged attack penalties in storms, fog, and rain.
     12. `auto_distribute_xp`: automatic calculation and distribution of Experience Points (XP) from defeated monsters at the end of combat, including level-up threshold notifications (PHB p. 15). Can be disabled for milestone campaigns or manual XP bookkeeping.
+* **Selectable DMG Optional Rules (Advanced PHB / DMG / MM Mechanics)**:
+  * Within **`Tools -> ⚙️ Campaign Management Style (Automations)...`** under *Optional DMG Rules*, the DM can independently toggle:
+    * `opt_cleaving` (Cleaving DMG p. 272), `opt_massive_damage` (Massive Damage System Shock DMG p. 273), `opt_lingering_injuries` (Lingering Injuries DMG p. 272), `opt_madness` (Short/Long/Indefinite Madness DMG p. 258), `opt_dmg_maneuvers` (Disarm, Overrun, Tumble, Shove Aside), `opt_spell_points` (Spell Points Variant DMG p. 288), `opt_hunger_thirst_weather` (Hunger, Thirst & Extreme Weather), and `opt_rest_variant` (Standard / Epic Heroism / Gritty Realism DMG p. 267).
+  * Players can invoke all PHB class powers, feats, non-lethal attacks, mounted actions, and special spells via **`Character -> ⚔️ 5e Special Powers & Actions...`** or slash commands (`/nonlethal`, `/reckless`, `/layonhands`, `/inspire`, `/turnundead`, `/maneuver`, `/hide`, `/cunning`, `/ki`, `/castspecial`), while the DM has a dedicated **`Tools -> 📕 5e Rules Tools (PHB/DMG/MM)...`** console for poisons, diseases, chases, Surprise, Swallow, Frightful Presence, objects, and jump calculations.
 * **Floating DM Pending Actions Dock**:
   * When running in Traditional or Hybrid mode, whenever an event requires DM oversight (e.g., incoming damage, rest request, lockpicking attempt, or trap trigger), a non-intrusive floating dock appears at the bottom-center of the DM screen:
   * Shows event details (e.g., `Attack on Gildor: 14 Slashing Damage`) with 1-click action buttons:

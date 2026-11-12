@@ -2255,6 +2255,17 @@ class CharacterSheetFrame(ttk.Frame):
         if "artefice" in char_class or "artificer" in char_class:
             max_attune = 6 if lvl >= 18 else (5 if lvl >= 14 else (4 if lvl >= 10 else 3))
 
+        if changed_idx is not None and 0 <= changed_idx < len(self.attuned_vars):
+            if not self.attuned_vars[changed_idx].get() and hasattr(self.character, "inventory_grid") and changed_idx < len(self.character.inventory_grid):
+                cur_it = self.character.inventory_grid[changed_idx]
+                if isinstance(cur_it, dict) and cur_it.get("attuned", False):
+                    from common.item_modifiers import can_unattune_item
+                    ok_un, reason_un = can_unattune_item(cur_it)
+                    if not ok_un:
+                        messagebox.showwarning("Oggetto Maledetto", reason_un)
+                        self.attuned_vars[changed_idx].set(True)
+                        return
+
         if changed_idx is not None and 0 <= changed_idx < len(self.attuned_vars) and self.attuned_vars[changed_idx].get():
             if hasattr(self.character, "inventory_grid") and changed_idx < len(self.character.inventory_grid):
                 cur_it = self.character.inventory_grid[changed_idx]
@@ -3878,6 +3889,13 @@ class CharacterSheetFrame(ttk.Frame):
         btn_frame.pack(fill=tk.X, pady=4)
         
         def save_item():
+            if not attune_var.get() and item.get("attuned", False):
+                from common.item_modifiers import can_unattune_item
+                ok_un, reason_un = can_unattune_item(item)
+                if not ok_un:
+                    messagebox.showwarning("Oggetto Maledetto", reason_un, parent=win)
+                    attune_var.set(True)
+                    return
             if attune_var.get() and not item.get("attuned", False):
                 char_class = str(getattr(self.character, "char_class", "")).lower() if hasattr(self, "character") else ""
                 lvl = int(getattr(self.character, "level", 1) or 1) if hasattr(self, "character") else 1
@@ -4390,18 +4408,18 @@ class CharacterSheetFrame(ttk.Frame):
     def roll_initiative(self):
         if not self.roll_callback: return
         try:
-            if hasattr(self, "character") and hasattr(self.character, "get_modifier"):
+            if hasattr(self, "character") and hasattr(self.character, "get_initiative_bonus"):
+                mod = self.character.get_initiative_bonus()
+            elif hasattr(self, "character") and hasattr(self.character, "get_modifier"):
                 mod = self.character.get_modifier("DES")
+                char_class = str(getattr(self.character, "char_class", "")).lower()
+                lvl = int(getattr(self.character, "level", 1) or 1)
+                if ("bardo" in char_class or "bard" in char_class) and lvl >= 2:
+                    pb = ((lvl - 1) // 4) + 2
+                    mod += pb // 2
             else:
                 des_val = int(self.attr_vars["DES"].get())
                 mod = (des_val - 10) // 2
-
-            # Factotum (Jack of All Trades): Il Bardo di 2° livello somma metà competenza all'Iniziativa (D&D 5e RAW - PHB p. 54)
-            char_class = str(getattr(self.character, "char_class", "")).lower() if hasattr(self, "character") else ""
-            lvl = int(getattr(self.character, "level", 1) or 1) if hasattr(self, "character") else 1
-            if ("bardo" in char_class or "bard" in char_class) and lvl >= 2:
-                pb = ((lvl - 1) // 4) + 2
-                mod += pb // 2
 
             mod_str = f"+{mod}" if mod >= 0 else str(mod)
             
@@ -4413,8 +4431,6 @@ class CharacterSheetFrame(ttk.Frame):
                 formula += " dis"
             if hasattr(self.character, "has_halfling_luck") and self.character.has_halfling_luck():
                 formula += " halfling"
-            if prof_level > 0 and hasattr(self.character, "has_reliable_talent") and self.character.has_reliable_talent():
-                formula += " reliable"
 
             self.adv_dis_var.set(_t("adv_normal"))
             self.roll_callback(formula, "Iniziativa")

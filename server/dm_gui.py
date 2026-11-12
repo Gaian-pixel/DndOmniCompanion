@@ -257,6 +257,7 @@ class DM_GUI:
         tools_menu.add_command(label=_t("menu_starter_pack"), command=self.open_campaign_starter_kit_dialog)
         tools_menu.add_separator()
         tools_menu.add_command(label=_t("menu_automation_settings"), command=self.open_automation_settings_dialog)
+        tools_menu.add_command(label="📕 Strumenti Regole 5e (PHB/DMG/MM)...", command=self.open_optional_rules_tools_dialog)
         menubar.add_cascade(label=_t("menu_tools"), menu=tools_menu)
 
         # Menu Visualizza / View
@@ -3349,6 +3350,10 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
 
     def open_automation_settings_dialog(self):
         return dm_open_automation_settings_dialog(self)
+
+    def open_optional_rules_tools_dialog(self):
+        from server.dm_optional_tools import open_optional_rules_tools_dialog
+        return open_optional_rules_tools_dialog(self)
 
     def update_pending_actions_ui(self):
         return dm_update_pending_actions_ui(self)

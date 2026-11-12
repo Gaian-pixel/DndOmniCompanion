@@ -3,7 +3,7 @@
 import re
 import random
 
-def roll_dice(formula, is_crit=False, reroll_ones_d20=False, gwf_reroll=False, reliable_talent=False):
+def roll_dice(formula, is_crit=False, reroll_ones_d20=False, gwf_reroll=False, reliable_talent=False, elemental_adept=False):
     """
     Parsing semplice e composto formule tipo '3d6+2', '1d20', '1d20+3 adv', '2d6+1d8+3', '1d8+4 Tagliente'
     Se is_crit=True (es. danno critico 5e), raddoppia il numero di dadi tirati
@@ -14,6 +14,7 @@ def roll_dice(formula, is_crit=False, reroll_ones_d20=False, gwf_reroll=False, r
     - reroll_ones_d20=True (Fortuna dell'Halfling, PHB p. 28: ritira 1 naturale sul d20 una volta)
     - gwf_reroll=True (Combattere con Armi Possenti, PHB p. 72: ritira 1 e 2 sui dadi di danno una volta)
     - reliable_talent=True (Talento Affidabile, Ladro 11+ PHB p. 96: d20 < 10 diventa 10 nelle prove competenti)
+    - elemental_adept=True (Adepto Elementale, PHB p. 166: tratta ogni 1 sui dadi di danno come 2)
     """
     formula = str(formula).strip().lower()
 
@@ -28,6 +29,10 @@ def roll_dice(formula, is_crit=False, reroll_ones_d20=False, gwf_reroll=False, r
     if re.search(r'\b(reliable|reliable_talent)\b', formula):
         reliable_talent = True
         formula = re.sub(r'\b(reliable|reliable_talent)\b', '', formula).strip()
+
+    if re.search(r'\b(elemental_adept|adepto_elementale)\b', formula):
+        elemental_adept = True
+        formula = re.sub(r'\b(elemental_adept|adepto_elementale)\b', '', formula).strip()
     
     # Rilevamento vantaggio / svantaggio (italiano e inglese) e loro annullamento reciproco (D&D 5e RAW)
     has_adv = False
@@ -144,7 +149,10 @@ def roll_dice(formula, is_crit=False, reroll_ones_d20=False, gwf_reroll=False, r
         if not is_d20_primary and sides != 20 and gwf_reroll and val in (1, 2):
             new_val = random.randint(1, sides)
             rerolled_notes.append(f"Armi Possenti ({val}->{new_val})")
-            return new_val
+            val = new_val
+        if not is_d20_primary and sides != 20 and elemental_adept and val == 1:
+            rerolled_notes.append("Adepto Elementale (1->2)")
+            val = 2
         return val
 
     if adv or dis:

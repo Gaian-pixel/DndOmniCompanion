@@ -51,6 +51,31 @@ class Player:
         self.can_attack = True
         self.is_companion = False
         self.elevation = 0
+        # Estensioni D&D 5e RAW (PHB, DMG, MM)
+        self.bonus_action_used_this_turn = False
+        self.reckless_attack_active = False
+        self.non_lethal_mode = False
+        self.moved_straight_hexes = 0
+        self.last_move_dir = None
+        self.swallowed_by = None
+        self.mount_name = None
+        self.stealth_score = 0
+        self.surprised = False
+        self.spell_cast_bonus_action_this_turn = False
+        self.spell_cast_action_level_this_turn = None
+        self.bardic_inspiration_die = None
+        self.relentless_rage_uses = 0
+        self.frightful_immune_list = []
+        self.hunger_days = 0
+        self.water_days = 0
+        self.breath_rounds_left = None
+        self.chases_dashes_used = 0
+        self.madness_effects = []
+        self.injuries = []
+        self.diseases = []
+        self.is_submerged = False
+        self.is_object = False
+        self.damage_threshold = 0
 
 
 
@@ -228,7 +253,31 @@ class Player:
             "in_combat": getattr(self, "in_combat", False),
             "death_save_successes": getattr(self, "death_save_successes", 0),
             "death_save_failures": getattr(self, "death_save_failures", 0),
-            "combat_initiative": getattr(self, "combat_initiative", None)
+            "combat_initiative": getattr(self, "combat_initiative", None),
+            "bonus_action_used_this_turn": getattr(self, "bonus_action_used_this_turn", False),
+            "reckless_attack_active": getattr(self, "reckless_attack_active", False),
+            "non_lethal_mode": getattr(self, "non_lethal_mode", False),
+            "moved_straight_hexes": getattr(self, "moved_straight_hexes", 0),
+            "last_move_dir": getattr(self, "last_move_dir", None),
+            "swallowed_by": getattr(self, "swallowed_by", None),
+            "mount_name": getattr(self, "mount_name", None),
+            "stealth_score": getattr(self, "stealth_score", 0),
+            "surprised": getattr(self, "surprised", False),
+            "spell_cast_bonus_action_this_turn": getattr(self, "spell_cast_bonus_action_this_turn", False),
+            "spell_cast_action_level_this_turn": getattr(self, "spell_cast_action_level_this_turn", None),
+            "bardic_inspiration_die": getattr(self, "bardic_inspiration_die", None),
+            "relentless_rage_uses": getattr(self, "relentless_rage_uses", 0),
+            "frightful_immune_list": getattr(self, "frightful_immune_list", []),
+            "hunger_days": getattr(self, "hunger_days", 0),
+            "water_days": getattr(self, "water_days", 0),
+            "breath_rounds_left": getattr(self, "breath_rounds_left", None),
+            "chases_dashes_used": getattr(self, "chases_dashes_used", 0),
+            "madness_effects": getattr(self, "madness_effects", []),
+            "injuries": getattr(self, "injuries", []),
+            "diseases": getattr(self, "diseases", []),
+            "is_submerged": getattr(self, "is_submerged", False),
+            "is_object": getattr(self, "is_object", False),
+            "damage_threshold": getattr(self, "damage_threshold", 0),
         }
 
     @classmethod
@@ -281,6 +330,30 @@ class Player:
         p.in_pocket_dimension = data.get("in_pocket_dimension", False)
         p.can_attack = data.get("can_attack", True)
         p.is_companion = data.get("is_companion", False)
+        p.bonus_action_used_this_turn = data.get("bonus_action_used_this_turn", False)
+        p.reckless_attack_active = data.get("reckless_attack_active", False)
+        p.non_lethal_mode = data.get("non_lethal_mode", False)
+        p.moved_straight_hexes = data.get("moved_straight_hexes", 0)
+        p.last_move_dir = data.get("last_move_dir", None)
+        p.swallowed_by = data.get("swallowed_by", None)
+        p.mount_name = data.get("mount_name", None)
+        p.stealth_score = data.get("stealth_score", 0)
+        p.surprised = data.get("surprised", False)
+        p.spell_cast_bonus_action_this_turn = data.get("spell_cast_bonus_action_this_turn", False)
+        p.spell_cast_action_level_this_turn = data.get("spell_cast_action_level_this_turn", None)
+        p.bardic_inspiration_die = data.get("bardic_inspiration_die", None)
+        p.relentless_rage_uses = data.get("relentless_rage_uses", 0)
+        p.frightful_immune_list = data.get("frightful_immune_list", [])
+        p.hunger_days = data.get("hunger_days", 0)
+        p.water_days = data.get("water_days", 0)
+        p.breath_rounds_left = data.get("breath_rounds_left", None)
+        p.chases_dashes_used = data.get("chases_dashes_used", 0)
+        p.madness_effects = data.get("madness_effects", [])
+        p.injuries = data.get("injuries", [])
+        p.diseases = data.get("diseases", [])
+        p.is_submerged = data.get("is_submerged", False)
+        p.is_object = data.get("is_object", False)
+        p.damage_threshold = data.get("damage_threshold", 0)
         return p
 
 
@@ -342,13 +415,35 @@ class GameState:
             "auto_apply_rest_recovery": True,
             "auto_advance_time": True,
             "auto_day_night_cycle": True,
-            "auto_distribute_xp": True
+            "auto_distribute_xp": True,
+            "square_diagonal_rule": "standard",
+            # Regole Opzionali DMG (Selezionabili dal DM nel pannello automazioni)
+            "opt_cleaving": False,
+            "opt_massive_damage": False,
+            "opt_lingering_injuries": False,
+            "opt_madness": False,
+            "opt_rest_variant": "standard",
+            "opt_dmg_maneuvers": False,
+            "opt_spell_points": False,
+            "opt_hunger_thirst_weather": False,
         }
         self.pending_damages = {} # id -> dict
         self.pending_doors = {}   # id -> dict
 
     def set_automation_mode(self, mode: str, custom_settings: dict = None):
         """Imposta il profilo di automazione della campagna (manual, hybrid, full) e aggiorna i flag."""
+        cur = getattr(self, "automation_settings", {}) or {}
+        preserved_opts = {
+            "square_diagonal_rule": cur.get("square_diagonal_rule", "standard"),
+            "opt_cleaving": bool(cur.get("opt_cleaving", False)),
+            "opt_massive_damage": bool(cur.get("opt_massive_damage", False)),
+            "opt_lingering_injuries": bool(cur.get("opt_lingering_injuries", False)),
+            "opt_madness": bool(cur.get("opt_madness", False)),
+            "opt_rest_variant": cur.get("opt_rest_variant", "standard"),
+            "opt_dmg_maneuvers": bool(cur.get("opt_dmg_maneuvers", False)),
+            "opt_spell_points": bool(cur.get("opt_spell_points", False)),
+            "opt_hunger_thirst_weather": bool(cur.get("opt_hunger_thirst_weather", False)),
+        }
         with self.lock:
             self.automation_mode = mode
         if mode == "manual":
@@ -367,7 +462,8 @@ class GameState:
                 "auto_apply_rest_recovery": False,
                 "auto_advance_time": False,
                 "auto_day_night_cycle": False,
-                "auto_distribute_xp": False
+                "auto_distribute_xp": False,
+                **preserved_opts,
             }
         elif mode == "full":
             self.automation_settings = {
@@ -385,7 +481,8 @@ class GameState:
                 "auto_apply_rest_recovery": True,
                 "auto_advance_time": True,
                 "auto_day_night_cycle": True,
-                "auto_distribute_xp": True
+                "auto_distribute_xp": True,
+                **preserved_opts,
             }
         else: # "hybrid" (predefinito)
             self.automation_mode = "hybrid"
@@ -404,7 +501,8 @@ class GameState:
                 "auto_apply_rest_recovery": True,
                 "auto_advance_time": True,
                 "auto_day_night_cycle": True,
-                "auto_distribute_xp": True
+                "auto_distribute_xp": True,
+                **preserved_opts,
             }
         if custom_settings and isinstance(custom_settings, dict):
             self.automation_settings.update(custom_settings)
@@ -458,11 +556,23 @@ class GameState:
                     p.in_combat = (p.name in participant_names)
                     p.movement_spent_this_turn = 0
                     p.has_acted_this_turn = False
+                    p.bonus_action_used_this_turn = False
+                    p.reckless_attack_active = False
+                    p.moved_straight_hexes = 0
+                    p.last_move_dir = None
+                    p.spell_cast_bonus_action_this_turn = False
+                    p.spell_cast_action_level_this_turn = None
             else:
                 for p in self.players:
                     p.in_combat = True
                     p.movement_spent_this_turn = 0
                     p.has_acted_this_turn = False
+                    p.bonus_action_used_this_turn = False
+                    p.reckless_attack_active = False
+                    p.moved_straight_hexes = 0
+                    p.last_move_dir = None
+                    p.spell_cast_bonus_action_this_turn = False
+                    p.spell_cast_action_level_this_turn = None
                     
             # Ordina i giocatori in combattimento per iniziativa decrescente, e sposta gli altri in fondo
             self.players.sort(key=lambda p: (getattr(p, 'in_combat', True), p.initiative), reverse=True)
@@ -480,13 +590,20 @@ class GameState:
         self._trigger_gui_update()
 
     def end_combat(self):
-        temp_combat_conds = {"Scatto", "Disimpegno", "Schivata", "Aiutato", "Dash", "Disengage", "Dodge", "Helped", "Scudo"}
+        temp_combat_conds = {"Scatto", "Disimpegno", "Schivata", "Aiutato", "Dash", "Disengage", "Dodge", "Helped", "Scudo", "Attacco Irruento", "Reckless Attack", "Sorpreso", "Surprised"}
         with self.lock:
             self.combat_active = False
             for p in self.players:
                 p.in_combat = False
                 p.movement_spent_this_turn = 0
                 p.has_acted_this_turn = False
+                p.bonus_action_used_this_turn = False
+                p.reckless_attack_active = False
+                p.moved_straight_hexes = 0
+                p.last_move_dir = None
+                p.spell_cast_bonus_action_this_turn = False
+                p.spell_cast_action_level_this_turn = None
+                p.surprised = False
                 p.attacks_made_this_turn = 0
                 if hasattr(p, "conditions") and p.conditions:
                     p.conditions = [c for c in p.conditions if c not in temp_combat_conds]
@@ -592,6 +709,13 @@ class GameState:
                                 expired_fx.append(fx.get("id") or fx.get("name"))
                     for fx_id in expired_fx:
                         prev_active.remove_effect(fx_id)
+                # PHB p. 189: La condizione Sorpreso termina alla fine del primo turno della creatura sorpresa (consentendo reazioni da lì in poi)
+                if getattr(prev_active, "surprised", False) or any(c in ("Sorpreso", "Surprised") for c in getattr(prev_active, "conditions", [])):
+                    prev_active.surprised = False
+                    if hasattr(prev_active, "conditions") and prev_active.conditions:
+                        prev_active.conditions = [c for c in prev_active.conditions if c not in ("Sorpreso", "Surprised")]
+                    if getattr(prev_active, "full_sheet", None) and isinstance(prev_active.full_sheet.get("conditions"), list):
+                        prev_active.full_sheet["conditions"] = [c for c in prev_active.full_sheet["conditions"] if c not in ("Sorpreso", "Surprised")]
             self.turn_index += 1
             round_advanced = False
             if self.turn_index >= len(combatants):
@@ -608,9 +732,16 @@ class GameState:
                 active = combatants[self.turn_index]
                 active.movement_spent_this_turn = 0
                 active.has_acted_this_turn = False
+                active.bonus_action_used_this_turn = False
+                active.reckless_attack_active = False
+                active.moved_straight_hexes = 0
+                active.last_move_dir = None
+                active.spell_cast_bonus_action_this_turn = False
+                active.spell_cast_action_level_this_turn = None
                 active.attacks_made_this_turn = 0
                 active.has_reacted_this_turn = False
                 active.sneak_attack_used_this_turn = False
+                start_of_turn_conds = start_of_turn_conds | {"Attacco Irruento", "Reckless Attack"}
                 for c_p in combatants:
                     c_p.sneak_attack_used_this_turn = False
                 if hasattr(active, "conditions") and active.conditions:
@@ -697,6 +828,31 @@ class GameState:
                                 msg = f"🔥 [DANNO CONTINUO] {active.name} subisce {p_dmg} danni da {p_type} ({eff.get('name', 'Effetto')}) all'inizio del turno! (PV: {active.hp}/{active.max_hp})"
                                 broadcast(self, make_chat_broadcast("Sistema", msg))
                                 broadcast(self, make_player_stats_update(active.name, active.hp, active.max_hp, active.initiative, active.conditions, getattr(active, "temp_hp", 0)))
+
+                    # 4. Inghiottito / Engulfed (MM: es. Gelatina Ocra/Cubo Gelatinoso/Verme Purpureo/Rospo Gigante -> danno acido a inizio turno)
+                    swallower_name = getattr(active, "swallowed_by", None)
+                    if swallower_name and active.hp > 0:
+                        swallower = next((p for p in self.players if p.name == swallower_name and p.hp > 0), None)
+                        if swallower:
+                            from server.rules.combat import apply_damage as _apply_dmg
+                            acid_roll = random.randint(1, 6) + random.randint(1, 6) + random.randint(1, 6)  # 3d6 Acido base (o parametrizzabile)
+                            sw_fs = getattr(swallower, "full_sheet", None) or {}
+                            sw_acid_dice = sw_fs.get("swallow_damage_formula")
+                            if sw_acid_dice:
+                                try:
+                                    from common.dice import roll_dice
+                                    acid_roll = roll_dice(sw_acid_dice)["total"]
+                                except Exception:
+                                    pass
+                            final_a, _, _, _ = _apply_dmg(active, acid_roll, damage_type="Acido", game_state=self)
+                            msg = f"🧪 [INGHIOTTITO] All'inizio del turno nello stomaco di {swallower_name}, {active.name} subisce {final_a} danni da Acido (PV: {active.hp}/{active.max_hp})!"
+                            broadcast(self, make_chat_broadcast("Sistema", msg))
+                            broadcast(self, make_player_stats_update(active.name, active.hp, active.max_hp, active.initiative, active.conditions, getattr(active, "temp_hp", 0)))
+                        else:
+                            # Predatore morto/scomparso: liberato automaticamente
+                            active.swallowed_by = None
+                            if hasattr(active, "conditions"):
+                                active.conditions = [c for c in active.conditions if c not in ("Inghiottito", "Swallowed", "Accecato", "Blinded", "Trattenuto", "Restrained")]
                 except Exception:
                     pass
 
@@ -1003,7 +1159,9 @@ class GameState:
             if "automation_mode" in state:
                 self.automation_mode = state.get("automation_mode", "hybrid")
             if "automation_settings" in state and isinstance(state["automation_settings"], dict):
-                self.automation_settings = dict(state["automation_settings"])
+                merged_settings = dict(self.automation_settings)
+                merged_settings.update(state["automation_settings"])
+                self.automation_settings = merged_settings
             if "pending_damages" in state:
                 self.pending_damages = state.get("pending_damages", {})
             if "pending_doors" in state:
@@ -1077,6 +1235,20 @@ class GameState:
                     existing.active_effects = p_data.get("active_effects", [])
                     existing.is_companion = p_data.get("is_companion", False)
                     existing.in_pocket_dimension = p_data.get("in_pocket_dimension", False)
+                    existing.swallowed_by = p_data.get("swallowed_by", None)
+                    existing.mount_name = p_data.get("mount_name", None)
+                    existing.stealth_score = p_data.get("stealth_score", 0)
+                    existing.surprised = p_data.get("surprised", False)
+                    existing.bardic_inspiration_die = p_data.get("bardic_inspiration_die", None)
+                    existing.hunger_days = p_data.get("hunger_days", 0)
+                    existing.water_days = p_data.get("water_days", 0)
+                    existing.breath_rounds_left = p_data.get("breath_rounds_left", None)
+                    existing.madness_effects = p_data.get("madness_effects", [])
+                    existing.injuries = p_data.get("injuries", [])
+                    existing.diseases = p_data.get("diseases", [])
+                    existing.is_submerged = p_data.get("is_submerged", False)
+                    existing.is_object = p_data.get("is_object", False)
+                    existing.damage_threshold = p_data.get("damage_threshold", 0)
                     loaded_players.append(existing)
                 else:
                     loaded_players.append(Player.from_dict(p_data))

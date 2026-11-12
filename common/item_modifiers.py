@@ -662,8 +662,63 @@ def get_effective_save_bonus_from_dict(character_or_dict: Any, stat_name: str, m
             lvl = 1
         prof_bonus = ((lvl - 1) // 4) + 2
         mod += prof_bonus
+    else:
+        # Anima di Diamante (Monaco Liv 14+, PHB p. 79): competenza in TUTTI i Tiri Salvezza
+        try:
+            from common.dnd5e_tables import entity_get_class_level, entity_has_keyword, entity_get_total_level
+            monk_lvl = entity_get_class_level(character_or_dict, "monaco", "monk")
+            if monk_lvl >= 14 or entity_has_keyword(character_or_dict, "anima di diamante", "diamond soul"):
+                tot_lvl = entity_get_total_level(character_or_dict)
+                mod += ((max(1, tot_lvl) - 1) // 4) + 2
+        except Exception:
+            pass
 
     return mod + mods.get("bonus_saves", 0)
+
+
+def is_item_cursed(item_dict: Any) -> bool:
+    """Ritorna True se un oggetto è maledetto e la maledizione non è stata rimossa (DMG p. 138)."""
+    if not item_dict or not isinstance(item_dict, dict):
+        return False
+    if item_dict.get("curse_lifted", False):
+        return False
+    if item_dict.get("cursed") or item_dict.get("is_cursed"):
+        return True
+    txt = f"{item_dict.get('name', '')} {item_dict.get('desc', '')}".lower()
+    return "maledett" in txt or "cursed" in txt
+
+
+def can_unattune_item(item_dict: Any) -> Tuple[bool, str]:
+    """
+    DMG p. 138: Non è possibile interrompere volontariamente la sintonia con un oggetto maledetto
+    finché la maledizione non viene spezzata (es. con Rimuovi Maledizione).
+    """
+    if is_item_cursed(item_dict):
+        iname = item_dict.get("name", "Oggetto Maledetto")
+        return False, f"'{iname}' è MALEDETTO: impossibile rimuoverne la sintonia senza Rimuovi Maledizione (Remove Curse)!"
+    return True, "Sintonia terminabile."
+
+
+def lift_curse_on_inventory(character_or_dict: Any, target_item_name: Optional[str] = None) -> List[str]:
+    """
+    Rimuove la maledizione dagli oggetti nell'inventario di un personaggio o Player.
+    Ritorna la lista dei nomi degli oggetti liberati dalla maledizione.
+    """
+    lifted = []
+    inv = _get_char_field(character_or_dict, "inventory_grid", None)
+    if not isinstance(inv, list):
+        return lifted
+    t_low = str(target_item_name or "").strip().lower()
+    for it in inv:
+        if not it or not isinstance(it, dict):
+            continue
+        if t_low and t_low not in str(it.get("name", "")).lower():
+            continue
+        if is_item_cursed(it):
+            it["curse_lifted"] = True
+            it["cursed"] = False
+            lifted.append(it.get("name", "Oggetto Maledetto"))
+    return lifted
 
 
 def _has_fighting_style_defense(features_str: str) -> bool:

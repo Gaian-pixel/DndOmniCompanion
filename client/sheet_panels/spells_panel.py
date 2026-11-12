@@ -80,7 +80,11 @@ class SpellsPanel:
         sp_cur = getattr(sheet.character, "sorcery_points_current", 0)
         sp_max = getattr(sheet.character, "sorcery_points_max", 0)
         sorc_txt = f" | Punti Stregoneria: {sp_cur}/{sp_max}" if sp_max > 0 else ""
-        sheet.lbl_spell_pb.config(text=f"⭐ Competenza: +{pb}{prep_txt}{sorc_txt}")
+        _ch_sp = getattr(sheet, "character", None)
+        sp_max = int(getattr(_ch_sp, "spell_points_max", 0) or 0) if _ch_sp else 0
+        sp_cur = int(getattr(_ch_sp, "spell_points_current", 0) or 0) if _ch_sp else 0
+        sp_txt = f" | ⚡ Punti Magia (DMG): {sp_cur}/{sp_max}" if sp_max > 0 else ""
+        sheet.lbl_spell_pb.config(text=f"⭐ Competenza: +{pb}{prep_txt}{sorc_txt}{sp_txt}")
 
     @staticmethod
     def refresh_spell_list(sheet):

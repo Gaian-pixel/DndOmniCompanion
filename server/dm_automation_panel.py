@@ -71,6 +71,22 @@ def open_automation_settings_dialog(dm_gui):
     day_night_var = tk.BooleanVar(value=cur_settings.get("auto_day_night_cycle", True))
     auto_xp_var = tk.BooleanVar(value=cur_settings.get("auto_distribute_xp", True))
 
+    # Regole Opzionali DMG (Selezionabili dal DM)
+    opt_cleaving_var = tk.BooleanVar(value=cur_settings.get("opt_cleaving", False))
+    opt_massive_var = tk.BooleanVar(value=cur_settings.get("opt_massive_damage", False))
+    opt_injuries_var = tk.BooleanVar(value=cur_settings.get("opt_lingering_injuries", False))
+    opt_madness_var = tk.BooleanVar(value=cur_settings.get("opt_madness", False))
+    opt_dmg_maneuvers_var = tk.BooleanVar(value=cur_settings.get("opt_dmg_maneuvers", False))
+    opt_spell_points_var = tk.BooleanVar(value=cur_settings.get("opt_spell_points", False))
+    opt_survival_var = tk.BooleanVar(value=cur_settings.get("opt_hunger_thirst_weather", False))
+    cur_rest_var = cur_settings.get("opt_rest_variant", "standard")
+    rest_var_labels = {
+        "standard": "standard (1h Breve / 8h Lungo - PHB)",
+        "epic_heroism": "epic_heroism (5m Breve / 1h Lungo - DMG p.267)",
+        "gritty_realism": "gritty_realism (8h Breve / 7g Lungo - DMG p.267)",
+    }
+    rest_variant_var = tk.StringVar(value=rest_var_labels.get(cur_rest_var, rest_var_labels["standard"]))
+
     def on_preset_selected():
         m = mode_var.get()
         if m == "manual":
@@ -219,8 +235,51 @@ def open_automation_settings_dialog(dm_gui):
     ttk.Checkbutton(sec4, text="Ciclo Giorno/Notte dinamico automatico sulle mappe all'aperto", variable=day_night_var).pack(anchor="w", pady=2)
     tk.Label(sec4, text="  ↳ Se disattivato, non applica i filtri solari/notturni automatici e mantiene la visuale limpida per la gestione manuale del DM.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
 
+    # Sezione 5: Regole Opzionali DMG (Selezionabili dal Dungeon Master)
+    sec5 = tk.LabelFrame(scrollable_frame, text=" 📕 Regole Opzionali DMG (Selezionabili dal DM) ", font=FONT_BOLD, bg=SURFACE_COLOR, fg="#F472B6", padx=10, pady=8)
+    sec5.pack(fill=tk.X, pady=6)
+
+    ttk.Checkbutton(sec5, text="Spazzata / Fendere Creature (Cleaving - DMG p. 272)", variable=opt_cleaving_var).pack(anchor="w", pady=2)
+    tk.Label(sec5, text="  ↳ Se un attacco in mischia azzera un nemico non ferito in eccesso, i danni residui traboccano su un nemico adiacente se il TxC colpisce la sua CA.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
+
+    ttk.Checkbutton(sec5, text="Danno Massiccio / Shock Sistemico (Massive Damage - DMG p. 273)", variable=opt_massive_var).pack(anchor="w", pady=2)
+    tk.Label(sec5, text="  ↳ Un singolo colpo >= 50% dei PF Max richiede TS Costituzione CD 15 o applica la tabella d10 Shock Sistemico.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
+
+    ttk.Checkbutton(sec5, text="Ferite Permanenti (Lingering Injuries - DMG p. 272)", variable=opt_injuries_var).pack(anchor="w", pady=2)
+    tk.Label(sec5, text="  ↳ Su Colpo Critico subito o crollo a 0 PF tira sulla tabella d20 delle Ferite Permanenti (occhio, costole, cicatrice, zoppia).", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
+
+    ttk.Checkbutton(sec5, text="Follia / Sanità Mentale (Madness - DMG p. 258-260)", variable=opt_madness_var).pack(anchor="w", pady=2)
+    tk.Label(sec5, text="  ↳ Abilita le tabelle d100 di Follia (Breve, Lunga, Indefinita) e le meccaniche mentali in combattimento ed esplorazione.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
+
+    ttk.Checkbutton(sec5, text="Manovre Marziali Opzionali (Disarm, Overrun, Tumble, Shove Aside - DMG p. 271)", variable=opt_dmg_maneuvers_var).pack(anchor="w", pady=2)
+    tk.Label(sec5, text="  ↳ Abilita Disarmare, Oltrepassare (Overrun), Capovolta (Tumble) e Spinta Laterale (Shove Aside) come azioni di combattimento.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
+
+    ttk.Checkbutton(sec5, text="Punti Incantesimo Opzionali (Spell Points - DMG p. 288)", variable=opt_spell_points_var).pack(anchor="w", pady=2)
+    tk.Label(sec5, text="  ↳ Sostituisce gli slot tradizionali (1°-9°) con un pool flessibile di Punti Incantesimo.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
+
+    ttk.Checkbutton(sec5, text="Sopravvivenza Rigida: Fame, Sete & Clima Estremo (DMG p. 110-111)", variable=opt_survival_var).pack(anchor="w", pady=2)
+    tk.Label(sec5, text="  ↳ Traccia razioni giornaliere, acqua e TS orari da Caldo/Freddo Estremo con penalità cumulative di Sfinimento.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
+
+    rv_frame = tk.Frame(sec5, bg=SURFACE_COLOR)
+    rv_frame.pack(fill=tk.X, pady=(6, 2))
+    tk.Label(rv_frame, text="Variante Ritmo Riposi (DMG p. 267):", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+    rv_cb = ttk.Combobox(
+        rv_frame,
+        textvariable=rest_variant_var,
+        values=list(rest_var_labels.values()),
+        state="readonly",
+        width=46
+    )
+    rv_cb.pack(anchor="w", pady=(2, 2))
+
     def save_and_close():
         sel_mode = mode_var.get()
+        rv_raw = rest_variant_var.get()
+        rv_key = "standard"
+        if "epic_heroism" in rv_raw:
+            rv_key = "epic_heroism"
+        elif "gritty_realism" in rv_raw:
+            rv_key = "gritty_realism"
         new_settings = {
             "auto_apply_damage": bool(auto_dmg_var.get()),
             "auto_apply_aoe_damage": bool(auto_aoe_var.get()),
@@ -237,7 +296,15 @@ def open_automation_settings_dialog(dm_gui):
             "auto_advance_time": bool(advance_time_var.get()),
             "auto_day_night_cycle": bool(day_night_var.get()),
             "auto_distribute_xp": bool(auto_xp_var.get()),
-            "square_diagonal_rule": "tactical" if "tactical" in diag_rule_var.get() else "standard"
+            "square_diagonal_rule": "tactical" if "tactical" in diag_rule_var.get() else "standard",
+            "opt_cleaving": bool(opt_cleaving_var.get()),
+            "opt_massive_damage": bool(opt_massive_var.get()),
+            "opt_lingering_injuries": bool(opt_injuries_var.get()),
+            "opt_madness": bool(opt_madness_var.get()),
+            "opt_dmg_maneuvers": bool(opt_dmg_maneuvers_var.get()),
+            "opt_spell_points": bool(opt_spell_points_var.get()),
+            "opt_hunger_thirst_weather": bool(opt_survival_var.get()),
+            "opt_rest_variant": rv_key,
         }
         from server.rules.combat import handle_set_automation_mode_request
         handle_set_automation_mode_request({"mode": sel_mode, "settings": new_settings}, None, dm_gui.server.game_state)

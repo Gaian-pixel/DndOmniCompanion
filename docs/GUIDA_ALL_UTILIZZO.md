@@ -610,6 +610,10 @@ D&D OmniCompanion offre al Dungeon Master il pieno controllo sull'equilibrio tra
     10. `auto_death_saves`: gestione automatica TS morte a 0 PV.
     11. `auto_weather_effects`: applicazione automatica svantaggi da tempesta, nebbia e pioggia.
     12. `auto_distribute_xp`: calcolo e ripartizione automatica dei Punti Esperienza (XP) dai mostri sconfitti a fine scontro con notifiche di avanzamento livello (PHB p. 15). Disattivabile per campagne a Milestone o calcoli manuali.
+* **Regole Opzionali DMG Selezionabili dal Master (PHB / DMG / MM Avanzate)**:
+  * Sempre dal pannello **`Strumenti -> ⚙️ Stile Gestione Campagna (Automazioni)...`**, nella sezione dedicata *Regole Opzionali DMG*, il Master può attivare o disattivare indipendentemente:
+    * `opt_cleaving` (Spazzata DMG p. 272), `opt_massive_damage` (Shock da Danno Massiccio DMG p. 273), `opt_lingering_injuries` (Ferite Permanenti DMG p. 272), `opt_madness` (Follia Breve/Lunga/Indefinita DMG p. 258), `opt_dmg_maneuvers` (Disarmare, Oltrepassare, Capovolta, Spinta Laterale), `opt_spell_points` (Punti Incantesimo DMG p. 288), `opt_hunger_thirst_weather` (Fame, Sete e Clima Estremo) e `opt_rest_variant` (Standard / Eroismo Epico / Realismo Crudo DMG p. 267).
+  * Dal menu **`Strumenti -> 📕 Strumenti Regole 5e (PHB/DMG/MM)...`** (lato DM) e **`Personaggio -> ⚔️ Poteri & Azioni Speciali 5e...`** o comandi slash `/nonlethal`, `/reckless`, `/layonhands`, `/inspire`, `/turnundead`, `/maneuver`, `/hide`, `/cunning`, `/ki`, `/castspecial` (lato Giocatore), è possibile attivare direttamente tutti i privilegi PHB/MM, veleni/malattie DMG, oggetti/soglia danno, oggetti maledetti e inseguimenti.
 * **Barra Fluttuante delle Decisioni DM in Sospeso (*Pending Actions Dock*)**:
   * Quando è attivo il profilo Tradizionale o Ibrido e un evento richiede l'intervento del Master (es. danno in arrivo, richiesta di riposo, scasso o trappola), in basso al centro appare un dock ergonomico non invasivo:
   * Mostra il dettaglio dell'evento (es. `Attacco su Gildor: 14 Danni Taglienti`) e offre comodi pulsanti:

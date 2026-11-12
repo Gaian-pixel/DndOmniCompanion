@@ -56,6 +56,10 @@ def auto_explore_fow(player, game_state):
     return changed
 
 def handle_move_request(data, player, game_state):
+    from server.rules.class_abilities import _check_surprised_block
+    if _check_surprised_block(player, game_state, "muoverti"):
+        return
+
     conds = getattr(player, "conditions", [])
     blocking = ["Afferrato", "Grappled", "Trattenuto", "Restrained", "Privo di Sensi", "Incapacitato", "Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto"]
     if any(is_condition_active(conds, c) for c in blocking) or getattr(player, "exhaustion_level", 0) >= 5 or getattr(player, "hp", 1) <= 0:
@@ -204,6 +208,21 @@ def handle_move_request(data, player, game_state):
                     step_cost += 1
                 req_hexes += step_cost
 
+            # PHB p. 195 Trascinare creatura afferrata: movimento dimezzato (costo x2) a meno che >= 2 taglie più piccola
+            _size_map = {"minuscola": 0, "tiny": 0, "piccola": 1, "small": 1, "media": 2, "medium": 2, "grande": 3, "large": 3, "enorme": 4, "huge": 4, "mastodontica": 5, "gargantuan": 5}
+            p_srank = _size_map.get(str(getattr(player, "size", "Media")).strip().lower(), 2)
+            grappled_victims = [
+                g for g in getattr(game_state, "players", [])
+                if g.name != player.name and getattr(g, "grappled_by", None) == player.name and is_condition_active(getattr(g, "conditions", []), "Afferrato")
+            ]
+            if any(_size_map.get(str(getattr(g, "size", "Media")).strip().lower(), 2) > (p_srank - 2) for g in grappled_victims):
+                req_hexes *= 2
+
+            # Combattimento Subacqueo (PHB p. 198): muoversi immersi senza velocità di nuoto costa movimento doppio
+            from common.dnd5e_tables import entity_has_keyword as _ehk_mv
+            if (getattr(player, "is_submerged", False) or is_condition_active(conds, "Immerso")) and not _ehk_mv(player, "nuotare", "swim"):
+                req_hexes *= 2
+
             spent = getattr(player, "movement_spent_this_turn", 0)
             strict_move = True
             if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
@@ -227,58 +246,94 @@ def handle_move_request(data, player, game_state):
                     game_state.log_dm_message(f"[MOVIMENTO] {player.name} supera la velocità normale del turno ({spent + req_hexes}/{max_hexes} esagoni) - Consentito in modalità tavolo.")
             player.movement_spent_this_turn = spent + req_hexes
 
-        # Rilevamento Attacco d'Opportunità (Opportunity Attack - D&D 5e RAW PHB p. 195)
+        # Rilevamento Attacco d'Opportunità (Opportunity Attack - D&D 5e RAW PHB p. 195, Volo Radente MM, Sentinella & Maestro d'Armi Astate PHB)
         from_pos = list(player.position) if hasattr(player, "position") and player.position else None
         is_teleport = bool(data.get("is_teleport", False))
         if in_combat and from_pos and from_pos != to_pos and not is_teleport:
             disengaged = is_condition_active(conds, "Disimpegno")
-            if not disengaged:
-                for other in getattr(game_state, "players", []):
-                    if other.name != player.name and getattr(other, "hp", 0) > 0 and hasattr(other, "position") and other.position:
-                        is_enemy = (getattr(player, "is_party_member", False) != getattr(other, "is_party_member", False))
-                        # Non può reagire se ha già speso la reazione questo turno
-                        has_reacted = getattr(other, "has_reacted_this_turn", False)
-                        if is_enemy and not has_reacted:
-                            qo, ro = other.position[0], other.position[1]
-                            reach = getattr(other, "reach", 1) or 1
-                            cur_m = getattr(game_state, "current_map", None)
-                            g_type = cur_m.get("grid_type", "hex") if cur_m else "hex"
-                            d_rule = "standard"
-                            if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
-                                d_rule = game_state.automation_settings.get("square_diagonal_rule", "standard")
-                            z_oth = getattr(other, "elevation", 0) or 0
-                            z_ply = getattr(player, "elevation", 0) or 0
+            from common.dnd5e_tables import entity_has_keyword as _ehk_oa
+            has_flyby = _ehk_oa(player, "volo radente", "flyby")
+            for other in getattr(game_state, "players", []):
+                if other.name != player.name and getattr(other, "hp", 0) > 0 and hasattr(other, "position") and other.position:
+                    is_enemy = (getattr(player, "is_party_member", False) != getattr(other, "is_party_member", False))
+                    has_reacted = getattr(other, "has_reacted_this_turn", False)
+                    if is_enemy and not has_reacted:
+                        has_sentinel = _ehk_oa(other, "sentinella", "sentinel")
+                        has_pam = _ehk_oa(other, "maestro d'armi astate", "polearm master", "armi astate")
+                        qo, ro = other.position[0], other.position[1]
+                        reach = getattr(other, "reach", 1) or 1
+                        cur_m = getattr(game_state, "current_map", None)
+                        g_type = cur_m.get("grid_type", "hex") if cur_m else "hex"
+                        d_rule = "standard"
+                        if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+                            d_rule = game_state.automation_settings.get("square_diagonal_rule", "standard")
+                        z_oth = getattr(other, "elevation", 0) or 0
+                        z_ply = getattr(player, "elevation", 0) or 0
 
-                            exited_reach = False
-                            if move_path and len(move_path) > 1:
-                                for p_i in range(len(move_path) - 1):
-                                    s_cur, s_nxt = move_path[p_i], move_path[p_i + 1]
-                                    cq1 = getattr(s_cur, "q", s_cur[0] if isinstance(s_cur, (list, tuple)) else 0)
-                                    cr1 = getattr(s_cur, "r", s_cur[1] if isinstance(s_cur, (list, tuple)) else 0)
-                                    cq2 = getattr(s_nxt, "q", s_nxt[0] if isinstance(s_nxt, (list, tuple)) else 0)
-                                    cr2 = getattr(s_nxt, "r", s_nxt[1] if isinstance(s_nxt, (list, tuple)) else 0)
-                                    d_c = grid_distance_3d(Hex(cq1, cr1), Hex(qo, ro), z_ply, z_oth, grid_type=g_type, diagonal_rule=d_rule)
-                                    d_n = grid_distance_3d(Hex(cq2, cr2), Hex(qo, ro), z_ply, z_oth, grid_type=g_type, diagonal_rule=d_rule)
-                                    if d_c <= reach and d_n > reach:
-                                        exited_reach = True
-                                        break
-                            else:
-                                d_f = grid_distance_3d(Hex(from_pos[0], from_pos[1]), Hex(qo, ro), z_ply, z_oth, grid_type=g_type, diagonal_rule=d_rule)
-                                d_t = grid_distance_3d(Hex(to_pos[0], to_pos[1]), Hex(qo, ro), z_ply, z_oth, grid_type=g_type, diagonal_rule=d_rule)
-                                exited_reach = (d_f <= reach and d_t > reach)
-                            if exited_reach:
-                                incaps = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto", "Incapacitato", "Incapacitated"]
-                                o_conds = getattr(other, "conditions", [])
-                                is_blind = any(is_condition_active(o_conds, c) for c in ["Cieco", "Blinded"])
-                                if not is_blind and not any(is_condition_active(o_conds, c) for c in incaps):
-                                    opp_alert = f"⚠️ [OPPORTUNITÀ] {player.name} esce dalla portata di mischia ({reach * 1.5}m) di {other.name}! {other.name} può usare la Reazione per un Attacco d'Opportunità!"
-                                    game_state.log_dm_message(f"[COMBAT] {opp_alert}")
-                                    from common.protocol import make_chat_broadcast, make_opportunity_alert
-                                    broadcast(game_state, make_chat_broadcast("Sistema", opp_alert))
-                                    if getattr(other, "conn", None):
-                                        send_message(other.conn, make_opportunity_alert(player.name, f"{player.name} si sta allontanando da te!"))
+                        exited_reach = False
+                        entered_reach = False
+                        if move_path and len(move_path) > 1:
+                            for p_i in range(len(move_path) - 1):
+                                s_cur, s_nxt = move_path[p_i], move_path[p_i + 1]
+                                cq1 = getattr(s_cur, "q", s_cur[0] if isinstance(s_cur, (list, tuple)) else 0)
+                                cr1 = getattr(s_cur, "r", s_cur[1] if isinstance(s_cur, (list, tuple)) else 0)
+                                cq2 = getattr(s_nxt, "q", s_nxt[0] if isinstance(s_nxt, (list, tuple)) else 0)
+                                cr2 = getattr(s_nxt, "r", s_nxt[1] if isinstance(s_nxt, (list, tuple)) else 0)
+                                d_c = grid_distance_3d(Hex(cq1, cr1), Hex(qo, ro), z_ply, z_oth, grid_type=g_type, diagonal_rule=d_rule)
+                                d_n = grid_distance_3d(Hex(cq2, cr2), Hex(qo, ro), z_ply, z_oth, grid_type=g_type, diagonal_rule=d_rule)
+                                if d_c <= reach and d_n > reach:
+                                    exited_reach = True
+                                if d_c > reach and d_n <= reach:
+                                    entered_reach = True
+                        else:
+                            d_f = grid_distance_3d(Hex(from_pos[0], from_pos[1]), Hex(qo, ro), z_ply, z_oth, grid_type=g_type, diagonal_rule=d_rule)
+                            d_t = grid_distance_3d(Hex(to_pos[0], to_pos[1]), Hex(qo, ro), z_ply, z_oth, grid_type=g_type, diagonal_rule=d_rule)
+                            exited_reach = (d_f <= reach and d_t > reach)
+                            entered_reach = (d_f > reach and d_t <= reach)
 
+                        provoke_exit = exited_reach and (not has_flyby) and (not disengaged or has_sentinel)
+                        provoke_enter = entered_reach and has_pam
+                        if provoke_exit or provoke_enter:
+                            incaps = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto", "Incapacitato", "Incapacitated"]
+                            o_conds = getattr(other, "conditions", [])
+                            is_blind = any(is_condition_active(o_conds, c) for c in ["Cieco", "Blinded"])
+                            if not is_blind and not any(is_condition_active(o_conds, c) for c in incaps):
+                                reason_oa = "entra nella portata (Maestro d'Armi Astate)" if provoke_enter and not provoke_exit else f"esce dalla portata di mischia ({reach * 1.5}m)"
+                                opp_alert = f"⚠️ [OPPORTUNITÀ] {player.name} {reason_oa} di {other.name}! {other.name} può usare la Reazione per un Attacco d'Opportunità!"
+                                game_state.log_dm_message(f"[COMBAT] {opp_alert}")
+                                from common.protocol import make_chat_broadcast, make_opportunity_alert
+                                broadcast(game_state, make_chat_broadcast("Sistema", opp_alert))
+                                if getattr(other, "conn", None):
+                                    send_message(other.conn, make_opportunity_alert(player.name, f"{player.name} {reason_oa}!"))
+
+        prev_pos = list(player.position) if hasattr(player, "position") and player.position else None
         game_state.move_player(player.name, to_pos)
+
+        # Tracciamento movimento rettilineo per Charge/Pounce (MM)
+        if prev_pos and prev_pos != to_pos and not is_teleport:
+            cur_m_dir = getattr(game_state, "current_map", None)
+            g_t_dir = cur_m_dir.get("grid_type", "hex") if cur_m_dir else "hex"
+            dq = (1 if to_pos[0] > prev_pos[0] else (-1 if to_pos[0] < prev_pos[0] else 0))
+            dr = (1 if to_pos[1] > prev_pos[1] else (-1 if to_pos[1] < prev_pos[1] else 0))
+            step_hexes = int(grid_distance_3d(Hex(prev_pos[0], prev_pos[1]), Hex(to_pos[0], to_pos[1]), 0, 0, grid_type=g_t_dir))
+            if getattr(player, "last_move_dir", None) == (dq, dr) or not getattr(player, "last_move_dir", None):
+                player.moved_straight_hexes = getattr(player, "moved_straight_hexes", 0) + step_hexes
+            else:
+                player.moved_straight_hexes = step_hexes
+            player.last_move_dir = (dq, dr)
+
+        # Trascinamento creature Afferrate (Grappled) + Cavalcatura sincronizzata (Mount)
+        from common.protocol import make_player_move as _mk_pmv
+        for other_m in getattr(game_state, "players", []):
+            if other_m.name == player.name:
+                continue
+            if getattr(other_m, "grappled_by", None) == player.name and is_condition_active(getattr(other_m, "conditions", []), "Afferrato") and prev_pos:
+                g_dest = [move_path[-2].q, move_path[-2].r] if (move_path and len(move_path) >= 2) else prev_pos
+                game_state.move_player(other_m.name, g_dest)
+                broadcast(game_state, _mk_pmv(other_m.name, g_dest))
+            elif getattr(other_m, "mount_name", None) == player.name:
+                game_state.move_player(other_m.name, list(to_pos))
+                broadcast(game_state, _mk_pmv(other_m.name, list(to_pos)))
 
         # Effetti Pericolosi Terreno Difficile (Ghiaccio, Rovi, Palude)
         cur_map = getattr(game_state, "current_map", None)

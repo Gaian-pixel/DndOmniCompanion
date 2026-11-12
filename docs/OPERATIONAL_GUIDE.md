@@ -733,16 +733,23 @@ D&D OmniCompanion features comprehensive targeting infrastructure, dynamic rayca
   * **Monk Stunning Strike & Battle Master Superiority Dice**: `use_stunning_strike` attack parameter forcing target CON save vs Ki DC ($8 + \text{PB} + \text{WIS}$) and `superiority_dice_current`/`max` pool tracking.
   * **Monster Recharge Abilities (*Recharge X-6*), Ongoing Damage & Regeneration**: Automated start-of-turn `1d6` rolls in `GameState.next_turn()` to recharge monster powers, persistent damage ticks, and Troll/Vampire regeneration inhibited by fire or acid.
   * **Selectable Automatic XP Distribution (`auto_distribute_xp`)**: Configurable toggle in DM automation settings (`dm_automation_panel.py`) and `GameState.automation_settings`. At combat conclusion (`end_combat`), calculates XP from defeated monsters' Challenge Ratings (CR), splits evenly among living party members, updates sheets, and broadcasts level-up notices upon reaching 5e official thresholds (PHB p. 15, `XP_LEVEL_THRESHOLDS`).
+  * **Complete PHB/DMG/MM Rulebook Engine (`common/dnd5e_tables.py`, `server/rules/class_abilities.py`, `server/dm_optional_tools.py`)**:
+    * **PHB Class Powers & Feats**: *Reckless Attack*, *Danger Sense*, *Relentless Rage*, *Bear Totem Spirit*, *Bardic Inspiration*, *Song of Rest*, *Turn/Destroy Undead*, *Divine Intervention*, *Indomitable*, *Battle Master Maneuvers*, *Cunning Action & Hide*, *Uncanny Dodge* (`UNCANNY_DODGE`), *Ki* (`Flurry/Patient Defense/Step of the Wind`), *Diamond Soul*, *Lay on Hands*, *Aura of Courage*, *Improved Divine Smite*, *Mystic Arcanum* (6th–9th), *Eldritch Invocations*, plus Feats (*Sentinel*, *Polearm Master*, *War Caster*, *Tough*, *Alert*, *Elemental Adept*, *Crossbow Expert*, *Spell Sniper*, *Healer*, *Inspiring Leader*).
+    * **Combat/Spell/Adventure Edge Rules & MM Traits**: Surprise (Round 1 skip), Non-Lethal KO, Grappled Creature Dragging, *Magic Missile* vs *Shield*, Multi-Ray Spells (*Eldritch Blast*, *Scorching Ray*), Bonus Action Spell Rule, Verbal Components & Silence, Underwater Combat & Suffocation, Mounted Movement Sync, Jump Calculator, and Monster Traits (*Pack Tactics*, *Magic Resistance*, *Flyby*, *Charge/Pounce*, *Frightful Presence*, *Swallow/Regurgitation*, *Ooze Split*).
+    * **DM-Selectable Optional DMG Rules (`dm_automation_panel.py`)**: `opt_cleaving`, `opt_massive_damage` (*System Shock*), `opt_lingering_injuries`, `opt_madness` (Short/Long/Indefinite), `opt_rest_variant` (`standard`/`epic_heroism`/`gritty_realism`), `opt_dmg_maneuvers` (*Disarm/Overrun/Tumble/Shove Aside*), `opt_spell_points`, `opt_hunger_thirst_weather`, plus Cursed Items (*Remove Curse*), DMG Poisons/Diseases, Objects/Damage Threshold, and Chases.
 
 ---
 
 ## 12. Testing Suite & Quality Assurance
 
-The codebase includes a consolidated testing suite in the `tests/` directory with **492 automated tests** passing at 100% with 0 failures, covering headless unit tests, advanced 5e RAW mechanics (Smite, Wild Shape, Font of Magic, Arcane Recovery, Reliable Talent, Jack of All Trades, Brutal Critical, Stunning Strike, Superiority Dice, Cantrip Scaling, Monster Recharge, Auto XP), automatic magic item modifiers, 3D dice physics and rendering, tactical combat, 3D space and elevation, join game flow and server history, companions/familiars, travel/camping, GUI smoke tests, single-window architecture, and full multiplayer campaign simulations:
+The codebase includes a consolidated testing suite in the `tests/` directory with **508 automated tests** passing at 100% with 0 failures, covering headless unit tests, complete PHB/DMG/MM mechanics & selectable DMG rules (`test_phb_dmg_mm_complete.py`), advanced 5e RAW mechanics (Smite, Wild Shape, Font of Magic, Arcane Recovery, Reliable Talent, Jack of All Trades, Brutal Critical, Stunning Strike, Superiority Dice, Cantrip Scaling, Monster Recharge, Auto XP), automatic magic item modifiers, 3D dice physics and rendering, tactical combat, 3D space and elevation, join game flow and server history, companions/familiars, travel/camping, GUI smoke tests, single-window architecture, and full multiplayer campaign simulations:
 
 ```powershell
-# 1. Run comprehensive unit tests (492 tests with 0 failures)
+# 1. Run comprehensive unit tests (508 tests with 0 failures)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
+
+# 1b. Run Complete PHB / Selectable DMG / MM test suite
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_phb_dmg_mm_complete.py
 
 # 2. Run Advanced 5e RAW Mechanics and Automatic XP test suite
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_raw_5e_advanced_features.py
