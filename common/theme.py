@@ -54,6 +54,13 @@ def setup_theme(root):
     from common.ui_lifecycle import suppress_tk_bgerror
     suppress_tk_bgerror(root)
 
+    if tb.Style.instance is not None:
+        try:
+            if not tb.Style.instance.master or not tb.Style.instance.master.winfo_exists():
+                tb.Style.instance = None
+        except Exception:
+            tb.Style.instance = None
+
     available_themes = tb.Style().theme_names()
     theme_name = "bootstrap-dark" if "bootstrap-dark" in available_themes else "darkly"
     style = tb.Style(theme=theme_name)
@@ -79,6 +86,8 @@ def setup_theme(root):
     style.configure('GoldTitle.TLabel', font=FONT_TITLE, foreground=ACCENT_GOLD, background=BG_COLOR)
     style.configure('Header.TLabel', font=FONT_HEADER, foreground=TEXT_COLOR)
     style.configure('Muted.TLabel', foreground=TEXT_MUTED, font=FONT_SMALL)
+    style.configure('Primary.TLabel', font=FONT_BOLD, foreground=ACCENT_BLUE, background=BG_COLOR)
+    style.configure('Gold.TLabel', font=FONT_BOLD, foreground=ACCENT_GOLD, background=BG_COLOR)
     
     # Badge Labels (Pills)
     style.configure('Badge.TLabel', font=FONT_BADGE, foreground=ACCENT_GOLD, background=SURFACE_COLOR_ALT, padding=(6, 2))
@@ -116,6 +125,14 @@ def setup_theme(root):
     # Bottone Scuro (Dark card action)
     style.configure('Dark.TButton', font=FONT_MAIN, background=SURFACE_COLOR_ALT, foreground=TEXT_COLOR, padding=(8, 5))
     style.map('Dark.TButton', background=[('active', SURFACE_LIGHT)])
+
+    # Bottone Warning (Ambra / Avviso)
+    style.configure('Warning.TButton', font=FONT_BOLD, background="#D97706", foreground="#FFFFFF", borderwidth=0, padding=(8, 5))
+    style.map('Warning.TButton', background=[('active', "#F59E0B"), ('pressed', "#B45309")])
+
+    # Bottone Compatto
+    style.configure('Small.TButton', font=FONT_SMALL, background=SURFACE_COLOR_ALT, foreground=TEXT_COLOR, padding=(4, 2))
+    style.map('Small.TButton', background=[('active', SURFACE_LIGHT)])
 
     # Bottone Toolbar Quadrato
     style.configure('Tool.TButton', font=("Segoe UI", 11), background=SURFACE_COLOR, foreground=TEXT_COLOR, padding=(4, 4))

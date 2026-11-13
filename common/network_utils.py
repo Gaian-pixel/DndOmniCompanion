@@ -1,9 +1,15 @@
 # network_utils.py
 import socket
+import select
 import struct
 import json
 import threading
 import weakref
+
+
+def is_dm_actor(player) -> bool:
+    """Ritorna True se il mittente è il DM (player is None o role=='DM')."""
+    return player is None or getattr(player, "role", "") == "DM"
 
 # Un lock per socket: impedisce che due thread (es. GUI del DM e thread di un client)
 # scrivano contemporaneamente sullo stesso socket mescolando i byte di messaggi diversi.
@@ -46,23 +52,20 @@ def send_message(sock, message_data):
         message_json = json.dumps(message_data)
         message_bytes = message_json.encode('utf-8')
         header = struct.pack('!I', len(message_bytes))
-        old_timeout = None
-        has_timeout = hasattr(sock, "gettimeout") and hasattr(sock, "settimeout")
-        if has_timeout:
-            try:
-                old_timeout = sock.gettimeout()
-            except Exception:
-                old_timeout = None
-            if old_timeout is None:
-                try: sock.settimeout(5.0)
-                except Exception: pass
-        try:
-            with _get_send_lock(sock):
-                sock.sendall(header + message_bytes)
-        finally:
-            if has_timeout and old_timeout is None:
-                try: sock.settimeout(None)
-                except Exception: pass
+        with _get_send_lock(sock):
+            # Attesa scrivibilità non invasiva: evita di mutare sock.settimeout() sul thread condiviso con receive_message()
+            if hasattr(sock, "fileno"):
+                try:
+                    fd = sock.fileno()
+                    if isinstance(fd, int) and fd >= 0:
+                        _, writable, _ = select.select([], [sock], [], 5.0)
+                        if not writable:
+                            raise socket.timeout("Timeout attesa scrittura socket")
+                except socket.timeout:
+                    raise
+                except (ValueError, TypeError, OSError):
+                    pass
+            sock.sendall(header + message_bytes)
     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, socket.timeout):
         # Errori normali di disconnessione client o timeout invio
         pass

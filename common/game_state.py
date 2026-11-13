@@ -79,12 +79,8 @@ class Player:
         self.damage_threshold = 0
         self.frightened_sources = {}
         self.charmed_by = []
-        self.hero_points = 0
         self.honor = 10
         self.sanity = 10
-        self.facing = 0
-        self.lair_last_action = None
-        self.petrification_stage = 0
         self.regenerated_blocked_types = []
         self.swallow_damage_taken = 0
         self.grappled_by = None
@@ -308,12 +304,8 @@ class Player:
             "damage_threshold": getattr(self, "damage_threshold", 0),
             "frightened_sources": getattr(self, "frightened_sources", {}),
             "charmed_by": getattr(self, "charmed_by", []),
-            "hero_points": getattr(self, "hero_points", 0),
             "honor": getattr(self, "honor", 10),
             "sanity": getattr(self, "sanity", 10),
-            "facing": getattr(self, "facing", 0),
-            "lair_last_action": getattr(self, "lair_last_action", None),
-            "petrification_stage": getattr(self, "petrification_stage", 0),
             "regenerated_blocked_types": getattr(self, "regenerated_blocked_types", []),
             "swallow_damage_taken": getattr(self, "swallow_damage_taken", 0),
             "grappled_by": getattr(self, "grappled_by", None),
@@ -410,12 +402,8 @@ class Player:
         p.damage_threshold = data.get("damage_threshold", 0)
         p.frightened_sources = data.get("frightened_sources", {})
         p.charmed_by = data.get("charmed_by", [])
-        p.hero_points = data.get("hero_points", 0)
         p.honor = data.get("honor", 10)
         p.sanity = data.get("sanity", 10)
-        p.facing = data.get("facing", 0)
-        p.lair_last_action = data.get("lair_last_action", None)
-        p.petrification_stage = data.get("petrification_stage", 0)
         p.regenerated_blocked_types = data.get("regenerated_blocked_types", [])
         p.swallow_damage_taken = data.get("swallow_damage_taken", 0)
         p.grappled_by = data.get("grappled_by", None)
@@ -537,102 +525,102 @@ class GameState:
 
     def set_automation_mode(self, mode: str, custom_settings: dict = None):
         """Imposta il profilo di automazione della campagna (manual, hybrid, full) e aggiorna i flag."""
-        cur = getattr(self, "automation_settings", {}) or {}
-        preserved_opts = {
-            "square_diagonal_rule": cur.get("square_diagonal_rule", "standard"),
-            "opt_cleaving": bool(cur.get("opt_cleaving", False)),
-            "opt_massive_damage": bool(cur.get("opt_massive_damage", False)),
-            "opt_lingering_injuries": bool(cur.get("opt_lingering_injuries", False)),
-            "opt_madness": bool(cur.get("opt_madness", False)),
-            "opt_rest_variant": cur.get("opt_rest_variant", "standard"),
-            "opt_dmg_maneuvers": bool(cur.get("opt_dmg_maneuvers", False)),
-            "opt_spell_points": bool(cur.get("opt_spell_points", False)),
-            "opt_hunger_thirst_weather": bool(cur.get("opt_hunger_thirst_weather", False)),
-            "opt_facing": bool(cur.get("opt_facing", False)),
-            "opt_init_variant": cur.get("opt_init_variant", "standard"),
-            "opt_morale": bool(cur.get("opt_morale", False)),
-            "opt_hero_points": bool(cur.get("opt_hero_points", False)),
-            "opt_honor_sanity": bool(cur.get("opt_honor_sanity", False)),
-            "opt_fear_horror": bool(cur.get("opt_fear_horror", False)),
-            "opt_marking": bool(cur.get("opt_marking", False)),
-            "opt_climb_bigger": bool(cur.get("opt_climb_bigger", False)),
-            "opt_hitting_cover": bool(cur.get("opt_hitting_cover", False)),
-            "opt_healing_surges": bool(cur.get("opt_healing_surges", False)),
-            "opt_slow_natural_healing": bool(cur.get("opt_slow_natural_healing", False)),
-            "opt_falling_xge_tce": bool(cur.get("opt_falling_xge_tce", False)),
-            "opt_armor_sleep_xge": bool(cur.get("opt_armor_sleep_xge", False)),
-            "opt_legendary_res_prompt": bool(cur.get("opt_legendary_res_prompt", False)),
-            "opt_wild_magic_surge": bool(cur.get("opt_wild_magic_surge", True)),
-            "opt_tasha_custom_origin": bool(cur.get("opt_tasha_custom_origin", True)),
-            "opt_mob_attacks": bool(cur.get("opt_mob_attacks", False)),
-            "opt_scroll_mishap": bool(cur.get("opt_scroll_mishap", True)),
-            "opt_potion_miscibility": bool(cur.get("opt_potion_miscibility", False)),
-            "opt_social_loyalty": bool(cur.get("opt_social_loyalty", True)),
-            "opt_naval_vehicles": bool(cur.get("opt_naval_vehicles", False)),
-            "opt_xgte_downtime_complications": bool(cur.get("opt_xgte_downtime_complications", False)),
-        }
         with self.lock:
+            cur = getattr(self, "automation_settings", {}) or {}
+            preserved_opts = {
+                "square_diagonal_rule": cur.get("square_diagonal_rule", "standard"),
+                "opt_cleaving": bool(cur.get("opt_cleaving", False)),
+                "opt_massive_damage": bool(cur.get("opt_massive_damage", False)),
+                "opt_lingering_injuries": bool(cur.get("opt_lingering_injuries", False)),
+                "opt_madness": bool(cur.get("opt_madness", False)),
+                "opt_rest_variant": cur.get("opt_rest_variant", "standard"),
+                "opt_dmg_maneuvers": bool(cur.get("opt_dmg_maneuvers", False)),
+                "opt_spell_points": bool(cur.get("opt_spell_points", False)),
+                "opt_hunger_thirst_weather": bool(cur.get("opt_hunger_thirst_weather", False)),
+                "opt_facing": bool(cur.get("opt_facing", False)),
+                "opt_init_variant": cur.get("opt_init_variant", "standard"),
+                "opt_morale": bool(cur.get("opt_morale", False)),
+                "opt_hero_points": bool(cur.get("opt_hero_points", False)),
+                "opt_honor_sanity": bool(cur.get("opt_honor_sanity", False)),
+                "opt_fear_horror": bool(cur.get("opt_fear_horror", False)),
+                "opt_marking": bool(cur.get("opt_marking", False)),
+                "opt_climb_bigger": bool(cur.get("opt_climb_bigger", False)),
+                "opt_hitting_cover": bool(cur.get("opt_hitting_cover", False)),
+                "opt_healing_surges": bool(cur.get("opt_healing_surges", False)),
+                "opt_slow_natural_healing": bool(cur.get("opt_slow_natural_healing", False)),
+                "opt_falling_xge_tce": bool(cur.get("opt_falling_xge_tce", False)),
+                "opt_armor_sleep_xge": bool(cur.get("opt_armor_sleep_xge", False)),
+                "opt_legendary_res_prompt": bool(cur.get("opt_legendary_res_prompt", False)),
+                "opt_wild_magic_surge": bool(cur.get("opt_wild_magic_surge", True)),
+                "opt_tasha_custom_origin": bool(cur.get("opt_tasha_custom_origin", True)),
+                "opt_mob_attacks": bool(cur.get("opt_mob_attacks", False)),
+                "opt_scroll_mishap": bool(cur.get("opt_scroll_mishap", True)),
+                "opt_potion_miscibility": bool(cur.get("opt_potion_miscibility", False)),
+                "opt_social_loyalty": bool(cur.get("opt_social_loyalty", True)),
+                "opt_naval_vehicles": bool(cur.get("opt_naval_vehicles", False)),
+                "opt_xgte_downtime_complications": bool(cur.get("opt_xgte_downtime_complications", False)),
+            }
             self.automation_mode = mode
-        if mode == "manual":
-            self.automation_settings = {
-                "auto_apply_damage": False,
-                "auto_apply_aoe_damage": False,
-                "auto_resolve_doors": False,
-                "strict_turn_lock": False,
-                "strict_movement_limits": False,
-                "auto_prompt_reactions": False,
-                "auto_concentration_check": False,
-                "auto_death_saves": False,
-                "auto_calc_advantage": False,
-                "enable_flanking": False,
-                "auto_explore_fow": False,
-                "auto_apply_rest_recovery": False,
-                "auto_advance_time": False,
-                "auto_day_night_cycle": False,
-                "auto_distribute_xp": False,
-                **preserved_opts,
-            }
-        elif mode == "full":
-            self.automation_settings = {
-                "auto_apply_damage": True,
-                "auto_apply_aoe_damage": True,
-                "auto_resolve_doors": True,
-                "strict_turn_lock": True,
-                "strict_movement_limits": True,
-                "auto_prompt_reactions": True,
-                "auto_concentration_check": True,
-                "auto_death_saves": True,
-                "auto_calc_advantage": True,
-                "enable_flanking": True,
-                "auto_explore_fow": True,
-                "auto_apply_rest_recovery": True,
-                "auto_advance_time": True,
-                "auto_day_night_cycle": True,
-                "auto_distribute_xp": True,
-                **preserved_opts,
-            }
-        else: # "hybrid" (predefinito)
-            self.automation_mode = "hybrid"
-            self.automation_settings = {
-                "auto_apply_damage": False,
-                "auto_apply_aoe_damage": False,
-                "auto_resolve_doors": True,
-                "strict_turn_lock": False,
-                "strict_movement_limits": True,
-                "auto_prompt_reactions": True,
-                "auto_concentration_check": True,
-                "auto_death_saves": True,
-                "auto_calc_advantage": True,
-                "enable_flanking": True,
-                "auto_explore_fow": True,
-                "auto_apply_rest_recovery": True,
-                "auto_advance_time": True,
-                "auto_day_night_cycle": True,
-                "auto_distribute_xp": True,
-                **preserved_opts,
-            }
-        if custom_settings and isinstance(custom_settings, dict):
-            self.automation_settings.update(custom_settings)
+            if mode == "manual":
+                self.automation_settings = {
+                    "auto_apply_damage": False,
+                    "auto_apply_aoe_damage": False,
+                    "auto_resolve_doors": False,
+                    "strict_turn_lock": False,
+                    "strict_movement_limits": False,
+                    "auto_prompt_reactions": False,
+                    "auto_concentration_check": False,
+                    "auto_death_saves": False,
+                    "auto_calc_advantage": False,
+                    "enable_flanking": False,
+                    "auto_explore_fow": False,
+                    "auto_apply_rest_recovery": False,
+                    "auto_advance_time": False,
+                    "auto_day_night_cycle": False,
+                    "auto_distribute_xp": False,
+                    **preserved_opts,
+                }
+            elif mode == "full":
+                self.automation_settings = {
+                    "auto_apply_damage": True,
+                    "auto_apply_aoe_damage": True,
+                    "auto_resolve_doors": True,
+                    "strict_turn_lock": True,
+                    "strict_movement_limits": True,
+                    "auto_prompt_reactions": True,
+                    "auto_concentration_check": True,
+                    "auto_death_saves": True,
+                    "auto_calc_advantage": True,
+                    "enable_flanking": True,
+                    "auto_explore_fow": True,
+                    "auto_apply_rest_recovery": True,
+                    "auto_advance_time": True,
+                    "auto_day_night_cycle": True,
+                    "auto_distribute_xp": True,
+                    **preserved_opts,
+                }
+            else: # "hybrid" (predefinito)
+                self.automation_mode = "hybrid"
+                self.automation_settings = {
+                    "auto_apply_damage": False,
+                    "auto_apply_aoe_damage": False,
+                    "auto_resolve_doors": True,
+                    "strict_turn_lock": False,
+                    "strict_movement_limits": True,
+                    "auto_prompt_reactions": True,
+                    "auto_concentration_check": True,
+                    "auto_death_saves": True,
+                    "auto_calc_advantage": True,
+                    "enable_flanking": True,
+                    "auto_explore_fow": True,
+                    "auto_apply_rest_recovery": True,
+                    "auto_advance_time": True,
+                    "auto_day_night_cycle": True,
+                    "auto_distribute_xp": True,
+                    **preserved_opts,
+                }
+            if custom_settings and isinstance(custom_settings, dict):
+                self.automation_settings.update(custom_settings)
         self._trigger_gui_update()
         
     def add_calendar_event(self, text):
@@ -826,6 +814,7 @@ class GameState:
     def next_turn(self, tick_end_of_turn=True):
         end_of_turn_conds = {"Scatto", "Disimpegno", "Dash", "Disengage"}
         start_of_turn_conds = {"Schivata", "Dodge", "Scatto", "Disimpegno", "Dash", "Disengage"}
+        pending_broadcasts = []
         with self.lock:
             combatants = self._get_combatants()
             if not self.combat_active or not combatants: return
@@ -912,11 +901,10 @@ class GameState:
                         active.remove_effect(fx_id)
 
                 # Gestione Inizio Turno: Ricarica Abilità Mostro (Recharge 5-6) & Rigenerazione / Danni Continui (D&D 5e RAW)
+                from common.protocol import make_chat_broadcast, make_player_stats_update
                 try:
                     import random
-                    from common.network_utils import broadcast
-                    from common.protocol import make_chat_broadcast, make_player_stats_update
-                    
+
                     fs = getattr(active, "full_sheet", None) or {}
                     
                     # 1. Ricarica Abilità Mostri (Recharge 5-6 / 6)
@@ -944,7 +932,7 @@ class GameState:
                                 ab["expended"] = False
                                 ab_name = ab.get("name", "Abilità")
                                 msg = f"🎲 [RICARICA] {active.name} tira un {d6_roll} sul d6! L'abilità '{ab_name}' è di nuovo RICARICATA e pronta all'uso!"
-                                broadcast(self, make_chat_broadcast("Sistema", msg))
+                                pending_broadcasts.append(make_chat_broadcast("Sistema", msg))
                                 self.log_dm_message(f"[RECHARGE] {msg}")
 
                     # 2. Rigenerazione (MM p. 11: Troll 10 PV, Vampiro 20 PV, legge traits, special_abilities e features)
@@ -989,11 +977,11 @@ class GameState:
                                 regen_val = int(m_regen.group(1)) if m_regen else (20 if is_vamp else 10)
                                 active.hp = min(active.max_hp, active.hp + regen_val)
                                 msg = f"💚 [RIGENERAZIONE] {active.name} rigenera {regen_val} PV all'inizio del proprio turno ({active.hp}/{active.max_hp} PV)!"
-                                broadcast(self, make_chat_broadcast("Sistema", msg))
-                                broadcast(self, make_player_stats_update(active.name, active.hp, active.max_hp, active.initiative, active.conditions, getattr(active, "temp_hp", 0)))
+                                pending_broadcasts.append(make_chat_broadcast("Sistema", msg))
+                                pending_broadcasts.append(make_player_stats_update(active.name, active.hp, active.max_hp, active.initiative, active.conditions, getattr(active, "temp_hp", 0)))
                             else:
                                 msg = f"⚠️ [RIGENERAZIONE] La rigenerazione di {active.name} è inibita dai danni subiti o dal tratto specifico!"
-                                broadcast(self, make_chat_broadcast("Sistema", msg))
+                                pending_broadcasts.append(make_chat_broadcast("Sistema", msg))
 
                     # 3. Danno Continuo (es. In Fiamme, Veleno Attivo)
                     for eff in getattr(active, "active_effects", []):
@@ -1003,8 +991,8 @@ class GameState:
                             if p_dmg > 0 and active.hp > 0:
                                 active.hp = max(0, active.hp - p_dmg)
                                 msg = f"🔥 [DANNO CONTINUO] {active.name} subisce {p_dmg} danni da {p_type} ({eff.get('name', 'Effetto')}) all'inizio del turno! (PV: {active.hp}/{active.max_hp})"
-                                broadcast(self, make_chat_broadcast("Sistema", msg))
-                                broadcast(self, make_player_stats_update(active.name, active.hp, active.max_hp, active.initiative, active.conditions, getattr(active, "temp_hp", 0)))
+                                pending_broadcasts.append(make_chat_broadcast("Sistema", msg))
+                                pending_broadcasts.append(make_player_stats_update(active.name, active.hp, active.max_hp, active.initiative, active.conditions, getattr(active, "temp_hp", 0)))
 
                     # 4. Inghiottito / Engulfed (MM: es. Gelatina Ocra/Cubo Gelatinoso/Verme Purpureo/Rospo Gigante -> danno acido a inizio turno)
                     swallower_name = getattr(active, "swallowed_by", None)
@@ -1019,22 +1007,24 @@ class GameState:
                                 try:
                                     from common.dice import roll_dice
                                     acid_roll = roll_dice(sw_acid_dice)["total"]
-                                except Exception:
-                                    pass
+                                except Exception as e:
+                                    print(f"[GameState] Errore calcolo dadi ingestione '{sw_acid_dice}': {e}")
                             final_a, _, _, _ = _apply_dmg(active, acid_roll, damage_type="Acido", game_state=self)
                             msg = f"🧪 [INGHIOTTITO] All'inizio del turno nello stomaco di {swallower_name}, {active.name} subisce {final_a} danni da Acido (PV: {active.hp}/{active.max_hp})!"
-                            broadcast(self, make_chat_broadcast("Sistema", msg))
-                            broadcast(self, make_player_stats_update(active.name, active.hp, active.max_hp, active.initiative, active.conditions, getattr(active, "temp_hp", 0)))
+                            pending_broadcasts.append(make_chat_broadcast("Sistema", msg))
+                            pending_broadcasts.append(make_player_stats_update(active.name, active.hp, active.max_hp, active.initiative, active.conditions, getattr(active, "temp_hp", 0)))
                         else:
                             # Predatore morto/scomparso: liberato automaticamente
                             active.swallowed_by = None
                             if hasattr(active, "conditions"):
                                 active.conditions = [c for c in active.conditions if c not in ("Inghiottito", "Swallowed", "Accecato", "Blinded", "Trattenuto", "Restrained")]
+                except Exception as e:
+                    print(f"[GameState] Errore tick inizio turno (ricarica/rigenerazione/danni continui): {e}")
 
-                    # 5. Champion Fighter Survivor (Lv 18+, PHB p. 73): all'inizio del turno, se 0 < PF <= MaxPF//2, recupera 5 + Mod COS
+                # 5. Champion Fighter Survivor (Lv 18+, PHB p. 73): all'inizio del turno, se 0 < PF <= MaxPF//2, recupera 5 + Mod COS
+                try:
                     if not getattr(active, "is_monster", False) and 0 < active.hp <= (active.max_hp // 2):
-                        from common.dnd5e_tables import entity_get_class_level, entity_get_attr_mod, entity_has_keyword
-                        from server.rules.reaction_magic import is_incapacitated_entity
+                        from common.dnd5e_tables import entity_get_class_level, entity_get_attr_mod, entity_has_keyword, is_incapacitated_entity
                         if not is_incapacitated_entity(active):
                             f_lvl = entity_get_class_level(active, "guerriero", "fighter")
                             fs_act = getattr(active, "full_sheet", None) or {}
@@ -1049,10 +1039,13 @@ class GameState:
                                     gained = active.hp - old_hp
                                     if gained > 0:
                                         msg = f"⚔️ [SOPRAVVISSUTO] {active.name} recupera {gained} PF (5 + {con_m} COS) a inizio turno! (PV: {active.hp}/{active.max_hp})"
-                                        broadcast(self, make_chat_broadcast("Sistema", msg))
-                                        broadcast(self, make_player_stats_update(active.name, active.hp, active.max_hp, active.initiative, active.conditions, getattr(active, "temp_hp", 0)))
+                                        pending_broadcasts.append(make_chat_broadcast("Sistema", msg))
+                                        pending_broadcasts.append(make_player_stats_update(active.name, active.hp, active.max_hp, active.initiative, active.conditions, getattr(active, "temp_hp", 0)))
+                except Exception as e:
+                    print(f"[GameState] Errore tick Survivor: {e}")
 
-                    # 6. Paladino Aura of Courage (Lv 10+): sopprimi Spaventato se protetto dall'aura
+                # 6. Paladino Aura of Courage (Lv 10+): sopprimi Spaventato se protetto dall'aura
+                try:
                     if any(str(c).lower().startswith(("spaventat", "frightened")) for c in getattr(active, "conditions", [])):
                         from server.rules.class_abilities import is_immune_to_frightened_by_aura
                         imm, aura_src = is_immune_to_frightened_by_aura(active, self)
@@ -1061,10 +1054,10 @@ class GameState:
                             if hasattr(active, "frightened_sources"):
                                 active.frightened_sources = []
                             msg = f"🛡️ [AURA DI CORAGGIO - {aura_src}] {active.name} non può essere Spaventato finché si trova nell'aura!"
-                            broadcast(self, make_chat_broadcast("Sistema", msg))
-                            broadcast(self, make_player_stats_update(active.name, active.hp, active.max_hp, active.initiative, active.conditions, getattr(active, "temp_hp", 0)))
-                except Exception:
-                    pass
+                            pending_broadcasts.append(make_chat_broadcast("Sistema", msg))
+                            pending_broadcasts.append(make_player_stats_update(active.name, active.hp, active.max_hp, active.initiative, active.conditions, getattr(active, "temp_hp", 0)))
+                except Exception as e:
+                    print(f"[GameState] Errore tick Aura di Coraggio: {e}")
 
             if round_advanced:
                 from common.dnd5e_tables import entity_get_class_level as _get_cls_lvl, entity_has_keyword as _has_kw
@@ -1105,10 +1098,14 @@ class GameState:
                                 p.concentrating_on = None
                                 p.concentration_rounds_remaining = None
                                 msg_c = f"⏱️ [CONCENTRAZIONE SCADUTA] La durata massima di '{ended_spell}' ({p.name}) è terminata."
-                                broadcast(self, make_chat_broadcast("Sistema", msg_c))
-                                broadcast(self, make_player_stats_update(p.name, p.hp, p.max_hp, p.initiative, p.conditions, getattr(p, "temp_hp", 0)))
-                        except Exception:
-                            pass
+                                pending_broadcasts.append(make_chat_broadcast("Sistema", msg_c))
+                                pending_broadcasts.append(make_player_stats_update(p.name, p.hp, p.max_hp, p.initiative, p.conditions, getattr(p, "temp_hp", 0)))
+                        except Exception as e:
+                            print(f"[GameState] Errore decremento concentrazione su {p.name}: {e}")
+        if pending_broadcasts:
+            from common.network_utils import broadcast
+            for b_msg in pending_broadcasts:
+                broadcast(self, b_msg)
         self._trigger_gui_update()
 
     def advance_game_time(self, seconds=0, minutes=0, hours=0, days=0):

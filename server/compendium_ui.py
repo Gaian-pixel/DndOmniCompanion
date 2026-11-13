@@ -675,11 +675,30 @@ class CompendiumDialog(tk.Toplevel):
                             e["name"] = e.get("title", "Voce Manuale")
                         e["is_pdf"] = True
 
-                    self.current_items = filtered
-                    self.after(0, self.update_listbox)
-                    self.after(0, lambda: self.status_var.set(f"Manuali PDF: {len(self.current_items)} voci trovate."))
+                    def _apply_pdf_results(items=filtered):
+                        try:
+                            if not self.winfo_exists():
+                                return
+                            self.current_items = items
+                            self.update_listbox()
+                            self.status_var.set(f"Manuali PDF: {len(self.current_items)} voci trovate.")
+                        except tk.TclError:
+                            pass
+
+                    if self.winfo_exists():
+                        self.after(0, _apply_pdf_results)
                 except Exception as e:
-                    self.after(0, lambda err=e: messagebox.showerror("Errore PDF", str(err)))
+                    def _show_pdf_err(err=e):
+                        try:
+                            if self.winfo_exists():
+                                messagebox.showerror("Errore PDF", str(err), parent=self)
+                        except tk.TclError:
+                            pass
+                    try:
+                        if self.winfo_exists():
+                            self.after(0, _show_pdf_err)
+                    except tk.TclError:
+                        pass
 
             threading.Thread(target=do_load_pdf, daemon=True).start()
             return
@@ -1447,8 +1466,12 @@ class CompendiumDialog(tk.Toplevel):
                     item["intelligence"] = full_attrs.get("INT", 10)
                     item["wisdom"] = full_attrs.get("SAG", 10)
                     item["charisma"] = full_attrs.get("CAR", 10)
+                except (ValueError, TypeError):
+                    messagebox.showerror("Errore", "Inserisci valori numerici interi validi per PF, CA, Iniziativa e caratteristiche.", parent=win)
+                    return
                 except Exception as e:
-                    print("Error saving custom monster stats:", e)
+                    messagebox.showerror("Errore", f"Errore nel salvataggio delle statistiche: {e}", parent=win)
+                    return
 
             if is_edit:
                 self.compendium_manager.update_item(cat, old_name, item)

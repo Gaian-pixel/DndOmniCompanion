@@ -2,7 +2,7 @@
 import unittest
 import tkinter as tk
 from common.campaign_script import (
-    DndScriptParser, DndScriptSerializer, FlowGraph, FlowNode, FlowEdge,
+    FlowGraph, FlowNode,
     sync_flow_graph_to_campaign
 )
 from common.session_chronicle import (
@@ -24,21 +24,19 @@ class TestLiveFlowAndChronicleE2E(unittest.TestCase):
             pass
 
     def test_full_pipeline_flow_to_chronicle(self):
-        script_text = """
-# SCENA: Taverna del Lupo
-mappa: "maps/faerun.json"
-narra: "Una taverna affollata."
-
--> "Se escono nei boschi" -> SCENA: Bosco Oscuro
--> "Se scendono in cantina" -> SCENA: Cantina Segreta
-
-
-# SCENA: Bosco Oscuro
-mappa: "maps/bosco.json"
-"""
-        # 1. Parsing
-        parser = DndScriptParser()
-        graph = parser.parse(script_text)
+        # 1. Costruzione diretta FlowGraph
+        graph = FlowGraph()
+        graph.nodes["n1"] = FlowNode(
+            id="n1", node_type="scene", title="Taverna del Lupo",
+            data={"map_file": "maps/faerun.json", "read_aloud": "Una taverna affollata."},
+        )
+        graph.nodes["n2"] = FlowNode(
+            id="n2", node_type="scene", title="Bosco Oscuro",
+            data={"map_file": "maps/bosco.json"},
+        )
+        graph.nodes["n3"] = FlowNode(id="n3", node_type="scene", title="Cantina Segreta")
+        graph.add_edge("n1", "n2", label="Se escono nei boschi")
+        graph.add_edge("n1", "n3", label="Se scendono in cantina")
         self.assertEqual(len(graph.nodes), 3)
 
         # 2. Creazione Campagna
@@ -90,12 +88,12 @@ mappa: "maps/bosco.json"
         self.assertEqual(len(new_nodes), 2) # Nodo Ponte + Nodo Combattimento Guardie
         self.assertEqual(len(graph.nodes), 5) # 3 originali + 2 nuovi fuori pista
 
-        # 8. Re-serializzazione in DndScript
-        serializer = DndScriptSerializer()
-        new_dndscript = serializer.serialize(graph)
-        self.assertIn("Incendio al Vecchio Ponte (Fuori Pista)", new_dndscript)
-        self.assertIn("Guardie a Cavallo (Fuori Pista)", new_dndscript)
-        self.assertIn("Deviazione Fuori Pista", new_dndscript)
+        # 8. Persistenza JSON FlowGraph con nodi fuori pista
+        persisted = FlowGraph.from_dict(graph.to_dict())
+        titles = [n.title for n in persisted.nodes.values()]
+        self.assertIn("Incendio al Vecchio Ponte (Fuori Pista)", titles)
+        self.assertIn("Guardie a Cavallo (Fuori Pista)", titles)
+        self.assertTrue(any("Deviazione Fuori Pista" in e.label for e in persisted.edges))
 
 if __name__ == '__main__':
     unittest.main()

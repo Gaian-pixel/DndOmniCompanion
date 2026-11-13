@@ -24,6 +24,18 @@ from common.network_utils import send_message, receive_message, broadcast
 from components.ui_components import HexMapCanvas
 from server.voice_server import VoiceServer
 
+def sanitize_client_payload(data, player):
+    """Rimuove override di test/debug (`forced_*`, `free_test`) dai payload provenienti da client non DM."""
+    from common.network_utils import is_dm_actor
+    if not isinstance(data, dict) or is_dm_actor(player):
+        return data
+    stripped = {
+        k: v for k, v in data.items()
+        if not (isinstance(k, str) and (k.startswith("forced_") or k == "free_test"))
+    }
+    return stripped
+
+
 class Server:
     def __init__(self, host, port, gui_queue):
         self.host=host; self.port=port; self.server_socket=None; self.running=False
@@ -39,37 +51,42 @@ class Server:
 
     def send_loot_split(self, amount):
         from common.protocol import make_chat_broadcast, make_game_state
-        all_p = self.game_state.get_all_players()
-        players = [p for p in all_p if getattr(p, 'is_party_member', False)]
-        if not players:
-            players = [p for p in all_p if getattr(p, 'conn', None) is not None]
-            
-        if not players:
-            return
-            
-        share = amount // len(players)
-        
-        for p in players:
-            if p.full_sheet is None:
-                p.full_sheet = {}
-            try:
-                cur_gp = int(p.full_sheet.get("gp", 0) or 0)
-            except (ValueError, TypeError):
-                cur_gp = 0
-            
-            if "currency" not in p.full_sheet or not isinstance(p.full_sheet["currency"], dict):
-                p.full_sheet["currency"] = {"MR": 0, "MA": 0, "ME": 0, "MO": cur_gp, "MP": 0}
-            try:
-                cur_mo = int(p.full_sheet["currency"].get("MO", cur_gp) or 0)
-            except (ValueError, TypeError):
-                cur_mo = cur_gp
-            new_mo = cur_mo + share
-            p.full_sheet["currency"]["MO"] = new_mo
-            p.full_sheet["gp"] = new_mo
-                
-            if getattr(p, 'conn', None):
-                send_message(p.conn, {"type": "RECEIVE_GOLD", "data": {"amount": share}})
-                
+        pending_msgs = []
+        with self.game_state.lock:
+            all_p = self.game_state.get_all_players()
+            players = [p for p in all_p if getattr(p, 'is_party_member', False)]
+            if not players:
+                players = [p for p in all_p if getattr(p, 'conn', None) is not None]
+
+            if not players:
+                return
+
+            share = amount // len(players)
+
+            for p in players:
+                if p.full_sheet is None:
+                    p.full_sheet = {}
+                try:
+                    cur_gp = int(p.full_sheet.get("gp", 0) or 0)
+                except (ValueError, TypeError):
+                    cur_gp = 0
+
+                if "currency" not in p.full_sheet or not isinstance(p.full_sheet["currency"], dict):
+                    p.full_sheet["currency"] = {"MR": 0, "MA": 0, "ME": 0, "MO": cur_gp, "MP": 0}
+                try:
+                    cur_mo = int(p.full_sheet["currency"].get("MO", cur_gp) or 0)
+                except (ValueError, TypeError):
+                    cur_mo = cur_gp
+                new_mo = cur_mo + share
+                p.full_sheet["currency"]["MO"] = new_mo
+                p.full_sheet["gp"] = new_mo
+
+                if getattr(p, 'conn', None):
+                    pending_msgs.append((p.conn, {"type": "RECEIVE_GOLD", "data": {"amount": share}}))
+
+        for c_conn, c_msg in pending_msgs:
+            send_message(c_conn, c_msg)
+
         msg = f"Il DM ha distribuito {amount} MO ({share} a testa)."
         broadcast(self.game_state, make_chat_broadcast("Sistema", msg))
         self.game_state._trigger_gui_update()
@@ -114,42 +131,59 @@ class Server:
                 return
             name = join_msg["data"]["name"]
             
-            existing_player = self.game_state.find_player(name)
-            if existing_player:
-                is_human = bool(getattr(existing_player, "is_party_member", False) or getattr(existing_player, "addr", None) is not None)
-                if is_human:
-                    # Riconnessione consentita per membro del party anche in caso di socket zombie
-                    if existing_player.conn is not None and existing_player.conn != conn:
-                        try:
-                            existing_player.conn.close()
-                        except Exception:
-                            pass
-                    existing_player.conn = conn
-                    existing_player.addr = addr
-                    existing_player.is_party_member = True
-                    player = existing_player
-                    send_message(conn, make_game_state(self.game_state.get_state_dict(is_dm=False)))
-                    broadcast(self.game_state, make_player_joined(player.to_dict()), exclude_player=player)
-                    self.game_state._trigger_gui_update()
+            with self.game_state.lock:
+                existing_player = self.game_state.find_player(name)
+                if existing_player:
+                    is_human = bool(getattr(existing_player, "is_party_member", False) or getattr(existing_player, "addr", None) is not None)
+                    existing_conn = getattr(existing_player, "conn", None)
+                    existing_addr = getattr(existing_player, "addr", None)
+                    same_host = bool(existing_addr and addr and existing_addr[0] == addr[0])
+                    if is_human and existing_conn is not None and existing_conn != conn and not same_host:
+                        reject_msg = f"Il personaggio '{name}' è già connesso da un altro indirizzo."
+                        player_action = "reject"
+                    elif is_human:
+                        # Riconnessione consentita dallo stesso host anche in caso di socket zombie
+                        old_conn_to_close = existing_conn if (existing_conn is not None and existing_conn != conn) else None
+                        existing_player.conn = conn
+                        existing_player.addr = addr
+                        existing_player.is_party_member = True
+                        player = existing_player
+                        player_action = "reconnect"
+                    else:
+                        reject_msg = f"Il nome '{name}' è già in uso o appartiene a un PNG."
+                        player_action = "reject"
                 else:
-                    send_message(conn, make_error_reply(f"Il nome '{name}' è già in uso o appartiene a un PNG."))
-                    return
-            else:
-                player = Player(name, addr, conn)
-                player.is_party_member = True
-                
-                req_pos = join_msg.get("data", {}).get("position")
-                if req_pos and self.game_state.current_map:
-                    # Controlla se la posizione  valida (non dentro un muro)
-                    walls = self.game_state.current_map.get("walls", [])
-                    if req_pos not in walls:
-                        player.position = req_pos
-                    elif "spawn_point" in self.game_state.current_map:
+                    old_conn_to_close = None
+                    reject_msg = None
+                    player_action = "join_new"
+                    player = Player(name, addr, conn)
+                    player.is_party_member = True
+
+                    req_pos = join_msg.get("data", {}).get("position")
+                    if req_pos and self.game_state.current_map:
+                        walls = self.game_state.current_map.get("walls", [])
+                        if req_pos not in walls:
+                            player.position = req_pos
+                        elif "spawn_point" in self.game_state.current_map:
+                            player.position = self.game_state.current_map["spawn_point"]
+                    elif self.game_state.current_map and "spawn_point" in self.game_state.current_map:
                         player.position = self.game_state.current_map["spawn_point"]
-                elif self.game_state.current_map and "spawn_point" in self.game_state.current_map:
-                    player.position = self.game_state.current_map["spawn_point"]
-                    
-                self.game_state.add_player(player)
+
+                    self.game_state.add_player(player)
+
+            if player_action == "reject":
+                send_message(conn, make_error_reply(reject_msg))
+                return
+            elif player_action == "reconnect":
+                if old_conn_to_close is not None:
+                    try:
+                        old_conn_to_close.close()
+                    except Exception:
+                        pass
+                send_message(conn, make_game_state(self.game_state.get_state_dict(is_dm=False)))
+                broadcast(self.game_state, make_player_joined(player.to_dict()), exclude_player=player)
+                self.game_state._trigger_gui_update()
+            else:
                 if self.game_state.current_map and self.game_state.current_map.get("fow_enabled", False) and getattr(player, "position", None):
                     from server.rules.movement import auto_explore_fow
                     if auto_explore_fow(player, self.game_state):
@@ -178,7 +212,12 @@ class Server:
                 if msg is None: break
                 handler = command_handlers.get(msg.get("type"))
                 if handler:
-                    handler(msg.get("data", {}), player, self.game_state)
+                    try:
+                        payload = sanitize_client_payload(msg.get("data", {}), player)
+                        handler(payload, player, self.game_state)
+                    except (ValueError, TypeError, KeyError) as payload_err:
+                        print(f"[ERRORE PAYLOAD] {msg.get('type')} da {addr}: {payload_err}")
+                        send_message(conn, make_error_reply("Richiesta non valida o parametri malformati."))
                 else:
                     send_message(conn, make_error_reply("Comando non riconosciuto."))
         except Exception as e:

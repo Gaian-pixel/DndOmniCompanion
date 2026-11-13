@@ -76,7 +76,7 @@ def open_optional_rules_tools_dialog(dm_gui, initial_tab: int = 0):
     def _dispatch_opt(action: str, **kwargs):
         data = {"action": action, "actor_name": actor_var.get(), "target_name": target_var.get()}
         data.update(kwargs)
-        handle_optional_rule_action_request(data, gs.find_player(actor_var.get()), gs)
+        handle_optional_rule_action_request(data, None, gs)
         _log(f"▶ Eseguito '{action}' (Attore={actor_var.get()}, Bersaglio={target_var.get()})")
 
     # --- TAB 1: Combattimento, Mostri, Paura, Ferite & Sopravvivenza ---

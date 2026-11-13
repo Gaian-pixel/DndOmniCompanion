@@ -53,6 +53,9 @@ class Campaign:
         
         # PNG della campagna
         self.npcs: List[Dict[str, Any]] = []
+
+        # Fazioni e organizzazioni della campagna
+        self.factions: List[Dict[str, Any]] = []
         
         # Negozi preparati
         self.shops: Dict[str, Any] = {}
@@ -63,8 +66,7 @@ class Campaign:
         # Handouts (lettere, indizi, mappe segrete)
         self.handouts: List[Dict[str, Any]] = []
 
-        # Flow Builder & DndScript (Campaign-as-Code)
-        self.flow_script: str = ""
+        # Flow Builder (FlowGraph gerarchico Scene -> Subflows)
         self.flow_graph: Dict[str, Any] = {}
 
         # Diario Continuativo di Campagna (Multi-Session Journal)
@@ -85,10 +87,10 @@ class Campaign:
             "encounters": self.encounters,
             "quests": self.quests,
             "npcs": self.npcs,
+            "factions": self.factions,
             "shops": self.shops,
             "treasures": self.treasures,
             "handouts": self.handouts,
-            "flow_script": self.flow_script,
             "flow_graph": self.flow_graph,
             "journal": self.journal.to_dict() if hasattr(self.journal, "to_dict") else self.journal,
         }
@@ -107,10 +109,10 @@ class Campaign:
         c.encounters = data.get("encounters", [])
         c.quests = data.get("quests", [])
         c.npcs = data.get("npcs", [])
+        c.factions = data.get("factions", [])
         c.shops = data.get("shops", {})
         c.treasures = data.get("treasures", [])
         c.handouts = data.get("handouts", [])
-        c.flow_script = data.get("flow_script", "")
         c.flow_graph = data.get("flow_graph", {})
         from common.campaign_journal import CampaignJournal
         if data.get("journal"):
@@ -213,31 +215,63 @@ class Campaign:
                         
         game_state._trigger_gui_update()
 
-    def add_scene(self, name: str, map_file: str, description: str = "") -> None:
-        self.scenes.append({
+    def add_scene(self, name: str, map_file: str, description: str = "", **kwargs) -> Dict[str, Any]:
+        scene_entry = {
             "name": name,
             "map_file": map_file,
-            "description": description
-        })
+            "description": description,
+        }
+        for key, val in kwargs.items():
+            if val is not None:
+                scene_entry[key] = val
+        self.scenes.append(scene_entry)
         if not self.starting_map_file:
             self.starting_map_file = map_file
+        return scene_entry
 
-    def add_encounter(self, name: str, monsters: List[Dict[str, Any]], description: str = "", act: str = "Atto 1") -> None:
-        self.encounters.append({
+    def get_scene_by_name(self, name: str) -> Optional[Dict[str, Any]]:
+        """Restituisce la scena con il nome indicato (confronto case-insensitive)."""
+        target = str(name or "").strip().lower()
+        if not target:
+            return None
+        for scene in self.scenes:
+            if isinstance(scene, dict) and str(scene.get("name", "")).strip().lower() == target:
+                return scene
+        return None
+
+    def ensure_scene_entry(self, name: str, map_file: str = "maps/faerun.json", description: str = "") -> Dict[str, Any]:
+        """Recupera una scena esistente per nome o la crea e aggiunge se mancante."""
+        existing = self.get_scene_by_name(name)
+        if existing is not None:
+            if map_file and not existing.get("map_file"):
+                existing["map_file"] = map_file
+            if description and not existing.get("description"):
+                existing["description"] = description
+            return existing
+        return self.add_scene(name=name, map_file=map_file or "maps/faerun.json", description=description)
+
+    def add_encounter(self, name: str, monsters: List[Dict[str, Any]], description: str = "", act: str = "Atto 1", scene: str = "") -> None:
+        entry = {
             "name": name,
             "act": act,
             "description": description,
             "monsters": monsters
-        })
+        }
+        if scene:
+            entry["scene"] = scene
+        self.encounters.append(entry)
 
-    def add_quest(self, title: str, description: str = "", chapter: str = "Capitolo 1", rewards: Optional[Dict[str, Any]] = None) -> None:
-        self.quests.append({
+    def add_quest(self, title: str, description: str = "", chapter: str = "Capitolo 1", rewards: Optional[Dict[str, Any]] = None, scene: str = "") -> None:
+        entry = {
             "title": title,
             "description": description,
             "chapter": chapter,
             "rewards": rewards or {"xp": 100, "gp": 25},
             "completed": False
-        })
+        }
+        if scene:
+            entry["scene"] = scene
+        self.quests.append(entry)
 
     def add_npc(self, name: str, role: str, hp: int = 20, ac: int = 12, notes: str = "", faction: str = "Neutrale", **kwargs) -> None:
         npc_entry = {
@@ -251,12 +285,53 @@ class Campaign:
         npc_entry.update(kwargs)
         self.npcs.append(npc_entry)
 
-    def add_handout(self, title: str, content: str = "", image_path: str = "") -> None:
-        self.handouts.append({
+    def add_faction(
+        self,
+        name: str,
+        alignment: str = "Neutrale",
+        description: str = "",
+        allies: str = "",
+        enemies: str = "",
+        headquarters: str = "",
+        reputation: int = 0,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """Aggiunge o aggiorna una fazione/organizzazione della campagna."""
+        target = str(name or "").strip().lower()
+        for f in self.factions:
+            if isinstance(f, dict) and str(f.get("name", "")).strip().lower() == target:
+                f.update({
+                    "alignment": alignment or f.get("alignment", "Neutrale"),
+                    "description": description if description != "" else f.get("description", ""),
+                    "allies": allies if allies != "" else f.get("allies", ""),
+                    "enemies": enemies if enemies != "" else f.get("enemies", ""),
+                    "headquarters": headquarters if headquarters != "" else f.get("headquarters", ""),
+                    "reputation": reputation,
+                })
+                f.update(kwargs)
+                return f
+        faction_entry = {
+            "name": name,
+            "alignment": alignment,
+            "description": description,
+            "allies": allies,
+            "enemies": enemies,
+            "headquarters": headquarters,
+            "reputation": reputation,
+        }
+        faction_entry.update(kwargs)
+        self.factions.append(faction_entry)
+        return faction_entry
+
+    def add_handout(self, title: str, content: str = "", image_path: str = "", scene: str = "") -> None:
+        entry = {
             "title": title,
             "content": content,
             "image_path": image_path
-        })
+        }
+        if scene:
+            entry["scene"] = scene
+        self.handouts.append(entry)
 
 
 def create_sample_starter_campaign(target_dir: Optional[str] = None) -> Campaign:
@@ -308,7 +383,8 @@ def create_sample_starter_campaign(target_dir: Optional[str] = None) -> Campaign
         monsters=[
             {"name": "Scheletro Arciere", "count": 2, "hp": 13, "initiative": 2, "xp": 50},
             {"name": "Scheletro Guerriero", "count": 1, "hp": 15, "initiative": 2, "xp": 50}
-        ]
+        ],
+        scene="Ingresso Catacombe"
     )
     camp.add_encounter(
         name="Lo Spettro dei Sussurri (Boss)",
@@ -317,7 +393,8 @@ def create_sample_starter_campaign(target_dir: Optional[str] = None) -> Campaign
         monsters=[
             {"name": "Spettro dei Sussurri", "count": 1, "hp": 32, "initiative": 3, "xp": 200},
             {"name": "Teschio Fiammeggiante", "count": 1, "hp": 18, "initiative": 3, "xp": 100}
-        ]
+        ],
+        scene="Ingresso Catacombe"
     )
     
     # Missioni
@@ -325,15 +402,33 @@ def create_sample_starter_campaign(target_dir: Optional[str] = None) -> Campaign
         title="L'Indagine di Rovescuro",
         description="Parla con Padre Lucian per scoprire da dove provengono i rumori notturni.",
         chapter="Atto 1",
-        rewards={"xp": 150, "gp": 30}
+        rewards={"xp": 150, "gp": 30},
+        scene="Piazza di Rovescuro"
     )
     camp.add_quest(
         title="Purifica l'Altare Sconsacrato",
         description="Sconfiggi lo Spettro e spezza la maledizione che infesta le catacombe.",
         chapter="Atto 2",
-        rewards={"xp": 400, "gp": 100}
+        rewards={"xp": 400, "gp": 100},
+        scene="Ingresso Catacombe"
     )
     
+    # Fazioni
+    camp.add_faction(
+        name="Alleato",
+        alignment="Buono",
+        description="Cittadini e chierici di Rovescuro disposti ad aiutare gli avventurieri.",
+        headquarters="Piazza di Rovescuro",
+        reputation=1
+    )
+    camp.add_faction(
+        name="Nemico",
+        alignment="Caotico Malvagio",
+        description="Cultisti di Lord Malakor e non morti che infestano le catacombe.",
+        headquarters="Ingresso Catacombe",
+        reputation=-2
+    )
+
     # PNG
     camp.add_npc(
         name="Padre Lucian",
@@ -341,7 +436,8 @@ def create_sample_starter_campaign(target_dir: Optional[str] = None) -> Campaign
         faction="Alleato",
         hp=18,
         ac=13,
-        notes="Uomo devoto e timoroso. Consegnerà una pozione di cura se convinto con DC 12 Persuasione."
+        notes="Uomo devoto e timoroso. Consegnerà una pozione di cura se convinto con DC 12 Persuasione.",
+        scene="Piazza di Rovescuro"
     )
     camp.add_npc(
         name="Krag l'Oscuro",
@@ -349,7 +445,8 @@ def create_sample_starter_campaign(target_dir: Optional[str] = None) -> Campaign
         faction="Nemico",
         hp=24,
         ac=12,
-        notes="Fugge nelle ombre non appena la battaglia volge a suo sfavore."
+        notes="Fugge nelle ombre non appena la battaglia volge a suo sfavore.",
+        scene="Ingresso Catacombe"
     )
     
     # Handouts
@@ -359,9 +456,16 @@ def create_sample_starter_campaign(target_dir: Optional[str] = None) -> Campaign
             "'...e quando il sangue toccherà la pietra di luna, la soglia tra i mondi si aprirà.\n"
             "Nessun mortale potrà arrestare la vendetta dei caduti...'\n"
             "(Trascrizione trovata accanto a uno scheletro)"
-        )
+        ),
+        scene="Ingresso Catacombe"
     )
-    
+
+    try:
+        from common.campaign_script import ensure_hierarchical_campaign_flows
+        ensure_hierarchical_campaign_flows(camp)
+    except Exception:
+        pass
+
     camp.save()
     return camp
 

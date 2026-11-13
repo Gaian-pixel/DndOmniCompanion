@@ -594,3 +594,25 @@ def roll_chase_complication(roll_val: Optional[int] = None) -> Dict[str, Any]:
 def get_max_free_dashes(con_mod: int) -> int:
     """DMG p. 252: Durante un Inseguimento puoi usare Scatto gratis 3 + mod COS volte (min 0)."""
     return max(0, 3 + int(con_mod or 0))
+
+
+INCAPACITATING_CONDITIONS = (
+    "Incapacitato", "Incapacitated",
+    "Incosciente", "Unconscious",
+    "Paralizzato", "Paralyzed",
+    "Pietrificato", "Petrified",
+    "Stordito", "Stunned",
+    "Morto", "Dead",
+    "Privo di Sensi",
+)
+
+
+def is_incapacitated_entity(entity: Any) -> bool:
+    """Ritorna True se l'entità è a 0 PF o soggetta a una condizione incapacitante 5e."""
+    if not entity:
+        return False
+    if getattr(entity, "hp", 1) <= 0:
+        return True
+    conds = getattr(entity, "conditions", []) or []
+    from common.i18n import is_condition_active
+    return any(is_condition_active(conds, c) for c in INCAPACITATING_CONDITIONS)

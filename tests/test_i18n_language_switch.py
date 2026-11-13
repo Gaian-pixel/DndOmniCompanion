@@ -221,14 +221,14 @@ class TestI18nLanguageSwitch(unittest.TestCase):
 
         set_language("en")
         self.assertEqual(_t("camp_sel_list_title"), "Available Campaigns")
-        self.assertEqual(_t("camp_tab_studio"), "🧭 Flow & DndScript")
+        self.assertEqual(_t("camp_tab_studio"), "🧭 Campaign Flow")
         self.assertEqual(_t("camp_tab_general"), "📜 General & DM Notes")
         self.assertEqual(_t("camp_ed_btn_save"), "💾 Save")
         self.assertEqual(_t("camp_gen_info_title"), "Campaign Information")
 
         set_language("it")
         self.assertEqual(_t("camp_sel_list_title"), "Campagne Disponibili")
-        self.assertEqual(_t("camp_tab_studio"), "🧭 Flusso & DndScript")
+        self.assertEqual(_t("camp_tab_studio"), "🧭 Flusso Campagna")
         self.assertEqual(_t("camp_tab_general"), "📜 Generale & Note DM")
         self.assertEqual(_t("camp_ed_btn_save"), "💾 Salva")
         self.assertEqual(_t("camp_gen_info_title"), "Informazioni Campagna")
@@ -245,10 +245,13 @@ class TestI18nLanguageSwitch(unittest.TestCase):
             selector.destroy()
 
             editor = CampaignEditorFrame(root, campaign=camp)
-            self.assertEqual(editor.notebook.tab(0, "text"), "🧭 Flow & DndScript")
+            self.assertEqual(editor.notebook.index("end"), 2)
+            self.assertEqual(editor.notebook.tab(0, "text"), "🧭 Campaign Flow")
             self.assertEqual(editor.notebook.tab(1, "text"), "📜 General & DM Notes")
-            self.assertEqual(editor.notebook.tab(2, "text"), "🗺️ Scenes & Maps")
-            self.assertEqual(editor.notebook.tab(3, "text"), "⚔️ Tactical Encounters")
+            ent_nb = editor.studio_frame.entity_notebook
+            self.assertEqual(ent_nb.tab(0, "text"), "🗺️ Scenes & Maps")
+            self.assertEqual(ent_nb.tab(1, "text"), "⚔️ Tactical Encounters")
+            self.assertEqual(ent_nb.tab(3, "text"), "🎭 NPCs & Factions")
             editor.destroy()
         finally:
             root.destroy()

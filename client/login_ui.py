@@ -6,10 +6,9 @@ from common.i18n import _t, get_language
 from common.file_utils import get_writable_dir, load_json, atomic_save_json
 from common.theme import (
     TEXT_COLOR, ACCENT_RED, ACCENT_GOLD, SURFACE_COLOR, SURFACE_COLOR_ALT,
-    BORDER_COLOR, BG_COLOR, TEXT_MUTED, FONT_MAIN, FONT_BOLD, FONT_HEADER,
+    BORDER_COLOR, BG_COLOR, TEXT_MUTED, FONT_MAIN, FONT_BOLD, FONT_HEADER, FONT_SMALL,
     apply_modern_window_style
 )
-from .character_sheet_ui import CharacterSheetUI
 from .character_creation_wizard import CharacterCreationWizard
 
 
@@ -53,10 +52,11 @@ class LoginDialog(tk.Toplevel):
     e scegliere il personaggio con cui unirsi alla sessione.
     """
 
-    def __init__(self, master, character_manager, initial_character=None, initial_ip=None):
+    def __init__(self, master, character_manager, initial_character=None, initial_ip=None, lock_character=False):
         super().__init__(master)
         self.title(_t("login_dialog_title"))
-        self.minsize(480, 480)
+        self.lock_character = bool(lock_character and initial_character is not None)
+        self.minsize(480, 340 if self.lock_character else 480)
         apply_modern_window_style(self)
         self.transient(master)
         self.grab_set()
@@ -84,7 +84,7 @@ class LoginDialog(tk.Toplevel):
             mx = master.winfo_rootx()
             my = master.winfo_rooty()
             w = 520
-            h = 510
+            h = 370 if self.lock_character else 500
             x = max(0, mx + (mw - w) // 2)
             y = max(0, my + (mh - h) // 2)
             self.geometry(f"{w}x{h}+{x}+{y}")
@@ -138,39 +138,58 @@ class LoginDialog(tk.Toplevel):
         # 3. SEZIONE PERSONAGGIO
         char_sec = tk.Frame(main_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=12, pady=10)
         char_sec.pack(fill=tk.BOTH, expand=True, pady=(0, 12))
-        
-        tk.Label(char_sec, text=_t("login_select_char"), font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(anchor="w", pady=(0, 6))
-        
-        list_frame = tk.Frame(char_sec, bg=SURFACE_COLOR)
-        list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
-        
-        self.char_listbox = tk.Listbox(
-            list_frame, 
-            font=self.default_font, 
-            bg=SURFACE_COLOR_ALT, 
-            fg=TEXT_COLOR, 
-            selectbackground="#3B5BDB", 
-            selectforeground="#FFFFFF",
-            height=6, 
-            relief="flat", 
-            highlightthickness=1, 
-            highlightbackground=BORDER_COLOR
-        )
-        self.char_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        self.char_listbox.bind("<Double-Button-1>", lambda e: self.connect())
-        
-        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.char_listbox.yview)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.char_listbox.config(yscrollcommand=scrollbar.set)
-        
-        self.refresh_listbox()
-        
-        char_btn_row = tk.Frame(char_sec, bg=SURFACE_COLOR)
-        char_btn_row.pack(fill=tk.X)
-        
-        ttk.Button(char_btn_row, text=_t("login_btn_create"), command=self.create_character, style="Info.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 4))
-        ttk.Button(char_btn_row, text=_t("login_btn_edit"), command=self.edit_character, style="Dark.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=4)
-        ttk.Button(char_btn_row, text=_t("login_btn_delete"), command=self.delete_character, style="Danger.TButton").pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(4, 0))
+
+        self.char_listbox = None
+        if self.lock_character and self.initial_character is not None:
+            tk.Label(char_sec, text=_t("login_locked_char_hdr"), font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(anchor="w", pady=(0, 6))
+            c = self.initial_character
+            hero_row = tk.Frame(char_sec, bg=SURFACE_COLOR_ALT, highlightbackground=ACCENT_GOLD, highlightthickness=1, padx=10, pady=8)
+            hero_row.pack(fill=tk.X, pady=(0, 4))
+            camp = f" [{c.campaign}]" if getattr(c, "campaign", None) else ""
+            race = f" ({c.race})" if getattr(c, "race", None) else ""
+            tk.Label(
+                hero_row,
+                text=f"⚔️  {c.name}  •  Lv.{c.level} {c.char_class}{race}{camp}",
+                font=FONT_BOLD,
+                bg=SURFACE_COLOR_ALT,
+                fg=ACCENT_GOLD
+            ).pack(side=tk.LEFT, fill=tk.X, expand=True, anchor="w")
+            ttk.Button(
+                hero_row,
+                text=_t("login_btn_change_char"),
+                command=self.on_close,
+                style="Dark.TButton"
+            ).pack(side=tk.RIGHT)
+        else:
+            tk.Label(char_sec, text=_t("login_select_char"), font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(anchor="w", pady=(0, 6))
+            
+            list_frame = tk.Frame(char_sec, bg=SURFACE_COLOR)
+            list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+            
+            self.char_listbox = tk.Listbox(
+                list_frame, 
+                font=self.default_font, 
+                bg=SURFACE_COLOR_ALT, 
+                fg=TEXT_COLOR, 
+                selectbackground="#3B5BDB", 
+                selectforeground="#FFFFFF",
+                height=6, 
+                relief="flat", 
+                highlightthickness=1, 
+                highlightbackground=BORDER_COLOR
+            )
+            self.char_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            self.char_listbox.bind("<Double-Button-1>", lambda e: self.connect())
+            
+            scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.char_listbox.yview)
+            scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+            self.char_listbox.config(yscrollcommand=scrollbar.set)
+            
+            self.refresh_listbox()
+            
+            char_btn_row = tk.Frame(char_sec, bg=SURFACE_COLOR)
+            char_btn_row.pack(fill=tk.X)
+            ttk.Button(char_btn_row, text=_t("login_btn_manage_hub"), command=self.open_character_hub, style="Info.TButton").pack(fill=tk.X)
         
         # 4. BOTTONI DI CONFERMA / ANNULLA IN BASSO
         bottom_box = tk.Frame(main_frame)
@@ -185,6 +204,8 @@ class LoginDialog(tk.Toplevel):
 
     def refresh_listbox(self):
         """Aggiorna la lista dei personaggi con dettagli e preserva/imposta la selezione attiva."""
+        if not getattr(self, "char_listbox", None):
+            return
         self.char_listbox.delete(0, tk.END)
         characters = getattr(self.manager, "characters", [])
         
@@ -207,6 +228,28 @@ class LoginDialog(tk.Toplevel):
         self.char_listbox.activate(target_idx)
         self.char_listbox.see(target_idx)
 
+    def open_character_hub(self):
+        """Apre l'Hub unificato Gestione Personaggi per creare, modificare, duplicare o esportare eroi."""
+        from .character_manager_ui import CharacterManagerDialog
+        selected_id = getattr(self.initial_character, "id", None)
+        if not selected_id and self.char_listbox:
+            sel = self.char_listbox.curselection()
+            chars = getattr(self.manager, "characters", [])
+            if sel and 0 <= sel[0] < len(chars):
+                selected_id = getattr(chars[sel[0]], "id", None)
+
+        def on_hub_selected(char):
+            self.initial_character = char
+
+        dlg = CharacterManagerDialog(
+            self,
+            manager=self.manager,
+            on_select_callback=on_hub_selected,
+            selected_char_id=selected_id
+        )
+        self.wait_window(dlg)
+        self.refresh_listbox()
+
     def create_character(self):
         """Apre il wizard di creazione personaggio e seleziona il nuovo eroe."""
         def on_wizard_done(new_char):
@@ -216,36 +259,17 @@ class LoginDialog(tk.Toplevel):
         ui = CharacterCreationWizard(self, self.manager, on_complete_callback=on_wizard_done)
         self.wait_window(ui)
 
-    def edit_character(self):
-        """Apre la scheda del personaggio selezionato per la modifica."""
-        sel = self.char_listbox.curselection()
-        characters = getattr(self.manager, "characters", [])
-        if not sel or not characters or sel[0] >= len(characters):
-            messagebox.showwarning(_t("warning"), "Seleziona un personaggio da modificare." if get_language() == "it" else "Select a character to edit.")
-            return
-        char = characters[sel[0]]
-        ui = CharacterSheetUI(self, char, self.manager, on_save_callback=self.refresh_listbox, is_connected=False)
-        self.wait_window(ui)
-        self.refresh_listbox()
-        
-    def delete_character(self):
-        """Elimina il personaggio selezionato previa conferma."""
-        sel = self.char_listbox.curselection()
-        characters = getattr(self.manager, "characters", [])
-        if not sel or not characters or sel[0] >= len(characters):
-            messagebox.showwarning(_t("warning"), "Seleziona un personaggio da eliminare." if get_language() == "it" else "Select a character to delete.")
-            return
-        char = characters[sel[0]]
-        if messagebox.askyesno("Conferma", f"Sei sicuro di voler eliminare il personaggio '{char.name}'?"):
-            self.manager.delete_character(char)
-            self.initial_character = None
-            self.refresh_listbox()
-
     def connect(self):
         """Conferma la scelta del server e del personaggio ed esce dal dialogo."""
         ip = self.ip_var.get().strip()
         if not ip:
             messagebox.showerror("Errore", "Inserisci l'IP o l'indirizzo del server.")
+            return
+
+        if self.lock_character and self.initial_character is not None:
+            save_server_history(ip)
+            self.result = (ip, self.initial_character)
+            self.destroy()
             return
             
         characters = getattr(self.manager, "characters", [])

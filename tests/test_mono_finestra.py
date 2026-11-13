@@ -318,26 +318,39 @@ class TestMonoFinestraArchitecture(unittest.TestCase):
         self.assertEqual(len(updated["spellbook"]), 1)
         self.assertEqual(updated["journal_notes"], "Diario Iniziale")
 
-    def test_dndscript_loot_linked_to_compendium(self):
-        """Verifica che il loot scritto in DndScript venga risolto contro il Compendio SRD e l'equipaggiamento 5e."""
-        from common.campaign_script import DndScriptParser, sync_flow_graph_to_campaign
+    def test_flow_loot_linked_to_compendium(self):
+        """Verifica che il loot nei nodi FlowGraph venga risolto contro il Compendio SRD e l'equipaggiamento 5e."""
+        from common.campaign_script import FlowGraph, FlowNode, sync_flow_graph_to_campaign
         from common.campaign import Campaign
 
-        script = '''
-# INCONTRO: Imboscata Goblin
-mostri: 2x "Goblin"
-loot: "50 mo, 20 ma, 2x Pozione di Guarigione, Spada Lunga +1"
-
-# TESORO: Scrigno Reale
-monete: "150 mo, 5 mp"
-oggetti: "Borsa Conservante", "Corda di Seta"
-
-# QUEST: Liberare la Miniera
-obiettivi: "Sconfiggi il capo"
-loot: "100 mo, Anello di Protezione"
-'''
-        parser = DndScriptParser()
-        graph = parser.parse(script)
+        graph = FlowGraph()
+        graph.nodes["enc1"] = FlowNode(
+            id="enc1",
+            node_type="encounter",
+            title="Imboscata Goblin",
+            data={
+                "monsters": [{"name": "Goblin", "quantity": 2}],
+                "loot": "50 mo, 20 ma, 2x Pozione di Guarigione, Spada Lunga +1",
+            },
+        )
+        graph.nodes["loot1"] = FlowNode(
+            id="loot1",
+            node_type="loot",
+            title="Scrigno Reale",
+            data={
+                "gold": "150 mo, 5 mp",
+                "items": ["Borsa Conservante", "Corda di Seta"],
+            },
+        )
+        graph.nodes["q1"] = FlowNode(
+            id="q1",
+            node_type="quest",
+            title="Liberare la Miniera",
+            data={
+                "objectives": ["Sconfiggi il capo"],
+                "loot": "100 mo, Anello di Protezione",
+            },
+        )
         camp = Campaign(name="Test Compendio Loot")
         sync_flow_graph_to_campaign(graph, camp)
 
@@ -392,7 +405,15 @@ loot: "100 mo, Anello di Protezione"
         loaded.level_range = "1-5"
         loaded.start_date = {"year": 1495, "month": 6, "day": 15, "hour": 10}
         loaded.start_weather = "Pioggia"
-        loaded.flow_script = '# SCENA: Sentiero di Triboar\nmappa: "maps/faerun.json"\nnarra: "Due cavalli morti bloccano la via."\n\n# INCONTRO: Imboscata dei Cragmaw\nmostri: 4x "Goblin"\nloot: "50 mo, Pozione di Guarigione"'
+        from common.campaign_script import ensure_hierarchical_campaign_flows
+        loaded.add_scene("Sentiero di Triboar", "maps/faerun.json", "Due cavalli morti bloccano la via.")
+        loaded.add_encounter(
+            "Imboscata dei Cragmaw",
+            [{"name": "Goblin", "count": 4, "hp": 7}],
+            scene="Sentiero di Triboar",
+        )
+        loaded.encounters[-1]["loot"] = "50 mo, Pozione di Guarigione"
+        ensure_hierarchical_campaign_flows(loaded)
         loaded.add_handout("Mappa di Gundren", content="Indicazioni per la Caverna dell'Eco.")
 
         editor_frame.load_campaign_into_editor(loaded)
@@ -403,7 +424,7 @@ loot: "100 mo, Anello di Protezione"
         self.assertEqual(editor_frame.combo_weather.get(), "Pioggia")
         self.assertIn("Costa della Spada", editor_frame.txt_synopsis.get("1.0", tk.END))
         self.assertIn("Ragno Nero", editor_frame.txt_dm_notes.get("1.0", tk.END))
-        self.assertIn("Sentiero di Triboar", editor_frame.studio_frame.txt_script.get("1.0", tk.END))
+        self.assertIsNotNone(editor_frame.studio_frame.graph.get_node_by_title("Sentiero di Triboar"))
         self.assertEqual(len(editor_frame.tree_scenes.get_children()), 1)
         self.assertEqual(len(editor_frame.tree_enc.get_children()), 1)
         self.assertEqual(len(editor_frame.tree_handouts.get_children()), 1)

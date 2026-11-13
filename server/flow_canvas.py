@@ -17,7 +17,7 @@ from common.theme import (
     ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, TEXT_COLOR, TEXT_MUTED, TEXT_DARK,
     FONT_MAIN, FONT_BOLD, FONT_SMALL, FONT_BADGE
 )
-from common.campaign_script import FlowGraph, FlowNode, FlowEdge, NODE_TYPES
+from common.campaign_script import FlowGraph, FlowNode, FlowEdge, NODE_TYPES, EDGE_CONDITIONS
 
 
 NODE_WIDTH = 210
@@ -29,11 +29,24 @@ class FlowCanvas(tk.Frame):
     """
     Canvas infinito interattivo a nodi per DndOmniCompanion.
     """
-    def __init__(self, master, graph: Optional[FlowGraph] = None, on_change_callback: Optional[Callable] = None, is_dm_live: bool = False):
+    def __init__(
+        self,
+        master,
+        graph: Optional[FlowGraph] = None,
+        on_change_callback: Optional[Callable] = None,
+        is_dm_live: bool = False,
+        on_node_drilldown_callback: Optional[Callable] = None,
+        on_select_callback: Optional[Callable] = None,
+        on_edge_select_callback: Optional[Callable] = None,
+    ):
         super().__init__(master, bg=BG_COLOR)
         self.graph = graph or FlowGraph()
         self.on_change_callback = on_change_callback
         self.is_dm_live = is_dm_live
+        self.on_node_drilldown_callback = on_node_drilldown_callback
+        self.on_select_callback = on_select_callback
+        self.on_edge_select_callback = on_edge_select_callback
+        self.allowed_node_types: Optional[List[str]] = None
 
         # Stato Party e Sessione
         self.active_party_node_id: Optional[str] = None
@@ -46,6 +59,7 @@ class FlowCanvas(tk.Frame):
 
         # Stato Interazioni
         self.selected_node_id: Optional[str] = None
+        self.selected_edge_index: Optional[int] = None
         self.dragged_node_id: Optional[str] = None
         self.drag_start_x = 0
         self.drag_start_y = 0
@@ -121,7 +135,39 @@ class FlowCanvas(tk.Frame):
     # -----------------------------------------------------------------------
 
     def set_graph(self, graph: FlowGraph):
+        if graph is not self.graph:
+            self.selected_edge_index = None
         self.graph = graph
+        if self.selected_node_id and self.selected_node_id not in self.graph.nodes:
+            self.selected_node_id = None
+        if self.selected_edge_index is not None and not (0 <= self.selected_edge_index < len(self.graph.edges)):
+            self.selected_edge_index = None
+        self.render()
+
+    def select_node(self, node_id: Optional[str], notify: bool = True):
+        """Seleziona programmaticamente un nodo (o azzera se None) deselezionando eventuali archi."""
+        self.selected_edge_index = None
+        self.selected_node_id = node_id if (node_id and node_id in self.graph.nodes) else None
+        if notify:
+            if self.on_edge_select_callback:
+                self.on_edge_select_callback(None)
+            if self.on_select_callback:
+                node = self.graph.nodes.get(self.selected_node_id) if self.selected_node_id else None
+                self.on_select_callback(node)
+        self.render()
+
+    def select_edge(self, edge_index: Optional[int], notify: bool = True):
+        """Seleziona programmaticamente un arco tramite indice (o azzera se None)."""
+        self.selected_node_id = None
+        if edge_index is not None and 0 <= edge_index < len(self.graph.edges):
+            self.selected_edge_index = edge_index
+        else:
+            self.selected_edge_index = None
+        if notify:
+            if self.on_select_callback:
+                self.on_select_callback(None)
+            if self.on_edge_select_callback:
+                self.on_edge_select_callback(self.selected_edge_index)
         self.render()
 
     def render(self):
@@ -148,7 +194,7 @@ class FlowCanvas(tk.Frame):
 
     def _draw_edges(self):
         """Disegna le connessioni curve tra nodi."""
-        for edge in self.graph.edges:
+        for edge_idx, edge in enumerate(self.graph.edges):
             src = self.graph.nodes.get(edge.from_id)
             dst = self.graph.nodes.get(edge.to_id)
             if not src or not dst:
@@ -165,35 +211,27 @@ class FlowCanvas(tk.Frame):
             sx1, sy1 = self.world_to_screen(src_wx, src_wy)
             sx2, sy2 = self.world_to_screen(dst_wx, dst_wy)
 
-            # Controlla se fa parte del percorso percorso dal party
+            # Controlla se fa parte del percorso percorso dal party o è selezionato
             is_visited_edge = (src.id in self.visited_node_ids and dst.id in self.visited_node_ids)
-            cond_type = getattr(edge, "condition_type", "default")
+            is_selected_edge = (edge_idx == self.selected_edge_index)
+            cond_type = getattr(edge, "condition_type", "default") or "default"
             cond_val = getattr(edge, "condition_value", "")
+            cond_meta = EDGE_CONDITIONS.get(cond_type, EDGE_CONDITIONS["default"])
 
-            # Palette colori condizioni dinamica
-            if is_visited_edge:
+            if is_selected_edge:
+                edge_color = ACCENT_GOLD_LIGHT
+                edge_width = max(3, int(3.2 * self.scale))
+            elif is_visited_edge:
                 edge_color = ACCENT_GOLD
                 edge_width = max(2, int(2.5 * self.scale))
-            elif cond_type == "success":
-                edge_color = "#2FB344"  # Verde brillante successo
+            elif cond_type != "default":
+                edge_color = cond_meta["color"]
                 edge_width = max(1, int(2.0 * self.scale))
-            elif cond_type == "failure":
-                edge_color = "#E03131"  # Rosso rubino fallimento
-                edge_width = max(1, int(2.0 * self.scale))
-            elif cond_type == "check":
-                edge_color = "#F59F00"  # Ambra prova / tiro dado
-                edge_width = max(1, int(2.0 * self.scale))
-            elif cond_type == "item":
-                edge_color = "#9775FA"  # Viola requisito oggetto
-                edge_width = max(1, int(2.0 * self.scale))
-            elif cond_type == "else":
-                edge_color = "#868E96"  # Grigio altrimenti
-                edge_width = max(1, int(1.5 * self.scale))
             else:
-                edge_color = "#495057"
+                edge_color = cond_meta["color"]
                 edge_width = max(1, int(1.5 * self.scale))
 
-            dash_pattern = None if not dst.node_type == "off_track" else (4, 4)
+            dash_pattern = None if dst.node_type != "off_track" else (4, 4)
 
             # Disegna curva Bezier fluida
             ctrl_dist = max(40.0 * self.scale, abs(sx2 - sx1) * 0.5)
@@ -202,7 +240,6 @@ class FlowCanvas(tk.Frame):
             c2x = sx2 - ctrl_dist
             c2y = sy2
 
-            # Genera punti intermedi approssimati per la linea
             pts = []
             for t_step in range(11):
                 t = t_step / 10.0
@@ -211,48 +248,58 @@ class FlowCanvas(tk.Frame):
                 by = (omt**3)*sy1 + 3*(omt**2)*t*c1y + 3*omt*(t**2)*c2y + (t**3)*sy2
                 pts.extend([bx, by])
 
+            edge_tags = ("edge", f"edge_{edge.from_id}_{edge.to_id}", f"edge_idx_{edge_idx}")
             self.canvas.create_line(
                 pts, fill=edge_color, width=edge_width,
+                activefill=ACCENT_GOLD_LIGHT, activewidth=max(3, int(3.0 * self.scale)),
                 arrow=tk.LAST, arrowshape=(int(8*self.scale), int(10*self.scale), int(4*self.scale)),
-                dash=dash_pattern, tags=("edge", f"edge_{edge.from_id}_{edge.to_id}")
+                dash=dash_pattern, tags=edge_tags
             )
 
             # Etichetta bivio / condizione nel mezzo con badge stilizzato
-            display_label = ""
-            if cond_type == "success":
-                display_label = "✅ " + (edge.label if edge.label else "Successo")
-            elif cond_type == "failure":
-                display_label = "❌ " + (edge.label if edge.label else "Fallimento")
-            elif cond_type == "check":
-                display_label = "🎲 " + (edge.label if edge.label else f"Prova [{cond_val}]")
-            elif cond_type == "item":
-                display_label = "🔑 " + (edge.label if edge.label else f"Possiede {cond_val}")
-            elif cond_type == "else":
-                display_label = "↩️ " + (edge.label if edge.label else "Altrimenti")
-            elif edge.label:
-                display_label = edge.label
+            display_label = self._format_edge_label(edge, cond_type, cond_val)
 
-            if display_label:
+            if display_label or is_selected_edge:
+                badge_text = display_label or "➡️ Connessione"
                 mid_x = (sx1 + sx2) / 2.0
                 mid_y = (sy1 + sy2) / 2.0
                 pad_x = 8 * self.scale
                 pad_y = 3 * self.scale
 
-                label_fg = edge_color if cond_type != "default" else (ACCENT_GOLD if is_visited_edge else TEXT_COLOR)
-                badge_outline = edge_color if cond_type != "default" else BORDER_COLOR
+                base_fg = cond_meta["color"] if cond_type != "default" else (ACCENT_GOLD if is_visited_edge else TEXT_COLOR)
+                label_fg = ACCENT_GOLD_LIGHT if is_selected_edge else base_fg
+                badge_outline = ACCENT_GOLD_LIGHT if is_selected_edge else (cond_meta["color"] if cond_type != "default" else BORDER_COLOR)
 
                 txt_id = self.canvas.create_text(
-                    mid_x, mid_y, text=display_label,
+                    mid_x, mid_y, text=badge_text,
                     fill=label_fg,
-                    font=("Segoe UI", max(7, int(8 * self.scale)), "bold")
+                    font=("Segoe UI", max(7, int(8 * self.scale)), "bold"),
+                    tags=edge_tags,
                 )
                 bbox = self.canvas.bbox(txt_id)
                 if bbox:
                     bg_tag = self.canvas.create_rectangle(
                         bbox[0] - pad_x, bbox[1] - pad_y, bbox[2] + pad_x, bbox[3] + pad_y,
-                        fill="#16181C", outline=badge_outline, width=1
+                        fill="#16181C", outline=badge_outline, width=2 if is_selected_edge else 1,
+                        tags=edge_tags,
                     )
                     self.canvas.tag_lower(bg_tag, txt_id)
+
+    @staticmethod
+    def _format_edge_label(edge: FlowEdge, cond_type: str, cond_val: str) -> str:
+        if cond_type == "success":
+            return "✅ " + (edge.label or "Successo")
+        if cond_type == "failure":
+            return "❌ " + (edge.label or "Fallimento")
+        if cond_type == "check":
+            return "🎲 " + (edge.label or f"Prova [{cond_val}]")
+        if cond_type == "item":
+            return "🔑 " + (edge.label or f"Possiede {cond_val}")
+        if cond_type == "else":
+            return "↩️ " + (edge.label or "Altrimenti")
+        if cond_type == "custom":
+            return "🔀 " + (edge.label or cond_val or "Condizione")
+        return edge.label or ""
 
     def _draw_nodes(self):
         """Disegna le schede dei nodi con stile Dark Fantasy."""
@@ -368,7 +415,16 @@ class FlowCanvas(tk.Frame):
         d = node.data
         t = node.node_type
         if t == "scene":
-            return d.get("map_file", "Nessuna mappa")[:26]
+            map_name = str(d.get("map_file", "Nessuna mappa"))
+            if "/" in map_name or "\\" in map_name:
+                map_name = map_name.replace("\\", "/").split("/")[-1]
+            sub_txt = str(d.get("subflow_summary_text", "")).strip()
+            if sub_txt and sub_txt != "vuoto":
+                return f"{map_name} • {sub_txt}"[:28]
+            return map_name[:26]
+        elif t == "exit":
+            dest = d.get("target_scene") or node.title
+            return f"→ {dest}"[:26]
         elif t == "encounter":
             m_cnt = len(d.get("monsters", []))
             cr = d.get("cr", "")
@@ -427,36 +483,64 @@ class FlowCanvas(tk.Frame):
     # GESTIONE EVENTI MOUSE & DRAG & DROP
     # -----------------------------------------------------------------------
 
+    def _find_edge_index_near(self, x: float, y: float, radius: float = 6.0) -> Optional[int]:
+        """Trova l'indice di un arco sotto o vicino al punto schermo (x, y)."""
+        candidates = list(self.canvas.find_withtag("current"))
+        for it in self.canvas.find_overlapping(x - radius, y - radius, x + radius, y + radius):
+            if it not in candidates:
+                candidates.append(it)
+        for it in candidates:
+            for t in self.canvas.gettags(it):
+                if t.startswith("edge_idx_"):
+                    try:
+                        idx = int(t[9:])
+                        if 0 <= idx < len(self.graph.edges):
+                            return idx
+                    except ValueError:
+                        pass
+        return None
+
     def _on_left_click(self, event):
         items = self.canvas.find_withtag("current")
-        if not items:
-            self.selected_node_id = None
-            self.render()
-            return
+        if items:
+            tags = self.canvas.gettags(items[0])
+            # 1. Controlla se cliccata una porta di uscita per iniziare una connessione
+            if "port_out" in tags:
+                for t in tags:
+                    if t in self.graph.nodes:
+                        self.connecting_from_node_id = t
+                        self.drag_start_x = event.x
+                        self.drag_start_y = event.y
+                        return
 
-        item = items[0]
-        tags = self.canvas.gettags(item)
-
-        # Controlla se cliccata una porta di uscita per iniziare una connessione
-        if "port_out" in tags:
+            # 2. Controlla se cliccato un nodo
             for t in tags:
                 if t in self.graph.nodes:
-                    self.connecting_from_node_id = t
+                    self.selected_edge_index = None
+                    self.selected_node_id = t
+                    self.dragged_node_id = t
                     self.drag_start_x = event.x
                     self.drag_start_y = event.y
+                    if self.on_edge_select_callback:
+                        self.on_edge_select_callback(None)
+                    if self.on_select_callback:
+                        self.on_select_callback(self.graph.nodes[t])
+                    self.render()
                     return
 
-        # Controlla se cliccato un nodo
-        for t in tags:
-            if t in self.graph.nodes:
-                self.selected_node_id = t
-                self.dragged_node_id = t
-                self.drag_start_x = event.x
-                self.drag_start_y = event.y
-                self.render()
-                return
+        # 3. Controlla se cliccato un arco / badge condizione
+        edge_idx = self._find_edge_index_near(event.x, event.y)
+        if edge_idx is not None:
+            self.select_edge(edge_idx, notify=True)
+            return
 
+        # 4. Click su sfondo vuoto: azzera selezioni
         self.selected_node_id = None
+        self.selected_edge_index = None
+        if self.on_edge_select_callback:
+            self.on_edge_select_callback(None)
+        if self.on_select_callback:
+            self.on_select_callback(None)
         self.render()
 
     def _on_left_drag(self, event):
@@ -506,8 +590,15 @@ class FlowCanvas(tk.Frame):
                 exists = any(e.from_id == self.connecting_from_node_id and e.to_id == target_id for e in self.graph.edges)
                 if not exists:
                     self.graph.edges.append(FlowEdge(from_id=self.connecting_from_node_id, to_id=target_id))
+                    new_edge_idx = len(self.graph.edges) - 1
+                    self.selected_node_id = None
+                    self.selected_edge_index = new_edge_idx
                     if self.on_change_callback:
                         self.on_change_callback()
+                    if self.on_select_callback:
+                        self.on_select_callback(None)
+                    if self.on_edge_select_callback:
+                        self.on_edge_select_callback(new_edge_idx)
 
             self.connecting_from_node_id = None
             self.render()
@@ -521,13 +612,21 @@ class FlowCanvas(tk.Frame):
 
     def _on_double_click(self, event):
         items = self.canvas.find_withtag("current")
-        if not items:
-            return
-        tags = self.canvas.gettags(items[0])
-        for t in tags:
-            if t in self.graph.nodes:
-                self._open_node_editor(self.graph.nodes[t])
-                return
+        if items:
+            tags = self.canvas.gettags(items[0])
+            for t in tags:
+                if t in self.graph.nodes:
+                    node = self.graph.nodes[t]
+                    if node.node_type == "scene" and self.on_node_drilldown_callback:
+                        self.on_node_drilldown_callback(node)
+                    else:
+                        self._open_node_editor(node)
+                    return
+
+        edge_idx = self._find_edge_index_near(event.x, event.y)
+        if edge_idx is not None:
+            self.select_edge(edge_idx, notify=True)
+            self._open_edge_editor(edge_idx)
 
     def _on_right_click(self, event):
         items = self.canvas.find_withtag("current")
@@ -538,36 +637,73 @@ class FlowCanvas(tk.Frame):
                     clicked_node = self.graph.nodes[t]
                     break
 
+        clicked_edge_idx = None if clicked_node else self._find_edge_index_near(event.x, event.y)
+
         menu = tk.Menu(self, tearoff=0, bg=SURFACE_COLOR, fg=TEXT_COLOR)
         if clicked_node:
+            self.selected_edge_index = None
             self.selected_node_id = clicked_node.id
+            if self.on_edge_select_callback:
+                self.on_edge_select_callback(None)
+            if self.on_select_callback:
+                self.on_select_callback(clicked_node)
+            if clicked_node.node_type == "scene" and self.on_node_drilldown_callback:
+                menu.add_command(
+                    label="↳ Apri Flusso Interno Scena",
+                    command=lambda n=clicked_node: self.on_node_drilldown_callback(n),
+                )
+                menu.add_separator()
             if self.is_dm_live:
                 menu.add_command(label="📍 Imposta Party Qui", command=lambda: self.set_active_party_node(clicked_node.id))
                 menu.add_separator()
             menu.add_command(label="✏️ Modifica Dettagli...", command=lambda: self._open_node_editor(clicked_node))
             menu.add_command(label="🗑️ Elimina Nodo", command=lambda: self._delete_node(clicked_node.id))
+        elif clicked_edge_idx is not None:
+            self.select_edge(clicked_edge_idx, notify=True)
+            menu.add_command(
+                label="🏷️ Modifica Condizione / Etichetta...",
+                command=lambda idx=clicked_edge_idx: self._open_edge_editor(idx),
+            )
+            cond_menu = tk.Menu(menu, tearoff=0, bg=SURFACE_COLOR, fg=TEXT_COLOR)
+            for cond_key, meta in EDGE_CONDITIONS.items():
+                cond_menu.add_command(
+                    label=f"{meta['icon']} {meta['label']}",
+                    command=lambda idx=clicked_edge_idx, ck=cond_key: self._quick_set_edge_condition(idx, ck),
+                )
+            menu.add_cascade(label="🔀 Tipo Condizione Rapida", menu=cond_menu)
+            menu.add_separator()
+            menu.add_command(
+                label="🗑️ Elimina Collegamento",
+                command=lambda idx=clicked_edge_idx: self._delete_edge(idx),
+            )
         else:
             # Click su spazio vuoto
             wx, wy = self.screen_to_world(event.x, event.y)
-            menu.add_command(label="➕ Aggiungi Scena...", command=lambda: self._quick_add_node("scene", wx, wy))
-            menu.add_command(label="⚔️ Aggiungi Incontro...", command=lambda: self._quick_add_node("encounter", wx, wy))
-            menu.add_command(label="🎲 Aggiungi Prova / CD...", command=lambda: self._quick_add_node("check", wx, wy))
-            menu.add_command(label="⚠️ Aggiungi Trappola...", command=lambda: self._quick_add_node("trap", wx, wy))
-            menu.add_command(label="💎 Aggiungi Tesoro...", command=lambda: self._quick_add_node("loot", wx, wy))
-            menu.add_command(label="🏬 Aggiungi Emporio...", command=lambda: self._quick_add_node("shop", wx, wy))
-            menu.add_command(label="👤 Aggiungi PNG...", command=lambda: self._quick_add_node("npc", wx, wy))
-            
-            # Sottomenu altri blocchi narrativi
-            other_menu = tk.Menu(menu, tearoff=0, bg=SURFACE_COLOR, fg=TEXT_COLOR)
-            other_menu.add_command(label="🧩 Enigma...", command=lambda: self._quick_add_node("puzzle", wx, wy))
-            other_menu.add_command(label="⛺ Riposo...", command=lambda: self._quick_add_node("rest", wx, wy))
-            other_menu.add_command(label="📜 Documento (Lore)...", command=lambda: self._quick_add_node("lore", wx, wy))
-            other_menu.add_command(label="⏳ Evento a Tempo...", command=lambda: self._quick_add_node("event", wx, wy))
-            other_menu.add_command(label="📜 Quest...", command=lambda: self._quick_add_node("quest", wx, wy))
-            other_menu.add_command(label="📢 Spunto Narrativo...", command=lambda: self._quick_add_node("hook", wx, wy))
-            other_menu.add_command(label="⚡ Fuori Pista...", command=lambda: self._quick_add_node("off_track", wx, wy))
-            other_menu.add_command(label="📝 Nota...", command=lambda: self._quick_add_node("note", wx, wy))
-            menu.add_cascade(label="➕ Altri Blocchi Narrativi", menu=other_menu)
+            only_scenes = self.allowed_node_types is not None and self.allowed_node_types == ["scene"]
+            if only_scenes:
+                menu.add_command(label="➕ Aggiungi Scena...", command=lambda: self._quick_add_node("scene", wx, wy))
+            else:
+                if self.allowed_node_types is None or "scene" in self.allowed_node_types:
+                    menu.add_command(label="➕ Aggiungi Scena...", command=lambda: self._quick_add_node("scene", wx, wy))
+                menu.add_command(label="⚔️ Aggiungi Incontro...", command=lambda: self._quick_add_node("encounter", wx, wy))
+                menu.add_command(label="🎲 Aggiungi Prova / CD...", command=lambda: self._quick_add_node("check", wx, wy))
+                menu.add_command(label="⚠️ Aggiungi Trappola...", command=lambda: self._quick_add_node("trap", wx, wy))
+                menu.add_command(label="💎 Aggiungi Tesoro...", command=lambda: self._quick_add_node("loot", wx, wy))
+                menu.add_command(label="🏬 Aggiungi Emporio...", command=lambda: self._quick_add_node("shop", wx, wy))
+                menu.add_command(label="👤 Aggiungi PNG...", command=lambda: self._quick_add_node("npc", wx, wy))
+                menu.add_command(label="🚪 Aggiungi Uscita Scena...", command=lambda: self._quick_add_node("exit", wx, wy))
+                
+                # Sottomenu altri blocchi narrativi
+                other_menu = tk.Menu(menu, tearoff=0, bg=SURFACE_COLOR, fg=TEXT_COLOR)
+                other_menu.add_command(label="🧩 Enigma...", command=lambda: self._quick_add_node("puzzle", wx, wy))
+                other_menu.add_command(label="⛺ Riposo...", command=lambda: self._quick_add_node("rest", wx, wy))
+                other_menu.add_command(label="📜 Documento (Lore)...", command=lambda: self._quick_add_node("lore", wx, wy))
+                other_menu.add_command(label="⏳ Evento a Tempo...", command=lambda: self._quick_add_node("event", wx, wy))
+                other_menu.add_command(label="📜 Quest...", command=lambda: self._quick_add_node("quest", wx, wy))
+                other_menu.add_command(label="📢 Spunto Narrativo...", command=lambda: self._quick_add_node("hook", wx, wy))
+                other_menu.add_command(label="⚡ Fuori Pista...", command=lambda: self._quick_add_node("off_track", wx, wy))
+                other_menu.add_command(label="📝 Nota...", command=lambda: self._quick_add_node("note", wx, wy))
+                menu.add_cascade(label="➕ Altri Blocchi Narrativi", menu=other_menu)
 
             menu.add_separator()
             menu.add_command(label="🔍 Centra Vista", command=self.reset_view)
@@ -589,15 +725,109 @@ class FlowCanvas(tk.Frame):
             del self.graph.nodes[node_id]
             # Elimina connessioni collegate
             self.graph.edges = [e for e in self.graph.edges if e.from_id != node_id and e.to_id != node_id]
+            self.selected_edge_index = None
             if self.selected_node_id == node_id:
                 self.selected_node_id = None
+            if self.on_edge_select_callback:
+                self.on_edge_select_callback(None)
+            if self.on_select_callback:
+                self.on_select_callback(self.graph.nodes.get(self.selected_node_id) if self.selected_node_id else None)
             if self.on_change_callback:
                 self.on_change_callback()
             self.render()
 
+    def _quick_set_edge_condition(self, edge_idx: int, cond_type: str):
+        if 0 <= edge_idx < len(self.graph.edges):
+            edge = self.graph.edges[edge_idx]
+            edge.condition_type = cond_type
+            if cond_type == "check" and not edge.condition_value:
+                edge.condition_value = "Percezione CD 12"
+            elif cond_type == "item" and not edge.condition_value:
+                edge.condition_value = "Chiave"
+            if self.on_change_callback:
+                self.on_change_callback()
+            if self.on_edge_select_callback:
+                self.on_edge_select_callback(edge_idx)
+            self.render()
+
+    def _delete_edge(self, edge_idx: int):
+        if self.graph.remove_edge_at(edge_idx) is not None:
+            self.selected_edge_index = None
+            if self.on_edge_select_callback:
+                self.on_edge_select_callback(None)
+            if self.on_change_callback:
+                self.on_change_callback()
+            self.render()
+
+    def _open_edge_editor(self, edge_idx: int):
+        """Apre un dialogo modale per impostare condizione ed etichetta di un collegamento."""
+        if not (0 <= edge_idx < len(self.graph.edges)):
+            return
+        edge = self.graph.edges[edge_idx]
+        src_node = self.graph.nodes.get(edge.from_id)
+        dst_node = self.graph.nodes.get(edge.to_id)
+        src_title = src_node.title if src_node else edge.from_id
+        dst_title = dst_node.title if dst_node else edge.to_id
+
+        dlg = tk.Toplevel(self)
+        dlg.title(f"Connessione: {src_title} → {dst_title}")
+        dlg.geometry("420x310")
+        dlg.configure(bg=BG_COLOR)
+        dlg.transient(self.winfo_toplevel())
+        dlg.grab_set()
+
+        container = tk.Frame(dlg, bg=BG_COLOR, padx=14, pady=12)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(
+            container,
+            text=f"{src_title}  →  {dst_title}",
+            font=FONT_BOLD, bg=BG_COLOR, fg=ACCENT_GOLD
+        ).pack(anchor="w", pady=(0, 10))
+
+        tk.Label(container, text="Tipo Condizione:", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        cond_keys = list(EDGE_CONDITIONS.keys())
+        cond_labels = [f"{k} — {EDGE_CONDITIONS[k]['icon']} {EDGE_CONDITIONS[k]['label']}" for k in cond_keys]
+        combo_cond = ttk.Combobox(container, values=cond_labels, state="readonly")
+        cur_cond = edge.condition_type if edge.condition_type in cond_keys else "default"
+        combo_cond.current(cond_keys.index(cur_cond))
+        combo_cond.pack(fill=tk.X, pady=(2, 10))
+
+        tk.Label(container, text="Valore Condizione (es. Percezione CD 15 / Chiave):", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        ent_val = ttk.Entry(container, font=FONT_MAIN)
+        ent_val.insert(0, edge.condition_value or "")
+        ent_val.pack(fill=tk.X, pady=(2, 10))
+
+        tk.Label(container, text="Etichetta personalizzata sul grafo (opzionale):", font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w")
+        ent_lbl = ttk.Entry(container, font=FONT_MAIN)
+        ent_lbl.insert(0, edge.label or "")
+        ent_lbl.pack(fill=tk.X, pady=(2, 14))
+
+        def _save_edge():
+            sel_idx = combo_cond.current()
+            edge.condition_type = cond_keys[sel_idx] if sel_idx >= 0 else "default"
+            edge.condition_value = ent_val.get().strip()
+            edge.label = ent_lbl.get().strip()
+            dlg.destroy()
+            if self.on_change_callback:
+                self.on_change_callback()
+            if self.on_edge_select_callback:
+                self.on_edge_select_callback(edge_idx)
+            self.render()
+
+        def _remove_this():
+            dlg.destroy()
+            self._delete_edge(edge_idx)
+
+        btn_box = tk.Frame(container, bg=BG_COLOR)
+        btn_box.pack(fill=tk.X)
+        ttk.Button(btn_box, text="🗑️ Elimina", command=_remove_this, style="Danger.TButton").pack(side=tk.LEFT)
+        ttk.Button(btn_box, text="Salva", command=_save_edge, style="Gold.TButton").pack(side=tk.RIGHT, padx=(6, 0))
+        ttk.Button(btn_box, text="Annulla", command=dlg.destroy).pack(side=tk.RIGHT)
+
     def _quick_add_node(self, node_type: str, wx: float, wy: float):
         type_info = NODE_TYPES.get(node_type, NODE_TYPES["note"])
-        new_id = f"node_{len(self.graph.nodes) + 1}_{node_type}"
+        new_id = self.graph.next_node_id(f"node_{node_type}")
         new_node = FlowNode(
             id=new_id,
             node_type=node_type,
@@ -607,9 +837,14 @@ class FlowCanvas(tk.Frame):
             data={}
         )
         self.graph.nodes[new_id] = new_node
+        self.selected_edge_index = None
         self.selected_node_id = new_id
         if self.on_change_callback:
             self.on_change_callback()
+        if self.on_edge_select_callback:
+            self.on_edge_select_callback(None)
+        if self.on_select_callback:
+            self.on_select_callback(new_node)
         self.render()
 
     def reset_view(self):

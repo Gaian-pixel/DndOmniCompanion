@@ -32,7 +32,6 @@ SPELL_IT_TO_EN = {
     "dardo di fuoco": "fire bolt",
     "scossa folgorante": "shocking grasp",
     "stretta folgorante": "shocking grasp",
-    "spruzzo तलाश": "acid splash",
     "spruzzo acido": "acid splash",
     "fiamma sacra": "sacred flame",
     "taumaturgia": "thaumaturgy",
@@ -3571,7 +3570,7 @@ def resolve_compendium_item(raw_entry: str, default_qty: int = 1) -> Dict[str, A
 
 def parse_loot_specification(raw_loot: Any) -> Dict[str, Any]:
     """
-    Analizza una specifica di loot DndScript (es. '100 mo, 50 ma, 2x Pozione di Cura, Spada Lunga +1')
+    Analizza una specifica di loot testuale (es. '100 mo, 50 ma, 2x Pozione di Cura, Spada Lunga +1')
     separando le valute (MR, MA, ME, MO, MP) e risolvendo ciascun oggetto nel Compendio.
     """
     currency = {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0}
@@ -3608,6 +3607,48 @@ def parse_loot_specification(raw_loot: Any) -> Dict[str, Any]:
             resolved_items.append(resolve_compendium_item(clean_tok))
 
     return {"currency": currency, "items": resolved_items}
+
+
+def _parse_npc_action_text(raw_text: str) -> list:
+    parsed = []
+    for raw_line in raw_text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith("⚔️"):
+            line = line.lstrip("⚔️").strip()
+        if not line:
+            continue
+        if ":" in line:
+            name, _ = line.split(":", 1)
+            parsed.append({"name": name.strip() or "Azione", "desc": line})
+        elif "." in line:
+            name, _ = line.split(".", 1)
+            parsed.append({"name": name.strip() or "Azione", "desc": line})
+        else:
+            parsed.append({"name": line, "desc": line})
+    return parsed
+
+
+def normalize_npc_actions(actions: Any) -> list:
+    """Normalizza un campo actions di PNG/mostro (str multilinea o list) in una lista di dict {'name', 'desc'}."""
+    if not actions:
+        return []
+    if isinstance(actions, list):
+        normalized = []
+        for item in actions:
+            if isinstance(item, dict):
+                normalized.append(item)
+            elif isinstance(item, str):
+                normalized.extend(_parse_npc_action_text(item))
+            elif item is not None:
+                normalized.append({"name": "Azione", "desc": str(item)})
+        return normalized
+    if isinstance(actions, dict):
+        return [actions]
+    if isinstance(actions, str):
+        return _parse_npc_action_text(actions)
+    return [{"name": "Azione", "desc": str(actions)}]
 
 
 def format_monster_action_tooltip(action: Any, monster_name: str = "") -> str:

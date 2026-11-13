@@ -376,7 +376,11 @@ class CharacterSheetFrame(ttk.Frame):
 
     def refresh_ui_language(self):
         try:
-            # 1. Overlay Header
+            # 1. Action Bar Unificata
+            if hasattr(self, "lbl_sheet_banner"):
+                self.lbl_sheet_banner.config(
+                    text=f"📜 {_t('sheet_title')} • {self.character.name} (Livello {self.character.level} {self.character.char_class})"
+                )
             if hasattr(self, "btn_close_overlay"):
                 self.btn_close_overlay.config(text=_t("sheet_btn_close_esc"))
             if hasattr(self, "btn_detach"):
@@ -385,6 +389,8 @@ class CharacterSheetFrame(ttk.Frame):
                 self.btn_dock.config(text=_t("sheet_btn_dock"))
             if hasattr(self, "btn_quick_save"):
                 self.btn_quick_save.config(text=_t("sheet_btn_quick_save"))
+            if hasattr(self, "btn_export"):
+                self.btn_export.config(text=_t("sheet_btn_export_dialog"))
 
             # 2. Header Bar
             if hasattr(self, "lbl_subclass_title"):
@@ -510,6 +516,72 @@ class CharacterSheetFrame(ttk.Frame):
                 setattr(self.character, k, copy.deepcopy(v))
         self.close_sheet()
 
+    def _has_unsaved_changes(self):
+        snap = self._initial_state_snapshot
+        if not snap or not hasattr(self, "character") or not self.character:
+            return False
+        try:
+            if not self.is_connected and hasattr(self, "name_var"):
+                cur_name = self.name_var.get().strip()
+                snap_name = str(snap.get("name", "") or "").strip()
+                if cur_name and cur_name != snap_name:
+                    return True
+            if hasattr(self, "campaign_var") and self.campaign_var.get() != (snap.get("campaign", "") or ""):
+                return True
+            if hasattr(self, "background_var") and self.background_var.get().strip() != str(snap.get("background", "") or "").strip():
+                return True
+            if hasattr(self, "alignment_var") and self.alignment_var.get().strip() != str(snap.get("alignment", "") or "").strip():
+                return True
+            if hasattr(self, "speed_unit_var") and self.speed_unit_var.get() != (snap.get("speed_unit", "ft") or "ft"):
+                return True
+
+            snap_curr = snap.get("currency", {}) or {}
+            for coin, var in getattr(self, "currency_vars", {}).items():
+                try:
+                    if int(var.get()) != int(snap_curr.get(coin, 0) or 0):
+                        return True
+                except (tk.TclError, ValueError):
+                    pass
+
+            snap_slots = snap.get("spell_slots", {}) or {}
+            for lvl, vars_ in getattr(self, "slot_vars", {}).items():
+                ex = snap_slots.get(lvl, {})
+                snap_cur = int(ex.get("current", 0) or 0) if isinstance(ex, dict) else (int(ex[0] or 0) if isinstance(ex, list) and ex else 0)
+                try:
+                    if int(vars_["current"].get() or 0) != snap_cur:
+                        return True
+                except (tk.TclError, ValueError):
+                    pass
+
+            if not self.is_connected:
+                for attr_key in ("journal_notes", "notes"):
+                    if attr_key in getattr(self, "text_widgets", {}):
+                        cur_txt = self.text_widgets[attr_key].get("1.0", tk.END).strip()
+                        init_txt = str(self._initial_text_fields.get(attr_key, "") or "").strip()
+                        if cur_txt != init_txt:
+                            return True
+        except Exception:
+            return False
+        return False
+
+    def request_close(self):
+        """Chiusura unificata con verifica modifiche non salvate (usata da Esc, C e Chiudi)."""
+        if self._has_unsaved_changes():
+            ans = messagebox.askyesnocancel(
+                _t("sheet_unsaved_title"),
+                _t("sheet_unsaved_prompt"),
+                parent=self
+            )
+            if ans is None:
+                return False
+            if ans is True:
+                self.save_character(close_after=True)
+                return True
+            self.cancel_sheet()
+            return True
+        self.close_sheet()
+        return True
+
     def close_sheet(self):
         if self.on_close_callback:
             self.on_close_callback()
@@ -531,37 +603,41 @@ class CharacterSheetFrame(ttk.Frame):
             mgr.update_character(self.character)
 
     def setup_ui(self):
-        # Banner di controllo overlay/docking se overlay o con callback
-        if self.is_overlay or self.on_detach_callback or self.on_dock_callback:
-            overlay_header = tk.Frame(self, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=5)
-            overlay_header.pack(fill=tk.X, padx=10, pady=(6, 2))
+        # Unica Barra Controlli Superiore per tutte le modalità (overlay, staccata, modale)
+        overlay_header = tk.Frame(self, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=6)
+        overlay_header.pack(fill=tk.X, padx=10, pady=(8, 2))
+        self.action_bar = overlay_header
 
-            tk.Label(
-                overlay_header,
-                text=f"📜 {_t('sheet_title')} • {self.character.name} (Livello {self.character.level} {self.character.char_class})",
-                font=FONT_BOLD,
-                bg=SURFACE_COLOR,
-                fg=ACCENT_GOLD
-            ).pack(side=tk.LEFT)
+        self.lbl_sheet_banner = tk.Label(
+            overlay_header,
+            text=f"📜 {_t('sheet_title')} • {self.character.name} (Livello {self.character.level} {self.character.char_class})",
+            font=FONT_BOLD,
+            bg=SURFACE_COLOR,
+            fg=ACCENT_GOLD
+        )
+        self.lbl_sheet_banner.pack(side=tk.LEFT)
 
-            if self.on_close_callback:
-                self.btn_close_overlay = ttk.Button(overlay_header, text=_t("sheet_btn_close_esc"), command=self.cancel_sheet, style="Danger.TButton")
-                self.btn_close_overlay.pack(side=tk.RIGHT, padx=(4, 0))
-                ToolTip(self.btn_close_overlay, "Chiudi la vista scheda e torna alla mappa (Esc)")
+        self.btn_close_overlay = ttk.Button(overlay_header, text=_t("sheet_btn_close_esc"), command=self.request_close, style="Danger.TButton")
+        self.btn_close_overlay.pack(side=tk.RIGHT, padx=(4, 0))
+        ToolTip(self.btn_close_overlay, "Chiudi la scheda (Esc)")
 
-            if self.on_detach_callback:
-                self.btn_detach = ttk.Button(overlay_header, text=_t("sheet_btn_detach"), command=self.on_detach_callback, style="Tool.TButton")
-                self.btn_detach.pack(side=tk.RIGHT, padx=(4, 0))
-                ToolTip(self.btn_detach, "Apri la scheda in una finestra separata indipendente")
+        self.btn_quick_save = ttk.Button(overlay_header, text=_t("sheet_btn_quick_save"), command=self.save_character, style="Gold.TButton")
+        self.btn_quick_save.pack(side=tk.RIGHT, padx=(4, 0))
+        ToolTip(self.btn_quick_save, "Salva le modifiche e chiudi la vista (Ctrl+S)")
 
-            if self.on_dock_callback:
-                self.btn_dock = ttk.Button(overlay_header, text=_t("sheet_btn_dock"), command=self.on_dock_callback, style="Gold.TButton")
-                self.btn_dock.pack(side=tk.RIGHT, padx=(4, 0))
-                ToolTip(self.btn_dock, "Riaggancia la scheda all'interno della finestra principale del VTT")
+        if self.on_detach_callback:
+            self.btn_detach = ttk.Button(overlay_header, text=_t("sheet_btn_detach"), command=self.on_detach_callback, style="Tool.TButton")
+            self.btn_detach.pack(side=tk.RIGHT, padx=(4, 0))
+            ToolTip(self.btn_detach, "Apri la scheda in una finestra separata indipendente")
 
-            self.btn_quick_save = ttk.Button(overlay_header, text=_t("sheet_btn_quick_save"), command=self.save_character, style="Success.TButton")
-            self.btn_quick_save.pack(side=tk.RIGHT, padx=(4, 0))
-            ToolTip(self.btn_quick_save, "Salva le modifiche e chiudi la vista (Ctrl+S)")
+        if self.on_dock_callback:
+            self.btn_dock = ttk.Button(overlay_header, text=_t("sheet_btn_dock"), command=self.on_dock_callback, style="Gold.TButton")
+            self.btn_dock.pack(side=tk.RIGHT, padx=(4, 0))
+            ToolTip(self.btn_dock, "Riaggancia la scheda all'interno della finestra principale del VTT")
+
+        self.btn_export = ttk.Button(overlay_header, text=_t("sheet_btn_export_dialog"), command=self.export_character_dialog, style="Info.TButton")
+        self.btn_export.pack(side=tk.RIGHT, padx=(4, 0))
+        ToolTip(self.btn_export, "Esporta il personaggio in PDF ufficiale o backup JSON")
 
         main_frame = ttk.Frame(self, padding=8)
         main_frame.pack(fill=tk.BOTH, expand=True)
@@ -982,16 +1058,6 @@ class CharacterSheetFrame(ttk.Frame):
         if "FOR" in self.attr_vars:
             self.attr_vars["FOR"].trace_add("write", lambda *args: self.calculate_total_weight())
 
-        # Barra Azioni Inferiore Strutturata
-        btn_frame = tk.Frame(main_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=6)
-        btn_frame.pack(fill=tk.X, side=tk.BOTTOM, pady=(6, 0))
-        
-        self.btn_export = ttk.Button(btn_frame, text=_t("sheet_btn_export_dialog"), command=self.export_character_dialog, style="Info.TButton")
-        self.btn_export.pack(side=tk.LEFT)
-        
-        save_btn = ttk.Button(btn_frame, text=f"💾 {_t('save')} (Ctrl+S)", command=self.save_character, style="Gold.TButton")
-        save_btn.pack(side=tk.RIGHT, padx=(6, 0))
-        ttk.Button(btn_frame, text=f"✕ {_t('cancel')}", command=self.cancel_sheet, style="Dark.TButton").pack(side=tk.RIGHT)
         self.bind("<Control-s>", self.save_character)
         self.bind("<Control-S>", self.save_character)
         try:
@@ -2342,11 +2408,17 @@ class CharacterSheetFrame(ttk.Frame):
                         base_val = int(var.get())
                     except (ValueError, tk.TclError):
                         base_val = 10
+                    lbl_mod = self.attr_mod_labels[attr]
                     if eff_val != base_val:
-                        self.attr_mod_labels[attr].config(text=f"{mod_str}★", fg=ACCENT_GOLD)
-                        ToolTip(self.attr_mod_labels[attr], f"Modificatore magico effettivo: {mod_str} (Punteggio: {eff_val})")
+                        lbl_mod.config(text=f"{mod_str}★", fg=ACCENT_GOLD)
+                        tip_msg = f"Modificatore magico effettivo: {mod_str} (Punteggio: {eff_val})"
                     else:
-                        self.attr_mod_labels[attr].config(text=mod_str, fg=TEXT_COLOR)
+                        lbl_mod.config(text=mod_str, fg=TEXT_COLOR)
+                        tip_msg = ""
+                    if hasattr(lbl_mod, "_attr_tooltip") and lbl_mod._attr_tooltip:
+                        lbl_mod._attr_tooltip.set_text(tip_msg)
+                    elif tip_msg:
+                        lbl_mod._attr_tooltip = ToolTip(lbl_mod, tip_msg)
 
         # 3. Tiri Salvezza & Abilità
         if hasattr(self, "update_save_modifiers"):
@@ -2401,8 +2473,6 @@ class CharacterSheetFrame(ttk.Frame):
         if not is_loading:
             self._safe_update_character()
             self._safe_save_characters()
-            if hasattr(self, "_capture_initial_state"):
-                self._capture_initial_state()
             if getattr(self, "on_save_callback", None):
                 try:
                     self.on_save_callback(self.character)
@@ -3486,10 +3556,10 @@ class CharacterSheetFrame(ttk.Frame):
         self.refresh_weapons_list()
         
         if self.is_connected and getattr(self, "network", None):
-            from common.protocol import make_update_full_sheet_request, make_update_stats_request, make_chat_message
+            from common.protocol import make_update_full_sheet_request, make_update_stats_request, make_chat
             self.network.send(make_update_stats_request(self.character.hp_current, self.character.hp_max, self.character.initiative, getattr(self.character, "conditions", [])))
             self.network.send(make_update_full_sheet_request(self.character.to_dict()))
-            self.network.send(make_chat_message(f"[CONSUMO] {self.character.name} ha consumato {amount}x {it_name} (Rimanenti: {new_qty})"))
+            self.network.send(make_chat(f"[CONSUMO] {self.character.name} ha consumato {amount}x {it_name} (Rimanenti: {new_qty})"))
             
         if hasattr(self, "show_toast"):
             self.show_toast(status_text, title="Oggetto Consumato", toast_type="info")
@@ -3561,9 +3631,9 @@ class CharacterSheetFrame(ttk.Frame):
         self.refresh_weapons_list()
         
         if self.is_connected and getattr(self, "network", None):
-            from common.protocol import make_update_full_sheet_request, make_chat_message
+            from common.protocol import make_update_full_sheet_request, make_chat
             self.network.send(make_update_full_sheet_request(self.character.to_dict()))
-            self.network.send(make_chat_message(f"[INVENTARIO] {self.character.name} ha spacchettato '{pack_name}' estraendo i contenuti nello zaino."))
+            self.network.send(make_chat(f"[INVENTARIO] {self.character.name} ha spacchettato '{pack_name}' estraendo i contenuti nello zaino."))
             
         messagebox.showinfo(
             "Contenuto Estratto",
@@ -4400,7 +4470,14 @@ class CharacterSheetFrame(ttk.Frame):
                 
             self._safe_update_character()
             self._safe_save_characters()
+            if not self.is_connected:
+                self._initial_text_fields["journal_notes"] = getattr(self.character, "journal_notes", "")
+                self._initial_text_fields["notes"] = getattr(self.character, "notes", "")
             self._capture_initial_state()
+            if hasattr(self, "lbl_sheet_banner") and self.lbl_sheet_banner.winfo_exists():
+                self.lbl_sheet_banner.config(
+                    text=f"📜 {_t('sheet_title')} • {self.character.name} (Livello {self.character.level} {self.character.char_class})"
+                )
             
             if self.on_save_callback:
                 self.on_save_callback(self.character)
@@ -4611,10 +4688,10 @@ class CharacterSheetFrame(ttk.Frame):
             try: self.on_save_callback(self.character)
             except Exception: pass
         if self.is_connected and getattr(self, "network", None):
-            from common.protocol import make_update_stats_request, make_update_full_sheet_request, make_chat_message
+            from common.protocol import make_update_stats_request, make_update_full_sheet_request, make_chat
             self.network.send(make_update_stats_request(self.character.hp_current, self.character.hp_max, self.character.initiative, getattr(self.character, "conditions", [])))
             self.network.send(make_update_full_sheet_request(self.character.to_dict()))
-            self.network.send(make_chat_message(f"🎉 [PROGRESSIONE] {self.character.name} è salito al Livello {self.character.level}! (PF Max: {self.character.hp_max})"))
+            self.network.send(make_chat(f"🎉 [PROGRESSIONE] {self.character.name} è salito al Livello {self.character.level}! (PF Max: {self.character.hp_max})"))
 
 
 
@@ -4845,9 +4922,9 @@ class CharacterSheetFrame(ttk.Frame):
                 self.recalculate_and_refresh_derived_stats()
                 self.refresh_weapons_list()
                 if self.is_connected and getattr(self, "network", None):
-                    from common.protocol import make_update_full_sheet_request, make_chat_message
+                    from common.protocol import make_update_full_sheet_request, make_chat
                     self.network.send(make_update_full_sheet_request(self.character.to_dict()))
-                    self.network.send(make_chat_message(f"[MUNIZIONI] {self.character.name} ha consumato 1x {a_name} per l'attacco (Rimanenti: {ammo_item['qty']})."))
+                    self.network.send(make_chat(f"[MUNIZIONI] {self.character.name} ha consumato 1x {a_name} per l'attacco (Rimanenti: {ammo_item['qty']})."))
             else:
                 messagebox.showwarning("Munizioni Esaurite", f"⚠️ Non hai più {a_name} nello zaino per attaccare con {w_name}!", parent=self)
                 return
@@ -5063,6 +5140,7 @@ class CharacterSheetFrame(ttk.Frame):
             return
         content = self.text_widgets[field_name].get("1.0", tk.END).strip()
         setattr(self.character, field_name, content)
+        self._initial_text_fields[field_name] = content
         self._safe_save_characters()
         bundle = self._markdown_widgets.get(field_name)
         if bundle:
@@ -5145,6 +5223,14 @@ class CharacterSheetUI(tk.Toplevel):
             network=network
         )
         self._sheet_frame_internal.pack(fill=tk.BOTH, expand=True)
+        self.protocol("WM_DELETE_WINDOW", self._on_window_close)
+        self.bind("<Escape>", lambda e: self._on_window_close())
+
+    def _on_window_close(self):
+        if hasattr(self, "_sheet_frame_internal") and self._sheet_frame_internal.winfo_exists():
+            self._sheet_frame_internal.request_close()
+        else:
+            self.destroy()
 
     def _handle_dock(self):
         if hasattr(self, "_sheet_frame_internal") and self._sheet_frame_internal.winfo_exists():

@@ -1,5 +1,6 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk
+from common.messagebox import messagebox
 import threading
 import random
 try:

@@ -122,12 +122,7 @@ class DMBestiaryPanel(ttk.Frame):
         self.btn_bestiary_full = ttk.Button(
             b_btn_frame, text=_t("btn_full_sheet"), command=self.open_bestiario_manual_entry, style="Info.TButton"
         )
-        self.btn_bestiary_full.pack(side=tk.LEFT, padx=(2, 2))
-
-        self.btn_bestiary_create = ttk.Button(
-            b_btn_frame, text="+ Crea Mostro", command=self.open_custom_monster_dialog, style="Success.TButton"
-        )
-        self.btn_bestiary_create.pack(side=tk.LEFT, padx=(2, 0))
+        self.btn_bestiary_full.pack(side=tk.LEFT, padx=(2, 0))
 
     def search_bestiario(self):
         query = self.bestiario_search_var.get().strip().lower()
@@ -178,13 +173,15 @@ class DMBestiaryPanel(ttk.Frame):
             print("[BESTIARIO] Errore ricerca SRD offline:", e)
 
         # Se abbiamo risultati locali o query vuota, aggiorna subito la lista
+        self._search_gen = getattr(self, "_search_gen", 0) + 1
+        cur_gen = self._search_gen
         self._update_bestiario_list(offline_results[:120])
 
         # Se c'è una query testuale, cerca anche su SRD online in background
         if query:
-            threading.Thread(target=self._search_bestiario_thread, args=(query, offline_results), daemon=True).start()
+            threading.Thread(target=self._search_bestiario_thread, args=(query, offline_results, cur_gen), daemon=True).start()
 
-    def _search_bestiario_thread(self, query, initial_results):
+    def _search_bestiario_thread(self, query, initial_results, search_gen=None):
         try:
             url = f"https://www.dnd5eapi.co/api/monsters/?name={query}".replace(" ", "+")
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -203,7 +200,16 @@ class DMBestiaryPanel(ttk.Frame):
                             "index": s.get("index"),
                             "summary": f"Mostro SRD 5.1 ({s_name})"
                         })
-                self.dm_gui.master.after(0, self._update_bestiario_list, combined[:150])
+                def _apply():
+                    if search_gen is not None and search_gen != getattr(self, "_search_gen", 0):
+                        return
+                    try:
+                        if self.winfo_exists():
+                            self._update_bestiario_list(combined[:150])
+                    except tk.TclError:
+                        pass
+                if self.winfo_exists():
+                    self.dm_gui.master.after(0, _apply)
         except Exception:
             pass  # Offline o timeout SRD: i risultati locali del PDF e dell'SRD locale bastano
 
@@ -292,6 +298,10 @@ class DMBestiaryPanel(ttk.Frame):
             return
         selected = self.bestiario_results[sel[0]]
 
+        pos = [0, 0]
+        if hasattr(self.dm_gui, 'map_canvas') and self.dm_gui.map_canvas and hasattr(self.dm_gui.map_canvas, '_last_clicked_hex') and self.dm_gui.map_canvas._last_clicked_hex:
+            pos = [self.dm_gui.map_canvas._last_clicked_hex.q, self.dm_gui.map_canvas._last_clicked_hex.r]
+
         # 1. Se mostro con monster_data (PDF Manual o SRD offline), spawna all'istante offline!
         if "monster_data" in selected and selected["monster_data"]:
             mdata = selected["monster_data"]
@@ -302,10 +312,6 @@ class DMBestiaryPanel(ttk.Frame):
             attrs = extract_and_normalize_attributes(mdata, name)
             dex_val = attrs.get("DES", 10)
             initiative = (dex_val - 10) // 2
-
-            pos = [0, 0]
-            if hasattr(self.dm_gui, 'map_canvas') and self.dm_gui.map_canvas and hasattr(self.dm_gui.map_canvas, '_last_clicked_hex') and self.dm_gui.map_canvas._last_clicked_hex:
-                pos = [self.dm_gui.map_canvas._last_clicked_hex.q, self.dm_gui.map_canvas._last_clicked_hex.r]
 
             base_name = name
             idx = 1
@@ -405,15 +411,13 @@ class DMBestiaryPanel(ttk.Frame):
                 initiative = (dex - 10) // 2
 
                 base_name = name
-                idx = 1
-                new_name = base_name
-                while self.dm_gui.server.game_state.find_player(new_name):
-                    idx += 1
-                    new_name = f"{base_name} {idx}"
-
-                npc = self._build_npc_player(new_name, data, hit_points, ac_value, initiative, speed_val, speed_disp, speed_unit, attrs, pos)
-
                 with self.dm_gui.server.game_state.lock:
+                    idx = 1
+                    new_name = base_name
+                    while self.dm_gui.server.game_state.find_player(new_name):
+                        idx += 1
+                        new_name = f"{base_name} {idx}"
+                    npc = self._build_npc_player(new_name, data, hit_points, ac_value, initiative, speed_val, speed_disp, speed_unit, attrs, pos)
                     self.dm_gui.server.game_state.add_player(npc)
                 self.dm_gui.server.game_state._trigger_gui_update()
                 broadcast(self.dm_gui.server.game_state, make_player_joined(npc.to_dict()))
@@ -434,15 +438,13 @@ class DMBestiaryPanel(ttk.Frame):
                     initiative = (dex - 10) // 2
 
                     base_name = name
-                    idx = 1
-                    new_name = base_name
-                    while self.dm_gui.server.game_state.find_player(new_name):
-                        idx += 1
-                        new_name = f"{base_name} {idx}"
-
-                    npc = self._build_npc_player(new_name, mdata, hit_points, ac_value, initiative, speed_val, speed_disp, speed_unit, attrs, pos)
-
                     with self.dm_gui.server.game_state.lock:
+                        idx = 1
+                        new_name = base_name
+                        while self.dm_gui.server.game_state.find_player(new_name):
+                            idx += 1
+                            new_name = f"{base_name} {idx}"
+                        npc = self._build_npc_player(new_name, mdata, hit_points, ac_value, initiative, speed_val, speed_disp, speed_unit, attrs, pos)
                         self.dm_gui.server.game_state.add_player(npc)
                     self.dm_gui.server.game_state._trigger_gui_update()
                     broadcast(self.dm_gui.server.game_state, make_player_joined(npc.to_dict()))

@@ -26,20 +26,15 @@ from common.protocol import (
     make_map_data_update_broadcast,
     make_game_state,
 )
-from common.dnd5e_tables import entity_has_keyword, entity_get_class_level, entity_get_total_level
+from common.dnd5e_tables import (
+    INCAPACITATING_CONDITIONS,
+    entity_has_keyword,
+    entity_get_class_level,
+    entity_get_total_level,
+    is_incapacitated_entity as _common_is_incapacitated,
+)
 from common.item_modifiers import get_effective_attribute_from_dict
 from common.character_schema import consume_spell_or_pact_slot
-
-
-INCAPACITATING_CONDITIONS = (
-    "Incapacitato", "Incapacitated",
-    "Incosciente", "Unconscious",
-    "Paralizzato", "Paralyzed",
-    "Pietrificato", "Petrified",
-    "Stordito", "Stunned",
-    "Morto", "Dead",
-    "Privo di Sensi",
-)
 
 
 def _has_no_reactions_effect(entity) -> bool:
@@ -50,12 +45,10 @@ def _has_no_reactions_effect(entity) -> bool:
 
 
 def is_incapacitated(entity) -> bool:
-    if not entity:
-        return False
-    if getattr(entity, "hp", 1) <= 0:
-        return True
-    conds = getattr(entity, "conditions", []) or []
-    return any(is_condition_active(conds, c) for c in INCAPACITATING_CONDITIONS)
+    return _common_is_incapacitated(entity)
+
+
+is_incapacitated_entity = is_incapacitated
 
 
 def get_entity_attack_flags(attacker, weapon_name: str = "", data: Optional[dict] = None) -> Tuple[bool, bool, bool]:
@@ -620,15 +613,18 @@ def handle_escape_grapple_request(data, player, game_state):
         escaped = True
         vs_txt = "(l'avversario non può più trattenere la presa)"
 
-    player.has_acted_this_turn = True
-    if escaped:
-        player.grappled_by = None
-        player.conditions = [c for c in conds if str(c).strip().lower() not in ("afferrato", "grappled")]
-        if isinstance(getattr(player, "full_sheet", None), dict):
-            player.full_sheet["conditions"] = list(player.conditions)
-        msg = f"🤸 **Fuga dalla Lotta (PHB p. 195)**: {player.name} [{v_skill} {v_tot}] {vs_txt} -> **SI LIBERA!**"
-    else:
-        msg = f"🤼 **Fuga dalla Lotta (PHB p. 195)**: {player.name} [{v_skill} {v_tot}] {vs_txt} -> **FALLITA**, resta Afferrato!"
+    from contextlib import nullcontext
+    lock_ctx = game_state.lock if (game_state and hasattr(game_state, "lock")) else nullcontext()
+    with lock_ctx:
+        player.has_acted_this_turn = True
+        if escaped:
+            player.grappled_by = None
+            player.conditions = [c for c in conds if str(c).strip().lower() not in ("afferrato", "grappled")]
+            if isinstance(getattr(player, "full_sheet", None), dict):
+                player.full_sheet["conditions"] = list(player.conditions)
+            msg = f"🤸 **Fuga dalla Lotta (PHB p. 195)**: {player.name} [{v_skill} {v_tot}] {vs_txt} -> **SI LIBERA!**"
+        else:
+            msg = f"🤼 **Fuga dalla Lotta (PHB p. 195)**: {player.name} [{v_skill} {v_tot}] {vs_txt} -> **FALLITA**, resta Afferrato!"
 
     broadcast(game_state, make_chat_broadcast("Sistema", msg))
     broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions, getattr(player, "temp_hp", 0)))
@@ -646,80 +642,115 @@ def handle_dispel_magic_request(data, player, game_state):
         data = data["data"]
     if not player or not game_state:
         return
-    slot_level = max(3, min(9, int(data.get("slot_level", 3) or 3)))
-    target_name = data.get("target_name")
-    target = game_state.find_player(target_name) if target_name else player
+    from common.network_utils import is_dm_actor
+    try:
+        slot_level = max(3, min(9, int(data.get("slot_level", 3) or 3)))
+    except (ValueError, TypeError):
+        slot_level = 3
 
-    # Consuma slot se scheda presente
-    sheet = getattr(player, "full_sheet", None)
-    if isinstance(sheet, dict) and (entity_has_available_slot(player, slot_level)):
-        consume_spell_or_pact_slot(sheet, slot_level)
-
-    best_mod = max(
-        (get_effective_attribute_from_dict(sheet if isinstance(sheet, dict) else player, s) - 10) // 2
-        for s in ("INT", "SAG", "CAR")
-    )
-    if entity_get_class_level(player, "bardo", "bard") >= 2:
-        tot_lvl = entity_get_total_level(player)
-        pb = 2 + (tot_lvl - 1) // 4
-        best_mod += pb // 2  # Jack of All Trades applies to Dispel Magic ability check!
-    if entity_get_class_level(player, "mago", "wizard") >= 10 and "abiur" in str((sheet or {}).get("subclass", "")).lower():
-        tot_lvl = entity_get_total_level(player)
-        best_mod += 2 + (tot_lvl - 1) // 4  # Improved Abjuration!
-
-    dispelled = []
-    resisted = []
-
-    if target and getattr(target, "active_effects", None):
-        remaining = []
-        for fx in list(target.active_effects):
-            s_lvl = int(fx.get("spell_level", 1) or 1)
-            is_magic = fx.get("is_magical", True)
-            if not is_magic:
-                remaining.append(fx)
-                continue
-            if s_lvl <= slot_level:
-                dispelled.append(f"{fx.get('name', 'Effetto')} (Lv.{s_lvl}, automatico)")
+    target_update_payload = None
+    with game_state.lock:
+        # Consuma slot obbligatorio per PG (3° liv.+); il DM locale può testare liberamente
+        sheet = getattr(player, "full_sheet", None)
+        if not is_dm_actor(player):
+            if not isinstance(sheet, dict) or not entity_has_available_slot(player, slot_level):
+                err_conn = getattr(player, "conn", None)
+                ok_slot = False
             else:
-                r = random.randint(1, 20)
-                tot = r + best_mod
-                dc = 10 + s_lvl
-                if tot >= dc:
-                    dispelled.append(f"{fx.get('name', 'Effetto')} (Lv.{s_lvl}, {tot}>={dc})")
-                else:
-                    resisted.append(f"{fx.get('name', 'Effetto')} (Lv.{s_lvl}, {tot}<{dc})")
-                    remaining.append(fx)
-        target.active_effects = remaining
-        # Pulisci condizioni orfane dagli effetti dissolti
-        active_fx_conds = {fx.get("condition") for fx in remaining if fx.get("condition")}
-        for magic_c in ("Benedizione", "Anatema", "Velocità", "Lentezza", "Scudo", "Oscurità"):
-            if magic_c not in active_fx_conds and magic_c in getattr(target, "conditions", []):
-                target.conditions.remove(magic_c)
-        if isinstance(getattr(target, "full_sheet", None), dict):
-            target.full_sheet["conditions"] = list(getattr(target, "conditions", []))
-        broadcast(game_state, make_player_stats_update(
-            target.name, target.hp, target.max_hp, target.initiative, getattr(target, "conditions", []), getattr(target, "temp_hp", 0),
-            active_effects=target.active_effects
-        ))
+                ok_slot, _ = consume_spell_or_pact_slot(sheet, slot_level)
+                err_conn = getattr(player, "conn", None)
+            if not ok_slot:
+                target_name = None
+                target = None
+                slot_failed = True
+            else:
+                slot_failed = False
+                target_name = data.get("target_name")
+                target = game_state.find_player(target_name) if target_name else player
+        else:
+            slot_failed = False
+            err_conn = None
+            if isinstance(sheet, dict) and entity_has_available_slot(player, slot_level):
+                consume_spell_or_pact_slot(sheet, slot_level)
+            target_name = data.get("target_name")
+            target = game_state.find_player(target_name) if target_name else player
 
-    if data.get("dispel_aoe") and getattr(game_state, "active_aoes", None):
-        aoe_idx = int(data.get("aoe_index", 0) or 0)
-        if 0 <= aoe_idx < len(game_state.active_aoes):
-            aoe = game_state.active_aoes[aoe_idx]
-            s_lvl = int(aoe.get("spell_level", 3) or 3)
-            if s_lvl <= slot_level or (random.randint(1, 20) + best_mod) >= (10 + s_lvl):
-                removed_aoe = game_state.active_aoes.pop(aoe_idx)
-                dispelled.append(f"AoE '{removed_aoe.get('name', 'Incantesimo')}'")
+        if slot_failed:
+            pass
+        else:
+            best_mod = max(
+                (get_effective_attribute_from_dict(sheet if isinstance(sheet, dict) else player, s) - 10) // 2
+                for s in ("INT", "SAG", "CAR")
+            )
+            if entity_get_class_level(player, "bardo", "bard") >= 2:
+                tot_lvl = entity_get_total_level(player)
+                pb = 2 + (tot_lvl - 1) // 4
+                best_mod += pb // 2  # Jack of All Trades applies to Dispel Magic ability check!
+            if entity_get_class_level(player, "mago", "wizard") >= 10 and "abiur" in str((sheet or {}).get("subclass", "")).lower():
+                tot_lvl = entity_get_total_level(player)
+                best_mod += 2 + (tot_lvl - 1) // 4  # Improved Abjuration!
 
-    msg = f"✨ **Dissolvi Magie (Lv.{slot_level})** di {player.name} su {target.name if target else 'Area'}:"
-    if dispelled:
-        msg += f" Dissolti: {', '.join(dispelled)}."
-    if resisted:
-        msg += f" Hanno resistito: {', '.join(resisted)}."
-    if not dispelled and not resisted:
-        msg += " Nessun effetto magico attivo da dissolvere."
+            dispelled = []
+            resisted = []
 
-    player.has_acted_this_turn = True
+            if target and getattr(target, "active_effects", None):
+                remaining = []
+                for fx in list(target.active_effects):
+                    s_lvl = int(fx.get("spell_level", 1) or 1)
+                    is_magic = fx.get("is_magical", True)
+                    if not is_magic:
+                        remaining.append(fx)
+                        continue
+                    if s_lvl <= slot_level:
+                        dispelled.append(f"{fx.get('name', 'Effetto')} (Lv.{s_lvl}, automatico)")
+                    else:
+                        r = random.randint(1, 20)
+                        tot = r + best_mod
+                        dc = 10 + s_lvl
+                        if tot >= dc:
+                            dispelled.append(f"{fx.get('name', 'Effetto')} (Lv.{s_lvl}, {tot}>={dc})")
+                        else:
+                            resisted.append(f"{fx.get('name', 'Effetto')} (Lv.{s_lvl}, {tot}<{dc})")
+                            remaining.append(fx)
+                target.active_effects = remaining
+                # Pulisci condizioni orfane dagli effetti dissolti
+                active_fx_conds = {fx.get("condition") for fx in remaining if fx.get("condition")}
+                for magic_c in ("Benedizione", "Anatema", "Velocità", "Lentezza", "Scudo", "Oscurità"):
+                    if magic_c not in active_fx_conds and magic_c in getattr(target, "conditions", []):
+                        target.conditions.remove(magic_c)
+                if isinstance(getattr(target, "full_sheet", None), dict):
+                    target.full_sheet["conditions"] = list(getattr(target, "conditions", []))
+                target_update_payload = make_player_stats_update(
+                    target.name, target.hp, target.max_hp, target.initiative,
+                    list(getattr(target, "conditions", [])), getattr(target, "temp_hp", 0),
+                    active_effects=list(target.active_effects),
+                )
+
+            if data.get("dispel_aoe") and getattr(game_state, "active_aoes", None):
+                aoe_idx = int(data.get("aoe_index", 0) or 0)
+                if 0 <= aoe_idx < len(game_state.active_aoes):
+                    aoe = game_state.active_aoes[aoe_idx]
+                    s_lvl = int(aoe.get("spell_level", 3) or 3)
+                    if s_lvl <= slot_level or (random.randint(1, 20) + best_mod) >= (10 + s_lvl):
+                        removed_aoe = game_state.active_aoes.pop(aoe_idx)
+                        dispelled.append(f"AoE '{removed_aoe.get('name', 'Incantesimo')}'")
+
+            player.has_acted_this_turn = True
+            msg = f"✨ **Dissolvi Magie (Lv.{slot_level})** di {player.name} su {target.name if target else 'Area'}:"
+            if dispelled:
+                msg += f" Dissolti: {', '.join(dispelled)}."
+            if resisted:
+                msg += f" Hanno resistito: {', '.join(resisted)}."
+            if not dispelled and not resisted:
+                msg += " Nessun effetto magico attivo da dissolvere."
+
+    if slot_failed:
+        if err_conn:
+            send_message(err_conn, make_error_reply(f"Nessuno slot incantesimo di {slot_level}° livello+ disponibile per Dissolvi Magie."))
+        return
+
+    if target_update_payload:
+        broadcast(game_state, target_update_payload)
     broadcast(game_state, make_chat_broadcast("Sistema", msg))
     broadcast(game_state, make_game_state(game_state.get_state_dict()))
     game_state.log_dm_message(f"[MAGIA] {msg}")
@@ -731,18 +762,19 @@ def handle_identify_spell_reaction_request(data, player, game_state):
         data = data["data"]
     if not player or not game_state:
         return
-    if getattr(player, "has_reacted_this_turn", False) or is_incapacitated(player):
-        return
-    from server.rules.combat import _get_entity_skill_bonus
-    spell_name = str(data.get("spell_name", "Incantesimo Sconosciuto"))
-    spell_level = max(0, min(9, int(data.get("spell_level", 1) or 1)))
-    dc = 15 + spell_level
-    arc_bonus = _get_entity_skill_bonus(player, "Arcano", "Arcana", "INT")
-    on_list = bool(data.get("on_class_spell_list", False))
-    r1, r2 = random.randint(1, 20), random.randint(1, 20)
-    d20 = max(r1, r2) if on_list else r1
-    tot = d20 + arc_bonus
-    player.has_reacted_this_turn = True
+    with game_state.lock:
+        if getattr(player, "has_reacted_this_turn", False) or is_incapacitated(player):
+            return
+        from server.rules.combat import _get_entity_skill_bonus
+        spell_name = str(data.get("spell_name", "Incantesimo Sconosciuto"))
+        spell_level = max(0, min(9, int(data.get("spell_level", 1) or 1)))
+        dc = 15 + spell_level
+        arc_bonus = _get_entity_skill_bonus(player, "Arcano", "Arcana", "INT")
+        on_list = bool(data.get("on_class_spell_list", False))
+        r1, r2 = random.randint(1, 20), random.randint(1, 20)
+        d20 = max(r1, r2) if on_list else r1
+        tot = d20 + arc_bonus
+        player.has_reacted_this_turn = True
     if tot >= dc:
         msg = f"🔎 [Identificare Incantesimo XGtE p.85] {player.name} (Reazione, Arcano {tot} >= CD {dc}) riconosce subito l'incantesimo: **{spell_name}** (Liv. {spell_level})!"
     else:

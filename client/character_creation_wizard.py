@@ -1,3 +1,4 @@
+import os
 import tkinter as tk
 from common.messagebox import messagebox
 from tkinter import ttk
@@ -51,12 +52,13 @@ ALL_SKILLS_5E = [
 
 
 class CharacterCreationWizardFrame(ttk.Frame):
-    def __init__(self, master, manager, on_complete_callback, on_close_callback=None, is_embedded=False, **kwargs):
+    def __init__(self, master, manager, on_complete_callback, on_close_callback=None, is_embedded=False, back_btn_key=None, **kwargs):
         super().__init__(master, **kwargs)
         self.manager = manager
         self.on_complete_callback = on_complete_callback
         self.on_close_callback = on_close_callback
         self.is_embedded = is_embedded
+        self.back_btn_key = back_btn_key
         self.default_font = ("Georgia", 11)
         
         # Dati in costruzione
@@ -102,7 +104,8 @@ class CharacterCreationWizardFrame(ttk.Frame):
         self.stepper_bar.pack(fill=tk.X, side=tk.TOP, padx=12, pady=(10, 0))
 
         if self.on_close_callback:
-            self.cancel_btn = ttk.Button(self.stepper_bar, text=_t("btn_back_to_menu", default="← Menu"), command=self.close_wizard, style="Dark.TButton")
+            back_txt = _t(self.back_btn_key) if self.back_btn_key else _t("btn_back_to_menu", default="← Menu")
+            self.cancel_btn = ttk.Button(self.stepper_bar, text=back_txt, command=self.close_wizard, style="Dark.TButton")
             self.cancel_btn.pack(side=tk.LEFT, padx=(0, 10))
             tk.Frame(self.stepper_bar, bg=BORDER_COLOR, width=1).pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10), pady=2)
 
@@ -161,7 +164,8 @@ class CharacterCreationWizardFrame(ttk.Frame):
                     if idx < len(self.step_pill_labels):
                         self.step_pill_labels[idx].config(text=s_title)
             if hasattr(self, "cancel_btn"):
-                self.cancel_btn.config(text=_t("btn_back_to_menu", default="← Menu"))
+                back_txt = _t(self.back_btn_key) if self.back_btn_key else _t("btn_back_to_menu", default="← Menu")
+                self.cancel_btn.config(text=back_txt)
             if hasattr(self, "prev_btn"):
                 self.prev_btn.config(text=_t("wizard_btn_prev"))
             if hasattr(self, "next_btn"):
@@ -189,12 +193,26 @@ class CharacterCreationWizardFrame(ttk.Frame):
 
     def destroy(self):
         try:
+            self._unbind_scroll_mousewheel()
+        except Exception:
+            pass
+        try:
             unregister_language_listener(self._on_language_changed)
         except Exception:
             pass
         super().destroy()
 
+    def _unbind_scroll_mousewheel(self):
+        mw = getattr(self, "_scroll_mousewheel_canvas", None)
+        if mw is not None:
+            try:
+                mw.unbind_all("<MouseWheel>")
+            except Exception:
+                pass
+            self._scroll_mousewheel_canvas = None
+
     def clear_container(self):
+        self._unbind_scroll_mousewheel()
         if hasattr(self, "container") and self.container.winfo_exists():
             for widget in self.container.winfo_children():
                 widget.destroy()
@@ -235,7 +253,15 @@ class CharacterCreationWizardFrame(ttk.Frame):
             def _on_mousewheel(event):
                 if canvas.winfo_exists():
                     canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-            canvas.bind_all("<MouseWheel>", _on_mousewheel)
+            def _bind_mw(_e=None):
+                if canvas.winfo_exists():
+                    canvas.bind_all("<MouseWheel>", _on_mousewheel)
+                    self._scroll_mousewheel_canvas = canvas
+            def _unbind_mw(_e=None):
+                self._unbind_scroll_mousewheel()
+            canvas.bind("<Enter>", _bind_mw)
+            canvas.bind("<Leave>", _unbind_mw)
+            scroll_frame.bind("<Enter>", _bind_mw)
             
             scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
             canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -2216,8 +2242,8 @@ class CharacterCreationWizardFrame(ttk.Frame):
                 pass
             
             try:
-                if hasattr(self, 'master') and self.master and self.master.winfo_exists():
-                    self.master.after(0, self._on_creation_done, c)
+                if self.winfo_exists() and hasattr(self, 'master') and self.master and self.master.winfo_exists():
+                    self.master.after(0, lambda: self._on_creation_done(c) if self.winfo_exists() else None)
             except Exception:
                 pass
             

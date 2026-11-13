@@ -80,19 +80,27 @@ class VoiceClient:
             print(f"[VoiceClient] Errore registrazione audio: {e}")
             
     def _play_loop(self):
+        import time
+        err_streak = 0
         try:
             self.sock.settimeout(1.0)
             with sd.RawOutputStream(samplerate=self.samplerate, channels=self.channels, dtype='int16', blocksize=self.chunk) as stream:
                 while self.running:
                     try:
                         data, addr = self.sock.recvfrom(4096)
+                        err_streak = 0
                         if not self.is_deafened and data not in (b'JOIN', b'LEAVE'):
                             stream.write(data)
                     except socket.timeout:
+                        err_streak = 0
                         continue
                     except socket.error:
                         if not self.running:
                             break
+                        err_streak += 1
+                        if err_streak >= 10:
+                            break
+                        time.sleep(0.05)
         except sd.PortAudioError as e:
             print(f"[VoiceClient] Nessun dispositivo audio o errore in uscita: {e}")
             self.is_deafened = True

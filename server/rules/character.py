@@ -36,42 +36,50 @@ def handle_update_stats_request(data, player, game_state):
             temp_hp = int(data.get("temp_hp"))
         else:
             temp_hp = getattr(target, "temp_hp", 0)
-        target.max_hp = max_hp
-        target.temp_hp = max(0, temp_hp)
-        if data.get("initiative") is not None:
-            target.initiative_bonus = initiative
-            if not (getattr(game_state, "combat_active", False) and getattr(target, "in_combat", False)):
-                target.initiative = initiative
-        target.conditions = conditions
-        if "light_radius" in data:
-            target.light_radius = max(0, int(data["light_radius"]))
-        if "light_color" in data:
-            target.light_color = str(data["light_color"])
-        if "elevation" in data:
-            old_elev = getattr(target, "elevation", 0)
-            new_elev = int(data["elevation"])
-            target.elevation = new_elev
-            if old_elev > new_elev and data.get("is_fall", False):
-                from server.rules.combat import resolve_falling
-                resolve_falling(target, old_elev - new_elev, game_state)
-        incap = ("incapacitato", "incapacitated", "incosciente", "unconscious", "paralizzato", "paralyzed", "stordito", "stunned", "pietrificato", "petrified", "morto", "dead")
-        if any(str(c).strip().lower() in incap for c in conditions) or hp <= 0:
-            from server.rules.combat import drop_concentration
-            drop_concentration(target, game_state, notify=True)
-        _apply_hp_change(target, hp, game_state)
-        if isinstance(getattr(target, "full_sheet", None), dict):
-            target.full_sheet["hp_current"] = target.hp
-            target.full_sheet["hp"] = target.hp
-            target.full_sheet["current_hp"] = target.hp
-            target.full_sheet["hp_max"] = target.max_hp
-            target.full_sheet["max_hp"] = target.max_hp
-            target.full_sheet["temp_hp"] = target.temp_hp
-            target.full_sheet["conditions"] = list(target.conditions)
-        from server.rules.movement import auto_explore_fow
-        if auto_explore_fow(target, game_state):
+        pending_fow_map = False
+        stats_payload = None
+        with game_state.lock:
+            target.max_hp = max_hp
+            target.temp_hp = max(0, temp_hp)
+            if data.get("initiative") is not None:
+                target.initiative_bonus = initiative
+                if not (getattr(game_state, "combat_active", False) and getattr(target, "in_combat", False)):
+                    target.initiative = initiative
+            target.conditions = conditions
+            if "light_radius" in data:
+                target.light_radius = max(0, int(data["light_radius"]))
+            if "light_color" in data:
+                target.light_color = str(data["light_color"])
+            if "elevation" in data:
+                old_elev = getattr(target, "elevation", 0)
+                new_elev = int(data["elevation"])
+                target.elevation = new_elev
+                if old_elev > new_elev and data.get("is_fall", False):
+                    from server.rules.combat import resolve_falling
+                    resolve_falling(target, old_elev - new_elev, game_state)
+            incap = ("incapacitato", "incapacitated", "incosciente", "unconscious", "paralizzato", "paralyzed", "stordito", "stunned", "pietrificato", "petrified", "morto", "dead")
+            if any(str(c).strip().lower() in incap for c in conditions) or hp <= 0:
+                from server.rules.combat import drop_concentration
+                drop_concentration(target, game_state, notify=True)
+            _apply_hp_change(target, hp, game_state)
+            if isinstance(getattr(target, "full_sheet", None), dict):
+                target.full_sheet["hp_current"] = target.hp
+                target.full_sheet["hp"] = target.hp
+                target.full_sheet["current_hp"] = target.hp
+                target.full_sheet["hp_max"] = target.max_hp
+                target.full_sheet["max_hp"] = target.max_hp
+                target.full_sheet["temp_hp"] = target.temp_hp
+                target.full_sheet["conditions"] = list(target.conditions)
+            from server.rules.movement import auto_explore_fow
+            pending_fow_map = bool(auto_explore_fow(target, game_state))
+            stats_payload = make_player_stats_update(
+                target.name, target.hp, target.max_hp, target.initiative,
+                list(target.conditions), target.temp_hp, elevation=getattr(target, "elevation", 0)
+            )
+        if pending_fow_map:
             broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
         game_state._trigger_gui_update()
-        broadcast(game_state, make_player_stats_update(target.name, target.hp, target.max_hp, target.initiative, target.conditions, target.temp_hp, elevation=getattr(target, "elevation", 0)))
+        broadcast(game_state, stats_payload)
     except Exception as e:
         print("Errore handle_update_stats_request:", e)
 
@@ -117,204 +125,252 @@ def handle_update_full_sheet_request(data, player, game_state):
     char_data = data.get("character") or data.get("sheet")
     if char_data:
         from common.character_schema import normalize_character_dict
+        from common.network_utils import is_dm_actor
         norm = normalize_character_dict(char_data)
         if isinstance(char_data, dict):
             char_data.update(norm)
         else:
             char_data = norm
-        from common.starter_equipment import apply_class_and_race_starter_kit, apply_campaign_starter_kit
-        # Se il personaggio non ha ancora ricevuto il kit iniziale di classe/razza, assegnalo
-        if not char_data.get("starting_kit_applied"):
-            apply_class_and_race_starter_kit(char_data)
-        
-        # Se non ha ancora ricevuto lo starter kit della campagna, assegnalo
-        if not char_data.get("campaign_starter_received"):
-            campaign_kit = getattr(game_state, "campaign_starter_kit", None)
-            apply_campaign_starter_kit(char_data, campaign_kit)
-            if getattr(player, "conn", None):
-                from common.protocol import make_campaign_starter_granted, make_chat_broadcast
-                from common.network_utils import send_message
-                send_message(player.conn, make_campaign_starter_granted(char_data.get("inventory_grid", []), full_sheet=char_data))
-                broadcast(game_state, make_chat_broadcast("Sistema", f"[CAMPAGNA] {player.name} ha ricevuto l'equipaggiamento iniziale della campagna dal Master!"))
 
-        # Protezione e vincoli di gioco: se il PG ha già un full_sheet registrato sul server,
-        # impedisci aumenti unilaterali di valuta, attributi o spawn abusivo di oggetti senza approvazione del DM
-        had_existing_sheet = isinstance(getattr(player, "full_sheet", None), dict) and bool(player.full_sheet)
-        prev_server_ac = int(player.full_sheet.get("ac", getattr(player, "ac", 10)) or 10) if had_existing_sheet else None
-        stripped_unapproved_item = False
-        if had_existing_sheet:
-            if hasattr(player, "hp") and isinstance(player.hp, (int, float)):
-                char_data["hp_current"] = player.hp
-            elif "hp_current" in player.full_sheet:
-                char_data["hp_current"] = player.full_sheet["hp_current"]
-            if hasattr(player, "max_hp") and isinstance(player.max_hp, (int, float)):
-                char_data["hp_max"] = player.max_hp
-            elif "hp_max" in player.full_sheet:
-                char_data["hp_max"] = player.full_sheet["hp_max"]
-            char_data["hp"] = char_data["hp_current"]
-            char_data["current_hp"] = char_data["hp_current"]
-            char_data["max_hp"] = char_data["hp_max"]
+        with game_state.lock:
+            existing_sheet = getattr(player, "full_sheet", None)
+            had_existing_sheet = isinstance(existing_sheet, dict) and bool(existing_sheet)
+            is_dm = is_dm_actor(player)
 
-            server_currency = player.full_sheet.get("currency", {})
-            client_currency = char_data.get("currency", {})
-            if isinstance(server_currency, dict) and isinstance(client_currency, dict):
-                all_coin_keys = set(list(client_currency.keys()) + list(server_currency.keys()) + ["MR", "MA", "ME", "MO", "MP", "cp", "sp", "ep", "gp", "pp"])
-                for c_k in all_coin_keys:
-                    if c_k in client_currency:
-                        s_val = server_currency.get(c_k, 0)
-                        try:
-                            if int(client_currency[c_k]) > int(s_val):
-                                client_currency[c_k] = int(s_val)
-                        except (ValueError, TypeError):
-                            client_currency[c_k] = s_val
-                char_data["currency"] = client_currency
-                char_data["wallet"] = dict(client_currency)
-                char_data["gp"] = str(client_currency.get("MO", 0))
+            # Preserva i flag di starter kit lato server per impedire ri-assegnazioni ripetute
+            if had_existing_sheet:
+                if existing_sheet.get("starting_kit_applied"):
+                    char_data["starting_kit_applied"] = True
+                if existing_sheet.get("campaign_starter_received"):
+                    char_data["campaign_starter_received"] = True
 
-            server_attrs = player.full_sheet.get("attributes", {})
-            client_attrs = char_data.get("attributes", {})
-            if isinstance(server_attrs, dict) and isinstance(client_attrs, dict):
-                if int(char_data.get("level", 1) or 1) <= int(player.full_sheet.get("level", 1) or 1):
-                    for a_k, a_val in server_attrs.items():
-                        if a_k in client_attrs and client_attrs[a_k] > a_val:
-                            client_attrs[a_k] = a_val
-                char_data["attributes"] = client_attrs
+            from common.starter_equipment import apply_class_and_race_starter_kit, apply_campaign_starter_kit
+            # Se il personaggio non ha ancora ricevuto il kit iniziale di classe/razza, assegnalo
+            if not char_data.get("starting_kit_applied"):
+                apply_class_and_race_starter_kit(char_data)
 
-            server_inv = player.full_sheet.get("inventory_grid", [])
-            client_inv = char_data.get("inventory_grid", [])
-            if isinstance(server_inv, list) and isinstance(client_inv, list):
-                allowed_counts = {}
-                from common.starter_equipment import get_pack_contents
-                client_pack_counts = {}
-                for c_it in client_inv:
-                    if isinstance(c_it, dict) and c_it.get("name"):
-                        ck = str(c_it.get("name", "")).strip().lower()
-                        if get_pack_contents(ck):
+            granted_campaign_starter = False
+            # Se non ha ancora ricevuto lo starter kit della campagna, assegnalo
+            if not char_data.get("campaign_starter_received"):
+                campaign_kit = getattr(game_state, "campaign_starter_kit", None)
+                apply_campaign_starter_kit(char_data, campaign_kit)
+                granted_campaign_starter = True
+
+            # Protezione e vincoli di gioco: se il PG ha già un full_sheet registrato sul server,
+            # impedisci aumenti unilaterali di valuta, livello/attributi o spawn abusivo di oggetti senza approvazione del DM
+            prev_server_ac = int(existing_sheet.get("ac", getattr(player, "ac", 10)) or 10) if had_existing_sheet else None
+            stripped_unapproved_item = False
+            if had_existing_sheet and not is_dm:
+                if hasattr(player, "hp") and isinstance(player.hp, (int, float)):
+                    char_data["hp_current"] = player.hp
+                elif "hp_current" in existing_sheet:
+                    char_data["hp_current"] = existing_sheet["hp_current"]
+                if hasattr(player, "max_hp") and isinstance(player.max_hp, (int, float)):
+                    char_data["hp_max"] = player.max_hp
+                elif "hp_max" in existing_sheet:
+                    char_data["hp_max"] = existing_sheet["hp_max"]
+                char_data["hp"] = char_data["hp_current"]
+                char_data["current_hp"] = char_data["hp_current"]
+                char_data["max_hp"] = char_data["hp_max"]
+
+                server_currency = existing_sheet.get("currency", {})
+                client_currency = char_data.get("currency", {})
+                if isinstance(server_currency, dict) and isinstance(client_currency, dict):
+                    all_coin_keys = set(list(client_currency.keys()) + list(server_currency.keys()) + ["MR", "MA", "ME", "MO", "MP", "cp", "sp", "ep", "gp", "pp"])
+                    for c_k in all_coin_keys:
+                        if c_k in client_currency:
+                            s_val = server_currency.get(c_k, 0)
                             try:
-                                cq = max(1, int(c_it.get("qty", 1) or 1))
+                                if int(client_currency[c_k]) > int(s_val):
+                                    client_currency[c_k] = int(s_val)
                             except (ValueError, TypeError):
-                                cq = 1
-                            client_pack_counts[ck] = client_pack_counts.get(ck, 0) + cq
+                                client_currency[c_k] = s_val
+                    char_data["currency"] = client_currency
+                    char_data["wallet"] = dict(client_currency)
+                    char_data["gp"] = str(client_currency.get("MO", 0))
 
-                for s_it in server_inv:
-                    if isinstance(s_it, dict) and s_it.get("name"):
-                        k = str(s_it.get("name", "")).strip().lower()
-                        try:
-                            q = max(1, int(s_it.get("qty", 1) or 1))
-                        except (ValueError, TypeError):
-                            q = 1
-                        pack_subs = get_pack_contents(k)
-                        if pack_subs:
-                            still_closed = min(q, client_pack_counts.get(k, 0))
-                            unpacked_q = max(0, q - still_closed)
-                            client_pack_counts[k] = max(0, client_pack_counts.get(k, 0) - still_closed)
-                            allowed_counts[k] = allowed_counts.get(k, 0) + still_closed
-                            if unpacked_q > 0:
-                                for p_sub in pack_subs:
-                                    sub_k = str(p_sub.get("name", "")).strip().lower()
-                                    sub_q = int(p_sub.get("qty", 1) or 1) * unpacked_q
-                                    allowed_counts[sub_k] = allowed_counts.get(sub_k, 0) + sub_q
-                        else:
-                            allowed_counts[k] = allowed_counts.get(k, 0) + q
+                try:
+                    server_lvl = max(1, int(existing_sheet.get("level", 1) or 1))
+                except (ValueError, TypeError):
+                    server_lvl = 1
+                try:
+                    client_lvl = max(1, min(20, int(char_data.get("level", server_lvl) or server_lvl)))
+                except (ValueError, TypeError):
+                    client_lvl = server_lvl
+                if client_lvl > server_lvl + 1:
+                    client_lvl = server_lvl + 1
+                    char_data["level"] = client_lvl
 
-                for s_i in range(len(client_inv)):
-                    c_it = client_inv[s_i]
-                    if isinstance(c_it, dict) and c_it.get("name"):
-                        k = str(c_it.get("name", "")).strip().lower()
-                        rem_allowed = allowed_counts.get(k, 0)
-                        if rem_allowed <= 0:
-                            client_inv[s_i] = None
-                            stripped_unapproved_item = True
-                        else:
+                server_attrs = existing_sheet.get("attributes", {})
+                client_attrs = char_data.get("attributes", {})
+                if isinstance(server_attrs, dict) and isinstance(client_attrs, dict):
+                    asi_milestones = (4, 6, 8, 10, 12, 14, 16, 19)
+                    if client_lvl <= server_lvl or client_lvl not in asi_milestones:
+                        for a_k, a_val in server_attrs.items():
+                            if a_k in client_attrs:
+                                try:
+                                    if int(client_attrs[a_k]) > int(a_val):
+                                        client_attrs[a_k] = a_val
+                                except (ValueError, TypeError):
+                                    client_attrs[a_k] = a_val
+                    else:
+                        # Consenti fino a +2 punti ASI totali al livello milestone (max 20)
+                        remaining_asi = 2
+                        for a_k, a_val in server_attrs.items():
+                            if a_k in client_attrs:
+                                try:
+                                    s_v = int(a_val)
+                                    c_v = int(client_attrs[a_k])
+                                except (ValueError, TypeError):
+                                    client_attrs[a_k] = a_val
+                                    continue
+                                if c_v > s_v:
+                                    allowed_gain = min(remaining_asi, max(0, min(20, c_v) - s_v))
+                                    client_attrs[a_k] = s_v + allowed_gain
+                                    remaining_asi -= allowed_gain
+                    char_data["attributes"] = client_attrs
+
+                server_inv = existing_sheet.get("inventory_grid", [])
+                client_inv = char_data.get("inventory_grid", [])
+                if isinstance(server_inv, list) and isinstance(client_inv, list):
+                    allowed_counts = {}
+                    from common.starter_equipment import get_pack_contents
+                    client_pack_counts = {}
+                    for c_it in client_inv:
+                        if isinstance(c_it, dict) and c_it.get("name"):
+                            ck = str(c_it.get("name", "")).strip().lower()
+                            if get_pack_contents(ck):
+                                try:
+                                    cq = max(1, int(c_it.get("qty", 1) or 1))
+                                except (ValueError, TypeError):
+                                    cq = 1
+                                client_pack_counts[ck] = client_pack_counts.get(ck, 0) + cq
+
+                    for s_it in server_inv:
+                        if isinstance(s_it, dict) and s_it.get("name"):
+                            k = str(s_it.get("name", "")).strip().lower()
                             try:
-                                c_q = max(1, int(c_it.get("qty", 1) or 1))
+                                q = max(1, int(s_it.get("qty", 1) or 1))
                             except (ValueError, TypeError):
-                                c_q = 1
-                            actual_q = min(c_q, rem_allowed)
-                            c_it["qty"] = actual_q
-                            allowed_counts[k] = rem_allowed - actual_q
-                char_data["inventory_grid"] = client_inv
+                                q = 1
+                            pack_subs = get_pack_contents(k)
+                            if pack_subs:
+                                still_closed = min(q, client_pack_counts.get(k, 0))
+                                unpacked_q = max(0, q - still_closed)
+                                client_pack_counts[k] = max(0, client_pack_counts.get(k, 0) - still_closed)
+                                allowed_counts[k] = allowed_counts.get(k, 0) + still_closed
+                                if unpacked_q > 0:
+                                    for p_sub in pack_subs:
+                                        sub_k = str(p_sub.get("name", "")).strip().lower()
+                                        sub_q = int(p_sub.get("qty", 1) or 1) * unpacked_q
+                                        allowed_counts[sub_k] = allowed_counts.get(sub_k, 0) + sub_q
+                            else:
+                                allowed_counts[k] = allowed_counts.get(k, 0) + q
 
-            # Valida weapons e spellbook contro aggiunte non autorizzate a parità di livello
-            if "weapons" in player.full_sheet and isinstance(player.full_sheet["weapons"], list) and isinstance(char_data.get("weapons"), list):
-                if int(char_data.get("level", 1) or 1) <= int(player.full_sheet.get("level", 1) or 1):
-                    allowed_weapons = {str(w.get("name", "")).strip().lower() for w in player.full_sheet["weapons"] if isinstance(w, dict)}
-                    char_data["weapons"] = [
-                        w for w in char_data["weapons"]
-                        if isinstance(w, dict) and str(w.get("name", "")).strip().lower() in allowed_weapons
-                    ]
+                    for s_i in range(len(client_inv)):
+                        c_it = client_inv[s_i]
+                        if isinstance(c_it, dict) and c_it.get("name"):
+                            k = str(c_it.get("name", "")).strip().lower()
+                            rem_allowed = allowed_counts.get(k, 0)
+                            if rem_allowed <= 0:
+                                client_inv[s_i] = None
+                                stripped_unapproved_item = True
+                            else:
+                                try:
+                                    c_q = max(1, int(c_it.get("qty", 1) or 1))
+                                except (ValueError, TypeError):
+                                    c_q = 1
+                                actual_q = min(c_q, rem_allowed)
+                                c_it["qty"] = actual_q
+                                allowed_counts[k] = rem_allowed - actual_q
+                    char_data["inventory_grid"] = client_inv
 
-            if "spellbook" in player.full_sheet and isinstance(player.full_sheet["spellbook"], list) and isinstance(char_data.get("spellbook"), list):
-                if int(char_data.get("level", 1) or 1) <= int(player.full_sheet.get("level", 1) or 1):
-                    allowed_spells = {str(sp.get("name", "")).strip().lower() for sp in player.full_sheet["spellbook"] if isinstance(sp, dict)}
-                    char_data["spellbook"] = [
-                        sp for sp in char_data["spellbook"]
-                        if isinstance(sp, dict) and str(sp.get("name", "")).strip().lower() in allowed_spells
-                    ]
+                # Valida weapons e spellbook contro aggiunte non autorizzate a parità di livello
+                if "weapons" in existing_sheet and isinstance(existing_sheet["weapons"], list) and isinstance(char_data.get("weapons"), list):
+                    if client_lvl <= server_lvl:
+                        allowed_weapons = {str(w.get("name", "")).strip().lower() for w in existing_sheet["weapons"] if isinstance(w, dict)}
+                        char_data["weapons"] = [
+                            w for w in char_data["weapons"]
+                            if isinstance(w, dict) and str(w.get("name", "")).strip().lower() in allowed_weapons
+                        ]
 
-            # Proteggi diario, note e privilegi registrati sul server da modifiche non approvate
-            if "journal_notes" in player.full_sheet and player.full_sheet["journal_notes"] is not None:
-                char_data["journal_notes"] = player.full_sheet["journal_notes"]
-            if "notes" in player.full_sheet and player.full_sheet["notes"] is not None:
-                char_data["notes"] = player.full_sheet["notes"]
-            if "features" in player.full_sheet and player.full_sheet["features"] is not None:
-                if int(char_data.get("level", 1) or 1) <= int(player.full_sheet.get("level", 1) or 1):
-                    char_data["features"] = player.full_sheet["features"]
+                if "spellbook" in existing_sheet and isinstance(existing_sheet["spellbook"], list) and isinstance(char_data.get("spellbook"), list):
+                    if client_lvl <= server_lvl:
+                        allowed_spells = {str(sp.get("name", "")).strip().lower() for sp in existing_sheet["spellbook"] if isinstance(sp, dict)}
+                        char_data["spellbook"] = [
+                            sp for sp in char_data["spellbook"]
+                            if isinstance(sp, dict) and str(sp.get("name", "")).strip().lower() in allowed_spells
+                        ]
 
-        try:
-            from common.item_modifiers import calculate_character_item_modifiers, compute_effective_ac
-            item_mods = calculate_character_item_modifiers(char_data)
-            has_def_items = (
-                item_mods.get("equipped_armor") is not None or
-                item_mods.get("has_shield", False) or
-                item_mods.get("bonus_ac", 0) != 0 or
-                item_mods.get("special_ac_base") is not None
-            )
-            calc_ac = compute_effective_ac(char_data, item_mods)
-            if has_def_items or stripped_unapproved_item:
-                char_data["ac"] = calc_ac
-            elif had_existing_sheet and prev_server_ac is not None:
-                client_ac = int(char_data.get("ac", prev_server_ac) or prev_server_ac)
-                if client_ac > max(prev_server_ac, calc_ac):
-                    char_data["ac"] = max(prev_server_ac, calc_ac)
-        except Exception:
-            pass
+                # Proteggi diario, note e privilegi registrati sul server da modifiche non approvate
+                if "journal_notes" in existing_sheet and existing_sheet["journal_notes"] is not None:
+                    char_data["journal_notes"] = existing_sheet["journal_notes"]
+                if "notes" in existing_sheet and existing_sheet["notes"] is not None:
+                    char_data["notes"] = existing_sheet["notes"]
+                if "features" in existing_sheet and existing_sheet["features"] is not None:
+                    if client_lvl <= server_lvl:
+                        char_data["features"] = existing_sheet["features"]
 
-        player.full_sheet = char_data
-        player.avatar_b64 = char_data.get("avatar_b64") or getattr(player, "avatar_b64", None)
-        try:
-            player.hp = int(char_data.get("hp_current", player.hp))
-        except (ValueError, TypeError):
-            pass
-        if player.hp <= 0:
-            from server.rules.combat import drop_concentration
-            drop_concentration(player, game_state, reason="HP a 0")
-            conds = getattr(player, "conditions", [])
-            for c in ["Incosciente", "Prono"]:
-                if c not in conds:
-                    conds.append(c)
-            player.conditions = conds
-        player.max_hp = char_data.get("hp_max", player.max_hp)
-        if "ac" in char_data:
             try:
-                player.ac = int(char_data["ac"])
+                from common.item_modifiers import calculate_character_item_modifiers, compute_effective_ac
+                item_mods = calculate_character_item_modifiers(char_data)
+                has_def_items = (
+                    item_mods.get("equipped_armor") is not None or
+                    item_mods.get("has_shield", False) or
+                    item_mods.get("bonus_ac", 0) != 0 or
+                    item_mods.get("special_ac_base") is not None
+                )
+                calc_ac = compute_effective_ac(char_data, item_mods)
+                if has_def_items or stripped_unapproved_item:
+                    char_data["ac"] = calc_ac
+                elif had_existing_sheet and not is_dm and prev_server_ac is not None:
+                    client_ac = int(char_data.get("ac", prev_server_ac) or prev_server_ac)
+                    if client_ac > max(prev_server_ac, calc_ac):
+                        char_data["ac"] = max(prev_server_ac, calc_ac)
+            except Exception:
+                pass
+
+            player.full_sheet = char_data
+            player.avatar_b64 = char_data.get("avatar_b64") or getattr(player, "avatar_b64", None)
+            try:
+                player.hp = int(char_data.get("hp_current", player.hp))
             except (ValueError, TypeError):
                 pass
-        if "temp_hp" in char_data and char_data.get("temp_hp") is not None:
-            player.temp_hp = char_data.get("temp_hp")
-        if char_data.get("initiative") is not None:
-            try:
-                player.initiative_bonus = int(char_data.get("initiative"))
-                if not (getattr(game_state, "combat_active", False) and getattr(player, "in_combat", False)):
-                    player.initiative = player.initiative_bonus
-            except (ValueError, TypeError):
-                pass
-        player.exhaustion_level = char_data.get("exhaustion_level", getattr(player, "exhaustion_level", 0))
-        player.speed = char_data.get("speed", getattr(player, "speed", 30))
-        player.speed_unit = char_data.get("speed_unit", getattr(player, "speed_unit", None))
-        player.damage_resistances = char_data.get("damage_resistances", getattr(player, "damage_resistances", []))
-        player.damage_immunities = char_data.get("damage_immunities", getattr(player, "damage_immunities", []))
-        player.damage_vulnerabilities = char_data.get("damage_vulnerabilities", getattr(player, "damage_vulnerabilities", []))
+            if player.hp <= 0:
+                from server.rules.combat import drop_concentration
+                drop_concentration(player, game_state, reason="HP a 0")
+                conds = getattr(player, "conditions", [])
+                for c in ["Incosciente", "Prono"]:
+                    if c not in conds:
+                        conds.append(c)
+                player.conditions = conds
+            player.max_hp = char_data.get("hp_max", player.max_hp)
+            if "ac" in char_data:
+                try:
+                    player.ac = int(char_data["ac"])
+                except (ValueError, TypeError):
+                    pass
+            if "temp_hp" in char_data and char_data.get("temp_hp") is not None:
+                player.temp_hp = char_data.get("temp_hp")
+            if char_data.get("initiative") is not None:
+                try:
+                    player.initiative_bonus = int(char_data.get("initiative"))
+                    if not (getattr(game_state, "combat_active", False) and getattr(player, "in_combat", False)):
+                        player.initiative = player.initiative_bonus
+                except (ValueError, TypeError):
+                    pass
+            player.exhaustion_level = char_data.get("exhaustion_level", getattr(player, "exhaustion_level", 0))
+            player.speed = char_data.get("speed", getattr(player, "speed", 30))
+            player.speed_unit = char_data.get("speed_unit", getattr(player, "speed_unit", None))
+            player.damage_resistances = char_data.get("damage_resistances", getattr(player, "damage_resistances", []))
+            player.damage_immunities = char_data.get("damage_immunities", getattr(player, "damage_immunities", []))
+            player.damage_vulnerabilities = char_data.get("damage_vulnerabilities", getattr(player, "damage_vulnerabilities", []))
+
+        if granted_campaign_starter and getattr(player, "conn", None):
+            from common.protocol import make_campaign_starter_granted, make_chat_broadcast
+            from common.network_utils import send_message
+            send_message(player.conn, make_campaign_starter_granted(char_data.get("inventory_grid", []), full_sheet=char_data))
+            broadcast(game_state, make_chat_broadcast("Sistema", f"[CAMPAGNA] {player.name} ha ricevuto l'equipaggiamento iniziale della campagna dal Master!"))
         game_state._trigger_gui_update()
         broadcast(game_state, make_game_state(game_state.get_state_dict()))
 
@@ -678,25 +734,33 @@ def handle_long_rest_request(data, player, game_state):
 
 def handle_long_rest_vote(data, player, game_state):
     vote = data.get("vote", False)
-    vote_data = getattr(game_state, "ongoing_rest_vote", None)
-    if not vote_data: return
-    voters = vote_data.setdefault("voters", set())
-    if player.name in voters:
-        return
-    voters.add(player.name)
-    
-    if not vote:
-        vote_data["votes_rejected"] = vote_data.get("votes_rejected", 0) + 1
-        game_state.log_dm_message(f"[Sistema] {player.name} ha votato NO al riposo lungo.")
-        if vote_data["votes_rejected"] > (vote_data["total_conns"] - vote_data["votes_needed"]):
-            from common.protocol import make_chat_broadcast
-            broadcast(game_state, make_chat_broadcast("Sistema", f"Il Riposo Lungo proposto da {vote_data['initiator']} e' stato respinto dalla maggioranza."))
-            game_state.ongoing_rest_vote = None
-        return
-        
-    vote_data["votes_received"] += 1
-    if vote_data["votes_received"] >= vote_data["votes_needed"]:
-        game_state.log_dm_message("[Sistema] La maggioranza dei giocatori ha approvato il Riposo Lungo!")
+    rejected_msg = None
+    approved_trigger = False
+    with game_state.lock:
+        vote_data = getattr(game_state, "ongoing_rest_vote", None)
+        if not vote_data:
+            return
+        voters = vote_data.setdefault("voters", set())
+        if player.name in voters:
+            return
+        voters.add(player.name)
+
+        if not vote:
+            vote_data["votes_rejected"] = vote_data.get("votes_rejected", 0) + 1
+            game_state.log_dm_message(f"[Sistema] {player.name} ha votato NO al riposo lungo.")
+            if vote_data["votes_rejected"] > (vote_data["total_conns"] - vote_data["votes_needed"]):
+                rejected_msg = f"Il Riposo Lungo proposto da {vote_data['initiator']} e' stato respinto dalla maggioranza."
+                game_state.ongoing_rest_vote = None
+        else:
+            vote_data["votes_received"] += 1
+            if vote_data["votes_received"] >= vote_data["votes_needed"]:
+                game_state.log_dm_message("[Sistema] La maggioranza dei giocatori ha approvato il Riposo Lungo!")
+                approved_trigger = True
+
+    if rejected_msg:
+        from common.protocol import make_chat_broadcast
+        broadcast(game_state, make_chat_broadcast("Sistema", rejected_msg))
+    elif approved_trigger:
         trigger_group_long_rest(game_state, reason="Il gruppo ha approvato il Riposo Lungo!")
 
 def handle_custom_spell_request(data, player, game_state):

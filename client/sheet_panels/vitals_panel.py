@@ -193,6 +193,7 @@ class VitalsPanel:
         btn_finish = ttk.Button(btn_row, text=_t("sheet_short_rest_finish"), command=finish_rest)
         btn_finish.pack(side=tk.RIGHT)
         win.protocol("WM_DELETE_WINDOW", finish_rest)
+        win.bind("<Escape>", lambda e: finish_rest())
 
     @staticmethod
     def long_rest(sheet):
@@ -200,7 +201,7 @@ class VitalsPanel:
         if hasattr(sheet, 'long_rest_callback') and sheet.long_rest_callback:
             sheet.long_rest_callback()
         else:
-            if messagebox.askyesno("Riposo Lungo", "Effettuare un riposo lungo?"):
+            if messagebox.askyesno("Riposo Lungo", "Effettuare un riposo lungo?", parent=sheet):
                 sheet.character.long_rest()
                 sheet.load_data()
                 if sheet.manager:
@@ -208,7 +209,7 @@ class VitalsPanel:
                 if hasattr(sheet, "on_save_callback") and sheet.on_save_callback:
                     try: sheet.on_save_callback(sheet.character)
                     except Exception: pass
-                messagebox.showinfo("Riposo Lungo", "Hai effettuato un riposo lungo! HP, Dadi Vita, Tiri contro la Morte e Slot Incantesimo sono stati recuperati.")
+                messagebox.showinfo("Riposo Lungo", "Hai effettuato un riposo lungo! HP, Dadi Vita, Tiri contro la Morte e Slot Incantesimo sono stati recuperati.", parent=sheet)
 
     @staticmethod
     def roll_death_save(sheet):

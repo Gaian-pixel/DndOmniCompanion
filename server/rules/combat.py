@@ -1364,9 +1364,10 @@ def advance_combat_turn(game_state, ending_player=None):
         game_state._trigger_gui_update()
 
 def handle_end_turn_request(data, player, game_state):
-    current = game_state.get_current_turn_player()
-    if current and current.name == player.name:
-        advance_combat_turn(game_state, ending_player=current)
+    with game_state.lock:
+        current = game_state.get_current_turn_player()
+        if current and player and current.name == player.name:
+            advance_combat_turn(game_state, ending_player=current)
 
 
 def handle_spend_legendary_action_request(data, player, game_state):
@@ -1374,39 +1375,42 @@ def handle_spend_legendary_action_request(data, player, game_state):
     Gestisce la spesa di Azioni Leggendarie (D&D 5e).
     Un boss leggendario spende azioni tra un turno e l'altro (costo solitamente 1, 2 o 3).
     """
+    from common.network_utils import is_dm_actor
+    from server.dm_monster_engine import is_incapacitated_entity
+
     target_name = data.get("boss_name") or data.get("target_name") or (player.name if player else "")
     action_name = data.get("action_name", "Azione Leggendaria")
     cost = int(data.get("cost", 1))
-    
-    boss = game_state.find_player(target_name)
-    if not boss:
+    is_dm = is_dm_actor(player)
+
+    err_msg = None
+    msg = None
+    state_dict = None
+    with game_state.lock:
+        boss = game_state.find_player(target_name)
+        if not boss:
+            err_msg = f"Creatura '{target_name}' non trovata."
+        elif not is_dm and (not player or (boss.name != player.name and getattr(boss, "owner", None) != player.name)):
+            err_msg = "Solo il DM può attivare le Azioni Leggendarie di un Boss."
+        elif is_incapacitated_entity(boss):
+            err_msg = f"{boss.name} è Incapacitato/Morto e non può spendere Azioni Leggendarie (MM p. 11)."
+        else:
+            cur_actions = getattr(boss, "legendary_actions_current", 0)
+            max_actions = getattr(boss, "legendary_actions_max", 0)
+            if cur_actions < cost:
+                err_msg = f"Azioni leggendarie insufficienti: {cur_actions}/{max_actions} (richieste: {cost})."
+            else:
+                boss.legendary_actions_current = cur_actions - cost
+                msg = f"👑 {boss.name} usa l'Azione Leggendaria '{action_name}' (Costo: {cost})! Azioni rimaste: {boss.legendary_actions_current}/{max_actions}."
+                state_dict = game_state.get_state_dict()
+
+    if err_msg:
         if player and getattr(player, "conn", None):
-            send_message(player.conn, make_error_reply(f"Creatura '{target_name}' non trovata."))
-        return
-    is_dm = (player is None or getattr(player, "role", "") == "DM" or getattr(player, "conn", None) is None)
-    if not is_dm and boss.name != player.name and getattr(boss, "owner", None) != player.name:
-        if player and getattr(player, "conn", None):
-            send_message(player.conn, make_error_reply("Solo il DM può attivare le Azioni Leggendarie di un Boss."))
+            send_message(player.conn, make_error_reply(err_msg))
         return
 
-    from server.dm_monster_engine import is_incapacitated_entity
-    if is_incapacitated_entity(boss):
-        if player and getattr(player, "conn", None):
-            send_message(player.conn, make_error_reply(f"{boss.name} è Incapacitato/Morto e non può spendere Azioni Leggendarie (MM p. 11)."))
-        return
-        
-    cur_actions = getattr(boss, "legendary_actions_current", 0)
-    max_actions = getattr(boss, "legendary_actions_max", 0)
-    
-    if cur_actions < cost:
-        if player and getattr(player, "conn", None):
-            send_message(player.conn, make_error_reply(f"Azioni leggendarie insufficienti: {cur_actions}/{max_actions} (richieste: {cost})."))
-        return
-        
-    boss.legendary_actions_current = cur_actions - cost
-    msg = f"👑 {boss.name} usa l'Azione Leggendaria '{action_name}' (Costo: {cost})! Azioni rimaste: {boss.legendary_actions_current}/{max_actions}."
     broadcast(game_state, make_chat_broadcast("Sistema", msg))
-    broadcast(game_state, make_game_state(game_state.get_state_dict()))
+    broadcast(game_state, make_game_state(state_dict))
     game_state.log_dm_message(f"[BOSS] {msg}")
     game_state._trigger_gui_update()
 
@@ -1491,11 +1495,10 @@ def handle_remove_effect_request(data, player, game_state):
 
 def handle_submit_initiative(data, player, game_state):
     init = data.get("initiative", 0)
-    if getattr(player, "initiative_bonus", None) is None:
-        player.initiative_bonus = getattr(player, "initiative", 0)
-    player.initiative = init
-    
     with game_state.lock:
+        if getattr(player, "initiative_bonus", None) is None:
+            player.initiative_bonus = getattr(player, "initiative", 0)
+        player.initiative = init
         if game_state.combat_active and len(game_state.players) > 0:
             combatants_before = game_state._get_combatants() if hasattr(game_state, "_get_combatants") else [p for p in game_state.players if getattr(p, "in_combat", True)]
             current_active = combatants_before[game_state.turn_index] if 0 <= game_state.turn_index < len(combatants_before) else None
@@ -1557,6 +1560,9 @@ def handle_attack_request(data, player, game_state):
 
     is_reaction = bool(data.get("is_reaction", False))
     is_bonus_action = bool(data.get("is_bonus_action", False))
+    _prev_ba_used = bool(getattr(player, "bonus_action_used_this_turn", False))
+    _prev_attacks_made = getattr(player, "attacks_made_this_turn", 0)
+    _prev_has_acted = bool(getattr(player, "has_acted_this_turn", False))
     if getattr(game_state, "combat_active", False) and strict_lock and not is_reaction:
         curr_turn = game_state.get_current_turn_player()
         if curr_turn and curr_turn.name != player.name:
@@ -1564,11 +1570,11 @@ def handle_attack_request(data, player, game_state):
                 send_message(player.conn, make_error_reply(f"Non è il tuo turno in combattimento! È il turno di {curr_turn.name}."))
             return
         if is_bonus_action:
-            if getattr(player, "bonus_action_used", False):
+            if getattr(player, "bonus_action_used_this_turn", False):
                 if player and getattr(player, "conn", None):
                     send_message(player.conn, make_error_reply("Hai già consumato la tua Azione Bonus in questo turno!"))
                 return
-            player.bonus_action_used = True
+            player.bonus_action_used_this_turn = True
         elif not data.get("extra_action"):
             if getattr(player, "has_acted_this_turn", False) and getattr(player, "attacks_made_this_turn", 0) == 0:
                 if player and getattr(player, "conn", None):
@@ -1687,6 +1693,9 @@ def handle_attack_request(data, player, game_state):
                 # Mischia: portata 5 ft (1 casella) o 10 ft (2 caselle con proprietà Portata)
                 max_reach = 2.0 if has_reach else 1.0
                 if dist_3d > max_reach:
+                    player.attacks_made_this_turn = _prev_attacks_made
+                    player.has_acted_this_turn = _prev_has_acted
+                    player.bonus_action_used_this_turn = _prev_ba_used
                     if player and getattr(player, "conn", None):
                         send_message(player.conn, make_error_reply(f"Bersaglio fuori portata! Portata dell'arma: {int(max_reach * 5)} ft ({int(max_reach)} caselle). Bersaglio a {dist_3d:.1f} caselle."))
                     return
@@ -1962,6 +1971,9 @@ def handle_attack_request(data, player, game_state):
         from common.spell_effects_engine import compute_combat_spell_modifiers
         _spell_fx_mods = compute_combat_spell_modifiers(player, target_player, is_melee=(not _is_ranged_tmp))
         if _spell_fx_mods.get("sanctuary_blocked"):
+            player.attacks_made_this_turn = _prev_attacks_made
+            player.has_acted_this_turn = _prev_has_acted
+            player.bonus_action_used_this_turn = _prev_ba_used
             _sanc_msg = f"🕊️ [SANTUARIO] L'attacco di {player.name} contro {target_name} fallisce: {_spell_fx_mods['notes'][-1]}"
             broadcast(game_state, make_chat_broadcast("Sistema", _sanc_msg))
             game_state.log_dm_message(f"[COMBAT] {_sanc_msg}")
@@ -2890,16 +2902,15 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
             extra_adv_note += f" [✨ Plasmare Incantesimi ({_caster_obj.name}): Successo Automatico]"
     
     # D&D 5e: Resistenze Leggendarie (es. 3/giorno)
-    # Se opt_legendary_res_prompt è attivo, invia prompt al DM invece di spendere automaticamente.
+    # Se opt_legendary_res_prompt è attivo, sospende la risoluzione finale finché il DM decide.
     used_legendary_resistance = False
+    pending_lr_info = None
     if not success and getattr(target_player, "legendary_resistances_current", 0) > 0:
         opt_lr_prompt = bool((getattr(game_state, "automation_settings", {}) or {}).get("opt_legendary_res_prompt", False))
         if opt_lr_prompt and game_state:
             import uuid as _uuid_lr
             lr_id = f"lr_{_uuid_lr.uuid4().hex[:8]}"
-            if not hasattr(game_state, "pending_legendary_resistances") or not isinstance(game_state.pending_legendary_resistances, dict):
-                game_state.pending_legendary_resistances = {}
-            lr_info = {
+            pending_lr_info = {
                 "id": lr_id,
                 "target": target_name,
                 "stat": stat,
@@ -2907,10 +2918,15 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
                 "roll_total": roll_total,
                 "source": source_name,
                 "remaining": target_player.legendary_resistances_current,
+                "deferred_save": {
+                    "source_name": source_name,
+                    "raw_damage": 0,
+                    "damage_type": damage_type,
+                    "half_on_success": bool(half_on_success),
+                    "has_evasion": False,
+                    "auto_apply_aoe": True,
+                },
             }
-            game_state.pending_legendary_resistances[lr_id] = lr_info
-            if hasattr(game_state, "gui_queue") and game_state.gui_queue:
-                game_state.gui_queue.put({"type": "PENDING_LEGENDARY_RES_PROMPT", "payload": lr_info})
             extra_adv_note += f" [👑 Resistenza Leggendaria disponibile ({target_player.legendary_resistances_current}): in attesa di decisione DM]"
         else:
             target_player.legendary_resistances_current -= 1
@@ -2945,13 +2961,14 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
     else:
         fumble_str = " 💀 [1 Naturale!]" if is_fail else ""
         log_msg += f"{fumble_str} FALLITO!"
-        if str(source_name).startswith("Save-Ends:"):
-            eff_name = str(source_name).replace("Save-Ends:", "").strip()
-            log_msg += f" ❌ L'effetto '{eff_name}' su {target_name} persiste!"
-        if str(source_name).startswith("Sistema (Concentrazione)"):
-            drop_concentration(target_player, game_state, notify=True)
-            broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
-            game_state._trigger_gui_update()
+        if pending_lr_info is None:
+            if str(source_name).startswith("Save-Ends:"):
+                eff_name = str(source_name).replace("Save-Ends:", "").strip()
+                log_msg += f" ❌ L'effetto '{eff_name}' su {target_name} persiste!"
+            if str(source_name).startswith("Sistema (Concentrazione)"):
+                drop_concentration(target_player, game_state, notify=True)
+                broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
+                game_state._trigger_gui_update()
         
     if damage_formula:
         try:
@@ -2985,64 +3002,87 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
                 if "elusione" in p_text or "evasion" in p_text:
                     has_evasion = True
 
-            if success:
-                if sculpted_evocation:
-                    dmg_val = 0
-                    log_msg += " (✨ Plasmare Incantesimi PHB: 0 danni subiti dall'alleato!)"
-                elif has_evasion:
-                    dmg_val = 0
-                    log_msg += " (Elusione 5e: 0 danni con TS superato!)"
-                elif stat in ("DES", "DEX") and half_on_success and not is_incap and not getattr(target_player, "has_reacted_this_turn", False) and entity_has_keyword(target_player, "maestro di scudi", "shield master"):
-                    dmg_val = 0
-                    target_player.has_reacted_this_turn = True
-                    log_msg += " (🛡️ Maestro di Scudi PHB [Reazione]: 0 danni con TS superato!)"
-                elif half_on_success:
-                    dmg_val = dmg_val // 2
-                else:
-                    dmg_val = 0
-            else:
-                if has_evasion and half_on_success:
-                    dmg_val = dmg_val // 2
-                    log_msg += " (Elusione 5e: subisce solo metà danni nonostante il TS fallito!)"
-                    
-            if dmg_val > 0:
+            if pending_lr_info is not None:
                 auto_apply_aoe = True
                 if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
                     auto_apply_aoe = game_state.automation_settings.get("auto_apply_aoe_damage", game_state.automation_settings.get("auto_apply_damage", True))
-                
-                if auto_apply_aoe:
-                    final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(target_player, dmg_val, damage_type, game_state)
-                    log_msg += f" Subisce {final_dmg} danni ({damage_type}){note}!"
-                    if temp_absorbed > 0:
-                        log_msg += f" [{temp_absorbed} assorbiti da Temp HP]."
-                    log_msg += f" HP: {target_player.hp}/{target_player.max_hp}"
-                    if getattr(target_player, "temp_hp", 0) > 0:
-                        log_msg += f" (+{target_player.temp_hp} Temp)"
-                    broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
-                    game_state._trigger_gui_update()
-                else:
-                    import uuid
-                    pending_id = f"dmg_{uuid.uuid4().hex[:8]}"
-                    pending_info = {
-                        "id": pending_id,
-                        "attacker": source_name,
-                        "target": target_name,
-                        "raw_damage": dmg_val,
-                        "damage_type": damage_type,
-                        "is_crit": False,
-                        "weapon_name": f"TS {stat} ({source_name})"
-                    }
-                    if not hasattr(game_state, "pending_damages"):
-                        game_state.pending_damages = {}
-                    game_state.pending_damages[pending_id] = pending_info
-                    log_msg += f" 🎯 Danno Calcolato (TS): {dmg_val} ({damage_type}). [In attesa di conferma DM]"
-                    if hasattr(game_state, "gui_queue") and game_state.gui_queue:
-                        game_state.gui_queue.put({"type": "PENDING_DAMAGE_PROMPT", "payload": pending_info})
-                    game_state._trigger_gui_update()
+                pending_lr_info["deferred_save"] = {
+                    "source_name": source_name,
+                    "raw_damage": dmg_val,
+                    "damage_type": damage_type,
+                    "half_on_success": bool(half_on_success),
+                    "has_evasion": bool(has_evasion),
+                    "auto_apply_aoe": bool(auto_apply_aoe),
+                }
+                if dmg_val > 0:
+                    log_msg += f" 🎯 Danno potenziale ({dmg_val} {damage_type}): sospeso in attesa di decisione Resistenza Leggendaria."
             else:
-                log_msg += " Non subisce danni."
+                if success:
+                    if sculpted_evocation:
+                        dmg_val = 0
+                        log_msg += " (✨ Plasmare Incantesimi PHB: 0 danni subiti dall'alleato!)"
+                    elif has_evasion:
+                        dmg_val = 0
+                        log_msg += " (Elusione 5e: 0 danni con TS superato!)"
+                    elif stat in ("DES", "DEX") and half_on_success and not is_incap and not getattr(target_player, "has_reacted_this_turn", False) and entity_has_keyword(target_player, "maestro di scudi", "shield master"):
+                        dmg_val = 0
+                        target_player.has_reacted_this_turn = True
+                        log_msg += " (🛡️ Maestro di Scudi PHB [Reazione]: 0 danni con TS superato!)"
+                    elif half_on_success:
+                        dmg_val = dmg_val // 2
+                    else:
+                        dmg_val = 0
+                else:
+                    if has_evasion and half_on_success:
+                        dmg_val = dmg_val // 2
+                        log_msg += " (Elusione 5e: subisce solo metà danni nonostante il TS fallito!)"
+                        
+                if dmg_val > 0:
+                    auto_apply_aoe = True
+                    if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+                        auto_apply_aoe = game_state.automation_settings.get("auto_apply_aoe_damage", game_state.automation_settings.get("auto_apply_damage", True))
+                    
+                    if auto_apply_aoe:
+                        final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(target_player, dmg_val, damage_type, game_state)
+                        log_msg += f" Subisce {final_dmg} danni ({damage_type}){note}!"
+                        if temp_absorbed > 0:
+                            log_msg += f" [{temp_absorbed} assorbiti da Temp HP]."
+                        log_msg += f" HP: {target_player.hp}/{target_player.max_hp}"
+                        if getattr(target_player, "temp_hp", 0) > 0:
+                            log_msg += f" (+{target_player.temp_hp} Temp)"
+                        broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
+                        game_state._trigger_gui_update()
+                    else:
+                        import uuid
+                        pending_id = f"dmg_{uuid.uuid4().hex[:8]}"
+                        pending_info = {
+                            "id": pending_id,
+                            "attacker": source_name,
+                            "target": target_name,
+                            "raw_damage": dmg_val,
+                            "damage_type": damage_type,
+                            "is_crit": False,
+                            "weapon_name": f"TS {stat} ({source_name})"
+                        }
+                        if not hasattr(game_state, "pending_damages"):
+                            game_state.pending_damages = {}
+                        game_state.pending_damages[pending_id] = pending_info
+                        log_msg += f" 🎯 Danno Calcolato (TS): {dmg_val} ({damage_type}). [In attesa di conferma DM]"
+                        if hasattr(game_state, "gui_queue") and game_state.gui_queue:
+                            game_state.gui_queue.put({"type": "PENDING_DAMAGE_PROMPT", "payload": pending_info})
+                        game_state._trigger_gui_update()
+                else:
+                    log_msg += " Non subisce danni."
         except Exception as e:
             log_msg += f" (Errore formula danni: {e})"
+
+    if pending_lr_info is not None and game_state:
+        if not hasattr(game_state, "pending_legendary_resistances") or not isinstance(game_state.pending_legendary_resistances, dict):
+            game_state.pending_legendary_resistances = {}
+        game_state.pending_legendary_resistances[pending_lr_info["id"]] = pending_lr_info
+        if hasattr(game_state, "gui_queue") and game_state.gui_queue:
+            game_state.gui_queue.put({"type": "PENDING_LEGENDARY_RES_PROMPT", "payload": pending_lr_info})
+        game_state._trigger_gui_update()
             
     game_state.log_dm_message(f"[TS] {log_msg}")
     broadcast(game_state, make_chat_broadcast("Sistema", log_msg))
@@ -3143,31 +3183,55 @@ def _validate_combat_tactical_action(player, game_state, action_label: str) -> b
 
     return True
 
+def _apply_tactical_condition(player, game_state, condition_name, chat_msg, log_msg):
+    """Apply a standard tactical action condition (Scatto, Disimpegno, Schivata) under lock."""
+    stats_pkt = None
+    with game_state.lock:
+        conds = getattr(player, "conditions", None)
+        if conds is None:
+            player.conditions = []
+            conds = player.conditions
+        if condition_name not in conds:
+            conds.append(condition_name)
+            player.has_acted_this_turn = True
+            stats_pkt = make_player_stats_update(
+                player.name,
+                player.hp,
+                player.max_hp,
+                player.initiative,
+                list(conds),
+                getattr(player, "temp_hp", 0),
+            )
+    if stats_pkt is not None:
+        broadcast(game_state, stats_pkt)
+        broadcast(game_state, make_chat_broadcast("Sistema", chat_msg))
+        game_state.log_dm_message(log_msg)
+        game_state._trigger_gui_update()
+
+
 def handle_dash_request(data, player, game_state):
     if not _validate_combat_tactical_action(player, game_state, "Scatto"):
         return
-    if "Scatto" not in getattr(player, "conditions", []):
-        if not hasattr(player, "conditions") or player.conditions is None:
-            player.conditions = []
-        player.conditions.append("Scatto")
-        player.has_acted_this_turn = True
-        broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions, getattr(player, "temp_hp", 0)))
-        broadcast(game_state, make_chat_broadcast("Sistema", f"🏃 {player.name} compie l'Azione di Scatto! Velocità raddoppiata per questo turno."))
-        game_state.log_dm_message(f"[COMBAT] {player.name} ha usato Scatto.")
-        game_state._trigger_gui_update()
+    _apply_tactical_condition(
+        player,
+        game_state,
+        "Scatto",
+        f"🏃 {player.name} compie l'Azione di Scatto! Velocità raddoppiata per questo turno.",
+        f"[COMBAT] {player.name} ha usato Scatto.",
+    )
+
 
 def handle_disengage_request(data, player, game_state):
     if not _validate_combat_tactical_action(player, game_state, "Disimpegno"):
         return
-    if "Disimpegno" not in getattr(player, "conditions", []):
-        if not hasattr(player, "conditions") or player.conditions is None:
-            player.conditions = []
-        player.conditions.append("Disimpegno")
-        player.has_acted_this_turn = True
-        broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions, getattr(player, "temp_hp", 0)))
-        broadcast(game_state, make_chat_broadcast("Sistema", f"💨 {player.name} compie l'Azione di Disimpegno! I suoi movimenti non provocheranno attacchi d'opportunità per questo turno."))
-        game_state.log_dm_message(f"[COMBAT] {player.name} ha usato Disimpegno.")
-        game_state._trigger_gui_update()
+    _apply_tactical_condition(
+        player,
+        game_state,
+        "Disimpegno",
+        f"💨 {player.name} compie l'Azione di Disimpegno! I suoi movimenti non provocheranno attacchi d'opportunità per questo turno.",
+        f"[COMBAT] {player.name} ha usato Disimpegno.",
+    )
+
 
 def handle_dodge_request(data, player, game_state):
     if not _validate_combat_tactical_action(player, game_state, "Schivata"):
@@ -3182,15 +3246,13 @@ def handle_dodge_request(data, player, game_state):
         if player and getattr(player, "conn", None):
             send_message(player.conn, make_error_reply("Non puoi compiere Schivata quando la tua velocità è 0 (PHB p. 192)!"))
         return
-    if "Schivata" not in getattr(player, "conditions", []):
-        if not hasattr(player, "conditions") or player.conditions is None:
-            player.conditions = []
-        player.conditions.append("Schivata")
-        player.has_acted_this_turn = True
-        broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions, getattr(player, "temp_hp", 0)))
-        broadcast(game_state, make_chat_broadcast("Sistema", f"🛡️ {player.name} compie l'Azione di Schivata! Gli attacchi contro di lui avranno svantaggio e ha vantaggio ai TS su Destrezza fino all'inizio del suo prossimo turno."))
-        game_state.log_dm_message(f"[COMBAT] {player.name} ha usato Schivata.")
-        game_state._trigger_gui_update()
+    _apply_tactical_condition(
+        player,
+        game_state,
+        "Schivata",
+        f"🛡️ {player.name} compie l'Azione di Schivata! Gli attacchi contro di lui avranno svantaggio e ha vantaggio ai TS su Destrezza fino all'inizio del suo prossimo turno.",
+        f"[COMBAT] {player.name} ha usato Schivata.",
+    )
 
 def handle_help_request(data, player, game_state):
     if not _validate_combat_tactical_action(player, game_state, "Aiuto"):
@@ -4008,13 +4070,15 @@ def handle_trigger_readied_action_request(data, player, game_state):
 
 def handle_set_automation_mode_request(data, player, game_state):
     """Gestisce la modifica della modalità di automazione (manual, hybrid, full) da parte del DM."""
-    is_dm = (player is None or getattr(player, "role", "") == "DM")
-    if not is_dm:
+    from common.network_utils import is_dm_actor
+    if not is_dm_actor(player):
         return
     mode = data.get("mode", "hybrid")
     settings = data.get("settings", {})
-    game_state.set_automation_mode(mode, settings)
-    
+    with game_state.lock:
+        game_state.set_automation_mode(mode, settings)
+        settings_snap = dict(game_state.automation_settings)
+
     mode_names = {
         "manual": "🎲 Tavolo Tradizionale (Controllo DM & Pen & Paper)",
         "hybrid": "⚖️ Ibrido Assistito (Consigliato)",
@@ -4025,65 +4089,72 @@ def handle_set_automation_mode_request(data, player, game_state):
     game_state.log_dm_message(f"[SISTEMA] {msg}")
     broadcast(game_state, make_chat_broadcast("Sistema", msg))
     from common.protocol import make_automation_settings_broadcast
-    broadcast(game_state, make_automation_settings_broadcast(mode, game_state.automation_settings))
+    broadcast(game_state, make_automation_settings_broadcast(mode, settings_snap))
     game_state._trigger_gui_update()
 
 def handle_apply_pending_damage_request(data, player, game_state):
     """Permette al DM di confermare, dimezzare o annullare un danno calcolato prima di applicarlo agli HP."""
-    is_dm = (player is None or getattr(player, "role", "") == "DM")
-    if not is_dm:
+    from common.network_utils import is_dm_actor
+    if not is_dm_actor(player):
         return
-        
+
     pending_id = data.get("pending_id")
     action = data.get("action", "apply") # "apply", "half", "cancel", "custom"
     custom_amount = data.get("custom_amount")
-    
-    if not hasattr(game_state, "pending_damages") or pending_id not in game_state.pending_damages:
-        return
-        
-    pending = game_state.pending_damages.pop(pending_id)
-    target_name = pending["target"]
-    target_player = game_state.find_player(target_name)
-    attacker_name = pending.get("attacker", "Attaccante")
-    damage_type = pending.get("damage_type", "Tagliente")
-    raw_damage = pending.get("raw_damage", 0)
-    
-    if action == "cancel":
-        msg = f"❌ Il DM ha ANNULLATO il danno ({raw_damage} {damage_type}) inflitto da {attacker_name} su {target_name}."
-        game_state.log_dm_message(f"[COMBAT] {msg}")
-        broadcast(game_state, make_chat_broadcast("DM", msg))
-        game_state._trigger_gui_update()
-        return
-        
-    if not target_player:
-        return
-        
-    if action == "half":
-        calc_dmg = max(1, raw_damage // 2)
-        desc_prefix = f"🛡️ Il DM applica DANNO DIMEZZATO ({raw_damage} -> {calc_dmg} {damage_type})"
-    elif action == "custom" and custom_amount is not None:
-        try:
-            calc_dmg = max(0, int(custom_amount))
-            desc_prefix = f"🎯 Il DM applica DANNO PERSONALIZZATO ({calc_dmg} {damage_type})"
-        except (ValueError, TypeError):
-            calc_dmg = raw_damage
-            desc_prefix = f"⚔️ Il DM applica DANNO PIENO ({calc_dmg} {damage_type})"
-    else: # "apply"
-        calc_dmg = raw_damage
-        desc_prefix = f"⚔️ Il DM applica DANNO PIENO ({calc_dmg} {damage_type})"
-        
-    is_crit = pending.get("is_crit", False)
-    final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(target_player, calc_dmg, damage_type, game_state, is_crit=is_crit)
-    log_msg = f"{desc_prefix} a {target_name}{note}."
-    if temp_absorbed > 0:
-        log_msg += f" [{temp_absorbed} assorbiti da Temp HP]."
-    log_msg += f" HP {target_name}: {target_player.hp}/{target_player.max_hp}"
-    if getattr(target_player, "temp_hp", 0) > 0:
-        log_msg += f" (+{target_player.temp_hp} Temp)"
-        
-    game_state.log_dm_message(f"[COMBAT] {log_msg}")
+
+    stats_payload = None
+    with game_state.lock:
+        if not hasattr(game_state, "pending_damages") or pending_id not in game_state.pending_damages:
+            return
+
+        pending = game_state.pending_damages.pop(pending_id)
+        target_name = pending["target"]
+        target_player = game_state.find_player(target_name)
+        attacker_name = pending.get("attacker", "Attaccante")
+        damage_type = pending.get("damage_type", "Tagliente")
+        raw_damage = pending.get("raw_damage", 0)
+
+        if action == "cancel":
+            log_msg = f"❌ Il DM ha ANNULLATO il danno ({raw_damage} {damage_type}) inflitto da {attacker_name} su {target_name}."
+            game_state.log_dm_message(f"[COMBAT] {log_msg}")
+            stats_payload = None
+        else:
+            if not target_player:
+                return
+
+            if action == "half":
+                calc_dmg = max(1, raw_damage // 2)
+                desc_prefix = f"🛡️ Il DM applica DANNO DIMEZZATO ({raw_damage} -> {calc_dmg} {damage_type})"
+            elif action == "custom" and custom_amount is not None:
+                try:
+                    calc_dmg = max(0, int(custom_amount))
+                    desc_prefix = f"🎯 Il DM applica DANNO PERSONALIZZATO ({calc_dmg} {damage_type})"
+                except (ValueError, TypeError):
+                    calc_dmg = raw_damage
+                    desc_prefix = f"⚔️ Il DM applica DANNO PIENO ({calc_dmg} {damage_type})"
+            else: # "apply"
+                calc_dmg = raw_damage
+                desc_prefix = f"⚔️ Il DM applica DANNO PIENO ({calc_dmg} {damage_type})"
+
+            is_crit = pending.get("is_crit", False)
+            final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(target_player, calc_dmg, damage_type, game_state, is_crit=is_crit)
+            log_msg = f"{desc_prefix} a {target_name}{note}."
+            if temp_absorbed > 0:
+                log_msg += f" [{temp_absorbed} assorbiti da Temp HP]."
+            log_msg += f" HP {target_name}: {target_player.hp}/{target_player.max_hp}"
+            if getattr(target_player, "temp_hp", 0) > 0:
+                log_msg += f" (+{target_player.temp_hp} Temp)"
+
+            game_state.log_dm_message(f"[COMBAT] {log_msg}")
+            stats_payload = make_player_stats_update(
+                target_player.name, target_player.hp, target_player.max_hp,
+                target_player.initiative, list(target_player.conditions),
+                getattr(target_player, "temp_hp", 0)
+            )
+
     broadcast(game_state, make_chat_broadcast("DM", log_msg))
-    broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
+    if stats_payload:
+        broadcast(game_state, stats_payload)
     game_state._trigger_gui_update()
 
 def handle_summon_companion_request(data, player, game_state):

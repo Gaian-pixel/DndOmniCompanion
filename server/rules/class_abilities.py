@@ -5,6 +5,7 @@ Tratti Mostri MM e Regole Opzionali DMG (D&D 5e RAW).
 
 import random
 import math
+import socket
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -36,7 +37,13 @@ def _sync_sheet_conditions(player):
 
 
 def _is_dm(player) -> bool:
-    return player is None or getattr(player, "role", "") == "DM" or getattr(player, "conn", None) is None
+    from common.network_utils import is_dm_actor
+    return is_dm_actor(player)
+
+
+def _allow_forced_roll(player) -> bool:
+    """Consente override deterministici (`forced_*`) solo al DM o a chiamate unit-test in-process senza socket reale."""
+    return _is_dm(player) or not isinstance(getattr(player, "conn", None), socket.socket)
 
 
 def _get_target_or_self(data, player, game_state):
@@ -109,9 +116,16 @@ def is_immune_to_frightened_by_aura(entity, game_state) -> Tuple[bool, Optional[
     return False, None
 
 
+def _resolve_actor(data, player, game_state):
+    """Restituisce l'attore autorizzato: solo il DM può specificare actor_name arbitrario."""
+    if _is_dm(player) and data.get("actor_name") and game_state:
+        return game_state.find_player(data.get("actor_name"))
+    return player
+
+
 def handle_lay_on_hands_request(data, player, game_state):
     """Paladino - Imposizione delle Mani (PHB p. 84): cura X PF esatti o spende 5 PF per curare Malattia/Veleno."""
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     if not actor:
         return
     if _check_surprised_block(actor, game_state, "usare Imposizione delle Mani"):
@@ -188,7 +202,7 @@ def handle_lay_on_hands_request(data, player, game_state):
 
 def handle_reckless_attack_request(data, player, game_state):
     """Barbaro Lv 2+ - Attacco Irruento (PHB p. 48): Vantaggio ai TxC in mischia FOR, nemici hanno Vantaggio contro il Barbaro fino al prossimo turno."""
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     if not actor:
         return
     if _check_surprised_block(actor, game_state, "usare Attacco Irruento"):
@@ -239,7 +253,7 @@ def handle_bardic_inspiration_request(data, player, game_state):
     """
     action = data.get("action", "grant")
     if str(action).lower() in ("spend", "use", "usa"):
-        actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+        actor = _resolve_actor(data, player, game_state)
         if not actor:
             return
         die = getattr(actor, "bardic_inspiration_die", None)
@@ -259,7 +273,7 @@ def handle_bardic_inspiration_request(data, player, game_state):
         broadcast(game_state, make_game_state(game_state.get_state_dict()))
         return
 
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     if not actor:
         return
     if _check_surprised_block(actor, game_state, "concedere Ispirazione Bardica"):
@@ -336,7 +350,7 @@ def _parse_cr_float(cr_val: Any) -> float:
 
 def handle_turn_undead_request(data, player, game_state):
     """Chierico Lv 2+ - Scacciare/Distruggere Non Morti (PHB p. 59): 30 ft (6 celle), TS Saggezza."""
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     if not actor:
         return
     if _check_surprised_block(actor, game_state, "usare Scacciare Non Morti"):
@@ -354,7 +368,7 @@ def handle_turn_undead_request(data, player, game_state):
 
     wis_mod = entity_get_attr_mod(actor, "SAG")
     pb = ((entity_get_total_level(actor) - 1) // 4) + 2
-    dc = int(data.get("dc") or (8 + pb + wis_mod))
+    dc = int(data.get("dc") or (8 + pb + wis_mod)) if _is_dm(player) else (8 + pb + wis_mod)
     destroy_cr = get_destroy_undead_cr_threshold(max(2, cleric_lvl))
 
     pos_a = getattr(actor, "position", None) or [0, 0]
@@ -404,7 +418,7 @@ def handle_turn_undead_request(data, player, game_state):
 
 def handle_divine_intervention_request(data, player, game_state):
     """Chierico Lv 10+ - Intervento Divino (PHB p. 59): 1d100 <= Livello Chierico (automatico al 20°)."""
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     if not actor:
         return
     cleric_lvl = entity_get_class_level(actor, "chierico", "cleric")
@@ -413,7 +427,7 @@ def handle_divine_intervention_request(data, player, game_state):
             send_message(actor.conn, make_error_reply("Intervento Divino richiede Chierico Lv 10+."))
         return
     eff_lvl = max(10, cleric_lvl)
-    forced_roll = data.get("forced_roll")
+    forced_roll = data.get("forced_roll") if _allow_forced_roll(player) else None
     d100 = int(forced_roll) if forced_roll is not None else random.randint(1, 100)
     success = (eff_lvl >= 20) or (d100 <= eff_lvl)
     actor.has_acted_this_turn = True
@@ -431,7 +445,7 @@ def handle_divine_intervention_request(data, player, game_state):
 
 def handle_indomitable_request(data, player, game_state):
     """Guerriero Lv 9+ - Indomito (PHB p. 72): Ritira un Tiro Salvezza fallito (1/2/3 per Riposo Lungo)."""
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     if not actor:
         return
     stat = data.get("stat", "COS")
@@ -469,7 +483,7 @@ def handle_maneuver_request(data, player, game_state):
     Supporta: Sbilanciare (Trip), Attacco Preciso (Precision), Attacco Minaccioso (Menacing),
     Attacco Disarmante (Disarming), Risposta (Riposte).
     """
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     if not actor:
         return
     maneuver = str(data.get("maneuver", "trip")).strip().lower()
@@ -481,7 +495,7 @@ def handle_maneuver_request(data, player, game_state):
         res_sup = entity_find_resource(actor, "superiorit", "superiority")
         if res_sup and res_sup.get("current", 0) > 0:
             entity_spend_resource(actor, ("superiorit", "superiority"), 1)
-        elif not data.get("free_test", False):
+        elif not (_is_dm(player) and data.get("free_test", False)):
             if getattr(actor, "conn", None):
                 send_message(actor.conn, make_error_reply("Dadi di Superiorità esauriti!"))
             return
@@ -588,7 +602,7 @@ def handle_hide_request(data, player, game_state):
     stealth_prof = int(skills.get("Furtività", skills.get("Stealth", 0)) or 0)
     pb = ((entity_get_total_level(actor) - 1) // 4) + 2
     stealth_bonus = dex_mod + (pb * stealth_prof)
-    forced_roll = data.get("forced_roll")
+    forced_roll = data.get("forced_roll") if _allow_forced_roll(player) else None
     p_conds = getattr(actor, "conditions", []) or []
     is_invis = is_condition_active(p_conds, "Invisibile")
     has_dis = getattr(actor, "exhaustion_level", 0) >= 1 or is_condition_active(p_conds, "Avvelenato") or is_condition_active(p_conds, "Spaventato")
@@ -968,7 +982,9 @@ def handle_cast_special_spell_request(data, player, game_state):
         maybe_prompt_counterspell_reactions(actor, spell_name, cast_level, game_state)
 
     if base_lvl >= 1:
-        wm_res = maybe_trigger_wild_magic_surge(actor, base_lvl, game_state, forced_d20=data.get("forced_wild_d20"), forced_d100=data.get("forced_wild_d100"))
+        fd20 = data.get("forced_wild_d20") if _allow_forced_roll(player) else None
+        fd100 = data.get("forced_wild_d100") if _allow_forced_roll(player) else None
+        wm_res = maybe_trigger_wild_magic_surge(actor, base_lvl, game_state, forced_d20=fd20, forced_d100=fd100)
         if wm_res and wm_res.get("triggered"):
             broadcast(game_state, make_chat_broadcast("Sistema", wm_res["message"]))
 
@@ -1161,6 +1177,10 @@ def handle_inspiring_leader_request(data, player, game_state):
 
 def handle_frightful_presence_request(data, player, game_state):
     """MM - Presenza Terrificante (Frightful Presence): 120 ft (24 celle) TS SAG o Spaventato 1 min; immune 24h su successo."""
+    if not _is_dm(player):
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Solo il Dungeon Master può attivare Presenza Terrificante."))
+        return
     actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
     if not actor:
         return
@@ -1207,6 +1227,10 @@ def handle_frightful_presence_request(data, player, game_state):
 
 def handle_swallow_request(data, player, game_state):
     """MM - Inghiottire / Engulf: applica Inghiottito, Accecato, Trattenuto e traccia il predatore."""
+    if not _is_dm(player):
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Solo il Dungeon Master può attivare Inghiottire."))
+        return
     actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
     target = _get_target_or_self(data, player, game_state)
     release = bool(data.get("release", False))
@@ -1418,6 +1442,10 @@ def handle_dmg_maneuver_request(data, player, game_state):
 
 def handle_madness_request(data, player, game_state):
     """DMG p. 258-260: Applica una Follia Breve / Lunga / Indefinita (opzionale selezionata dal DM)."""
+    if not _is_dm(player):
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Solo il Dungeon Master può applicare effetti di Follia."))
+        return
     if not _is_dmg_opt_enabled(game_state, "opt_madness"):
         if player and getattr(player, "conn", None):
             send_message(player.conn, make_error_reply("La regola opzionale Follia (DMG) è disabilitata dal Master."))
@@ -1512,7 +1540,8 @@ def handle_chase_dash_request(data, player, game_state):
             exh_msg = f" ⚠️ Scatto extra oltre il limite ({actor.chases_dashes_used}/{free_limit}): TS COS {r} < 10 -> +1 Sfinimento (Liv. {actor.exhaustion_level})!"
         else:
             exh_msg = f" ✅ Scatto extra ({actor.chases_dashes_used}/{free_limit}): TS COS {r} >= 10, resiste alla fatica."
-    comp = roll_chase_complication(data.get("forced_comp_roll"))
+    f_comp = data.get("forced_comp_roll") if _allow_forced_roll(player) else None
+    comp = roll_chase_complication(f_comp)
     _sync_sheet_conditions(actor)
     msg = f"🏃 [INSEGUIMENTO - SCATTO #{actor.chases_dashes_used}/{free_limit}] {actor.name}.{exh_msg} | Complicazione (d20={comp['roll']}): {comp['desc']}"
     broadcast(game_state, make_chat_broadcast("Sistema", msg))
@@ -1705,7 +1734,7 @@ def handle_class_feature_request(data, player, game_state):
     - Cleric Domain Channel Divinity (Preserve Life, Radiance of the Dawn, Destructive Wrath, Guided Strike)
     - Sorcerer Font of Magic & Metamagic active selection
     """
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     if not actor:
         return
     if _check_surprised_block(actor, game_state, "usare un privilegio di classe"):
@@ -1912,7 +1941,7 @@ def handle_class_feature_request(data, player, game_state):
             msg = f"✨ [FONTE DI MAGIA] {actor.name} converte {s_desc} in +{slot_l} Punti Stregoneria!"
         elif mode == "set_metamagic":
             meta_name = str(data.get("metamagic", "quickened") or "quickened").lower()
-            meta_cost = int(data.get("cost", 1) or 1)
+            meta_cost = max(1, int(data.get("cost", 1) or 1))
             ok_m, new_c, mx = entity_spend_resource(actor, ("punti stregoneria", "sorcery points"), meta_cost)
             if not ok_m:
                 if getattr(actor, "conn", None):
@@ -1921,6 +1950,11 @@ def handle_class_feature_request(data, player, game_state):
             actor.active_metamagic = meta_name
             msg = f"🔮 [METAMAGIA - {meta_name.upper()}] {actor.name} attiva {meta_name} ({new_c}/{mx} PS rimasti)."
         else:
+            max_castable_lvl = min(5, max(1, (max(1, sorc_l) + 1) // 2))
+            if slot_l > max_castable_lvl:
+                if getattr(actor, "conn", None):
+                    send_message(actor.conn, make_error_reply(f"Al Livello Stregone {sorc_l} non puoi creare slot di {slot_l}° livello (max {max_castable_lvl}°)."))
+                return
             cost_sp = slot_costs[slot_l]
             ok_sp, new_c, mx = entity_spend_resource(actor, ("punti stregoneria", "sorcery points"), cost_sp)
             if not ok_sp:

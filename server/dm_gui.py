@@ -17,7 +17,7 @@ from PIL import Image, ImageTk
 from common.protocol import *
 from common.theme import (
     setup_theme, apply_modern_window_style, 
-    BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT, BORDER_COLOR,
+    BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT, BORDER_COLOR, BORDER_GOLD,
     TEXT_COLOR, TEXT_MUTED, TEXT_DARK,
     ACCENT_GOLD, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE,
     FONT_MAIN, FONT_TITLE, FONT_HEADER, FONT_BOLD, FONT_SMALL
@@ -220,20 +220,19 @@ class DM_GUI:
         file_menu = tk.Menu(menubar, tearoff=0)
         file_menu.add_command(label=_t("menu_new_campaign"), command=self.open_new_campaign_dialog)
         file_menu.add_command(label=_t("menu_load_campaign"), command=self.open_load_campaign_dialog)
-        file_menu.add_command(label="📂 Apri Campagna da File / Cartella...", command=self.open_campaign_from_custom_path)
         file_menu.add_command(label=_t("menu_edit_active_campaign"), command=self.open_campaign_editor_dialog)
-        file_menu.add_command(label="💾 Salva Campagna Attiva con Nome...", command=self.save_active_campaign_as)
+        file_menu.add_command(label=_t("menu_save_campaign", default="💾 Salva Campagna Attiva"), command=self.save_active_campaign)
+        file_menu.add_command(label=_t("menu_save_campaign_as", default="💾 Salva Campagna Attiva con Nome..."), command=self.save_active_campaign_as)
         file_menu.add_command(label=_t("menu_close_campaign"), command=self.close_active_campaign)
         file_menu.add_separator()
-        file_menu.add_command(label="🧭 Flusso Live della Campagna (Ctrl+N)", command=self.open_live_flow_controller)
-        file_menu.add_command(label="📜 Cronistoria & Recap Sessione...", command=self.open_session_chronicle_dialog)
-        file_menu.add_command(label=_t("menu_campaign_journal", default="📖 Diario Continuativo di Campagna..."), command=self.open_campaign_journal_dialog)
+        file_menu.add_command(label=_t("menu_live_flow", default="🧭 Flusso Live della Campagna (Ctrl+N)"), command=self.open_live_flow_controller)
+        file_menu.add_command(label=_t("menu_session_chronicle", default="📜 Recap Fine Sessione & Cronistoria..."), command=self.open_session_chronicle_dialog)
+        file_menu.add_command(label=_t("menu_campaign_journal", default="📓 Diario di Gruppo PG..."), command=self.open_campaign_journal_dialog)
         file_menu.add_separator()
         file_menu.add_command(label=_t("menu_load_map"), command=self.load_map_from_file)
         file_menu.add_separator()
         file_menu.add_command(label=_t("menu_save_session"), command=self.save_session)
         file_menu.add_command(label=_t("menu_load_session"), command=self.load_session)
-        file_menu.add_separator()
         file_menu.add_command(label=_t("menu_export_session_log"), command=self.export_session_log)
         file_menu.add_separator()
         file_menu.add_command(label=_t("menu_exit"), command=self.on_closing)
@@ -243,27 +242,28 @@ class DM_GUI:
         tools_menu.add_command(label=_t("menu_encounter_builder"), command=self.open_encounter_builder)
         tools_menu.add_command(label=_t("menu_loot_gen"), command=self.open_loot_generator_dialog)
         tools_menu.add_command(label=_t("menu_npc_gen"), command=self.open_random_npc_dialog)
+        tools_menu.add_command(label=_t("menu_srd_compendium"), command=self.open_srd_importer)
         tools_menu.add_separator()
         tools_menu.add_command(label=_t("menu_map_editor"), command=self.open_map_editor)
         tools_menu.add_command(label=_t("menu_download_maps"), command=self.open_map_downloader)
+        tools_menu.add_command(label=_t("menu_calendar", default="📅 Calendario di Harptos..."), command=self.open_calendar_dialog)
+        tools_menu.add_command(label=_t("menu_shops", default="🏬 Negozi & Empori..."), command=self.open_shop_dialog)
+        tools_menu.add_command(label=_t("menu_travel_panel"), command=self.open_travel_panel)
         tools_menu.add_separator()
         tools_menu.add_command(label=_t("menu_quest_log"), command=self.open_quest_dialog)
         tools_menu.add_command(label=_t("menu_share_image"), command=self.share_image_handout)
         tools_menu.add_command(label=_t("menu_share_text"), command=self.share_text_handout)
-        tools_menu.add_separator()
-        tools_menu.add_command(label=_t("menu_srd_compendium"), command=self.open_srd_importer)
-        tools_menu.add_command(label=_t("tool_command_palette"), command=self.open_command_palette)
-        tools_menu.add_command(label=_t("menu_manuals"), command=self.open_manuals_dialog)
-        tools_menu.add_command(label=_t("menu_travel_panel"), command=self.open_travel_panel)
         tools_menu.add_command(label=_t("menu_starter_pack"), command=self.open_campaign_starter_kit_dialog)
         tools_menu.add_separator()
+        tools_menu.add_command(label=_t("menu_manuals"), command=self.open_manuals_dialog)
+        tools_menu.add_command(label=_t("tool_command_palette"), command=self.open_command_palette)
         tools_menu.add_command(label=_t("menu_automation_settings"), command=self.open_automation_settings_dialog)
-        tools_menu.add_command(label="📕 Strumenti Regole 5e (PHB/DMG/MM)...", command=self.open_optional_rules_tools_dialog)
-        tools_menu.add_command(label="🏛️ Generatore Dungeon & Città (DMG)...", command=self.open_dungeon_settlement_generator_dialog)
+        tools_menu.add_command(label=_t("menu_optional_rules_workbench", default="📕 Regole Opzionali & Generatori 5e..."), command=self.open_optional_rules_tools_dialog)
         menubar.add_cascade(label=_t("menu_tools"), menu=tools_menu)
 
         # Menu Visualizza / View
         view_menu = tk.Menu(menubar, tearoff=0)
+        view_menu.add_command(label=_t("menu_toggle_sidebar_dm", default="Barra Laterale DM (Ctrl+B)"), command=self.toggle_sidebar, accelerator="Ctrl+B")
         view_menu.add_command(label=_t("menu_fullscreen"), command=self.toggle_fullscreen, accelerator="F11")
         menubar.add_cascade(label=_t("menu_view"), menu=view_menu)
 
@@ -287,19 +287,20 @@ class DM_GUI:
 
         # Aggiorna tab del notebook destro
         if hasattr(self, 'right_notebook'):
-            try:
-                self.right_notebook.tab(0, text=_t("tab_chat_log"))
-                self.right_notebook.tab(1, text=_t("tab_party_initiative"))
-                self.right_notebook.tab(2, text=_t("tab_world"))
-                self.right_notebook.tab(3, text=_t("tab_audio_sfx"))
-            except Exception:
-                pass
-        
-        if hasattr(self, 'notebook') and hasattr(self, 'tab_bestiario'):
-            try:
-                self.notebook.tab(self.tab_bestiario, text=_t("tab_bestiary"))
-            except Exception:
-                pass
+            tab_labels = (
+                ("tab_chat", "tab_chat_log"),
+                ("tab_combat", "tab_party_initiative"),
+                ("tab_bestiario", "tab_bestiary"),
+                ("tab_world", "tab_world"),
+                ("tab_audio", "tab_audio_sfx"),
+            )
+            for attr_name, i18n_key in tab_labels:
+                tab_widget = getattr(self, attr_name, None)
+                if tab_widget is not None:
+                    try:
+                        self.right_notebook.tab(tab_widget, text=_t(i18n_key))
+                    except Exception:
+                        pass
 
         # Aggiorna Bestiario
         if hasattr(self, 'lbl_bestiary_header'):
@@ -315,7 +316,7 @@ class DM_GUI:
         if hasattr(self, 'btn_dm_chat_send'):
             self.btn_dm_chat_send.config(text=_t("btn_send"))
         if hasattr(self, 'btn_dm_chat_dice'):
-            self.btn_dm_chat_dice.config(text=_t("btn_dice"))
+            self.btn_dm_chat_dice.config(text=_t("btn_dice_formula", default="🧮 Formula..."))
         if hasattr(self, 'voice_status_lbl'):
             self.voice_status_lbl.config(text=_t("voice_server_active"))
 
@@ -340,8 +341,6 @@ class DM_GUI:
             self.btn_campaign_encounter.config(text=_t("btn_deploy_prepared"))
         if hasattr(self, 'btn_mass_npc_initiative'):
             self.btn_mass_npc_initiative.config(text=_t("btn_roll_all_npcs"))
-        if hasattr(self, 'btn_spawn_png'):
-            self.btn_spawn_png.config(text=_t("btn_spawn_png"))
         if hasattr(self, 'btn_add_npc'):
             self.btn_add_npc.config(text=_t("btn_add_manual_npc"))
         if hasattr(self, 'btn_encounter_builder'):
@@ -372,6 +371,12 @@ class DM_GUI:
             self.setup_fow_options_menu()
 
         # Aggiorna Tab Mondo
+        if hasattr(self, 'btn_live_flow'):
+            self.btn_live_flow.config(text=_t("btn_live_flow", default="🧭 Flusso Live"))
+        if hasattr(self, 'btn_chronicle'):
+            self.btn_chronicle.config(text=_t("btn_session_chronicle", default="📜 Recap Sessione"))
+        if hasattr(self, 'btn_journal'):
+            self.btn_journal.config(text=_t("btn_campaign_journal", default="📓 Diario di Gruppo PG"))
         if hasattr(self, 'btn_switch_scene'):
             self.btn_switch_scene.config(text=_t("btn_switch_scene"))
         if hasattr(self, 'lbl_time_mgmt'):
@@ -390,8 +395,6 @@ class DM_GUI:
             self.btn_shops.config(text=_t("btn_open_shops"))
         if hasattr(self, 'btn_travel'):
             self.btn_travel.config(text=_t("btn_travel_panel"))
-        if hasattr(self, 'btn_world_manuals'):
-            self.btn_world_manuals.config(text=_t("btn_manuals"))
         if hasattr(self, 'lbl_weather_hdr'):
             self.lbl_weather_hdr.config(text=_t("weather_header"))
         if hasattr(self, 'weather_combo'):
@@ -487,35 +490,17 @@ class DM_GUI:
         # 2. LAYOUT PRINCIPALE (3 Colonne: Sinistra=Toolbar, Centro=Mappa, Destra=Notebook)
         main_frame = ttk.Frame(self.master, padding="10 10 10 10")
         main_frame.pack(fill=tk.BOTH, expand=True)
+        self.main_frame = main_frame
         main_frame.columnconfigure(0, weight=0)
         main_frame.columnconfigure(1, weight=1)
         main_frame.columnconfigure(2, weight=0, minsize=360)
         main_frame.rowconfigure(0, weight=1)
         
-        # --- COLONNA 0: LEFT TOOLBAR (Strumenti Mappa & Regia Raggruppati) ---
+        # --- COLONNA 0: LEFT TOOLBAR (Strumenti Esclusivi del Master) ---
         left_toolbar = tk.Frame(main_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=4, pady=6)
         left_toolbar.grid(row=0, column=0, sticky="ns", padx=(0, 6))
         
-        # Gruppo 1: Navigazione & Misura
-        self.btn_pan = ttk.Button(left_toolbar, text="✋", width=3, style="Tool.TButton", command=self.toggle_pan_mode)
-        self.btn_pan.pack(pady=2)
-        ToolTip(self.btn_pan, "Sposta Mappa (Pan - Scorciatoia: Spazio / H)")
-
-        self.btn_ruler = ttk.Button(left_toolbar, text="📏", width=3, style="Tool.TButton", command=self.toggle_ruler_mode)
-        self.btn_ruler.pack(pady=2)
-        ToolTip(self.btn_ruler, "Righello Distanze 5e (Misura in ft/m)")
-
-        self.btn_center_map = ttk.Button(left_toolbar, text="🎯", width=3, style="Tool.TButton", command=lambda: self.map_canvas and self.map_canvas.center_view())
-        self.btn_center_map.pack(pady=2)
-        ToolTip(self.btn_center_map, "Centra Mappa")
-
-        tk.Frame(left_toolbar, bg=BORDER_COLOR, height=1).pack(fill=tk.X, pady=4)
-
-        # Gruppo 2: Nebbia, AoE & Lavagna Tattica
-        self.btn_fow_tool = ttk.Button(left_toolbar, text="☁️", width=3, style="Tool.TButton", command=self.toggle_fow_quick_tool)
-        self.btn_fow_tool.pack(pady=2)
-        ToolTip(self.btn_fow_tool, lambda: _t("tool_fog_of_war"))
-        
+        # Gruppo 1: AoE & Lavagna Tattica (Navigazione/Pan/Righello/Zoom ora nell'HUD Mappa)
         self.btn_aoe = ttk.Button(left_toolbar, text="💥", width=3, style="Tool.TButton", command=self.open_aoe_dialog)
         self.btn_aoe.pack(pady=2)
         ToolTip(self.btn_aoe, lambda: _t("tool_aoe"))
@@ -534,7 +519,7 @@ class DM_GUI:
         
         tk.Frame(left_toolbar, bg=BORDER_COLOR, height=1).pack(fill=tk.X, pady=4)
         
-        # Gruppo 3: Elementi Interattivi Mappa & Ambiente
+        # Gruppo 2: Elementi Interattivi Mappa & Ambiente
         self.teleport_mode_var = tk.BooleanVar(value=False)
         btn_teleport = ttk.Checkbutton(left_toolbar, text="🌀", width=3, style="Toolbutton", variable=self.teleport_mode_var)
         btn_teleport.pack(pady=2)
@@ -556,13 +541,9 @@ class DM_GUI:
         self.btn_terrain.pack(pady=2)
         ToolTip(self.btn_terrain, "Pennello Terreno Difficile (Click per dipingere Fango/Ghiaccio/Rovi/Macerie/Palude)")
 
-        self.btn_darkness = ttk.Button(left_toolbar, text="🌑", width=3, style="Tool.TButton", command=self.toggle_darkness_filter)
-        self.btn_darkness.pack(pady=2)
-        ToolTip(self.btn_darkness, "Filtro Oscurità D&D 5e (Click per attivare/disattivare l'oscurità sulla mappa)")
-
         tk.Frame(left_toolbar, bg=BORDER_COLOR, height=1).pack(fill=tk.X, pady=4)
 
-        # Gruppo 4: Consultazione & Ricerca Rapida
+        # Gruppo 3: Consultazione & Ricerca Rapida
         btn_manuals = ttk.Button(left_toolbar, text="📖", width=3, style="Tool.TButton", command=self.open_manuals_dialog)
         btn_manuals.pack(pady=2)
         ToolTip(btn_manuals, lambda: _t("tool_manuals"))
@@ -607,9 +588,11 @@ class DM_GUI:
         self.top_status_weather_lbl = tk.Label(
             pills_frame, text=f"🌤️ {_t('weather_clear')}", font=FONT_SMALL, 
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, padx=6, pady=2,
-            highlightbackground=BORDER_COLOR, highlightthickness=1
+            highlightbackground=BORDER_COLOR, highlightthickness=1, cursor="hand2"
         )
         self.top_status_weather_lbl.pack(side=tk.LEFT, padx=2)
+        self.top_status_weather_lbl.bind("<Button-1>", self._show_weather_fast_menu)
+        ToolTip(self.top_status_weather_lbl, "Clima & Oscurità ambientale 5e (Clicca per cambiare rapidamente)")
         
         self.top_status_combat_lbl = tk.Label(
             pills_frame, text=_t("status_exploration"), font=FONT_SMALL, 
@@ -687,44 +670,79 @@ class DM_GUI:
         self.btn_send_fow = ttk.Button(fow_toolbar, text=_t("fow_send_btn"), command=self._broadcast_fow_update, style="Success.TButton")
         self.btn_send_fow.pack(side=tk.RIGHT, padx=4)
         
-        self.map_canvas = HexMapCanvas(map_outer_frame, bg="#121316")
+        self.map_viewport_frame = tk.Frame(map_outer_frame, bg="#121316")
+        self.map_viewport_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.map_canvas = HexMapCanvas(self.map_viewport_frame, bg="#121316")
         self.map_canvas.pack(fill=tk.BOTH, expand=True)
         self.map_canvas.set_on_click_callback(self.on_hex_clicked)
         self.map_canvas.on_token_drop_callback = self.on_token_drop
         self.map_canvas.set_on_ping_callback(self.on_ping_callback)
         self.map_canvas.set_on_hex_right_click_callback(self.on_hex_right_clicked)
+
+        # --- VTT FLOATING HUD BAR (Allineata al Client Giocatore) ---
+        self.vtt_hud_bar = tk.Frame(self.map_viewport_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_GOLD, highlightthickness=1, padx=4, pady=3)
+        self.vtt_hud_bar.place(relx=1.0, y=10, x=-10, anchor="ne")
+
+        self.zoom_in_btn = ttk.Button(self.vtt_hud_bar, text="➕", width=3, style="Hud.TButton", command=lambda: self.map_canvas and self.map_canvas.zoom_in())
+        self.zoom_in_btn.pack(side=tk.LEFT, padx=1)
+        ToolTip(self.zoom_in_btn, "Ingrandisci Mappa (Zoom In: + / Rotella su)")
+        self.btn_hud_zoom_in = self.zoom_in_btn
+
+        self.zoom_out_btn = ttk.Button(self.vtt_hud_bar, text="➖", width=3, style="Hud.TButton", command=lambda: self.map_canvas and self.map_canvas.zoom_out())
+        self.zoom_out_btn.pack(side=tk.LEFT, padx=1)
+        ToolTip(self.zoom_out_btn, "Riduci Mappa (Zoom Out: - / Rotella giù)")
+        self.btn_hud_zoom_out = self.zoom_out_btn
+
+        self.btn_hud_center = ttk.Button(self.vtt_hud_bar, text="🎯", width=3, style="Hud.TButton", command=lambda: self.map_canvas and self.map_canvas.center_view())
+        self.btn_hud_center.pack(side=tk.LEFT, padx=1)
+        ToolTip(self.btn_hud_center, "Centra Mappa")
+        self.btn_center_map = self.btn_hud_center
+
+        self.btn_hud_ruler = ttk.Button(self.vtt_hud_bar, text="📏", width=3, style="Hud.TButton", command=self.toggle_ruler_mode)
+        self.btn_hud_ruler.pack(side=tk.LEFT, padx=1)
+        ToolTip(self.btn_hud_ruler, "Righello Distanze 5e (Misura in ft/m)")
+        self.btn_hud_measure = self.btn_hud_ruler
+        self.btn_ruler = self.btn_hud_ruler
+
+        self.btn_hud_pan = ttk.Button(self.vtt_hud_bar, text="✋", width=3, style="Hud.TButton", command=self.toggle_pan_mode)
+        self.btn_hud_pan.pack(side=tk.LEFT, padx=1)
+        ToolTip(self.btn_hud_pan, "Sposta Mappa (Pan - Scorciatoia: Spazio / H)")
+        self.btn_pan = self.btn_hud_pan
+
+        tk.Frame(self.vtt_hud_bar, bg=BORDER_COLOR, width=1, height=18).pack(side=tk.LEFT, padx=4)
+
+        self.btn_hud_toggle_sidebar = ttk.Button(self.vtt_hud_bar, text="▶", width=3, style="HudGold.TButton", command=self.toggle_sidebar)
+        self.btn_hud_toggle_sidebar.pack(side=tk.LEFT, padx=1)
+        ToolTip(self.btn_hud_toggle_sidebar, "Comprimi / Espandi Barra Laterale DM (Ctrl+B)")
         
         # --- COLONNA 2: RIGHT SIDEBAR (Notebook Dark Fantasy) ---
-        right_panel = ttk.Frame(main_frame)
+        self.sidebar_collapsed = False
+        right_panel = ttk.Frame(main_frame, width=370)
+        self.right_panel = right_panel
         right_panel.grid(row=0, column=2, sticky="nsew", padx=(6, 0))
+
+        self.right_panel_hdr = tk.Frame(right_panel, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=5)
+        self.right_panel_hdr.pack(fill=tk.X, pady=(0, 4))
+        tk.Label(self.right_panel_hdr, text="🧭 Plancia DM", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(side=tk.LEFT)
+        self.btn_collapse_panel = tk.Button(
+            self.right_panel_hdr, text="▶ Comprimi", font=FONT_SMALL, relief=tk.FLAT, bd=0, padx=6, pady=2,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, activebackground=BORDER_COLOR, activeforeground=TEXT_COLOR,
+            command=self.toggle_sidebar
+        )
+        self.btn_collapse_panel.pack(side=tk.RIGHT)
         
         self.right_notebook = ttk.Notebook(right_panel)
         self.right_notebook.pack(fill=tk.BOTH, expand=True)
         
         # Tab 1 ("Chat & Log")
         tab_chat = ttk.Frame(self.right_notebook)
+        self.tab_chat = tab_chat
         self.right_notebook.add(tab_chat, text=_t("tab_chat_log"))
         
         self.notebook = ttk.Notebook(tab_chat)
         self.notebook.pack(fill=tk.BOTH, expand=True, pady=0)
         self.create_chat_tab("Sistema")
-        
-        # Tab Bestiario (Componente Modulare DMBestiaryPanel)
-        self.tab_bestiario = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab_bestiario, text=_t("tab_bestiary"))
-        
-        self.bestiary_panel = DMBestiaryPanel(self.tab_bestiario, self)
-        self.bestiary_panel.pack(fill=tk.BOTH, expand=True)
-
-        # Alias per compatibilità retroattiva con metodi esistenti e test
-        self.lbl_bestiary_header = self.bestiary_panel.lbl_bestiary_header
-        self.bestiario_search_var = self.bestiary_panel.bestiario_search_var
-        self.btn_bestiary_search = self.bestiary_panel.btn_bestiary_search
-        self.bestiario_listbox = self.bestiary_panel.bestiario_listbox
-        self.bestiario_preview = self.bestiary_panel.bestiario_preview
-        self.btn_bestiary_spawn = self.bestiary_panel.btn_bestiary_spawn
-        self.btn_bestiary_full = self.bestiary_panel.btn_bestiary_full
-        self.bestiario_results = self.bestiary_panel.bestiario_results
 
         # Contenitore Azioni in Sospeso (Decisioni DM per Danni / Porte / ecc.)
         self.pending_actions_container = tk.Frame(tab_chat, bg=SURFACE_COLOR_ALT, highlightbackground=ACCENT_GOLD, highlightthickness=1, padx=6, pady=6)
@@ -751,8 +769,9 @@ class DM_GUI:
         self.chat_entry.bind("<Return>", lambda e: self.send_dm_chat())
         self.btn_dm_chat_send = ttk.Button(chat_input_frame, text=_t("btn_send"), command=self.send_dm_chat, style="Primary.TButton")
         self.btn_dm_chat_send.pack(side=tk.LEFT)
-        self.btn_dm_chat_dice = ttk.Button(chat_input_frame, text=_t("btn_dice"), command=self.roll_dice_dialog, style="Gold.TButton")
+        self.btn_dm_chat_dice = ttk.Button(chat_input_frame, text=_t("btn_dice_formula", default="🧮 Formula..."), command=self.roll_dice_dialog, style="Gold.TButton")
         self.btn_dm_chat_dice.pack(side=tk.LEFT, padx=(4, 0))
+        ToolTip(self.btn_dm_chat_dice, "Apri finestra tiro dadi con formula personalizzata (es. 2d6+3) e vantaggio/svantaggio")
 
         # Barra Voice Discord-like
         self.voice_controls_frame = tk.Frame(tab_chat, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, pady=4, padx=6)
@@ -768,6 +787,7 @@ class DM_GUI:
         
         # Tab 2 ("Iniziativa & PG" - Layout Compatto a Griglie)
         tab_combat = ttk.Frame(self.right_notebook, padding=6)
+        self.tab_combat = tab_combat
         self.right_notebook.add(tab_combat, text=_t("tab_party_initiative"))
         
         combat_hdr_row = tk.Frame(tab_combat, bg=BG_COLOR)
@@ -849,14 +869,29 @@ class DM_GUI:
         self.btn_encounter_builder = ttk.Button(spawn_grid, text=_t("btn_encounter_builder", default="⚔️ Encounter Builder"), command=self.open_encounter_builder, style="Primary.TButton")
         self.btn_encounter_builder.grid(row=0, column=1, sticky="ew", padx=(2, 0), pady=(0, 3))
 
-        self.btn_spawn_png = ttk.Button(spawn_grid, text=_t("btn_spawn_png"), command=self.spawn_png_dialog, style="Info.TButton")
-        self.btn_spawn_png.grid(row=1, column=0, sticky="ew", padx=(0, 2))
-
         self.btn_add_npc = ttk.Button(spawn_grid, text=_t("btn_add_manual_npc"), command=self.add_npc, style="Dark.TButton")
-        self.btn_add_npc.grid(row=1, column=1, sticky="ew", padx=(2, 0))
+        self.btn_add_npc.grid(row=1, column=0, columnspan=2, sticky="ew")
 
-        # Tab 3 ("Mondo" - Organizzato in 3 Card Tematiche)
+        # Tab 3 ("Bestiario" - Scheda di Primo Livello)
+        self.tab_bestiario = ttk.Frame(self.right_notebook)
+        self.right_notebook.add(self.tab_bestiario, text=_t("tab_bestiary"))
+
+        self.bestiary_panel = DMBestiaryPanel(self.tab_bestiario, self)
+        self.bestiary_panel.pack(fill=tk.BOTH, expand=True)
+
+        # Alias per compatibilità retroattiva con metodi esistenti e test
+        self.lbl_bestiary_header = self.bestiary_panel.lbl_bestiary_header
+        self.bestiario_search_var = self.bestiary_panel.bestiario_search_var
+        self.btn_bestiary_search = self.bestiary_panel.btn_bestiary_search
+        self.bestiario_listbox = self.bestiary_panel.bestiario_listbox
+        self.bestiario_preview = self.bestiary_panel.bestiario_preview
+        self.btn_bestiary_spawn = self.bestiary_panel.btn_bestiary_spawn
+        self.btn_bestiary_full = self.bestiary_panel.btn_bestiary_full
+        self.bestiario_results = self.bestiary_panel.bestiario_results
+
+        # Tab 4 ("Mondo" - Organizzato in 3 Card Tematiche)
         tab_world = ttk.Frame(self.right_notebook, padding=6)
+        self.tab_world = tab_world
         self.right_notebook.add(tab_world, text=_t("tab_world"))
         
         # CARD 1: Campagna Attiva & Narrazione Live
@@ -870,12 +905,12 @@ class DM_GUI:
 
         flow_btn_box = tk.Frame(camp_card, bg=SURFACE_COLOR)
         flow_btn_box.pack(fill=tk.X, pady=(0, 4))
-        self.btn_live_flow = ttk.Button(flow_btn_box, text="🧭 Flusso Live", command=self.open_live_flow_controller, style='Gold.TButton')
+        self.btn_live_flow = ttk.Button(flow_btn_box, text=_t("btn_live_flow", default="🧭 Flusso Live"), command=self.open_live_flow_controller, style='Gold.TButton')
         self.btn_live_flow.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
-        self.btn_chronicle = ttk.Button(flow_btn_box, text="📜 Cronistoria", command=self.open_session_chronicle_dialog, style='Info.TButton')
+        self.btn_chronicle = ttk.Button(flow_btn_box, text=_t("btn_session_chronicle", default="📜 Recap Sessione"), command=self.open_session_chronicle_dialog, style='Info.TButton')
         self.btn_chronicle.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
         
-        self.btn_journal = ttk.Button(camp_card, text=_t("btn_campaign_journal", default="📖 Diario di Campagna"), command=self.open_campaign_journal_dialog, style='Gold.TButton')
+        self.btn_journal = ttk.Button(camp_card, text=_t("btn_campaign_journal", default="📓 Diario di Gruppo PG"), command=self.open_campaign_journal_dialog, style='Gold.TButton')
         self.btn_journal.pack(fill=tk.X, pady=(0, 4))
         
         self.btn_switch_scene = ttk.Button(camp_card, text=_t("btn_switch_scene"), command=self.switch_campaign_scene_dialog, style='Dark.TButton')
@@ -909,13 +944,13 @@ class DM_GUI:
         self.weather_combo.pack(fill=tk.X)
         self.weather_combo.bind("<<ComboboxSelected>>", self.on_weather_changed)
         
-        # CARD 3: Luoghi, Viaggio & Manuali (Griglia 2x2)
+        # CARD 3: Luoghi & Viaggio (senza bottone Manuali ridondante: già su toolbar e Strumenti)
         world_grid_card = tk.Frame(tab_world, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=8)
         world_grid_card.pack(fill=tk.X)
         world_grid_card.columnconfigure(0, weight=1)
         world_grid_card.columnconfigure(1, weight=1)
 
-        tk.Label(world_grid_card, text="🌍 Luoghi, Viaggio & Regole", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
+        tk.Label(world_grid_card, text="🌍 Luoghi & Viaggio", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
 
         self.btn_quests = ttk.Button(world_grid_card, text=_t("btn_open_quests"), command=self.open_quest_dialog, style='Info.TButton')
         self.btn_quests.grid(row=1, column=0, sticky="ew", padx=(0, 3), pady=(0, 4))
@@ -924,22 +959,22 @@ class DM_GUI:
         self.btn_shops.grid(row=1, column=1, sticky="ew", padx=(3, 0), pady=(0, 4))
         
         self.btn_travel = ttk.Button(world_grid_card, text=_t("btn_travel_panel"), command=self.open_travel_panel, style='Primary.TButton')
-        self.btn_travel.grid(row=2, column=0, sticky="ew", padx=(0, 3))
-
-        self.btn_world_manuals = ttk.Button(world_grid_card, text=_t("btn_manuals"), command=self.open_manuals_dialog, style='Dark.TButton')
-        self.btn_world_manuals.grid(row=2, column=1, sticky="ew", padx=(3, 0))
+        self.btn_travel.grid(row=2, column=0, columnspan=2, sticky="ew")
         
-        # Tab 4 ("Audio/Sfx")
+        # Tab 5 ("Audio/Sfx")
         tab_audio = ttk.Frame(self.right_notebook, padding=5)
+        self.tab_audio = tab_audio
         self.right_notebook.add(tab_audio, text=_t("tab_audio_sfx"))
         self.build_audio_tab(tab_audio)
         self.setup_player_context_menu()
 
-        # Scorciatoia universale Command Palette (Ctrl+K)
+        # Scorciatoia universale Command Palette (Ctrl+K) e Sidebar (Ctrl+B)
         self.master.bind("<Control-k>", self.open_command_palette)
         self.master.bind("<Control-n>", lambda e: self.open_live_flow_controller())
         self.master.bind("<Control-N>", lambda e: self.open_live_flow_controller())
         self.master.bind("<Control-K>", self.open_command_palette)
+        self.master.bind("<Control-b>", self.toggle_sidebar)
+        self.master.bind("<Control-B>", self.toggle_sidebar)
         # Scorciatoia Schermo Intero (F11 / Esc)
         self.master.bind("<F11>", self.toggle_fullscreen)
         self.master.bind("<Escape>", self.exit_fullscreen)
@@ -1009,11 +1044,30 @@ class DM_GUI:
         elif self.map_canvas and getattr(self.map_canvas, "pan_mode", False):
             self.map_canvas.toggle_pan_mode(False)
 
+    def toggle_sidebar(self, event=None):
+        """Comprime o espande la barra laterale destra del DM (Ctrl+B)."""
+        self.sidebar_collapsed = not getattr(self, "sidebar_collapsed", False)
+        if self.sidebar_collapsed:
+            if hasattr(self, "right_panel") and self.right_panel:
+                self.right_panel.grid_remove()
+            if hasattr(self, "main_frame") and self.main_frame:
+                self.main_frame.columnconfigure(2, weight=0, minsize=0)
+            if hasattr(self, "btn_hud_toggle_sidebar") and self.btn_hud_toggle_sidebar:
+                self.btn_hud_toggle_sidebar.configure(text="◀", style="Hud.TButton")
+        else:
+            if hasattr(self, "main_frame") and self.main_frame:
+                self.main_frame.columnconfigure(2, weight=0, minsize=360)
+            if hasattr(self, "right_panel") and self.right_panel:
+                self.right_panel.grid()
+            if hasattr(self, "btn_hud_toggle_sidebar") and self.btn_hud_toggle_sidebar:
+                self.btn_hud_toggle_sidebar.configure(text="▶", style="HudGold.TButton")
+        return self.sidebar_collapsed
+
     def toggle_pan_mode(self):
         if self.map_canvas and hasattr(self.map_canvas, "toggle_pan_mode"):
             is_active = self.map_canvas.toggle_pan_mode()
             if hasattr(self, "btn_pan") and self.btn_pan:
-                self.btn_pan.configure(style="ToolActive.TButton" if is_active else "Tool.TButton")
+                self.btn_pan.configure(style="HudActive.TButton" if is_active else "Hud.TButton")
             if hasattr(self, "show_toast"):
                 if is_active:
                     self.show_toast("Modalità Navigazione Mappa attiva (Trascina con Tasto Sinistro)", title="✋ Pan Mappa", toast_type="info")
@@ -1181,9 +1235,13 @@ class DM_GUI:
     def handle_encounter_start(self, monsters):
         added_names = []
         for m in monsters:
-            for i in range(m["count"]):
+            try:
+                qty_val = max(1, int(m.get("qty", m.get("count", m.get("quantity", 1))) or 1))
+            except (ValueError, TypeError):
+                qty_val = 1
+            for i in range(qty_val):
                 name = m["name"]
-                if m["count"] > 1:
+                if qty_val > 1:
                     name = f"{name} {i+1}"
                 npc = Player(name, None, None)
                 npc.hp = m["hp"]
@@ -1194,6 +1252,7 @@ class DM_GUI:
                 npc.initiative = m.get("initiative") if m.get("initiative") is not None else (dex_val - 10) // 2
                 
                 ac = normalize_ac_value(m.get("ac", m.get("armor_class", 10)))
+                npc.ac = ac
                 speed_val, speed_disp, speed_unit = normalize_speed_value(m.get("speed", 30))
                 npc.speed = speed_val
                 npc.speed_unit = speed_unit
@@ -1381,6 +1440,8 @@ class DM_GUI:
 
     def remove_entity(self):
         player_name = self.get_player_name_from_listbox()
+        if player_name is not None and not isinstance(player_name, str):
+            player_name = DM_GUI.get_player_name_from_listbox(self)
         if not player_name: return
         player = self.server.game_state.find_player(player_name)
         if not player: return
@@ -1393,6 +1454,8 @@ class DM_GUI:
 
     def toggle_player_combat_status(self):
         player_name = self.get_player_name_from_listbox()
+        if player_name is not None and not isinstance(player_name, str):
+            player_name = DM_GUI.get_player_name_from_listbox(self)
         if not player_name: return
         player = self.server.game_state.find_player(player_name)
         if not player: return
@@ -1613,11 +1676,15 @@ class DM_GUI:
         gs._trigger_gui_update()
         broadcast(gs, make_game_state(gs.get_state_dict()))
 
-    def on_weather_changed(self, event=None):
+    def _apply_weather_change(self, raw_or_canonical_weather: str, trigger_redraw: bool = False):
+        """Unifica aggiornamento meteo/oscurità D&D 5e su GameState, UI, chat e rete."""
         gs = self.server.game_state
-        raw_val = self.weather_var.get()
         from common.i18n import WEATHER_EN_TO_IT, translate_weather
-        canonical = WEATHER_EN_TO_IT.get(raw_val.strip(), raw_val.strip())
+        from common.protocol import make_chat_broadcast, make_game_state
+        from server.network import broadcast
+
+        raw_str = str(raw_or_canonical_weather or "Sereno").strip()
+        canonical = WEATHER_EN_TO_IT.get(raw_str, raw_str) or "Sereno"
         gs.weather = canonical
         weather_icons = {
             "Sereno": "☀️", "Pioggia": "🌧️", "Tempesta": "⛈️", "Neve": "❄️", "Nebbia": "🌫️", "Oscurità": "🌑",
@@ -1625,19 +1692,56 @@ class DM_GUI:
         }
         w_icon = weather_icons.get(canonical, "🌤️")
         disp_weather = translate_weather(canonical)
+        if hasattr(self, "weather_var") and self.weather_var is not None:
+            self.weather_var.set(disp_weather)
         if canonical in ("Oscurità", "Darkness"):
             msg = f"{w_icon} Filtro Oscurità D&D 5e attivato! (Svantaggio all'attacco per chi non vede, Vantaggio per chi possiede Scurovisione)"
         else:
             msg = f"{w_icon} Il clima cambia in: {disp_weather}"
         self.log_to_chat(msg)
-        from common.protocol import make_chat_broadcast, make_game_state
-        from server.network import broadcast
         broadcast(gs, make_chat_broadcast("Sistema", msg))
         if hasattr(self, "session_ledger") and self.session_ledger:
             self.session_ledger.current_weather = canonical
         gs._trigger_gui_update()
         broadcast(gs, make_game_state(gs.get_state_dict()))
         self.update_state()
+        if trigger_redraw and hasattr(self, "redraw_map_and_players"):
+            self.redraw_map_and_players()
+
+    def on_weather_changed(self, event=None):
+        raw_val = self.weather_var.get()
+        from common.i18n import WEATHER_EN_TO_IT
+        canonical = WEATHER_EN_TO_IT.get(raw_val.strip(), raw_val.strip())
+        DM_GUI._apply_weather_change(self, canonical, trigger_redraw=(canonical in ("Oscurità", "Darkness")))
+
+    def _show_weather_fast_menu(self, event=None):
+        """Menu rapido al click sul pill Meteo/Oscurità nella top bar."""
+        from common.i18n import translate_weather
+        menu = tk.Menu(
+            self.master,
+            tearoff=0,
+            bg=SURFACE_COLOR,
+            fg=TEXT_COLOR,
+            activebackground=ACCENT_GOLD,
+            activeforeground=TEXT_DARK,
+        )
+        for canonical, icon in (
+            ("Sereno", "☀️"),
+            ("Pioggia", "🌧️"),
+            ("Tempesta", "⛈️"),
+            ("Neve", "❄️"),
+            ("Nebbia", "🌫️"),
+            ("Oscurità", "🌑"),
+        ):
+            menu.add_command(
+                label=f"{icon} {translate_weather(canonical)}",
+                command=lambda w=canonical: DM_GUI._apply_weather_change(self, w, trigger_redraw=True),
+            )
+        if event is not None:
+            menu.tk_popup(event.x_root, event.y_root)
+        elif hasattr(self, "top_status_weather_lbl"):
+            lbl = self.top_status_weather_lbl
+            menu.tk_popup(lbl.winfo_rootx(), lbl.winfo_rooty() + lbl.winfo_height())
 
     def _broadcast_fow_update(self):
         if self.server.game_state.current_map:
@@ -1792,31 +1896,8 @@ class DM_GUI:
         """Attiva o disattiva istantaneamente il filtro di Oscurità ambientale sulla mappa (D&D 5e)."""
         gs = self.server.game_state
         cur_w = str(getattr(gs, "weather", "Sereno")).strip().lower()
-        if cur_w in ("oscurita", "oscurità", "darkness", "buio"):
-            new_w = "Sereno"
-            if hasattr(self, "btn_darkness"):
-                self.btn_darkness.config(style="Tool.TButton")
-            msg = "☀️ Filtro Oscurità disattivato. L'ambiente torna Sereno / Illuminato."
-        else:
-            new_w = "Oscurità"
-            if hasattr(self, "btn_darkness"):
-                self.btn_darkness.config(style="Primary.TButton")
-            msg = "🌑 Filtro Oscurità D&D 5e attivato! (Svantaggio all'attacco per chi non vede, Vantaggio per chi possiede Scurovisione)."
-        
-        gs.weather = new_w
-        if hasattr(self, "weather_var"):
-            from common.i18n import translate_weather
-            self.weather_var.set(translate_weather(new_w))
-        self.log_to_chat(msg)
-        from common.protocol import make_chat_broadcast, make_game_state
-        from server.network import broadcast
-        broadcast(gs, make_chat_broadcast("Sistema", msg))
-        if hasattr(self, "session_ledger") and self.session_ledger:
-            self.session_ledger.current_weather = new_w
-        gs._trigger_gui_update()
-        broadcast(gs, make_game_state(gs.get_state_dict()))
-        self.update_state()
-        self.redraw_map_and_players()
+        new_w = "Sereno" if cur_w in ("oscurita", "oscurità", "darkness", "buio") else "Oscurità"
+        DM_GUI._apply_weather_change(self, new_w, trigger_redraw=True)
 
     def place_darkness_sphere_at(self, clicked_hex, radius=3):
         """Piazza un'area di Oscurità Magica (AoE) centrata sull'esagono selezionato."""
@@ -2377,8 +2458,6 @@ class DM_GUI:
                 content = txt_widget.get("1.0", tk.END).strip()
                 if content:
                     log_text += f"\n\n--- [TAB: {tname}] ---\n\n" + content
-        elif hasattr(self, "chat_display"):
-            log_text = self.chat_display.get("1.0", tk.END).strip()
 
         if not log_text.strip():
             messagebox.showinfo(_t("export_log_title"), _t("export_log_empty"))
@@ -2515,6 +2594,9 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             if self.server.game_state.current_map:
                 self.fow_enabled_var.set(self.server.game_state.current_map.get("fow_enabled", False))
                 self.redraw_map_and_players()
+            if hasattr(self, 'lbl_campaign_name'):
+                self.lbl_campaign_name.config(text=f"🏰 Campagna: {camp.name}")
+            broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
             self.log_to_chat(f"[SISTEMA] Nuova campagna '{camp.name}' creata e applicata.")
         CampaignEditorDialog(self.master, campaign=new_camp, game_state=self.server.game_state, on_save_callback=on_saved)
 
@@ -2532,6 +2614,9 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             if self.server.game_state.current_map:
                 self.fow_enabled_var.set(self.server.game_state.current_map.get("fow_enabled", False))
                 self.redraw_map_and_players()
+            if hasattr(self, 'lbl_campaign_name'):
+                self.lbl_campaign_name.config(text=f"🏰 Campagna: {camp.name}")
+            broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
             self.log_to_chat(f"[SISTEMA] Campagna '{camp.name}' caricata e attiva.")
             messagebox.showinfo("Campagna Caricata", f"Campagna '{camp.name}' caricata con successo!", parent=self.master)
         CampaignSelectorDialog(self.master, on_select_callback=on_selected)
@@ -2581,11 +2666,27 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                 self.fow_enabled_var.set(self.server.game_state.current_map.get("fow_enabled", False))
                 self.redraw_map_and_players()
             if hasattr(self, 'lbl_campaign_name'):
-                self.lbl_campaign_name.config(text=f"Campagna: {camp.name}")
+                self.lbl_campaign_name.config(text=f"🏰 Campagna: {camp.name}")
+            broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
             self.log_to_chat(f"[SISTEMA] Campagna '{camp.name}' caricata da {camp.folder_path} e attiva.")
             messagebox.showinfo("Campagna Caricata", f"Campagna '{camp.name}' caricata con successo da:\n{camp.folder_path}", parent=self.master)
         except Exception as e:
             messagebox.showerror("Errore Caricamento", f"Impossibile caricare la campagna: {e}", parent=self.master)
+
+    def save_active_campaign(self):
+        active_camp = getattr(self.server.game_state, 'active_campaign', None)
+        if not active_camp:
+            messagebox.showwarning("Nessuna Campagna", "Non c'è una campagna attiva da salvare.", parent=self.master)
+            return
+        if not getattr(active_camp, 'folder_path', None):
+            return self.save_active_campaign_as()
+        try:
+            saved_dir = active_camp.save()
+            self.log_to_chat(f"[SISTEMA] Campagna '{active_camp.name}' salvata in: {saved_dir}")
+            if hasattr(self, "show_toast"):
+                self.show_toast(f"Campagna '{active_camp.name}' salvata.", title="💾 Salva Campagna", toast_type="success")
+        except Exception as e:
+            messagebox.showerror("Errore", f"Impossibile salvare la campagna: {e}", parent=self.master)
 
     def save_active_campaign_as(self):
         active_camp = getattr(self.server.game_state, 'active_campaign', None)
@@ -2680,7 +2781,7 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         sb.pack(side=tk.RIGHT, fill=tk.Y)
         
         for idx, enc in enumerate(active_camp.encounters):
-            m_cnt = sum(m.get("count", 1) for m in enc.get("monsters", []))
+            m_cnt = sum(int(m.get("qty", m.get("count", m.get("quantity", 1))) or 1) for m in enc.get("monsters", []))
             tree.insert("", tk.END, iid=str(idx), values=(
                 enc.get("name", "Incontro"),
                 enc.get("act", "Atto 1"),
@@ -2704,6 +2805,58 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         btn_box.pack(fill=tk.X)
         ttk.Button(btn_box, text=_t("btn_deploy_on_map", default="⚡ Schiera sulla Mappa"), command=do_deploy, style="Gold.TButton").pack(side=tk.RIGHT)
         ttk.Button(btn_box, text=_t("cancel", default="Annulla"), command=dlg.destroy).pack(side=tk.RIGHT, padx=6)
+
+    def _play_track_by_name_or_url(self, track_ref):
+        """Riproduce una traccia dalla libreria audio DM o da URL diretto."""
+        ref = str(track_ref or "").strip()
+        if not ref or not hasattr(self, "server") or not hasattr(self.server, "game_state"):
+            return
+        if ref.lower().startswith(("http://", "https://")):
+            self.play_audio(ref)
+            return
+        gs = self.server.game_state
+        lib = getattr(gs, "audio_library", None)
+        if not lib or not getattr(lib, "tracks", None):
+            return
+        ref_low = ref.lower()
+        found = next(
+            (t for t in lib.tracks if t.get("id") == ref or str(t.get("name", "")).strip().lower() == ref_low),
+            None
+        )
+        if not found:
+            found = next((t for t in lib.tracks if ref_low in str(t.get("name", "")).strip().lower()), None)
+        if not found:
+            return
+        from common.protocol import make_audio_track_play
+        is_music = found.get("category") == "Musica"
+        channel = "music" if is_music else "sfx"
+        loop = True if is_music else False
+        vol = (self.audio_volume_var.get() / 100.0) if hasattr(self, "audio_volume_var") else 0.7
+        msg = make_audio_track_play(found["id"], found["name"], found.get("ext", ".mp3"), found.get("size", 0), channel=channel, loop=loop, volume=vol)
+        if is_music:
+            gs.current_music = msg
+        broadcast(gs, msg)
+        if hasattr(self, "audio_dm_listen_var") and self.audio_dm_listen_var.get() and hasattr(self, "audio_manager"):
+            self.audio_manager.play(lib.get_path(found["id"]), channel=channel, loop=loop, volume=vol, name=found["name"])
+        if is_music and hasattr(self, "audio_now_playing"):
+            self.audio_now_playing.config(text=f"In riproduzione: 🎵 {found['name']} (loop)")
+
+    def _apply_scene_atmosphere(self, scene_data):
+        """Applica meteo, illuminazione e tema musicale associati a una scena."""
+        if not isinstance(scene_data, dict):
+            return
+        weather = str(scene_data.get("weather") or "").strip()
+        light = str(scene_data.get("light") or "").strip()
+        if not weather and light.lower() in ("buio", "notte", "oscurità", "oscurita", "darkness"):
+            weather = "Oscurità"
+        elif not weather and light:
+            # Mantieni meteo attuale se solo illuminazione non oscura
+            pass
+        if weather:
+            self._apply_weather_change(weather, trigger_redraw=False)
+        music_ref = str(scene_data.get("music") or "").strip()
+        if music_ref:
+            self._play_track_by_name_or_url(music_ref)
 
     def switch_campaign_scene_dialog(self):
         active_camp = getattr(self.server.game_state, 'active_campaign', None)
@@ -2738,33 +2891,49 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             sel = lb_scenes.curselection()
             if not sel: return
             sc = active_camp.scenes[sel[0]]
+            # Recupera anche eventuali metadati dal nodo scena macro (weather, light, music)
+            scene_meta = dict(sc)
+            raw_fg = getattr(active_camp, "flow_graph", None)
+            if isinstance(raw_fg, dict) and isinstance(raw_fg.get("nodes"), dict):
+                sc_low = str(sc.get("name", "")).strip().lower()
+                for n_raw in raw_fg["nodes"].values():
+                    if isinstance(n_raw, dict) and n_raw.get("node_type") == "scene" and str(n_raw.get("title", "")).strip().lower() == sc_low:
+                        for k in ("weather", "light", "music"):
+                            if not scene_meta.get(k) and isinstance(n_raw.get("data"), dict) and n_raw["data"].get(k):
+                                scene_meta[k] = n_raw["data"][k]
+                        break
+
             map_file = sc.get("map_file")
-            map_path = map_file
-            if not os.path.isabs(map_path) and active_camp.folder_path:
-                cand = os.path.join(active_camp.folder_path, map_path)
-                if os.path.exists(cand): map_path = cand
-            if not os.path.exists(map_path):
-                cand_global = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), map_file)
-                if os.path.exists(cand_global): map_path = cand_global
-            if os.path.exists(map_path):
-                try:
-                    with open(map_path, 'r', encoding="utf-8") as f:
-                        map_data = json.load(f)
-                    if 'base_image_path' in map_data and map_data['base_image_path']:
-                        img_path = map_data['base_image_path']
-                        if not os.path.isabs(img_path):
-                            img_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), img_path)
-                        if os.path.exists(img_path):
-                            with open(img_path, "rb") as image_file:
-                                map_data['bg_image_data'] = base64.b64encode(image_file.read()).decode('utf-8')
-                    self.server.game_state.load_map(map_data)
-                    self.fow_enabled_var.set(self.server.game_state.current_map.get("fow_enabled", False))
-                    self.redraw_map_and_players()
-                    broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
-                    broadcast(self.server.game_state, make_chat_broadcast("DM", f"Il DM ha spostato il gruppo nella scena: {sc.get('name')}"))
-                    self.log_to_chat(f"[SISTEMA] Scena cambiata in: '{sc.get('name')}'.")
-                except Exception as e:
-                    messagebox.showerror(_t("error", default="Errore"), f"Impossibile caricare la mappa: {e}", parent=dlg)
+            if map_file:
+                map_path = map_file
+                if not os.path.isabs(map_path) and active_camp.folder_path:
+                    cand = os.path.join(active_camp.folder_path, map_path)
+                    if os.path.exists(cand): map_path = cand
+                if not os.path.exists(map_path):
+                    cand_global = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), map_file)
+                    if os.path.exists(cand_global): map_path = cand_global
+                if os.path.exists(map_path):
+                    try:
+                        with open(map_path, 'r', encoding="utf-8") as f:
+                            map_data = json.load(f)
+                        if 'base_image_path' in map_data and map_data['base_image_path']:
+                            img_path = map_data['base_image_path']
+                            if not os.path.isabs(img_path):
+                                img_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), img_path)
+                            if os.path.exists(img_path):
+                                with open(img_path, "rb") as image_file:
+                                    map_data['bg_image_data'] = base64.b64encode(image_file.read()).decode('utf-8')
+                        self.server.game_state.load_map(map_data)
+                        self.fow_enabled_var.set(self.server.game_state.current_map.get("fow_enabled", False))
+                    except Exception as e:
+                        messagebox.showerror(_t("error", default="Errore"), f"Impossibile caricare la mappa: {e}", parent=dlg)
+                        return
+
+            self._apply_scene_atmosphere(scene_meta)
+            self.redraw_map_and_players()
+            broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
+            broadcast(self.server.game_state, make_chat_broadcast("DM", f"Il DM ha spostato il gruppo nella scena: {sc.get('name')}"))
+            self.log_to_chat(f"[SISTEMA] Scena cambiata in: '{sc.get('name')}'.")
             dlg.destroy()
             
         btn_box = tk.Frame(container, bg=BG_COLOR)
@@ -2807,9 +2976,6 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                              "Clear": "🌤️", "Rain": "🌧️", "Storm": "⛈️", "Snow": "❄️", "Fog": "🌫️", "Darkness": "🌑"}
             w_icon = weather_icons.get(gs.weather, "🌤️")
             self.top_status_weather_lbl.config(text=f"{w_icon} {translate_weather(gs.weather)}")
-        if hasattr(self, "btn_darkness"):
-            is_dark = str(getattr(gs, "weather", "")).lower() in ("oscurita", "oscurità", "darkness", "buio")
-            self.btn_darkness.config(style="Primary.TButton" if is_dark else "Tool.TButton")
             
         if self.server.game_state.combat_active:
             # Mostra banner combattimento
@@ -2947,46 +3113,50 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         try:
             while True:
                 msg = self.gui_queue.get_nowait()
-                msg_type = msg.get("type")
-                if msg_type == "UPDATE_STATE":
-                    self.update_player_list()
-                    self.redraw_map_and_players()
-                elif msg_type in ("PENDING_DAMAGE_PROMPT", "PENDING_DOOR_PROMPT", "PENDING_LEGENDARY_RES_PROMPT"):
-                    self.update_pending_actions_ui()
-                elif msg_type == "LOG_MESSAGE":
-                    self.log_to_chat(msg.get("payload"))
-                elif msg_type == "SHOW_COMBAT_CONFIG":
-                    self.open_combat_config(msg.get("payload", {}).get("initiator"))
-                elif msg_type == "PRIVATE_MESSAGE_RECEIVED":
-                    payload = msg.get("payload", {})
-                    player_name, text = payload.get("from"), payload.get("text")
-                    if player_name and text:
-                        self.create_chat_tab(player_name)
-                        self.log_to_chat(text, tab_name=player_name, sender=player_name, color="#5865F2")
-                elif msg_type == "PING_BROADCAST":
-                    payload = msg.get("payload", {})
-                    self.map_canvas.draw_ping(payload.get("q"), payload.get("r"), payload.get("color", "yellow"))
-                elif msg_type == "CUSTOM_SPELL_REQUEST":
-                    self.prompt_custom_spell_approval(msg.get("player"), msg.get("spell"))
-                elif msg_type == "JOURNAL_APPROVAL_REQUEST":
-                    self.prompt_journal_approval(msg.get("player"), msg.get("field_name"), msg.get("content"), msg.get("title"))
-                elif msg_type == "CURRENCY_REQUEST":
-                    safe_after(self.master, 10, self.prompt_currency_approval, msg.get("player"), msg.get("coin"), msg.get("amount"), msg.get("reason"))
-                elif msg_type == "ITEM_APPROVAL_REQUEST":
-                    safe_after(self.master, 10, self.prompt_item_approval, msg.get("player"), msg.get("item"), msg.get("slot_idx"))
-                elif msg_type == "DICE_ROLL_RESULT":
-                    p = msg.get("payload", {})
-                    self.trigger_3d_dice_roll(p.get("formula", "1d20"), p.get("result", {}), p.get("player", "Qualcuno"), p.get("reason", ""))
-                elif msg_type == "BLIND_ROLL_RESULT":
-                    p = msg.get("payload", {})
-                    self.trigger_3d_dice_roll(p.get("formula", "1d20"), p.get("result", {}), p.get("player", "Giocatore"), p.get("reason", "🙈 Tiro Segreto"))
-        except queue.Empty: pass
-
-        if not getattr(self, "_is_closing", False):
-            try:
-                self._process_queue_job = safe_after(self.master, 100, self.process_queue)
-            except Exception:
-                pass
+                try:
+                    msg_type = msg.get("type") if isinstance(msg, dict) else None
+                    if msg_type == "UPDATE_STATE":
+                        self.update_player_list()
+                        self.redraw_map_and_players()
+                    elif msg_type in ("PENDING_DAMAGE_PROMPT", "PENDING_DOOR_PROMPT", "PENDING_LEGENDARY_RES_PROMPT"):
+                        self.update_pending_actions_ui()
+                    elif msg_type == "LOG_MESSAGE":
+                        self.log_to_chat(msg.get("payload"))
+                    elif msg_type == "SHOW_COMBAT_CONFIG":
+                        self.open_combat_config(msg.get("payload", {}).get("initiator"))
+                    elif msg_type == "PRIVATE_MESSAGE_RECEIVED":
+                        payload = msg.get("payload", {})
+                        player_name, text = payload.get("from"), payload.get("text")
+                        if player_name and text:
+                            self.create_chat_tab(player_name)
+                            self.log_to_chat(text, tab_name=player_name, sender=player_name, color="#5865F2")
+                    elif msg_type == "PING_BROADCAST":
+                        payload = msg.get("payload", {})
+                        self.map_canvas.draw_ping(payload.get("q"), payload.get("r"), payload.get("color", "yellow"))
+                    elif msg_type == "CUSTOM_SPELL_REQUEST":
+                        self.prompt_custom_spell_approval(msg.get("player"), msg.get("spell"))
+                    elif msg_type == "JOURNAL_APPROVAL_REQUEST":
+                        self.prompt_journal_approval(msg.get("player"), msg.get("field_name"), msg.get("content"), msg.get("title"))
+                    elif msg_type == "CURRENCY_REQUEST":
+                        safe_after(self.master, 10, self.prompt_currency_approval, msg.get("player"), msg.get("coin"), msg.get("amount"), msg.get("reason"))
+                    elif msg_type == "ITEM_APPROVAL_REQUEST":
+                        safe_after(self.master, 10, self.prompt_item_approval, msg.get("player"), msg.get("item"), msg.get("slot_idx"))
+                    elif msg_type == "DICE_ROLL_RESULT":
+                        p = msg.get("payload", {})
+                        self.trigger_3d_dice_roll(p.get("formula", "1d20"), p.get("result", {}), p.get("player", "Qualcuno"), p.get("reason", ""))
+                    elif msg_type == "BLIND_ROLL_RESULT":
+                        p = msg.get("payload", {})
+                        self.trigger_3d_dice_roll(p.get("formula", "1d20"), p.get("result", {}), p.get("player", "Giocatore"), p.get("reason", "🙈 Tiro Segreto"))
+                except Exception as item_exc:
+                    print(f"[DM GUI process_queue item error]: {item_exc}")
+        except queue.Empty:
+            pass
+        finally:
+            if not getattr(self, "_is_closing", False):
+                try:
+                    self._process_queue_job = safe_after(self.master, 100, self.process_queue)
+                except Exception:
+                    pass
 
     def prompt_currency_approval(self, player, coin, amount, reason):
         if not player or amount <= 0: return
@@ -3318,6 +3488,8 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         
     def open_private_chat_from_list(self, event):
         player_name = self.get_player_name_from_listbox()
+        if player_name is not None and not isinstance(player_name, str):
+            player_name = DM_GUI.get_player_name_from_listbox(self)
         if not player_name: return
         self.create_chat_tab(player_name)
         for i, tab in enumerate(self.notebook.tabs()):
@@ -3340,6 +3512,8 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
 
     def view_player_sheet(self):
         player_name = self.get_player_name_from_listbox()
+        if player_name is not None and not isinstance(player_name, str):
+            player_name = DM_GUI.get_player_name_from_listbox(self)
         if not player_name: return
         player = self.server.game_state.find_player(player_name)
         
@@ -3722,56 +3896,52 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         CustomNPCDialog(self)
 
     def toggle_hide_reveal(self):
-        sel = self.player_listbox.curselection()
-        if not sel: return
-        display_text = self.player_listbox.get(sel[0])
-        if display_text.startswith('---'): return
-        player_name = display_text.split(" (HP")[0].replace("▶", "").replace("➡️", "").strip()
-        if player_name.startswith("[N] "):
-            player_name = player_name[4:]
-        player = self.server.game_state.find_player(player_name)
-        if not player: return
-        
-        player.is_hidden = not getattr(player, "is_hidden", False)
+        player_name = self.get_player_name_from_listbox()
+        if player_name is not None and not isinstance(player_name, str):
+            player_name = DM_GUI.get_player_name_from_listbox(self)
+        if not player_name: return
+        with self.server.game_state.lock:
+            player = self.server.game_state.find_player(player_name)
+            if not player: return
+            player.is_hidden = not getattr(player, "is_hidden", False)
+            is_hid = player.is_hidden
         self.server.game_state._trigger_gui_update()
         broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
-        self.log_to_chat(f"[SISTEMA] {player_name} è ora {'nascosto' if player.is_hidden else 'visibile'}.")
+        self.log_to_chat(f"[SISTEMA] {player_name} è ora {'nascosto' if is_hid else 'visibile'}.")
 
     def on_player_selected(self, event):
         for widget in self.npc_actions_frame.winfo_children():
             widget.destroy()
-            
-        sel = self.player_listbox.curselection()
-        if not sel: return
-        display_text = self.player_listbox.get(sel[0])
-        if display_text.startswith('---'): return
-        
-        player_name = display_text.split(" (HP")[0].replace("▶", "").replace("➡️", "").strip()
-        if player_name.startswith("[N] "):
-            player_name = player_name[4:]
-            
-        player = self.server.game_state.find_player(player_name)
-        if not player or not getattr(player, "full_sheet", None): return
-        
-        actions = player.full_sheet.get("actions", [])
-        if not actions:
-            srd_rec = get_monster_offline(player_name)
-            if srd_rec and srd_rec.get("actions"):
-                actions = srd_rec.get("actions", [])
-                player.full_sheet["actions"] = actions
-                if "features" not in player.full_sheet and srd_rec.get("special_abilities"):
-                    player.full_sheet["features"] = srd_rec.get("special_abilities")
 
-        from server.dm_monster_engine import sync_monster_spellcasting_to_sheet
-        if "innate_spells" not in player.full_sheet and "spell_slots" not in player.full_sheet:
-            sync_monster_spellcasting_to_sheet(player)
+        player_name = self.get_player_name_from_listbox()
+        if player_name is not None and not isinstance(player_name, str):
+            player_name = DM_GUI.get_player_name_from_listbox(self)
+        if not player_name: return
+        with self.server.game_state.lock:
+            player = self.server.game_state.find_player(player_name)
+            if not player or not getattr(player, "full_sheet", None): return
 
-        innate_sp = player.full_sheet.get("innate_spells") or {}
-        slot_sp = player.full_sheet.get("spell_slots") or {}
-        lair_acts = player.full_sheet.get("lair_actions") or []
-        mythic_acts = player.full_sheet.get("mythic_actions") or []
+            from common.srd_offline import normalize_npc_actions
+            actions = normalize_npc_actions(player.full_sheet.get("actions", []))
+            if not actions:
+                srd_rec = get_monster_offline(player_name)
+                if srd_rec and srd_rec.get("actions"):
+                    actions = normalize_npc_actions(srd_rec.get("actions", []))
+                    player.full_sheet["actions"] = actions
+                    if "features" not in player.full_sheet and srd_rec.get("special_abilities"):
+                        player.full_sheet["features"] = srd_rec.get("special_abilities")
 
-        if not actions and not innate_sp and not slot_sp and not getattr(player, "has_lair_actions", False) and not mythic_acts:
+            from server.dm_monster_engine import sync_monster_spellcasting_to_sheet
+            if "innate_spells" not in player.full_sheet and "spell_slots" not in player.full_sheet:
+                sync_monster_spellcasting_to_sheet(player)
+
+            innate_sp = dict(player.full_sheet.get("innate_spells") or {})
+            slot_sp = dict(player.full_sheet.get("spell_slots") or {})
+            lair_acts = list(player.full_sheet.get("lair_actions") or [])
+            mythic_acts = list(player.full_sheet.get("mythic_actions") or [])
+            has_lair = getattr(player, "has_lair_actions", False)
+
+        if not actions and not innate_sp and not slot_sp and not has_lair and not mythic_acts:
             ttk.Label(self.npc_actions_frame, text="Nessuna azione SRD registrata", font=FONT_SMALL).pack(pady=2)
             return
 
@@ -4006,6 +4176,8 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
 
     def open_set_owner_dialog(self):
         player_name = self.get_player_name_from_listbox()
+        if player_name is not None and not isinstance(player_name, str):
+            player_name = DM_GUI.get_player_name_from_listbox(self)
         if not player_name: return
         player = self.server.game_state.find_player(player_name)
         
@@ -4075,8 +4247,6 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
                 next_mode = modes[0]
         self.fow_mode_var.set(next_mode)
         is_fow_brush = next_mode != _t("fow_mode_move")
-        if hasattr(self, "btn_fow_tool"):
-            self.btn_fow_tool.configure(style="ToolActive.TButton" if is_fow_brush else "Tool.TButton")
         if self.map_canvas:
             self.map_canvas.config(cursor="dotbox" if is_fow_brush else "")
         self.show_toast(
@@ -4123,7 +4293,7 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
 
     def toggle_ruler_mode(self):
         active = self.map_canvas.toggle_ruler_mode()
-        style = "ToolActive.TButton" if active else "Tool.TButton"
+        style = "HudActive.TButton" if active else "Hud.TButton"
         if hasattr(self, 'btn_ruler') and self.btn_ruler:
             self.btn_ruler.configure(style=style)
         msg = "Righello attivato: clicca e trascina sulla mappa per misurare la distanza." if active else "Righello disattivato."

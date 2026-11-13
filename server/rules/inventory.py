@@ -22,23 +22,39 @@ def handle_give_item_request(data, player, game_state):
         return
 
     # Verifica spazio nel destinatario se ha un full_sheet
-    recip_sheet = getattr(target_player, "full_sheet", None)
-    if recip_sheet:
-        if not isinstance(recip_sheet.get("inventory_grid"), list):
-            recip_sheet["inventory_grid"] = [None] * 25
-        if not any(slot is None for slot in recip_sheet["inventory_grid"]):
-            if player and getattr(player, "conn", None):
-                send_message(player.conn, make_error_reply(f"Lo zaino di {target_name} è pieno!"))
-            return
+    try:
+        give_qty = int(item.get("qty", 1) or 1)
+    except (ValueError, TypeError):
+        give_qty = 1
+    if give_qty <= 0:
+        if player and getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("La quantità da donare deve essere almeno 1."))
+        return
 
-    give_qty = int(item.get("qty", 1) or 1)
+    recip_sheet = getattr(target_player, "full_sheet", None)
     sender_sheet = getattr(player, "full_sheet", None)
+    err_msg = None
+    donated_item = None
     with game_state.lock:
-        if sender_sheet and isinstance(sender_sheet.get("inventory_grid"), list):
+        if recip_sheet:
+            if not isinstance(recip_sheet.get("inventory_grid"), list):
+                recip_sheet["inventory_grid"] = [None] * 25
+            can_stack = any(
+                slot and isinstance(slot, dict) and slot.get("name") == item.get("name")
+                for slot in recip_sheet["inventory_grid"]
+            )
+            if not can_stack and not any(slot is None for slot in recip_sheet["inventory_grid"]):
+                err_msg = f"Lo zaino di {target_name} è pieno!"
+
+        if not err_msg and sender_sheet and isinstance(sender_sheet.get("inventory_grid"), list):
             found_in_sender = False
             for s_idx, slot in enumerate(sender_sheet["inventory_grid"]):
                 if slot and isinstance(slot, dict) and slot.get("name") == item.get("name"):
                     curr_q = int(slot.get("qty", 1) or 1)
+                    if give_qty > curr_q:
+                        err_msg = f"Quantità richiesta ({give_qty}) superiore a quella posseduta ({curr_q})."
+                        found_in_sender = True
+                        break
                     if curr_q > give_qty:
                         slot["qty"] = curr_q - give_qty
                     else:
@@ -46,45 +62,55 @@ def handle_give_item_request(data, player, game_state):
                     found_in_sender = True
                     break
             if not found_in_sender:
-                if player and getattr(player, "conn", None):
-                    send_message(player.conn, make_error_reply("Non possiedi questo oggetto nello zaino."))
-                return
+                err_msg = "Non possiedi questo oggetto nello zaino."
 
-        # Inserisci nel primo slot libero o impila nel destinatario
-        donated_item = dict(item)
-        donated_item["qty"] = give_qty
-        donated_item["attuned"] = False
-        donated_item["container"] = "backpack"
-        if recip_sheet:
-            placed = False
-            for s_idx, slot in enumerate(recip_sheet["inventory_grid"]):
-                if slot and isinstance(slot, dict) and slot.get("name") == donated_item.get("name"):
-                    slot["qty"] = int(slot.get("qty", 1) or 1) + give_qty
-                    placed = True
-                    break
-            if not placed:
-                for s_idx in range(len(recip_sheet["inventory_grid"])):
-                    if recip_sheet["inventory_grid"][s_idx] is None:
-                        recip_sheet["inventory_grid"][s_idx] = dict(donated_item)
+        if not err_msg:
+            # Inserisci nel primo slot libero o impila nel destinatario
+            donated_item = dict(item)
+            donated_item["qty"] = give_qty
+            donated_item["attuned"] = False
+            donated_item["container"] = "backpack"
+            if recip_sheet:
+                placed = False
+                for s_idx, slot in enumerate(recip_sheet["inventory_grid"]):
+                    if slot and isinstance(slot, dict) and slot.get("name") == donated_item.get("name"):
+                        slot["qty"] = int(slot.get("qty", 1) or 1) + give_qty
+                        placed = True
                         break
-            try:
-                from common.item_modifiers import compute_effective_ac, calculate_character_item_modifiers
-                r_mods = calculate_character_item_modifiers(recip_sheet)
-                if r_mods.get("equipped_armor") is not None or r_mods.get("has_shield", False) or r_mods.get("bonus_ac", 0) != 0 or r_mods.get("special_ac_base") is not None:
-                    recip_sheet["ac"] = compute_effective_ac(recip_sheet, r_mods)
-                    target_player.ac = recip_sheet["ac"]
-            except Exception:
-                pass
-        if sender_sheet:
-            try:
-                from common.item_modifiers import compute_effective_ac
-                sender_sheet["ac"] = compute_effective_ac(sender_sheet)
-                player.ac = sender_sheet["ac"]
-            except Exception:
-                pass
+                if not placed:
+                    for s_idx in range(len(recip_sheet["inventory_grid"])):
+                        if recip_sheet["inventory_grid"][s_idx] is None:
+                            recip_sheet["inventory_grid"][s_idx] = dict(donated_item)
+                            placed = True
+                            break
+                if not placed:
+                    # Fallback Difensivo
+                    err_msg = f"Lo zaino di {target_name} è pieno!"
+                else:
+                    try:
+                        from common.item_modifiers import compute_effective_ac, calculate_character_item_modifiers
+                        r_mods = calculate_character_item_modifiers(recip_sheet)
+                        if r_mods.get("equipped_armor") is not None or r_mods.get("has_shield", False) or r_mods.get("bonus_ac", 0) != 0 or r_mods.get("special_ac_base") is not None:
+                            recip_sheet["ac"] = compute_effective_ac(recip_sheet, r_mods)
+                            target_player.ac = recip_sheet["ac"]
+                    except Exception:
+                        pass
+            if not err_msg and sender_sheet:
+                try:
+                    from common.item_modifiers import compute_effective_ac
+                    sender_sheet["ac"] = compute_effective_ac(sender_sheet)
+                    player.ac = sender_sheet["ac"]
+                except Exception:
+                    pass
+
+    if err_msg:
+        if player and getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply(err_msg))
+        return
 
     donated_item["_sender"] = player.name
-    send_message(target_player.conn, make_receive_item(donated_item))
+    if getattr(target_player, "conn", None):
+        send_message(target_player.conn, make_receive_item(donated_item))
     log_msg = f"{player.name} ha donato '{item.get('name')}' a {target_name}."
     game_state.log_dm_message(f"[SISTEMA] {log_msg}")
     broadcast(game_state, make_chat_broadcast("Sistema", log_msg))
@@ -169,7 +195,11 @@ def handle_take_loot_request(data, player, game_state):
                         contents["wallet"] = {}
                         if coin_notes:
                             c_str = ", ".join(coin_notes)
-                            broadcast(game_state, make_chat_broadcast("Sistema", f"💰 {player.name} ha raccolto {c_str} dalle spoglie!"))
+                            coin_broadcast_msg = make_chat_broadcast("Sistema", f"💰 {player.name} ha raccolto {c_str} dalle spoglie!")
+                        else:
+                            coin_broadcast_msg = None
+                    else:
+                        coin_broadcast_msg = None
 
                     # 2. Trasferisci oggetti reali senza sprecare slot per il contenitore fittizio e senza distruggere l'eccedenza
                     unplaced_items = []
@@ -190,32 +220,36 @@ def handle_take_loot_request(data, player, game_state):
 
                     if unplaced_items:
                         contents["items"] = unplaced_items
-                        if getattr(player, "conn", None):
-                            send_message(player.conn, make_error_reply(f"Zaino pieno: {len(unplaced_items)} oggetti sono rimasti a terra."))
+                        err_reply_msg = f"Zaino pieno: {len(unplaced_items)} oggetti sono rimasti a terra."
                     else:
+                        err_reply_msg = None
                         loots.remove(found)
                 else:
+                    coin_broadcast_msg = None
+                    err_reply_msg = None
                     has_space = any(s is None for s in sheet["inventory_grid"])
                     if not has_space:
-                        if getattr(player, "conn", None):
-                            send_message(player.conn, make_error_reply("Zaino pieno! Non puoi raccogliere questo oggetto."))
-                        return
-                    loots.remove(found)
-                    loot_entry = {
-                        "name": found["item"],
-                        "type": "Misto",
-                        "qty": found["qty"],
-                        "weight": 1.0,
-                        "attuned": False,
-                        "desc": "Raccolto da forziere/spoglie",
-                        "_sender": "Forziere"
-                    }
-                    for s_i in range(len(sheet["inventory_grid"])):
-                        if sheet["inventory_grid"][s_i] is None:
-                            sheet["inventory_grid"][s_i] = dict(loot_entry)
-                            break
-                    item_sync_msgs.append(make_receive_item(dict(loot_entry)))
+                        err_reply_msg = "Zaino pieno! Non puoi raccogliere questo oggetto."
+                        found = None
+                    else:
+                        loots.remove(found)
+                        loot_entry = {
+                            "name": found["item"],
+                            "type": "Misto",
+                            "qty": found["qty"],
+                            "weight": 1.0,
+                            "attuned": False,
+                            "desc": "Raccolto da forziere/spoglie",
+                            "_sender": "Forziere"
+                        }
+                        for s_i in range(len(sheet["inventory_grid"])):
+                            if sheet["inventory_grid"][s_i] is None:
+                                sheet["inventory_grid"][s_i] = dict(loot_entry)
+                                break
+                        item_sync_msgs.append(make_receive_item(dict(loot_entry)))
             else:
+                coin_broadcast_msg = None
+                err_reply_msg = None
                 loots.remove(found)
                 if not is_container_loot:
                     loot_entry = {
@@ -228,7 +262,14 @@ def handle_take_loot_request(data, player, game_state):
                         "_sender": "Forziere"
                     }
                     item_sync_msgs.append(make_receive_item(dict(loot_entry)))
+        else:
+            coin_broadcast_msg = None
+            err_reply_msg = None
 
+    if err_reply_msg and getattr(player, "conn", None):
+        send_message(player.conn, make_error_reply(err_reply_msg))
+    if coin_broadcast_msg:
+        broadcast(game_state, coin_broadcast_msg)
     if found:
         if getattr(player, 'conn', None):
             for c_msg in coin_sync_msgs:
@@ -341,27 +382,34 @@ def handle_buy_item_request(data, player, game_state):
                     break
                     
         if not placed:
-            # Ripristina oro
+            # Ripristina oro su tutte le rappresentazioni (currency, wallet, gp)
             if isinstance(curr, dict):
                 curr["MO"] = player_mo
+            if isinstance(sheet.get("wallet"), dict):
+                sheet["wallet"]["MO"] = player_mo
             sheet["gp"] = str(player_mo)
-            if player.conn:
-                send_message(player.conn, make_error_reply("Zaino pieno! Non hai slot liberi."))
-            return
+            buy_err_msg = "Zaino pieno! Non hai slot liberi."
+        else:
+            buy_err_msg = None
+            # Mantieni sincronizzato anche l'array legacy per compatibilità dentro il lock
+            inv = sheet.setdefault("inventory", [])
+            bought_qty = int(new_entry.get("qty", 1) or 1)
+            stacked = False
+            for i in inv:
+                if i.get("name") == item_name:
+                    i["quantity"] = str(int(i.get("quantity", 1) or 1) + bought_qty)
+                    stacked = True
+                    break
+            if not stacked:
+                inv.append({"name": item_name, "quantity": str(bought_qty), "description": f"Acquistato da {shop_name}", "equipped": False})
 
-    # Mantieni sincronizzato anche l'array legacy per compatibilità
-    inv = sheet.setdefault("inventory", [])
-    stacked = False
-    for i in inv:
-        if i.get("name") == item_name:
-            i["quantity"] = str(int(i.get("quantity", 1)) + 1)
-            stacked = True
-            break
-    if not stacked:
-        inv.append({"name": item_name, "quantity": "1", "description": f"Acquistato da {shop_name}", "equipped": False})
-        
-    # Invia notifiche di sincronizzazione al client
-    if player.conn:
+    if buy_err_msg:
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply(buy_err_msg))
+        return
+
+    # Invia notifiche di sincronizzazione al client fuori dal lock
+    if getattr(player, "conn", None):
         send_message(player.conn, make_currency_response(player.name, "MO", -price, approved=True, reason=f"Acquisto {item_name}"))
         send_message(player.conn, make_item_approval_response(player.name, new_entry, placed_slot, approved=True, reason="Acquisto Shop"))
 

@@ -201,11 +201,9 @@ class ClientGUI:
         char_menu = tk.Menu(menubar, tearoff=0)
         char_menu.add_command(label=_t("menu_manage_characters"), command=self.open_character_manager_dialog)
         char_menu.add_command(label=_t("menu_create_character"), command=self.open_create_character_dialog)
-        char_menu.add_command(label=_t("menu_create_manual_character"), command=self.create_manual_character)
         char_menu.add_separator()
         char_menu.add_command(label=_t("menu_active_sheet"), command=self.open_stats_dialog)
         char_menu.add_command(label="⚔️ Poteri & Azioni Speciali 5e...", command=self.open_special_abilities_dialog)
-        char_menu.add_command(label="⬆️ Alzati da Prono (Stand Up)", command=self.perform_stand_up)
         char_menu.add_separator()
         char_menu.add_command(label="💰 Negozi e Botteghe...", command=self.open_shop_dialog)
         char_menu.add_command(label="🛠️ Attività di Downtime (PHB/XGtE)...", command=self.open_downtime_dialog)
@@ -289,8 +287,8 @@ class ClientGUI:
             self.btn_rage.config(text=_t("btn_rage"))
         if hasattr(self, 'travel_button'):
             self.travel_button.config(text=_t("btn_travel_actions"))
-        if hasattr(self, 'manuals_button'):
-            self.manuals_button.config(text=_t("btn_manuals"))
+        if hasattr(self, 'btn_long_rest'):
+            self.btn_long_rest.config(text=_t("btn_long_rest"))
         if hasattr(self, 'combat_btn'):
             self.combat_btn.config(text=_t("btn_request_combat"))
         if hasattr(self, 'end_turn_btn'):
@@ -315,11 +313,13 @@ class ClientGUI:
 
         self.update_action_economy_ui()
         self.update_hero_summary_card()
-        if hasattr(self, 'sheet_ui') and self.sheet_ui and getattr(self.sheet_ui, 'winfo_exists', lambda: False)():
-            try:
-                self.sheet_ui.refresh_ui_language()
-            except Exception:
-                pass
+        for sheet_attr in ('sheet_ui', 'stats_sheet_frame', 'stats_detached_window'):
+            sheet_obj = getattr(self, sheet_attr, None)
+            if sheet_obj and getattr(sheet_obj, 'winfo_exists', lambda: False)():
+                try:
+                    sheet_obj.refresh_ui_language()
+                except Exception:
+                    pass
 
     def setup_gui(self):
         # 1. MENU BAR GLOBALE
@@ -352,14 +352,6 @@ class ClientGUI:
         self.pan_btn = ttk.Button(left_panel, text="✋", width=3, style="Tool.TButton", command=self.toggle_pan_mode)
         self.pan_btn.pack(pady=2)
         ToolTip(self.pan_btn, "Sposta Mappa (Pan - Scorciatoia: Spazio / H)")
-
-        self.measure_btn = ttk.Button(left_panel, text="📏", width=3, style="Tool.TButton", command=self.toggle_ruler_mode)
-        self.measure_btn.pack(pady=2)
-        ToolTip(self.measure_btn, "Righello Distanze 5e (Misura in ft/m)")
-
-        self.center_map_btn = ttk.Button(left_panel, text="🎯", width=3, style="Tool.TButton", command=lambda: self.map_canvas and self.map_canvas.center_view())
-        self.center_map_btn.pack(pady=2)
-        ToolTip(self.center_map_btn, "Centra Mappa")
 
         tk.Frame(left_panel, bg=BORDER_COLOR, height=1).pack(fill=tk.X, pady=4)
 
@@ -509,7 +501,10 @@ class ClientGUI:
         for die_faces in ("d4", "d6", "d8", "d10", "d12", "d20", "d100"):
             d_btn = ttk.Button(quick_dice_frame, text=die_faces, width=4, style="QuickDie.TButton")
             d_btn.pack(side=tk.LEFT, padx=1, expand=True, fill=tk.X)
-            d_btn.bind("<Button-1>", lambda e, d=die_faces: self.quick_roll_die(d, e))
+            d_btn.bind(
+                "<Button-1>",
+                lambda e, d=die_faces, b=d_btn: None if str(b.cget("state")) == "disabled" else self.quick_roll_die(d, e),
+            )
             if die_faces == "d20":
                 ToolTip(d_btn, "Click: Tira 1d20 • Shift+Click: Vantaggio (adv) • Ctrl+Click: Svantaggio (dis)")
             else:
@@ -798,10 +793,6 @@ class ClientGUI:
         self.active_character_combo.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
         self.active_character_combo.bind("<<ComboboxSelected>>", self.on_active_character_changed)
 
-        btn_new_char = ttk.Button(char_select_frame, text="✨", width=3, style="Tool.TButton", command=self.open_create_character_dialog)
-        btn_new_char.pack(side=tk.LEFT, padx=(0, 2))
-        ToolTip(btn_new_char, lambda: _t("char_manager_btn_wizard"))
-
         btn_mgr_char = ttk.Button(char_select_frame, text="👤", width=3, style="Tool.TButton", command=self.open_character_manager_dialog)
         btn_mgr_char.pack(side=tk.LEFT)
         ToolTip(btn_mgr_char, lambda: _t("char_manager_header"))
@@ -827,8 +818,8 @@ class ClientGUI:
         self.travel_button = ttk.Button(actions_grid, text=_t("btn_travel_actions"), command=getattr(self, "open_travel_dialog", lambda: None), style="Secondary.TButton")
         self.travel_button.grid(row=2, column=0, sticky="ew", padx=(0, 2), pady=2)
 
-        self.manuals_button = ttk.Button(actions_grid, text=_t("btn_manuals"), command=self.open_manuals_dialog, style="Secondary.TButton")
-        self.manuals_button.grid(row=2, column=1, sticky="ew", padx=(2, 0), pady=2)
+        self.btn_long_rest = ttk.Button(actions_grid, text=_t("btn_long_rest"), command=self.request_long_rest, style='Info.TButton')
+        self.btn_long_rest.grid(row=2, column=1, sticky="ew", padx=(2, 0), pady=2)
 
         # Privilegi di Classe (Guerriero / Barbaro / ecc. - Riga Compatta 3 Colonne)
         self.class_features_frame = ttk.LabelFrame(controls_tab, text=_t("lbl_class_features"))
@@ -869,12 +860,15 @@ class ClientGUI:
         for i in range(10):
             btn = ttk.Button(self.hotbar_frame, text=f"{i+1}", width=3, style="Hotbar.TButton")
             btn.grid(row=0, column=i, padx=1)
-            btn.bind("<Button-1>", lambda e, idx=i: getattr(self, "on_hotbar_click")(idx))
-            btn.bind("<Button-3>", lambda e, idx=i: getattr(self, "on_hotbar_right_click")(idx))
+            btn.bind("<Button-1>", lambda e, idx=i, b=btn: None if str(b.cget("state")) == "disabled" else getattr(self, "on_hotbar_click")(idx))
+            btn.bind("<Button-3>", lambda e, idx=i, b=btn: None if str(b.cget("state")) == "disabled" else getattr(self, "on_hotbar_right_click")(idx))
             ToolTip(btn, lambda idx=i: self._get_hotbar_tooltip(idx))
             self.hotbar_buttons.append(btn)
             key_num = str((i + 1) % 10)
-            self.master.bind(f"<Alt-Key-{key_num}>", lambda e, idx=i: self.on_hotbar_click(idx))
+            self.master.bind(
+                f"<Alt-Key-{key_num}>",
+                lambda e, idx=i, b=btn: None if str(b.cget("state")) == "disabled" else self.on_hotbar_click(idx),
+            )
         
         self.set_controls_state(tk.DISABLED)
         self.update_hero_summary_card()
@@ -1055,6 +1049,17 @@ class ClientGUI:
             self.map_canvas.player_name = new_active
             self.map_canvas.redraw()
         self.update_hero_summary_card()
+        if getattr(self, "stats_overlay_visible", False):
+            self.show_stats_overlay()
+        detached = getattr(self, "stats_detached_window", None)
+        if detached is not None:
+            try:
+                if detached.winfo_exists():
+                    detached.destroy()
+                    self.stats_detached_window = None
+                    self.detach_character_sheet()
+            except Exception:
+                self.stats_detached_window = None
         if hasattr(self, 'hotbar_buttons') and char and hasattr(char, 'hotbar') and isinstance(char.hotbar, list):
             for i in range(min(10, len(char.hotbar))):
                 cmd = char.hotbar[i]
@@ -1063,6 +1068,7 @@ class ClientGUI:
 
     def update_hero_summary_card(self):
         if not hasattr(self, 'hero_name_lbl'): return
+        self._update_contextual_class_features()
         char = getattr(self, 'active_character', None)
         if hasattr(self, 'hero_token_canvas'):
             from common.image_utils import render_avatar_on_canvas
@@ -1779,9 +1785,51 @@ class ClientGUI:
         has_rage = res.get("rage_current", 2) > 0
 
         # Secondo Fiato può essere usato anche fuori dal combattimento per curarsi, ma in combattimento richiede l'Azione Bonus
+        self._update_contextual_class_features()
         _cfg_tactical_btn("btn_second_wind", connected and has_sw and (not in_combat or can_bonus))
         _cfg_tactical_btn("btn_action_surge", connected and in_combat and has_as)
         _cfg_tactical_btn("btn_rage", connected and in_combat and can_bonus and has_rage)
+
+    def _update_contextual_class_features(self):
+        """Mostra il riquadro privilegi di classe solo se pertinenti alla classe dell'eroe attivo."""
+        if not hasattr(self, "class_features_frame") or not self.class_features_frame:
+            return
+        char = getattr(self, "active_character", None)
+        classes_dict = getattr(char, "classes", None) if char else None
+        cls_tokens = [str(getattr(char, "char_class", "") or "")] if char else []
+        if isinstance(classes_dict, dict):
+            cls_tokens.extend(str(k) for k, v in classes_dict.items() if int(v or 0) > 0)
+        cls_text = " ".join(cls_tokens).lower()
+
+        is_fighter = ("guerriero" in cls_text) or ("fighter" in cls_text)
+        is_barbarian = ("barbaro" in cls_text) or ("barbarian" in cls_text)
+
+        for attr in ("btn_second_wind", "btn_action_surge", "btn_rage"):
+            w = getattr(self, attr, None)
+            if w:
+                w.pack_forget()
+
+        if not (is_fighter or is_barbarian):
+            self.class_features_frame.pack_forget()
+            return
+
+        visible_btns = []
+        if is_fighter:
+            visible_btns.extend(["btn_second_wind", "btn_action_surge"])
+        if is_barbarian:
+            visible_btns.append("btn_rage")
+
+        for idx, attr in enumerate(visible_btns):
+            w = getattr(self, attr, None)
+            if w:
+                left_p = 0 if idx == 0 else 2
+                right_p = 0 if idx == len(visible_btns) - 1 else 2
+                w.pack(side=tk.LEFT, padx=(left_p, right_p), fill=tk.X, expand=True)
+
+        if hasattr(self, "combat_btn") and self.combat_btn:
+            self.class_features_frame.pack(fill=tk.X, pady=(2, 4), before=self.combat_btn)
+        else:
+            self.class_features_frame.pack(fill=tk.X, pady=(2, 4))
 
     def prompt_death_save(self):
         char = self.active_character
@@ -3598,7 +3646,10 @@ class ClientGUI:
             self.schedule_save_characters(delay_ms=1000)
             self.update_hero_summary_card()
         
-        owned_chars = [p['name'] for p in data.get('players', []) if p['name'] == self.name or p.get('owner') == self.name]
+        owned_chars = [
+            p['name'] for p in data.get('players', [])
+            if (p['name'] == self.name or p.get('owner') == self.name) and not p.get('is_companion', False)
+        ]
         if not owned_chars: owned_chars = [self.name]
         if hasattr(self, 'active_character_combo'):
             self.active_character_combo['values'] = owned_chars
@@ -3625,11 +3676,18 @@ class ClientGUI:
         
         is_my_turn = False
         if self.combat_active:
-            all_players_list = data.get('players', [])
-            combatants_list = [p for p in all_players_list if p.get('in_combat', True)]
-            if 0 <= self.turn_index < len(combatants_list):
-                if combatants_list[self.turn_index]['name'] == self.name:
-                    is_my_turn = True
+            turn_player = data.get("turn_player_name")
+            if turn_player is not None:
+                is_my_turn = (turn_player == self.name)
+            else:
+                all_players_list = data.get('players', [])
+                combatants_list = [p for p in all_players_list if p.get('in_combat', True)]
+                combatants_list.sort(
+                    key=lambda x: (-float(x.get('initiative', 0) or 0), -float(x.get('initiative_bonus', 0) or 0), str(x.get('name', '')))
+                )
+                if 0 <= self.turn_index < len(combatants_list):
+                    if combatants_list[self.turn_index]['name'] == self.name:
+                        is_my_turn = True
         
         self._is_my_turn = is_my_turn
         if not self.combat_active and was_combat:
@@ -3735,7 +3793,7 @@ class ClientGUI:
         self.update_player_listbox()
 
     def set_controls_state(self, state):
-        for btn in ['entry', 'roll_button', 'player_listbox', 'action_button', 'aoe_button', 'travel_button', 'calendar_button', 'combat_btn', 'end_turn_btn', 'btn_act_tracker', 'btn_bonus_tracker', 'btn_react_tracker', 'btn_dash', 'btn_disengage', 'btn_dodge', 'btn_help', 'btn_stand_up', 'btn_shop', 'btn_downtime', 'btn_special_powers', 'btn_short_rest', 'btn_second_wind', 'btn_action_surge', 'btn_rage']:
+        for btn in ['entry', 'roll_button', 'player_listbox', 'action_button', 'aoe_button', 'travel_button', 'calendar_button', 'combat_btn', 'end_turn_btn', 'btn_act_tracker', 'btn_bonus_tracker', 'btn_react_tracker', 'btn_dash', 'btn_disengage', 'btn_dodge', 'btn_help', 'btn_stand_up', 'btn_shop', 'btn_downtime', 'btn_special_powers', 'btn_short_rest', 'btn_long_rest', 'btn_second_wind', 'btn_action_surge', 'btn_rage']:
             widget = getattr(self, btn, None)
             if widget:
                 try: widget.config(state=state)
@@ -4001,6 +4059,7 @@ class ClientGUI:
                 win.destroy()
 
             win.protocol("WM_DELETE_WINDOW", decline)
+            win.bind("<Escape>", lambda e: decline())
             ttk.Button(btn_frame, text="⚔️ Sferra Attacco (Spendi Reazione)", command=accept, style="Gold.TButton").pack(side=tk.LEFT, padx=6)
             ttk.Button(btn_frame, text="Ignora", command=decline).pack(side=tk.LEFT, padx=6)
             
@@ -4064,6 +4123,7 @@ class ClientGUI:
                 win.destroy()
 
             win.protocol("WM_DELETE_WINDOW", decline)
+            win.bind("<Escape>", lambda e: decline())
             shield_btn_state = "normal" if (available_slot_lvl or use_pact_shield) else "disabled"
             ttk.Button(btn_frame, text="🛡️ Lancia Scudo (+5 CA)", command=accept, style="Primary.TButton", state=shield_btn_state).pack(side=tk.LEFT, padx=6)
             ttk.Button(btn_frame, text="Subisci Attacco", command=decline).pack(side=tk.LEFT, padx=6)
@@ -4093,6 +4153,8 @@ class ClientGUI:
             def decline_ud():
                 self.network.send(make_reaction_response("UNCANNY_DODGE", False, self.name, source_name, details))
                 win.destroy()
+            win.protocol("WM_DELETE_WINDOW", decline_ud)
+            win.bind("<Escape>", lambda e: decline_ud())
             ttk.Button(btn_frame, text="🗡️ Dimezza Danni (Reazione)", command=accept_ud, style="Primary.TButton").pack(side=tk.LEFT, padx=6)
             ttk.Button(btn_frame, text="Subisci Tutti i Danni", command=decline_ud).pack(side=tk.LEFT, padx=6)
 
@@ -4154,6 +4216,8 @@ class ClientGUI:
             def decline_cs():
                 self.network.send(make_reaction_response("COUNTERSPELL", False, self.name, source_name, details))
                 win.destroy()
+            win.protocol("WM_DELETE_WINDOW", decline_cs)
+            win.bind("<Escape>", lambda e: decline_cs())
             ttk.Button(btn_frame, text=f"✋ Lancia Controincantesimo (Liv. {slot_var.get()})", command=accept_cs, style="Primary.TButton", state=("normal" if slot_choices else "disabled")).pack(side=tk.LEFT, padx=6)
             ttk.Button(btn_frame, text="Lascia Lanciare", command=decline_cs).pack(side=tk.LEFT, padx=6)
 
@@ -4181,6 +4245,8 @@ class ClientGUI:
             def decline_dm():
                 self.network.send(make_reaction_response("DEFLECT_MISSILES", False, self.name, source_name, details))
                 win.destroy()
+            win.protocol("WM_DELETE_WINDOW", decline_dm)
+            win.bind("<Escape>", lambda e: decline_dm())
             ttk.Button(btn_frame, text="🥋 Defletti Missile (Reazione)", command=accept_dm, style="Primary.TButton").pack(side=tk.LEFT, padx=6)
             ttk.Button(btn_frame, text="Subisci Danni", command=decline_dm).pack(side=tk.LEFT, padx=6)
 
@@ -4208,6 +4274,8 @@ class ClientGUI:
             def decline_gen():
                 self.network.send(make_reaction_response(reaction_type, False, self.name, source_name, details))
                 win.destroy()
+            win.protocol("WM_DELETE_WINDOW", decline_gen)
+            win.bind("<Escape>", lambda e: decline_gen())
             ttk.Button(btn_frame, text=btn_txt, command=accept_gen, style="Primary.TButton").pack(side=tk.LEFT, padx=6)
             ttk.Button(btn_frame, text="Ignora", command=decline_gen).pack(side=tk.LEFT, padx=6)
 
@@ -5161,7 +5229,10 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
 
     def _on_key_escape(self, event):
         if getattr(self, "stats_overlay_visible", False):
-            self.hide_stats_overlay()
+            if getattr(self, "stats_sheet_frame", None) and getattr(self.stats_sheet_frame, "winfo_exists", lambda: False)():
+                self.stats_sheet_frame.request_close()
+            else:
+                self.hide_stats_overlay()
             return "break"
         return self.exit_fullscreen(event)
 
@@ -5172,9 +5243,12 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             self.stats_detached_window.focus_force()
             return
 
-        # Se l'overlay centro-schermo è già visibile, agisce da toggle e lo chiude
+        # Se l'overlay centro-schermo è già visibile, agisce da toggle e lo chiude con verifica modifiche
         if getattr(self, "stats_overlay_visible", False):
-            self.hide_stats_overlay()
+            if getattr(self, "stats_sheet_frame", None) and getattr(self.stats_sheet_frame, "winfo_exists", lambda: False)():
+                self.stats_sheet_frame.request_close()
+            else:
+                self.hide_stats_overlay()
             return
 
         self.show_stats_overlay()
@@ -5183,7 +5257,7 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         if not self.active_character:
             self.refresh_offline_characters()
             if not self.active_character:
-                if messagebox.askyesno("Nessun Personaggio", "Non hai ancora nessun personaggio salvato. Vuoi crearne uno adesso con la procedura guidata?"):
+                if messagebox.askyesno("Nessun Personaggio", "Non hai ancora nessun personaggio salvato. Vuoi crearne uno adesso con la procedura guidata?", parent=self.master):
                     self.open_create_character_dialog()
                 return
 
@@ -5232,10 +5306,21 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                     pass
             self.center_overlay_frame.place_forget()
             self.stats_overlay_visible = False
+            if getattr(self, "stats_window", None) is getattr(self, "stats_sheet_frame", None):
+                self.stats_window = None
         finally:
             self._hiding_stats_overlay = False
 
     def detach_character_sheet(self):
+        existing = getattr(self, "stats_detached_window", None)
+        if existing is not None:
+            try:
+                if existing.winfo_exists():
+                    existing.lift()
+                    existing.focus_force()
+                    return
+            except Exception:
+                self.stats_detached_window = None
         self.hide_stats_overlay(save=True)
         from client.character_sheet_ui import CharacterSheetUI
         self.stats_detached_window = CharacterSheetUI(
@@ -5373,32 +5458,36 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         self.update_hero_summary_card()
 
     def open_character_manager_dialog(self):
-        """Apre il pannello completo di Gestione Personaggi (Offline)."""
+        """Apre il pannello completo di Gestione Personaggi."""
         from client.character_manager_ui import CharacterManagerDialog
         def on_selected(char):
             self.set_active_character_from_manager(char)
-        dlg = CharacterManagerDialog(self.master, manager=self.character_manager, on_select_callback=on_selected)
+        cur_id = getattr(self.active_character, "id", None) if self.active_character else None
+        dlg = CharacterManagerDialog(
+            self.master,
+            manager=self.character_manager,
+            on_select_callback=on_selected,
+            selected_char_id=cur_id,
+            read_only_select=bool(getattr(self, "is_connected", False)),
+        )
         self.master.wait_window(dlg)
-        self.refresh_offline_characters()
+        if not getattr(self, "is_connected", False):
+            self.refresh_offline_characters()
 
     def open_create_character_dialog(self):
-        """Apre il wizard guidato di creazione del personaggio (Offline)."""
+        """Apre il wizard guidato di creazione del personaggio."""
         from client.character_creation_wizard import CharacterCreationWizard
         def on_complete(new_char):
-            self.refresh_offline_characters()
-            if new_char:
-                self.set_active_character_from_manager(new_char)
+            if not getattr(self, "is_connected", False):
+                self.refresh_offline_characters()
+                if new_char:
+                    self.set_active_character_from_manager(new_char)
         dlg = CharacterCreationWizard(self.master, self.character_manager, on_complete_callback=on_complete)
         self.master.wait_window(dlg)
 
     def create_manual_character(self):
-        """Crea un personaggio vuoto ed apre direttamente la scheda PG offline."""
-        from client.character_manager import Character
-        new_char = Character(name="Nuovo Eroe")
-        self.character_manager.add_character(new_char)
-        self.refresh_offline_characters()
-        self.set_active_character_from_manager(new_char)
-        self.open_stats_dialog()
+        """Alias di compatibilità: reindirizza al wizard guidato di creazione personaggio."""
+        self.open_create_character_dialog()
 
     def set_active_character_from_manager(self, char):
         """Imposta il personaggio attivo selezionato dal manager e aggiorna la UI."""
@@ -5417,11 +5506,11 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
 
     def open_srd_compendium(self):
         try:
-            from server.srd_importer import SRDImportDialog
-            win = SRDImportDialog(self.master, on_import_callback=None, is_dm=False)
+            from server.compendium_ui import CompendiumDialog
+            win = CompendiumDialog(self.master, on_import_callback=None, is_dm=False)
             win.grab_set()
         except ImportError as e:
-            messagebox.showerror("Errore", f"Impossibile aprire il Compendio: {e}")
+            messagebox.showerror("Errore", f"Impossibile aprire il Compendio: {e}", parent=self.master)
 
     def _try_dispatch_special_slash_command(self, text: str) -> bool:
         """Gestisce i comandi slash per Privilegi di Classe, Talenti, Incantesimi Speciali e Manovre 5e."""
@@ -5547,8 +5636,6 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         top_f.pack(fill=tk.X)
         ttk.Label(top_f, text="Bersaglio:").pack(side=tk.LEFT, padx=(0, 6))
         ttk.Combobox(top_f, textvariable=tgt_var, values=players_list, width=22).pack(side=tk.LEFT)
-        ttk.Button(top_f, text="🛠️ Apri Downtime...", command=self.open_downtime_dialog).pack(side=tk.RIGHT, padx=(6, 0))
-        ttk.Button(top_f, text="💰 Apri Negozi...", command=self.open_shop_dialog).pack(side=tk.RIGHT)
 
         container = ttk.LabelFrame(win, text="Attivazioni Rapide 5e (PHB / DMG / XGtE)", padding=6)
         container.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)

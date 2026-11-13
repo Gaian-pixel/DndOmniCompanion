@@ -441,29 +441,30 @@ def update_pending_actions_ui(dm_gui):
         return
         
     gs = dm_gui.server.game_state
-    p_damages = getattr(gs, "pending_damages", {})
-    p_doors = getattr(gs, "pending_doors", {})
-    p_leg_res = getattr(gs, "pending_legendary_resistances", {})
-    
+    with gs.lock:
+        p_damages = dict(getattr(gs, "pending_damages", {}))
+        p_doors = dict(getattr(gs, "pending_doors", {}))
+        p_leg_res = dict(getattr(gs, "pending_legendary_resistances", {}))
+
     if not p_damages and not p_doors and not p_leg_res:
         dm_gui.pending_actions_container.pack_forget()
         return
-        
+
     for widget in dm_gui.pending_actions_container.winfo_children():
         widget.destroy()
-        
+
     if hasattr(dm_gui, "dm_quick_dice_strip"):
         dm_gui.pending_actions_container.pack(fill=tk.X, pady=(4, 2), before=dm_gui.dm_quick_dice_strip)
     else:
         dm_gui.pending_actions_container.pack(fill=tk.X, pady=(4, 2))
-        
+
     hdr_frame = tk.Frame(dm_gui.pending_actions_container, bg=SURFACE_COLOR_ALT)
     hdr_frame.pack(fill=tk.X, pady=(0, 4))
     tk.Label(
-        hdr_frame, text="⚡ DECISIONI DM IN SOSPESO", 
+        hdr_frame, text="⚡ DECISIONI DM IN SOSPESO",
         font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD
     ).pack(side=tk.LEFT)
-    total_count = len(p_damages) + len(p_doors)
+    total_count = len(p_damages) + len(p_doors) + len(p_leg_res)
     tk.Label(
         hdr_frame, text=f"({total_count})", 
         font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED

@@ -63,22 +63,23 @@ class VoiceServer:
                         expired = [c for c, t in list(self.clients_last_seen.items()) if now - t > 10.0]
                         for c in expired:
                             self.clients_last_seen.pop(c, None)
-                self.clients_last_seen[addr] = time.time()
+                    if data == b'LEAVE':
+                        self.clients_last_seen.pop(addr, None)
+                    targets = [c for c in self.clients_last_seen.keys() if c != addr]
+
                 if data == b'JOIN':
                     print(f"[VoiceServer] Client connesso: {addr}")
                     continue
                 elif data == b'LEAVE':
                     print(f"[VoiceServer] Client disconnesso: {addr}")
-                    self.clients_last_seen.pop(addr, None)
                     continue
 
                 # Broadcast audio a tutti gli ALTRI client attivi
-                for c in list(self.clients_last_seen.keys()):
-                    if c != addr:
-                        try:
-                            self.sock.sendto(data, c)
-                        except Exception:
-                            pass
+                for c in targets:
+                    try:
+                        self.sock.sendto(data, c)
+                    except Exception:
+                        pass
             except (socket.timeout, TimeoutError):
                 continue
             except ConnectionResetError:

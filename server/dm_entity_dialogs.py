@@ -280,14 +280,10 @@ def open_room_pin_dialog(dm_gui, pin, clicked_hex):
 
 def open_assign_item_dialog(dm_gui, prefill_item=None):
     """Apre il dialogo per assegnare un oggetto dall'inventario a un giocatore."""
-    sel = dm_gui.player_listbox.curselection()
-    if not sel:
-        messagebox.showinfo("Attenzione", "Seleziona prima un giocatore dalla lista a cui assegnare l'oggetto.")
+    player_name = dm_gui.get_player_name_from_listbox()
+    if not player_name:
+        messagebox.showinfo("Attenzione", "Seleziona prima un giocatore dalla lista a cui assegnare l'oggetto.", parent=dm_gui.master)
         return
-        
-    display_text = dm_gui.player_listbox.get(sel[0])
-    if display_text.startswith('---'): return
-    player_name = display_text.split(" (HP")[0].replace("▶", "").strip()
     player = dm_gui.server.game_state.find_player(player_name)
     if not player: return
 
@@ -378,11 +374,10 @@ def open_modify_hp_dialog(dm_gui):
     """Apre il dialogo rapido per la variazione manuale degli HP di uno o più token selezionati."""
     names = getattr(dm_gui, "get_selected_player_names", lambda: [])()
     if not names:
-        sel = dm_gui.player_listbox.curselection()
-        if not sel: return
-        display_text = dm_gui.player_listbox.get(sel[0])
-        if display_text.startswith('---'): return
-        names = [display_text.split(" (HP")[0].replace("▶", "").strip()]
+        p_name = dm_gui.get_player_name_from_listbox()
+        if not p_name:
+            return
+        names = [p_name]
 
     if len(names) == 1:
         player_name = names[0]
@@ -427,11 +422,8 @@ def open_modify_hp_dialog(dm_gui):
 
 def open_conditions_dialog(dm_gui):
     """Apre la checklist delle condizioni 5e e la gestione effetti a tempo / Save-Ends per la pedina selezionata."""
-    sel = dm_gui.player_listbox.curselection()
-    if not sel: return
-    display_text = dm_gui.player_listbox.get(sel[0])
-    if display_text.startswith('---'): return
-    player_name = display_text.split(" (HP")[0].replace("▶", "").strip()
+    player_name = dm_gui.get_player_name_from_listbox()
+    if not player_name: return
     player = dm_gui.server.game_state.find_player(player_name)
     if not player: return
 
@@ -470,9 +462,16 @@ def open_conditions_dialog(dm_gui):
 
     def apply_conditions():
         selected_indices = listbox.curselection()
-        new_conditions = [listbox.get(i) for i in selected_indices]
+        selected_std = [listbox.get(i) for i in selected_indices]
+        std_set = set(all_conditions)
         with dm_gui.server.game_state.lock:
+            # Preserva eventuali condizioni personalizzate/dinamiche non presenti nella checklist (es. Afferrato, Paralizzato, Sfinimento)
+            existing = list(getattr(player, "conditions", []) or [])
+            kept_extra = [c for c in existing if c not in std_set and c not in selected_std]
+            new_conditions = selected_std + kept_extra
             player.conditions = new_conditions
+            if isinstance(getattr(player, "full_sheet", None), dict):
+                player.full_sheet["conditions"] = list(new_conditions)
         dm_gui.server.game_state._trigger_gui_update()
         broadcast(dm_gui.server.game_state, make_player_stats_update(
             player.name, player.hp, player.max_hp, player.initiative, new_conditions,
@@ -669,11 +668,8 @@ def open_conditions_dialog(dm_gui):
 
 def open_aura_dialog(dm_gui):
     """Apre il dialogo di configurazione raggio e colore dell'aura dinamica per il token."""
-    sel = dm_gui.player_listbox.curselection()
-    if not sel: return
-    display_text = dm_gui.player_listbox.get(sel[0])
-    if display_text.startswith('---'): return
-    player_name = display_text.split(" (HP")[0].replace("▶", "").strip()
+    player_name = dm_gui.get_player_name_from_listbox()
+    if not player_name: return
     player = dm_gui.server.game_state.find_player(player_name)
     if not player: return
     
@@ -770,8 +766,9 @@ def open_light_source_dialog(dm_gui):
         try:
             r = int(rad_entry.get().strip())
             c = color_entry.get().strip() or "#FFD700"
-            player.light_radius = max(0, r)
-            player.light_color = c
+            with dm_gui.server.game_state.lock:
+                player.light_radius = max(0, r)
+                player.light_color = c
             dm_gui.server.game_state._trigger_gui_update()
             from common.protocol import make_player_stats_update
             broadcast(dm_gui.server.game_state, make_player_stats_update(
@@ -839,15 +836,16 @@ def open_boss_config_dialog(dm_gui):
             rcur = int(res_cur_entry.get().strip())
             amax = int(act_max_entry.get().strip())
             acur = int(act_cur_entry.get().strip())
-            player.legendary_resistances_max = max(0, rmax)
-            player.legendary_resistances_current = max(0, min(rmax, rcur))
-            player.legendary_actions_max = max(0, amax)
-            player.legendary_actions_current = max(0, min(amax, acur))
-            player.has_lair_actions = bool(lair_var.get())
-            player.is_mythic = bool(mythic_var.get())
-            if isinstance(getattr(player, "full_sheet", None), dict):
-                player.full_sheet["has_lair_actions"] = player.has_lair_actions
-                player.full_sheet["is_mythic"] = player.is_mythic
+            with dm_gui.server.game_state.lock:
+                player.legendary_resistances_max = max(0, rmax)
+                player.legendary_resistances_current = max(0, min(rmax, rcur))
+                player.legendary_actions_max = max(0, amax)
+                player.legendary_actions_current = max(0, min(amax, acur))
+                player.has_lair_actions = bool(lair_var.get())
+                player.is_mythic = bool(mythic_var.get())
+                if isinstance(getattr(player, "full_sheet", None), dict):
+                    player.full_sheet["has_lair_actions"] = player.has_lair_actions
+                    player.full_sheet["is_mythic"] = player.is_mythic
             dm_gui.server.game_state._trigger_gui_update()
             dm_gui.redraw_map_and_players()
             dm_gui.log_to_chat(f"[BOSS] {player.name} configurato: {rmax} Resistenze, {amax} Azioni, Tana={player.has_lair_actions}, Mitico={player.is_mythic}.")

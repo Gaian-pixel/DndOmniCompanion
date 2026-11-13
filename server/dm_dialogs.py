@@ -552,13 +552,14 @@ class DMPlayerSheetViewer(tk.Toplevel):
             attr_tree.insert("", tk.END, values=(attr_names.get(k, k), score, mod_str))
 
         # Tab Azioni & Attacchi (Mostri / PNG)
-        actions = sheet.get("actions", [])
+        from common.srd_offline import normalize_npc_actions
+        actions = normalize_npc_actions(sheet.get("actions", []))
         if not actions and player_name:
             try:
                 from common.srd_offline import get_monster_offline
                 srd_m = get_monster_offline(player_name)
                 if srd_m and srd_m.get("actions"):
-                    actions = srd_m.get("actions", [])
+                    actions = normalize_npc_actions(srd_m.get("actions", []))
             except Exception:
                 pass
 

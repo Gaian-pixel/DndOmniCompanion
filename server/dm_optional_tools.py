@@ -741,11 +741,39 @@ def resolve_bastion_turn(facility_key: str) -> Dict[str, Any]:
     return {"facility": fac["name"], "order": fac["order"], "gold_dividend": gold_r}
 
 
+_DM_ONLY_OPTIONAL_ACTIONS = frozenset({
+    "morale_check", "fear_save", "horror_save", "siege_action", "complex_trap_add",
+    "sentient_conflict", "cure_injury", "roll_artifact", "sidekick_level_up",
+    "renown_piety", "mob_attack", "wilderness_check", "antimagic_cone",
+    "beholder_eye_rays", "social_loyalty", "vehicle_damage", "calc_cr", "bastion_order",
+})
+
+
 def handle_optional_rule_action_request(data: dict, player: Any, game_state: Any) -> None:
     """Dispatcher unificato OPTIONAL_RULE_ACTION_REQUEST dal client/DM per DMG, XGtE & TCE."""
+    from common.network_utils import is_dm_actor
+    if not isinstance(data, dict) or not game_state:
+        return
+    # Connected remote sockets without DM role are strictly untrusted; in-process DM/local calls have no socket.
+    is_dm = is_dm_actor(player) or getattr(player, "conn", None) is None
     action = str(data.get("action", "")).strip().lower()
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    if not is_dm and action in _DM_ONLY_OPTIONAL_ACTIONS:
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Solo il Dungeon Master può eseguire questa azione opzionale."))
+        return
+    if not is_dm and any(k in data for k in ("forced_roll", "forced_check_roll", "forced_save_roll", "forced_mishap_roll")):
+        data = {k: v for k, v in data.items() if k not in ("forced_roll", "forced_check_roll", "forced_save_roll", "forced_mishap_roll")}
+    actor = (game_state.find_player(data.get("actor_name")) if (is_dm and data.get("actor_name")) else player)
     target = game_state.find_player(data.get("target_name")) if data.get("target_name") else actor
+    lock_ctx = game_state.lock if hasattr(game_state, "lock") else None
+    if lock_ctx is not None:
+        with lock_ctx:
+            _dispatch_optional_rule_action_locked(action, data, player, actor, target, game_state, is_dm)
+        return
+    _dispatch_optional_rule_action_locked(action, data, player, actor, target, game_state, is_dm)
+
+
+def _dispatch_optional_rule_action_locked(action: str, data: dict, player: Any, actor: Any, target: Any, game_state: Any, is_dm: bool = True) -> None:
 
     if action == "morale_check":
         evaluate_morale_checks(game_state, trigger_reason=data.get("reason", "manual"), forced_save_roll=data.get("forced_roll"))

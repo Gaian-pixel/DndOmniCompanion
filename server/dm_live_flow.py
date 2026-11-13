@@ -5,8 +5,9 @@ e per la consultazione della Cronistoria & Recap di fine sessione (Session Chron
 """
 
 import tkinter as tk
+from datetime import datetime
 from tkinter import ttk, scrolledtext, simpledialog
-from typing import Optional, Any
+from typing import Optional, Any, Dict
 
 from common.theme import (
     apply_modern_window_style, BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT, SURFACE_LIGHT,
@@ -16,8 +17,9 @@ from common.theme import (
 )
 from common.messagebox import messagebox
 from common.campaign_script import (
-    FlowGraph, FlowNode, FlowEdge, DndScriptParser, DndScriptSerializer,
-    sync_flow_graph_to_campaign
+    FlowGraph, FlowNode, FlowEdge,
+    sync_flow_graph_to_campaign, sync_hierarchical_campaign_flows,
+    ensure_hierarchical_campaign_flows, get_scene_subflow_graph, save_scene_subflow,
 )
 from common.session_chronicle import (
     SessionLedger, ChronicleGenerator, integrate_off_track_events_into_flow, format_harptos_date
@@ -44,23 +46,21 @@ class DMLiveFlowDialog(tk.Toplevel):
         apply_modern_window_style(self, bind_escape=False)
         self.configure(bg=BG_COLOR)
 
-        # Recupera il grafo della campagna attiva
+        # Recupera il grafo della campagna attiva (struttura gerarchica a 2 livelli)
         self.campaign = getattr(self.game_state, "active_campaign", None)
+        self._current_scene_name: Optional[str] = None
         self.graph = FlowGraph()
         if self.campaign:
-            flow_data = getattr(self.campaign, "flow_graph", None)
-            if flow_data and isinstance(flow_data, dict) and flow_data.get("nodes"):
-                self.graph = FlowGraph.from_dict(flow_data)
-            elif getattr(self.campaign, "flow_script", ""):
-                parser = DndScriptParser()
-                self.graph = parser.parse(self.campaign.flow_script)
+            self.graph = ensure_hierarchical_campaign_flows(self.campaign)
 
-        self._active_node_id = self.session_ledger.visited_node_ids[-1] if self.session_ledger.visited_node_ids else None
+        last_visited = self.session_ledger.visited_node_ids[-1] if self.session_ledger.visited_node_ids else None
+        self._active_node_id = last_visited if (last_visited and last_visited in self.graph.nodes) else None
         if not self._active_node_id and self.graph.nodes:
             self._active_node_id = list(self.graph.nodes.keys())[0]
             self.session_ledger.visited_node_ids.append(self._active_node_id)
 
         self._setup_ui()
+        self._update_live_breadcrumb()
         self._update_action_panel()
         self.bind("<F11>", self.toggle_fullscreen)
         self.bind("<Escape>", self.exit_fullscreen)
@@ -88,6 +88,16 @@ class DMLiveFlowDialog(tk.Toplevel):
         ttk.Button(btn_box, text="+ Nota Rapida DM", command=self.add_quick_dm_note).pack(side=tk.RIGHT, padx=4)
         ttk.Button(btn_box, text="🔍 Centra", command=lambda: self.flow_canvas.reset_view()).pack(side=tk.RIGHT, padx=4)
 
+        # Barra Breadcrumb Livelli Live (Macro Scene <-> Flusso Interno Scena)
+        self.nav_live_bar = tk.Frame(container, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=10, pady=4)
+        self.nav_live_bar.pack(fill=tk.X, pady=(0, 6))
+        self.btn_live_root = ttk.Button(self.nav_live_bar, text="🏰 Flusso Scene", command=self.exit_to_macro_flow, style="Dark.TButton")
+        self.btn_live_root.pack(side=tk.LEFT)
+        self.lbl_live_sep = tk.Label(self.nav_live_bar, text="›", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED)
+        self.lbl_live_scene = tk.Label(self.nav_live_bar, text="", font=FONT_BOLD, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD)
+        self.btn_live_back = ttk.Button(self.nav_live_bar, text="← Torna alle Scene", command=self.exit_to_macro_flow, style="Primary.TButton")
+        self.btn_live_enter = ttk.Button(self.nav_live_bar, text="↳ Entra nella Scena", command=self._enter_active_scene_btn, style="Gold.TButton")
+
         # Split frame verticale: Canvas in alto, Plancia Azioni in basso
         self.split_pane = tk.PanedWindow(container, orient=tk.VERTICAL, bg=BG_COLOR, sashrelief="flat", sashwidth=4)
         self.split_pane.pack(fill=tk.BOTH, expand=True)
@@ -99,7 +109,8 @@ class DMLiveFlowDialog(tk.Toplevel):
         self.flow_canvas = FlowCanvas(
             canvas_frame, graph=self.graph,
             on_change_callback=self._on_canvas_graph_changed,
-            is_dm_live=True
+            is_dm_live=True,
+            on_node_drilldown_callback=self._on_live_node_drilldown,
         )
         self.flow_canvas.pack(fill=tk.BOTH, expand=True)
         if self._active_node_id:
@@ -110,11 +121,80 @@ class DMLiveFlowDialog(tk.Toplevel):
         self.actions_frame = tk.Frame(self.split_pane, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=12, pady=10)
         self.split_pane.add(self.actions_frame, minsize=160)
 
+    def _on_live_node_drilldown(self, node: FlowNode):
+        if node.node_type == "scene":
+            self.enter_scene_subflow(node.title)
+
+    def _enter_active_scene_btn(self):
+        active_node = self.graph.nodes.get(self._active_node_id) if self._active_node_id else None
+        if active_node and active_node.node_type == "scene":
+            self.enter_scene_subflow(active_node.title)
+        elif active_node and active_node.node_type == "exit":
+            dest = str(active_node.data.get("target_scene") or active_node.title).strip()
+            if dest:
+                self.enter_scene_subflow(dest)
+        elif self.campaign and getattr(self.campaign, "scenes", None):
+            self.enter_scene_subflow(self.campaign.scenes[0].get("name", ""))
+
+    def _update_live_breadcrumb(self):
+        if self._current_scene_name:
+            if not self.lbl_live_sep.winfo_manager():
+                self.lbl_live_sep.pack(side=tk.LEFT, padx=6, after=self.btn_live_root)
+            if not self.lbl_live_scene.winfo_manager():
+                self.lbl_live_scene.pack(side=tk.LEFT, after=self.lbl_live_sep)
+            self.lbl_live_scene.config(text=f"🗺️ {self._current_scene_name}")
+            self.btn_live_enter.pack_forget()
+            self.btn_live_back.pack(side=tk.RIGHT)
+        else:
+            self.lbl_live_sep.pack_forget()
+            self.lbl_live_scene.pack_forget()
+            self.btn_live_back.pack_forget()
+            self.btn_live_enter.pack(side=tk.RIGHT)
+
+    def enter_scene_subflow(self, scene_name: str):
+        """Passa alla visualizzazione e conduzione del flusso interno della Scena specificata."""
+        if not self.campaign or not scene_name:
+            return
+        sc_entry = self.campaign.ensure_scene_entry(scene_name)
+        sub_g = get_scene_subflow_graph(sc_entry)
+        self._current_scene_name = sc_entry.get("name", scene_name)
+        self.graph = sub_g
+        self._active_node_id = next(iter(self.graph.nodes.keys()), None)
+        self.flow_canvas.set_graph(self.graph)
+        if self._active_node_id:
+            self.flow_canvas.set_active_party_node(self._active_node_id)
+        self._update_live_breadcrumb()
+        self._update_action_panel()
+
+    def exit_to_macro_flow(self):
+        """Torna al Livello 1 (Macro-flusso delle Scene)."""
+        prev_scene = self._current_scene_name
+        self._current_scene_name = None
+        if self.campaign:
+            raw_fg = getattr(self.campaign, "flow_graph", None)
+            if isinstance(raw_fg, dict) and raw_fg.get("nodes"):
+                self.graph = FlowGraph.from_dict(raw_fg)
+            else:
+                self.graph = ensure_hierarchical_campaign_flows(self.campaign)
+        else:
+            self.graph = FlowGraph()
+        target_node = self.graph.get_node_by_title(prev_scene) if prev_scene else None
+        self._active_node_id = target_node.id if target_node else next(iter(self.graph.nodes.keys()), None)
+        self.flow_canvas.set_graph(self.graph)
+        if self._active_node_id:
+            self.flow_canvas.set_active_party_node(self._active_node_id)
+        self._update_live_breadcrumb()
+        self._update_action_panel()
+
     def _on_canvas_graph_changed(self):
         if self.campaign:
-            self.campaign.flow_graph = self.graph.to_dict()
-            serializer = DndScriptSerializer()
-            self.campaign.flow_script = serializer.serialize(self.graph)
+            if self._current_scene_name:
+                sc_entry = self.campaign.ensure_scene_entry(self._current_scene_name)
+                save_scene_subflow(sc_entry, self.graph)
+                sync_hierarchical_campaign_flows(None, self.campaign)
+            else:
+                self.campaign.flow_graph = self.graph.to_dict()
+                sync_hierarchical_campaign_flows(self.graph, self.campaign)
 
     def _update_action_panel(self):
         for w in self.actions_frame.winfo_children():
@@ -149,8 +229,15 @@ class DMLiveFlowDialog(tk.Toplevel):
         btn_grid.pack(fill=tk.X)
 
         if active_node and active_node.node_type == "scene":
-            map_file = active_node.data.get("map_file", "")
-            ttk.Button(btn_grid, text="🗺️ Attiva Scena & Mappa", command=lambda: self.activate_scene_on_vtt(active_node), style="Gold.TButton").pack(fill=tk.X, pady=2)
+            if self._current_scene_name is None:
+                ttk.Button(btn_grid, text="↳ Entra nel Flusso Interno Scena", command=lambda n=active_node: self.enter_scene_subflow(n.title), style="Gold.TButton").pack(fill=tk.X, pady=2)
+            else:
+                ttk.Button(btn_grid, text=f"🚪 Vai alla Scena '{active_node.title}'", command=lambda n=active_node: self.enter_scene_subflow(n.title), style="Gold.TButton").pack(fill=tk.X, pady=2)
+            ttk.Button(btn_grid, text="🗺️ Attiva Scena & Mappa", command=lambda: self.activate_scene_on_vtt(active_node), style="Primary.TButton").pack(fill=tk.X, pady=2)
+
+        if active_node and active_node.node_type == "exit":
+            dest = str(active_node.data.get("target_scene") or active_node.title).strip()
+            ttk.Button(btn_grid, text=f"🚪 Passa a Scena: {dest}", command=lambda d=dest: self.enter_scene_subflow(d), style="Gold.TButton").pack(fill=tk.X, pady=2)
         
         if active_node and active_node.node_type == "encounter":
             ttk.Button(btn_grid, text="⚔️ Lancia Incontro nel Combat Tracker", command=lambda: self.activate_encounter_on_vtt(active_node), style="Primary.TButton").pack(fill=tk.X, pady=2)
@@ -349,6 +436,8 @@ class DMLiveFlowDialog(tk.Toplevel):
             gs.load_map(map_data)
             if hasattr(self.master_gui, "fow_enabled_var"):
                 self.master_gui.fow_enabled_var.set(gs.current_map.get("fow_enabled", False))
+            if hasattr(self.master_gui, "_apply_scene_atmosphere"):
+                self.master_gui._apply_scene_atmosphere(node.data)
             if hasattr(self.master_gui, "redraw_map_and_players"):
                 self.master_gui.redraw_map_and_players()
             broadcast(gs, make_game_state(gs.get_state_dict()))
@@ -371,7 +460,7 @@ class DMLiveFlowDialog(tk.Toplevel):
         try:
             from common.game_state import Player
             from common.srd_offline import (
-                resolve_compendium_monster,
+                get_monster_offline,
                 extract_and_normalize_attributes,
                 normalize_ac_value,
                 normalize_speed_value,
@@ -382,14 +471,18 @@ class DMLiveFlowDialog(tk.Toplevel):
             spawned = []
             for m in monsters:
                 if isinstance(m, str):
-                    m = resolve_compendium_monster(m)
+                    comp = get_monster_offline(m) or {}
+                    m = dict(comp) if comp else {"name": m}
+                    m.setdefault("name", m.get("name") or "Mostro")
                 else:
-                    base_comp = resolve_compendium_monster(m.get("name", "Mostro"))
+                    raw_name = m.get("name", "Mostro")
+                    base_comp = get_monster_offline(raw_name) or {}
                     merged = dict(base_comp)
                     merged.update({k: v for k, v in m.items() if v is not None})
+                    merged["name"] = raw_name
                     m = merged
                 m_base_name = m.get("name", "Mostro")
-                qty = int(m.get("quantity", m.get("count", 1)) or 1)
+                qty = int(m.get("qty", m.get("quantity", m.get("count", 1))) or 1)
                 sheet_src = m.get("sheet") if isinstance(m.get("sheet"), dict) else {}
                 for i in range(max(1, qty)):
                     cand_name = f"{m_base_name} {i+1}" if qty > 1 else m_base_name
@@ -399,7 +492,7 @@ class DMLiveFlowDialog(tk.Toplevel):
                         suffix += 1
                         cand_name = f"{base_cand} ({suffix})"
                     npc = Player(name=cand_name)
-                    hp_val = int(m.get("hp", sheet_src.get("hp_max", sheet_src.get("hp", 15))) or 15)
+                    hp_val = int(m.get("hp", m.get("hit_points", sheet_src.get("hp_max", sheet_src.get("hp", 15)))) or 15)
                     npc.hp = max(1, hp_val)
                     npc.max_hp = max(1, hp_val)
                     attrs = extract_and_normalize_attributes(m.get("attributes") or sheet_src.get("attributes"), m_base_name)
@@ -407,6 +500,7 @@ class DMLiveFlowDialog(tk.Toplevel):
                     npc.initiative = int(m["initiative"]) if m.get("initiative") is not None else (dex_val - 10) // 2
                     npc.initiative_bonus = npc.initiative
                     ac_val = normalize_ac_value(m.get("ac", m.get("armor_class", sheet_src.get("ac", 12))))
+                    npc.ac = ac_val
                     speed_val, speed_disp, speed_unit = normalize_speed_value(m.get("speed", sheet_src.get("speed", 30)))
                     npc.speed = speed_val
                     npc.speed_unit = speed_unit
@@ -433,16 +527,19 @@ class DMLiveFlowDialog(tk.Toplevel):
             gs._trigger_gui_update()
             if hasattr(self.master_gui, "redraw_map_and_players"):
                 self.master_gui.redraw_map_and_players()
+            if node.data.get("music") and hasattr(self.master_gui, "_play_track_by_name_or_url"):
+                self.master_gui._play_track_by_name_or_url(node.data.get("music"))
             broadcast(gs, make_chat_broadcast("DM", f"⚔️ Incontro '{node.title}' schierato! ({len(spawned)} creature)"))
             self.session_ledger.record_combat(
                 title=node.title,
                 monsters=monsters,
-                rounds=1,
-                victory=True,
+                rounds=0,
+                victory=False,
                 loot=node.data.get("loot", ""),
                 xp=node.data.get("xp", 0)
             )
-            self._record_to_campaign_journal("combat", f"Incontro: {node.title}", f"Mostri: {', '.join(spawned)} (GS {cr})", actor="Party")
+            cr_display = node.data.get("cr") or "?"
+            self._record_to_campaign_journal("combat", f"Incontro: {node.title}", f"Mostri: {', '.join(spawned)} (GS {cr_display})", actor="Party")
             if hasattr(self.master_gui, "log_to_chat"):
                 self.master_gui.log_to_chat(f"⚔️ [FLUSSO] Incontro '{node.title}' schierato sul Combat Tracker: {', '.join(spawned)}")
             messagebox.showinfo("Combattimento Schierato", f"Mostri dell'incontro '{node.title}' aggiunti con successo ({len(spawned)} creature)!", parent=self)
@@ -688,11 +785,11 @@ class SessionChronicleDialog(tk.Toplevel):
     def _build_off_track_tab(self, parent):
         off_events = [e for e in self.session_ledger.events if e.is_off_track]
         
-        tk.Label(parent, text="⚡ Azioni Improvvisate Fuori Pista:", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_RED).pack(anchor="w", pady=(0, 4))
+        ttk.Label(parent, text="⚡ Azioni Improvvisate Fuori Pista:", font=FONT_BOLD, foreground=ACCENT_RED).pack(anchor="w", pady=(0, 4))
         
         if off_events:
-            tk.Label(parent, text="I giocatori hanno intrapreso le seguenti deviazioni non pianificate. Puoi convertirle in nodi ufficiali della campagna con 1 clic!",
-                     font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 8))
+            ttk.Label(parent, text="I giocatori hanno intrapreso le seguenti deviazioni non pianificate. Puoi convertirle in nodi ufficiali della campagna con 1 clic!",
+                      font=FONT_SMALL, foreground=TEXT_MUTED).pack(anchor="w", pady=(0, 8))
             
             box = scrolledtext.ScrolledText(parent, height=8, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, font=FONT_MAIN, relief="flat")
             box.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
@@ -703,27 +800,55 @@ class SessionChronicleDialog(tk.Toplevel):
             if self.campaign:
                 ttk.Button(parent, text="⚡ Salva Fuori Pista nel Flusso della Campagna", command=self.retro_integrate_off_track, style="Gold.TButton").pack(fill=tk.X)
         else:
-            tk.Label(parent, text="Nessuna deviazione Fuori Pista registrata in questa sessione. Il party ha seguito i percorsi previsti!",
-                     font=FONT_MAIN, bg=SURFACE_COLOR, fg=ACCENT_GREEN).pack(anchor="w", pady=16)
+            ttk.Label(parent, text="Nessuna deviazione Fuori Pista registrata in questa sessione. Il party ha seguito i percorsi previsti!",
+                      font=FONT_MAIN, foreground=ACCENT_GREEN).pack(anchor="w", pady=16)
 
     def retro_integrate_off_track(self):
         if not self.campaign:
             messagebox.showwarning("Attenzione", "Nessuna campagna attiva caricata.", parent=self)
             return
 
-        flow_data = getattr(self.campaign, "flow_graph", None)
-        graph = FlowGraph.from_dict(flow_data) if (flow_data and isinstance(flow_data, dict)) else FlowGraph()
-        
-        new_nodes = integrate_off_track_events_into_flow(self.session_ledger, graph)
-        if not new_nodes:
-            messagebox.showinfo("Informazione", "Nessun evento fuori pista convertibile.", parent=self)
-            return
+        scenes = getattr(self.campaign, "scenes", []) or []
+        target_scene = None
+        cur_scene_name = getattr(self, "active_scene_name", None)
+        if cur_scene_name:
+            target_scene = next(
+                (s for s in scenes if str(s.get("name", "")).strip().lower() == str(cur_scene_name).strip().lower()),
+                None
+            )
+        if target_scene is None and getattr(self, "current_node_id", None):
+            # Se siamo in un sotto-flusso di scena o ultimo nodo appartiene a una scena, trova la scena corrispondente
+            for s in scenes:
+                sub = get_scene_subflow_graph(s)
+                if self.current_node_id in sub.nodes:
+                    target_scene = s
+                    break
+        if target_scene is None and scenes:
+            # Usa la prima scena con subflow o la prima scena disponibile se la campagna è gerarchica
+            raw_fg = getattr(self.campaign, "flow_graph", None)
+            if isinstance(raw_fg, dict) and raw_fg.get("nodes"):
+                macro = FlowGraph.from_dict(raw_fg)
+                if all(n.node_type == "scene" for n in macro.nodes.values()) and macro.nodes:
+                    target_scene = scenes[0]
 
-        # Salva nella campagna
-        self.campaign.flow_graph = graph.to_dict()
-        serializer = DndScriptSerializer()
-        self.campaign.flow_script = serializer.serialize(graph)
-        sync_flow_graph_to_campaign(graph, self.campaign)
+        if target_scene is not None:
+            sub_graph = get_scene_subflow_graph(target_scene)
+            new_nodes = integrate_off_track_events_into_flow(self.session_ledger, sub_graph)
+            if not new_nodes:
+                messagebox.showinfo("Informazione", "Nessun evento fuori pista convertibile.", parent=self)
+                return
+            save_scene_subflow(target_scene, sub_graph)
+            sync_hierarchical_campaign_flows(None, self.campaign)
+        else:
+            flow_data = getattr(self.campaign, "flow_graph", None)
+            graph = FlowGraph.from_dict(flow_data) if (flow_data and isinstance(flow_data, dict)) else FlowGraph()
+            new_nodes = integrate_off_track_events_into_flow(self.session_ledger, graph)
+            if not new_nodes:
+                messagebox.showinfo("Informazione", "Nessun evento fuori pista convertibile.", parent=self)
+                return
+            self.campaign.flow_graph = graph.to_dict()
+            sync_hierarchical_campaign_flows(graph, self.campaign)
+
         self.campaign.save()
 
         messagebox.showinfo(

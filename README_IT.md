@@ -6,10 +6,10 @@
 [![Ruleset: D&D 5e](https://img.shields.io/badge/ruleset-D%26D%205e-red.svg)](https://dnd.wizards.com/)
 [![UI: ttkbootstrap](https://img.shields.io/badge/ui-ttkbootstrap-orange.svg)](https://ttkbootstrap.readthedocs.io/)
 [![Multiplayer: TCP/UDP](https://img.shields.io/badge/networking-TCP%20%2B%20UDP-green.svg)]()
-[![Tests: Passing](https://img.shields.io/badge/tests-549%2F549%20superati-brightgreen.svg)]()
+[![Tests: Passing](https://img.shields.io/badge/tests-580%2F580%20superati-brightgreen.svg)]()
 [![Localization: IT / EN](https://img.shields.io/badge/i18n-Italiano%20%7C%20English-blueviolet.svg)]()
 [![Units: Imperial / Metric](https://img.shields.io/badge/units-ft%2Fmi%20%7C%20m%2Fkm-informational.svg)]()
-[![Version](https://img.shields.io/badge/release-v0.4.0--alpha-gold.svg)](https://github.com/Gaian-pixel/DndOmniCompanion/releases)
+[![Version](https://img.shields.io/badge/release-v0.5.0--alpha-gold.svg)](https://github.com/Gaian-pixel/DndOmniCompanion/releases)
 
 **D&D OmniCompanion** è un Virtual Tabletop (VTT) Client-Server all-in-one e un motore di gestione campagne per **Dungeons & Dragons 5a Edizione**, sviluppato in Python. Progettato sia per sessioni al tavolo in presenza sia per il gioco online da remoto, unisce l'automazione completa delle regole D&D 5e, una mappa esagonale interattiva ad alte prestazioni, chat vocale UDP in tempo reale e una suite completa di strumenti per il Dungeon Master.
 
@@ -389,7 +389,7 @@ DndOmniCompanion/
 │   ├── USER_GUIDE.md               # Complete User Guide (English)
 │   ├── GUIDA_OPERATIVA.md          # Manuale operativo e architettura (Italiano)
 │   └── OPERATIONAL_GUIDE.md        # System & Operational Manual (English)
-├── tests/                          # Suite di test automatizzati (549 test passati)
+├── tests/                          # Suite di test automatizzati (580 test passati)
 │   ├── test_phb_dmg_mm_complete.py # Test completi PHB/DMG/MM, talenti, tratti mostri e regole DMG opzionali
 │   ├── test_raw_5e_advanced_features.py # Test Smite, Wild Shape, Fonte di Magia, Recupero Arcano, Reliable Talent, Auto XP
 │   ├── simulate_4player_campaign.py# Simulazione live campagna 4 giocatori + DM (11 fasi)
@@ -409,10 +409,10 @@ DndOmniCompanion/
 
 ## 🧪 Test e Verifica Automatica
 
-Tutti i **549 test automatizzati** passano al 100% con 0 errori:
+Tutti i **580 test automatizzati** passano al 100% con 0 errori:
 
 ```powershell
-# 1. Unit Test completi (549 test: regole complete PHB/DMG/MM & XGtE/TCE, 30 opzioni DMG selezionabili, oggetti magici, dadi 3D, connessione, combattimento, UI)
+# 1. Unit Test completi (580 test: regole complete PHB/DMG/MM & XGtE/TCE, 30 opzioni DMG selezionabili, oggetti magici, dadi 3D, connessione, combattimento, UI)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 1b. Suite completa PHB/DMG/MM & XGtE/TCE e Regole Opzionali DMG Selezionabili

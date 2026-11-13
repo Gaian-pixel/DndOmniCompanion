@@ -639,46 +639,61 @@ def handle_stand_up_request(data, player, game_state):
     """
     if not player:
         return
-    conds = getattr(player, "conditions", [])
-    from common.i18n import is_condition_active
+    from common.i18n import is_condition_active, speed_to_hexes
     from common.network_utils import send_message, broadcast
     from common.protocol import make_error_reply, make_chat_broadcast, make_player_stats_update
-    if not is_condition_active(conds, "Prono"):
+
+    err_msg = None
+    stats_pkt = None
+    with game_state.lock:
+        conds = getattr(player, "conditions", [])
+        if not is_condition_active(conds, "Prono"):
+            err_msg = f"{player.name} non è Prono a terra!"
+        else:
+            in_combat = getattr(game_state, "combat_active", False)
+            speed = getattr(player, "speed", 30)
+            if speed <= 0 or getattr(player, "exhaustion_level", 0) >= 5 or any(
+                is_condition_active(conds, c) for c in ("Afferrato", "Grappled", "Trattenuto", "Restrained", "Paralizzato", "Incosciente", "Stordito", "Pietrificato", "Incapacitato")
+            ):
+                err_msg = "Impossibile rialzarsi: velocità pari a 0 o condizione che impedisce il movimento (PHB p. 190)!"
+            else:
+                if in_combat:
+                    speed_unit = getattr(player, "speed_unit", None)
+                    base_hexes = speed_to_hexes(speed, speed_unit)
+                    is_dashed = is_condition_active(conds, "Scatto")
+                    max_hexes = base_hexes * 2 if is_dashed else base_hexes
+                    cost = max(1, max_hexes // 2)
+                    spent = getattr(player, "movement_spent_this_turn", 0)
+                    strict_move = True
+                    if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+                        strict_move = game_state.automation_settings.get("strict_movement_limits", True)
+                    if strict_move and (spent + cost) > max_hexes:
+                        err_msg = (
+                            f"Non hai abbastanza movimento per rialzarti! Rialzarsi costa {cost} esagoni "
+                            f"(metà del tuo movimento). Ti restano solo {max(0, max_hexes - spent)} esagoni."
+                        )
+                    else:
+                        player.movement_spent_this_turn = spent + cost
+
+                if not err_msg:
+                    player.conditions = [c for c in conds if str(c).strip().lower() not in ("prono", "prone")]
+                    if getattr(player, "full_sheet", None) and isinstance(player.full_sheet.get("conditions"), list):
+                        player.full_sheet["conditions"] = list(player.conditions)
+                    stats_pkt = make_player_stats_update(
+                        player.name,
+                        player.hp,
+                        player.max_hp,
+                        player.initiative,
+                        list(player.conditions),
+                        getattr(player, "temp_hp", 0),
+                    )
+
+    if err_msg:
         if getattr(player, "conn", None):
-            send_message(player.conn, make_error_reply(f"{player.name} non è Prono a terra!"))
+            send_message(player.conn, make_error_reply(err_msg))
         return
 
-    in_combat = getattr(game_state, "combat_active", False)
-    speed = getattr(player, "speed", 30)
-    if speed <= 0 or getattr(player, "exhaustion_level", 0) >= 5 or any(
-        is_condition_active(conds, c) for c in ("Afferrato", "Grappled", "Trattenuto", "Restrained", "Paralizzato", "Incosciente", "Stordito", "Pietrificato", "Incapacitato")
-    ):
-        if getattr(player, "conn", None):
-            send_message(player.conn, make_error_reply("Impossibile rialzarsi: velocità pari a 0 o condizione che impedisce il movimento (PHB p. 190)!"))
-        return
-
-    if in_combat:
-        speed = getattr(player, "speed", 30)
-        speed_unit = getattr(player, "speed_unit", None)
-        from common.i18n import speed_to_hexes
-        base_hexes = speed_to_hexes(speed, speed_unit)
-        is_dashed = is_condition_active(conds, "Scatto")
-        max_hexes = base_hexes * 2 if is_dashed else base_hexes
-        cost = max(1, max_hexes // 2)
-        spent = getattr(player, "movement_spent_this_turn", 0)
-        strict_move = True
-        if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
-            strict_move = game_state.automation_settings.get("strict_movement_limits", True)
-        if strict_move and (spent + cost) > max_hexes:
-            if getattr(player, "conn", None):
-                send_message(player.conn, make_error_reply(f"Non hai abbastanza movimento per rialzarti! Rialzarsi costa {cost} esagoni (metà del tuo movimento). Ti restano solo {max(0, max_hexes - spent)} esagoni."))
-            return
-        player.movement_spent_this_turn = spent + cost
-
-    player.conditions = [c for c in conds if str(c).strip().lower() not in ("prono", "prone")]
-    if getattr(player, "full_sheet", None) and isinstance(player.full_sheet.get("conditions"), list):
-        player.full_sheet["conditions"] = list(player.conditions)
-    broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions, getattr(player, "temp_hp", 0)))
+    broadcast(game_state, stats_pkt)
     msg = f"🛡️ {player.name} si rialza da terra (Prono rimosso, costo: metà del movimento)."
     broadcast(game_state, make_chat_broadcast("Sistema", msg))
     game_state.log_dm_message(msg)

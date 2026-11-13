@@ -322,15 +322,20 @@ def handle_downtime_request(data, player, game_state):
         data = data["data"]
     if not player:
         return
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
-    actor = actor or player
-
-    ok, msg = resolve_downtime_activity(actor, data or {}, game_state)
+    from common.network_utils import is_dm_actor
+    from contextlib import nullcontext
+    req_actor = data.get("actor_name") if (data and is_dm_actor(player)) else None
+    lock_ctx = game_state.lock if (game_state and hasattr(game_state, "lock")) else nullcontext()
+    with lock_ctx:
+        actor = game_state.find_player(req_actor) if (req_actor and game_state) else player
+        actor = actor or player
+        ok, msg = resolve_downtime_activity(actor, data or {}, game_state)
     if not ok:
         if getattr(player, "conn", None):
             send_message(player.conn, make_error_reply(msg))
         return
-    broadcast(game_state, make_chat_broadcast("Sistema", msg))
-    broadcast(game_state, make_game_state(game_state.get_state_dict()))
-    game_state.log_dm_message(f"[DOWNTIME] {msg}")
-    game_state._trigger_gui_update()
+    if game_state:
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        game_state.log_dm_message(f"[DOWNTIME] {msg}")
+        game_state._trigger_gui_update()

@@ -5,6 +5,7 @@ Supporta l'organizzazione completa di metadati, scene/mappe, incontri preparati,
 missioni, PNG, handouts ed equipaggiamento iniziale.
 """
 
+import json
 import os
 import shutil
 import tkinter as tk
@@ -137,7 +138,7 @@ class CampaignEncounterDialog(tk.Toplevel):
         tot_count = 0
         tot_xp = 0
         for idx, m in enumerate(self.monsters):
-            cnt = m.get("count", 1)
+            cnt = int(m.get("qty", m.get("count", m.get("quantity", 1))) or 1)
             xp = m.get("xp", 50)
             tot_count += cnt
             tot_xp += xp * cnt
@@ -154,7 +155,10 @@ class CampaignEncounterDialog(tk.Toplevel):
         sel = self.tree_monsters.selection()
         if not sel: return
         idx = int(sel[0])
-        self.monsters[idx]["count"] = max(1, self.monsters[idx].get("count", 1) + delta)
+        curr_q = int(self.monsters[idx].get("qty", self.monsters[idx].get("count", 1)) or 1)
+        new_q = max(1, curr_q + delta)
+        self.monsters[idx]["count"] = new_q
+        self.monsters[idx]["qty"] = new_q
         self.refresh_monsters_list()
 
     def remove_monster(self):
@@ -173,12 +177,13 @@ class CampaignEncounterDialog(tk.Toplevel):
                 init = monster_sheet.get("initiative", 0)
                 xp = monster_sheet.get("xp", 50)
                 ac = monster_sheet.get("ac", 10)
-                raw_count = item_data.get("import_quantity") or item_data.get("count") or 1
+                raw_count = monster_sheet.get("import_quantity") or monster_sheet.get("count") or 1
                 try: count_val = max(1, int(raw_count))
                 except (ValueError, TypeError): count_val = 1
                 self.monsters.append({
                     "name": name,
                     "count": count_val,
+                    "qty": count_val,
                     "hp": hp,
                     "initiative": init,
                     "xp": xp,
@@ -226,6 +231,7 @@ class CampaignEncounterDialog(tk.Toplevel):
                 self.monsters.append({
                     "name": name,
                     "count": count_val,
+                    "qty": count_val,
                     "hp": hp,
                     "initiative": init_mod,
                     "xp": xp,
@@ -269,6 +275,10 @@ class CampaignEncounterDialog(tk.Toplevel):
         self.encounter_data["name"] = name
         self.encounter_data["act"] = self.ent_act.get().strip() or "Atto 1"
         self.encounter_data["description"] = self.txt_desc.get("1.0", tk.END).strip()
+        for m in self.monsters:
+            q_val = max(1, int(m.get("qty", m.get("count", m.get("quantity", 1))) or 1))
+            m["count"] = q_val
+            m["qty"] = q_val
         self.encounter_data["monsters"] = self.monsters
         if self.on_save_callback:
             self.on_save_callback(self.encounter_data)
@@ -277,7 +287,17 @@ class CampaignEncounterDialog(tk.Toplevel):
 
 class CampaignEditorFrame(tk.Frame):
     """Frame autonomo per la preparazione in anticipo di una campagna."""
-    def __init__(self, master, campaign: Optional[Campaign] = None, game_state: Optional[GameState] = None, on_save_callback: Optional[Callable] = None, on_close_callback: Optional[Callable] = None, **kwargs):
+    def __init__(
+        self,
+        master,
+        campaign: Optional[Campaign] = None,
+        game_state: Optional[GameState] = None,
+        on_save_callback: Optional[Callable] = None,
+        on_close_callback: Optional[Callable] = None,
+        on_launch_callback: Optional[Callable[[Campaign], None]] = None,
+        back_button_text: Optional[str] = None,
+        **kwargs,
+    ):
         super().__init__(master, bg=BG_COLOR, **kwargs)
         self.campaign = campaign or Campaign(name="Nuova Campagna Avventura")
         if not self.campaign.starter_kit:
@@ -286,11 +306,74 @@ class CampaignEditorFrame(tk.Frame):
         self.game_state = game_state
         self.on_save_callback = on_save_callback
         self.on_close_callback = on_close_callback
+        self.on_launch_callback = on_launch_callback
+        self.back_button_text = back_button_text
         self.is_fullscreen = False
-        
+        self._clean_snapshot = None
+
         self.setup_ui()
 
+    def _capture_editor_snapshot(self) -> str:
+        """Restituisce una fotografia canonica dello stato corrente dell'editor per il dirty check."""
+        studio_graph: Dict[str, Any] = {}
+        if getattr(self, "studio_frame", None):
+            try:
+                g = getattr(self.studio_frame, "graph", None)
+                if g is not None:
+                    studio_graph = g.to_dict()
+            except Exception:
+                pass
+
+        state = {
+            "title": self.ent_title.get().strip() if hasattr(self, "ent_title") else self.campaign.name,
+            "folder": os.path.abspath(self.ent_folder_path.get().strip()) if (hasattr(self, "ent_folder_path") and self.ent_folder_path.get().strip()) else (self.campaign.folder_path or ""),
+            "level": self.ent_level.get().strip() if hasattr(self, "ent_level") else self.campaign.level_range,
+            "weather": self.combo_weather.get() if hasattr(self, "combo_weather") else self.campaign.start_weather,
+            "year": self.sp_year.get() if hasattr(self, "sp_year") else "",
+            "month": self.sp_month.get() if hasattr(self, "sp_month") else "",
+            "day": self.sp_day.get() if hasattr(self, "sp_day") else "",
+            "hour": self.sp_hour.get() if hasattr(self, "sp_hour") else "",
+            "synopsis": self.txt_synopsis.get("1.0", tk.END).strip() if hasattr(self, "txt_synopsis") else (self.campaign.description or ""),
+            "dm_notes": self.txt_dm_notes.get("1.0", tk.END).strip() if hasattr(self, "txt_dm_notes") else (self.campaign.dm_notes or ""),
+            "studio_graph": studio_graph,
+            "flow_graph": getattr(self.campaign, "flow_graph", {}),
+            "scenes": getattr(self.campaign, "scenes", []),
+            "encounters": getattr(self.campaign, "encounters", []),
+            "quests": getattr(self.campaign, "quests", []),
+            "npcs": getattr(self.campaign, "npcs", []),
+            "factions": getattr(self.campaign, "factions", []),
+            "handouts": getattr(self.campaign, "handouts", []),
+            "starter_kit": getattr(self.campaign, "starter_kit", []),
+        }
+        return json.dumps(state, sort_keys=True, ensure_ascii=False, default=str)
+
+    def _mark_clean(self):
+        try:
+            self._clean_snapshot = self._capture_editor_snapshot()
+        except Exception:
+            self._clean_snapshot = None
+
+    def _has_unsaved_changes(self) -> bool:
+        if self._clean_snapshot is None:
+            return False
+        try:
+            return self._capture_editor_snapshot() != self._clean_snapshot
+        except Exception:
+            return False
+
     def close_editor(self):
+        if self._has_unsaved_changes():
+            c_name = (self.ent_title.get().strip() if hasattr(self, "ent_title") else "") or self.campaign.name
+            res = messagebox.askyesnocancel(
+                _t("camp_ed_unsaved_title", default="Modifiche non salvate"),
+                _t("camp_ed_unsaved_prompt", default="Ci sono modifiche non salvate nella campagna '{name}'.\nVuoi salvarle prima di uscire?").format(name=c_name),
+                parent=self,
+            )
+            if res is None:
+                return
+            if res is True:
+                if not self.save_campaign(silent=True):
+                    return
         if self.on_close_callback:
             self.on_close_callback()
         else:
@@ -310,9 +393,12 @@ class CampaignEditorFrame(tk.Frame):
         top_bar.pack(fill=tk.X, pady=(0, 10))
         
         # Navigazione a sinistra
+        back_label = self.back_button_text or (
+            _t("btn_back_to_menu", default="← Menu") if self.on_close_callback else _t("btn_close", default="✕ Chiudi")
+        )
         ttk.Button(
             top_bar,
-            text=_t("btn_back_to_menu", default="← Menu") if self.on_close_callback else _t("btn_close", default="✕ Chiudi"),
+            text=back_label,
             command=self.close_editor,
             style="Dark.TButton"
         ).pack(side=tk.LEFT, padx=(0, 10))
@@ -335,7 +421,7 @@ class CampaignEditorFrame(tk.Frame):
             highlightthickness=1
         )
         self.lbl_active_camp_badge.pack(side=tk.LEFT, padx=(10, 0))
-        tk.Label(title_box, text=_t("camp_ed_subtitle", default="Flusso DndScript, scene, incontri tattici, missioni, PNG e segreti"), 
+        tk.Label(title_box, text=_t("camp_ed_subtitle", default="Flusso visuale, scene, incontri tattici, missioni, PNG e segreti"), 
                  font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(1, 0))
         
         actions_box = tk.Frame(top_bar, bg=SURFACE_COLOR)
@@ -353,53 +439,49 @@ class CampaignEditorFrame(tk.Frame):
         
         if self.game_state:
             ttk.Button(actions_box, text=_t("camp_ed_btn_apply", default="⚡ Applica al Gioco"), command=self.apply_to_running_game, style="Primary.TButton").pack(side=tk.LEFT, padx=3)
+        elif self.on_launch_callback:
+            self.btn_launch_session = ttk.Button(
+                actions_box,
+                text=_t("camp_ed_btn_launch", default="🚀 Avvia Sessione"),
+                command=self.launch_campaign_session,
+                style="Gold.TButton"
+            )
+            self.btn_launch_session.pack(side=tk.LEFT, padx=3)
         
         self.btn_fs = ttk.Button(actions_box, text="⛶", width=3, command=self.toggle_fullscreen, style="Tool.TButton")
         self.btn_fs.pack(side=tk.LEFT, padx=(4, 0))
         
-        # --- NOTEBOOK TABS ---
+        # --- NOTEBOOK TABS (Modalità Studio Gerarchica Unificata: 2 schede principali) ---
         self.notebook = ttk.Notebook(container)
         self.notebook.pack(fill=tk.BOTH, expand=True)
         
-        # TAB 1: STUDIO FLUSSO & DNDSCRIPT (Campaign-as-Code & Visual Graph)
+        # TAB 1: STUDIO GERARCHICO (Flusso Scene -> Sotto-flussi, Mappe, Incontri, Quest, PNG & Fazioni, Handouts)
         tab_studio = ttk.Frame(self.notebook, padding=4)
-        self.notebook.add(tab_studio, text=_t("camp_tab_studio", default="🧭 Flusso & DndScript"))
+        self.notebook.add(tab_studio, text=_t("camp_tab_studio", default="🧭 Flusso Campagna"))
         self.build_tab_studio(tab_studio)
         
         # TAB 2: GENERALE & METADATI
         tab_general = ttk.Frame(self.notebook, padding=12)
         self.notebook.add(tab_general, text=_t("camp_tab_general", default="📜 Generale & Note DM"))
         self.build_tab_general(tab_general)
-        
-        # TAB 3: SCENE & MAPPE
-        tab_scenes = ttk.Frame(self.notebook, padding=12)
-        self.notebook.add(tab_scenes, text=_t("camp_tab_scenes", default="🗺️ Scene & Mappe"))
-        self.build_tab_scenes(tab_scenes)
-        
-        # TAB 4: INCONTRI PREPARATI
-        tab_encounters = ttk.Frame(self.notebook, padding=12)
-        self.notebook.add(tab_encounters, text=_t("camp_tab_encounters", default="⚔️ Incontri Tattici"))
-        self.build_tab_encounters(tab_encounters)
-        
-        # TAB 5: MISSIONI & STORIA
-        tab_quests = ttk.Frame(self.notebook, padding=12)
-        self.notebook.add(tab_quests, text=_t("camp_tab_quests", default="📖 Trame & Missioni"))
-        self.build_tab_quests(tab_quests)
-        
-        # TAB 6: PNG & FAZIONI
-        tab_npcs = ttk.Frame(self.notebook, padding=12)
-        self.notebook.add(tab_npcs, text=_t("camp_tab_npcs", default="🎭 PNG & Fazioni"))
-        self.build_tab_npcs(tab_npcs)
-        
-        # TAB 7: HANDOUTS
-        tab_handouts = ttk.Frame(self.notebook, padding=12)
-        self.notebook.add(tab_handouts, text=_t("camp_tab_handouts", default="📜 Handouts & Indizi"))
-        self.build_tab_handouts(tab_handouts)
+        self._mark_clean()
 
     def build_tab_studio(self, parent):
         from server.campaign_studio_ui import CampaignStudioFrame
-        self.studio_frame = CampaignStudioFrame(parent, campaign=self.campaign, on_change_callback=self._on_studio_changed)
+        self.studio_frame = CampaignStudioFrame(
+            parent,
+            campaign=self.campaign,
+            on_change_callback=self._on_studio_changed,
+            on_inspect_callback=self._on_studio_inspect_entity,
+        )
         self.studio_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Popola il drawer collassabile unificato dentro lo Studio con tutte le entità di campagna
+        self.build_tab_scenes(self.studio_frame.tab_scenes_frame)
+        self.build_tab_encounters(self.studio_frame.tab_encounters_frame)
+        self.build_tab_quests(self.studio_frame.tab_quests_frame)
+        self.build_tab_npcs(self.studio_frame.tab_npcs_factions_frame)
+        self.build_tab_handouts(self.studio_frame.tab_handouts_frame)
 
     def _on_studio_changed(self):
         try:
@@ -411,10 +493,78 @@ class CampaignEditorFrame(tk.Frame):
                 self.refresh_quests()
             if hasattr(self, "tree_npcs"):
                 self.refresh_npcs()
+            if hasattr(self, "tree_factions"):
+                self.refresh_factions()
             if hasattr(self, "tree_handouts"):
                 self.refresh_handouts()
+            if hasattr(self, "txt_dm_notes"):
+                try:
+                    focused = self.focus_get()
+                except Exception:
+                    focused = None
+                if focused is not self.txt_dm_notes:
+                    self._sync_dm_notes_bidirectional()
         except Exception:
             pass
+
+    def _on_dm_notes_edited(self, _event=None) -> None:
+        """Allinea le note DM digitate manualmente prima che lo Studio rigeneri il blocco segreti."""
+        if not hasattr(self, "txt_dm_notes"):
+            return
+        cur_txt = self.txt_dm_notes.get("1.0", tk.END).strip()
+        self.campaign.dm_notes = cur_txt
+        self._last_synced_dm_notes = cur_txt
+
+    def _sync_dm_notes_bidirectional(self) -> None:
+        """Unisce eventuali note manuali non ancora salvate in txt_dm_notes con i segreti generati dallo Studio."""
+        if not hasattr(self, "txt_dm_notes"):
+            return
+        from common.campaign_script import merge_dm_notes_sections
+        widget_txt = self.txt_dm_notes.get("1.0", tk.END).strip()
+        last_synced = getattr(self, "_last_synced_dm_notes", widget_txt)
+        camp_txt = (self.campaign.dm_notes or "").strip()
+        if widget_txt != last_synced:
+            merged = merge_dm_notes_sections(widget_txt, camp_txt)
+        else:
+            merged = camp_txt
+        self.campaign.dm_notes = merged
+        if widget_txt != merged:
+            self.txt_dm_notes.delete("1.0", tk.END)
+            self.txt_dm_notes.insert("1.0", merged)
+        self._last_synced_dm_notes = merged
+
+    def _on_studio_inspect_entity(self, node_type: str, node: Any):
+        """Apre il pannello o editor avanzato appropriato per il nodo selezionato nello Studio."""
+        title = getattr(node, "title", "") or ""
+        if node_type == "scene":
+            self.assign_map_to_scene_name(title)
+        elif node_type == "encounter":
+            self.edit_encounter_by_name(title)
+        elif node_type == "npc":
+            self.edit_npc_by_name(title)
+        elif node_type == "quest":
+            self.studio_frame.open_entity_tab("quests")
+            for idx, q in enumerate(self.campaign.quests):
+                if q.get("title", "").lower() == title.lower():
+                    self.tree_quests.selection_set(str(idx))
+                    self.edit_quest_dialog()
+                    return
+        elif node_type == "lore":
+            self.studio_frame.open_entity_tab("handouts")
+            for idx, h in enumerate(self.campaign.handouts):
+                if h.get("title", "").lower() == title.lower():
+                    self.tree_handouts.selection_set(str(idx))
+                    self.view_handout()
+                    return
+
+    def _sync_macro_after_scene_list_change(self):
+        """Riallinea il flusso macro di Livello 1 dopo modifiche dalla tabella Scene."""
+        from common.campaign_script import ensure_hierarchical_campaign_flows
+        macro_graph = ensure_hierarchical_campaign_flows(self.campaign)
+        self.campaign.flow_graph = macro_graph.to_dict()
+        if hasattr(self, "studio_frame") and self.studio_frame and self.studio_frame.active_scene_name is None:
+            self.studio_frame._load_active_level_into_views(sync_campaign=False)
+        self.refresh_scenes()
 
     # -------------------------------------------------------------
     # TAB 1: GENERALE
@@ -564,6 +714,9 @@ class CampaignEditorFrame(tk.Frame):
                                                      relief="flat", highlightbackground=BORDER_COLOR, highlightthickness=1, wrap=tk.WORD)
         self.txt_dm_notes.insert("1.0", self.campaign.dm_notes)
         self.txt_dm_notes.pack(fill=tk.BOTH, expand=True)
+        self._last_synced_dm_notes = (self.campaign.dm_notes or "").strip()
+        self.txt_dm_notes.bind("<KeyRelease>", self._on_dm_notes_edited, add="+")
+        self.txt_dm_notes.bind("<FocusOut>", self._on_dm_notes_edited, add="+")
 
     def _update_date_preview(self, *args):
         try:
@@ -610,35 +763,38 @@ class CampaignEditorFrame(tk.Frame):
     # -------------------------------------------------------------
     def build_tab_scenes(self, parent):
         top_row = tk.Frame(parent, bg=BG_COLOR)
-        top_row.pack(fill=tk.X, pady=(0, 8))
+        top_row.pack(fill=tk.X, pady=(0, 6))
         
         tk.Label(top_row, text=_t("camp_scenes_list_title", default="Mappe e Scene della Campagna"), font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(side=tk.LEFT)
         ttk.Button(top_row, text=_t("camp_scenes_btn_new", default="+ Collega Nuova Scena / Mappa"), command=self.add_scene_dialog, style="Primary.TButton").pack(side=tk.RIGHT)
         
         tree_frame = tk.Frame(parent, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
-        tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+        tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
         
-        cols = ("Nome", "File Mappa", "Iniziale", "Descrizione")
-        self.tree_scenes = ttk.Treeview(tree_frame, columns=cols, show="headings", height=8)
+        cols = ("Nome", "File Mappa", "Flusso", "Iniziale", "Descrizione")
+        self.tree_scenes = ttk.Treeview(tree_frame, columns=cols, show="headings", height=5)
         self.tree_scenes.heading("Nome", text=_t("camp_scenes_name_lbl", default="Nome Scena"))
         self.tree_scenes.heading("File Mappa", text=_t("camp_scenes_map_lbl", default="File Mappa (.json)"))
+        self.tree_scenes.heading("Flusso", text="Sotto-flusso")
         self.tree_scenes.heading("Iniziale", text=_t("camp_scenes_start_col", default="Partenza"))
         self.tree_scenes.heading("Descrizione", text=_t("camp_scenes_desc_lbl", default="Descrizione / Note"))
         
-        self.tree_scenes.column("Nome", width=180)
-        self.tree_scenes.column("File Mappa", width=220)
-        self.tree_scenes.column("Iniziale", width=80, anchor="center")
-        self.tree_scenes.column("Descrizione", width=320)
+        self.tree_scenes.column("Nome", width=160)
+        self.tree_scenes.column("File Mappa", width=170)
+        self.tree_scenes.column("Flusso", width=130)
+        self.tree_scenes.column("Iniziale", width=70, anchor="center")
+        self.tree_scenes.column("Descrizione", width=250)
         
         sb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree_scenes.yview)
         self.tree_scenes.configure(yscrollcommand=sb.set)
         self.tree_scenes.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         sb.pack(side=tk.RIGHT, fill=tk.Y)
-        self.tree_scenes.bind("<Double-Button-1>", lambda e: self.edit_scene_dialog())
+        self.tree_scenes.bind("<Double-Button-1>", lambda e: self.open_selected_scene_flow())
         
         ctrl_row = tk.Frame(parent, bg=BG_COLOR)
         ctrl_row.pack(fill=tk.X)
-        ttk.Button(ctrl_row, text=_t("camp_scenes_btn_set_start", default="★ Imposta come Mappa Iniziale"), command=self.set_starting_map, style="Gold.TButton").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(ctrl_row, text="↳ Apri Flusso Scena", command=self.open_selected_scene_flow, style="Gold.TButton").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(ctrl_row, text=_t("camp_scenes_btn_set_start", default="★ Imposta come Mappa Iniziale"), command=self.set_starting_map, style="Dark.TButton").pack(side=tk.LEFT, padx=(0, 6))
         ttk.Button(ctrl_row, text=_t("camp_scenes_btn_edit", default="✏️ Modifica Scena"), command=self.edit_scene_dialog, style="Dark.TButton").pack(side=tk.LEFT, padx=(0, 6))
         ttk.Button(ctrl_row, text=_t("camp_scenes_btn_del", default="🗑️ Rimuovi Scena"), command=self.remove_scene, style="Danger.TButton").pack(side=tk.LEFT, padx=(0, 6))
         ttk.Button(ctrl_row, text=_t("camp_scenes_btn_open_map_ed", default="🗺️ Apri Editor Mappe"), command=self.open_map_editor, style="Info.TButton").pack(side=tk.RIGHT)
@@ -646,16 +802,61 @@ class CampaignEditorFrame(tk.Frame):
         self.refresh_scenes()
 
     def refresh_scenes(self):
+        from common.campaign_script import summarize_subflow, get_scene_subflow_graph
         for item in self.tree_scenes.get_children():
             self.tree_scenes.delete(item)
         for idx, sc in enumerate(self.campaign.scenes):
             is_start = "★ SÌ" if sc.get("map_file") == self.campaign.starting_map_file else ""
+            sub_txt = summarize_subflow(get_scene_subflow_graph(sc)).get("summary_text", "")
             self.tree_scenes.insert("", tk.END, iid=str(idx), values=(
                 sc.get("name", "Scena"),
                 sc.get("map_file", ""),
+                sub_txt,
                 is_start,
                 sc.get("description", "")
             ))
+
+    def open_selected_scene_flow(self):
+        sel = self.tree_scenes.selection()
+        if not sel:
+            return
+        idx = int(sel[0])
+        if 0 <= idx < len(self.campaign.scenes) and hasattr(self, "studio_frame") and self.studio_frame:
+            sc_name = self.campaign.scenes[idx].get("name", "")
+            if sc_name:
+                self.studio_frame.enter_scene(sc_name)
+
+    def assign_map_to_scene_name(self, scene_name: str):
+        """Apre il selettore file mappa JSON per associarlo alla scena indicata."""
+        map_file = filedialog.askopenfilename(
+            title=f"Seleziona mappa JSON per '{scene_name}'",
+            initialdir=os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "maps")),
+            filetypes=[("Mappe JSON", "*.json"), ("Tutti i file", "*.*")],
+            parent=self
+        )
+        if not map_file:
+            return
+        proj_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+        try:
+            rel_map = os.path.relpath(map_file, proj_root).replace("\\", "/")
+        except Exception:
+            rel_map = map_file
+        sc = self.campaign.ensure_scene_entry(scene_name, map_file=rel_map)
+        sc["map_file"] = rel_map
+        if hasattr(self, "studio_frame") and self.studio_frame:
+            from common.campaign_script import FlowGraph
+            raw_fg = getattr(self.campaign, "flow_graph", None)
+            if isinstance(raw_fg, dict) and raw_fg.get("nodes"):
+                fg = FlowGraph.from_dict(raw_fg)
+                sn = fg.get_node_by_title(scene_name)
+                if sn:
+                    sn.data["map_file"] = rel_map
+                    self.campaign.flow_graph = fg.to_dict()
+                    if self.studio_frame.active_scene_name is None:
+                        self.studio_frame._load_active_level_into_views(sync_campaign=True)
+                    else:
+                        self.studio_frame._update_level_chrome()
+        self.refresh_scenes()
 
     def add_scene_dialog(self):
         name = simpledialog.askstring("Nuova Scena", "Nome identificativo della scena (es. 'Taverna del Cinghiale'):", parent=self)
@@ -678,19 +879,49 @@ class CampaignEditorFrame(tk.Frame):
             
         desc = simpledialog.askstring("Descrizione", "Note della scena per il DM:", initialvalue="", parent=self) or ""
         self.campaign.add_scene(name.strip(), rel_map, desc.strip())
-        self.refresh_scenes()
+        self._sync_macro_after_scene_list_change()
 
     def edit_scene_dialog(self):
         sel = self.tree_scenes.selection()
         if not sel: return
         idx = int(sel[0])
         sc = self.campaign.scenes[idx]
-        new_name = simpledialog.askstring("Modifica Scena", "Nome della scena:", initialvalue=sc.get("name"), parent=self)
-        if not new_name: return
+        old_name = sc.get("name", "")
+        new_name = simpledialog.askstring("Modifica Scena", "Nome della scena:", initialvalue=old_name, parent=self)
+        if not new_name or not new_name.strip(): return
         new_desc = simpledialog.askstring("Descrizione", "Descrizione:", initialvalue=sc.get("description"), parent=self) or ""
-        sc["name"] = new_name.strip()
+        new_clean = new_name.strip()
+        sc["name"] = new_clean
         sc["description"] = new_desc.strip()
-        self.refresh_scenes()
+
+        # Propaga eventuale rinomina ai nodi del FlowGraph macro e ai sotto-flussi delle altre scene
+        if old_name and new_clean != old_name:
+            old_low = old_name.strip().lower()
+            from common.campaign_script import FlowGraph, get_scene_subflow_graph, save_scene_subflow
+            raw_fg = getattr(self.campaign, "flow_graph", None)
+            if isinstance(raw_fg, dict) and raw_fg.get("nodes"):
+                fg = FlowGraph.from_dict(raw_fg)
+                changed_fg = False
+                for n in fg.nodes.values():
+                    if n.node_type == "scene" and n.title.strip().lower() == old_low:
+                        n.title = new_clean
+                        changed_fg = True
+                if changed_fg:
+                    self.campaign.flow_graph = fg.to_dict()
+            for other_sc in getattr(self.campaign, "scenes", []) or []:
+                sub_g = get_scene_subflow_graph(other_sc)
+                sub_changed = False
+                for n in sub_g.nodes.values():
+                    if n.node_type == "exit" and str(n.data.get("target_scene", "")).strip().lower() == old_low:
+                        n.data["target_scene"] = new_clean
+                        sub_changed = True
+                if sub_changed:
+                    save_scene_subflow(other_sc, sub_g)
+
+        if hasattr(self, "studio_frame") and self.studio_frame and self.studio_frame.active_scene_name == old_name:
+            self.studio_frame.active_scene_name = sc["name"]
+            self.studio_frame._update_level_chrome()
+        self._sync_macro_after_scene_list_change()
 
     def set_starting_map(self):
         sel = self.tree_scenes.selection()
@@ -705,7 +936,21 @@ class CampaignEditorFrame(tk.Frame):
         sel = self.tree_scenes.selection()
         if not sel: return
         idx = int(sel[0])
-        self.campaign.scenes.pop(idx)
+        removed = self.campaign.scenes.pop(idx)
+        rem_name = str(removed.get("name", "")).strip().lower()
+        from common.campaign_script import FlowGraph
+        raw_fg = getattr(self.campaign, "flow_graph", None)
+        if rem_name and isinstance(raw_fg, dict) and raw_fg.get("nodes"):
+            fg = FlowGraph.from_dict(raw_fg)
+            rm_ids = [nid for nid, n in fg.nodes.items() if n.node_type == "scene" and n.title.strip().lower() == rem_name]
+            for nid in rm_ids:
+                del fg.nodes[nid]
+            fg.edges = [e for e in fg.edges if e.from_id not in rm_ids and e.to_id not in rm_ids]
+            self.campaign.flow_graph = fg.to_dict()
+        if hasattr(self, "studio_frame") and self.studio_frame:
+            if self.studio_frame.active_scene_name and self.studio_frame.active_scene_name.lower() == rem_name:
+                self.studio_frame.active_scene_name = None
+            self.studio_frame._load_active_level_into_views(sync_campaign=True)
         self.refresh_scenes()
 
     def open_map_editor(self):
@@ -729,7 +974,7 @@ class CampaignEditorFrame(tk.Frame):
         tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
         
         cols = ("Nome", "Atto / Capitolo", "N. Mostri", "Dettaglio Mostri", "Descrizione")
-        self.tree_enc = ttk.Treeview(tree_frame, columns=cols, show="headings", height=8)
+        self.tree_enc = ttk.Treeview(tree_frame, columns=cols, show="headings", height=5)
         self.tree_enc.heading("Nome", text=_t("camp_enc_col_name", default="Nome Incontro"))
         self.tree_enc.heading("Atto / Capitolo", text=_t("camp_enc_col_act", default="Atto"))
         self.tree_enc.heading("N. Mostri", text=_t("camp_enc_col_monsters", default="Mostri"))
@@ -750,6 +995,7 @@ class CampaignEditorFrame(tk.Frame):
         
         ctrl_row = tk.Frame(parent, bg=BG_COLOR)
         ctrl_row.pack(fill=tk.X)
+        ttk.Button(ctrl_row, text=_t("camp_btn_inject_flow", default="➕ Inserisci nella Scena"), command=self.inject_selected_encounter_to_flow, style="Gold.TButton").pack(side=tk.LEFT, padx=(0, 6))
         ttk.Button(ctrl_row, text=_t("camp_enc_btn_edit", default="✏️ Modifica Incontro"), command=self.edit_encounter_dialog, style="Dark.TButton").pack(side=tk.LEFT, padx=(0, 6))
         ttk.Button(ctrl_row, text=_t("camp_enc_btn_del", default="🗑️ Rimuovi Incontro"), command=self.remove_encounter, style="Danger.TButton").pack(side=tk.LEFT, padx=(0, 6))
         
@@ -758,13 +1004,54 @@ class CampaignEditorFrame(tk.Frame):
             
         self.refresh_encounters()
 
+    def inject_selected_encounter_to_flow(self):
+        sel = self.tree_enc.selection()
+        if not sel or not hasattr(self, "studio_frame"):
+            return
+        idx = int(sel[0])
+        enc = self.campaign.encounters[idx]
+        monsters = [
+            {
+                "qty": int(m.get("qty", m.get("count", m.get("quantity", 1)))),
+                "name": m.get("name", "Mostro"),
+            }
+            for m in enc.get("monsters", [])
+        ]
+        node_data: Dict[str, Any] = {}
+        if monsters:
+            node_data["monsters"] = monsters
+        if enc.get("description"):
+            node_data["read_aloud"] = enc["description"]
+        if enc.get("loot"):
+            node_data["loot"] = enc["loot"]
+        self.studio_frame.inject_entity_into_scene(
+            "encounter", enc.get("name", "Incontro"), node_data, target_scene_name=enc.get("scene")
+        )
+
+    def edit_encounter_by_name(self, name: str):
+        target = str(name or "").strip().lower()
+        found_idx = None
+        for idx, enc in enumerate(self.campaign.encounters):
+            if enc.get("name", "").strip().lower() == target:
+                found_idx = idx
+                break
+        if found_idx is None:
+            self.campaign.add_encounter(name, [])
+            found_idx = len(self.campaign.encounters) - 1
+            self.refresh_encounters()
+        self.tree_enc.selection_set(str(found_idx))
+        self.edit_encounter_dialog()
+
     def refresh_encounters(self):
         for item in self.tree_enc.get_children():
             self.tree_enc.delete(item)
         for idx, enc in enumerate(self.campaign.encounters):
             monsters = enc.get("monsters", [])
-            tot_count = sum(m.get("count", 1) for m in monsters)
-            summary = ", ".join(f"{m.get('name')} (x{m.get('count', 1)})" for m in monsters[:3])
+            def _mq(mon):
+                try: return max(1, int(mon.get("qty", mon.get("count", mon.get("quantity", 1))) or 1))
+                except (ValueError, TypeError): return 1
+            tot_count = sum(_mq(m) for m in monsters)
+            summary = ", ".join(f"{m.get('name')} (x{_mq(m)})" for m in monsters[:3])
             if len(monsters) > 3: summary += f" + altri {len(monsters)-3}"
             self.tree_enc.insert("", tk.END, iid=str(idx), values=(
                 enc.get("name", "Incontro"),
@@ -810,9 +1097,13 @@ class CampaignEditorFrame(tk.Frame):
             
         added = []
         for m in monsters:
-            for i in range(m.get("count", 1)):
+            try:
+                qty_val = max(1, int(m.get("qty", m.get("count", m.get("quantity", 1))) or 1))
+            except (ValueError, TypeError):
+                qty_val = 1
+            for i in range(qty_val):
                 name = m.get("name", "Mostro")
-                if m.get("count", 1) > 1:
+                if qty_val > 1:
                     name = f"{name} {i+1}"
                 # Evita duplicati di nome
                 base_name = name
@@ -837,6 +1128,7 @@ class CampaignEditorFrame(tk.Frame):
                 npc.initiative = int(init_val) if init_val is not None else (dex_val - 10) // 2
                 npc.initiative_bonus = npc.initiative
                 ac = normalize_ac_value(m.get("ac", m.get("armor_class", sheet_src.get("ac", sheet_src.get("armor_class", 10)))))
+                npc.ac = ac
                 speed_val, speed_disp, speed_unit = normalize_speed_value(m.get("speed", sheet_src.get("speed", 30)))
                 npc.speed = speed_val
                 npc.speed_unit = speed_unit
@@ -880,7 +1172,7 @@ class CampaignEditorFrame(tk.Frame):
         tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
         
         cols = ("Titolo", "Capitolo", "Ricompensa XP", "Ricompensa MO", "Descrizione")
-        self.tree_quests = ttk.Treeview(tree_frame, columns=cols, show="headings", height=8)
+        self.tree_quests = ttk.Treeview(tree_frame, columns=cols, show="headings", height=5)
         self.tree_quests.heading("Titolo", text=_t("camp_quests_name_lbl", default="Titolo Missione"))
         self.tree_quests.heading("Capitolo", text=_t("camp_quests_act_col", default="Capitolo / Atto"))
         self.tree_quests.heading("Ricompensa XP", text=_t("camp_quests_xp_lbl", default="XP"))
@@ -901,10 +1193,29 @@ class CampaignEditorFrame(tk.Frame):
         
         ctrl_row = tk.Frame(parent, bg=BG_COLOR)
         ctrl_row.pack(fill=tk.X)
+        ttk.Button(ctrl_row, text=_t("camp_btn_inject_flow", default="➕ Inserisci nella Scena"), command=self.inject_selected_quest_to_flow, style="Gold.TButton").pack(side=tk.LEFT, padx=(0, 6))
         ttk.Button(ctrl_row, text=_t("camp_quests_btn_edit", default="✏️ Modifica Missione"), command=self.edit_quest_dialog, style="Dark.TButton").pack(side=tk.LEFT, padx=(0, 6))
         ttk.Button(ctrl_row, text=_t("camp_quests_btn_del", default="🗑️ Rimuovi Missione"), command=self.remove_quest, style="Danger.TButton").pack(side=tk.LEFT, padx=(0, 6))
         
         self.refresh_quests()
+
+    def inject_selected_quest_to_flow(self):
+        sel = self.tree_quests.selection()
+        if not sel or not hasattr(self, "studio_frame"):
+            return
+        idx = int(sel[0])
+        q = self.campaign.quests[idx]
+        node_data: Dict[str, Any] = {}
+        if q.get("description"):
+            node_data["read_aloud"] = q["description"]
+        if q.get("objectives"):
+            node_data["objectives"] = list(q["objectives"])
+        rew = q.get("rewards")
+        if isinstance(rew, dict) and rew.get("xp"):
+            node_data["xp"] = rew["xp"]
+        self.studio_frame.inject_entity_into_scene(
+            "quest", q.get("title", "Missione"), node_data, target_scene_name=q.get("scene")
+        )
 
     def refresh_quests(self):
         for item in self.tree_quests.get_children():
@@ -955,11 +1266,18 @@ class CampaignEditorFrame(tk.Frame):
         self.refresh_quests()
 
     # -------------------------------------------------------------
-    # TAB 5: PNG & FAZIONI
+    # TAB PNG & FAZIONI (Collassati nello Studio)
     # -------------------------------------------------------------
     def build_tab_npcs(self, parent):
-        top_row = tk.Frame(parent, bg=BG_COLOR)
-        top_row.pack(fill=tk.X, pady=(0, 8))
+        paned = tk.PanedWindow(parent, orient=tk.HORIZONTAL, bg=BG_COLOR, sashrelief="flat", sashwidth=5)
+        paned.pack(fill=tk.BOTH, expand=True)
+
+        # Pannello Sinistro: PNG Chiave
+        npc_panel = tk.Frame(paned, bg=BG_COLOR)
+        paned.add(npc_panel, minsize=340)
+
+        top_row = tk.Frame(npc_panel, bg=BG_COLOR)
+        top_row.pack(fill=tk.X, pady=(0, 6))
         
         tk.Label(top_row, text=_t("camp_npcs_title", default="Personaggi Non Giocanti (PNG) Chiave"), font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(side=tk.LEFT)
         btn_box = tk.Frame(top_row, bg=BG_COLOR)
@@ -967,11 +1285,11 @@ class CampaignEditorFrame(tk.Frame):
         ttk.Button(btn_box, text=_t("camp_handouts_btn_comp", default="📖 Aggiungi da Compendio..."), command=self.add_npc_from_compendium, style="Gold.TButton").pack(side=tk.RIGHT, padx=(4, 0))
         ttk.Button(btn_box, text=_t("camp_npcs_btn_new", default="+ Nuovo PNG Manuale"), command=self.add_npc_dialog, style="Primary.TButton").pack(side=tk.RIGHT)
         
-        tree_frame = tk.Frame(parent, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
-        tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
+        tree_frame = tk.Frame(npc_panel, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
         
         cols = ("Nome", "Ruolo", "Fazione", "HP", "CA", "Note Private")
-        self.tree_npcs = ttk.Treeview(tree_frame, columns=cols, show="headings", height=8)
+        self.tree_npcs = ttk.Treeview(tree_frame, columns=cols, show="headings", height=5)
         self.tree_npcs.heading("Nome", text=_t("camp_npcs_name_lbl", default="Nome PNG"))
         self.tree_npcs.heading("Ruolo", text=_t("camp_npcs_role_lbl", default="Ruolo / Professione"))
         self.tree_npcs.heading("Fazione", text=_t("camp_npcs_align_lbl", default="Fazione / Allineamento"))
@@ -979,12 +1297,12 @@ class CampaignEditorFrame(tk.Frame):
         self.tree_npcs.heading("CA", text="CA")
         self.tree_npcs.heading("Note Private", text=_t("camp_npcs_notes_lbl", default="Note DM & Segreti"))
         
-        self.tree_npcs.column("Nome", width=180)
-        self.tree_npcs.column("Ruolo", width=160)
-        self.tree_npcs.column("Fazione", width=130)
-        self.tree_npcs.column("HP", width=60, anchor="center")
-        self.tree_npcs.column("CA", width=60, anchor="center")
-        self.tree_npcs.column("Note Private", width=280)
+        self.tree_npcs.column("Nome", width=140)
+        self.tree_npcs.column("Ruolo", width=120)
+        self.tree_npcs.column("Fazione", width=110)
+        self.tree_npcs.column("HP", width=45, anchor="center")
+        self.tree_npcs.column("CA", width=45, anchor="center")
+        self.tree_npcs.column("Note Private", width=180)
         
         sb = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.tree_npcs.yview)
         self.tree_npcs.configure(yscrollcommand=sb.set)
@@ -992,8 +1310,9 @@ class CampaignEditorFrame(tk.Frame):
         sb.pack(side=tk.RIGHT, fill=tk.Y)
         self.tree_npcs.bind("<Double-Button-1>", lambda e: self.edit_npc_dialog())
         
-        ctrl_row = tk.Frame(parent, bg=BG_COLOR)
+        ctrl_row = tk.Frame(npc_panel, bg=BG_COLOR)
         ctrl_row.pack(fill=tk.X)
+        ttk.Button(ctrl_row, text=_t("camp_btn_inject_flow", default="➕ Inserisci nella Scena"), command=self.inject_selected_npc_to_flow, style="Gold.TButton").pack(side=tk.LEFT, padx=(0, 6))
         ttk.Button(ctrl_row, text=_t("camp_npcs_btn_edit", default="✏️ Modifica PNG"), command=self.edit_npc_dialog, style="Dark.TButton").pack(side=tk.LEFT, padx=(0, 6))
         ttk.Button(ctrl_row, text=_t("camp_npcs_btn_del", default="🗑️ Rimuovi PNG"), command=self.remove_npc, style="Danger.TButton").pack(side=tk.LEFT, padx=(0, 6))
         
@@ -1001,6 +1320,130 @@ class CampaignEditorFrame(tk.Frame):
             ttk.Button(ctrl_row, text=_t("camp_npcs_btn_spawn", default="⚡ Spawna Token sulla Mappa"), command=self.spawn_selected_npc, style="Gold.TButton").pack(side=tk.RIGHT)
             
         self.refresh_npcs()
+
+        # Pannello Destro: Fazioni & Organizzazioni
+        fac_panel = tk.Frame(paned, bg=BG_COLOR)
+        paned.add(fac_panel, minsize=250)
+
+        f_top = tk.Frame(fac_panel, bg=BG_COLOR)
+        f_top.pack(fill=tk.X, pady=(0, 6))
+        tk.Label(f_top, text=_t("camp_factions_title", default="Fazioni & Organizzazioni"), font=FONT_HEADER, bg=BG_COLOR, fg=ACCENT_GOLD).pack(side=tk.LEFT)
+        ttk.Button(f_top, text=_t("camp_factions_btn_new", default="+ Nuova Fazione"), command=self.add_faction_dialog, style="Primary.TButton").pack(side=tk.RIGHT)
+
+        f_tree_frame = tk.Frame(fac_panel, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        f_tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 6))
+
+        f_cols = ("Nome", "Allineamento", "Rep", "Descrizione")
+        self.tree_factions = ttk.Treeview(f_tree_frame, columns=f_cols, show="headings", height=5)
+        self.tree_factions.heading("Nome", text="Fazione")
+        self.tree_factions.heading("Allineamento", text="Allineamento")
+        self.tree_factions.heading("Rep", text="Rep")
+        self.tree_factions.heading("Descrizione", text="Sede / Note")
+        self.tree_factions.column("Nome", width=120)
+        self.tree_factions.column("Allineamento", width=95)
+        self.tree_factions.column("Rep", width=40, anchor="center")
+        self.tree_factions.column("Descrizione", width=150)
+
+        f_sb = ttk.Scrollbar(f_tree_frame, orient=tk.VERTICAL, command=self.tree_factions.yview)
+        self.tree_factions.configure(yscrollcommand=f_sb.set)
+        self.tree_factions.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        f_sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree_factions.bind("<Double-Button-1>", lambda e: self.edit_faction_dialog())
+
+        f_ctrl = tk.Frame(fac_panel, bg=BG_COLOR)
+        f_ctrl.pack(fill=tk.X)
+        ttk.Button(f_ctrl, text=_t("camp_factions_btn_edit", default="✏️ Modifica Fazione"), command=self.edit_faction_dialog, style="Dark.TButton").pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(f_ctrl, text=_t("camp_factions_btn_del", default="🗑️ Rimuovi Fazione"), command=self.remove_faction, style="Danger.TButton").pack(side=tk.LEFT)
+
+        self.refresh_factions()
+
+    def refresh_factions(self):
+        if not hasattr(self, "tree_factions"):
+            return
+        for item in self.tree_factions.get_children():
+            self.tree_factions.delete(item)
+        for idx, fac in enumerate(getattr(self.campaign, "factions", [])):
+            if not isinstance(fac, dict):
+                continue
+            desc = fac.get("headquarters", "")
+            if fac.get("description"):
+                desc = f"{desc} • {fac['description']}".strip(" •")
+            self.tree_factions.insert("", tk.END, iid=str(idx), values=(
+                fac.get("name", "Fazione"),
+                fac.get("alignment", "Neutrale"),
+                str(fac.get("reputation", 0)),
+                desc,
+            ))
+
+    def add_faction_dialog(self):
+        name = simpledialog.askstring("Nuova Fazione", "Nome fazione / gilda:", parent=self)
+        if not name or not name.strip():
+            return
+        align = simpledialog.askstring("Allineamento", "Allineamento prevalente:", initialvalue="Neutrale", parent=self) or "Neutrale"
+        hq = simpledialog.askstring("Sede Principale", "Sede o Scena di riferimento:", initialvalue="", parent=self) or ""
+        desc = simpledialog.askstring("Descrizione", "Obiettivi, alleati e segreti:", initialvalue="", parent=self) or ""
+        rep = simpledialog.askinteger("Reputazione Partito", "Reputazione iniziale (-5..+5):", initialvalue=0, parent=self) or 0
+        self.campaign.add_faction(name.strip(), alignment=align.strip(), headquarters=hq.strip(), description=desc.strip(), reputation=rep)
+        self.refresh_factions()
+
+    def edit_faction_dialog(self):
+        sel = self.tree_factions.selection()
+        if not sel:
+            return
+        idx = int(sel[0])
+        fac = self.campaign.factions[idx]
+        new_name = simpledialog.askstring("Modifica Fazione", "Nome:", initialvalue=fac.get("name", ""), parent=self)
+        if not new_name:
+            return
+        fac["name"] = new_name.strip()
+        fac["alignment"] = simpledialog.askstring("Allineamento", "Allineamento:", initialvalue=fac.get("alignment", "Neutrale"), parent=self) or "Neutrale"
+        fac["headquarters"] = simpledialog.askstring("Sede", "Sede principale:", initialvalue=fac.get("headquarters", ""), parent=self) or ""
+        fac["description"] = simpledialog.askstring("Descrizione", "Descrizione:", initialvalue=fac.get("description", ""), parent=self) or ""
+        rep = simpledialog.askinteger("Reputazione", "Reputazione:", initialvalue=int(fac.get("reputation", 0)), parent=self)
+        if rep is not None:
+            fac["reputation"] = rep
+        self.refresh_factions()
+
+    def remove_faction(self):
+        sel = self.tree_factions.selection()
+        if not sel:
+            return
+        idx = int(sel[0])
+        self.campaign.factions.pop(idx)
+        self.refresh_factions()
+
+    def inject_selected_npc_to_flow(self):
+        sel = self.tree_npcs.selection()
+        if not sel or not hasattr(self, "studio_frame"):
+            return
+        idx = int(sel[0])
+        npc = self.campaign.npcs[idx]
+        node_data: Dict[str, Any] = {}
+        if npc.get("role"):
+            node_data["role"] = npc["role"]
+        if npc.get("alignment"):
+            node_data["alignment"] = npc["alignment"]
+        if npc.get("faction"):
+            node_data["faction"] = npc["faction"]
+        if npc.get("notes"):
+            node_data["read_aloud"] = npc["notes"]
+        self.studio_frame.inject_entity_into_scene(
+            "npc", npc.get("name", "PNG"), node_data, target_scene_name=npc.get("scene")
+        )
+
+    def edit_npc_by_name(self, name: str):
+        target = str(name or "").strip().lower()
+        found_idx = None
+        for idx, npc in enumerate(self.campaign.npcs):
+            if npc.get("name", "").strip().lower() == target:
+                found_idx = idx
+                break
+        if found_idx is None:
+            self.campaign.add_npc(name=name, role="Comune")
+            found_idx = len(self.campaign.npcs) - 1
+            self.refresh_npcs()
+        self.tree_npcs.selection_set(str(found_idx))
+        self.edit_npc_dialog()
 
     def refresh_npcs(self):
         for item in self.tree_npcs.get_children():
@@ -1160,7 +1603,7 @@ class CampaignEditorFrame(tk.Frame):
         tree_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
         
         cols = ("Titolo", "Tipo", "Dettaglio / Contenuto")
-        self.tree_handouts = ttk.Treeview(tree_frame, columns=cols, show="headings", height=8)
+        self.tree_handouts = ttk.Treeview(tree_frame, columns=cols, show="headings", height=5)
         self.tree_handouts.heading("Titolo", text=_t("camp_handouts_name_lbl", default="Titolo"))
         self.tree_handouts.heading("Tipo", text=_t("camp_handouts_type_col", default="Tipo"))
         self.tree_handouts.heading("Dettaglio / Contenuto", text=_t("camp_handouts_content_col", default="Contenuto o Percorso"))
@@ -1177,6 +1620,7 @@ class CampaignEditorFrame(tk.Frame):
         
         ctrl_row = tk.Frame(parent, bg=BG_COLOR)
         ctrl_row.pack(fill=tk.X)
+        ttk.Button(ctrl_row, text=_t("camp_btn_inject_flow", default="➕ Inserisci nella Scena"), command=self.inject_selected_handout_to_flow, style="Gold.TButton").pack(side=tk.LEFT, padx=(0, 6))
         ttk.Button(ctrl_row, text=_t("camp_handouts_btn_view", default="👁 Visualizza / Modifica"), command=self.view_handout, style="Dark.TButton").pack(side=tk.LEFT, padx=(0, 6))
         ttk.Button(ctrl_row, text=_t("camp_handouts_btn_del", default="🗑️ Rimuovi Handout"), command=self.remove_handout, style="Danger.TButton").pack(side=tk.LEFT, padx=(0, 6))
         
@@ -1184,6 +1628,22 @@ class CampaignEditorFrame(tk.Frame):
             ttk.Button(ctrl_row, text=_t("camp_handouts_btn_reveal", default="📢 Rivela ai Giocatori Connessi"), command=self.broadcast_selected_handout, style="Gold.TButton").pack(side=tk.RIGHT)
             
         self.refresh_handouts()
+
+    def inject_selected_handout_to_flow(self):
+        sel = self.tree_handouts.selection()
+        if not sel or not hasattr(self, "studio_frame"):
+            return
+        idx = int(sel[0])
+        h = self.campaign.handouts[idx]
+        node_data: Dict[str, Any] = {}
+        txt = h.get("content") or h.get("description") or ""
+        if txt:
+            node_data["read_aloud"] = txt[:180]
+        if h.get("image_path"):
+            node_data["map_file"] = h["image_path"]
+        self.studio_frame.inject_entity_into_scene(
+            "lore", h.get("title", "Handout"), node_data, target_scene_name=h.get("scene")
+        )
 
     def refresh_handouts(self):
         for item in self.tree_handouts.get_children():
@@ -1331,9 +1791,13 @@ class CampaignEditorFrame(tk.Frame):
 
     def sync_campaign_data(self):
         """Sincronizza le modifiche della UI nell'oggetto Campaign."""
+        if hasattr(self, "txt_dm_notes"):
+            cur_notes = self.txt_dm_notes.get("1.0", tk.END).strip()
+            self.campaign.dm_notes = cur_notes
+            self._last_synced_dm_notes = cur_notes
         if hasattr(self, "studio_frame") and self.studio_frame:
             try:
-                self.studio_frame.sync_text_to_canvas()
+                self.studio_frame.save_all_levels()
             except Exception as e:
                 print(f"[CAMPAIGN] Errore sync studio_frame: {e}")
         self.campaign.name = self.ent_title.get().strip() or "Campagna Senza Nome"
@@ -1349,7 +1813,7 @@ class CampaignEditorFrame(tk.Frame):
         except ValueError:
             pass
         self.campaign.description = self.txt_synopsis.get("1.0", tk.END).strip()
-        self.campaign.dm_notes = self.txt_dm_notes.get("1.0", tk.END).strip()
+        self._sync_dm_notes_bidirectional()
         if hasattr(self, "ent_folder_path"):
             custom_folder = self.ent_folder_path.get().strip()
             if custom_folder:
@@ -1431,6 +1895,7 @@ class CampaignEditorFrame(tk.Frame):
         if hasattr(self, "txt_dm_notes"):
             self.txt_dm_notes.delete("1.0", tk.END)
             self.txt_dm_notes.insert("1.0", self.campaign.dm_notes or "")
+            self._last_synced_dm_notes = (self.campaign.dm_notes or "").strip()
 
         if hasattr(self, "studio_frame") and self.studio_frame:
             self.studio_frame.set_campaign(self.campaign)
@@ -1439,7 +1904,9 @@ class CampaignEditorFrame(tk.Frame):
         self.refresh_encounters()
         self.refresh_quests()
         self.refresh_npcs()
+        self.refresh_factions()
         self.refresh_handouts()
+        self._mark_clean()
 
     def load_campaign_dialog(self):
         """Apre il selettore campagne per caricare una campagna esistente (dalla libreria o da disco) nell'editor."""
@@ -1465,7 +1932,7 @@ class CampaignEditorFrame(tk.Frame):
         )
         dlg_ref["dlg"] = dlg
 
-    def save_campaign(self):
+    def save_campaign(self, silent: bool = False) -> bool:
         self.sync_campaign_data()
         try:
             target_dir = self.campaign.folder_path
@@ -1478,13 +1945,17 @@ class CampaignEditorFrame(tk.Frame):
                 self.ent_folder_path.delete(0, tk.END)
                 self.ent_folder_path.insert(0, folder)
             self.title(f"D&D OmniCompanion • Preparazione Campagna: {self.campaign.name}")
-            messagebox.showinfo("Campagna Salvata", f"Campagna '{self.campaign.name}' salvata con successo in:\n{folder}", parent=self)
+            self._mark_clean()
+            if not silent:
+                messagebox.showinfo("Campagna Salvata", f"Campagna '{self.campaign.name}' salvata con successo in:\n{folder}", parent=self)
             if self.on_save_callback:
                 self.on_save_callback(self.campaign)
+            return True
         except Exception as e:
             messagebox.showerror("Errore Salvataggio", f"Impossibile salvare la campagna: {e}", parent=self)
+            return False
 
-    def save_campaign_as(self):
+    def save_campaign_as(self) -> bool:
         self.sync_campaign_data()
         from common.campaign import DEFAULT_CAMPAIGNS_DIR
         initial_dir = self.campaign.folder_path or DEFAULT_CAMPAIGNS_DIR
@@ -1496,24 +1967,40 @@ class CampaignEditorFrame(tk.Frame):
             parent=self
         )
         if not selected:
-            return
+            return False
         try:
             selected_abs = os.path.abspath(selected)
             manifest_path = os.path.join(selected_abs, "campaign.json")
             if os.path.exists(manifest_path):
                 if not messagebox.askyesno("Conferma Sovrascrittura", f"Nella cartella selezionata è già presente un file 'campaign.json':\n{selected_abs}\n\nVuoi sovrascriverlo con questa campagna?", parent=self):
-                    return
+                    return False
             folder = self.campaign.save(target_folder=selected_abs)
             self.is_custom_folder_path = True
             if hasattr(self, "ent_folder_path"):
                 self.ent_folder_path.delete(0, tk.END)
                 self.ent_folder_path.insert(0, folder)
             self.title(f"D&D OmniCompanion • Preparazione Campagna: {self.campaign.name}")
+            self._mark_clean()
             messagebox.showinfo("Campagna Salvata", f"Campagna '{self.campaign.name}' salvata con successo in:\n{folder}", parent=self)
             if self.on_save_callback:
                 self.on_save_callback(self.campaign)
+            return True
         except Exception as e:
             messagebox.showerror("Errore Salvataggio", f"Impossibile salvare la campagna: {e}", parent=self)
+            return False
+
+    def launch_campaign_session(self):
+        """Salva (se necessario o non ancora salvata su disco) e avvia direttamente la sessione DM."""
+        if not self.on_launch_callback:
+            return
+        target_dir = self.campaign.folder_path
+        manifest_exists = bool(target_dir and os.path.exists(os.path.join(target_dir, "campaign.json")))
+        if self._has_unsaved_changes() or not manifest_exists:
+            if not self.save_campaign(silent=True):
+                return
+        else:
+            self.sync_campaign_data()
+        self.on_launch_callback(self.campaign)
 
     # -------------------------------------------------------------
     # METODI IMPORTAZIONE DAL COMPENDIO 5E
@@ -1741,8 +2228,18 @@ class CampaignEditorFrame(tk.Frame):
                     cur_tab = self.notebook.tab(self.notebook.select(), "text")
                 except Exception:
                     pass
+                # Controlla anche la sottoscheda attiva nel drawer dello Studio unificato
+                studio_sub_tab = ""
+                if hasattr(self, "studio_frame") and hasattr(self.studio_frame, "entity_notebook"):
+                    try:
+                        studio_sub_tab = self.studio_frame.entity_notebook.tab(
+                            self.studio_frame.entity_notebook.select(), "text"
+                        )
+                    except Exception:
+                        pass
+                effective_tab = (studio_sub_tab if ("flusso" in cur_tab.lower() or "flow" in cur_tab.lower()) else cur_tab) or cur_tab
 
-                if "incontri" in cur_tab.lower() or ("mostri" in cat_lower and "png" not in cur_tab.lower()):
+                if "incontri" in effective_tab.lower() or "encounters" in effective_tab.lower() or ("mostri" in cat_lower and "png" not in effective_tab.lower()):
                     name = item_data.get("name", "Mostro")
                     hp = item_data.get("hit_points", 15)
                     dex = item_data.get("dexterity", 10)
@@ -1755,11 +2252,11 @@ class CampaignEditorFrame(tk.Frame):
                     })
                     self.refresh_encounters()
                     messagebox.showinfo("Incontro Aggiornato", f"'{name}' aggiunto all'ultimo incontro preparato!", parent=self)
-                elif "png" in cur_tab.lower():
+                elif "png" in effective_tab.lower() or "npc" in effective_tab.lower():
                     self._import_npc_data(item_data, category)
-                elif "handout" in cur_tab.lower() or "regole" in cat_lower:
+                elif "handout" in effective_tab.lower() or "regole" in cat_lower:
                     self._import_handout_data(item_data, category)
-                elif "generale" in cur_tab.lower() or any(k in cat_lower for k in ["equipaggiamento", "armi", "pozioni", "oggetti"]):
+                elif "generale" in effective_tab.lower() or "general" in effective_tab.lower() or any(k in cat_lower for k in ["equipaggiamento", "armi", "pozioni", "oggetti"]):
                     self._import_starter_kit_data(item_data, category)
                 else:
                     self._import_handout_data(item_data, category)
@@ -1959,6 +2456,20 @@ class CampaignSelectorFrame(tk.Frame):
         if self.available_campaigns:
             self.tree_camps.selection_set("0")
             self.on_campaign_selected(None)
+
+    def select_campaign_by_folder(self, folder_path: str) -> bool:
+        """Seleziona una campagna nella lista corrispondente al percorso cartella indicato."""
+        if not folder_path:
+            return False
+        target_abs = os.path.abspath(folder_path)
+        for idx, c_info in enumerate(self.available_campaigns):
+            c_folder = c_info.get("folder_path", "")
+            if c_folder and os.path.abspath(c_folder) == target_abs:
+                self.tree_camps.selection_set(str(idx))
+                self.tree_camps.see(str(idx))
+                self.on_campaign_selected(None)
+                return True
+        return False
 
     def on_campaign_selected(self, event):
         sel = self.tree_camps.selection()

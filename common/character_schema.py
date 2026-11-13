@@ -9,7 +9,7 @@ stats vs attributes, currency vs gp) garantendo retrocompatibilità al 100%.
 """
 
 import copy
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 
 # Mapping Caratteristiche IT <-> EN
 STAT_IT_TO_EN = {

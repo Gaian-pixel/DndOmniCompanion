@@ -110,14 +110,16 @@ def handle_create_aoe_request(data, player, game_state):
                 game_state.log_dm_message(f"[AoE] Errore tiro automatico TS per {p.name}: {e}")
 
 def handle_clear_aoes_request(data, player, game_state):
-    is_dm = (getattr(player, "role", "") == "DM" or getattr(player, "conn", None) is None)
-    if is_dm:
-        game_state.clear_aoes()
-    else:
-        if hasattr(game_state, "active_aoes"):
+    from common.network_utils import is_dm_actor
+    is_dm = is_dm_actor(player)
+    with game_state.lock:
+        if is_dm:
+            game_state.clear_aoes()
+        elif hasattr(game_state, "active_aoes") and player:
             game_state.active_aoes = [a for a in game_state.active_aoes if a.get("caster") != player.name]
             game_state._trigger_gui_update()
-    broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        state_dict = game_state.get_state_dict()
+    broadcast(game_state, make_game_state(state_dict))
 
 def handle_ping_request(data, player, game_state):
     q = data.get("q")
@@ -128,52 +130,50 @@ def handle_ping_request(data, player, game_state):
         game_state.gui_queue.put({"type": "PING_BROADCAST", "payload": {"q": q, "r": r, "color": color}})
 
 
+def _toggle_map_coord_list(game_state, field_name, q, r):
+    """Toggle `[q, r]` inside `game_state.current_map[field_name]` under lock and return update packet."""
+    from common.protocol import make_map_data_update_broadcast
+    with game_state.lock:
+        if not hasattr(game_state, "current_map") or game_state.current_map is None:
+            return None
+        coord_list = game_state.current_map.setdefault(field_name, [])
+        w = [q, r]
+        if w in coord_list:
+            coord_list.remove(w)
+        else:
+            coord_list.append(w)
+        map_snapshot = dict(game_state.current_map)
+    game_state._trigger_gui_update()
+    return make_map_data_update_broadcast(map_snapshot)
+
+
 def handle_toggle_wall_request(data, player, game_state):
-    is_dm = (getattr(player, "role", "") == "DM" or getattr(player, "conn", None) is None)
-    if not is_dm:
-        if getattr(player, "conn", None):
+    from common.network_utils import is_dm_actor
+    if not is_dm_actor(player):
+        if player and getattr(player, "conn", None):
             send_message(player.conn, make_error_reply("Solo il Dungeon Master può modificare i muri sulla mappa."))
         return
     q, r = data.get("q"), data.get("r")
-    if q is None or r is None: return
-    
-    if not hasattr(game_state, "current_map") or game_state.current_map is None:
+    if q is None or r is None:
         return
-        
-    walls = game_state.current_map.setdefault("walls", [])
-    w = [q, r]
-    if w in walls:
-        walls.remove(w)
-    else:
-        walls.append(w)
-        
-    game_state._trigger_gui_update()
-    from common.protocol import make_map_data_update_broadcast
-    broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
+    pkt = _toggle_map_coord_list(game_state, "walls", q, r)
+    if pkt is not None:
+        broadcast(game_state, pkt)
+
 
 def handle_toggle_cover_request(data, player, game_state):
-    is_dm = (getattr(player, "role", "") == "DM" or getattr(player, "conn", None) is None)
-    if not is_dm:
-        if getattr(player, "conn", None):
+    from common.network_utils import is_dm_actor
+    if not is_dm_actor(player):
+        if player and getattr(player, "conn", None):
             send_message(player.conn, make_error_reply("Solo il Dungeon Master può modificare le coperture sulla mappa."))
         return
     q, r = data.get("q"), data.get("r")
     cover_type = data.get("cover_type")
-    if q is None or r is None or not cover_type: return
-    
-    if not hasattr(game_state, "current_map") or game_state.current_map is None:
+    if q is None or r is None or not cover_type:
         return
-        
-    cover_list = game_state.current_map.setdefault(cover_type, [])
-    w = [q, r]
-    if w in cover_list:
-        cover_list.remove(w)
-    else:
-        cover_list.append(w)
-        
-    game_state._trigger_gui_update()
-    from common.protocol import make_map_data_update_broadcast
-    broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
+    pkt = _toggle_map_coord_list(game_state, cover_type, q, r)
+    if pkt is not None:
+        broadcast(game_state, pkt)
 
 def handle_draw_request(data, player, game_state):
     points = data.get("points", [])
@@ -185,20 +185,24 @@ def handle_draw_request(data, player, game_state):
     broadcast(game_state, {"type": "DRAW_BROADCAST", "data": {"points": points, "color": color}})
 
 def handle_clear_drawings_request(data, player, game_state):
-    game_state.drawn_lines = []
-    from common.network_utils import broadcast
+    from common.network_utils import is_dm_actor, broadcast
     from common.protocol import make_clear_drawings_broadcast
+    if not is_dm_actor(player):
+        return
+    with game_state.lock:
+        game_state.drawn_lines = []
     broadcast(game_state, make_clear_drawings_broadcast())
     game_state._trigger_gui_update()
 
 def handle_toggle_door_request(data, player, game_state):
     """Gestisce l'apertura, chiusura o scasso di una porta (D&D 5e)."""
+    from common.network_utils import is_dm_actor
     if not getattr(game_state, "current_map", None):
         return
     q = data.get("q")
     r = data.get("r")
     req_state = data.get("state")
-    is_dm = (player is None or getattr(player, "role", "") == "DM")
+    is_dm = is_dm_actor(player)
     
     doors = game_state.current_map.setdefault("doors", [])
     target_door = None
@@ -297,19 +301,37 @@ def handle_toggle_door_request(data, player, game_state):
             return
 
         elif method == "knock":
-            if getattr(player, "full_sheet", None):
-                slots = player.full_sheet.get("spell_slots", {})
-                if "2" in slots and isinstance(slots["2"], dict):
-                    if slots["2"].get("current", 0) > 0:
-                        slots["2"]["current"] -= 1
-                        if player.conn:
-                            send_message(player.conn, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, getattr(player, "conditions", []), getattr(player, "temp_hp", 0)))
-            target_door["state"] = "open"
+            slot_consumed = is_dm
+            player_update_msg = None
+            with game_state.lock:
+                sheet = getattr(player, "full_sheet", None)
+                if isinstance(sheet, dict):
+                    from server.rules.reaction_magic import consume_spell_or_pact_slot
+                    consumed, _ = consume_spell_or_pact_slot(sheet, 2)
+                    if consumed:
+                        slot_consumed = True
+                        player_update_msg = make_player_stats_update(
+                            player.name, player.hp, player.max_hp, player.initiative,
+                            getattr(player, "conditions", []), getattr(player, "temp_hp", 0)
+                        )
+                if not slot_consumed:
+                    pass
+                else:
+                    target_door["state"] = "open"
+                    fow_changed = False
+                    for p in list(game_state.players):
+                        if auto_explore_fow(p, game_state):
+                            fow_changed = True
+            if not slot_consumed:
+                if getattr(player, "conn", None):
+                    send_message(player.conn, make_error_reply("Nessuno slot incantesimo di 2° livello+ disponibile per Scassinare."))
+                return
+            if player_update_msg and getattr(player, "conn", None):
+                send_message(player.conn, player_update_msg)
             broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
             broadcast(game_state, make_chat_broadcast("Sistema", f"🪄 {p_name} lancia l'incantesimo Scassinare (Knock)! La serratura scatta rumorosamente e la {door_name} si spalanca! 🔔 Un rimbombo udibile fino a 90 metri (300 ft) echeggia nelle vicinanze!"))
-            for p in game_state.players:
-                if auto_explore_fow(p, game_state):
-                    broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
+            if fow_changed:
+                broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
             game_state._trigger_gui_update()
             return
 
@@ -597,37 +619,49 @@ def handle_resolve_pending_door_request(data, player, game_state):
     game_state._trigger_gui_update()
 
 def handle_quest_action_request(data, player, game_state):
+    from common.network_utils import is_dm_actor
+    if not is_dm_actor(player):
+        return
     action = data.get("action", "update")
     quest = data.get("quest", {})
-    if not hasattr(game_state, "quests"):
-        game_state.quests = []
-        
-    if action == "add":
-        game_state.quests.append(quest)
-        broadcast(game_state, make_chat_broadcast("Sistema", f"📜 [NUOVA MISSIONE] '{quest.get('title', 'Nuova Missione')}' aggiunta al registro!"))
-    elif action in ("complete", "done"):
-        q_id = quest.get("id") or quest.get("title")
-        for q in game_state.quests:
-            if q.get("id") == q_id or q.get("title") == q_id:
-                q["completed"] = True
-                broadcast(game_state, make_chat_broadcast("Sistema", f"✅ [MISSIONE COMPLETATA] '{q.get('title')}' completata dal gruppo!"))
-                break
-    elif action == "delete":
-        q_id = quest.get("id") or quest.get("title")
-        game_state.quests = [q for q in game_state.quests if (q.get("id") != q_id and q.get("title") != q_id)]
-        
+    chat_msg = None
+    with game_state.lock:
+        if not hasattr(game_state, "quests"):
+            game_state.quests = []
+
+        if action == "add":
+            game_state.quests.append(quest)
+            chat_msg = f"📜 [NUOVA MISSIONE] '{quest.get('title', 'Nuova Missione')}' aggiunta al registro!"
+        elif action in ("complete", "done"):
+            q_id = quest.get("id") or quest.get("title")
+            for q in game_state.quests:
+                if q.get("id") == q_id or q.get("title") == q_id:
+                    q["completed"] = True
+                    chat_msg = f"✅ [MISSIONE COMPLETATA] '{q.get('title')}' completata dal gruppo!"
+                    break
+        elif action == "delete":
+            q_id = quest.get("id") or quest.get("title")
+            game_state.quests = [q for q in game_state.quests if (q.get("id") != q_id and q.get("title") != q_id)]
+        quests_snapshot = list(game_state.quests)
+
+    if chat_msg:
+        broadcast(game_state, make_chat_broadcast("Sistema", chat_msg))
     game_state._trigger_gui_update()
     from common.protocol import make_quest_list_update
-    broadcast(game_state, make_quest_list_update(game_state.quests))
+    broadcast(game_state, make_quest_list_update(quests_snapshot))
 
 def handle_handout_share_request(data, player, game_state):
+    from common.network_utils import is_dm_actor
+    if not is_dm_actor(player):
+        return
     title = data.get("title", "Documento")
     content = data.get("content", "")
     image_path = data.get("image_path", "")
     sender = data.get("sender", "Dungeon Master")
-    if not hasattr(game_state, "handouts"):
-        game_state.handouts = []
-    game_state.handouts.append({"title": title, "content": content, "image_path": image_path, "sender": sender})
+    with game_state.lock:
+        if not hasattr(game_state, "handouts"):
+            game_state.handouts = []
+        game_state.handouts.append({"title": title, "content": content, "image_path": image_path, "sender": sender})
     from common.protocol import make_handout_share_broadcast
     broadcast(game_state, make_handout_share_broadcast(title, content, image_path, sender))
 

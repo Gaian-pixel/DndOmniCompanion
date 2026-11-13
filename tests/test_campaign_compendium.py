@@ -237,14 +237,16 @@ class TestCampaignCompendiumIntegration(unittest.TestCase):
         self.editor.open_global_compendium()
         self.assertIsNotNone(captured_cb)
 
-        # Selezioniamo il tab PNG
+        # Selezioniamo lo Studio (tab 0) e la sottoscheda PNG & Fazioni nel drawer unificato
+        self.editor.notebook.select(0)
+        ent_nb = self.editor.studio_frame.entity_notebook
         tab_idx = None
-        for i in range(self.editor.notebook.index("end")):
-            if "png" in self.editor.notebook.tab(i, "text").lower():
+        for i in range(ent_nb.index("end")):
+            if "png" in ent_nb.tab(i, "text").lower():
                 tab_idx = i
                 break
         if tab_idx is not None:
-            self.editor.notebook.select(tab_idx)
+            ent_nb.select(tab_idx)
 
         npc_data = {
             "name": "Guardia Cittadina",

@@ -5,9 +5,10 @@ Consente di creare, modificare, duplicare, eliminare ed esportare personaggi (PD
 in completa autonomia, senza richiedere alcuna connessione a un server DM.
 """
 
+import json
 import os
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, filedialog
 from typing import Optional, Callable
 
 from common.theme import (
@@ -54,6 +55,9 @@ class CharacterManagerFrame(tk.Frame):
         on_close_callback: Optional[Callable[[], None]] = None,
         on_create_wizard_callback: Optional[Callable[[], None]] = None,
         is_embedded: bool = False,
+        selected_char_id: Optional[str] = None,
+        select_btn_text: Optional[str] = None,
+        read_only_select: bool = False,
         **kwargs
     ):
         super().__init__(master, bg=BG_COLOR, **kwargs)
@@ -62,7 +66,9 @@ class CharacterManagerFrame(tk.Frame):
         self.on_close_callback = on_close_callback
         self.on_create_wizard_callback = on_create_wizard_callback
         self.is_embedded = is_embedded
-        self.selected_character: Optional[Character] = None
+        self.select_btn_text = select_btn_text
+        self.read_only_select = read_only_select
+        self.selected_character: Optional[Character] = self.manager.get_character_by_id(selected_char_id) if selected_char_id else None
         self.filtered_characters: list[Character] = []
 
         self.search_var = tk.StringVar()
@@ -70,6 +76,10 @@ class CharacterManagerFrame(tk.Frame):
 
         self.setup_ui()
         self.refresh_list()
+        if selected_char_id and not self.selected_character:
+            self.selected_character = self.manager.get_character_by_id(selected_char_id)
+            if self.selected_character:
+                self.apply_filter()
         try:
             register_language_listener(self._on_language_changed)
         except Exception:
@@ -208,9 +218,9 @@ class CharacterManagerFrame(tk.Frame):
 
         ttk.Button(
             btn_bar, 
-            text=_t("char_manager_btn_manual"), 
+            text=_t("char_manager_btn_import"), 
             style="Info.TButton",
-            command=self.create_manual_character
+            command=self.import_character_json
         ).grid(row=0, column=1, sticky="ew", padx=(3, 0), pady=(0, 4))
 
         ttk.Button(
@@ -479,25 +489,43 @@ class CharacterManagerFrame(tk.Frame):
         ).pack(fill=tk.X, pady=(0, 4))
 
         if self.on_select_callback:
-            ttk.Button(
-                actions_box,
-                text=_t("char_manager_btn_select"),
-                style="Primary.TButton",
-                command=self.confirm_selection
-            ).pack(fill=tk.X)
+            if self.read_only_select:
+                tk.Label(
+                    actions_box,
+                    text=_t("char_manager_online_notice"),
+                    font=FONT_SMALL,
+                    bg=SURFACE_COLOR_ALT,
+                    fg=TEXT_MUTED,
+                    wraplength=280,
+                    justify="left",
+                    padx=8,
+                    pady=6,
+                    highlightbackground=BORDER_COLOR,
+                    highlightthickness=1
+                ).pack(fill=tk.X)
+            else:
+                ttk.Button(
+                    actions_box,
+                    text=self.select_btn_text or _t("char_manager_btn_select"),
+                    style="Primary.TButton",
+                    command=self.confirm_selection
+                ).pack(fill=tk.X)
 
     def open_selected_sheet(self):
         """Apre la Scheda Personaggio completa (offline) per visualizzare o modificare tutti i dati."""
+        if getattr(self, "read_only_select", False):
+            messagebox.showinfo(
+                "Solo Selezione",
+                "Usa la scheda personaggio in-game mentre sei connesso a una sessione.",
+                parent=self,
+            )
+            return
         if not self.selected_character:
             messagebox.showwarning("Attenzione", "Seleziona un personaggio dall'elenco prima di aprire la scheda.", parent=self)
             return
 
         def on_sheet_saved(*_args):
             self.refresh_list()
-        try:
-            register_language_listener(self._on_language_changed)
-        except Exception:
-            pass
 
         sheet = CharacterSheetUI(
             self,
@@ -508,10 +536,6 @@ class CharacterManagerFrame(tk.Frame):
         )
         self.wait_window(sheet)
         self.refresh_list()
-        try:
-            register_language_listener(self._on_language_changed)
-        except Exception:
-            pass
 
     def export_selected_character(self):
         """Esporta direttamente il personaggio in formato PDF ufficiale D&D o backup JSON."""
@@ -539,8 +563,44 @@ class CharacterManagerFrame(tk.Frame):
         self.wait_window(wizard)
 
     def create_manual_character(self):
-        """Crea un personaggio tramite il Wizard guidato per garantire integrità regolistica."""
+        """Alias retrocompatibile: usa esclusivamente il Wizard guidato."""
         self.create_wizard_character()
+
+    def import_character_json(self):
+        """Importa un personaggio esportato in JSON aggiungendolo all'archivio locale."""
+        file_path = filedialog.askopenfilename(
+            parent=self,
+            title="Importa Personaggio (JSON)" if get_language() == "it" else "Import Character (JSON)",
+            filetypes=[("File JSON", "*.json"), ("Tutti i file", "*.*")]
+        )
+        if not file_path:
+            return
+        try:
+            with open(file_path, "r", encoding="utf-8") as f:
+                raw_data = json.load(f)
+            if not isinstance(raw_data, dict) or not raw_data.get("name"):
+                raise ValueError("File JSON non valido: manca il campo 'name'.")
+            char_dict = dict(raw_data)
+            char_dict["id"] = os.urandom(4).hex()
+            imported = Character.from_dict(char_dict)
+            self.manager.add_character(imported)
+            self.selected_character = imported
+            self.refresh_list()
+            if self.tree.exists(imported.id):
+                self.tree.selection_set(imported.id)
+                self.tree.see(imported.id)
+                self.render_character_details(imported)
+            messagebox.showinfo(
+                _t("success"),
+                f"Personaggio '{imported.name}' importato con successo!" if get_language() == "it" else f"Character '{imported.name}' imported successfully!",
+                parent=self
+            )
+        except Exception as e:
+            messagebox.showerror(
+                _t("error"),
+                f"Impossibile importare il personaggio:\n{e}" if get_language() == "it" else f"Failed to import character:\n{e}",
+                parent=self
+            )
 
     def duplicate_selected_character(self):
         """Duplica il personaggio selezionato creando una copia indipendente."""
@@ -581,10 +641,13 @@ class CharacterManagerFrame(tk.Frame):
 
     def confirm_selection(self):
         """Conferma la selezione e invoca la callback esterna (se presente)."""
-        if self.selected_character and self.on_select_callback:
+        if self.selected_character and self.on_select_callback and not self.read_only_select:
             cb = self.on_select_callback
             char = self.selected_character
-            self.close_view()
+            # In modalità embedded (es. Launcher) restiamo nella vista finché il caller non transiziona
+            # (es. se l'utente annulla LoginDialog dal Manager, torna subito al Manager senza rimbalzare al Menu).
+            if not self.is_embedded:
+                self.close_view()
             cb(char)
 
 
@@ -597,7 +660,10 @@ class CharacterManagerDialog(tk.Toplevel):
         self, 
         master: tk.Tk | tk.Toplevel, 
         manager: Optional[CharacterManager] = None, 
-        on_select_callback: Optional[Callable[[Character], None]] = None
+        on_select_callback: Optional[Callable[[Character], None]] = None,
+        selected_char_id: Optional[str] = None,
+        select_btn_text: Optional[str] = None,
+        read_only_select: bool = False
     ):
         super().__init__(master)
         self.title(_t("char_manager_title"))
@@ -612,7 +678,10 @@ class CharacterManagerDialog(tk.Toplevel):
             manager=manager,
             on_select_callback=on_select_callback,
             on_close_callback=self.destroy,
-            is_embedded=False
+            is_embedded=False,
+            selected_char_id=selected_char_id,
+            select_btn_text=select_btn_text,
+            read_only_select=read_only_select
         )
         self._frame_internal.pack(fill=tk.BOTH, expand=True)
 

@@ -49,19 +49,24 @@ def start_app():
         from client.client import ClientGUI
         app = ClientGUI(root, initial_character=initial_character, auto_connect_ip=auto_connect_ip)
 
-    def prompt_join_game(initial_character=None):
-        """Apre subito il dialogo di connessione per scegliere il server IP e il personaggio."""
+    def prompt_join_game(initial_character=None, lock_character=False):
+        """Apre il dialogo di connessione per scegliere il server IP (ed eventualmente il personaggio)."""
         from client.character_manager import CharacterManager
         from client.login_ui import LoginDialog
         char_mgr = CharacterManager()
-        login_dialog = LoginDialog(root, char_mgr, initial_character=initial_character)
+        login_dialog = LoginDialog(
+            root,
+            char_mgr,
+            initial_character=initial_character,
+            lock_character=lock_character,
+        )
         root.wait_window(login_dialog)
         if not login_dialog.result:
             return
         server_ip, char = login_dialog.result
         launch_player(initial_character=char, auto_connect_ip=server_ip)
 
-    def show_campaign_selector_view():
+    def show_campaign_selector_view(selected_folder=None):
         for w in content_container.winfo_children():
             w.destroy()
         root.resizable(True, True)
@@ -73,12 +78,14 @@ def start_app():
         selector = CampaignSelectorFrame(
             content_container,
             on_select_callback=lambda camp: launch_dm(campaign=camp),
-            on_edit_callback=lambda camp: show_campaign_editor_view(campaign=camp),
+            on_edit_callback=lambda camp: show_campaign_editor_view(campaign=camp, return_to="selector"),
             on_close_callback=show_launcher_menu
         )
         selector.pack(fill=tk.BOTH, expand=True)
+        if selected_folder:
+            selector.select_campaign_by_folder(selected_folder)
 
-    def show_campaign_editor_view(campaign=None):
+    def show_campaign_editor_view(campaign=None, return_to="launcher"):
         for w in content_container.winfo_children():
             w.destroy()
         root.resizable(True, True)
@@ -86,17 +93,30 @@ def start_app():
         root.geometry("1150x760")
         c_title = campaign.name if campaign else ("Nuova Campagna" if get_language() == "it" else "New Campaign")
         root.title(f"{_t('app_title')} • {_t('campaign_editor_title', title=c_title)}")
+
+        saved_state = {"folder": getattr(campaign, "folder_path", None) if campaign else None}
+        def _on_saved(saved_camp):
+            saved_state["folder"] = getattr(saved_camp, "folder_path", None)
+
+        if return_to == "selector":
+            back_cb = lambda: show_campaign_selector_view(selected_folder=saved_state["folder"])
+            back_label = _t("btn_back_to_campaigns", default="← Campagne")
+        else:
+            back_cb = show_launcher_menu
+            back_label = _t("btn_back_to_menu", default="← Menu")
         
         from server.campaign_editor_ui import CampaignEditorFrame
         editor = CampaignEditorFrame(
             content_container,
             campaign=campaign,
-            on_save_callback=lambda c: None,
-            on_close_callback=show_launcher_menu
+            on_save_callback=_on_saved,
+            on_close_callback=back_cb,
+            on_launch_callback=lambda camp: launch_dm(campaign=camp),
+            back_button_text=back_label,
         )
         editor.pack(fill=tk.BOTH, expand=True)
 
-    def show_character_manager_view():
+    def show_character_manager_view(selected_char_id=None):
         for w in content_container.winfo_children():
             w.destroy()
         root.resizable(True, True)
@@ -109,14 +129,16 @@ def start_app():
         mgr_view = CharacterManagerFrame(
             content_container,
             manager=CharacterManager(),
-            on_select_callback=lambda char: prompt_join_game(initial_character=char),
+            on_select_callback=lambda char: prompt_join_game(initial_character=char, lock_character=True),
             on_close_callback=show_launcher_menu,
-            on_create_wizard_callback=show_character_wizard_view,
-            is_embedded=True
+            on_create_wizard_callback=lambda: show_character_wizard_view(return_to="manager"),
+            is_embedded=True,
+            selected_char_id=selected_char_id,
+            select_btn_text=_t("char_manager_btn_play"),
         )
         mgr_view.pack(fill=tk.BOTH, expand=True)
 
-    def show_character_wizard_view():
+    def show_character_wizard_view(return_to="manager"):
         for w in content_container.winfo_children():
             w.destroy()
         root.resizable(True, True)
@@ -129,9 +151,10 @@ def start_app():
         wizard_view = CharacterCreationWizardFrame(
             content_container,
             manager=CharacterManager(),
-            on_complete_callback=lambda new_char: show_character_manager_view(),
-            on_close_callback=show_launcher_menu,
-            is_embedded=True
+            on_complete_callback=lambda new_char: show_character_manager_view(selected_char_id=getattr(new_char, "id", None)),
+            on_close_callback=show_character_manager_view if return_to == "manager" else show_launcher_menu,
+            is_embedded=True,
+            back_btn_key="wizard_btn_back_to_manager" if return_to == "manager" else None,
         )
         wizard_view.pack(fill=tk.BOTH, expand=True)
 
@@ -226,7 +249,6 @@ def start_app():
         btn_dm_box = tk.Frame(dm_card, bg=SURFACE_COLOR)
         btn_dm_box.pack(fill=tk.X, side=tk.BOTTOM, pady=(8, 0))
         ttk.Button(btn_dm_box, text=_t("launcher_dm_btn_camp"), command=show_campaign_selector_view, style="Gold.TButton").pack(fill=tk.X, pady=(0, 6))
-        ttk.Button(btn_dm_box, text=_t("launcher_dm_btn_edit"), command=lambda: show_campaign_editor_view(None), style="Info.TButton").pack(fill=tk.X, pady=(0, 6))
         ttk.Button(btn_dm_box, text=_t("launcher_dm_btn_quick"), command=lambda: launch_dm(None), style="Dark.TButton").pack(fill=tk.X)
 
         # CARD 2: GIOCATORE
@@ -265,8 +287,7 @@ def start_app():
 
         btn_pl_box = tk.Frame(player_card, bg=SURFACE_COLOR)
         btn_pl_box.pack(fill=tk.X, side=tk.BOTTOM, pady=(8, 0))
-        ttk.Button(btn_pl_box, text=_t("launcher_player_btn_manage_chars"), command=show_character_manager_view, style="Gold.TButton").pack(fill=tk.X, pady=(0, 6))
-        ttk.Button(btn_pl_box, text=_t("launcher_player_btn_create_char"), command=show_character_wizard_view, style="Info.TButton").pack(fill=tk.X, pady=(0, 6))
+        ttk.Button(btn_pl_box, text=_t("launcher_player_btn_hub"), command=show_character_manager_view, style="Gold.TButton").pack(fill=tk.X, pady=(0, 6))
         ttk.Button(btn_pl_box, text=_t("launcher_player_btn_join"), command=prompt_join_game, style="Primary.TButton").pack(fill=tk.X)
 
         # --- FOOTER ---

@@ -10,7 +10,8 @@ import os
 import base64
 from typing import Optional, Tuple
 from PIL import Image, ImageTk, ImageDraw, ImageOps
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
+from common.messagebox import messagebox
 
 
 def process_avatar_image(source, max_size: Tuple[int, int] = (128, 128)) -> str:

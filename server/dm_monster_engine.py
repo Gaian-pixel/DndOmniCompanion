@@ -491,21 +491,80 @@ def apply_petrification_stage(target: Any, failed_save: bool, game_state: Any) -
 
 def handle_resolve_legendary_resistance_request(data: dict, player: Any, game_state: Any) -> None:
     """Risolve una scelta DM su PENDING_LEGENDARY_RES_PROMPT (use | decline)."""
+    from common.network_utils import is_dm_actor
+    if not is_dm_actor(player):
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Solo il Dungeon Master può risolvere le Resistenze Leggendarie."))
+        return
     lr_id = str(data.get("pending_id") or data.get("id") or "")
     decision = str(data.get("decision", "use")).lower()
-    pend = getattr(game_state, "pending_legendary_resistances", None)
-    if not isinstance(pend, dict) or lr_id not in pend:
-        return
-    info = pend.pop(lr_id)
-    target = game_state.find_player(info.get("target"))
-    if not target:
-        return
-    if decision == "use" and getattr(target, "legendary_resistances_current", 0) > 0:
-        target.legendary_resistances_current -= 1
-        msg = f"👑 [RESISTENZA LEGGENDARIA ATTIVATA] {target.name} spende una Resistenza Leggendaria ({target.legendary_resistances_current}/{getattr(target, 'legendary_resistances_max', 3)} rimaste) e trasforma il TS {info.get('stat')} vs CD {info.get('dc')} ({info.get('source')}) in SUCCESSO!"
-    else:
-        msg = f"💀 [RESISTENZA NON USATA] {target.name} accetta il fallimento del TS {info.get('stat')} vs CD {info.get('dc')} ({info.get('source')})."
+    with game_state.lock:
+        pend = getattr(game_state, "pending_legendary_resistances", None)
+        if not isinstance(pend, dict) or lr_id not in pend:
+            return
+        info = pend.pop(lr_id)
+        target = game_state.find_player(info.get("target"))
+        if not target:
+            return
+        deferred = info.get("deferred_save") if isinstance(info.get("deferred_save"), dict) else None
+        used_lr = False
+        if decision == "use" and getattr(target, "legendary_resistances_current", 0) > 0:
+            target.legendary_resistances_current -= 1
+            used_lr = True
+            msg = f"👑 [RESISTENZA LEGGENDARIA ATTIVATA] {target.name} spende una Resistenza Leggendaria ({target.legendary_resistances_current}/{getattr(target, 'legendary_resistances_max', 3)} rimaste) e trasforma il TS {info.get('stat')} vs CD {info.get('dc')} ({info.get('source')}) in SUCCESSO!"
+        else:
+            msg = f"💀 [RESISTENZA NON USATA] {target.name} accetta il fallimento del TS {info.get('stat')} vs CD {info.get('dc')} ({info.get('source')})."
+
+        if deferred:
+            src_name = str(deferred.get("source_name") or info.get("source") or "")
+            raw_dmg = int(deferred.get("raw_damage", 0) or 0)
+            half_on_succ = bool(deferred.get("half_on_success", False))
+            dmg_type = str(deferred.get("damage_type", "Contundente") or "Contundente")
+            has_evasion = bool(deferred.get("has_evasion", False))
+            auto_aoe = bool(deferred.get("auto_apply_aoe", True))
+
+            if used_lr:
+                if src_name.startswith("Save-Ends:"):
+                    eff_name = src_name.replace("Save-Ends:", "").strip()
+                    target.remove_effect(eff_name)
+                    msg += f" ✨ Effetto '{eff_name}' rimosso!"
+                dmg_to_apply = 0 if has_evasion else (raw_dmg // 2 if half_on_succ else 0)
+            else:
+                if src_name.startswith("Sistema (Concentrazione)"):
+                    from server.rules.combat import drop_concentration
+                    drop_concentration(target, game_state, notify=True)
+                dmg_to_apply = (raw_dmg // 2) if (has_evasion and half_on_succ) else raw_dmg
+
+            if dmg_to_apply > 0 and auto_aoe:
+                from server.rules.combat import apply_damage
+                fd, note, temp_abs, _ = apply_damage(target, dmg_to_apply, dmg_type, game_state)
+                msg += f" Subisce {fd} danni ({dmg_type}){note}! HP: {target.hp}/{target.max_hp}"
+                if temp_abs > 0:
+                    msg += f" [{temp_abs} Temp]"
+            elif dmg_to_apply > 0:
+                import uuid
+                pending_id = f"dmg_{uuid.uuid4().hex[:8]}"
+                pending_info = {
+                    "id": pending_id,
+                    "attacker": src_name,
+                    "target": target.name,
+                    "raw_damage": dmg_to_apply,
+                    "damage_type": dmg_type,
+                    "is_crit": False,
+                    "weapon_name": f"TS {info.get('stat', '')} ({src_name})",
+                }
+                if not hasattr(game_state, "pending_damages") or not isinstance(game_state.pending_damages, dict):
+                    game_state.pending_damages = {}
+                game_state.pending_damages[pending_id] = pending_info
+                msg += f" 🎯 Danno Calcolato (TS): {dmg_to_apply} ({dmg_type}). [In attesa di conferma DM]"
+                if hasattr(game_state, "gui_queue") and game_state.gui_queue:
+                    game_state.gui_queue.put({"type": "PENDING_DAMAGE_PROMPT", "payload": pending_info})
     broadcast(game_state, make_chat_broadcast("Sistema", msg))
+    broadcast(game_state, make_player_stats_update(
+        target.name, target.hp, target.max_hp, target.initiative,
+        getattr(target, "conditions", []), getattr(target, "temp_hp", 0),
+        active_effects=getattr(target, "active_effects", [])
+    ))
     broadcast(game_state, make_game_state(game_state.get_state_dict()))
     if hasattr(game_state, "_trigger_gui_update"):
         game_state._trigger_gui_update()
