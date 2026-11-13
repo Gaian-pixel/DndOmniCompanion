@@ -853,6 +853,9 @@ def compute_effective_ac(character_or_dict: Any) -> int:
         else:
             base_ac = 10 + des_mod
 
+        from common.subclass_and_race_rules import apply_tortle_natural_armor
+        base_ac, _ = apply_tortle_natural_armor(character_or_dict, base_ac, shield_bonus=0)
+
     # Scudo: +2 base + bonus magico scudo
     if has_shield:
         base_ac += mods["shield_total_ac"]
@@ -946,6 +949,8 @@ def use_item_charge_dict(item_dict: Dict[str, Any], cost: int = 1) -> tuple:
     """
     if not isinstance(item_dict, dict):
         return False, "Oggetto non valido."
+    if item_dict.get("magic_destroyed"):
+        return False, f"'{item_dict.get('name', 'Oggetto')}' ha perso la sua magia / è sbriciolato (DMG p. 141)."
     defaults = detect_item_charges_defaults(item_dict)
     if "charges_max" not in item_dict and defaults["charges_max"] > 0:
         item_dict["charges_max"] = defaults["charges_max"]
@@ -969,8 +974,15 @@ def use_item_charge_dict(item_dict: Dict[str, Any], cost: int = 1) -> tuple:
     if rem == 0:
         from common.dice import roll_dice
         d20_res = roll_dice("1d20")["total"]
-        if d20_res == 1:
-            msg += f" ⚠️ **ULTIMA CARICA SPESA (1d20 = 1)!** Secondo il DMG (p. 141), {name} rischia di sgretolarsi in cenere o perdere la sua magia!"
+        no_destr = bool(item_dict.get("no_destroy_on_zero", False))
+        if d20_res == 1 and not no_destr:
+            item_dict["magic_destroyed"] = True
+            item_dict["charges_max"] = 0
+            item_dict["charges_current"] = 0
+            item_dict["attuned"] = False
+            if "sbriciolat" not in str(name).lower() and "senza magia" not in str(name).lower():
+                item_dict["name"] = f"{name} [Senza Magia]"
+            msg += f" 💥 **ULTIMA CARICA SPESA (1d20 = 1)!** Secondo il DMG (p. 141), **{name}** perde per sempre la sua magia / si sbriciola in cenere!"
         else:
             msg += f" (Ultima carica spesa: tiro conservazione 1d20 = {d20_res}, l'oggetto resta intatto)."
 
@@ -983,6 +995,8 @@ def recharge_item_dict(item_dict: Dict[str, Any]) -> Optional[str]:
     Ritorna una stringa di riepilogo se l'oggetto ha recuperato cariche, altrimenti None.
     """
     if not isinstance(item_dict, dict):
+        return None
+    if item_dict.get("magic_destroyed"):
         return None
     defaults = detect_item_charges_defaults(item_dict)
     if "charges_max" not in item_dict and defaults["charges_max"] > 0:

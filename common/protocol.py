@@ -717,6 +717,15 @@ def make_resolve_legendary_resistance_request(pending_id: str, decision: str = "
     return {"type": "RESOLVE_LEGENDARY_RESISTANCE_REQUEST", "data": {"pending_id": pending_id, "decision": decision}}
 
 
+def make_stand_up_request() -> ProtocolMessage:
+    return {"type": "STAND_UP_REQUEST", "data": {}}
+
+
+def make_buy_item_request(shop_name: str, item_name: str) -> ProtocolMessage:
+    return {"type": "BUY_ITEM_REQUEST", "data": {"shop_name": shop_name, "item_name": item_name}}
+
+
+
 
 
 

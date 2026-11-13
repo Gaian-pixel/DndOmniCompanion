@@ -529,6 +529,8 @@ def handle_resolve_night_camp_request(data, player, game_state):
                     p.full_sheet["spell_points_current"] = sp_max
                 p.relentless_rage_uses = 0
                 p.frightful_immune_list = []
+            from server.dm_monster_engine import restore_drain_penalties
+            restore_drain_penalties(p, rest_type="long")
             if getattr(p, "conn", None):
                 from common.network_utils import send_message
                 send_message(p.conn, {"type": "DO_LONG_REST", "data": {}})
@@ -635,6 +637,8 @@ def trigger_group_long_rest(game_state, reason="Il gruppo si è accampato per un
                     p.full_sheet["spell_points_current"] = sp_max
                 p.relentless_rage_uses = 0
                 p.frightful_immune_list = []
+            from server.dm_monster_engine import restore_drain_penalties
+            restore_drain_penalties(p, rest_type="long")
     dm_settings = getattr(game_state, "automation_settings", {}) or {}
     rest_key = dm_settings.get("opt_rest_variant", "standard")
     from common.dnd5e_tables import REST_VARIANTS

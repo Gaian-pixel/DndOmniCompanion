@@ -205,6 +205,10 @@ class ClientGUI:
         char_menu.add_separator()
         char_menu.add_command(label=_t("menu_active_sheet"), command=self.open_stats_dialog)
         char_menu.add_command(label="⚔️ Poteri & Azioni Speciali 5e...", command=self.open_special_abilities_dialog)
+        char_menu.add_command(label="⬆️ Alzati da Prono (Stand Up)", command=self.perform_stand_up)
+        char_menu.add_separator()
+        char_menu.add_command(label="💰 Negozi e Botteghe...", command=self.open_shop_dialog)
+        char_menu.add_command(label="🛠️ Attività di Downtime (PHB/XGtE)...", command=self.open_downtime_dialog)
         menubar.add_cascade(label=_t("menu_character"), menu=char_menu)
         
         library_menu = tk.Menu(menubar, tearoff=0)
@@ -299,6 +303,15 @@ class ClientGUI:
             self.btn_dodge.config(text=_t("btn_dodge"))
         if hasattr(self, 'btn_help'):
             self.btn_help.config(text=_t("btn_help"))
+        is_en = get_language() == "en"
+        if hasattr(self, 'btn_stand_up'):
+            self.btn_stand_up.config(text="⬆️ Stand Up" if is_en else "⬆️ Alzati")
+        if hasattr(self, 'btn_shop'):
+            self.btn_shop.config(text="💰 Shops" if is_en else "💰 Negozi")
+        if hasattr(self, 'btn_downtime'):
+            self.btn_downtime.config(text="🛠️ Downtime" if is_en else "🛠️ Downtime")
+        if hasattr(self, 'btn_special_powers'):
+            self.btn_special_powers.config(text="⚔️ 5e Powers" if is_en else "⚔️ Poteri 5e")
 
         self.update_action_economy_ui()
         self.update_hero_summary_card()
@@ -723,6 +736,38 @@ class ClientGUI:
         )
         self.btn_ready.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
         ToolTip(self.btn_ready, lambda: "Prepara un'Azione (Ready Action - PHB p. 193) o innesca l'azione preparata con la tua Reazione")
+
+        # Quarta riga: Utility Rapide (Alzati da Prono, Negozi, Downtime, Poteri Speciali 5e)
+        econ_quick_actions_4 = tk.Frame(self.economy_frame, bg=SURFACE_COLOR)
+        econ_quick_actions_4.pack(fill=tk.X, pady=(2, 0))
+
+        self.btn_stand_up = tk.Button(
+            econ_quick_actions_4, text="⬆️ Alzati", font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_stand_up
+        )
+        self.btn_stand_up.pack(side=tk.LEFT, padx=(0, 2), fill=tk.X, expand=True)
+        ToolTip(self.btn_stand_up, lambda: "Alzati dalla condizione Prono consumando metà velocità di movimento (PHB p. 190)")
+
+        self.btn_shop = tk.Button(
+            econ_quick_actions_4, text="💰 Negozi", font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.open_shop_dialog
+        )
+        self.btn_shop.pack(side=tk.LEFT, padx=(2, 2), fill=tk.X, expand=True)
+        ToolTip(self.btn_shop, lambda: "Sfoglia ed acquista equipaggiamento dai negozi aperti dal DM")
+
+        self.btn_downtime = tk.Button(
+            econ_quick_actions_4, text="🛠️ Downtime", font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.open_downtime_dialog
+        )
+        self.btn_downtime.pack(side=tk.LEFT, padx=(2, 2), fill=tk.X, expand=True)
+        ToolTip(self.btn_downtime, lambda: "Avvia attività di Tempo Libero tra un'avventura e l'altra (PHB / XGtE)")
+
+        self.btn_special_powers = tk.Button(
+            econ_quick_actions_4, text="⚔️ Poteri 5e", font=FONT_SMALL, relief=tk.FLAT, bd=0,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.open_special_abilities_dialog
+        )
+        self.btn_special_powers.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
+        ToolTip(self.btn_special_powers, lambda: "Pannello rapido per Privilegi di Classe, Tratti Razziali, Regole Opzionali DMG e Manovre")
 
         # Barra HUD Bersaglio Corrente (Target HUD)
         self.target_hud_frame = tk.Frame(self.economy_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1)
@@ -1714,6 +1759,20 @@ class ClientGUI:
             else:
                 self.btn_ready.config(text="⏱️ Prepara")
 
+        from common.i18n import is_condition_active
+        p_conds = []
+        if self.name in getattr(self, "players_data", {}):
+            p_conds = self.players_data[self.name].get("conditions", [])
+        elif self.active_character and hasattr(self.active_character, "conditions"):
+            p_conds = getattr(self.active_character, "conditions", [])
+        is_prone = is_condition_active(p_conds, "Prono")
+        _cfg_tactical_btn("btn_stand_up", connected and is_prone)
+        if hasattr(self, "btn_stand_up") and self.btn_stand_up and is_prone and connected:
+            self.btn_stand_up.config(fg=ACCENT_GOLD)
+        _cfg_tactical_btn("btn_shop", connected)
+        _cfg_tactical_btn("btn_downtime", connected and not in_combat)
+        _cfg_tactical_btn("btn_special_powers", connected)
+
         res = getattr(self.active_character, "class_resources", {}) if self.active_character else {}
         has_sw = res.get("second_wind", True)
         has_as = res.get("action_surge", True)
@@ -1849,6 +1908,179 @@ class ClientGUI:
         self.action_spent = True
         self.update_action_economy_ui()
         self.show_toast("Azione di Schivata attivata! Gli attacchi contro di te avranno svantaggio e hai vantaggio ai TS su Destrezza.", title="🛡️ Schivata", toast_type="info")
+
+    def perform_stand_up(self):
+        if not getattr(self, "is_connected", False):
+            self.show_toast("Non sei connesso al server.", toast_type="warning")
+            return
+        from common.protocol import make_stand_up_request
+        self.network.send(make_stand_up_request())
+        self.show_toast("Richiesta di Alzarsi da Prono inviata (PHB p. 190).", title="⬆️ Stand Up", toast_type="info")
+
+    def open_downtime_dialog(self):
+        """Apre il pannello completo Attività di Downtime (PHB p. 187 / XGtE p. 123-134)."""
+        if not getattr(self, "is_connected", False):
+            messagebox.showinfo("Offline", "Connettiti al server per svolgere attività di Tempo Libero.")
+            return
+        win = tk.Toplevel(self.master)
+        win.title("🛠️ Attività di Downtime & Stile di Vita (PHB / XGtE)")
+        win.geometry("460x390")
+        win.transient(self.master)
+        apply_modern_window_style(win)
+
+        frm = ttk.Frame(win, padding=14)
+        frm.pack(fill=tk.BOTH, expand=True)
+
+        activities = [
+            ("Lavoro / Professione (work)", "work"),
+            ("Artigianato / Forgiatura (crafting)", "crafting"),
+            ("Addestramento Linguaggi/Strumenti (training)", "training"),
+            ("Ricerca Informazioni (research)", "research"),
+            ("Convalescenza / Riposo Medico (recuperating)", "recuperating"),
+            ("Baldoria e Contatti (carousing)", "carousing"),
+            ("Gioco d'Azzardo (gambling)", "gambling"),
+            ("Crimine / Furto (crime)", "crime"),
+            ("Solo Mantenimento Stile di Vita (lifestyle)", "lifestyle"),
+            ("XGtE: Forgia Oggetto Magico (crafting_magic)", "crafting_magic"),
+            ("XGtE: Compra Oggetto Magico (buy_magic_item)", "buy_magic_item"),
+            ("XGtE: Vendi Oggetto Magico (sell_magic_item)", "sell_magic_item"),
+            ("XGtE: Combattimento nell'Arena (pit_fighting)", "pit_fighting"),
+            ("XGtE: Servizio Religioso (religious_service)", "religious_service"),
+        ]
+        lifestyles = [
+            ("Miserabile - 0 mo/g (wretched)", "wretched"),
+            ("Squallido - 1 ma/g (squalid)", "squalid"),
+            ("Povero - 2 ma/g (poor)", "poor"),
+            ("Modesto - 1 mo/g (modest)", "modest"),
+            ("Confortevole - 2 mo/g (comfortable)", "comfortable"),
+            ("Agiato - 4 mo/g (wealthy)", "wealthy"),
+            ("Aristocratico - 10 mo/g (aristocratic)", "aristocratic"),
+        ]
+
+        act_var = tk.StringVar(value=activities[0][0])
+        ls_var = tk.StringVar(value=lifestyles[3][0])
+        days_var = tk.IntVar(value=7)
+        detail_var = tk.StringVar(value="Pozione di Guarigione")
+        gp_var = tk.DoubleVar(value=50.0)
+        rarity_var = tk.StringVar(value="non comune")
+
+        ttk.Label(frm, text="Attività di Tempo Libero:").pack(anchor="w")
+        ttk.Combobox(frm, textvariable=act_var, values=[a[0] for a in activities], state="readonly", width=44).pack(fill=tk.X, pady=(2, 8))
+
+        row1 = ttk.Frame(frm)
+        row1.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(row1, text="Giorni:").pack(side=tk.LEFT)
+        ttk.Spinbox(row1, from_=1, to=365, textvariable=days_var, width=6).pack(side=tk.LEFT, padx=(6, 14))
+        ttk.Label(row1, text="Stile di Vita:").pack(side=tk.LEFT)
+        ttk.Combobox(row1, textvariable=ls_var, values=[l[0] for l in lifestyles], state="readonly", width=26).pack(side=tk.LEFT, padx=4)
+
+        ttk.Label(frm, text="Oggetto / Argomento Ricerca / Competenza:").pack(anchor="w")
+        ttk.Entry(frm, textvariable=detail_var).pack(fill=tk.X, pady=(2, 8))
+
+        row2 = ttk.Frame(frm)
+        row2.pack(fill=tk.X, pady=(0, 12))
+        ttk.Label(row2, text="Valore / Posta (mo):").pack(side=tk.LEFT)
+        ttk.Entry(row2, textvariable=gp_var, width=10).pack(side=tk.LEFT, padx=(6, 14))
+        ttk.Label(row2, text="Rarità (XGtE):").pack(side=tk.LEFT)
+        ttk.Combobox(row2, textvariable=rarity_var, values=["comune", "non comune", "raro", "molto raro", "leggendario"], state="readonly", width=13).pack(side=tk.LEFT, padx=4)
+
+        def _submit():
+            act_map = dict(activities)
+            ls_map = dict(lifestyles)
+            act_key = act_map.get(act_var.get(), "work")
+            ls_key = ls_map.get(ls_var.get(), "modest")
+            try:
+                days_i = max(1, int(days_var.get()))
+            except Exception:
+                days_i = 7
+            try:
+                val_f = max(0.0, float(gp_var.get()))
+            except Exception:
+                val_f = 25.0
+            txt = detail_var.get().strip() or "Attività"
+            from common.protocol import make_downtime_request
+            self.network.send(make_downtime_request(
+                act_key,
+                days=days_i,
+                lifestyle=ls_key,
+                item_name=txt,
+                target_proficiency=txt,
+                topic=txt,
+                item_value_gp=val_f,
+                stake_gp=val_f,
+                rarity=rarity_var.get(),
+            ))
+            win.destroy()
+
+        btn_f = ttk.Frame(frm)
+        btn_f.pack(fill=tk.X, pady=(8, 0))
+        ttk.Button(btn_f, text="Esegui Downtime", style="Accent.TButton", command=_submit).pack(side=tk.RIGHT, padx=(6, 0))
+        ttk.Button(btn_f, text="Chiudi", command=win.destroy).pack(side=tk.RIGHT)
+
+    def open_speed_factor_dialog(self):
+        """Dichiarazione pre-round per Iniziativa a Fattore Velocità (DMG p. 270)."""
+        if not getattr(self, "is_connected", False):
+            messagebox.showinfo("Offline", "Connettiti al server per dichiarare l'azione.")
+            return
+        win = tk.Toplevel(self.master)
+        win.title("⚡ Dichiarazione Fattore Velocità (DMG p. 270)")
+        win.geometry("410x240")
+        win.transient(self.master)
+        apply_modern_window_style(win)
+
+        frm = ttk.Frame(win, padding=14)
+        frm.pack(fill=tk.BOTH, expand=True)
+        choices = [
+            ("Arma Leggera / Accurata (+2)", "light"),
+            ("Arma da Mischia Media / Altra Azione (+0)", "melee"),
+            ("Arma Pesante / Due Mani (-2)", "heavy"),
+            ("Arma a Distanza (-2)", "ranged"),
+            ("Arma con Proprietà Ricarica (-5)", "loading"),
+            ("Trucchetto (+0)", "cantrip"),
+            ("Incantesimo con Slot (-Livello)", "spell"),
+        ]
+        choice_var = tk.StringVar(value=choices[1][0])
+        sp_lvl_var = tk.IntVar(value=1)
+
+        ttk.Label(frm, text="Azione dichiarata per questo round:").pack(anchor="w")
+        ttk.Combobox(frm, textvariable=choice_var, values=[c[0] for c in choices], state="readonly", width=40).pack(fill=tk.X, pady=(4, 10))
+        row = ttk.Frame(frm)
+        row.pack(fill=tk.X, pady=(0, 14))
+        ttk.Label(row, text="Livello Incantesimo (se Incantesimo con Slot):").pack(side=tk.LEFT)
+        ttk.Spinbox(row, from_=1, to=9, textvariable=sp_lvl_var, width=5).pack(side=tk.LEFT, padx=8)
+
+        def _send():
+            cmap = dict(choices)
+            key = cmap.get(choice_var.get(), "melee")
+            from common.protocol import make_optional_rule_action_request
+            self.network.send(make_optional_rule_action_request("declare_speed_factor", speed_action=key, spell_level=int(sp_lvl_var.get() or 1)))
+            win.destroy()
+
+        ttk.Button(frm, text="Dichiara Azione", style="Accent.TButton", command=_send).pack(side=tk.RIGHT)
+        ttk.Button(frm, text="Annulla", command=win.destroy).pack(side=tk.RIGHT, padx=(0, 6))
+
+    def open_jump_calculator_dialog(self):
+        """Calcola e trasmette le distanze di Salto in Lungo e in Alto (PHB p. 182)."""
+        from common.dnd5e_tables import calculate_jump_distances, entity_get_effective_attr
+        str_val = 10
+        if getattr(self, "active_character", None):
+            str_val = entity_get_effective_attr(self.active_character, "FOR")
+        j_run = calculate_jump_distances(str_val, running_start=True)
+        j_stand = calculate_jump_distances(str_val, running_start=False)
+        msg = (
+            f"FOR {j_run['str_score']} (mod {j_run['str_mod']:+d}):\n\n"
+            f"Con rincorsa (10 ft / 3m):\n"
+            f"  • Salto in Lungo: {j_run['long_jump_ft']} ft ({j_run['long_jump_m']} m)\n"
+            f"  • Salto in Alto: {j_run['high_jump_ft']} ft ({j_run['high_jump_m']} m)\n\n"
+            f"Da fermo:\n"
+            f"  • Salto in Lungo: {j_stand['long_jump_ft']} ft ({j_stand['long_jump_m']} m)\n"
+            f"  • Salto in Alto: {j_stand['high_jump_ft']} ft ({j_stand['high_jump_m']} m)"
+        )
+        if getattr(self, "is_connected", False) and messagebox.askyesno("🦘 Calcolatore Salto (PHB p. 182)", msg + "\n\nVuoi annunciare il Salto con rincorsa in chat?"):
+            from common.protocol import make_optional_rule_action_request
+            self.network.send(make_optional_rule_action_request("jump_check", running_start=True))
+        elif not getattr(self, "is_connected", False):
+            messagebox.showinfo("🦘 Calcolatore Salto (PHB p. 182)", msg)
 
     def perform_help(self):
         if not self.is_connected:
@@ -3503,7 +3735,7 @@ class ClientGUI:
         self.update_player_listbox()
 
     def set_controls_state(self, state):
-        for btn in ['entry', 'roll_button', 'player_listbox', 'action_button', 'aoe_button', 'travel_button', 'calendar_button', 'combat_btn', 'end_turn_btn', 'btn_act_tracker', 'btn_bonus_tracker', 'btn_react_tracker', 'btn_dash', 'btn_disengage', 'btn_dodge', 'btn_help', 'btn_short_rest', 'btn_second_wind', 'btn_action_surge', 'btn_rage']:
+        for btn in ['entry', 'roll_button', 'player_listbox', 'action_button', 'aoe_button', 'travel_button', 'calendar_button', 'combat_btn', 'end_turn_btn', 'btn_act_tracker', 'btn_bonus_tracker', 'btn_react_tracker', 'btn_dash', 'btn_disengage', 'btn_dodge', 'btn_help', 'btn_stand_up', 'btn_shop', 'btn_downtime', 'btn_special_powers', 'btn_short_rest', 'btn_second_wind', 'btn_action_surge', 'btn_rage']:
             widget = getattr(self, btn, None)
             if widget:
                 try: widget.config(state=state)
@@ -3951,6 +4183,33 @@ class ClientGUI:
                 win.destroy()
             ttk.Button(btn_frame, text="🥋 Defletti Missile (Reazione)", command=accept_dm, style="Primary.TButton").pack(side=tk.LEFT, padx=6)
             ttk.Button(btn_frame, text="Subisci Danni", command=decline_dm).pack(side=tk.LEFT, padx=6)
+
+        elif reaction_type in ("DEFENSIVE_DUELIST", "ILLUSORY_SELF", "DAMPEN_ELEMENTS"):
+            title_map = {
+                "DEFENSIVE_DUELIST": ("⚔️ Reazione: Duellante Difensivo", f"{source_name} ti sta per colpire ({details.get('hit_roll')} vs CA {details.get('current_ac')}).\nVuoi aggiungere +{details.get('bonus_ac', 2)} alla CA con arma accurata?", "⚔️ Para (+CA)"),
+                "ILLUSORY_SELF": ("🎭 Reazione: Sé Illusorio", f"{source_name} ti ha colpito!\nVuoi interporre un duplicato illusorio per far mancare automaticamente l'attacco (1/riposo breve)?", "🎭 Sé Illusorio (Manca)"),
+                "DAMPEN_ELEMENTS": ("🌿 Reazione: Smorzare Elementi", f"{source_name} infligge danni da {details.get('damage_type', 'elemento')}!\nVuoi dimezzare i danni con Resistenza in Reazione?", "🌿 Smorza (Dimezza)"),
+            }
+            dlg_t, dlg_msg, btn_txt = title_map[reaction_type]
+            win = tk.Toplevel(self.master)
+            win.title(dlg_t)
+            win.geometry("430x210")
+            win.transient(self.master)
+            win.grab_set()
+            apply_modern_window_style(win)
+            ttk.Label(win, text=dlg_msg, wraplength=400, justify="center").pack(pady=16, padx=14)
+            btn_frame = ttk.Frame(win)
+            btn_frame.pack(pady=8)
+            def accept_gen():
+                self.reaction_spent = True
+                self.update_action_economy_ui()
+                self.network.send(make_reaction_response(reaction_type, True, self.name, source_name, details))
+                win.destroy()
+            def decline_gen():
+                self.network.send(make_reaction_response(reaction_type, False, self.name, source_name, details))
+                win.destroy()
+            ttk.Button(btn_frame, text=btn_txt, command=accept_gen, style="Primary.TButton").pack(side=tk.LEFT, padx=6)
+            ttk.Button(btn_frame, text="Ignora", command=decline_gen).pack(side=tk.LEFT, padx=6)
 
     def handle_handout_broadcast(self, data):
         title = data.get("title", "Documento Condiviso")
@@ -5270,13 +5529,13 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         return False
 
     def open_special_abilities_dialog(self):
-        """Apre un pannello rapido 1-click per Privilegi di Classe, Talenti, Incantesimi Speciali e Manovre."""
+        """Apre un pannello rapido 1-click per Privilegi di Classe, Tratti Razziali, Regole DMG, Talenti e Manovre."""
         if not getattr(self, "is_connected", False):
             messagebox.showinfo("Offline", "Connettiti al server per usare le azioni speciali in partita.")
             return
         win = tk.Toplevel(self.master)
         win.title("⚔️ Poteri, Privilegi & Azioni Speciali 5e")
-        win.geometry("500x480")
+        win.geometry("620x580")
         win.transient(self.master)
         apply_modern_window_style(win)
 
@@ -5288,24 +5547,52 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         top_f.pack(fill=tk.X)
         ttk.Label(top_f, text="Bersaglio:").pack(side=tk.LEFT, padx=(0, 6))
         ttk.Combobox(top_f, textvariable=tgt_var, values=players_list, width=22).pack(side=tk.LEFT)
+        ttk.Button(top_f, text="🛠️ Apri Downtime...", command=self.open_downtime_dialog).pack(side=tk.RIGHT, padx=(6, 0))
+        ttk.Button(top_f, text="💰 Apri Negozi...", command=self.open_shop_dialog).pack(side=tk.RIGHT)
 
-        grid_f = ttk.LabelFrame(win, text="Attivazioni Rapide 5e (PHB / DMG)", padding=10)
-        grid_f.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+        container = ttk.LabelFrame(win, text="Attivazioni Rapide 5e (PHB / DMG / XGtE)", padding=6)
+        container.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
 
+        canvas = tk.Canvas(container, bg=SURFACE_COLOR, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        grid_f = ttk.Frame(canvas, padding=6)
+        grid_f.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        win_id = canvas.create_window((0, 0), window=grid_f, anchor="nw")
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win_id, width=e.width))
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        from common.protocol import make_optional_rule_action_request, make_class_feature_request
         buttons = [
+            ("⬆️ Alzati da Prono (Stand Up)", self.perform_stand_up),
+            ("📦 Farsi Strada (Squeeze Toggle)", lambda: self.network.send(make_optional_rule_action_request("toggle_squeeze"))),
+            ("⚡ Fattore Velocità (Dichiara Azione)", self.open_speed_factor_dialog),
+            ("🦘 Calcola / Annuncia Salto (FOR)", self.open_jump_calculator_dialog),
+            ("🌟 Punto Eroe: +1d6 Tiro (DMG)", lambda: self.network.send(make_optional_rule_action_request("hero_point", mode="roll_bonus"))),
+            ("🌟 Punto Eroe: Salva TS Morte (DMG)", lambda: self.network.send(make_optional_rule_action_request("hero_point", mode="death_save"))),
+            ("❤️‍🩹 Impulso Curativo (Healing Surge)", lambda: self.network.send(make_optional_rule_action_request("healing_surge", count=1))),
             ("🥊 Colpo Non Letale (Toggle)", lambda: self.network.send(make_toggle_non_lethal_request())),
             ("💢 Attacco Irruento (Reckless)", lambda: self.network.send(make_reckless_attack_request(True))),
             ("✋ Imposizione Mani (+5 HP)", lambda: self.network.send(make_lay_on_hands_request(tgt_var.get(), 5))),
             ("🎵 Ispirazione Bardica (Concedi)", lambda: self.network.send(make_bardic_inspiration_request("grant", tgt_var.get()))),
             ("🎵 Usa Dado Ispirazione Bardica", lambda: self.network.send(make_bardic_inspiration_request("use"))),
+            ("🎼 Controfascino (Bardo Lv6)", lambda: self.network.send(make_class_feature_request("countercharm"))),
             ("✝️ Scacciare Non Morti", lambda: self.network.send(make_turn_undead_request())),
             ("🛐 Intervento Divino", lambda: self.network.send(make_divine_intervention_request())),
+            ("✨ Tocco Purificatore (Paladino Lv14)", lambda: self.network.send(make_class_feature_request("cleansing_touch", target_name=tgt_var.get()))),
+            ("🌿 Recupero Naturale (Druido)", lambda: self.network.send(make_class_feature_request("natural_recovery"))),
+            ("🔮 Fonte di Magia (+Slot Lv1)", lambda: self.network.send(make_class_feature_request("font_of_magic", mode="to_slot", slot_level=1))),
             ("🛡️ Indomito (Reroll TS COS)", lambda: self.network.send(make_indomitable_request("COS", 12))),
             ("⚔️ Manovra: Sbilanciare (Trip)", lambda: self.network.send(make_maneuver_request("trip", tgt_var.get()))),
             ("💨 Azione Scaltra: Scatto (Bonus)", lambda: self.network.send(make_cunning_action_request("dash"))),
             ("🌑 Azione Scaltra: Nascondersi", lambda: self.network.send(make_hide_request(True))),
             ("🥋 Ki: Raffica di Colpi", lambda: self.network.send(make_ki_ability_request("flurry", tgt_var.get()))),
             ("🥋 Ki: Difesa Paziente (Schivata)", lambda: self.network.send(make_ki_ability_request("patient_defense"))),
+            ("🐉 Soffio Draconico (Dragonborn)", lambda: self.network.send(make_optional_rule_action_request("racial_trait", trait="breath_weapon", target_name=tgt_var.get()))),
+            ("✨ Mani Guaritrici (Aasimar)", lambda: self.network.send(make_optional_rule_action_request("racial_trait", trait="healing_hands", target_name=tgt_var.get()))),
+            ("🪨 Tenacia della Pietra (Goliath)", lambda: self.network.send(make_optional_rule_action_request("racial_trait", trait="stones_endurance"))),
+            ("🐆 Agilità Felina (Tabaxi)", lambda: self.network.send(make_optional_rule_action_request("racial_trait", trait="feline_agility"))),
             ("✨ Dardo Incantato (Auto-Hit)", lambda: self.network.send(make_cast_special_spell_request("Dardo Incantato", 1, tgt_var.get()))),
             ("⚡ Deflagrazione Occulta (Multi)", lambda: self.network.send(make_cast_special_spell_request("Deflagrazione Occulta", 1, tgt_var.get(), base_level=0))),
             ("✝️ Rimuovi Maledizione", lambda: self.network.send(make_cast_special_spell_request("Rimuovi Maledizione", 3, tgt_var.get()))),

@@ -77,7 +77,8 @@ def open_travel_panel(dm_gui):
     def get_passive_perception(p, pace):
         sheet = getattr(p, "full_sheet", {}) or {}
         base_bonus = get_skill_mod(sheet, "Percezione", "SAG")
-        pp = 10 + base_bonus
+        from common.subclass_and_race_rules import get_passive_observant_bonus
+        pp = 10 + base_bonus + get_passive_observant_bonus(p, "Percezione")
         if pace == "Lenta": pp += 5
         elif pace == "Veloce": pp -= 5
         return pp

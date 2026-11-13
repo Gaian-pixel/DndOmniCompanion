@@ -220,6 +220,7 @@ def is_proficient_with_weapon(entity: Any, weapon_name: str, weapon_props: Optio
 
 
 TOOL_SKILL_SYNERGIES_XGTE: Dict[str, Tuple[str, ...]] = {
+    "indagare": ("arnesi da scasso", "thieves' tools", "kit da falsario", "forgery kit"),
     "investigare": ("arnesi da scasso", "thieves' tools", "kit da falsario", "forgery kit"),
     "investigation": ("arnesi da scasso", "thieves' tools", "kit da falsario", "forgery kit"),
     "medicina": ("kit da erborista", "herbalism kit", "borse da guaritore"),

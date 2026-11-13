@@ -1587,8 +1587,9 @@ class CharacterSheetFrame(ttk.Frame):
         sec3.pack(fill=tk.X, pady=4)
         meta_options = {
             "Incantesimo Rapido (Quickened Spell) - 2 PE": ("Incantesimo Rapido", 2),
-            "Incantesimo Raddoppiato (Twinned Spell) - 1 PE": ("Incantesimo Raddoppiato", 1),
+            "Incantesimo Raddoppiato (Twinned Spell) - Lv PE": ("Incantesimo Raddoppiato", 1),
             "Incantesimo Intensificato (Heightened Spell) - 3 PE": ("Incantesimo Intensificato", 3),
+            "Incantesimo Attento (Careful Spell) - 1 PE": ("Incantesimo Attento", 1),
             "Incantesimo Potenziato (Empowered Spell) - 1 PE": ("Incantesimo Potenziato", 1),
             "Incantesimo Celato (Subtle Spell) - 1 PE": ("Incantesimo Celato", 1),
             "Incantesimo Distante (Distant Spell) - 1 PE": ("Incantesimo Distante", 1),
@@ -2442,9 +2443,11 @@ class CharacterSheetFrame(ttk.Frame):
 
         slots_frame = ttk.LabelFrame(parent_frame, text=_t("sheet_spell_slots_header"))
         slots_frame.pack(fill=tk.X, padx=5, pady=5)
+        slots_row = ttk.Frame(slots_frame)
+        slots_row.pack(fill=tk.X)
         self.slot_vars = {}
         for i in range(1, 10):
-            lvl_frame = ttk.Frame(slots_frame)
+            lvl_frame = ttk.Frame(slots_row)
             lvl_frame.pack(side=tk.LEFT, padx=3, expand=True)
             ttk.Label(lvl_frame, text=f"Lvl {i}").pack()
             sub_frame = ttk.Frame(lvl_frame)
@@ -2455,7 +2458,11 @@ class CharacterSheetFrame(ttk.Frame):
             ttk.Entry(sub_frame, textvariable=massimi, width=2, justify="center", state="readonly").pack(side=tk.LEFT)
             ttk.Label(sub_frame, text="/").pack(side=tk.LEFT)
             ttk.Entry(sub_frame, textvariable=usati, width=2, justify="center").pack(side=tk.LEFT)
-            
+
+        self.pact_slots_row = ttk.Frame(slots_frame)
+        self.lbl_pact_slots = ttk.Label(self.pact_slots_row, text="", font=FONT_BOLD, foreground="#9D4EDD")
+        self.lbl_pact_slots.pack(side=tk.LEFT, padx=6, pady=(2, 0))
+
         list_frame = ttk.Frame(parent_frame)
         list_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.spell_tree = ttk.Treeview(list_frame, columns=("Lvl", "Nome", "Tempo", "Raggio"), show="headings", height=8)
@@ -2486,16 +2493,31 @@ class CharacterSheetFrame(ttk.Frame):
         ToolTip(srd_btn, tip_msg)
         self.btn_remove_spell = ttk.Button(btn_frame, text=_t("remove"), command=self.remove_spell)
         self.btn_remove_spell.pack(side=tk.LEFT, padx=5)
+        self.btn_toggle_prepared = ttk.Button(btn_frame, text="✓ Prepara/Rimuovi", command=lambda: SpellsPanel.toggle_spell_prepared(self))
+        self.btn_toggle_prepared.pack(side=tk.LEFT, padx=4)
         self.btn_cast_spell = ttk.Button(btn_frame, text=_t("sheet_spellbook_cast_btn"), command=self.cast_spell)
         self.btn_cast_spell.pack(side=tk.RIGHT, padx=5)
 
         char_cls = str(getattr(self.character, "char_class", "")).lower()
-        if any(k in char_cls for k in ("stregone", "sorcerer")) or getattr(self.character, "sorcery_points_max", 0) > 0:
+        from common.spell_effects_engine import can_use_metamagic
+        if any(k in char_cls for k in ("stregone", "sorcerer")) or can_use_metamagic(self.character):
             btn_font = ttk.Button(btn_frame, text="✨ Fonte di Magia", command=self.open_font_of_magic_dialog, style="Gold.TButton")
             btn_font.pack(side=tk.RIGHT, padx=5)
 
     def sort_spells(self, col):
         SpellsPanel.sort_spells(self, col)
+
+    def update_pact_slots_label(self):
+        if not hasattr(self, "pact_slots_row") or not hasattr(self, "lbl_pact_slots"):
+            return
+        pact = getattr(self.character, "pact_slots", None)
+        if isinstance(pact, dict) and int(pact.get("max", 0) or 0) > 0:
+            self.lbl_pact_slots.config(
+                text=f"🟣 Magia del Patto (Warlock - Riposo Breve): {pact.get('current', 0)}/{pact.get('max', 0)} slot di {pact.get('level', 1)}° liv."
+            )
+            self.pact_slots_row.pack(fill=tk.X)
+        else:
+            self.pact_slots_row.pack_forget()
 
     def refresh_spell_list(self):
         SpellsPanel.refresh_spell_list(self)
@@ -2571,7 +2593,13 @@ class CharacterSheetFrame(ttk.Frame):
         base_lvl = int(spell.get('level', 0))
         upcast_var = tk.IntVar(value=max(1, base_lvl) if base_lvl > 0 else 0)
         ritual_var = tk.BooleanVar(value=False)
+        use_pact_var = tk.BooleanVar(value=False)
+        use_sp_var = tk.BooleanVar(value=(int(getattr(self.character, "spell_points_max", 0) or 0) > 0))
+        meta_var = tk.StringVar(value="Nessuna")
         is_ritual_capable = SpellsPanel.is_ritual_spell(spell)
+        caster_can_ritual = SpellsPanel.can_cast_as_ritual(self.character)
+        pact = getattr(self.character, "pact_slots", None)
+        has_pact_avail = isinstance(pact, dict) and int(pact.get("max", 0) or 0) > 0 and int(pact.get("level", 0) or 0) >= max(1, base_lvl)
 
         import re as _re
         raw_dmg_f = str(spell.get("damage_formula", "") or "").strip()
@@ -2603,11 +2631,42 @@ class CharacterSheetFrame(ttk.Frame):
             upcast_combo.bind("<<ComboboxSelected>>", on_upcast_change)
 
             ritual_row = tk.Frame(win, bg="#1e1e1e")
-            ritual_row.pack(fill=tk.X, padx=10, pady=(0, 6))
-            ritual_lbl = "🕯️ Lancia come Rituale (+10 min, 0 slot consumati)"
-            if is_ritual_capable:
-                ritual_lbl += " [★ Rituale Ufficiale 5e]"
-            ttk.Checkbutton(ritual_row, text=ritual_lbl, variable=ritual_var).pack(side=tk.LEFT)
+            ritual_row.pack(fill=tk.X, padx=10, pady=(0, 4))
+            if is_ritual_capable and caster_can_ritual:
+                ritual_lbl = "🕯️ Lancia come Rituale (+10 min, 0 slot consumati) [★ Consentito]"
+                ttk.Checkbutton(ritual_row, text=ritual_lbl, variable=ritual_var).pack(side=tk.LEFT)
+            elif is_ritual_capable:
+                ritual_chk = ttk.Checkbutton(ritual_row, text="🕯️ Rituale [Classe/Talento privo di Lancio Rituale]", variable=ritual_var, state="disabled")
+                ritual_chk.pack(side=tk.LEFT)
+            else:
+                ritual_chk = ttk.Checkbutton(ritual_row, text="🕯️ Rituale [Incantesimo non Rituale]", variable=ritual_var, state="disabled")
+                ritual_chk.pack(side=tk.LEFT)
+
+            if has_pact_avail:
+                pact_row = tk.Frame(win, bg="#1e1e1e")
+                pact_row.pack(fill=tk.X, padx=10, pady=(0, 4))
+                ttk.Checkbutton(
+                    pact_row,
+                    text=f"🟣 Usa Slot Patto Warlock (Lv {pact.get('level', 1)}°, {pact.get('current', 0)}/{pact.get('max', 0)} rimasti)",
+                    variable=use_pact_var,
+                ).pack(side=tk.LEFT)
+
+            if int(getattr(self.character, "spell_points_max", 0) or 0) > 0:
+                sp_row = tk.Frame(win, bg="#1e1e1e")
+                sp_row.pack(fill=tk.X, padx=10, pady=(0, 4))
+                ttk.Checkbutton(
+                    sp_row,
+                    text=f"⚡ Usa Punti Incantesimo DMG ({getattr(self.character, 'spell_points_current', 0)}/{getattr(self.character, 'spell_points_max', 0)})",
+                    variable=use_sp_var,
+                ).pack(side=tk.LEFT)
+
+        from common.spell_effects_engine import can_use_metamagic
+        if can_use_metamagic(self.character):
+            meta_row = tk.Frame(win, bg="#1e1e1e")
+            meta_row.pack(fill=tk.X, padx=10, pady=(0, 6))
+            tk.Label(meta_row, text="✨ Metamagia:", font=FONT_BOLD, fg=ACCENT_GOLD, bg="#1e1e1e").pack(side=tk.LEFT, padx=(0, 6))
+            meta_choices = ["Nessuna", "Attento (1 PS)", "Distante (1 PS)", "Potenziato (1 PS)", "Esteso (1 PS)", "Rapido (2 PS)", "Celato (1 PS)", "Intensificato (3 PS)", "Raddoppiato (Lv PS)"]
+            ttk.Combobox(meta_row, textvariable=meta_var, values=meta_choices, state="readonly", width=26).pack(side=tk.LEFT)
 
         btn_frame = ttk.Frame(win)
         btn_frame.pack(fill=tk.X, pady=10)
@@ -2620,26 +2679,60 @@ class CharacterSheetFrame(ttk.Frame):
             if not ok_mat:
                 messagebox.showwarning("Componente Materiale Mancante", mat_note, parent=win)
                 return
+
             lvl = int(spell.get('level', 0))
-            cast_level = lvl
             is_ritual_cast = bool(lvl > 0 and ritual_var.get())
-            if lvl > 0 and not is_ritual_cast:
-                cast_level = upcast_var.get()
-                lvl_str = str(cast_level)
-                if lvl_str in self.slot_vars:
-                    massimi_var = self.slot_vars[lvl_str]["max"]
-                    usati_var = self.slot_vars[lvl_str]["current"]
-                    if usati_var.get() > 0:
-                        usati_var.set(usati_var.get() - 1)
-                        if not hasattr(self.character, "spell_slots"):
-                            self.character.spell_slots = {str(i): {"max": 0, "current": 0} for i in range(1, 10)}
-                        self.character.spell_slots[lvl_str]["current"] = usati_var.get()
-                        self.character.spell_slots[lvl_str]["max"] = massimi_var.get()
-                        self.manager.update_character(self.character)
-                    else:
-                        if not messagebox.askyesno("Slot Esauriti", f"Non hai piu' slot di livello {lvl_str}. Vuoi lanciarlo lo stesso?", parent=win):
-                            return
-            
+            cast_level = lvl if is_ritual_cast else (upcast_var.get() if lvl > 0 else 0)
+
+            # Verifica Preparazione (PHB p. 201 / Mago Rituali p. 114)
+            if lvl > 0 and SpellsPanel.spell_preparation_required(self.character) and spell.get("prepared", True) is False:
+                cls_low = str(getattr(self.character, "char_class", "") or "").lower()
+                wizard_ritual_ok = ("mago" in cls_low or "wizard" in cls_low) and is_ritual_cast and is_ritual_capable and caster_can_ritual
+                if not wizard_ritual_ok:
+                    if not messagebox.askyesno("Incantesimo Non Preparato", f"'{spell.get('name', '')}' non è segnato come Preparato oggi (PHB).\nVuoi forzarne il lancio comunque (consenso DM)?", parent=win):
+                        return
+
+            # Sincronizza eventuali modifiche manuali su self.slot_vars prima del consumo
+            if not hasattr(self.character, "spell_slots") or not isinstance(self.character.spell_slots, dict):
+                self.character.spell_slots = {str(i): {"max": 0, "current": 0} for i in range(1, 10)}
+            for l_k, v_dict in getattr(self, "slot_vars", {}).items():
+                self.character.spell_slots.setdefault(l_k, {"max": 0, "current": 0})
+                if isinstance(self.character.spell_slots[l_k], dict):
+                    self.character.spell_slots[l_k]["current"] = v_dict["current"].get()
+                    self.character.spell_slots[l_k]["max"] = v_dict["max"].get()
+
+            meta_choice = "" if meta_var.get() == "Nessuna" else meta_var.get()
+            ok_res, res_tags, err_res = SpellsPanel.execute_spell_resource_cost(
+                self.character,
+                spell,
+                cast_level,
+                is_ritual=is_ritual_cast,
+                use_pact=bool(use_pact_var.get()),
+                use_spell_points=bool(use_sp_var.get()),
+                metamagic_key=meta_choice,
+            )
+            if not ok_res:
+                if err_res.startswith("SLOT_EXHAUSTED:"):
+                    req_l = err_res.split(":", 1)[1]
+                    if not messagebox.askyesno("Slot Esauriti", f"Non hai più slot di livello {req_l}. Vuoi lanciarlo lo stesso?", parent=win):
+                        return
+                else:
+                    messagebox.showwarning("Impossibile Lanciare", err_res, parent=win)
+                    return
+
+            # Aggiorna UI slot vars da self.character.spell_slots
+            for l_k, v_dict in getattr(self, "slot_vars", {}).items():
+                sl_o = self.character.spell_slots.get(l_k, {})
+                if isinstance(sl_o, dict):
+                    v_dict["current"].set(int(sl_o.get("current", 0) or 0))
+                    v_dict["max"].set(int(sl_o.get("max", 0) or 0))
+
+            mat_cons_note = ""
+            if mat_consumed and float(mat_gp or 0) > 0:
+                mat_cons_note = SpellsPanel.consume_material_component(self.character, spell, mat_gp)
+                if hasattr(self, "refresh_inventory_grid"):
+                    self.refresh_inventory_grid()
+
             desc_text = (str(spell.get('desc', '')) + " " + str(spell.get('duration', ''))).lower()
             requires_conc = ("concentrazione" in desc_text or "concentration" in desc_text)
             conc_info = ""
@@ -2651,11 +2744,13 @@ class CharacterSheetFrame(ttk.Frame):
                 else:
                     self.character.conditions.append("Concentrazione")
                     conc_info = " [🧠 Concentrazione Attiva]"
-                self.manager.update_character(self.character)
 
             self.manager.update_character(self.character)
             if hasattr(self.manager, 'save_characters'):
                 self.manager.save_characters()
+            SpellsPanel.update_spell_stats(self)
+            if hasattr(self, "update_pact_slots_label"):
+                self.update_pact_slots_label()
             if hasattr(self, "_capture_initial_state"):
                 self._capture_initial_state()
             if hasattr(self, "on_save_callback") and self.on_save_callback:
@@ -2664,23 +2759,21 @@ class CharacterSheetFrame(ttk.Frame):
 
             if self.roll_callback:
                 upcast_info = ""
-                if is_ritual_cast:
-                    upcast_info = " [🕯️ Lanciato come Rituale (+10 min, 0 slot spesi)]"
-                elif cast_level > lvl:
-                    scaled_note = ""
-                    if raw_dmg_f:
-                        scaled_f = SpellsPanel.scale_spell_formula_for_upcast(raw_dmg_f, lvl, cast_level, spell.get("name", ""))
-                        scaled_note = f" — Formula Scalata: {scaled_f}"
-                    upcast_info = f" (Potenziato al Livello {cast_level}{scaled_note}!)"
+                if not is_ritual_cast and cast_level > lvl and raw_dmg_f:
+                    scaled_f = SpellsPanel.scale_spell_formula_for_upcast(raw_dmg_f, lvl, cast_level, spell.get("name", ""))
+                    upcast_info = f" (Formula Scalata: {scaled_f})"
                 stats_tag = f" [CD Incantesimi: {spell_stats.get('dc', 10)} | Attacco Magico: {spell_stats.get('attack_str', '+2')}]"
                 dur_r = parse_spell_duration_rounds(str(spell.get("duration", "") or ""))
+                if any("Esteso" in t for t in res_tags) and dur_r:
+                    dur_r = min(14400, dur_r * 2)
                 dur_tag = f" [⏳ Durata: ~{dur_r} round]" if dur_r and dur_r > 0 else ""
                 meta_act = getattr(self.character, "active_metamagic", None)
                 meta_tag = ""
                 if meta_act:
                     meta_tag = f" [✨ Metamagia: {meta_act.upper()}]"
                     self.character.active_metamagic = None
-                chat_msg = f"{self.character.name} lancia {spell.get('name', '')}{upcast_info}!{stats_tag}{conc_info}{dur_tag}{meta_tag}{mat_note}"
+                tags_txt = (" " + " ".join(f"[{t}]" for t in res_tags)) if res_tags else ""
+                chat_msg = f"{self.character.name} lancia {spell.get('name', '')}{upcast_info}!{stats_tag}{conc_info}{dur_tag}{meta_tag}{tags_txt}{mat_note}{mat_cons_note}"
                 self.roll_callback("0d0", chat_msg)
             win.destroy()
 
@@ -2993,6 +3086,7 @@ class CharacterSheetFrame(ttk.Frame):
                     elif isinstance(vals, list):
                         self.slot_vars[lvl]["current"].set(vals[0])
                         self.slot_vars[lvl]["max"].set(vals[1])
+        self.update_pact_slots_label()
                     
         self.refresh_spell_list()
         self.refresh_inventory_grid()
@@ -3021,8 +3115,7 @@ class CharacterSheetFrame(ttk.Frame):
         level = max(1, level)
         prof_bonus = ((level - 1) // 4) + 2
 
-        char_class = str(getattr(self.character, "char_class", "")).lower() if hasattr(self, "character") else ""
-        is_bard_jack = ("bardo" in char_class or "bard" in char_class) and level >= 2
+        from common.feats_and_classes import get_jack_or_remarkable_bonus
 
         for skill, stat in self.skill_map.items():
             if hasattr(self, "character") and hasattr(self.character, "get_modifier"):
@@ -3041,8 +3134,8 @@ class CharacterSheetFrame(ttk.Frame):
                 except (ValueError, tk.TclError):
                     prof_level = 0
 
-            # Factotum (Jack of All Trades): +prof_bonus // 2 alle prove di caratteristica non competenti
-            jack_bonus = (prof_bonus // 2) if (prof_level == 0 and is_bard_jack) else 0
+            # Tuttofare (Jack of All Trades, Bardo Lv2+) & Atleta Straordinario (Campione Lv7+ FOR/DES/COS)
+            jack_bonus = get_jack_or_remarkable_bonus(self.character, stat, is_proficient=(prof_level > 0)) if hasattr(self, "character") else 0
             total_mod = stat_mod + (prof_bonus * prof_level) + jack_bonus
             mod_str = f"+{total_mod}" if total_mod >= 0 else str(total_mod)
 
@@ -4405,30 +4498,28 @@ class CharacterSheetFrame(ttk.Frame):
                 level = getattr(self.character, "level", 1) or 1
             prof_bonus = ((max(1, int(level)) - 1) // 4) + 2
             
-            char_class = str(getattr(self.character, "char_class", "")).lower() if hasattr(self, "character") else ""
-            is_bard_jack = ("bardo" in char_class or "bard" in char_class) and int(level) >= 2
-
-            if prof_level > 0:
-                total_mod = stat_mod + (prof_bonus * prof_level)
-            elif is_bard_jack:
-                total_mod = stat_mod + (prof_bonus // 2)
-            else:
-                total_mod = stat_mod
+            from common.feats_and_classes import get_jack_or_remarkable_bonus, check_tool_synergy_xgte
+            bonus_extra = get_jack_or_remarkable_bonus(self.character, stat_name, is_proficient=(prof_level > 0)) if hasattr(self, "character") else 0
+            total_mod = stat_mod + (prof_bonus * prof_level) + bonus_extra
             mod_str = f"+{total_mod}" if total_mod >= 0 else str(total_mod)
             
             formula = f"1d20{mod_str}"
             adv_state = self.adv_dis_var.get()
+            synergy_note = ""
             if adv_state in ("Vantaggio", _t("adv_advantage")):
                 formula += " adv"
             elif adv_state in ("Svantaggio", _t("adv_disadvantage")):
                 formula += " dis"
+            elif hasattr(self, "character") and check_tool_synergy_xgte(self.character, skill_name):
+                formula += " adv"
+                synergy_note = " [Sinergia Strumento XGtE]"
             if hasattr(self.character, "has_halfling_luck") and self.character.has_halfling_luck():
                 formula += " halfling"
             if prof_level > 0 and hasattr(self.character, "has_reliable_talent") and self.character.has_reliable_talent():
                 formula += " reliable"
                 
             self.adv_dis_var.set(_t("adv_normal"))
-            self.roll_callback(formula, f"Check {skill_name}")
+            self.roll_callback(formula, f"Check {skill_name}{synergy_note}")
         except (ValueError, tk.TclError):
             pass
 

@@ -824,6 +824,59 @@ class CharacterCreationWizardFrame(ttk.Frame):
         self.he_bon1_var.trace_add("write", _on_subrace_or_he_change)
         self.he_bon2_var.trace_add("write", _on_subrace_or_he_change)
 
+        # Barra Opzionale Tasha's Cauldron of Everything: Personalizzazione Origine (TCE p. 7)
+        tasha_frame = ttk.Frame(parent, style="Surface.TFrame", padding=(10, 5))
+        tasha_frame.pack(fill=tk.X, pady=(0, 6))
+        self.tasha_origin_var = tk.BooleanVar(value=bool(self.char_data.get("tasha_origin", False)))
+        self.tasha_mode_var = tk.StringVar(value=self.char_data.get("tasha_mode", "+2/+1"))
+        tasha_saved = self.char_data.get("tasha_stats", ["FOR", "COS", "DES"])
+        self.tasha_s1_var = tk.StringVar(value=tasha_saved[0] if len(tasha_saved) > 0 else "FOR")
+        self.tasha_s2_var = tk.StringVar(value=tasha_saved[1] if len(tasha_saved) > 1 else "COS")
+        self.tasha_s3_var = tk.StringVar(value=tasha_saved[2] if len(tasha_saved) > 2 else "DES")
+        self.tasha_prof_swap_var = tk.StringVar(value=self.char_data.get("tasha_prof_swap", ""))
+
+        tasha_chk = ttk.Checkbutton(
+            tasha_frame,
+            text="✨ Origini Personalizzate (TCE)",
+            variable=self.tasha_origin_var,
+        )
+        tasha_chk.pack(side=tk.LEFT, padx=(0, 8))
+        tasha_mode_cb = ttk.Combobox(tasha_frame, textvariable=self.tasha_mode_var, values=["+2/+1", "+1/+1/+1"], state="readonly", width=9)
+        tasha_cb1 = ttk.Combobox(tasha_frame, textvariable=self.tasha_s1_var, values=ATTRIBUTES, state="readonly", width=5)
+        tasha_cb2 = ttk.Combobox(tasha_frame, textvariable=self.tasha_s2_var, values=ATTRIBUTES, state="readonly", width=5)
+        tasha_cb3 = ttk.Combobox(tasha_frame, textvariable=self.tasha_s3_var, values=ATTRIBUTES, state="readonly", width=5)
+        tasha_swap_lbl = ttk.Label(tasha_frame, text="Scambio comp.:", font=("Segoe UI", 8), style="Surface.TLabel")
+        tasha_swap_ent = ttk.Entry(tasha_frame, textvariable=self.tasha_prof_swap_var, width=16)
+
+        def _sync_tasha_state(*_a):
+            on = bool(self.tasha_origin_var.get())
+            self.char_data["tasha_origin"] = on
+            mode = self.tasha_mode_var.get() or "+2/+1"
+            self.char_data["tasha_mode"] = mode
+            s1, s2, s3 = self.tasha_s1_var.get(), self.tasha_s2_var.get(), self.tasha_s3_var.get()
+            if s2 == s1:
+                s2 = next((x for x in ATTRIBUTES if x != s1), "COS")
+                self.tasha_s2_var.set(s2)
+            if s3 in (s1, s2):
+                s3 = next((x for x in ATTRIBUTES if x not in (s1, s2)), "DES")
+                self.tasha_s3_var.set(s3)
+            self.char_data["tasha_stats"] = [s1, s2, s3]
+            self.char_data["tasha_prof_swap"] = self.tasha_prof_swap_var.get().strip()
+            for w in (tasha_mode_cb, tasha_cb1, tasha_cb2, tasha_cb3, tasha_swap_lbl, tasha_swap_ent):
+                w.pack_forget()
+            if on:
+                tasha_mode_cb.pack(side=tk.LEFT, padx=3)
+                tasha_cb1.pack(side=tk.LEFT, padx=2)
+                tasha_cb2.pack(side=tk.LEFT, padx=2)
+                if mode == "+1/+1/+1":
+                    tasha_cb3.pack(side=tk.LEFT, padx=2)
+                tasha_swap_lbl.pack(side=tk.LEFT, padx=(8, 2))
+                tasha_swap_ent.pack(side=tk.LEFT, padx=2)
+
+        for _v in (self.tasha_origin_var, self.tasha_mode_var, self.tasha_s1_var, self.tasha_s2_var, self.tasha_s3_var, self.tasha_prof_swap_var):
+            _v.trace_add("write", _sync_tasha_state)
+        _sync_tasha_state()
+
         # Scheda Dettagli Razza (Card)
         card = ttk.Frame(parent, style="Card.TFrame", padding=14)
         card.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
@@ -1899,6 +1952,24 @@ class CharacterCreationWizardFrame(ttk.Frame):
         for sub_k, sub_v in subrace_info.get("bonuses", {}).items():
             if sub_k not in race_info.get("bonuses", {}):
                 effective_bonuses[sub_k] = effective_bonuses.get(sub_k, 0) + int(sub_v)
+
+        if self.char_data.get("tasha_origin"):
+            t_mode = self.char_data.get("tasha_mode", "+2/+1")
+            t_stats = list(self.char_data.get("tasha_stats", ["FOR", "COS", "DES"]))
+            effective_bonuses = {}
+            if t_mode == "+1/+1/+1":
+                for ts in t_stats[:3]:
+                    if ts in ATTRIBUTES:
+                        effective_bonuses[ts] = 1
+            else:
+                if len(t_stats) >= 1 and t_stats[0] in ATTRIBUTES:
+                    effective_bonuses[t_stats[0]] = 2
+                if len(t_stats) >= 2 and t_stats[1] in ATTRIBUTES and t_stats[1] != t_stats[0]:
+                    effective_bonuses[t_stats[1]] = 1
+            c.tasha_origin = True
+            swap_txt = str(self.char_data.get("tasha_prof_swap", "") or "").strip()
+            if swap_txt:
+                c.features = (getattr(c, "features", "") or "") + f"\n[Origine TCE - Scambio Competenze]: {swap_txt}"
 
         for attr in ATTRIBUTES:
             base = self.char_data["attributes"][attr]

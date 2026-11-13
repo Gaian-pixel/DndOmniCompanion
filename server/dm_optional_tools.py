@@ -800,6 +800,351 @@ def handle_optional_rule_action_request(data: dict, player: Any, game_state: Any
         broadcast(game_state, make_chat_broadcast("Sistema", f"🏛️ [{str(data.get('track', 'Fama')).upper()}] {target.name}: {val}"))
         broadcast(game_state, make_game_state(game_state.get_state_dict()))
         return
+    if action == "declare_speed_factor":
+        if not actor:
+            return
+        sp_action = str(data.get("speed_action", "melee") or "melee").strip().lower()
+        sp_lvl = int(data.get("spell_level", 1) or 1)
+        if sp_action == "spell":
+            actor.speed_factor_declared_action = f"spell_{max(1, min(9, sp_lvl))}"
+        elif sp_action == "cantrip":
+            actor.speed_factor_declared_action = "cantrip"
+        else:
+            actor.speed_factor_declared_action = sp_action
+        mod_v = compute_speed_factor_modifier(actor, actor.speed_factor_declared_action)
+        broadcast(
+            game_state,
+            make_chat_broadcast(
+                "Sistema",
+                f"⚡ [FATTORE VELOCITÀ DMG p.270] {actor.name} dichiara azione '{actor.speed_factor_declared_action}' (Modificatore Iniziativa {mod_v:+d}).",
+            ),
+        )
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        return
+
+    if action == "toggle_squeeze":
+        if not actor:
+            return
+        conds = getattr(actor, "conditions", None)
+        if not isinstance(conds, list):
+            conds = []
+            actor.conditions = conds
+        active = bool(getattr(actor, "is_squeezing", False)) or any("spremere" in str(c).lower() or "squeez" in str(c).lower() for c in conds)
+        if active:
+            actor.is_squeezing = False
+            actor.conditions = [c for c in conds if "spremere" not in str(c).lower() and "squeez" not in str(c).lower()]
+            msg = f"📦 [MOVIMENTO] {actor.name} esce dallo spazio stretto (Squeezing disattivato)."
+        else:
+            actor.is_squeezing = True
+            if not any("spremere" in str(c).lower() or "squeez" in str(c).lower() for c in conds):
+                conds.append("Spremere (Squeezing)")
+            msg = f"📦 [SPREMERE - PHB p.192] {actor.name} attraversa uno spazio stretto (movimento dimezzato / doppio costo, svantaggio TpC e TS DES, vantaggio ai TpC contro di lui)."
+        _sync_conds(actor)
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        broadcast(game_state, make_player_stats_update(actor.name, getattr(actor, "hp", 0), getattr(actor, "max_hp", 0), getattr(actor, "initiative", 0), actor.conditions, getattr(actor, "temp_hp", 0)))
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        return
+
+    if action == "jump_check":
+        if not actor:
+            return
+        from common.dnd5e_tables import calculate_jump_distances
+        running = bool(data.get("running_start", True))
+        str_sc = entity_get_effective_attr(actor, "FOR")
+        j = calculate_jump_distances(str_sc, running_start=running)
+        mode_lbl = "con rincorsa (10 ft / 3m)" if running else "da fermo (senza rincorsa)"
+        msg = (
+            f"🦘 [SALTO PHB p.182] {actor.name} (FOR {j['str_score']}, {mode_lbl}): "
+            f"Salto in Lungo fino a {j['long_jump_ft']} ft ({j['long_jump_m']} m) | "
+            f"Salto in Alto fino a {j['high_jump_ft']} ft ({j['high_jump_m']} m)."
+        )
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        return
+
+    if action == "racial_trait":
+        if not actor:
+            return
+        trait = str(data.get("trait", "") or "").strip().lower()
+        lvl = max(1, entity_get_total_level(actor))
+        fs = getattr(actor, "full_sheet", None)
+        if not isinstance(fs, dict):
+            fs = {}
+            actor.full_sheet = fs
+        if trait == "breath_weapon":
+            from common.dnd5e_tables import entity_find_resource, entity_spend_resource
+            if entity_find_resource(actor, "soffio draconico", "breath weapon") is None:
+                fs.setdefault("custom_resources", []).append({"name": "Soffio Draconico", "current": 1, "max": 1, "reset_on": "short"})
+            ok, nc, mx = entity_spend_resource(actor, ("soffio draconico", "breath weapon"), 1)
+            if not ok:
+                if getattr(actor, "conn", None):
+                    send_message(actor.conn, make_error_reply("Soffio Draconico già utilizzato fino al prossimo Riposo Breve o Lungo."))
+                return
+            dice_n = 2 if lvl < 6 else (3 if lvl < 11 else (4 if lvl < 16 else 5))
+            dc = 8 + entity_get_attr_mod(actor, "COS") + ((lvl - 1) // 4 + 2)
+            dmg_r = roll_dice(f"{dice_n}d6")
+            actor.has_acted_this_turn = True
+            msg = f"🐉 [SOFFIO DRACONICO - CD {dc} DES] {actor.name} esala energia draconica per {dmg_r['total']} ({dice_n}d6) danni! ({nc}/{mx} usi)"
+            if target and target is not actor:
+                con_or_dex = get_effective_save_bonus_from_dict(target, "DES")
+                sr = roll_dice(f"1d20{'+' if con_or_dex >= 0 else ''}{con_or_dex}")["total"]
+                raw = (dmg_r["total"] // 2) if sr >= dc else dmg_r["total"]
+                from server.rules.combat import apply_damage
+                fd, _, _, _ = apply_damage(target, raw, damage_type=str(data.get("damage_type", "Fuoco")), game_state=game_state)
+                msg += f" -> {target.name} TS DES {sr}: {fd} danni!"
+            broadcast(game_state, make_chat_broadcast("Sistema", msg))
+            broadcast(game_state, make_game_state(game_state.get_state_dict()))
+            return
+        if trait == "healing_hands":
+            from common.dnd5e_tables import entity_find_resource, entity_spend_resource
+            if entity_find_resource(actor, "mani guaritrici", "healing hands") is None:
+                fs.setdefault("custom_resources", []).append({"name": "Mani Guaritrici", "current": 1, "max": 1, "reset_on": "long"})
+            ok, nc, mx = entity_spend_resource(actor, ("mani guaritrici", "healing hands"), 1)
+            if not ok:
+                if getattr(actor, "conn", None):
+                    send_message(actor.conn, make_error_reply("Mani Guaritrici già utilizzate fino al Riposo Lungo."))
+                return
+            t_ent = target or actor
+            old_hp = getattr(t_ent, "hp", 0)
+            t_ent.hp = min(getattr(t_ent, "max_hp", old_hp + lvl), old_hp + lvl)
+            actor.has_acted_this_turn = True
+            msg = f"✨ [MANI GUARITRICI] {actor.name} cura {t_ent.name} di +{t_ent.hp - old_hp} PF ({t_ent.hp}/{getattr(t_ent, 'max_hp', t_ent.hp)})!"
+            broadcast(game_state, make_chat_broadcast("Sistema", msg))
+            broadcast(game_state, make_player_stats_update(t_ent.name, t_ent.hp, getattr(t_ent, "max_hp", t_ent.hp), getattr(t_ent, "initiative", 0), getattr(t_ent, "conditions", []), getattr(t_ent, "temp_hp", 0)))
+            broadcast(game_state, make_game_state(game_state.get_state_dict()))
+            return
+        if trait == "stones_endurance":
+            from common.dnd5e_tables import entity_find_resource, entity_spend_resource
+            if entity_find_resource(actor, "tenacia della pietra", "stone's endurance") is None:
+                fs.setdefault("custom_resources", []).append({"name": "Tenacia della Pietra", "current": 1, "max": 1, "reset_on": "short"})
+            ok, nc, mx = entity_spend_resource(actor, ("tenacia della pietra", "stone's endurance"), 1)
+            if not ok:
+                if getattr(actor, "conn", None):
+                    send_message(actor.conn, make_error_reply("Tenacia della Pietra già usata fino al Riposo Breve/Lungo."))
+                return
+            con_m = entity_get_attr_mod(actor, "COS")
+            red = max(0, roll_dice("1d12")["total"] + con_m)
+            actor.reaction_used_this_turn = True
+            actor.stones_endurance_shield = red
+            msg = f"🪨 [TENACIA DELLA PIETRA] {actor.name} prepara uno scudo di pietra riducendo i prossimi danni subiti fino a {red} PF (1d12 + {con_m})!"
+            broadcast(game_state, make_chat_broadcast("Sistema", msg))
+            broadcast(game_state, make_game_state(game_state.get_state_dict()))
+            return
+        if trait == "feline_agility":
+            if getattr(actor, "feline_agility_spent", False):
+                if getattr(actor, "conn", None):
+                    send_message(actor.conn, make_error_reply("Agilità Felina richiede di rimanere fermo 1 turno per ricaricarsi."))
+                return
+            actor.feline_agility_spent = True
+            actor.feline_agility_active = True
+            msg = f"🐆 [AGILITÀ FELINA] {actor.name} raddoppia la velocità di movimento fino alla fine del turno!"
+            broadcast(game_state, make_chat_broadcast("Sistema", msg))
+            broadcast(game_state, make_game_state(game_state.get_state_dict()))
+            return
+
     if action == "bastion_order":
         res = resolve_bastion_turn(data.get("facility", "treasury"))
         broadcast(game_state, make_chat_broadcast("Sistema", f"🏰 [BASTIONE] {res['facility']} -> {res['order']}" + (f" (+{res['gold_dividend']} MO)" if res["gold_dividend"] else "")))
+        return
+
+    from server.dm_dmg_systems import (
+        calculate_monster_cr_dmg,
+        resolve_mob_attack,
+        roll_potion_miscibility,
+        resolve_spell_scroll_use,
+        resolve_social_check,
+        adjust_npc_loyalty,
+        create_vehicle_state,
+        apply_vehicle_damage,
+        resolve_wilderness_travel_checks,
+        resolve_wilderness_hazard,
+    )
+
+    if action == "calc_cr":
+        res = calculate_monster_cr_dmg(
+            hp=int(data.get("hp", 50) or 50),
+            ac=int(data.get("ac", 14) or 14),
+            dpr=float(data.get("dpr", 12) or 12),
+            attack_bonus=int(data.get("attack_bonus", 4) or 4),
+            save_dc=int(data.get("save_dc", 13) or 13),
+            use_save_dc=bool(data.get("use_save_dc", False)),
+            has_resistances=bool(data.get("has_resistances", False)),
+            has_immunities=bool(data.get("has_immunities", False)),
+            magic_resistance=bool(data.get("magic_resistance", False)),
+        )
+        msg = (
+            f"🧮 [CALCOLATORE CR DMG p.274] HP Effettivi: {res['effective_hp']} | CA Effettiva: {res['effective_ac']} | "
+            f"CR Difensivo: {res['defensive_cr']} | CR Offensivo: {res['offensive_cr']} -> "
+            f"**CR Finale: {res['final_cr']}** (Bonus Comp. +{res['proficiency_bonus']}, {res['xp']} PE)"
+        )
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        return
+
+    if action == "mob_attack":
+        if data.get("respect_opt") and not _opt_enabled(game_state, "opt_mob_attacks", False):
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply("Attacchi di Folla (Mob Attacks) disabilitati nel Pannello Automazioni."))
+            return
+        t_ac = int(data.get("target_ac") or (getattr(target, "ac", 15) if target else 15))
+        res = resolve_mob_attack(
+            num_attackers=int(data.get("num_attackers", 8) or 8),
+            attack_bonus=int(data.get("attack_bonus", 4) or 4),
+            target_ac=t_ac,
+            damage_per_hit=int(data.get("damage_per_hit", 5) or 5),
+            advantage=bool(data.get("advantage", False)),
+            disadvantage=bool(data.get("disadvantage", False)),
+        )
+        t_name = target.name if target else f"CA {t_ac}"
+        msg = (
+            f"👥 [ATTACCO DI FOLLA DMG p.250] {res['num_attackers']} attaccanti vs {t_name} (CA {t_ac}, d20={res['d20_needed']}+): "
+            f"{res['attackers_per_hit']} per colpo -> **{res['hits']} colpi automatici** ({res['total_damage']} danni)!"
+        )
+        if target and res["total_damage"] > 0 and bool(data.get("apply_damage", False)):
+            from server.rules.combat import apply_damage
+            fd, _, _, _ = apply_damage(target, res["total_damage"], damage_type=str(data.get("damage_type", "Tagliente")), game_state=game_state)
+            msg += f" -> Danni applicati a {target.name}: {fd} PF."
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        return
+
+    if action == "potion_miscibility":
+        res = roll_potion_miscibility(d100_roll=data.get("forced_roll"))
+        msg = f"🧪 [MISCIBILITÀ POZIONI DMG p.140] {actor.name if actor else 'PG'}: {res['summary']}"
+        if actor and res["self_damage"] > 0 and bool(data.get("apply_damage", True)):
+            from server.rules.combat import apply_damage
+            fd, _, _, _ = apply_damage(actor, res["self_damage"], damage_type="Forza", game_state=game_state)
+            msg += f" (Subiti {fd} PF)"
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        return
+
+    if action == "spell_scroll":
+        mishap_on = _opt_enabled(game_state, "opt_scroll_mishap", True)
+        res = resolve_spell_scroll_use(
+            spell_level=int(data.get("spell_level", 3) or 3),
+            on_class_list=bool(data.get("on_class_list", True)),
+            max_castable_level=int(data.get("max_castable_level", 1) or 1),
+            caster_ability_mod=int(data.get("caster_ability_mod", 3) or 3),
+            check_roll=data.get("forced_check_roll"),
+            mishap_save_mod=int(data.get("mishap_save_mod", 0) or 0),
+            mishap_save_roll=data.get("forced_save_roll"),
+            mishap_table_roll=data.get("forced_mishap_roll"),
+            trigger_mishap_on_fail=mishap_on,
+        )
+        msg = f"📜 [PERGAMENA MAGICA DMG p.140/200] {actor.name if actor else 'Incantatore'}: {res['summary']}"
+        if actor and res.get("mishap") and res["mishap"].get("damage", 0) > 0 and bool(data.get("apply_damage", True)):
+            from server.rules.combat import apply_damage
+            fd, _, _, _ = apply_damage(actor, res["mishap"]["damage"], damage_type="Forza", game_state=game_state)
+            msg += f" (Subiti {fd} PF)"
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        return
+
+    if action == "social_loyalty":
+        parts: List[str] = []
+        if data.get("check_total") is not None or data.get("attitude"):
+            soc = resolve_social_check(data.get("attitude", "indifferent"), int(data.get("check_total", 12) or 12))
+            parts.append(f"🗣️ [INTERAZIONE DMG p.245 | {soc['attitude'].upper()} | Prova {soc['check_total']}] {soc['description']}")
+        if data.get("loyalty_delta") is not None and target:
+            cur_l = int(getattr(target, "npc_loyalty", getattr(target, "full_sheet", {}).get("npc_loyalty", 10) if isinstance(getattr(target, "full_sheet", None), dict) else 10))
+            loy = adjust_npc_loyalty(cur_l, int(data.get("loyalty_delta", 0) or 0))
+            target.npc_loyalty = loy["loyalty"]
+            if isinstance(getattr(target, "full_sheet", None), dict):
+                target.full_sheet["npc_loyalty"] = loy["loyalty"]
+            parts.append(f"🤝 [LEALTÀ PNG DMG p.93] {target.name}: {loy['description']}")
+        if parts:
+            broadcast(game_state, make_chat_broadcast("Sistema", " | ".join(parts)))
+            broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        return
+
+    if action == "vehicle_damage":
+        if not isinstance(getattr(game_state, "vehicles", None), dict):
+            game_state.vehicles = {}
+        v_name = str(data.get("vehicle_name") or "Veliero del Party").strip()
+        v_tpl = str(data.get("template") or "sailing_ship").strip().lower()
+        if v_name not in game_state.vehicles or data.get("reset"):
+            game_state.vehicles[v_name] = create_vehicle_state(v_tpl, custom_name=v_name)
+        veh = game_state.vehicles[v_name]
+        res = apply_vehicle_damage(veh, int(data.get("damage", 0) or 0), component=str(data.get("component", "hull")))
+        msg = (
+            f"⛵ [VEICOLI DMG p.119] {veh['name']} ({res['component'].upper()}): {res['status_note']} "
+            f"[Scafo {veh['hull']['hp']}/{veh['hull']['max_hp']} | Vele {veh['sails']['hp']}/{veh['sails']['max_hp']} | Timone {veh['helm']['hp']}/{veh['helm']['max_hp']}]"
+        )
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        return
+
+    if action == "wilderness_check":
+        if data.get("hazard_type"):
+            hz = resolve_wilderness_hazard(data.get("hazard_type"), save_total=data.get("save_total"), d20_roll=data.get("forced_roll"))
+            msg = f"🌲 [PERICOLO SELVAGGIO DMG p.105] {hz['hazard']} (CD {hz['save_dc']}): {'Superato!' if hz['saved'] else 'Fallito!'}"
+            if hz.get("damage", 0) > 0:
+                msg += f" -> {hz['damage']} danni ({hz['damage_type']})."
+                if target and bool(data.get("apply_damage", False)):
+                    from server.rules.combat import apply_damage
+                    apply_damage(target, hz["damage"], damage_type=hz["damage_type"], game_state=game_state)
+            if hz.get("exhaustion_gained", 0) > 0 and target:
+                target.exhaustion_level = min(6, int(getattr(target, "exhaustion_level", 0) or 0) + hz["exhaustion_gained"])
+                msg += f" -> {target.name} +1 Indebolimento!"
+            broadcast(game_state, make_chat_broadcast("Sistema", msg))
+            broadcast(game_state, make_game_state(game_state.get_state_dict()))
+            return
+        nav_r = int(data["nav_roll"]) if data.get("nav_roll") is not None else random.randint(1, 20)
+        for_r = int(data["forage_roll"]) if data.get("forage_roll") is not None else random.randint(1, 20)
+        wt = resolve_wilderness_travel_checks(
+            terrain=str(data.get("terrain", "forest")),
+            nav_roll_total=nav_r,
+            forage_roll_total=for_r,
+            wis_mod=int(data.get("wis_mod", 0) or 0),
+            pace=str(data.get("pace", "normal")),
+            has_ranger_natural_explorer=bool(data.get("ranger_explorer", False)),
+        )
+        lost_lbl = "PERSI!" if wt["got_lost"] else "Sulla rotta"
+        forage_lbl = (
+            "Impossibile ad andatura veloce"
+            if not wt["can_forage"]
+            else (f"+{wt['food_pounds']} libbre cibo / +{wt['water_gallons']} galloni acqua" if wt["forage_success"] else f"Fallito (CD {wt['forage_dc']})")
+        )
+        msg = f"🧭 [SOPRAVVIVENZA DMG p.111 - {wt['terrain']}] Orientamento {wt['effective_nav_roll']}/{wt['nav_dc']}: {lost_lbl} | Foraggiamento: {forage_lbl}."
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        return
+
+    if action == "beholder_eye_rays":
+        if not actor:
+            return
+        from server.dm_monster_engine import roll_beholder_eye_rays
+        tgts = [target] if (target and target is not actor) else None
+        roll_beholder_eye_rays(actor, targets=tgts, game_state=game_state, count=int(data.get("count", 3) or 3), forced_indices=data.get("forced_indices"))
+        return
+
+    if action == "antimagic_cone":
+        if not actor:
+            return
+        from server.dm_monster_engine import toggle_antimagic_cone
+        now_on = toggle_antimagic_cone(
+            actor,
+            game_state,
+            active=bool(data.get("active", True)),
+            direction_deg=float(data.get("direction_deg", getattr(actor, "facing_angle", 0.0)) or 0.0),
+            range_hexes=int(data.get("range_hexes", 30) or 30),
+        )
+        broadcast(game_state, make_chat_broadcast("Sistema", f"👁️ [CONO ANTIMAGIA] {actor.name}: {'ATTIVO (150 ft)' if now_on else 'DISATTIVATO'}."))
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        return
+
+    if action == "toggle_avert_eyes":
+        if not actor:
+            return
+        cur = bool(getattr(actor, "averting_eyes", False))
+        new_val = bool(data["avert"]) if "avert" in data else (not cur)
+        actor.averting_eyes = new_val
+        broadcast(game_state, make_chat_broadcast("Sistema", f"🙈 [SGUARDO PIETRIFICANTE] {actor.name}: {'Distoglie lo sguardo (evita TS inizio turno, svantaggio agli attacchi)' if new_val else 'Riprende a guardare normalmente'}."))
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        return
+
+
+def open_optional_rules_tools_dialog(dm_gui, initial_tab: int = 0):
+    """Re-export of the 4-tab DM Workbench UI from server.dm_optional_tools_ui."""
+    from server.dm_optional_tools_ui import open_optional_rules_tools_dialog as _open_ui
+
+    return _open_ui(dm_gui, initial_tab=initial_tab)
+

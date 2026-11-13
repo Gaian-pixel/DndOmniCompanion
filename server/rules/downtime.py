@@ -55,10 +55,42 @@ def _deduct_gp(player: Any, cost_gp: float) -> Tuple[bool, float]:
     return True, curr["gp"] + curr["sp"] / 10.0 + curr["cp"] / 100.0
 
 
+_XGTE_MAGIC_CRAFT_COSTS: Dict[str, Tuple[int, float]] = {
+    "comune": (1, 50.0),
+    "common": (1, 50.0),
+    "non comune": (2, 200.0),
+    "uncommon": (2, 200.0),
+    "raro": (10, 2000.0),
+    "rare": (10, 2000.0),
+    "molto raro": (25, 20000.0),
+    "very rare": (25, 20000.0),
+    "leggendario": (50, 100000.0),
+    "legendary": (50, 100000.0),
+}
+
+_XGTE_COMPLICATIONS: Tuple[str, ...] = (
+    "Un rivale sabota o cerca di sottrarre il tuo lavoro o contatto.",
+    "Voci esagerate sul tuo conto attirano curiosi o strozzini.",
+    "Un fornitore o contatto richiede un favore imprevisto.",
+    "Un incidente burocratico o tassa cittadina richiede 25 mo extra.",
+    "L'oggetto o l'informazione presenta un difetto o un avvertimento nascosto.",
+    "Un vecchio nemico scopre dove alloggi e ti osserva.",
+)
+
+
+def _norm_rarity_key(rarity: str) -> str:
+    r = str(rarity or "non comune").strip().lower()
+    if r in _XGTE_MAGIC_CRAFT_COSTS:
+        return r
+    return "non comune"
+
+
 def resolve_downtime_activity(player: Any, data: Dict[str, Any], game_state: Any = None) -> Tuple[bool, str]:
     """
     Risolve un'attività di Tempo Libero (Downtime) PHB/XGtE:
-    - activity: 'crafting' | 'training' | 'research' | 'work' | 'recuperating' | 'carousing' | 'gambling' | 'crime' | 'lifestyle'
+    - activity: 'crafting' | 'crafting_magic' | 'buy_magic_item' | 'sell_magic_item' | 'pit_fighting'
+      | 'religious_service' | 'training' | 'research' | 'work' | 'recuperating' | 'carousing'
+      | 'gambling' | 'crime' | 'lifestyle'
     - days: numero di giorni (default 7 = 1 settimana lavorativa XGtE)
     - lifestyle: 'wretched'..'aristocratic' (default 'modest')
     """
@@ -77,6 +109,11 @@ def resolve_downtime_activity(player: Any, data: Dict[str, Any], game_state: Any
     extra_cost = 0.0
     detail = ""
     sheet = getattr(player, "full_sheet", None) or {}
+    attrs = sheet.get("attributes") or {}
+    str_mod = (int(attrs.get("FOR", attrs.get("STR", 10)) or 10) - 10) // 2
+    dex_mod = (int(attrs.get("DES", attrs.get("DEX", 10)) or 10) - 10) // 2
+    con_mod = (int(attrs.get("COS", attrs.get("CON", 10)) or 10) - 10) // 2
+    cha_mod = (int(attrs.get("CAR", attrs.get("CHA", 10)) or 10) - 10) // 2
 
     if activity == "crafting":
         # PHB p. 187: 5 mo/giorno di avanzamento (metà costo materiali); XGtE: 50 mo/settimana lavorativa
@@ -163,8 +200,101 @@ def resolve_downtime_activity(player: Any, data: Dict[str, Any], game_state: Any
             extra_cost = 50.0
             detail = f"🚨 Furto/Crimine: Prova {chk} -> Catturato! Multa/Cauzione {extra_cost} mo."
 
+    elif activity in ("crafting_magic", "craft_magic_item"):
+        # XGtE p. 128-129: settimane & costo totale per rarità (consumabile = metà)
+        item_name = str(data.get("item_name") or "Oggetto Magico").strip()
+        rk = _norm_rarity_key(data.get("rarity", "non comune"))
+        req_weeks, req_gp = _XGTE_MAGIC_CRAFT_COSTS[rk]
+        if data.get("consumable"):
+            req_weeks = max(0.5, req_weeks / 2.0)
+            req_gp = req_gp / 2.0
+        weeks_done = max(0.25, days / 7.0)
+        frac = min(1.0, weeks_done / max(0.5, float(req_weeks)))
+        extra_cost = round(req_gp * frac, 2)
+        if not hasattr(player, "downtime_projects") or not isinstance(player.downtime_projects, dict):
+            player.downtime_projects = {}
+        key = f"magic:{item_name}"
+        cur_w = float(player.downtime_projects.get(key, 0.0) or 0.0) + weeks_done
+        player.downtime_projects[key] = min(float(req_weeks), cur_w)
+        if player.downtime_projects[key] >= req_weeks:
+            detail = f"✨ Forgia Magica (XGtE p.128, {rk}) **{item_name}** COMPLETATA ({req_weeks} sett., {extra_cost} mo questa sessione)!"
+        else:
+            detail = f"✨ Forgia Magica (XGtE p.128, {rk}) **{item_name}**: {player.downtime_projects[key]:.1f}/{req_weeks} sett. (materiali {extra_cost} mo)."
+
+    elif activity in ("buy_magic_item", "buying_magic"):
+        # XGtE p. 126: 1 settimana + almeno 100 mo per ricerca + prova Persuasione (+1 ogni 100 mo extra)
+        item_name = str(data.get("item_name") or "Oggetto Magico").strip()
+        budget_extra = max(0.0, float(data.get("item_value_gp", 100.0) or 100.0) - 100.0)
+        extra_cost = 100.0 + min(500.0, budget_extra)
+        bonus = min(10, int(budget_extra // 100.0))
+        d20 = int(data["forced_roll"]) if data.get("forced_roll") is not None else random.randint(1, 20)
+        chk = d20 + cha_mod + bonus
+        if chk >= 25:
+            tier = "Tavola I (Leggendario/Molto Raro disponibile sul mercato)"
+        elif chk >= 20:
+            tier = "Tavola G/H (Raro / Molto Raro disponibile)"
+        elif chk >= 15:
+            tier = "Tavola D/E/F (Non Comune / Raro consumabile disponibile)"
+        elif chk >= 10:
+            tier = "Tavola A/B/C (Comune / Non Comune minore disponibile)"
+        else:
+            tier = "Nessun oggetto degno trovato questa settimana"
+        detail = f"🛒 Ricerca Acquisto Magico (XGtE p.126) «{item_name}»: Persuasione {chk} -> {tier} (spese ricerca {extra_cost} mo)."
+
+    elif activity in ("sell_magic_item", "selling_magic"):
+        # XGtE p. 133: 1 settimana + 25 mo ricerca acquirente + prova Persuasione
+        item_name = str(data.get("item_name") or "Oggetto Magico").strip()
+        base_val = max(25.0, float(data.get("item_value_gp", 100.0) or 100.0))
+        broker_fee = 25.0
+        d20 = int(data["forced_roll"]) if data.get("forced_roll") is not None else random.randint(1, 20)
+        chk = d20 + cha_mod
+        if chk >= 21:
+            mult, label = 1.5, "Offerta generosa (150%)"
+        elif chk >= 11:
+            mult, label = 1.0, "Prezzo pieno (100%)"
+        else:
+            mult, label = 0.5, "Offerta al ribasso (50%)"
+        sale_gain = round(base_val * mult, 2)
+        extra_cost = broker_fee - sale_gain
+        detail = f"💎 Vendita Oggetto Magico (XGtE p.133) «{item_name}»: Persuasione {chk} -> {label} (+{sale_gain} mo, tassa {broker_fee} mo)."
+
+    elif activity == "pit_fighting":
+        # XGtE p. 131: 3 prove (Atletica/Acrobazia, COS, TxC) -> 0/1/2/3 vittorie => 0/50/100/200 mo
+        forced = data.get("forced_wins")
+        if forced is not None:
+            wins = max(0, min(3, int(forced)))
+        else:
+            dc1, dc2, dc3 = 10 + random.randint(1, 10), 10 + random.randint(1, 10), 10 + random.randint(1, 10)
+            c1 = random.randint(1, 20) + max(str_mod, dex_mod)
+            c2 = random.randint(1, 20) + con_mod
+            c3 = random.randint(1, 20) + max(str_mod, dex_mod) + 2
+            wins = int(c1 >= dc1) + int(c2 >= dc2) + int(c3 >= dc3)
+        purse = 200.0 if wins == 3 else (100.0 if wins == 2 else (50.0 if wins == 1 else 0.0))
+        extra_cost = -purse
+        detail = f"⚔️ Combattimento nell'Arena (XGtE p.131): {wins}/3 vittorie -> Borsa +{purse} mo!"
+
+    elif activity == "religious_service":
+        # XGtE p. 132: Servizio Religioso -> favori del tempio
+        d20 = int(data["forced_roll"]) if data.get("forced_roll") is not None else random.randint(1, 20)
+        chk = d20 + cha_mod
+        favors = 2 if chk >= 21 else (1 if chk >= 11 else 0)
+        detail = f"⛪ Servizio Religioso (XGtE p.132): Prova {chk} -> {favors} favore/i ottenuto/i dal tempio."
+
+    elif activity == "lifestyle":
+        detail = f"🏡 Solo mantenimento stile di vita {ls_label} per {days} giorni."
+
     else:
         detail = f"💼 Lavoro/Professione per {days} giorni: mantiene stile di vita {ls_label} senza perdite nette."
+
+    comp_note = ""
+    if (
+        game_state
+        and getattr(game_state, "automation_settings", {}).get("opt_xgte_downtime_complications", False)
+        and not data.get("skip_complication", False)
+    ):
+        c_roll = int(data["forced_complication_roll"]) if data.get("forced_complication_roll") is not None else random.randint(1, 100)
+        if c_roll <= 10:
+            comp_note = f" ⚠️ Complicazione XGtE (d100={c_roll}): {random.choice(_XGTE_COMPLICATIONS)}"
 
     total_cost = round(lifestyle_cost + extra_cost, 2)
     if total_cost > 0:
@@ -182,7 +312,7 @@ def resolve_downtime_activity(player: Any, data: Dict[str, Any], game_state: Any
     if game_state and getattr(game_state, "automation_settings", {}).get("auto_advance_time", True) and hasattr(game_state, "advance_game_time"):
         game_state.advance_game_time(hours=days * 24)
 
-    summary = f"⏳ **[TEMPO LIBERO - {days}g | Stile: {ls_label}]** {player.name}: {detail} (Costo netto: {total_cost} mo)"
+    summary = f"⏳ **[TEMPO LIBERO - {days}g | Stile: {ls_label}]** {player.name}: {detail} (Costo netto: {total_cost} mo){comp_note}"
     return True, summary
 
 

@@ -520,6 +520,14 @@ class GameState:
             "opt_falling_xge_tce": False,
             "opt_armor_sleep_xge": False,
             "opt_legendary_res_prompt": False,
+            "opt_wild_magic_surge": True,
+            "opt_tasha_custom_origin": True,
+            "opt_mob_attacks": False,
+            "opt_scroll_mishap": True,
+            "opt_potion_miscibility": False,
+            "opt_social_loyalty": True,
+            "opt_naval_vehicles": False,
+            "opt_xgte_downtime_complications": False,
         }
         self.pending_damages = {} # id -> dict
         self.pending_doors = {}   # id -> dict
@@ -554,6 +562,14 @@ class GameState:
             "opt_falling_xge_tce": bool(cur.get("opt_falling_xge_tce", False)),
             "opt_armor_sleep_xge": bool(cur.get("opt_armor_sleep_xge", False)),
             "opt_legendary_res_prompt": bool(cur.get("opt_legendary_res_prompt", False)),
+            "opt_wild_magic_surge": bool(cur.get("opt_wild_magic_surge", True)),
+            "opt_tasha_custom_origin": bool(cur.get("opt_tasha_custom_origin", True)),
+            "opt_mob_attacks": bool(cur.get("opt_mob_attacks", False)),
+            "opt_scroll_mishap": bool(cur.get("opt_scroll_mishap", True)),
+            "opt_potion_miscibility": bool(cur.get("opt_potion_miscibility", False)),
+            "opt_social_loyalty": bool(cur.get("opt_social_loyalty", True)),
+            "opt_naval_vehicles": bool(cur.get("opt_naval_vehicles", False)),
+            "opt_xgte_downtime_complications": bool(cur.get("opt_xgte_downtime_complications", False)),
         }
         with self.lock:
             self.automation_mode = mode
@@ -863,6 +879,7 @@ class GameState:
                 start_of_turn_conds = start_of_turn_conds | {"Attacco Irruento", "Reckless Attack"}
                 for c_p in combatants:
                     c_p.sneak_attack_used_this_turn = False
+                    c_p.swallow_damage_taken = 0
                 if hasattr(active, "conditions") and active.conditions:
                     active.conditions = [c for c in active.conditions if c not in start_of_turn_conds and c not in ("Scudo", "Shield", "Azione Preparata")]
                 if getattr(active, "readied_action_data", None):
@@ -916,7 +933,9 @@ class GameState:
                         if isinstance(ab, dict) and ab.get("expended", False):
                             ab_desc = f"{ab.get('name', '')} {ab.get('desc', '')}".lower()
                             thresh = 6
-                            if "5-6" in ab_desc or "5–6" in ab_desc or "recharge 5" in ab_desc:
+                            if "4-6" in ab_desc or "4–6" in ab_desc or "recharge 4" in ab_desc:
+                                thresh = 4
+                            elif "5-6" in ab_desc or "5–6" in ab_desc or "recharge 5" in ab_desc:
                                 thresh = 5
                             elif "6" in ab_desc or "recharge 6" in ab_desc:
                                 thresh = 6

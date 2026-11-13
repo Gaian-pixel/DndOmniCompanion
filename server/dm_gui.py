@@ -259,6 +259,7 @@ class DM_GUI:
         tools_menu.add_separator()
         tools_menu.add_command(label=_t("menu_automation_settings"), command=self.open_automation_settings_dialog)
         tools_menu.add_command(label="📕 Strumenti Regole 5e (PHB/DMG/MM)...", command=self.open_optional_rules_tools_dialog)
+        tools_menu.add_command(label="🏛️ Generatore Dungeon & Città (DMG)...", command=self.open_dungeon_settlement_generator_dialog)
         menubar.add_cascade(label=_t("menu_tools"), menu=tools_menu)
 
         # Menu Visualizza / View
@@ -3354,9 +3355,12 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
     def open_automation_settings_dialog(self):
         return dm_open_automation_settings_dialog(self)
 
-    def open_optional_rules_tools_dialog(self):
+    def open_optional_rules_tools_dialog(self, initial_tab: int = 0):
         from server.dm_optional_tools import open_optional_rules_tools_dialog
-        return open_optional_rules_tools_dialog(self)
+        return open_optional_rules_tools_dialog(self, initial_tab=initial_tab)
+
+    def open_dungeon_settlement_generator_dialog(self):
+        return self.open_optional_rules_tools_dialog(initial_tab=3)
 
     def update_pending_actions_ui(self):
         return dm_update_pending_actions_ui(self)
@@ -3773,11 +3777,25 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
 
         for act in actions:
             act_name = act.get("name", "Azione") if isinstance(act, dict) else str(act).split(".")[0].strip()
-            btn = ttk.Button(self.npc_actions_frame, text=act_name,
+            lbl_btn = f"⚔️ {act_name} (1-Click)" if "multiatt" in act_name.lower() else act_name
+            btn = ttk.Button(self.npc_actions_frame, text=lbl_btn,
                              command=lambda a=act, n=player_name: self.roll_npc_action(n, a))
             btn.pack(fill=tk.X, pady=1)
             tip_text = format_monster_action_tooltip(act, player_name)
             ToolTip(btn, tip_text)
+
+        from server.dm_monster_engine import entity_has_keyword as _ehk_b
+        if "beholder" in player_name.lower() or _ehk_b(player, "raggi oculari", "eye rays", "cono antimagia", "antimagic cone"):
+            ttk.Button(
+                self.npc_actions_frame,
+                text="👁️ Beholder: Tira 3 Raggi Oculari",
+                command=lambda n=player_name: self.roll_beholder_rays_gui(n),
+            ).pack(fill=tk.X, pady=1)
+            ttk.Button(
+                self.npc_actions_frame,
+                text="🚫 Beholder: Toggle Cono Antimagia",
+                command=lambda n=player_name: self.toggle_beholder_cone_gui(n),
+            ).pack(fill=tk.X, pady=1)
 
         if isinstance(innate_sp, dict) and innate_sp:
             ttk.Label(self.npc_actions_frame, text="✨ Incantesimi Innati:", font=FONT_SMALL).pack(anchor="w", pady=(4, 1))
@@ -3826,6 +3844,7 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
             
     def roll_npc_action(self, npc_name, action_dict):
         from common.dice import roll_dice
+        from server.dm_monster_engine import mark_monster_ability_used, execute_monster_multiattack
         import re
         if isinstance(action_dict, str):
             act_name = action_dict.split(".")[0].strip()
@@ -3838,7 +3857,21 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
             atk_bonus = action_dict.get("attack_bonus")
             dmg_dice = action_dict.get("damage_dice")
 
+        monster_obj = self.server.game_state.find_player(npc_name) if hasattr(self, "server") else None
+        if monster_obj and "multiatt" in str(act_name).lower():
+            res = execute_monster_multiattack(monster_obj, game_state=self.server.game_state)
+            if res.get("ok"):
+                self.log_to_chat(f"[COMBAT] {res['summary']}")
+                return
+        already_exp, rech_note = mark_monster_ability_used(monster_obj, action_dict) if monster_obj else (False, "")
+        if already_exp:
+            from common.messagebox import messagebox
+            if not messagebox.askyesno("Abilità Scarica", f"{rech_note}\nVuoi usarla ugualmente (forzatura DM)?", parent=self.master):
+                return
+
         msg = f"{npc_name} usa {act_name}!"
+        if rech_note:
+            msg += f"\n{rech_note}"
         
         if atk_bonus is None:
             m_atk = re.search(r'([+-]\d+)\s+to\s+hit', desc, re.I)
@@ -3897,6 +3930,30 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         ok, msg = execute_lair_action(boss, action_name, gs)
         if not ok:
             messagebox.showwarning("Azione di Tana", msg, parent=self.master)
+
+    def roll_beholder_rays_gui(self, beholder_name):
+        gs = getattr(getattr(self, "server", None), "game_state", None)
+        if not gs:
+            return
+        b = gs.find_player(beholder_name)
+        if not b:
+            return
+        from server.dm_monster_engine import roll_beholder_eye_rays
+        res = roll_beholder_eye_rays(b, game_state=gs, count=3)
+        self.log_to_chat(f"[MONSTER] {res['summary']}")
+
+    def toggle_beholder_cone_gui(self, beholder_name):
+        gs = getattr(getattr(self, "server", None), "game_state", None)
+        if not gs:
+            return
+        b = gs.find_player(beholder_name)
+        if not b:
+            return
+        from server.dm_monster_engine import toggle_antimagic_cone
+        cones = getattr(gs, "antimagic_cones", {}) or {}
+        is_on = beholder_name in cones
+        now_on = toggle_antimagic_cone(b, gs, active=(not is_on), direction_deg=float(getattr(b, "facing_angle", 0.0) or 0.0))
+        self.log_to_chat(f"[MONSTER] Cono Antimagia di {beholder_name}: {'ATTIVO' if now_on else 'SPENTO'}")
 
     def toggle_mute(self):
         if not hasattr(self, 'voice_client'):

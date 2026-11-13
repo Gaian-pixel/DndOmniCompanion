@@ -311,40 +311,50 @@ class LevelUpDialog(tk.Toplevel):
         self.lbl_hp_preview.config(text=f"➡ Punti Ferita Massimi: {cur_max} ➔ {cur_max + tot} (+{tot} PF a questo livello)")
 
     def _build_tab_subclass(self):
+        for w in self.tab_subclass.winfo_children():
+            w.destroy()
         sub_frame = ttk.LabelFrame(self.tab_subclass, text=_t("prog_subclass_header"), padding=10)
         sub_frame.pack(fill=tk.BOTH, expand=True)
 
-        existing_sub = getattr(self.character, "subclass", "").strip()
+        cls_lvl = getattr(self, "target_class_new_level", self.new_level)
+        subclasses_map = getattr(self.character, "subclasses", None) or {}
+        tgt_cls = getattr(self, "target_class_it", "")
+        raw_existing_sub = str(subclasses_map.get(tgt_cls, "") or getattr(self.character, "subclass", "")).strip()
         unlock_lvl = SUBCLASS_LEVEL_MAP.get(self.char_class_en, 3)
 
-        # Recupera tutte le sottoclassi della classe da srd_subclasses_complete
+        # Recupera tutte le sottoclassi della classe selezionata da srd_subclasses_complete
         self.matching_subclasses = [
             s for s in ALL_OFFICIAL_SUBCLASSES
             if self.char_class_en in s.get("class_name", "").lower()
             or any(k_it in s.get("class_name", "").lower() for k_it, k_en in CLASS_MAP.items() if k_en == self.char_class_en)
         ]
 
+        # Se la sottoclasse appartiene a un'altra classe (multiclasse), permetti di sceglierne una per la nuova classe!
+        matched_existing = [
+            s for s in self.matching_subclasses
+            if raw_existing_sub and (s["name"].lower().startswith(raw_existing_sub.lower()) or raw_existing_sub.lower() in s["name"].lower())
+        ]
+        existing_sub = raw_existing_sub if matched_existing else ""
+
         if existing_sub:
             ttk.Label(
                 sub_frame,
-                text=f"🌟 Sottoclasse Attuale: {existing_sub}",
+                text=f"🌟 Sottoclasse Attuale ({tgt_cls}): {existing_sub}",
                 font=("Segoe UI", 11, "bold"),
                 foreground="#D4AF37"
             ).pack(anchor="w", pady=(0, 6))
 
-            matched = [s for s in self.matching_subclasses if s["name"].lower().startswith(existing_sub.lower()) or existing_sub.lower() in s["name"].lower()]
-            if matched:
-                sub_data = matched[0]
-                ttk.Label(sub_frame, text=f"Fonte: {sub_data.get('source', 'Manuale Ufficiale')}", font=("Segoe UI", 9, "italic")).pack(anchor="w")
-                ttk.Label(sub_frame, text=sub_data.get("description", ""), wraplength=640, justify=tk.LEFT).pack(anchor="w", pady=(4, 10))
+            sub_data = matched_existing[0]
+            ttk.Label(sub_frame, text=f"Fonte: {sub_data.get('source', 'Manuale Ufficiale')}", font=("Segoe UI", 9, "italic")).pack(anchor="w")
+            ttk.Label(sub_frame, text=sub_data.get("description", ""), wraplength=640, justify=tk.LEFT).pack(anchor="w", pady=(4, 10))
 
             ttk.Label(sub_frame, text="Eventuali privilegi di questa sottoclasse per il nuovo livello sono inclusi nella scheda Privilegi.").pack(anchor="w", pady=4)
             self.subclass_choice_var = tk.StringVar(value=existing_sub)
         else:
-            if self.new_level >= unlock_lvl:
+            if cls_lvl >= unlock_lvl:
                 ttk.Label(
                     sub_frame,
-                    text=f"🎉 Sblocco Archetipo / Sottoclasse al Livello {self.new_level}!",
+                    text=f"🎉 Sblocco Archetipo / Sottoclasse al Livello {cls_lvl} di {tgt_cls}!",
                     font=("Segoe UI", 11, "bold"),
                     foreground="#40C057"
                 ).pack(anchor="w", pady=(0, 4))
@@ -356,7 +366,7 @@ class LevelUpDialog(tk.Toplevel):
             else:
                 ttk.Label(
                     sub_frame,
-                    text=f"La tua classe sbloccherà l'Archetipo / Sottoclasse al Livello {unlock_lvl} (puoi comunque pre-selezionarlo se lo desideri):",
+                    text=f"La tua classe sbloccherà l'Archetipo / Sottoclasse al Livello {unlock_lvl} di classe (attuale in sviluppo: {cls_lvl}):",
                     wraplength=640
                 ).pack(anchor="w", pady=(0, 8))
 
@@ -400,7 +410,8 @@ class LevelUpDialog(tk.Toplevel):
             self.new_feature_details.pop(old_f, None)
         self._current_subclass_features.clear()
 
-        sub_feats = [f for f in sub_obj.get("features", []) if f.get("level") == self.new_level]
+        cls_lvl = getattr(self, "target_class_new_level", self.new_level)
+        sub_feats = [f for f in sub_obj.get("features", []) if f.get("level") == cls_lvl]
         for f in sub_feats:
             fname = f.get("name", "")
             fdesc = f.get("desc", "")
@@ -522,17 +533,20 @@ class LevelUpDialog(tk.Toplevel):
         self.lst_selected_spells.pack(fill=tk.X, pady=(2, 0))
 
     def _build_tab_asi(self):
+        for w in self.tab_asi.winfo_children():
+            w.destroy()
         asi_frame = ttk.LabelFrame(self.tab_asi, text=_t("prog_asi_header"), padding=10)
         asi_frame.pack(fill=tk.BOTH, expand=True)
 
+        cls_lvl = getattr(self, "target_class_new_level", self.new_level)
         allowed_levels = ASI_LEVELS.get(self.char_class_en, ASI_LEVELS["default"])
-        self.has_asi = (self.new_level in allowed_levels)
+        self.has_asi = (cls_lvl in allowed_levels)
 
         if not self.has_asi:
-            next_lvl = min([lvl for lvl in allowed_levels if lvl > self.new_level], default="20")
+            next_lvl = min([lvl for lvl in allowed_levels if lvl > cls_lvl], default="20")
             ttk.Label(
                 asi_frame,
-                text=f"Nessun Aumento Caratteristiche a questo livello.\nIl prossimo aumento per la tua classe sarà al Livello {next_lvl}.",
+                text=f"Nessun Aumento Caratteristiche al livello {cls_lvl} di {getattr(self, 'target_class_it', '')}.\nIl prossimo aumento per questa classe sarà al Livello di classe {next_lvl}.",
                 font=("Segoe UI", 10),
                 justify=tk.LEFT
             ).pack(anchor="w", pady=10)
@@ -646,6 +660,10 @@ class LevelUpDialog(tk.Toplevel):
         if hasattr(self, "hp_choice") and self.hp_choice.get() == "media":
             self.hp_add_var.set(self.avg_hp)
         self._update_hp_preview()
+        if hasattr(self, "tab_subclass"):
+            self._build_tab_subclass()
+        if hasattr(self, "tab_asi"):
+            self._build_tab_asi()
         self.fetch_level_data()
 
     def _safe_ui(self, callback):
@@ -703,17 +721,26 @@ class LevelUpDialog(tk.Toplevel):
         self.new_feature_details = {}
         self.features_listbox.delete(0, tk.END)
 
-        # Popola privilegi di classe base
+        # Popola privilegi di classe base (filtrando regole PHB p. 164 non cumulabili in Multiclasse)
+        cls_lvl = getattr(self, "target_class_new_level", self.new_level)
         if "features" in data:
-            for f in data["features"]:
-                fname = f["name"] if isinstance(f, dict) else str(f)
+            from common.character_schema import filter_non_stacking_multiclass_features
+            raw_names = [f["name"] if isinstance(f, dict) else str(f) for f in data["features"]]
+            raw_descs = {
+                (f["name"] if isinstance(f, dict) else str(f)): (f.get("desc", f"Privilegio di classe conferito al Livello {cls_lvl}.") if isinstance(f, dict) else f"Privilegio di classe conferito al Livello {cls_lvl}.")
+                for f in data["features"]
+            }
+            kept_names, skipped_notes = filter_non_stacking_multiclass_features(self.character, raw_names)
+            for fname in kept_names:
                 if fname not in self.new_features:
                     self.new_features.append(fname)
-                    self.new_feature_details[fname] = f.get("desc", f"Privilegio di classe conferito al Livello {self.new_level}.")
+                    self.new_feature_details[fname] = raw_descs.get(fname, f"Privilegio di classe (Liv. {cls_lvl}).")
                     self.features_listbox.insert(tk.END, f"⚔️ {fname}")
+            for sn in skipped_notes:
+                self.features_listbox.insert(tk.END, f"⏭️ [Multiclasse PHB] {sn}")
 
         # Se la sottoclasse è già selezionata (o in preview), aggiungi anche i privilegi di sottoclasse
-        active_sub = getattr(self, "_preview_subclass", None) or getattr(self.character, "subclass", "").strip()
+        active_sub = getattr(self, "_preview_subclass", None) or (getattr(self.character, "subclasses", {}) or {}).get(getattr(self, "target_class_it", ""), "") or getattr(self.character, "subclass", "").strip()
         if active_sub:
             matched = [s for s in self.matching_subclasses if s["name"].lower().startswith(active_sub.lower()) or active_sub.lower() in s["name"].lower()]
             if matched:
@@ -939,10 +966,18 @@ class LevelUpDialog(tk.Toplevel):
         else:
             hp_inc = max(1, min(self.hit_die, hp_inc))
 
-        # 2. Sottoclasse (risolta prima del calcolo PF per supportare Stregone Draconico)
+        # 2. Sottoclasse (risolta per classe per supportare Multiclasse + Stregone Draconico)
+        chosen_cls_it = getattr(self, "target_class_it", None) or str(getattr(self.character, "char_class", "Guerriero")).split("/")[0].strip()
         chosen_sub = getattr(self, "subclass_choice_var", None)
         if chosen_sub and chosen_sub.get().strip():
-            self.character.subclass = chosen_sub.get().strip()
+            sub_val = chosen_sub.get().strip()
+            if not hasattr(self.character, "subclasses") or not isinstance(self.character.subclasses, dict):
+                self.character.subclasses = {}
+            self.character.subclasses[chosen_cls_it] = sub_val
+            if len(self.character.subclasses) > 1:
+                self.character.subclass = " / ".join(dict.fromkeys(v for v in self.character.subclasses.values() if v))
+            else:
+                self.character.subclass = sub_val
 
         cos_mod = (self.character.attributes.get("COS", 10) - 10) // 2
         extra_per_lvl = 0

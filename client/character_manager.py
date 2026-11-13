@@ -103,6 +103,7 @@ class Character:
         self.race = race
         self.char_class = char_class
         self.subclass = subclass
+        self.subclasses = {}
         self.level = int(level or 1)
         self.proficiency_bonus = 2 + (max(1, self.level) - 1) // 4
         self.exp = 0
@@ -398,13 +399,13 @@ class Character:
         return 5 if self.has_feat("allerta", "alert") else 0
 
     def get_initiative_bonus(self) -> int:
-        """Calcola il modificatore di Iniziativa RAW (mod DES + Factotum Bardo Lv2+ + Allerta +5)."""
+        """Calcola il modificatore di Iniziativa RAW (mod DES + TudoFare/Atleta + Allerta + Sottoclassi)."""
         mod = self.get_modifier("DES")
-        from common.dnd5e_tables import entity_get_class_level, entity_get_total_level
-        bard_lvl = entity_get_class_level(self, "bardo", "bard")
-        if bard_lvl >= 2:
-            pb = ((max(1, entity_get_total_level(self)) - 1) // 4) + 2
-            mod += pb // 2
+        from common.feats_and_classes import get_jack_or_remarkable_bonus
+        from common.subclass_and_race_rules import get_subclass_initiative_bonus
+        mod += get_jack_or_remarkable_bonus(self, "INIT", is_proficient=False)
+        sub_b, _ = get_subclass_initiative_bonus(self)
+        mod += sub_b
         mod += self.get_alert_initiative_bonus()
         return mod
 
@@ -1188,6 +1189,8 @@ class Character:
         }
         sz = str(getattr(self, "size", "medium") or "medium").lower().strip()
         size_mult = size_mults.get(sz, 1.0)
+        from common.subclass_and_race_rules import get_powerful_build_multiplier
+        size_mult *= get_powerful_build_multiplier(self)
         
         strength = max(1, self.get_effective_attribute("FOR"))
         limit_normal = strength * 5.0 * size_mult

@@ -92,6 +92,14 @@ def open_automation_settings_dialog(dm_gui):
     opt_falling_xge_tce_var = tk.BooleanVar(value=cur_settings.get("opt_falling_xge_tce", False))
     opt_armor_sleep_xge_var = tk.BooleanVar(value=cur_settings.get("opt_armor_sleep_xge", False))
     opt_leg_res_prompt_var = tk.BooleanVar(value=cur_settings.get("opt_legendary_res_prompt", False))
+    opt_wild_magic_var = tk.BooleanVar(value=cur_settings.get("opt_wild_magic_surge", True))
+    opt_tasha_origin_var = tk.BooleanVar(value=cur_settings.get("opt_tasha_custom_origin", True))
+    opt_mob_attacks_var = tk.BooleanVar(value=cur_settings.get("opt_mob_attacks", False))
+    opt_scroll_mishap_var = tk.BooleanVar(value=cur_settings.get("opt_scroll_mishap", True))
+    opt_potion_misc_var = tk.BooleanVar(value=cur_settings.get("opt_potion_miscibility", False))
+    opt_social_loyalty_var = tk.BooleanVar(value=cur_settings.get("opt_social_loyalty", True))
+    opt_naval_vehicles_var = tk.BooleanVar(value=cur_settings.get("opt_naval_vehicles", False))
+    opt_xgte_comp_var = tk.BooleanVar(value=cur_settings.get("opt_xgte_downtime_complications", False))
     cur_rest_var = cur_settings.get("opt_rest_variant", "standard")
     rest_var_labels = {
         "standard": "standard (1h Breve / 8h Lungo - PHB)",
@@ -307,6 +315,22 @@ def open_automation_settings_dialog(dm_gui):
          "Dormire con armatura media/pesante dimezza il recupero di Dadi Vita e non rimuove Sfinimento (se già presente)."),
         ("Conferma DM per Resistenza Leggendaria", opt_leg_res_prompt_var,
          "Se attivo, al fallimento di un TS di un boss il DM conferma la spesa della Resistenza Leggendaria invece dell'uso automatico."),
+        ("Impulsi di Magia Selvaggia Automatici (PHB p. 103)", opt_wild_magic_var,
+         "Tira 1d20 (e d100 su 1 / Ondate di Caos) quando uno Stregone della Magia Selvaggia lancia incantesimi 1°+."),
+        ("Origini Personalizzate TCE (Customizing Your Origin)", opt_tasha_origin_var,
+         "Consente la riassegnazione libera dei bonus caratteristica razziali (+2/+1 o +1/+1/+1) e competenze (TCE p. 7)."),
+        ("Attacchi di Folla / Mob Attacks (DMG p. 250)", opt_mob_attacks_var,
+         "Usa la tabella degli attaccanti necessari per colpire automaticamente invece di moltiplicare tiri separati."),
+        ("Incidenti Pergamene Magiche / Scroll Mishap (DMG p. 140)", opt_scroll_mishap_var,
+         "Se fallisci la prova per lanciare una pergamena di livello superiore, tira TS SAG CD 10 o subisci un Incidente d6."),
+        ("Miscibilità Pozioni (Potion Miscibility DMG p. 140)", opt_potion_misc_var,
+         "Tira su tabella d100 quando due pozioni vengono mescolate o bevute contemporaneamente."),
+        ("Interazioni Sociali & Lealtà Seguaci (DMG p. 93, 245)", opt_social_loyalty_var,
+         "Abilita soglie CD (0/10/20) per PNG Amichevoli/Indifferenti/Ostili e tracciatore Lealtà 0-20."),
+        ("Veicoli Navali & Soglia Danno (DMG p. 119 / Saltmarsh)", opt_naval_vehicles_var,
+         "Abilita danni separati a Scafo, Vele e Timone con Soglia del Danno delle navi."),
+        ("Complicazioni Downtime XGtE (10% su attività)", opt_xgte_comp_var,
+         "Applica probabilità del 10% di complicazioni casuali durante le attività settimanali di Tempo Libero."),
     ]
     for lbl, var, hint in dmg_extra_toggles:
         ttk.Checkbutton(sec5, text=lbl, variable=var).pack(anchor="w", pady=2)
@@ -388,6 +412,14 @@ def open_automation_settings_dialog(dm_gui):
             "opt_falling_xge_tce": bool(opt_falling_xge_tce_var.get()),
             "opt_armor_sleep_xge": bool(opt_armor_sleep_xge_var.get()),
             "opt_legendary_res_prompt": bool(opt_leg_res_prompt_var.get()),
+            "opt_wild_magic_surge": bool(opt_wild_magic_var.get()),
+            "opt_tasha_custom_origin": bool(opt_tasha_origin_var.get()),
+            "opt_mob_attacks": bool(opt_mob_attacks_var.get()),
+            "opt_scroll_mishap": bool(opt_scroll_mishap_var.get()),
+            "opt_potion_miscibility": bool(opt_potion_misc_var.get()),
+            "opt_social_loyalty": bool(opt_social_loyalty_var.get()),
+            "opt_naval_vehicles": bool(opt_naval_vehicles_var.get()),
+            "opt_xgte_downtime_complications": bool(opt_xgte_comp_var.get()),
             "opt_rest_variant": rv_key,
         }
         from server.rules.combat import handle_set_automation_mode_request

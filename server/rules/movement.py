@@ -63,6 +63,63 @@ def auto_explore_fow(player, game_state):
             
     return changed
 
+def _evaluate_creature_space_traversal(player, step_hex, is_final_step: bool, game_state, is_incorporeal: bool = False):
+    """
+    PHB p. 191: Movimento attraverso gli spazi occupati da altre creature:
+    - Spazio di una creatura alleata = Terreno Difficile (costo 2x).
+    - Spazio di una creatura ostile = bloccato, salvo >=2 taglie di differenza,
+      Agilità Halfling (+1 taglia), Incorporeità, o manovra DMG Overrun/Tumble.
+    - Non è consentito terminare volontariamente il movimento nello spazio di un'altra creatura.
+    Ritorna: (blocked: bool, step_extra_cost: int, reason: str)
+    """
+    if not player or not game_state:
+        return False, 0, ""
+    _size_map = {"minuscola": 0, "tiny": 0, "piccola": 1, "small": 1, "media": 2, "medium": 2, "grande": 3, "large": 3, "enorme": 4, "huge": 4, "mastodontica": 5, "gargantuan": 5}
+    p_rank = _size_map.get(str(getattr(player, "size", "Media")).strip().lower(), 2)
+    p_party = bool(getattr(player, "is_party_member", False) or getattr(player, "conn", None))
+    p_elev = getattr(player, "elevation", 0) or 0
+    from common.subclass_and_race_rules import has_halfling_nimbleness
+    halfling_nimb = has_halfling_nimbleness(player)
+    overrun_tgt = str(getattr(player, "overrun_tumble_through_target", "") or "")
+    incaps = ("incosciente", "unconscious", "paralizzato", "paralyzed", "pietrificato", "petrified", "stordito", "stunned", "morto", "dead")
+
+    extra_cost = 0
+    for other in getattr(game_state, "players", []):
+        if other is player or getattr(other, "name", "") == getattr(player, "name", ""):
+            continue
+        if getattr(other, "hp", 1) <= 0 or is_condition_active(getattr(other, "conditions", []), "Morto"):
+            continue
+        if getattr(other, "is_object", False) or getattr(other, "layer", "token") == "gm":
+            continue
+        o_pos = getattr(other, "position", None)
+        if not o_pos or len(o_pos) < 2 or int(o_pos[0]) != int(step_hex.q) or int(o_pos[1]) != int(step_hex.r):
+            continue
+        if abs(p_elev - (getattr(other, "elevation", 0) or 0)) > 1:
+            continue
+        # Ignora cavalcatura / cavaliere / creatura afferrata / scalata
+        if getattr(player, "mount_name", None) == other.name or getattr(other, "mount_name", None) == player.name:
+            continue
+        if getattr(player, "climbing_on_target", None) == other.name or getattr(other, "grappled_by", None) == player.name:
+            continue
+
+        o_conds = getattr(other, "conditions", []) or []
+        o_incap = any(is_condition_active(o_conds, c) for c in incaps)
+        if is_final_step and not o_incap and not is_incorporeal:
+            return True, 1, f"Non puoi terminare volontariamente il movimento nello spazio occupato da {other.name} (PHB p. 191)."
+
+        o_party = bool(getattr(other, "is_party_member", False) or getattr(other, "conn", None))
+        is_hostile = (p_party != o_party)
+        extra_cost = max(extra_cost, 1)  # Attraversare spazio di un'altra creatura costa +1 (terreno difficile)
+        if is_hostile and not is_incorporeal and not o_incap:
+            o_rank = _size_map.get(str(getattr(other, "size", "Media")).strip().lower(), 2)
+            size_ok = abs(p_rank - o_rank) >= 2
+            nimb_ok = halfling_nimb and (o_rank == p_rank + 1)
+            tumble_ok = bool(overrun_tgt and overrun_tgt == other.name)
+            if not (size_ok or nimb_ok or tumble_ok):
+                return True, 1, f"Lo spazio ostile di {other.name} a [{step_hex.q}, {step_hex.r}] blocca il passaggio (PHB p. 191: servono ≥2 taglie di differenza, Agilità Halfling o Overrun/Tumble)."
+    return False, extra_cost, ""
+
+
 def handle_move_request(data, player, game_state):
     from server.rules.class_abilities import _check_surprised_block
     if _check_surprised_block(player, game_state, "muoverti"):
@@ -182,11 +239,13 @@ def handle_move_request(data, player, game_state):
                     if isinstance(curr, dict):
                         coin_count = sum(int(v or 0) for v in curr.values() if str(v).isdigit())
                         tot_w += coin_count * 0.02
-                    if tot_w > (str_val * 15):
+                    from common.subclass_and_race_rules import get_powerful_build_multiplier
+                    pb_mult = get_powerful_build_multiplier(player)
+                    if tot_w > (str_val * 15 * pb_mult):
                         base_hexes = 0  # Sovraccarico: movimento bloccato
-                    elif tot_w > (str_val * 10):
+                    elif tot_w > (str_val * 10 * pb_mult):
                         base_hexes = max(1, base_hexes - 4)  # Gravemente ingombrato (-20 ft)
-                    elif tot_w > (str_val * 5):
+                    elif tot_w > (str_val * 5 * pb_mult):
                         base_hexes = max(1, base_hexes - 2)  # Ingombrato (-10 ft)
                 except (ValueError, TypeError):
                     pass
@@ -229,14 +288,29 @@ def handle_move_request(data, player, game_state):
             move_path = hex_linedraw(p_start, p_end)
             
             cost_prone = 2 if is_condition_active(conds, "Prono") else 1
+            is_squeezing_mv = bool(getattr(player, "is_squeezing", False)) or is_condition_active(conds, "Spremere") or is_condition_active(conds, "Squeezing")
             req_hexes = 0
             has_diff_terrain_in_path = False
-            for step in move_path[1:]:
+            _n_steps = len(move_path[1:])
+            for _s_idx, step in enumerate(move_path[1:]):
                 step_tup = (step.q, step.r)
                 is_step_diff = (step_tup in diff_map)
                 if is_step_diff:
                     has_diff_terrain_in_path = True
                 step_cost = 2 if is_step_diff else 1
+                # PHB p. 191 Attraversamento spazi di altre creature (alleato = terreno difficile, ostile = bloccato se taglia simile)
+                if not is_dm and not bool(data.get("is_teleport", False)) and not bool(data.get("is_forced", False)) and not data.get("is_jump"):
+                    _blk, _cr_ext, _blk_reason = _evaluate_creature_space_traversal(
+                        player, step, (_s_idx == _n_steps - 1), game_state, is_incorporeal=is_incorporeal
+                    )
+                    if _blk:
+                        from common.protocol import make_error_reply
+                        if getattr(player, "conn", None):
+                            send_message(player.conn, make_error_reply(_blk_reason))
+                        return
+                    if _cr_ext > 0 and step_cost == 1:
+                        step_cost += _cr_ext
+                        has_diff_terrain_in_path = True
                 # Movimento Incorporeo (MM): attraversare oggetti/muri conta come terreno difficile
                 if is_incorporeal and [step.q, step.r] in walls_list_pos:
                     step_cost = max(step_cost, 2)
@@ -250,7 +324,22 @@ def handle_move_request(data, player, game_state):
                             step_cost = 1
                 if is_condition_active(conds, "Prono"):
                     step_cost += 1
+                if is_squeezing_mv:
+                    step_cost += 1
                 req_hexes += step_cost
+
+            # Salto in Lungo PHB p. 182: se dichiarato is_jump, verifica limite Forza (con o senza rincorsa)
+            if data.get("is_jump") and not is_dm:
+                from common.dnd5e_tables import calculate_jump_distances
+                _j_str = get_effective_attribute_from_dict(player, "FOR")
+                _j_info = calculate_jump_distances(_j_str, running_start=bool(data.get("running_start", True)))
+                _j_ft_req = max(0, len(move_path[1:]) * 5)
+                _j_max_ft = float(_j_info["long_jump_ft"]) + float(data.get("athletics_extra_ft", 0) or 0)
+                if _j_ft_req > _j_max_ft and game_state.automation_settings.get("strict_movement_limits", True):
+                    from common.protocol import make_error_reply
+                    if getattr(player, "conn", None):
+                        send_message(player.conn, make_error_reply(f"Salto non consentito: richiesti {_j_ft_req} ft contro max {_j_max_ft:.0f} ft (FOR {_j_str})."))
+                    return
 
             # PHB p. 195 Trascinare creatura afferrata: movimento dimezzato (costo x2) a meno che >= 2 taglie più piccola
             _size_map = {"minuscola": 0, "tiny": 0, "piccola": 1, "small": 1, "media": 2, "medium": 2, "grande": 3, "large": 3, "enorme": 4, "huge": 4, "mastodontica": 5, "gargantuan": 5}
@@ -344,6 +433,9 @@ def handle_move_request(data, player, game_state):
                             exited_reach = (d_f <= reach and d_t > reach)
                             entered_reach = (d_f > reach and d_t <= reach)
 
+                        from common.subclass_and_race_rules import has_no_oa_against
+                        if has_no_oa_against(player, other):
+                            continue
                         provoke_exit = exited_reach and (not has_flyby) and (not disengaged or has_sentinel)
                         provoke_enter = entered_reach and has_pam
                         if provoke_exit or provoke_enter:
@@ -364,6 +456,8 @@ def handle_move_request(data, player, game_state):
 
         prev_pos = list(player.position) if hasattr(player, "position") and player.position else None
         game_state.move_player(player.name, to_pos)
+        if getattr(player, "overrun_tumble_through_target", None):
+            player.overrun_tumble_through_target = None
         if prev_pos and to_pos and prev_pos != to_pos and not is_teleport:
             _dm_s_mv = getattr(game_state, "automation_settings", {}) or {}
             if _dm_s_mv.get("opt_facing", False):
@@ -509,6 +603,15 @@ def handle_move_request(data, player, game_state):
                         return
                     except Exception as e:
                         print(f"Errore caricamento mappa teleport {map_file}: {e}")
+
+        # Pericoli movimento da Incantesimi ad Area (es. Crescita di Spine / Spike Growth)
+        if getattr(game_state, "active_aoes", None):
+            from common.spell_effects_engine import apply_spell_movement_hazards
+            from common.protocol import make_chat_broadcast, make_player_stats_update
+            haz_msgs = apply_spell_movement_hazards(player, locals().get("from_pos"), to_pos, game_state)
+            for hm in haz_msgs:
+                broadcast(game_state, make_chat_broadcast("Sistema", hm))
+                broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, getattr(player, "conditions", []), getattr(player, "temp_hp", 0)))
 
         # Auto-explore FoW around the player's new position with true Line of Sight (LoS) and Dynamic Light
         auto_fow = True

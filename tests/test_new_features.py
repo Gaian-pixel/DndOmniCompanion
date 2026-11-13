@@ -592,19 +592,19 @@ class TestDndNewFeatures(unittest.TestCase):
         hero = Player(name="Combattente")
         hero.hp = 30
         hero.speed = 30 # 6 esagoni
-        hero.position = [0, 0]
+        hero.position = [0, 2]
         self.game_state.players.append(hero)
         self.game_state.combat_active = True
         hero.in_combat = True
 
         # Primo movimento: 4 esagoni -> consentito
-        handle_move_request({"to": [4, 0]}, hero, self.game_state)
-        self.assertEqual(hero.position, [4, 0])
+        handle_move_request({"to": [4, 2]}, hero, self.game_state)
+        self.assertEqual(hero.position, [4, 2])
         self.assertEqual(hero.movement_spent_this_turn, 4)
 
         # Secondo movimento nello stesso turno: altri 4 esagoni (totale 8 > 6) -> bloccato!
-        handle_move_request({"to": [8, 0]}, hero, self.game_state)
-        self.assertEqual(hero.position, [4, 0], "Il movimento che supera il budget di turno deve essere bloccato")
+        handle_move_request({"to": [8, 2]}, hero, self.game_state)
+        self.assertEqual(hero.position, [4, 2], "Il movimento che supera il budget di turno deve essere bloccato")
 
         # 3. Warlock ricarica gli slot su Riposo Breve (Magia del Patto 5e)
         warlock = Character(name="WarlockHero", campaign="Test")

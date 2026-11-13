@@ -76,15 +76,21 @@ class SpellsPanel:
         sheet.lbl_spell_dc.config(text=f"🎯 CD Salvezza: {dc}")
         sheet.lbl_spell_atk.config(text=f"⚔️ Attacco Magico: {atk_str}")
         max_prep = SpellsPanel.get_max_prepared_spells(sheet.character)
-        prep_txt = f" | Preparabili: {max_prep}" if max_prep > 0 else ""
+        if max_prep > 0:
+            cur_prep = SpellsPanel.count_prepared_spells(sheet.character)
+            prep_txt = f" | 📖 Prep: {cur_prep}/{max_prep}"
+        else:
+            prep_txt = ""
         sp_cur = getattr(sheet.character, "sorcery_points_current", 0)
         sp_max = getattr(sheet.character, "sorcery_points_max", 0)
-        sorc_txt = f" | Punti Stregoneria: {sp_cur}/{sp_max}" if sp_max > 0 else ""
+        sorc_txt = f" | PS: {sp_cur}/{sp_max}" if sp_max > 0 else ""
+        pact = getattr(sheet.character, "pact_slots", None)
+        pact_txt = f" | 🟣 Patto: {pact.get('current', 0)}/{pact.get('max', 0)} ({pact.get('level', 1)}°)" if isinstance(pact, dict) and pact.get("max", 0) > 0 else ""
         _ch_sp = getattr(sheet, "character", None)
-        sp_max = int(getattr(_ch_sp, "spell_points_max", 0) or 0) if _ch_sp else 0
-        sp_cur = int(getattr(_ch_sp, "spell_points_current", 0) or 0) if _ch_sp else 0
-        sp_txt = f" | ⚡ Punti Magia (DMG): {sp_cur}/{sp_max}" if sp_max > 0 else ""
-        sheet.lbl_spell_pb.config(text=f"⭐ Competenza: +{pb}{prep_txt}{sorc_txt}{sp_txt}")
+        mag_max = int(getattr(_ch_sp, "spell_points_max", 0) or 0) if _ch_sp else 0
+        mag_cur = int(getattr(_ch_sp, "spell_points_current", 0) or 0) if _ch_sp else 0
+        sp_txt = f" | ⚡ Punti Magia: {mag_cur}/{mag_max}" if mag_max > 0 else ""
+        sheet.lbl_spell_pb.config(text=f"⭐ PB: +{pb}{prep_txt}{pact_txt}{sorc_txt}{sp_txt}")
 
     @staticmethod
     def refresh_spell_list(sheet):
@@ -93,10 +99,73 @@ class SpellsPanel:
             return
         for item in sheet.spell_tree.get_children():
             sheet.spell_tree.delete(item)
+        req_prep = SpellsPanel.spell_preparation_required(sheet.character)
         for i, s in enumerate(getattr(sheet.character, "spellbook", [])):
-            lvl = s.get("level", 0)
+            lvl = int(s.get("level", 0) or 0)
             lvl_str = _t("cantrip") if lvl == 0 else str(lvl)
-            sheet.spell_tree.insert("", tk.END, iid=str(i), values=(lvl_str, s.get("name", ""), s.get("time", ""), s.get("range", "")))
+            name = s.get("name", "")
+            if req_prep and lvl > 0:
+                mark = "✓ " if s.get("prepared", True) else "○ "
+                display_name = f"{mark}{name}"
+            else:
+                display_name = name
+            sheet.spell_tree.insert("", tk.END, iid=str(i), values=(lvl_str, display_name, s.get("time", ""), s.get("range", "")))
+
+    @staticmethod
+    def can_cast_as_ritual(character) -> bool:
+        """Verifica se il personaggio possiede il privilegio Lancio Rituale (PHB p. 201)."""
+        if not character:
+            return False
+        classes_dict = getattr(character, "classes", {}) or {}
+        c_blob = " ".join(
+            [str(getattr(character, "char_class", "") or ""), str(getattr(character, "subclass", "") or "")]
+            + [str(k) for k in classes_dict.keys()]
+        ).lower()
+        if any(k in c_blob for k in ("bardo", "bard", "chierico", "cleric", "druido", "druid", "mago", "wizard", "artefice", "artificer")):
+            return True
+        if hasattr(character, "_get_all_features_text"):
+            ft = character._get_all_features_text()
+        else:
+            ft = str(getattr(character, "features", "") or "").lower()
+        return any(k in ft for k in (
+            "incantatore rituale", "ritual caster",
+            "libro degli antichi segreti", "book of ancient secrets",
+            "patto del tomo", "pact of the tome",
+        ))
+
+    @staticmethod
+    def spell_preparation_required(character) -> bool:
+        """True se almeno una classe del PG prepara giornalmente gli incantesimi (Chierico/Druido/Mago/Paladino/Artefice)."""
+        return SpellsPanel.get_max_prepared_spells(character) > 0
+
+    @staticmethod
+    def count_prepared_spells(character) -> int:
+        if not character:
+            return 0
+        return sum(1 for s in getattr(character, "spellbook", []) if int(s.get("level", 0) or 0) > 0 and s.get("prepared", True))
+
+    @staticmethod
+    def toggle_spell_prepared(sheet):
+        """Alterna lo stato Preparato/Non Preparato sull'incantesimo selezionato in scheda."""
+        if not hasattr(sheet, "spell_tree"):
+            return
+        sel = sheet.spell_tree.selection()
+        if not sel:
+            return
+        idx = int(sel[0])
+        sb = getattr(sheet.character, "spellbook", [])
+        if idx < 0 or idx >= len(sb):
+            return
+        sp = sb[idx]
+        if int(sp.get("level", 0) or 0) <= 0:
+            return
+        sp["prepared"] = not bool(sp.get("prepared", True))
+        if hasattr(sheet, "manager") and hasattr(sheet.manager, "update_character"):
+            sheet.manager.update_character(sheet.character)
+            if hasattr(sheet.manager, "save_characters"):
+                sheet.manager.save_characters()
+        SpellsPanel.refresh_spell_list(sheet)
+        SpellsPanel.update_spell_stats(sheet)
 
     @staticmethod
     def sort_spells(sheet, col):
@@ -265,5 +334,130 @@ class SpellsPanel:
         if "artefice" in c_class or "artificer" in c_class:
             return max(1, (lvl // 2) + get_mod("INT"))
         return 0
+
+    @staticmethod
+    def consume_material_component(character, spell: dict, mat_gp: float) -> str:
+        """
+        Consuma dall'inventario (o dall'oro equivalente se assente) la componente materiale
+        consumata al lancio dell'incantesimo (PHB p. 203).
+        """
+        if not character or float(mat_gp or 0) <= 0:
+            return ""
+        inv = getattr(character, "inventory_grid", None)
+        comp_txt = f"{spell.get('components', '')} {spell.get('material', '')} {spell.get('desc', '')}".lower()
+        mat_keywords = [w for w in ("diamante", "diamond", "perla", "pearl", "rubino", "ruby", "zaffiro", "sapphire", "incenso", "incense", "polvere d'oro", "polvere d'argento", "onice", "onyx", "opale", "erbe") if w in comp_txt]
+        if isinstance(inv, list):
+            for idx, it in enumerate(inv):
+                if not isinstance(it, dict):
+                    continue
+                nm = str(it.get("name", "")).lower()
+                if mat_keywords and any(k in nm for k in mat_keywords):
+                    qty = int(it.get("qty", 1) or 1)
+                    if qty > 1:
+                        it["qty"] = qty - 1
+                    else:
+                        inv[idx] = None
+                    return f" [💎 Consumato: {it.get('name', 'Componente Materiale')}]"
+        curr = getattr(character, "currency", None)
+        if isinstance(curr, dict):
+            gp_need = int(round(float(mat_gp)))
+            if int(curr.get("MO", 0) or 0) >= gp_need:
+                curr["MO"] -= gp_need
+                return f" [💰 Componenti consumate: -{gp_need} MO]"
+        return f" [💎 Nota: componente da {int(round(float(mat_gp)))} mo consumato]"
+
+    @staticmethod
+    def execute_spell_resource_cost(
+        character,
+        spell: dict,
+        cast_level: int,
+        is_ritual: bool = False,
+        use_pact: bool = False,
+        use_spell_points: bool = False,
+        metamagic_key: str = "",
+    ) -> tuple:
+        """
+        Consuma in modo unificato e conforme alle regole 5e RAW:
+        - Slot Patto Warlock (preferibile su richiesta o quando gli slot base mancano)
+        - Punti Magia / Spell Points (DMG p. 288)
+        - Slot Incantesimo standard (1-9)
+        - Punti Stregoneria (Metamagia) e Impulso Magia Selvaggia
+        Ritorna: (ok: bool, summary_tags: list[str], error_msg: str)
+        """
+        lvl = int(spell.get("level", 0) or 0)
+        eff_lvl = max(lvl, int(cast_level or lvl))
+        tags = []
+
+        # 1. Verifica Lancio Rituale (PHB p. 201)
+        if lvl > 0 and is_ritual:
+            if not SpellsPanel.is_ritual_spell(spell):
+                return False, [], "Questo incantesimo non possiede il tag Rituale."
+            if not SpellsPanel.can_cast_as_ritual(character):
+                return False, [], "La tua classe/talento non consente il Lancio Rituale."
+            tags.append("🕯️ Rituale (+10 min, 0 slot)")
+
+        # 2. Consumo risorsa lancio per incantesimi lv 1+ non rituali
+        elif lvl > 0:
+            if use_spell_points and hasattr(character, "spend_spell_points"):
+                # DMG p. 288: max 1 incantesimo per ciascun livello 6-9 con Spell Points per Riposo Lungo
+                used_high = getattr(character, "_spell_points_high_used", None)
+                if not isinstance(used_high, set):
+                    used_high = set(used_high or [])
+                if eff_lvl >= 6 and eff_lvl in used_high:
+                    return False, [], f"DMG p. 288: con i Punti Incantesimo puoi lanciare un solo incantesimo di {eff_lvl}° livello per Riposo Lungo."
+                ok_sp, msg_sp = character.spend_spell_points(eff_lvl)
+                if not ok_sp:
+                    return False, [], msg_sp
+                if eff_lvl >= 6:
+                    used_high.add(eff_lvl)
+                    character._spell_points_high_used = used_high
+                tags.append(f"⚡ {msg_sp}")
+            else:
+                pact = getattr(character, "pact_slots", None)
+                pact_ok = (
+                    isinstance(pact, dict)
+                    and int(pact.get("current", 0) or 0) > 0
+                    and int(pact.get("level", 0) or 0) >= lvl
+                )
+                slots = getattr(character, "spell_slots", {}) or {}
+                sl_entry = slots.get(str(eff_lvl), {"max": 0, "current": 0})
+                std_cur = int(sl_entry.get("current", 0)) if isinstance(sl_entry, dict) else (int(sl_entry[0]) if isinstance(sl_entry, list) and sl_entry else 0)
+                if (use_pact and pact_ok) or (std_cur <= 0 and pact_ok):
+                    pact["current"] = int(pact["current"]) - 1
+                    eff_lvl = max(lvl, int(pact.get("level", eff_lvl) or eff_lvl))
+                    tags.append(f"🟣 Slot Patto Lv {eff_lvl}° ({pact['current']}/{pact.get('max', 0)})")
+                else:
+                    if std_cur <= 0:
+                        return False, [], f"SLOT_EXHAUSTED:{eff_lvl}"
+                    if isinstance(sl_entry, dict):
+                        sl_entry["current"] = std_cur - 1
+                    elif isinstance(sl_entry, list) and sl_entry:
+                        sl_entry[0] = std_cur - 1
+                    if eff_lvl > lvl:
+                        tags.append(f"⬆️ Potenziato {eff_lvl}°")
+
+        # 3. Metamagia (Stregone / Adepto della Metamagia)
+        from common.spell_effects_engine import (
+            apply_metamagic_to_cast,
+            maybe_trigger_wild_magic_surge,
+            normalize_metamagic_key,
+            spend_metamagic_points,
+        )
+        m_key = normalize_metamagic_key(metamagic_key)
+        if m_key:
+            ok_m, _rem, msg_m = spend_metamagic_points(character, m_key, eff_lvl)
+            if not ok_m:
+                return False, [], msg_m
+            meta_fx = apply_metamagic_to_cast(character, spell, m_key, eff_lvl)
+            tags.append(meta_fx["note"])
+
+        # 4. Magia Selvaggia (Stregone PHB p. 103)
+        if lvl > 0:
+            wm = maybe_trigger_wild_magic_surge(character, eff_lvl)
+            if wm and wm.get("triggered"):
+                tags.append(wm["message"])
+
+        return True, tags, ""
+
 
 

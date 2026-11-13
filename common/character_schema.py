@@ -79,6 +79,8 @@ def normalize_character_dict(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
     clean["race"] = str(clean.get("race") or "").strip()
     clean["subclass"] = str(clean.get("subclass") or "").strip()
+    if not isinstance(clean.get("subclasses"), dict):
+        clean["subclasses"] = {}
     
     # Livello (1-20)
     try:
@@ -547,6 +549,37 @@ def check_multiclass_prerequisites(character_or_dict: Any, target_class: str) ->
         return False, f"Prerequisiti di caratteristica (min 13) non soddisfatti per la nuova classe '{target_norm}' (PHB p. 163)."
 
     return True, "Prerequisiti Multiclasse soddisfatti."
+
+
+def filter_non_stacking_multiclass_features(character_or_dict: Any, new_features: List[str]) -> Tuple[List[str], List[str]]:
+    """
+    PHB p. 164 Regole Multiclasse di non-cumulabilità:
+    - Attacco Extra (base): non si somma tra due classi diverse (solo Guerriero 11/20 sblocca 3°/4° attacco).
+    - Difesa Senza Armatura: se già posseduta (Barbaro o Monaco), una seconda fonte non sostituisce la prima.
+    - Incanalare Divinità: non aggiunge usi extra rispetto al massimo singolo (nota informativa).
+    Ritorna: (filtered_features, skipped_notes)
+    """
+    is_d = isinstance(character_or_dict, dict)
+    raw_txt = (character_or_dict.get("features", "") if is_d else getattr(character_or_dict, "features", "")) or ""
+    flist = (character_or_dict.get("features_list", []) if is_d else getattr(character_or_dict, "features_list", [])) or []
+    blob = (str(raw_txt) + " " + " ".join(str(x.get("name", "")) for x in flist if isinstance(x, dict))).lower()
+
+    has_extra_attack = ("attacco extra" in blob or "extra attack" in blob)
+    has_unarmored = ("difesa senza armatura" in blob or "unarmored defense" in blob)
+
+    kept: List[str] = []
+    notes: List[str] = []
+    for fname in (new_features or []):
+        f_low = str(fname or "").lower()
+        is_upgraded_fighter_ea = any(k in f_low for k in ("(2)", "(3)", "2 attacchi extra", "3 attacchi extra", "three attacks", "four attacks"))
+        if ("attacco extra" in f_low or "extra attack" in f_low) and has_extra_attack and not is_upgraded_fighter_ea:
+            notes.append(f"{fname} (Già posseduto da altra classe — non si somma, PHB p. 164)")
+            continue
+        if ("difesa senza armatura" in f_low or "unarmored defense" in f_low) and has_unarmored:
+            notes.append(f"{fname} (Già posseduta — non cumulabile in multiclasse, PHB p. 164)")
+            continue
+        kept.append(fname)
+    return kept, notes
 
 
 def calculate_pact_magic_slots(classes_dict: Dict[str, int]) -> Dict[str, int]:

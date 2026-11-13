@@ -341,6 +341,8 @@ def check_passive_perception(entity, game_state, sight_based: bool = True) -> in
             base -= 5
     if entity_has_keyword(entity, "sensi acuti", "keen senses", "olfatto acuto", "vista acuta", "udito acuto"):
         base += 5
+    from common.subclass_and_race_rules import get_passive_observant_bonus
+    base += get_passive_observant_bonus(entity, "Percezione")
     return max(0, base)
 
 
@@ -471,7 +473,49 @@ def maybe_prompt_defense_reactions(target_player, attacker, attack_details: dict
             ))
             return
 
-    # 2. DEFLECT_MISSILES (Monaco 3+ su attacco arma a distanza)
+    # 2. DEFENSIVE_DUELIST (Talento Duellante Difensivo PHB p. 165)
+    if hits and not is_crit and not is_spell:
+        from common.feats_and_classes import check_defensive_duelist_bonus
+        dd_pb = check_defensive_duelist_bonus(target_player)
+        if dd_pb > 0 and hit_roll < (target_ac + dd_pb):
+            send_message(target_player.conn, make_prompt_reaction(
+                "DEFENSIVE_DUELIST",
+                attacker.name if attacker else "Attaccante",
+                {
+                    "weapon_name": w_name,
+                    "hit_roll": hit_roll,
+                    "current_ac": target_ac,
+                    "bonus_ac": dd_pb,
+                    "dmg_dealt": attack_details.get("dmg_to_hp", 0),
+                    "dmg_to_hp": attack_details.get("dmg_to_hp", 0),
+                }
+            ))
+            return
+
+    # 3. ILLUSORY_SELF (Mago Illusione Lv 10+ - 1/riposo breve forza il mancato)
+    if hits and not getattr(target_player, "illusory_self_used", False):
+        sub_t = str((getattr(target_player, "full_sheet", {}) or {}).get("subclass", getattr(target_player, "subclass", ""))).lower()
+        if entity_get_class_level(target_player, "mago", "wizard") >= 10 and "illusion" in sub_t:
+            send_message(target_player.conn, make_prompt_reaction(
+                "ILLUSORY_SELF",
+                attacker.name if attacker else "Attaccante",
+                {"weapon_name": w_name, "dmg_to_hp": attack_details.get("dmg_to_hp", 0)}
+            ))
+            return
+
+    # 4. DAMPEN_ELEMENTS (Chierico Natura Lv 6+: Resistenza immediata a acido/freddo/fuoco/fulmine/tuono)
+    dmg_t_l = str(attack_details.get("damage_type", "") or "").lower()
+    if hits and any(k in dmg_t_l for k in ("acido", "acid", "freddo", "cold", "fuoco", "fire", "fulmine", "lightning", "tuono", "thunder")):
+        sub_t = str((getattr(target_player, "full_sheet", {}) or {}).get("subclass", getattr(target_player, "subclass", ""))).lower()
+        if entity_get_class_level(target_player, "chierico", "cleric") >= 6 and ("natur" in sub_t):
+            send_message(target_player.conn, make_prompt_reaction(
+                "DAMPEN_ELEMENTS",
+                attacker.name if attacker else "Attaccante",
+                {"damage_type": attack_details.get("damage_type", "Fuoco"), "dmg_to_hp": attack_details.get("dmg_to_hp", 0)}
+            ))
+            return
+
+    # 5. DEFLECT_MISSILES (Monaco 3+ su attacco arma a distanza)
     if hits and is_ranged and not is_spell:
         monk_lvl = entity_get_class_level(target_player, "monaco", "monk")
         if monk_lvl >= 3 or entity_has_keyword(target_player, "deflettere missili", "devia proiettili", "deflect missiles"):

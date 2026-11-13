@@ -863,15 +863,18 @@ def _is_silenced_for_verbal(actor, game_state) -> bool:
     return False
 
 
-def validate_spell_casting_rules(actor, spell_level: int, casting_time: str = "action", has_verbal: bool = True, game_state=None) -> Tuple[bool, str]:
+def validate_spell_casting_rules(actor, spell_level: int, casting_time: str = "action", has_verbal: bool = True, game_state=None, is_subtle: bool = False) -> Tuple[bool, str]:
     """
     Valida le regole fondamentali del lancio incantesimi 5e RAW:
-    1. Silenzio / Componenti Verbali (PHB p. 203)
+    1. Silenzio / Componenti Verbali (PHB p. 203) — aggirato da Incantesimo Celato (Subtle Spell)
     2. Regola Incantesimi Azione Bonus (PHB p. 202): se lanci un incantesimo come Azione Bonus in questo turno,
        l'unico altro incantesimo che puoi lanciare come Azione è un Trucchetto (livello 0)!
     """
-    if has_verbal and _is_silenced_for_verbal(actor, game_state):
+    if has_verbal and not is_subtle and _is_silenced_for_verbal(actor, game_state):
         return False, f"🔇 {actor.name} è in area di SILENZIO / Silenziato e non può lanciare incantesimi con componente Verbale (V)!"
+    from server.dm_monster_engine import is_in_beholder_antimagic_cone
+    if is_in_beholder_antimagic_cone(actor, game_state):
+        return False, f"👁️ {actor.name} si trova dentro un Cono Antimagia (MM Beholder) e non può lanciare incantesimi!"
     from common.feats_and_classes import get_armor_nonproficiency_penalties
     _armor_pen = get_armor_nonproficiency_penalties(actor)
     if _armor_pen.get("cannot_cast_spells"):
@@ -911,17 +914,24 @@ def handle_cast_special_spell_request(data, player, game_state):
     spell_name = str(data.get("spell_name", "Dardo Incantato")).strip()
     s_low = spell_name.lower()
     cast_level = int(data.get("cast_level", 1) or 1)
-    casting_time = data.get("casting_time", "action")
+    meta_arg = str(data.get("metamagic", "") or getattr(actor, "active_metamagic", "") or "")
+    from common.spell_effects_engine import normalize_metamagic_key, maybe_trigger_wild_magic_surge, cast_iconic_spell
+    m_key = normalize_metamagic_key(meta_arg)
+    is_subtle = (m_key == "subtle")
+    casting_time = "bonus" if m_key == "quickened" else data.get("casting_time", "action")
     has_verbal = bool(data.get("has_verbal", True))
     is_bonus_spell = "bonus" in str(casting_time).lower()
     base_lvl = 0 if ("deflagrazione" in s_low or "eldritch blast" in s_low or int(data.get("base_level", 1) or 1) == 0) else cast_level
 
-    ok_rules, err_msg = validate_spell_casting_rules(actor, base_lvl, casting_time, has_verbal, game_state)
+    ok_rules, err_msg = validate_spell_casting_rules(actor, base_lvl, casting_time, has_verbal, game_state, is_subtle=is_subtle)
     if not ok_rules:
         if getattr(actor, "conn", None):
             send_message(actor.conn, make_error_reply(err_msg))
         broadcast(game_state, make_chat_broadcast("Sistema", err_msg))
         return
+
+    if m_key and getattr(actor, "active_metamagic", None):
+        actor.active_metamagic = None
 
     if is_bonus_spell:
         actor.spell_cast_bonus_action_this_turn = True
@@ -942,7 +952,7 @@ def handle_cast_special_spell_request(data, player, game_state):
         dur_r = parse_spell_duration_rounds(str(data.get("duration", "") or ""))
         actor.concentrating_on = spell_name
         actor.concentration_rounds_remaining = dur_r if (dur_r and dur_r > 0) else None
-        if str(data.get("metamagic", "") or "").lower() == "extended" and getattr(actor, "concentration_rounds_remaining", None):
+        if m_key == "extended" and getattr(actor, "concentration_rounds_remaining", None):
             actor.concentration_rounds_remaining = min(14400, actor.concentration_rounds_remaining * 2)
 
     # Abiuratore Lv 2+: incantesimo di Abiurazione di 1°+ liv. ricarica Interdizione Arcana
@@ -953,9 +963,14 @@ def handle_cast_special_spell_request(data, player, game_state):
         if gained_w > 0:
             broadcast(game_state, make_chat_broadcast("Sistema", f"🛡️ [INTERDIZIONE ARCANA] {actor.name} ricarica +{gained_w} PF alla propria Interdizione Arcana!"))
 
-    if base_lvl >= 1:
+    if base_lvl >= 1 and not is_subtle:
         from server.rules.reaction_magic import maybe_prompt_counterspell_reactions
         maybe_prompt_counterspell_reactions(actor, spell_name, cast_level, game_state)
+
+    if base_lvl >= 1:
+        wm_res = maybe_trigger_wild_magic_surge(actor, base_lvl, game_state, forced_d20=data.get("forced_wild_d20"), forced_d100=data.get("forced_wild_d100"))
+        if wm_res and wm_res.get("triggered"):
+            broadcast(game_state, make_chat_broadcast("Sistema", wm_res["message"]))
 
     from server.rules.combat import apply_damage
     target = _get_target_or_self(data, actor, game_state)
@@ -1053,6 +1068,19 @@ def handle_cast_special_spell_request(data, player, game_state):
         if target:
             broadcast(game_state, make_player_stats_update(target.name, target.hp, target.max_hp, target.initiative, target.conditions, getattr(target, "temp_hp", 0)))
         broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        return
+
+    iconic_msg = cast_iconic_spell(
+        actor, target, spell_name, cast_level, game_state,
+        damage_type=str(data.get("damage_type", "Fuoco") or "Fuoco"),
+        metamagic_key=m_key,
+    )
+    if iconic_msg:
+        if target and target is not actor:
+            broadcast(game_state, make_player_stats_update(target.name, target.hp, target.max_hp, target.initiative, target.conditions, getattr(target, "temp_hp", 0)))
+        broadcast(game_state, make_player_stats_update(actor.name, actor.hp, actor.max_hp, actor.initiative, actor.conditions, getattr(actor, "temp_hp", 0)))
+        broadcast(game_state, make_chat_broadcast("Sistema", iconic_msg))
         broadcast(game_state, make_game_state(game_state.get_state_dict()))
         return
 
@@ -1340,6 +1368,8 @@ def handle_dmg_maneuver_request(data, player, game_state):
         t_str = entity_get_attr_mod(target, "FOR") + ((entity_get_total_level(target) - 1) // 4 + 2)
         r_t = roll_dice(f"1d20+{t_str}")["total"]
         ok = r_a >= r_t
+        if ok:
+            actor.overrun_tumble_through_target = target.name
         if ok and getattr(actor, "position", None) and getattr(target, "position", None):
             dq = target.position[0] - actor.position[0]
             dr = target.position[1] - actor.position[1]
@@ -1350,6 +1380,8 @@ def handle_dmg_maneuver_request(data, player, game_state):
         t_dex = entity_get_attr_mod(target, "DES") + ((entity_get_total_level(target) - 1) // 4 + 2)
         r_t = roll_dice(f"1d20+{t_dex}")["total"]
         ok = r_a >= r_t
+        if ok:
+            actor.overrun_tumble_through_target = target.name
         if ok and getattr(actor, "position", None) and getattr(target, "position", None):
             dq = target.position[0] - actor.position[0]
             dr = target.position[1] - actor.position[1]
@@ -1901,4 +1933,17 @@ def handle_class_feature_request(data, player, game_state):
             msg = f"✨ [FONTE DI MAGIA] {actor.name} spende {cost_sp} Punti Stregoneria e crea 1 Slot di {slot_l}° livello ({new_c}/{mx} PS rimasti)!"
         broadcast(game_state, make_chat_broadcast("Sistema", msg))
         broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        return
+
+    # 7. Privilegi di Sottoclasse (common/subclass_and_race_rules.py)
+    from common.subclass_and_race_rules import handle_subclass_active_power
+    sub_res = handle_subclass_active_power(actor, feat, game_state, params=data)
+    if sub_res.get("ok"):
+        msg = sub_res.get("log", f"{actor.name} usa {feat}.")
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        return
+    elif sub_res.get("log") and "non riconosciuto" not in str(sub_res.get("log")):
+        if getattr(actor, "conn", None):
+            send_message(actor.conn, make_error_reply(sub_res["log"]))
         return

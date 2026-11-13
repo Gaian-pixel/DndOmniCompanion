@@ -509,3 +509,674 @@ def handle_resolve_legendary_resistance_request(data: dict, player: Any, game_st
     broadcast(game_state, make_game_state(game_state.get_state_dict()))
     if hasattr(game_state, "_trigger_gui_update"):
         game_state._trigger_gui_update()
+
+
+def is_recharge_ability(action_dict: Any) -> bool:
+    """Rileva se un'azione/tratto del mostro possiede la clausola Recharge (es. 5-6, 4-6, 6)."""
+    if not isinstance(action_dict, dict):
+        text = str(action_dict or "").lower()
+    else:
+        text = f"{action_dict.get('name', '')} {action_dict.get('desc', '')}".lower()
+    return bool(re.search(r"(?:recharge|ricarica)\s*[456](?:[-–]6)?", text))
+
+
+def mark_monster_ability_used(monster: Any, action_obj: Any) -> Tuple[bool, str]:
+    """
+    Segna un'abilità Recharge del mostro come spesa (`expended=True`) quando viene utilizzata.
+    Ritorna (già_spesa, note).
+    """
+    if not monster or not is_recharge_ability(action_obj):
+        return False, ""
+    target_name = action_obj.get("name", "") if isinstance(action_obj, dict) else str(action_obj).split(".")[0].strip()
+    fs = getattr(monster, "full_sheet", None)
+    if not isinstance(fs, dict):
+        return False, ""
+
+    matched_item = None
+    for list_key in ("actions", "special_abilities", "features"):
+        lst = fs.get(list_key)
+        if isinstance(lst, list):
+            for entry in lst:
+                if isinstance(entry, dict) and entry.get("name", "").lower() == target_name.lower():
+                    matched_item = entry
+                    break
+        if matched_item:
+            break
+
+    if matched_item is None:
+        r_list = getattr(monster, "recharge_abilities", None)
+        if not isinstance(r_list, list):
+            r_list = []
+            monster.recharge_abilities = r_list
+        for entry in r_list:
+            if isinstance(entry, dict) and entry.get("name", "").lower() == target_name.lower():
+                matched_item = entry
+                break
+        if matched_item is None:
+            matched_item = {"name": target_name, "desc": action_obj.get("desc", "") if isinstance(action_obj, dict) else str(action_obj), "expended": False}
+            r_list.append(matched_item)
+
+    if matched_item.get("expended", False):
+        return True, f"⚠️ '{target_name}' è ancora SCARICA (in attesa di Ricarica a inizio turno)!"
+
+    matched_item["expended"] = True
+    if isinstance(action_obj, dict):
+        action_obj["expended"] = True
+    return False, f"⏳ [RICARICA] '{target_name}' segnata come spesa (tirerà 1d6 all'inizio del prossimo turno)."
+
+
+def check_swallow_internal_regurgitation(monster: Any, attacker: Any, damage_dealt: int, game_state: Any) -> Optional[str]:
+    """
+    MM Swallow (Inghiottito): se una creatura nello stomaco del mostro infligge >= soglia danni
+    (default 20 o parsato dalla descrizione) in un singolo turno, il mostro tira un TS COS (CD 15 o parsata);
+    se fallisce rigurgita tutte le creature ingoiate.
+    """
+    if not monster or not attacker or damage_dealt <= 0 or getattr(monster, "hp", 0) <= 0:
+        return None
+    if getattr(attacker, "swallowed_by", None) != monster.name:
+        return None
+
+    threshold = 20
+    dc = 15
+    fs = getattr(monster, "full_sheet", None) or {}
+    for list_key in ("actions", "special_abilities", "features"):
+        entries = fs.get(list_key) if isinstance(fs, dict) else None
+        if isinstance(entries, list):
+            for item in entries:
+                txt = f"{item.get('name', '')} {item.get('desc', '')}" if isinstance(item, dict) else str(item)
+                if "swallow" in txt.lower() or "ingoi" in txt.lower() or "inghiott" in txt.lower():
+                    m_thr = re.search(r"(\d+)\s+(?:or\s+more\s+)?damage", txt, re.I) or re.search(r"almeno\s+(\d+)\s+danni", txt, re.I)
+                    m_dc = re.search(r"DC\s*(\d+)\s+Constitution|CD\s*(\d+)\s+(?:su\s+)?(?:COS|Costituzione)", txt, re.I)
+                    if m_thr:
+                        threshold = max(1, int(m_thr.group(1)))
+                    if m_dc:
+                        dc = max(5, int(m_dc.group(1) or m_dc.group(2)))
+                    break
+
+    monster.swallow_damage_taken = int(getattr(monster, "swallow_damage_taken", 0) or 0) + int(damage_dealt)
+    if monster.swallow_damage_taken < threshold:
+        return None
+
+    from common.item_modifiers import get_effective_save_bonus_from_dict
+    from common.dice import roll_dice
+    con_save = get_effective_save_bonus_from_dict(monster, "COS")
+    sv = roll_dice(f"1d20{'+' if con_save >= 0 else ''}{con_save}")["total"]
+    monster.swallow_damage_taken = 0
+
+    if sv >= dc:
+        msg = f"🐊 [STOMACO] {monster.name} subisce >= {threshold} danni interni ma supera TS COS ({sv} vs CD {dc}): trattiene le prede!"
+        if game_state:
+            broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        return msg
+
+    if not game_state:
+        return None
+    reg_names = []
+    for sw_v in getattr(game_state, "players", []):
+        if getattr(sw_v, "swallowed_by", None) == monster.name:
+            sw_v.swallowed_by = None
+            if not hasattr(sw_v, "conditions") or not isinstance(sw_v.conditions, list):
+                sw_v.conditions = []
+            sw_v.conditions = [
+                c for c in sw_v.conditions
+                if not any(k in str(c).lower() for k in ("ingoi", "inghiott", "swallow", "accecat", "blinded", "trattenut", "restrained"))
+            ]
+            if "Prono" not in sw_v.conditions:
+                sw_v.conditions.append("Prono")
+            if getattr(monster, "position", None):
+                sw_v.position = list(monster.position)
+            reg_names.append(sw_v.name)
+            broadcast(game_state, make_player_stats_update(sw_v.name, sw_v.hp, sw_v.max_hp, sw_v.initiative, sw_v.conditions, getattr(sw_v, "temp_hp", 0)))
+    msg = f"🤢 [RIGURGITO MM] {monster.name} fallisce TS COS ({sv} vs CD {dc}) per i danni interni (>= {threshold}) e **rigurgita** {', '.join(reg_names) or 'la preda'} (cade Prono a terra)!"
+    broadcast(game_state, make_chat_broadcast("Sistema", msg))
+    return msg
+
+
+# ==============================================================================
+# 2. MULTIATTACCO, RISUCCHIO VITA/FORZA, RUGGINE, SGUARDO PIETRIFICANTE & BEHOLDER
+# ==============================================================================
+
+_WORD_COUNTS = {
+    "one": 1, "a": 1, "an": 1, "uno": 1, "una": 1, "un": 1,
+    "two": 2, "due": 2, "twice": 2,
+    "three": 3, "tre": 3,
+    "four": 4, "quattro": 4,
+    "five": 5, "cinque": 5,
+    "six": 6, "sei": 6,
+}
+
+_ATK_SYNONYMS: Dict[str, Tuple[str, ...]] = {
+    "bite": ("bite", "morso"),
+    "claw": ("claw", "claws", "artiglio", "artigli"),
+    "tail": ("tail", "coda"),
+    "slam": ("slam", "schianto"),
+    "sting": ("sting", "pungiglione"),
+    "tentacle": ("tentacle", "tentacles", "tentacolo", "tentacoli"),
+    "greatsword": ("greatsword", "spadone"),
+    "longsword": ("longsword", "spada lunga"),
+    "shortsword": ("shortsword", "spada corta"),
+    "scimitar": ("scimitar", "scimitarra"),
+    "greataxe": ("greataxe", "ascia bipenne"),
+    "dagger": ("dagger", "pugnale"),
+    "longbow": ("longbow", "arco lungo"),
+    "javelin": ("javelin", "giavellotto"),
+    "horn": ("horn", "horns", "corno", "corna"),
+    "gore": ("gore", "incornata"),
+    "beak": ("beak", "becco"),
+    "hooves": ("hooves", "hoof", "zoccoli", "zoccolo"),
+    "fist": ("fist", "fists", "pugno", "pugni"),
+    "eye ray": ("eye ray", "eye rays", "raggio oculare", "raggi oculari"),
+}
+
+
+def _extract_action_attack_and_damage(act: Any) -> Tuple[str, Optional[int], Optional[str], str]:
+    if isinstance(act, str):
+        name = act.split(".")[0].strip()
+        desc = act
+        atk_b = None
+        dmg_d = None
+    else:
+        name = str(act.get("name", "Attacco") or "Attacco").strip()
+        desc = str(act.get("desc", act.get("description", "")) or "")
+        atk_b = act.get("attack_bonus")
+        dmg_d = act.get("damage_dice")
+    if atk_b is None:
+        m = re.search(r"([+-]?\d+)\s+(?:to\s+hit|per\s+colpire|al\s+colpo)", desc, re.IGNORECASE)
+        if m:
+            try:
+                atk_b = int(m.group(1))
+            except (ValueError, TypeError):
+                atk_b = None
+    if not dmg_d:
+        m_d = re.search(r"\((\d+d\d+(?:\s*[+-]\s*\d+)?)\)", desc)
+        if m_d:
+            dmg_d = m_d.group(1).replace(" ", "")
+    return name, (int(atk_b) if atk_b is not None else None), dmg_d, desc
+
+
+def parse_monster_multiattack(monster: Any) -> List[Tuple[Dict[str, Any], int]]:
+    """Parse Multiattack text into a list of (action_dict, attack_count)."""
+    if not monster:
+        return []
+    fs = getattr(monster, "full_sheet", None) or {}
+    actions = fs.get("actions") if isinstance(fs, dict) else None
+    if not isinstance(actions, list) or not actions:
+        return []
+
+    multi_desc = ""
+    candidates: List[Dict[str, Any]] = []
+    for a in actions:
+        a_dict = a if isinstance(a, dict) else {"name": str(a).split(".")[0].strip(), "desc": str(a)}
+        nm = str(a_dict.get("name", "") or "").lower()
+        if "multiatt" in nm:
+            multi_desc += " " + str(a_dict.get("desc", a_dict.get("description", "")) or "")
+        else:
+            candidates.append(a_dict)
+
+    if not multi_desc.strip() or not candidates:
+        return []
+
+    txt = multi_desc.lower()
+    sequence: List[Tuple[Dict[str, Any], int]] = []
+    matched_names = set()
+
+    # Match "<count> [with its] <attack_name>" or "<count> <attack_name> attack(s)"
+    for cand in candidates:
+        c_name = str(cand.get("name", "") or "").strip()
+        c_low = c_name.lower()
+        aliases = {c_low}
+        for k, syns in _ATK_SYNONYMS.items():
+            if any(s in c_low for s in syns):
+                aliases.update(syns)
+        # Try matching count token right before any alias (allowing up to 3 filler words like "with its", "con il")
+        found_count = 0
+        for alias in sorted(aliases, key=len, reverse=True):
+            pat = r"\b(" + "|".join(re.escape(w) for w in _WORD_COUNTS.keys()) + r"|\d+)\b(?:\s+\w+){0,3}\s+" + re.escape(alias) + r"\b"
+            for m in re.finditer(pat, txt):
+                tok = m.group(1)
+                cnt = int(tok) if tok.isdigit() else _WORD_COUNTS.get(tok, 1)
+                found_count += max(1, cnt)
+            if found_count > 0:
+                break
+        if found_count > 0 and c_low not in matched_names:
+            matched_names.add(c_low)
+            sequence.append((cand, found_count))
+
+    if not sequence:
+        # Generic Multiattack like "makes two melee attacks" or "esegue tre attacchi"
+        m_gen = re.search(
+            r"\b(" + "|".join(re.escape(w) for w in _WORD_COUNTS.keys()) + r"|\d+)\b(?:\s+\w+){0,2}\s+(?:attacks?|attacchi?)",
+            txt,
+        )
+        if m_gen:
+            tok = m_gen.group(1)
+            cnt = int(tok) if tok.isdigit() else _WORD_COUNTS.get(tok, 2)
+            # Pick first candidate that looks like a weapon/natural attack
+            primary = next(
+                (c for c in candidates if _extract_action_attack_and_damage(c)[1] is not None),
+                candidates[0],
+            )
+            sequence.append((primary, max(1, cnt)))
+
+    return sequence
+
+
+def execute_monster_multiattack(
+    monster: Any,
+    game_state: Any = None,
+    target: Any = None,
+) -> Dict[str, Any]:
+    """Execute a monster's parsed Multiattack sequence in one click."""
+    seq = parse_monster_multiattack(monster)
+    if not seq:
+        # Check Beholder eye rays fallback if Multiattack isn't physical
+        fs = getattr(monster, "full_sheet", None) or {}
+        actions_txt = str(fs.get("actions", "") if isinstance(fs, dict) else "").lower()
+        if "eye ray" in actions_txt or "raggi oculari" in actions_txt:
+            ray_res = roll_beholder_eye_rays(monster, targets=([target] if target else None), game_state=game_state, count=3)
+            return {"ok": True, "beholder_rays": ray_res, "rolls": [], "total_damage": ray_res.get("total_damage", 0), "summary": ray_res["summary"]}
+        return {"ok": False, "rolls": [], "total_damage": 0, "summary": f"Nessun Multiattacco parsabile per {getattr(monster, 'name', 'Mostro')}."}
+
+    results: List[Dict[str, Any]] = []
+    total_dmg = 0
+    lines: List[str] = [f"⚔️ **[MULTIATTACCO - {monster.name}]**" + (f" vs {target.name} (CA {getattr(target, 'ac', 10)})" if target else "")]
+    target_ac = int(getattr(target, "ac", 10) or 10) if target else None
+
+    for act, count in seq:
+        nm, atk_b, dmg_d, desc = _extract_action_attack_and_damage(act)
+        for _ in range(count):
+            d20_res = roll_dice("1d20")
+            nat = int(d20_res["rolls"][0])
+            is_crit = (nat == 20)
+            atk_tot = nat + int(atk_b or 0) if atk_b is not None else None
+
+            hit = True
+            if target_ac is not None and atk_tot is not None:
+                hit = is_crit or (nat != 1 and atk_tot >= target_ac)
+
+            dmg_tot = 0
+            if dmg_d:
+                dr = roll_dice(dmg_d)
+                dmg_tot = int(dr["total"])
+                if is_crit:
+                    # Roll weapon dice twice on critical hit
+                    m_dice_only = re.match(r"(\d+d\d+)", dmg_d)
+                    if m_dice_only:
+                        dmg_tot += int(roll_dice(m_dice_only.group(1))["total"])
+
+            applied = 0
+            eff_notes: List[str] = []
+            if target and hit and dmg_tot > 0 and game_state is not None:
+                from server.rules.combat import apply_damage
+                d_type = "Tagliente"
+                dl = desc.lower()
+                if "necrotic" in dl or "necrot" in dl:
+                    d_type = "Necrotico"
+                elif "piercing" in dl or "perforan" in dl:
+                    d_type = "Perforante"
+                elif "bludgeoning" in dl or "contundent" in dl:
+                    d_type = "Contundente"
+                elif "fire" in dl or "fuoco" in dl:
+                    d_type = "Fuoco"
+                elif "acid" in dl or "acido" in dl:
+                    d_type = "Acido"
+                elif "poison" in dl or "veleno" in dl:
+                    d_type = "Veleno"
+                applied, _, _, dmg_hp = apply_damage(target, dmg_tot, damage_type=d_type, game_state=game_state, is_crit=is_crit, attacker=monster)
+                eff_notes = apply_monster_special_hit_effects(monster, target, nm, desc, dmg_hp or applied, game_state=game_state)
+                total_dmg += applied
+            elif not target:
+                total_dmg += dmg_tot
+
+            atk_str = f"TpC {atk_tot} (d20={nat})" if atk_tot is not None else "Effetto"
+            hit_lbl = "CRIT!" if is_crit else ("COLPISCE" if hit else "MANCA")
+            dmg_str = f"{applied if target else dmg_tot} danni" if dmg_d else ""
+            row_txt = f"• {nm}: {atk_str}" + (f" [{hit_lbl}]" if target else "") + (f" -> {dmg_str}" if (dmg_d and hit) else "")
+            if eff_notes:
+                row_txt += " " + " ".join(eff_notes)
+            lines.append(row_txt)
+            results.append({"action": nm, "attack_total": atk_tot, "nat": nat, "is_crit": is_crit, "hit": hit, "damage": applied if target else dmg_tot})
+
+    summary = "\n".join(lines)
+    if game_state:
+        broadcast(game_state, make_chat_broadcast("DM", summary))
+        if target:
+            broadcast(game_state, make_player_stats_update(target.name, target.hp, target.max_hp, target.initiative, getattr(target, "conditions", []), getattr(target, "temp_hp", 0)))
+            broadcast(game_state, make_game_state(game_state.get_state_dict()))
+    return {"ok": True, "rolls": results, "total_damage": total_dmg, "summary": summary}
+
+
+BEHOLDER_EYE_RAYS: List[Tuple[int, str, str, str, int, Optional[str], Optional[str], str]] = [
+    (1, "Raggio di Charme", "Charm Ray", "SAG", 16, None, None, "Affascinato per 1 ora"),
+    (2, "Raggio Paralizzante", "Paralyzing Ray", "COS", 16, None, None, "Paralizzato per 1 minuto"),
+    (3, "Raggio di Paura", "Fear Ray", "SAG", 16, None, None, "Spaventato per 1 minuto"),
+    (4, "Raggio di Lentezza", "Slowing Ray", "DES", 16, None, None, "Velocità dimezzata, niente reazioni, 1 attacco/turno"),
+    (5, "Raggio di Debilitazione", "Enervation Ray", "COS", 16, "8d8", "Necrotico", "Danni Necrotici (metà se supera)"),
+    (6, "Raggio Telecinetico", "Telekinetic Ray", "FOR", 16, None, None, "Spostato fino a 9 m e Trattenuto"),
+    (7, "Raggio del Sonno", "Sleep Ray", "SAG", 16, None, None, "Addormentato (Incosciente) per 1 minuto"),
+    (8, "Raggio di Pietrificazione", "Petrification Ray", "DES", 16, None, None, "Pietrificazione a 2 stadi"),
+    (9, "Raggio di Disintegrazione", "Disintegration Ray", "DES", 16, "10d8", "Forza", "Polverizzato se scende a 0 PF"),
+    (10, "Raggio della Morte", "Death Ray", "DES", 16, "10d10", "Necrotico", "Muore istantaneamente se scende a 0 PF"),
+]
+
+
+def roll_beholder_eye_rays(
+    beholder: Any,
+    targets: Optional[List[Any]] = None,
+    game_state: Any = None,
+    count: int = 3,
+    forced_indices: Optional[List[int]] = None,
+) -> Dict[str, Any]:
+    """Roll 3 non-duplicate random Beholder Eye Rays (MM p. 28) and optionally resolve them against targets."""
+    import random as _rand_b
+
+    if forced_indices:
+        picks = [max(1, min(10, int(x))) for x in forced_indices][:10]
+    else:
+        picks = _rand_b.sample(range(1, 11), k=max(1, min(10, int(count or 3))))
+
+    b_name = getattr(beholder, "name", "Beholder")
+    lines = [f"👁️ **[RAGGI OCULARI DEL BEHOLDER - {b_name}]**"]
+    rays_out: List[Dict[str, Any]] = []
+    total_dmg = 0
+
+    for idx_pos, ray_num in enumerate(picks):
+        _, name_it, name_en, save_stat, dc, dmg_dice, dmg_type, note = BEHOLDER_EYE_RAYS[ray_num - 1]
+        tgt = targets[idx_pos % len(targets)] if targets else None
+        raw_dmg = roll_dice(dmg_dice)["total"] if dmg_dice else 0
+        saved = None
+        final_dmg = 0
+
+        if tgt is not None:
+            s_mod = get_effective_save_bonus_from_dict(tgt, save_stat)
+            s_roll = roll_dice(f"1d20{'+' if s_mod >= 0 else ''}{s_mod}")["total"]
+            saved = s_roll >= dc
+            if ray_num == 8:
+                apply_petrification_stage(tgt, failed_save=(not saved), game_state=game_state)
+            elif ray_num in (5, 9, 10):
+                eff_raw = (raw_dmg // 2) if (ray_num == 5 and saved) else (0 if saved else raw_dmg)
+                if eff_raw > 0 and game_state is not None:
+                    from server.rules.combat import apply_damage
+                    final_dmg, _, _, _ = apply_damage(tgt, eff_raw, damage_type=dmg_type or "Forza", game_state=game_state, attacker=beholder)
+                    total_dmg += final_dmg
+                else:
+                    final_dmg = eff_raw
+            elif not saved:
+                cond_map = {1: "Affascinato", 2: "Paralizzato", 3: "Spaventato", 4: "Rallentato", 6: "Trattenuto", 7: "Incosciente"}
+                cond = cond_map.get(ray_num)
+                if cond:
+                    if not hasattr(tgt, "conditions") or not isinstance(tgt.conditions, list):
+                        tgt.conditions = []
+                    if cond not in tgt.conditions:
+                        tgt.conditions.append(cond)
+            line = f"• d10={ray_num} **{name_it}** ({name_en}) vs {tgt.name}: TS {save_stat} {s_roll} vs CD {dc} -> {'Superato' if saved else 'FALLITO'}"
+            if dmg_dice:
+                line += f" ({final_dmg} danni {dmg_type})"
+            elif not saved:
+                line += f" [{note}]"
+        else:
+            line = f"• d10={ray_num} **{name_it}** (TS {save_stat} CD {dc}): {note}" + (f" [{dmg_dice} -> {raw_dmg} {dmg_type}]" if dmg_dice else "")
+        lines.append(line)
+        rays_out.append({"ray_number": ray_num, "name": name_it, "save_stat": save_stat, "dc": dc, "saved": saved, "damage": final_dmg or raw_dmg})
+
+    summary = "\n".join(lines)
+    if game_state:
+        broadcast(game_state, make_chat_broadcast("DM", summary))
+        if targets:
+            broadcast(game_state, make_game_state(game_state.get_state_dict()))
+    return {"rays": rays_out, "total_damage": total_dmg, "summary": summary}
+
+
+def toggle_antimagic_cone(
+    beholder: Any,
+    game_state: Any,
+    active: bool = True,
+    direction_deg: float = 0.0,
+    range_hexes: int = 30,
+) -> bool:
+    """Activate/update or deactivate a Beholder's 150-ft Antimagic Cone (MM p. 28)."""
+    if not game_state or not beholder:
+        return False
+    if not hasattr(game_state, "antimagic_cones") or not isinstance(game_state.antimagic_cones, dict):
+        game_state.antimagic_cones = {}
+    if not active:
+        game_state.antimagic_cones.pop(beholder.name, None)
+        return False
+    game_state.antimagic_cones[beholder.name] = {
+        "caster": beholder.name,
+        "active": True,
+        "direction_deg": float(direction_deg) % 360.0,
+        "range_hexes": max(1, int(range_hexes or 30)),
+    }
+    return True
+
+
+def is_in_beholder_antimagic_cone(entity: Any, game_state: Any) -> bool:
+    """Return True if entity stands inside an active Beholder Antimagic Cone."""
+    import math
+
+    if not entity or not game_state:
+        return False
+    cones = getattr(game_state, "antimagic_cones", None)
+    if not isinstance(cones, dict) or not cones:
+        return False
+    epos = getattr(entity, "position", None)
+    if not epos or len(epos) < 2:
+        return False
+    g_type = (getattr(game_state, "current_map", {}) or {}).get("grid_type", "hex")
+
+    for c_name, cone in list(cones.items()):
+        if not isinstance(cone, dict) or not cone.get("active", True):
+            continue
+        caster = game_state.find_player(c_name) if hasattr(game_state, "find_player") else None
+        if not caster or getattr(caster, "hp", 0) <= 0 or is_incapacitated_entity(caster):
+            continue
+        if caster is entity or getattr(entity, "name", None) == caster.name:
+            continue
+        cpos = getattr(caster, "position", None)
+        if not cpos or len(cpos) < 2:
+            continue
+        dist = grid_distance_3d(Hex(cpos[0], cpos[1]), Hex(epos[0], epos[1]), getattr(caster, "elevation", 0), getattr(entity, "elevation", 0), grid_type=g_type)
+        if dist <= 0 or dist > int(cone.get("range_hexes", 30) or 30):
+            continue
+        # Compute axial/grid vector angle in degrees
+        dq = epos[0] - cpos[0]
+        dr = epos[1] - cpos[1]
+        if g_type == "square":
+            vx, vy = float(dq), float(dr)
+        else:
+            vx = 1.5 * float(dq)
+            vy = math.sqrt(3.0) * (float(dr) + float(dq) / 2.0)
+        angle = math.degrees(math.atan2(vy, vx)) % 360.0
+        cone_dir = float(cone.get("direction_deg", 0.0) or 0.0) % 360.0
+        diff = abs((angle - cone_dir + 180.0) % 360.0 - 180.0)
+        if diff <= 30.0:
+            return True
+    return False
+
+
+def has_petrifying_gaze(entity: Any) -> bool:
+    return entity_has_keyword(entity, "sguardo pietrificante", "petrifying gaze")
+
+
+def check_petrifying_gaze_at_turn_start(creature: Any, game_state: Any, forced_roll: Optional[int] = None) -> Optional[str]:
+    """MM Basilisk/Medusa Petrifying Gaze: automatic CON save at start of turn within 30ft unless averting eyes."""
+    if not creature or not game_state or getattr(creature, "hp", 0) <= 0:
+        return None
+    if is_incapacitated_entity(creature):
+        return None
+    c_pos = getattr(creature, "position", None)
+    if not c_pos or len(c_pos) < 2:
+        return None
+    c_party = bool(getattr(creature, "is_party_member", False) or getattr(creature, "conn", None))
+    g_type = (getattr(game_state, "current_map", {}) or {}).get("grid_type", "hex")
+
+    for other in list(getattr(game_state, "players", [])):
+        if other.name == creature.name or getattr(other, "hp", 0) <= 0 or is_incapacitated_entity(other):
+            continue
+        o_party = bool(getattr(other, "is_party_member", False) or getattr(other, "conn", None))
+        if o_party == c_party or not has_petrifying_gaze(other):
+            continue
+        o_pos = getattr(other, "position", None)
+        if not o_pos or len(o_pos) < 2:
+            continue
+        dist = grid_distance_3d(Hex(c_pos[0], c_pos[1]), Hex(o_pos[0], o_pos[1]), getattr(creature, "elevation", 0), getattr(other, "elevation", 0), grid_type=g_type)
+        if dist > 6.0:
+            continue
+        if getattr(creature, "averting_eyes", False):
+            note = f"👁️ [SGUARDO PIETRIFICANTE] {creature.name} distoglie lo sguardo da {other.name} e evita il TS!"
+            broadcast(game_state, make_chat_broadcast("Sistema", note))
+            return note
+        # Parse DC from monster trait (default Basilisk 12, Medusa 14)
+        dc = 12
+        for entry in _collect_trait_entries(other):
+            txt = f"{entry['name']} {entry['desc']}"
+            if "petrifying gaze" in txt.lower() or "sguardo pietrificante" in txt.lower():
+                m_dc = re.search(r"(?:dc|cd)\s*(\d+)", txt, re.I)
+                if m_dc:
+                    dc = int(m_dc.group(1))
+                break
+        con_mod = get_effective_save_bonus_from_dict(creature, "COS")
+        d20 = int(forced_roll) if forced_roll is not None else roll_dice("1d20")["total"]
+        tot = d20 + con_mod
+        return apply_petrification_stage(creature, failed_save=(tot < dc), game_state=game_state)
+    return None
+
+
+def _adjust_entity_str(target: Any, delta: int) -> int:
+    """Adjust FOR/STR on attributes / full_sheet and return resulting STR score."""
+    attrs = getattr(target, "attributes", None)
+    if not isinstance(attrs, dict):
+        attrs = {}
+        target.attributes = attrs
+    cur = int(attrs.get("FOR", attrs.get("STR", 10)) or 10)
+    fs = getattr(target, "full_sheet", None)
+    if isinstance(fs, dict) and isinstance(fs.get("attributes"), dict) and "FOR" not in attrs and "STR" not in attrs:
+        cur = int(fs["attributes"].get("FOR", fs["attributes"].get("STR", 10)) or 10)
+    new_val = cur + int(delta)
+    if "STR" in attrs and "FOR" not in attrs:
+        attrs["STR"] = new_val
+    else:
+        attrs["FOR"] = new_val
+    if isinstance(fs, dict):
+        fs.setdefault("attributes", {})
+        if "STR" in fs["attributes"] and "FOR" not in fs["attributes"]:
+            fs["attributes"]["STR"] = new_val
+        else:
+            fs["attributes"]["FOR"] = new_val
+    return new_val
+
+
+def apply_monster_special_hit_effects(
+    attacker: Any,
+    target: Any,
+    attack_name: str = "",
+    attack_desc: str = "",
+    damage_dealt: int = 0,
+    game_state: Any = None,
+    forced_save_roll: Optional[int] = None,
+    forced_drain_roll: Optional[int] = None,
+) -> List[str]:
+    """Apply MM Life Drain, Strength Drain, and Rust/Corrode Metal on monster attack hit."""
+    if not attacker or not target:
+        return []
+    combined = f"{attack_name} {attack_desc}".lower()
+    notes: List[str] = []
+
+    # 1. Life Drain (Risucchio di Vita): CON save or max_hp reduced by damage dealt
+    if "life drain" in combined or "risucchio di vita" in combined:
+        m_dc = re.search(r"(?:dc|cd)\s*(\d+)", combined, re.I)
+        dc = int(m_dc.group(1)) if m_dc else 13
+        con_mod = get_effective_save_bonus_from_dict(target, "COS")
+        d20 = int(forced_save_roll) if forced_save_roll is not None else roll_dice("1d20")["total"]
+        tot = d20 + con_mod
+        if tot < dc and damage_dealt > 0:
+            red = int(damage_dealt)
+            target.life_drain_reduction = int(getattr(target, "life_drain_reduction", 0) or 0) + red
+            target.max_hp = max(0, int(getattr(target, "max_hp", 1) or 0) - red)
+            target.hp = min(int(getattr(target, "hp", 0) or 0), target.max_hp)
+            if isinstance(getattr(target, "full_sheet", None), dict):
+                target.full_sheet["max_hp"] = target.max_hp
+                target.full_sheet["hp_max"] = target.max_hp
+                target.full_sheet["hp_current"] = target.hp
+            if target.max_hp <= 0:
+                if not hasattr(target, "conditions") or not isinstance(target.conditions, list):
+                    target.conditions = []
+                if "Morto" not in target.conditions:
+                    target.conditions.append("Morto")
+                notes.append(f"💀 [RISUCCHIO DI VITA] {target.name} fallisce TS COS ({tot} vs CD {dc}): PF Max -> 0, MUORE!")
+            else:
+                notes.append(f"🩸 [RISUCCHIO DI VITA] {target.name} fallisce TS COS ({tot} vs CD {dc}): -{red} PF Max (ora {target.max_hp})")
+        else:
+            notes.append(f"🛡️ [Risucchio di Vita] {target.name} supera TS COS ({tot} vs CD {dc}).")
+
+    # 2. Strength Drain (Risucchio di Forza): Shadow -1d4 STR; dies at STR <= 0
+    if "strength drain" in combined or "risucchio di forza" in combined:
+        m_d = re.search(r"(\d+d\d+)", combined)
+        formula = m_d.group(1) if m_d else "1d4"
+        drain = int(forced_drain_roll) if forced_drain_roll is not None else roll_dice(formula)["total"]
+        new_str = _adjust_entity_str(target, -drain)
+        target.strength_drain_penalty = int(getattr(target, "strength_drain_penalty", 0) or 0) + drain
+        if new_str <= 0:
+            target.hp = 0
+            if not hasattr(target, "conditions") or not isinstance(target.conditions, list):
+                target.conditions = []
+            if "Morto" not in target.conditions:
+                target.conditions.append("Morto")
+            notes.append(f"👤 [RISUCCHIO DI FORZA] {target.name} perde -{drain} FOR (FOR -> {new_str} <= 0): MUORE e rinascerà come Ombra!")
+        else:
+            notes.append(f"👤 [RISUCCHIO DI FORZA] {target.name} perde -{drain} FOR (ora {new_str})")
+
+    # 3. Corrode / Rust Armor on monster hit (Rust Monster Antennae / Black Pudding Pseudopod)
+    has_rust_trait = entity_has_keyword(attacker, "corrode metal", "rust metal", "corrodere il metallo", "arrugginire il metallo")
+    if any(k in combined for k in ("corrod", "ruggine", "rust", "antennae", "antenne")) or (has_rust_trait and "pseudopod" in combined):
+        cur_pen = int(getattr(target, "rust_ac_penalty", 0) or 0) + 1
+        target.rust_ac_penalty = cur_pen
+        target.ac = max(10, int(getattr(target, "ac", 10) or 10) - 1)
+        if cur_pen >= 5:
+            notes.append(f"🦀 [CORROSIONE ARMATURA] L'armatura metallica di {target.name} si sbriciola (-{cur_pen} cumulativo, distrutta! CA {target.ac})")
+        else:
+            notes.append(f"🦀 [CORROSIONE ARMATURA] Armatura di {target.name} corrosa (-1 CA permanente, ora CA {target.ac})")
+
+    if notes and game_state and isinstance(getattr(target, "full_sheet", None), dict):
+        target.full_sheet["conditions"] = list(getattr(target, "conditions", []) or [])
+    return notes
+
+
+def apply_rust_metal_melee_retaliation(
+    attacker: Any,
+    target: Any,
+    is_ranged: bool = False,
+    is_magical: bool = False,
+    is_spell: bool = False,
+) -> Optional[str]:
+    """MM Rust Metal / Corrosive Form: nonmagical metal melee weapon suffers cumulative -1 damage penalty, destroyed at -5."""
+    if not attacker or not target or is_ranged or is_magical or is_spell:
+        return None
+    if not entity_has_keyword(target, "rust metal", "corrode metal", "corrosive form", "arrugginire il metallo", "forma corrosiva"):
+        return None
+    pen = int(getattr(attacker, "rust_weapon_penalty", 0) or 0) + 1
+    attacker.rust_weapon_penalty = pen
+    if pen >= 5:
+        return f"🦀 [METALLO CORROSO] L'arma non magica di {attacker.name} raggiunge -{pen} ai danni e si DISTRUGGE!"
+    return f"🦀 [METALLO CORROSO] L'arma non magica di {attacker.name} subisce -1 cumulativo ai danni (-{pen} totale)."
+
+
+def restore_drain_penalties(player: Any, rest_type: str = "long") -> None:
+    """Restore MM Strength Drain (short/long rest) and Life Drain Max HP (long rest)."""
+    if not player:
+        return
+    s_pen = int(getattr(player, "strength_drain_penalty", 0) or 0)
+    if s_pen > 0:
+        _adjust_entity_str(player, s_pen)
+        player.strength_drain_penalty = 0
+    if str(rest_type).lower() == "long":
+        hp_red = int(getattr(player, "life_drain_reduction", 0) or 0)
+        if hp_red > 0:
+            player.max_hp = int(getattr(player, "max_hp", 0) or 0) + hp_red
+            player.hp = min(player.max_hp, int(getattr(player, "hp", 0) or 0) + hp_red)
+            player.life_drain_reduction = 0
+            if isinstance(getattr(player, "full_sheet", None), dict):
+                player.full_sheet["max_hp"] = player.max_hp
+                player.full_sheet["hp_max"] = player.max_hp
+                player.full_sheet["hp_current"] = player.hp
