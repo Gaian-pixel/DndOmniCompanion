@@ -34,14 +34,22 @@ class CombatPanel:
             any(rn in name_str for rn in ["arco", "bow", "balestra", "crossbow", "fionda", "sling", "cerbottana", "blowgun"])
         ) and not ("lancio" in prop_str or "thrown" in prop_str)
 
-        char_cls = str(getattr(character, "char_class", "") or "").lower()
-        is_monk_martial = ("monaco" in char_cls or "monk" in char_cls) and any(
-            mw in name_str for mw in [
-                "colpo senz'armi", "unarmed", "spada corta", "shortsword", "bastone ferrato", "quarterstaff",
-                "lancia", "spear", "mazza", "mace", "randello", "club", "pugnale", "dagger",
-                "ascia", "handaxe", "giavellotto", "javelin", "martello leggero", "light hammer", "falcetto", "sickle"
-            ]
-        ) and not any(hw in name_str for hw in ["bipenne", "greataxe", "spadone", "greatsword", "maglio", "maul", "alabarda", "halberd", "picca", "pike", "falcione", "glaive"])
+        from common.dnd5e_tables import entity_has_keyword, entity_get_class_level, entity_get_total_level
+
+        is_monk_martial = (
+            entity_get_class_level(character, "monaco", "monk") > 0
+            or "monaco" in str(getattr(character, "char_class", "") or "").lower()
+            or "monk" in str(getattr(character, "char_class", "") or "").lower()
+        ) and (
+            any(
+                mw in name_str for mw in [
+                    "colpo senz'armi", "unarmed", "spada corta", "shortsword", "bastone ferrato", "quarterstaff",
+                    "lancia", "spear", "mazza", "mace", "randello", "club", "pugnale", "dagger",
+                    "ascia da mano", "ascia leggera", "handaxe", "giavellotto", "javelin", "martello leggero", "light hammer", "falcetto", "sickle"
+                ]
+            )
+            or ("ascia" in name_str and not any(bw in name_str for bw in ("battaglia", "battle", "grande", "bipenne", "greataxe")))
+        ) and not any(hw in name_str for hw in ["bipenne", "greataxe", "spadone", "greatsword", "maglio", "maul", "alabarda", "halberd", "picca", "pike", "falcione", "glaive", "ascia da battaglia", "battleaxe"])
 
         get_attr = getattr(character, "get_effective_attribute", lambda s: getattr(character, "attributes", {}).get(s, 10))
         if is_ranged:
@@ -53,8 +61,11 @@ class CombatPanel:
 
         stat_val = get_attr(stat_key)
         mod = (stat_val - 10) // 2
-        char_lvl = getattr(character, "level", 1) or 1
-        calc_pb = ((max(1, int(char_lvl)) - 1) // 4) + 2
+        if hasattr(character, "get_proficiency_bonus"):
+            calc_pb = int(character.get_proficiency_bonus())
+        else:
+            char_lvl = entity_get_total_level(character)
+            calc_pb = ((max(1, int(char_lvl)) - 1) // 4) + 2
         if "proficient" in weapon:
             prof_bonus = calc_pb if weapon.get("proficient") else 0
         else:
@@ -94,7 +105,13 @@ class CombatPanel:
             except Exception:
                 pass
 
-        total_txc = mod + prof_bonus + w_bonus - (5 if power_attack else 0)
+        # Stile di Combattimento: Tiro con l'Arco (+2 al TxC con armi a distanza, PHB p. 72)
+        archery_bonus = 0
+        if is_ranged and not any(k in prop_str for k in ("incantesimo", "spell")):
+            if entity_has_keyword(character, "tiro con l'arco", "archery"):
+                archery_bonus = 2
+
+        total_txc = mod + prof_bonus + w_bonus + archery_bonus - (5 if power_attack else 0)
         return total_txc, mod, prof_bonus, w_bonus, stat_key
 
     @staticmethod
@@ -142,7 +159,7 @@ class CombatPanel:
         if not hasattr(sheet, "_power_attack_var"):
             sheet._power_attack_var = tk.BooleanVar(value=False)
 
-        power_bar = tk.Frame(sheet.weapons_cards_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=4)
+        power_bar = tk.Frame(sheet.weapons_cards_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=4)
         power_bar.pack(fill=tk.X, pady=(0, 6), padx=4)
         chk_pwr = ttk.Checkbutton(
             power_bar,
@@ -150,31 +167,35 @@ class CombatPanel:
             variable=sheet._power_attack_var,
             command=lambda: CombatPanel.refresh_weapons_list(sheet)
         )
-        chk_pwr.pack(side=tk.LEFT)
+        chk_pwr.pack(anchor="w")
 
-        char_cls = str(getattr(sheet.character, "char_class", "")).lower()
-        if any(k in char_cls for k in ("paladino", "paladin")):
-            if not hasattr(sheet, "_divine_smite_var"):
-                sheet._divine_smite_var = tk.StringVar(value="0")
-            smite_f = tk.Frame(power_bar, bg=SURFACE_COLOR_ALT)
-            smite_f.pack(side=tk.RIGHT, padx=4)
-            tk.Label(smite_f, text="⚡ Punizione:", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(side=tk.LEFT, padx=(2, 2))
-            cb_smite = ttk.Combobox(
-                smite_f, textvariable=sheet._divine_smite_var,
-                values=["0", "1 (+2d8)", "2 (+3d8)", "3 (+4d8)", "4 (+5d8)", "5 (+5d8)"],
-                width=10, state="readonly"
-            )
-            cb_smite.pack(side=tk.LEFT)
-
-        if any(k in char_cls for k in ("monaco", "monk")) and getattr(sheet.character, "level", 1) >= 5:
-            if not hasattr(sheet, "_stunning_strike_var"):
-                sheet._stunning_strike_var = tk.BooleanVar(value=False)
-            chk_stun = ttk.Checkbutton(
-                power_bar,
-                text="🥋 Stordente",
-                variable=sheet._stunning_strike_var
-            )
-            chk_stun.pack(side=tk.RIGHT, padx=4)
+        from common.dnd5e_tables import entity_get_class_level, entity_has_keyword
+        pal_lvl = entity_get_class_level(sheet.character, "paladino", "paladin")
+        monk_lvl = entity_get_class_level(sheet.character, "monaco", "monk")
+        if pal_lvl >= 2 or monk_lvl >= 5:
+            pwr_extra = tk.Frame(power_bar, bg=SURFACE_COLOR_ALT)
+            pwr_extra.pack(fill=tk.X, pady=(3, 0))
+            if pal_lvl >= 2:
+                if not hasattr(sheet, "_divine_smite_var"):
+                    sheet._divine_smite_var = tk.StringVar(value="0")
+                smite_f = tk.Frame(pwr_extra, bg=SURFACE_COLOR_ALT)
+                smite_f.pack(side=tk.LEFT, padx=(0, 6))
+                tk.Label(smite_f, text="⚡ Punizione:", font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=ACCENT_GOLD).pack(side=tk.LEFT, padx=(0, 2))
+                cb_smite = ttk.Combobox(
+                    smite_f, textvariable=sheet._divine_smite_var,
+                    values=["0", "1 (+2d8)", "2 (+3d8)", "3 (+4d8)", "4 (+5d8)", "5 (+5d8)"],
+                    width=10, state="readonly"
+                )
+                cb_smite.pack(side=tk.LEFT)
+            if monk_lvl >= 5:
+                if not hasattr(sheet, "_stunning_strike_var"):
+                    sheet._stunning_strike_var = tk.BooleanVar(value=False)
+                chk_stun = ttk.Checkbutton(
+                    pwr_extra,
+                    text="🥋 Stordente",
+                    variable=sheet._stunning_strike_var
+                )
+                chk_stun.pack(side=tk.LEFT, padx=2)
 
         is_pwr = bool(sheet._power_attack_var.get())
 
@@ -213,24 +234,50 @@ class CombatPanel:
 
             r4 = tk.Frame(card, bg=SURFACE_COLOR)
             r4.pack(fill=tk.X)
+            for col_w in range(3):
+                r4.columnconfigure(col_w, weight=1)
 
+            w_action_btns = []
             if ammo_item:
                 btn_ammo = ttk.Button(r4, text=f"🏹 -1 {ammo_item.get('name')}", command=lambda a_idx=ammo_idx: sheet.spend_consumable(a_idx, 1), style="Gold.TButton")
-                btn_ammo.pack(side=tk.LEFT, padx=(0, 4))
+                w_action_btns.append(btn_ammo)
 
             if getattr(sheet, "attack_callback", None):
                 btn_target = ttk.Button(r4, text=f"🎯 Bersaglio ({txc_str})", command=lambda weapon=w, txc=total_txc, dmg=dmg_formula: sheet.execute_targeted_attack(weapon, txc, dmg), style="Gold.TButton")
-                btn_target.pack(side=tk.LEFT, padx=(0, 4))
+                w_action_btns.append(btn_target)
                 btn_attack = ttk.Button(r4, text="🎲 Tira TxC", command=lambda weapon=w, txc=total_txc: sheet.execute_weapon_attack(weapon, txc), style="Primary.TButton")
-                btn_attack.pack(side=tk.LEFT, padx=(0, 4))
+                w_action_btns.append(btn_attack)
             else:
                 btn_attack = ttk.Button(r4, text=f"🎯 Colpisci ({txc_str})", command=lambda weapon=w, txc=total_txc: sheet.execute_weapon_attack(weapon, txc), style="Gold.TButton")
-                btn_attack.pack(side=tk.LEFT, padx=(0, 4))
+                w_action_btns.append(btn_attack)
 
             btn_damage = ttk.Button(r4, text="💥 Danno", command=lambda weapon=w, dmod=dmg_mod: sheet.execute_weapon_damage(weapon, dmod), style="Primary.TButton")
-            btn_damage.pack(side=tk.LEFT, padx=(0, 4))
+            w_action_btns.append(btn_damage)
 
-            if "distanza" not in str(w.get("type", "")).lower():
+            w_type_l = str(w.get("type", "") or "").lower()
+            w_prop_l = str(w.get("properties", "") or "").lower()
+            w_name_l = str(w.get("name", "") or "").lower()
+            is_w_ranged = (
+                any(k in w_type_l or k in w_prop_l for k in ("distanza", "ranged", "munizioni", "ammunition"))
+                or any(rn in w_name_l for rn in ("arco", "bow", "balestra", "crossbow", "fionda", "sling", "cerbottana", "blowgun"))
+            ) and not ("lancio" in w_prop_l or "thrown" in w_prop_l)
+            is_w_two_handed = any(
+                k in w_prop_l or k in w_name_l for k in (
+                    "due mani", "two-handed", "two handed",
+                    "spadone", "greatsword", "bipenne", "greataxe", "maglio", "maul",
+                    "alabarda", "halberd", "picca", "pike", "falcione", "glaive"
+                )
+            )
+            is_w_light = (
+                "legger" in w_prop_l or "light" in w_prop_l
+                or any(ln in w_name_l for ln in (
+                    "pugnale", "dagger", "spada corta", "shortsword", "scimitarra", "scimitar",
+                    "falcetto", "sickle", "randello", "club", "martello leggero", "light hammer",
+                    "ascia da mano", "ascia leggera", "handaxe"
+                ))
+            )
+            has_dw_feat = entity_has_keyword(sheet.character, "combattente a due armi", "dual wielder")
+            if not is_w_ranged and not is_w_two_handed and (is_w_light or has_dw_feat):
                 if getattr(sheet, "attack_callback", None):
                     btn_offhand = ttk.Button(
                         r4,
@@ -245,11 +292,16 @@ class CombatPanel:
                         command=lambda weapon=w, dmod=off_mod: sheet.execute_weapon_damage(weapon, dmod),
                         style="Tool.TButton"
                     )
-                btn_offhand.pack(side=tk.LEFT, padx=(0, 4))
+                w_action_btns.append(btn_offhand)
 
-            btn_del = ttk.Button(r4, text="🗑️", width=3, command=lambda idx=i: sheet.remove_weapon(idx))
+            for idx_wb, wb in enumerate(w_action_btns):
+                wb.grid(row=idx_wb // 3, column=idx_wb % 3, sticky="ew", padx=2, pady=2)
+
+            util_row = tk.Frame(card, bg=SURFACE_COLOR)
+            util_row.pack(fill=tk.X, pady=(2, 0))
+            btn_del = ttk.Button(util_row, text="🗑️", width=3, command=lambda idx=i: sheet.remove_weapon(idx))
             btn_del.pack(side=tk.RIGHT)
 
-            btn_edit = ttk.Button(r4, text="✏️", width=3, command=lambda weapon=w, idx=i: sheet.open_edit_weapon_dialog(weapon, idx))
+            btn_edit = ttk.Button(util_row, text="✏️", width=3, command=lambda weapon=w, idx=i: sheet.open_edit_weapon_dialog(weapon, idx))
             btn_edit.pack(side=tk.RIGHT, padx=(0, 4))
 

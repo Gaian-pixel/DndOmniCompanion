@@ -383,6 +383,12 @@ class Character:
             base = max(1, base // 2)
         return base
 
+    def get_proficiency_bonus(self) -> int:
+        """Bonus di Competenza 5e RAW basato sul livello totale (incluso multiclasse)."""
+        from common.dnd5e_tables import entity_get_total_level
+        lvl = max(1, entity_get_total_level(self))
+        return 2 + (lvl - 1) // 4
+
     def get_alert_initiative_bonus(self) -> int:
         """Talento Allerta (Alert, PHB p. 165): +5 all'Iniziativa."""
         return 5 if self.has_feat("allerta", "alert") else 0

@@ -1236,6 +1236,8 @@ class ClientGUI(ClientNetworkHandlersMixin):
         raw_init = getattr(char, 'initiative', 0) or 0
         if raw_init != 0:
             init = raw_init
+        elif hasattr(char, 'get_initiative_bonus'):
+            init = char.get_initiative_bonus()
         elif hasattr(char, 'get_modifier'):
             init = char.get_modifier("DES")
             c_cls = str(getattr(char, 'char_class', '')).lower()
@@ -4192,6 +4194,12 @@ class ClientGUI(ClientNetworkHandlersMixin):
                 self.active_character.temp_hp = p_dict["temp_hp"]
             if "concentrating_on" in p_dict:
                 self.active_character.concentrating_on = p_dict.get("concentrating_on")
+            if "has_inspiration" in p_dict:
+                self.active_character.has_inspiration = bool(p_dict.get("has_inspiration"))
+            elif "inspiration" in p_dict:
+                self.active_character.has_inspiration = bool(p_dict.get("inspiration"))
+            if isinstance(p_dict.get("death_saves"), dict):
+                self.active_character.death_saves = copy.deepcopy(p_dict["death_saves"])
             self._action_surge_used_this_turn = bool(p_dict.get("action_surge_used_this_turn", False))
             srv_sheet = p_dict.get("full_sheet")
             if isinstance(srv_sheet, dict) and srv_sheet:
@@ -4200,6 +4208,12 @@ class ClientGUI(ClientNetworkHandlersMixin):
                         setattr(self.active_character, dict_key, copy.deepcopy(srv_sheet[dict_key]))
                 if isinstance(srv_sheet.get("custom_resources"), list):
                     self.active_character.custom_resources = copy.deepcopy(srv_sheet["custom_resources"])
+                if "has_inspiration" in srv_sheet:
+                    self.active_character.has_inspiration = bool(srv_sheet["has_inspiration"])
+                elif "inspiration" in srv_sheet:
+                    self.active_character.has_inspiration = bool(srv_sheet["inspiration"])
+                if isinstance(srv_sheet.get("death_saves"), dict) and "death_saves" not in p_dict:
+                    self.active_character.death_saves = copy.deepcopy(srv_sheet["death_saves"])
                 for scalar_key in ("spell_points_current", "spell_points_max", "hit_dice_current", "exhaustion_level", "inspiration"):
                     if scalar_key in srv_sheet and srv_sheet[scalar_key] is not None:
                         setattr(self.active_character, scalar_key, srv_sheet[scalar_key])
@@ -4212,11 +4226,17 @@ class ClientGUI(ClientNetworkHandlersMixin):
                 getattr(getattr(self, "stats_detached_window", None), "_sheet_frame_internal", None),
                 getattr(getattr(self, "stats_detached_window", None), "sheet_frame", None),
             ):
-                if _sheet_holder and hasattr(_sheet_holder, "sync_resources_from_character"):
-                    try:
-                        _sheet_holder.sync_resources_from_character()
-                    except Exception:
-                        pass
+                if _sheet_holder:
+                    if hasattr(_sheet_holder, "sync_resources_from_character"):
+                        try:
+                            _sheet_holder.sync_resources_from_character()
+                        except Exception:
+                            pass
+                    if hasattr(_sheet_holder, "update_dynamic_stats"):
+                        try:
+                            _sheet_holder.update_dynamic_stats()
+                        except Exception:
+                            pass
         
         owned_chars = [
             p['name'] for p in data.get('players', [])
@@ -4377,6 +4397,8 @@ class ClientGUI(ClientNetworkHandlersMixin):
             self.update_action_economy_ui()
             
             if getattr(self, 'stats_window', None) and self.stats_window.winfo_exists():
+                if hasattr(self.stats_window, "sync_resources_from_character"):
+                    self.stats_window.sync_resources_from_character()
                 self.stats_window.update_dynamic_stats()
             
         self.update_player_listbox()

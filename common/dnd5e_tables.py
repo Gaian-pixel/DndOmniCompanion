@@ -10,6 +10,7 @@ Contiene:
 """
 
 import random
+import re
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -129,7 +130,14 @@ def entity_get_class_level(entity: Any, *class_aliases: str) -> int:
         best = 0
         for cname, clvl in classes.items():
             c_low = str(cname).lower()
-            if any(a in c_low for a in aliases):
+            if "/" in c_low:
+                for part in c_low.split("/"):
+                    part = part.strip()
+                    if any(a in part for a in aliases):
+                        m = re.search(r"(\d+)", part)
+                        if m:
+                            best = max(best, int(m.group(1)))
+            elif any(a in c_low for a in aliases):
                 try:
                     best = max(best, int(clvl or 0))
                 except (ValueError, TypeError):
@@ -143,6 +151,16 @@ def entity_get_class_level(entity: Any, *class_aliases: str) -> int:
         or _extract_attr_or_key(entity, "class", "")
         or (fs.get("class", "") if isinstance(fs, dict) else "")
     ).lower()
+    if "/" in cls_s:
+        best_seg = 0
+        for part in cls_s.split("/"):
+            part = part.strip()
+            if any(a in part for a in aliases):
+                m = re.search(r"(\d+)", part)
+                if m:
+                    best_seg = max(best_seg, int(m.group(1)))
+        if best_seg > 0:
+            return best_seg
     if any(a in cls_s for a in aliases):
         lvl_raw = _extract_attr_or_key(entity, "level", None)
         if lvl_raw is None and isinstance(fs, dict):

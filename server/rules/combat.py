@@ -2127,7 +2127,7 @@ def handle_attack_request(data, player, game_state):
         w_lower = str(weapon_name).lower()
         is_ranged_att = bool(data.get("is_ranged")) or any(k in w_lower for k in ["arco", "bow", "balestra", "crossbow", "dardo", "dart", "fionda", "sling", "distanza", "ranged"])
         # Stile di Combattimento: Tiro con l'Arco (+2 al tiro per colpire a distanza con arma, PHB p. 72)
-        if is_ranged_att and not data.get("is_spell") and not data.get("fighting_style_applied"):
+        if is_ranged_att and not data.get("is_spell") and not data.get("fighting_style_applied") and not data.get("archery_applied"):
             if entity_has_keyword(player, "tiro con l'arco", "archery"):
                 hit_roll += 2
         if is_ranged_att:

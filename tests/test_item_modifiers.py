@@ -392,6 +392,78 @@ class TestItemModifiers(unittest.TestCase):
         # COS 14 (+2) + PB (+3) + Anello (+1) = +6
         self.assertEqual(get_effective_save_bonus_from_dict(p, "COS"), 6)
 
+    def test_artificer_multiclass_attunement_slots(self):
+        """Artificer extra attunement slots (4 at lv10, 5 at lv14, 6 at lv18) must count Artificer class level, not total level."""
+        six_items = [
+            {"name": f"Anello Unico {i}", "container": "equipped", "attuned": True, "bonus_ac": 1}
+            for i in range(6)
+        ]
+
+        # Guerriero 10 / Artefice 4 -> totale 14, ma Artefice 4 => max 3 sintonizzazioni effettive
+        c_low = Character(name="MultiLow", char_class="Guerriero 10 / Artefice 4", level=14)
+        c_low.classes = {"Guerriero": 10, "Artefice": 4}
+        c_low.inventory_grid = list(six_items)
+        self.assertEqual(calculate_character_item_modifiers(c_low)["attuned_count"], 3)
+
+        # Legacy string-only multiclass without explicit classes dict must also parse Artefice 4 => max 3
+        c_legacy = Character(name="MultiLegacy", char_class="Guerriero 10 / Artefice 4", level=14)
+        c_legacy.classes = {}
+        c_legacy.inventory_grid = list(six_items)
+        self.assertEqual(calculate_character_item_modifiers(c_legacy)["attuned_count"], 3)
+
+        # Guerriero 1 / Artefice 14 -> Artefice 14 => max 5 sintonizzazioni effettive
+        c_mid = Character(name="MultiMid", char_class="Guerriero 1 / Artefice 14", level=15)
+        c_mid.classes = {"Guerriero": 1, "Artefice": 14}
+        c_mid.inventory_grid = list(six_items)
+        self.assertEqual(calculate_character_item_modifiers(c_mid)["attuned_count"], 5)
+
+        # Guerriero 1 / Artefice 18 -> Artefice 18 => max 6 sintonizzazioni effettive
+        c_high = Character(name="MultiHigh", char_class="Guerriero 1 / Artefice 18", level=19)
+        c_high.classes = {"Guerriero": 1, "Artefice": 18}
+        c_high.inventory_grid = list(six_items)
+        self.assertEqual(calculate_character_item_modifiers(c_high)["attuned_count"], 6)
+
+    def test_dual_wielder_from_inventory_grid_only(self):
+        """Dual Wielder grants +1 AC when two non-shield weapons are equipped in inventory_grid (even with empty inventory)."""
+        c = Character(name="Drizzt", char_class="Ranger", level=5)
+        c.attributes = {"FOR": 10, "DES": 18, "COS": 14, "INT": 10, "SAG": 14, "CAR": 10}
+        c.feats = ["Dual Wielder"]
+        c.inventory = []
+        c.inventory_grid = [None] * 25
+        c.inventory_grid[0] = {"name": "Armatura di Cuoio Borchiato", "type": "Armatura", "container": "equipped", "equipped": True, "qty": 1}
+        c.inventory_grid[1] = {"name": "Scimitarra", "type": "Arma", "container": "equipped", "equipped": True, "qty": 1}
+        c.inventory_grid[2] = {"name": "Stocco", "type": "Arma", "container": "equipped", "equipped": True, "qty": 1}
+        # 12 (Studded Leather) + 4 (DEX) + 1 (Dual Wielder) = 17
+        self.assertEqual(compute_effective_ac(c), 17)
+
+    def test_monk_battleaxe_vs_handaxe_and_archery_txc(self):
+        """Monk uses FOR (not DES) for Battleaxe, DES for Handaxe; Archery adds +2 only to ranged weapon attacks."""
+        monk = Character(name="Li", char_class="Monaco", level=5)
+        monk.attributes = {"FOR": 10, "DES": 18, "COS": 14, "INT": 10, "SAG": 16, "CAR": 8}
+        # PB = +3, DES = +4, FOR = +0
+        txc_baxe, *_ = CombatPanel.calculate_weapon_txc(
+            monk, {"name": "Ascia da Battaglia", "properties": "Versatile", "proficient": True}
+        )
+        txc_haxe, *_ = CombatPanel.calculate_weapon_txc(
+            monk, {"name": "Ascia da Mano", "properties": "Leggera, Lancio", "proficient": True}
+        )
+        self.assertEqual(txc_baxe, 3)
+        self.assertEqual(txc_haxe, 7)
+
+        archer = Character(name="Vex", char_class="Guerriero", level=5)
+        archer.attributes = {"FOR": 16, "DES": 18, "COS": 14, "INT": 10, "SAG": 12, "CAR": 10}
+        archer.features_list = [{"name": "Stile di Combattimento: Tiro con l'Arco", "desc": "+2 ai tiri per colpire con armi a distanza."}]
+        # Longbow: PB(+3) + DES(+4) + Archery(+2) = +9
+        txc_bow, *_ = CombatPanel.calculate_weapon_txc(
+            archer, {"name": "Arco Lungo", "properties": "A distanza, Due Mani", "proficient": True}
+        )
+        # Longsword: PB(+3) + FOR(+3) = +6 (no Archery)
+        txc_sword, *_ = CombatPanel.calculate_weapon_txc(
+            archer, {"name": "Spada Lunga", "properties": "Versatile", "proficient": True}
+        )
+        self.assertEqual(txc_bow, 9)
+        self.assertEqual(txc_sword, 6)
+
 
 if __name__ == "__main__":
     unittest.main()

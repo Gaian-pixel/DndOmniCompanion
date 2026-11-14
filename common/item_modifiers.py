@@ -287,10 +287,9 @@ def calculate_character_item_modifiers(character_or_dict: Any) -> Dict[str, Any]
     level = int(_get("level", 1) or 1)
     backpack_dropped = bool(_get("backpack_dropped", False))
 
-    # Limite sintonizzazioni (5e RAW: 3 standard, fino a 6 per Artefice)
-    max_attune = 3
-    if "artefice" in char_class or "artificer" in char_class:
-        max_attune = 6 if level >= 18 else (5 if level >= 14 else (4 if level >= 10 else 3))
+    # Limite sintonizzazioni (5e RAW: 3 standard, fino a 6 per Artefice in base al livello di classe)
+    art_lvl = entity_get_class_level(character_or_dict, "artefice", "artificer")
+    max_attune = 6 if art_lvl >= 18 else (5 if art_lvl >= 14 else (4 if art_lvl >= 10 else 3))
 
     equipped_armor_item = None
     equipped_armor_props = None
@@ -866,10 +865,15 @@ def compute_effective_ac(character_or_dict: Any) -> int:
     if not shield_item and entity_has_keyword(character_or_dict, "combattente a due armi", "dual wielder"):
         is_dw = bool(_get("dual_wielding", False))
         if not is_dw:
-            inv_items = _get("inventory", []) or []
+            inv_items = _get("inventory_grid", None)
+            if not inv_items:
+                inv_items = _get("inventory", []) or []
             eq_melee = 0
             for it in inv_items:
-                if isinstance(it, dict) and it.get("equipped") and not it.get("is_shield"):
+                if not isinstance(it, dict):
+                    continue
+                is_eq = bool(it.get("equipped")) or str(it.get("container") or "").strip().lower() == "equipped"
+                if is_eq and not it.get("is_shield"):
                     it_cat = str(it.get("category", "") or it.get("type", "")).lower()
                     it_name = str(it.get("name", "")).lower()
                     if any(k in it_cat or k in it_name for k in ("spada", "ascia", "pugnale", "mazza", "martello", "lancia", "stocco", "scimitarra", "flagello", "piccone", "sword", "axe", "dagger", "mace", "hammer", "spear", "rapier", "scimitar", "weapon", "arma")) and not any(rk in it_name for rk in ("arco", "balestra", "fionda", "cerbottana", "bow", "crossbow", "sling", "blowgun", "scudo", "shield")):

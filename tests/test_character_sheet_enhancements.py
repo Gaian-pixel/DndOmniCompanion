@@ -579,6 +579,88 @@ class TestCharacterSheetEnhancements(unittest.TestCase):
         self.assertEqual(c.currency["MO"], 0)
         ui.destroy()
 
+    def test_sheet_vitals_initiative_combat_gates_and_responsive_layout(self):
+        """Verifica vitals (TempHP, HD, Exhaustion, Conditions), Alert Init, gating Smite/Stunning/2a Mano e breakpoint responsive."""
+        from client.character_manager import Character
+        from client.character_sheet_ui import CharacterSheetUI
+        c = Character(name="MulticlassHero", char_class="Guerriero 5 / Paladino 1", level=6)
+        c.hp_max = 50
+        c.hp_current = 42
+        c.temp_hp = 7
+        c.exhaustion_level = 2
+        c.conditions = ["Prono", "Avvelenato"]
+        c.feats = ["Allerta"]
+        c.attributes = {"FOR": 16, "DES": 14, "COS": 14, "INT": 10, "SAG": 12, "CAR": 14}
+        c.hit_dice_total = 6
+        c.hit_dice_current = 4
+        c.hit_dice_type = "d10"
+        c.classes = {"Guerriero": 5, "Paladino": 1}
+        c.weapons = [{"name": "Spada Lunga", "damage": "1d8", "damage_type": "Tagliente", "properties": "Versatile", "proficient": True}]
+
+        cm = MagicMock()
+        ui = CharacterSheetUI(self.root, c, cm, is_connected=False)
+        ui.geometry("1280x800")
+        self.root.update()
+        sheet = ui.sheet_frame
+        sheet.update_dynamic_stats()
+        self.root.update()
+
+        # 1. Alert (+5) + DEX(+2) = +7 displayed in init_var, plus Vitals
+        self.assertEqual(int(str(sheet.init_var.get()).replace("+", "").strip()), 7)
+        self.assertEqual(int(sheet.temp_hp_var.get()), 7)
+        self.assertIn("4/6", sheet.hit_dice_var.get())
+        self.assertIn("2", sheet.exhaustion_var.get())
+        self.assertIn("Prono", sheet.conditions_var.get())
+
+        def _collect_control_texts(root_w):
+            res = []
+            stack = [root_w]
+            while stack:
+                node = stack.pop()
+                for ch in node.winfo_children():
+                    stack.append(ch)
+                    if hasattr(ch, "cget") and ch.winfo_class() in ("TButton", "Button", "Label", "TLabel"):
+                        try:
+                            res.append(str(ch.cget("text")))
+                        except Exception:
+                            pass
+            return res
+
+        # 2. CombatPanel gates: Paladino 1 => NO Smite; Spada Lunga without Dual Wielder => NO 2ª Mano
+        all_btn_texts = _collect_control_texts(sheet.weapons_cards_frame)
+        self.assertFalse(any("Punizione" in t or "Smite" in t for t in all_btn_texts))
+        self.assertFalse(any("2ª Mano" in t or "Off-Hand" in t for t in all_btn_texts))
+
+        # Upgrade Paladino -> 2 and add Dual Wielder: both Smite label/selector and 2ª Mano button appear
+        c.classes["Paladino"] = 2
+        c.feats.append("Dual Wielder")
+        sheet.refresh_weapons_list()
+        self.root.update()
+        all_btn_texts_2 = _collect_control_texts(sheet.weapons_cards_frame)
+        self.assertTrue(any("Punizione" in t or "Smite" in t for t in all_btn_texts_2))
+        self.assertTrue(any("2ª Mano" in t or "Off-Hand" in t for t in all_btn_texts_2))
+
+        # 3. Responsive breakpoint hysteresis (wide -> compact -> wide)
+        ui.geometry("720x720")
+        ui.update_idletasks()
+        ui.update()
+        sheet._apply_responsive_layout(force=True)
+        ui.update()
+        self.assertEqual(sheet._layout_mode, "compact")
+        self.assertTrue(bool(sheet.vital_strip.winfo_manager()))
+        sheet._toggle_compact_view()
+        ui.update()
+        self.assertEqual(sheet._compact_view_mode, "stats")
+        ui.geometry("1300x800")
+        ui.update_idletasks()
+        ui.update()
+        sheet._apply_responsive_layout(force=True)
+        ui.update()
+        self.assertEqual(sheet._layout_mode, "wide4")
+        self.assertGreater(sheet.notebook.winfo_width(), 200)
+        ui.destroy()
+
+
 if __name__ == "__main__":
     unittest.main()
 
