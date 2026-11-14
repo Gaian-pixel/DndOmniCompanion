@@ -133,9 +133,17 @@ class Server:
                 except Exception:
                     pass
             print('RICEVUTO MESSAGGIO INIZIALE:', join_msg)
-            if join_msg is None or join_msg.get("type") != "JOIN":
+            if join_msg is None or not isinstance(join_msg, dict) or join_msg.get("type") != "JOIN":
                 return
-            name = join_msg["data"]["name"]
+            join_data = join_msg.get("data")
+            if not isinstance(join_data, dict):
+                send_message(conn, make_error_reply("Payload JOIN non valido."))
+                return
+            raw_name = join_data.get("name")
+            name = str(raw_name).strip() if isinstance(raw_name, str) else ""
+            if not name or len(name) > 64:
+                send_message(conn, make_error_reply("Nome personaggio non valido."))
+                return
             
             with self.game_state.lock:
                 existing_player = self.game_state.find_player(name)
@@ -165,8 +173,15 @@ class Server:
                     player = Player(name, addr, conn)
                     player.is_party_member = True
 
-                    req_pos = join_msg.get("data", {}).get("position")
-                    if req_pos and self.game_state.current_map:
+                    raw_pos = join_data.get("position")
+                    req_pos = (
+                        [int(raw_pos[0]), int(raw_pos[1])]
+                        if isinstance(raw_pos, (list, tuple))
+                        and len(raw_pos) == 2
+                        and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in raw_pos)
+                        else None
+                    )
+                    if req_pos is not None and self.game_state.current_map:
                         walls = self.game_state.current_map.get("walls", [])
                         if req_pos not in walls:
                             player.position = req_pos
@@ -215,15 +230,32 @@ class Server:
             
             while True:
                 msg = receive_message(conn)
-                if msg is None: break
-                handler = command_handlers.get(msg.get("type"))
+                if msg is None:
+                    break
+                if not isinstance(msg, dict):
+                    send_message(conn, make_error_reply("Formato pacchetto non valido."))
+                    continue
+                msg_type = msg.get("type")
+                if not isinstance(msg_type, str) or not msg_type:
+                    send_message(conn, make_error_reply("Tipo comando mancante o non valido."))
+                    continue
+                raw_data = msg.get("data", {})
+                if raw_data is None:
+                    raw_data = {}
+                if not isinstance(raw_data, dict):
+                    send_message(conn, make_error_reply("Payload 'data' non valido."))
+                    continue
+                handler = command_handlers.get(msg_type)
                 if handler:
                     try:
-                        payload = sanitize_client_payload(msg.get("data", {}), player)
+                        payload = sanitize_client_payload(raw_data, player)
                         handler(payload, player, self.game_state)
-                    except (ValueError, TypeError, KeyError) as payload_err:
-                        print(f"[ERRORE PAYLOAD] {msg.get('type')} da {addr}: {payload_err}")
+                    except (ValueError, TypeError, KeyError, IndexError, AttributeError) as payload_err:
+                        print(f"[ERRORE PAYLOAD] {msg_type} da {addr}: {payload_err}")
                         send_message(conn, make_error_reply("Richiesta non valida o parametri malformati."))
+                    except Exception as handler_err:
+                        print(f"[ERRORE HANDLER] {msg_type} da {addr}: {handler_err}")
+                        send_message(conn, make_error_reply("Errore interno nell'elaborazione del comando."))
                 else:
                     send_message(conn, make_error_reply("Comando non riconosciuto."))
         except Exception as e:

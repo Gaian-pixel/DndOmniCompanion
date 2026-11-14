@@ -473,6 +473,83 @@ class TestDataCampaignAndUIFixes(unittest.TestCase):
                 self.assertEqual(fh.read(), b"PART1PART2")
             c_mock.audio_manager.play.assert_called_once()
 
+    def test_audio_downloads_ttl_eviction_and_max_concurrent_cap(self):
+        import base64
+        import tempfile
+        from client.client import ClientGUI
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            c_mock = MagicMock()
+            c_mock.audio_cache_dir = tmpdir
+            c_mock._audio_downloads = {
+                "stale_trk": {"total": 3, "ext": ".mp3", "chunks": {0: b"x"}, "started_at": 1.0, "updated_at": 1.0}
+            }
+            c_mock._audio_download_ttl = 60.0
+            c_mock._max_audio_downloads = 2
+            c_mock._pending_play = {"track_id": "stale_trk", "name": "Vecchia"}
+
+            # 1. Verifica scadenza TTL esplicita + pulizia _pending_play
+            ClientGUI._prune_stale_audio_downloads(c_mock, now=100.0)
+            self.assertNotIn("stale_trk", c_mock._audio_downloads)
+            self.assertIsNone(c_mock._pending_play)
+
+            # 2. Verifica cap massimo download concorrenti (evict del piu vecchio)
+            b64_ok = base64.b64encode(b"CHUNK").decode("ascii")
+            with patch("client.client.time.monotonic", side_effect=[200.0, 200.0, 201.0, 201.0, 202.0, 202.0]):
+                ClientGUI.handle_audio_track_chunk(c_mock, {"track_id": "trk1", "index": 0, "total": 2, "data": b64_ok, "ext": ".mp3"})
+                ClientGUI.handle_audio_track_chunk(c_mock, {"track_id": "trk2", "index": 0, "total": 2, "data": b64_ok, "ext": ".mp3"})
+                ClientGUI.handle_audio_track_chunk(c_mock, {"track_id": "trk3", "index": 0, "total": 2, "data": b64_ok, "ext": ".mp3"})
+
+            self.assertEqual(len(c_mock._audio_downloads), 2)
+            self.assertNotIn("trk1", c_mock._audio_downloads)
+            self.assertIn("trk2", c_mock._audio_downloads)
+            self.assertIn("trk3", c_mock._audio_downloads)
+
+            # 3. Messaggi malformati verso ClientGUI non devono sollevare eccezioni
+            ClientGUI.handle_server_message(c_mock, "non_un_dizionario")
+            ClientGUI.handle_server_message(c_mock, {"type": 123, "data": []})
+            ClientGUI.handle_server_message(c_mock, {"type": "UNKNOWN_EVT", "data": None})
+
+    def test_server_malformed_packets_do_not_drop_connection(self):
+        from server.network import Server
+
+        class _FakeConn:
+            def settimeout(self, _t):
+                pass
+            def setsockopt(self, *_a):
+                pass
+            def close(self):
+                pass
+            def sendall(self, _b):
+                pass
+
+        srv = Server("127.0.0.1", 0, queue.Queue())
+        fake_conn = _FakeConn()
+        sent_messages = []
+        dispatched_chat = []
+
+        incoming = iter([
+            {"type": "JOIN", "data": {"name": "EroeTest", "position": "bad_pos"}},
+            "not_a_dict",
+            {"type": 999, "data": {}},
+            {"type": "CHAT", "data": ["lista_non_valida"]},
+            {"type": "CHAT", "data": {"text": "Ancora connesso!"}},
+            None,
+        ])
+
+        def fake_chat_handler(payload, player, gs):
+            dispatched_chat.append((player.name, payload.get("text")))
+
+        with patch("server.network.receive_message", side_effect=lambda _c: next(incoming)), \
+             patch("server.network.send_message", side_effect=lambda _c, m: sent_messages.append(m)), \
+             patch("server.network.broadcast"), \
+             patch.dict("server.network.command_handlers", {"CHAT": fake_chat_handler}):
+            srv.handle_client(fake_conn, ("127.0.0.1", 55555))
+
+        self.assertEqual(dispatched_chat, [("EroeTest", "Ancora connesso!")])
+        err_texts = [m["data"]["text"] for m in sent_messages if isinstance(m, dict) and m.get("type") == "ERROR_REPLY"]
+        self.assertGreaterEqual(len(err_texts), 3)
+
 
 if __name__ == "__main__":
     unittest.main()

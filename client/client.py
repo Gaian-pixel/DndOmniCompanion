@@ -3,6 +3,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import queue
 import re
+import time
 # client_gui.py
 import tkinter as tk
 from common.messagebox import messagebox
@@ -114,6 +115,8 @@ class ClientGUI:
         self.audio_cache_dir = os.path.join(get_writable_dir(), "client_data", "audio_cache")
         os.makedirs(self.audio_cache_dir, exist_ok=True)
         self._audio_downloads = {}
+        self._audio_download_ttl = 60.0
+        self._max_audio_downloads = 8
         self._pending_play = None
         self._audio_muted = False
         self._saved_music_vol = 0.8
@@ -3988,6 +3991,9 @@ class ClientGUI:
         if getattr(self, "audio_manager", None):
             try: self.audio_manager.stop("all")
             except Exception: pass
+        if isinstance(getattr(self, "_audio_downloads", None), dict):
+            self._audio_downloads.clear()
+        self._pending_play = None
         if getattr(self, "voice_client", None):
             try: self.voice_client.stop()
             except Exception: pass
@@ -4024,6 +4030,9 @@ class ClientGUI:
         if getattr(self, "audio_manager", None):
             try: self.audio_manager.stop("all")
             except Exception: pass
+        if isinstance(getattr(self, "_audio_downloads", None), dict):
+            self._audio_downloads.clear()
+        self._pending_play = None
         if self.voice_client:
             try: self.voice_client.stop()
             except Exception: pass
@@ -4036,7 +4045,14 @@ class ClientGUI:
         self.local_map_data=None; self.players_data={}; self.update_player_listbox(); self.redraw_map_and_players()
 
     def handle_server_message(self, msg):
-        msg_type=msg.get("type"); data=msg.get("data", {})
+        if not isinstance(msg, dict):
+            return
+        msg_type = msg.get("type")
+        if not isinstance(msg_type, str) or not msg_type:
+            return
+        data = msg.get("data", {})
+        if not isinstance(data, dict):
+            data = {}
         handler_map={
             "ERROR_REPLY": lambda d: messagebox.showerror("Errore dal Server", d.get("text")), 
             "SIMPLE_REPLY": lambda d: self.log_to_chat(f"[SERVER]: {d.get('text')}", "Globale", "lightblue"), 
@@ -4699,9 +4715,33 @@ class ClientGUI:
             self.network.send(make_audio_track_request(track_id))
             self.log_to_chat(f"Scaricamento traccia '{name}' dal server in corso...", "Globale", sender="Audio", color="#7289DA")
 
+    def _prune_stale_audio_downloads(self, now: float = None):
+        """Rimuove trasferimenti audio incompleti o corrotti scaduti per TTL."""
+        downloads = getattr(self, "_audio_downloads", None)
+        if not isinstance(downloads, dict):
+            return
+        if now is None:
+            now = time.monotonic()
+        ttl = getattr(self, "_audio_download_ttl", 60.0)
+        ttl = float(ttl) if isinstance(ttl, (int, float)) and not isinstance(ttl, bool) else 60.0
+        stale_ids = []
+        for tid, rec in list(downloads.items()):
+            if not isinstance(rec, dict):
+                stale_ids.append(tid)
+                continue
+            last_ts = rec.get("updated_at", rec.get("started_at"))
+            if isinstance(last_ts, (int, float)) and not isinstance(last_ts, bool) and (now - float(last_ts)) > ttl:
+                stale_ids.append(tid)
+        for tid in stale_ids:
+            downloads.pop(tid, None)
+            pending = getattr(self, "_pending_play", None)
+            if isinstance(pending, dict) and pending.get("track_id") == tid:
+                self._pending_play = None
+
     def handle_audio_track_chunk(self, data):
         if not isinstance(data, dict):
             return
+        ClientGUI._prune_stale_audio_downloads(self)
         track_id = data.get("track_id")
         try:
             index = int(data.get("index", 0))
@@ -4734,11 +4774,30 @@ class ClientGUI:
         if len(decoded_chunk) > 512 * 1024:
             return
 
+        now = time.monotonic()
         if track_id not in self._audio_downloads:
+            max_dl = getattr(self, "_max_audio_downloads", 8)
+            max_dl = max(1, int(max_dl)) if isinstance(max_dl, int) and not isinstance(max_dl, bool) else 8
+            while len(self._audio_downloads) >= max_dl and self._audio_downloads:
+                oldest_tid = min(
+                    self._audio_downloads,
+                    key=lambda tid: (
+                        float(self._audio_downloads[tid].get("updated_at", self._audio_downloads[tid].get("started_at", 0.0)))
+                        if isinstance(self._audio_downloads[tid], dict)
+                        and isinstance(self._audio_downloads[tid].get("updated_at", self._audio_downloads[tid].get("started_at", 0.0)), (int, float))
+                        else 0.0
+                    ),
+                )
+                self._audio_downloads.pop(oldest_tid, None)
+                pending = getattr(self, "_pending_play", None)
+                if isinstance(pending, dict) and pending.get("track_id") == oldest_tid:
+                    self._pending_play = None
             self._audio_downloads[track_id] = {
                 "total": total,
                 "ext": ext,
-                "chunks": {}
+                "chunks": {},
+                "started_at": now,
+                "updated_at": now,
             }
 
         rec = self._audio_downloads[track_id]
@@ -4747,6 +4806,7 @@ class ClientGUI:
         if ext and not rec.get("ext"):
             rec["ext"] = ext
         rec["chunks"][index] = decoded_chunk
+        rec["updated_at"] = now
 
         if len(rec["chunks"]) == rec["total"] and all(i in rec["chunks"] for i in range(rec["total"])):
             cache_dir_abs = os.path.realpath(self.audio_cache_dir)
