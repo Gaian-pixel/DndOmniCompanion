@@ -667,6 +667,54 @@ class TestDataCampaignAndUIFixes(unittest.TestCase):
             ClientGUI._resolve_cached_handout_assets(c_mock, delivered[0][1]["data"])
             self.assertEqual(delivered[0][1]["data"]["image_b64"], b64_handout)
 
+    def test_client_and_dm_gui_mixin_extraction_preserves_public_api(self):
+        """TASK-008: ClientGUI and DM_GUI inherit extracted mixins cleanly and keep mock targets."""
+        import client.client as client_mod
+        from client.network_handlers import ClientNetworkHandlersMixin
+        import server.dm_gui as dm_mod
+        from server.dm_campaign_session_mixin import DMCampaignSessionMixin
+
+        self.assertTrue(issubclass(client_mod.ClientGUI, ClientNetworkHandlersMixin))
+        self.assertTrue(issubclass(dm_mod.DM_GUI, DMCampaignSessionMixin))
+
+        client_spec = MagicMock(spec=client_mod.ClientGUI)
+        for attr in (
+            "_get_asset_cache",
+            "_store_asset_in_cache",
+            "_resolve_cached_map_assets",
+            "_resolve_cached_handout_assets",
+            "_prune_stale_audio_downloads",
+            "handle_handout_broadcast",
+            "handle_audio_track_chunk",
+            "handle_chat_broadcast",
+            "handle_dice_roll",
+            "export_session_log",
+        ):
+            self.assertTrue(hasattr(client_mod.ClientGUI, attr), f"Missing ClientGUI.{attr}")
+            self.assertTrue(hasattr(client_spec, attr), f"Missing MagicMock(spec=ClientGUI).{attr}")
+
+        dm_spec = MagicMock(spec=dm_mod.DM_GUI)
+        for attr in (
+            "load_map_from_file",
+            "save_session",
+            "load_session",
+            "open_session_password_dialog",
+            "open_new_campaign_dialog",
+            "open_campaign_editor_dialog",
+            "switch_campaign_scene_dialog",
+            "prompt_currency_approval",
+            "prompt_item_approval",
+            "prompt_journal_approval",
+            "prompt_custom_spell_approval",
+        ):
+            self.assertTrue(hasattr(dm_mod.DM_GUI, attr), f"Missing DM_GUI.{attr}")
+            self.assertTrue(hasattr(dm_spec, attr), f"Missing MagicMock(spec=DM_GUI).{attr}")
+
+        for client_patch_target in ("ClientNetwork", "AudioManager", "VoiceClient", "LoginDialog", "time"):
+            self.assertTrue(hasattr(client_mod, client_patch_target))
+        for dm_patch_target in ("Server", "AudioManager", "VoiceClient"):
+            self.assertTrue(hasattr(dm_mod, dm_patch_target))
+
 
 if __name__ == "__main__":
     unittest.main()
