@@ -6,7 +6,7 @@
 [![Ruleset: D&D 5e](https://img.shields.io/badge/ruleset-D%26D%205e-red.svg)](https://dnd.wizards.com/)
 [![UI: ttkbootstrap](https://img.shields.io/badge/ui-ttkbootstrap-orange.svg)](https://ttkbootstrap.readthedocs.io/)
 [![Multiplayer: TCP/UDP](https://img.shields.io/badge/networking-TCP%20%2B%20UDP-green.svg)]()
-[![Tests: Passing](https://img.shields.io/badge/tests-593%2F593%20passing-brightgreen.svg)]()
+[![Tests: Passing](https://img.shields.io/badge/tests-602%2F602%20passing-brightgreen.svg)]()
 [![Localization: EN / IT](https://img.shields.io/badge/i18n-English%20%7C%20Italiano-blueviolet.svg)]()
 [![Units: Imperial / Metric](https://img.shields.io/badge/units-ft%2Fmi%20%7C%20m%2Fkm-informational.svg)]()
 [![Version](https://img.shields.io/badge/release-v0.5.0--alpha-gold.svg)](https://github.com/Gaian-pixel/DndOmniCompanion/releases)
@@ -391,7 +391,8 @@ DndOmniCompanion/
 │   ├── GUIDA_ALL_UTILIZZO.md       # Manuale completo all'utilizzo (Italiano)
 │   ├── OPERATIONAL_GUIDE.md        # System & Operational Manual (English)
 │   └── GUIDA_OPERATIVA.md          # Manuale operativo e architettura (Italiano)
-├── tests/                          # Automated testing suite (593 passing tests)
+├── tests/                          # Automated testing suite (602 passing tests)
+│   ├── test_gameplay_integration_e2e.py # Phase 3 gameplay integration & real loopback TCP E2E suite
 │   ├── test_phb_dmg_mm_complete.py # Complete PHB/DMG/MM class powers, feats, monster traits & selectable DMG rules
 │   ├── test_raw_5e_advanced_features.py # Smite, Wild Shape, Font of Magic, Arcane Recovery, Reliable Talent, Auto XP
 │   ├── simulate_4player_campaign.py# Live 4-player + DM campaign simulation (11 phases)
@@ -411,11 +412,14 @@ DndOmniCompanion/
 
 ## 🧪 Automated Testing & Verification
 
-All **593 automated tests** pass with 100% success and 0 failures:
+All **602 automated tests** across **64 `unittest` modules** pass with 100% success and 0 failures:
 
 ```powershell
-# 1. Comprehensive Unit Tests (593 tests: complete PHB/DMG/MM & XGtE/TCE rules, 30 selectable DM options, magic items, 3D dice, join flow, tactical combat, UI)
+# 1. Comprehensive Unit Tests (602 tests: complete PHB/DMG/MM & XGtE/TCE rules, 30 selectable DM options, magic items, 3D dice, join flow, tactical combat, UI, Phase 3 loopback TCP E2E)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
+
+# 1a. Run Phase 3 Gameplay Integrity & Loopback TCP Multiplayer E2E Suite
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_gameplay_integration_e2e.py
 
 # 1b. Run Complete PHB/DMG/MM & XGtE/TCE Selectable Rules test suites
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_phb_dmg_mm_complete.py tests/test_full_5e_phb_dmg_mm.py

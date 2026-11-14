@@ -1,8 +1,8 @@
 # D&D OmniCompanion — Autonomous Development Session Handoff
 
 > **Branch:** `dev/v0.6.0-autonomous` (`main` untouched at `3b28c99`, no remote pushes or tags)  
-> **Latest Phase:** Phase 2 Product Maturity & Feature Development (`TASK-009` through `TASK-012` completed on top of `13d76b9`)  
-> **Status:** All roadmap items (`TASK-001` through `TASK-012`) are **COMPLETED**, verified, and ready on `dev/v0.6.0-autonomous`.
+> **Latest Phase:** Phase 3 Gameplay Integrity, System Integration & End-to-End Validation (`TASK-013` through `TASK-016` completed on top of `58cac3b`)  
+> **Status:** All roadmap items (`TASK-001` through `TASK-016`) are **COMPLETED**, verified, and ready on `dev/v0.6.0-autonomous`.
 
 ---
 
@@ -61,10 +61,27 @@
    - Extended `make_cast_special_spell_request(..., **extra)` (`common/protocol.py`) and updated `handle_cast_special_spell_request` (`server/rules/class_abilities.py`) to support `already_consumed_slot` (avoiding double slot deduction or duplicate Wild Magic Surge rolls) and `is_reaction_spell` (`has_reacted_this_turn = True`).
    - Updated `client/character_sheet_ui.py` (`do_attack`, `do_cast`, `cast_spell_callback`) and `client/client.py` (`on_sheet_cast_spell`) so leveled attack spells charge slots via `SpellsPanel.execute_spell_resource_cost` and sheet casts dispatch `CAST_SPECIAL_SPELL_REQUEST`.
 
-13. **`TASK-012` (Phase 2) — Lossless Session Persistence & In-Person Tabletop Party Hero Import**
+13. **`58cac3b` / `6cae90d` — `TASK-012` (Phase 2): Lossless Session Persistence & In-Person Tabletop Party Hero Import**
    - Updated `GameState.get_state_dict(is_dm=True)` and `GameState.load_session()` (`common/game_state.py`) to preserve `maps`, `active_map_id`, `pending_legendary_resistances`, `campaign_starter_kit`, and full `Player.from_dict()` state on connected players while keeping live socket/hash tracking intact.
    - Added `_find_free_party_spawn_hex`, `import_party_character_to_game_state`, `DMCampaignSessionMixin.import_party_character_data` / `open_import_party_character_dialog`, DM toolbar button `btn_import_local_pc`, and symmetric EN/IT translations (`common/i18n.py`).
-   - Added E2E and regression coverage (`TestPhase2ProductMaturityAndE2E`) in `tests/test_audit_fixes.py`.
+   - Added E2E and regression coverage (`TestPhase2ProductMaturityAndE2E`) in `tests/test_audit_fixes.py`, plus `docs/FEATURE_MATURITY.md` (`58cac3b`).
+
+14. **`TASK-013` (Phase 3) — Combat Action Economy, Class Abilities & Cross-Player Actor Authorization**
+   - Enforced actor ownership authorization (`_resolve_actor`) across all 14 actor-accepting class/spell handlers in `server/rules/class_abilities.py`, along with incapacitation, turn-lock, Fighter Lv 2+ `action_surge_used_this_turn` (1/turn limit), Second Wind HP clamping, and Barbarian Rage heavy armor check (`calculate_character_item_modifiers` + equipped `inventory_grid` fallback).
+   - Unified `concentrating_on`/`concentrating_spell` cleanup across `drop_concentration` (`server/rules/combat.py`), Barbarian Rage activation (`server/rules/class_abilities.py`), added `_end_rage_if_unconscious` on 0 HP, expired readied action turn cleanup, reaction rollback on range/Sanctuary failure, and synced Fighter Lv 2+ / `already_consumed` handling in `client/client.py`.
+
+15. **`TASK-014` (Phase 3) — End-to-End Spellcasting Validation, Slot Refunds, Dedup & Sheet Sync**
+   - Fixed cantrip `cast_level=0`/`base_level=0` parsing (`raw_cast`/`raw_base` without `0 or 1` coercion), enforced Rage spellcasting block, implemented `_consume_or_refund_server_spell_slot` + `_reject_cast` slot refund on server validation rejection, and added `request_id` deduplication in `server/rules/class_abilities.py`.
+   - Added `_prevalidate_client_spell_cast`, `request_id` generation, and `CharacterSheetFrame.sync_resources_from_character()` in `client/character_sheet_ui.py`, wired through `client/client.py` (`on_sheet_cast_spell` and `handle_game_state`).
+
+16. **`TASK-015` (Phase 3) — Lossless Campaign/Session Persistence, Reconnect Protection & Hardened Local PC Import**
+   - Preserved unknown forward-compatible JSON keys via `_extra_fields`/`_extra_state_fields` in `Player`, `GameState` (`common/game_state.py`), and `Campaign` (`common/campaign.py`).
+   - Protected server-authoritative HP, conditions, spell/pact slots, class/custom resources, spell points, hit dice, exhaustion, and inspiration across socket reconnection via `_preserve_server_state_on_join` and `_preserve_stats_on_join` (`server/network.py`, `server/rules/character.py`).
+   - Hardened `import_party_character_to_game_state` (`server/dm_campaign_session_mixin.py`) with `normalize_character_dict`, `_safe_import_int`, bounds/wall-free `_find_free_party_spawn_hex`, and reconnect preservation flags.
+
+17. **`TASK-016` (Phase 3) — Real Loopback TCP Multiplayer & Gameplay Integration E2E Suite & Doc Sync**
+   - Created `tests/test_gameplay_integration_e2e.py` (9 integration and real loopback TCP multiplayer E2E tests via `LoopbackSessionHarness` covering PIN auth, action economy, spell refunds/dedup, reconnect state protection, and lossless persistence).
+   - Reconciled bilingual documentation (`README.md`, `README_IT.md`, `docs/OPERATIONAL_GUIDE.md`, `docs/GUIDA_OPERATIVA.md`, `docs/DEVELOPMENT_ROADMAP.md`, `docs/FEATURE_MATURITY.md`, `docs/SESSION_HANDOFF.md`) to `602` verified tests across `64` modules.
 
 ---
 
@@ -72,11 +89,11 @@
 
 | Check | Command / Scope | Observed Result |
 |---|---|---|
-| **Full Headless Unit Test Suite** | `$env:DND_MOCK_AUDIO="1";` with isolated temp `DND_SETTINGS_PATH` & `DND_CHARACTERS_PATH`, `python -m unittest discover tests` | **PASSED**: `Ran 593 tests in 57.298s — OK` (`0` failures, `0` errors, `0` skipped across `63` `unittest` modules) |
+| **Full Headless Unit Test Suite** | `$env:DND_MOCK_AUDIO="1";` with isolated temp `DND_SETTINGS_PATH` & `DND_CHARACTERS_PATH`, `python -m unittest discover tests` | **PASSED**: `Ran 602 tests in 46.453s — OK` (`0` failures, `0` errors, `0` skipped across `64` `unittest` modules) |
 | **Static Bytecode Compile** | `py_compile.compile(...)` across `common`, `server`, `client`, `components`, `tests`, `main.py`, `build_release.py` | **PASSED**: `py_compile succeeded for all Python files.` |
 | **Static Analysis (`pyflakes` Critical Check)** | CI check (`undefined name` / star-import / syntax error across `common`, `server`, `client`, `components`, `main.py`) | **PASSED**: `Pyflakes critical check clean (0 undefined names, 0 star imports). Total non-critical lines: 349` |
 | **Tracked Data Isolation** | `git diff --stat client_data/` after running full test suite | **CLEAN**: empty diff (no mutation of tracked files in `client_data/`) |
-| **Roadmapped Tasks** | `docs/DEVELOPMENT_ROADMAP.md` (`TASK-001`..`TASK-012`) | **12 / 12 `COMPLETED`** |
+| **Roadmapped Tasks** | `docs/DEVELOPMENT_ROADMAP.md` (`TASK-001`..`TASK-016`) | **16 / 16 `COMPLETED`** |
 
 ---
 
@@ -91,7 +108,7 @@
 
 ## 4. Next Steps (For Future Sessions)
 
-All backlog items in `docs/DEVELOPMENT_ROADMAP.md` (`TASK-001`–`TASK-012`) are complete. Recommended follow-up actions when ready for release or further iteration:
+All backlog items in `docs/DEVELOPMENT_ROADMAP.md` (`TASK-001`–`TASK-016`) are complete. Recommended follow-up actions when ready for release or further iteration:
 1. Review diffs across `main..dev/v0.6.0-autonomous` and run the standalone interactive GUI checks (`tests/test_ui_smoke.py`, `tests/test_e2e_gui.py`) in a desktop environment.
 2. Merge `dev/v0.6.0-autonomous` into `main` and publish a release/tag only upon explicit human authorization.
 3. Optional next maintainability wave: incrementally decompose remaining large UI setup sections (`ClientGUI.setup_gui` in `client/client.py` and `DM_GUI` initialization/context menus in `server/dm_gui.py`) into focused mixin/builder modules.
