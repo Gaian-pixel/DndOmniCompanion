@@ -46,10 +46,21 @@ class AudioLibrary:
         atomic_save_json(INDEX_FILE, self.tracks, indent=2, ensure_ascii=False)
 
     def _file_for(self, track):
-        return os.path.join(LIB_DIR, f"{track['id']}{track['ext']}")
+        lib_abs = os.path.realpath(LIB_DIR)
+        raw_id = str(track.get("id", "")) if isinstance(track, dict) else ""
+        raw_ext = str(track.get("ext", ".mp3")).lower() if isinstance(track, dict) else ".mp3"
+        clean_ext = raw_ext if raw_ext in SUPPORTED_EXTENSIONS else ".mp3"
+        if not raw_id or not raw_id.isalnum():
+            return os.path.join(lib_abs, "__invalid__")
+        resolved = os.path.realpath(os.path.join(lib_abs, f"{raw_id}{clean_ext}"))
+        if not resolved.startswith(lib_abs + os.sep) and resolved != lib_abs:
+            return os.path.join(lib_abs, "__invalid__")
+        return resolved
 
     # --- API ---
     def get(self, track_id):
+        if not isinstance(track_id, str) or not track_id.isalnum():
+            return None
         return next((t for t in self.tracks if t["id"] == track_id), None)
 
     def get_path(self, track_id):

@@ -387,6 +387,92 @@ class TestDataCampaignAndUIFixes(unittest.TestCase):
         finally:
             root.destroy()
 
+    def test_non_dm_blocked_from_travel_camp_and_journal_handlers(self):
+        from server.rules.character import (
+            handle_set_travel_params_request,
+            handle_set_watch_shifts_request,
+            handle_resolve_night_camp_request,
+            handle_generate_encounter_request,
+        )
+        from server.rules.journal import handle_journal_update_request
+
+        gs = GameState(queue.Queue())
+        gs.travel_biome = "foresta"
+        gs.camp_watch_shifts = {}
+        gs.time_hour = 8
+        gs.campaign_journal.get_active_session().title = "Originale"
+
+        non_dm = Player("Giocatore", conn=_MockConn())
+        non_dm.role = "PLAYER"
+
+        handle_set_travel_params_request({"biome": "vulcano"}, non_dm, gs)
+        self.assertEqual(gs.travel_biome, "foresta")
+
+        handle_set_watch_shifts_request({"shifts": {"1": "Giocatore"}, "has_campfire": False}, non_dm, gs)
+        self.assertEqual(gs.camp_watch_shifts, {})
+
+        handle_resolve_night_camp_request({}, non_dm, gs)
+        self.assertEqual(gs.time_hour, 8)
+
+        with patch("common.travel_data.generate_biome_encounter") as mock_gen:
+            handle_generate_encounter_request({"biome": "palude"}, non_dm, gs)
+            mock_gen.assert_not_called()
+
+        handle_journal_update_request({"session_index": 0, "title": "Manomesso"}, non_dm, gs)
+        self.assertEqual(gs.campaign_journal.get_active_session().title, "Originale")
+        self.assertGreaterEqual(len(non_dm.conn.sent), 5)
+
+        dm = Player("DM")
+        dm.role = "DM"
+        handle_set_travel_params_request({"biome": "montagna"}, dm, gs)
+        self.assertEqual(gs.travel_biome, "montagna")
+        handle_journal_update_request({"session_index": 0, "title": "Capitolo 1"}, dm, gs)
+        self.assertEqual(gs.campaign_journal.get_active_session().title, "Capitolo 1")
+
+    def test_client_audio_play_blocks_unsafe_url_schemes(self):
+        from client.client import ClientGUI
+
+        c_mock = MagicMock()
+        with patch("webbrowser.open") as mock_open:
+            ClientGUI.handle_audio_play(c_mock, {"url": "file:///C:/Windows/System32/calc.exe"})
+            ClientGUI.handle_audio_play(c_mock, {"url": "javascript:alert(1)"})
+            ClientGUI.handle_audio_play(c_mock, {"url": r"\\evil\share\payload.exe"})
+            mock_open.assert_not_called()
+
+            ClientGUI.handle_audio_play(c_mock, {"url": "https://example.com/music.mp3"})
+            mock_open.assert_called_once_with("https://example.com/music.mp3")
+
+    def test_client_audio_track_chunk_bounds_and_atomic_write(self):
+        import base64
+        import tempfile
+        from client.client import ClientGUI
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            c_mock = MagicMock()
+            c_mock.audio_cache_dir = tmpdir
+            c_mock._audio_downloads = {}
+            c_mock._pending_play = None
+
+            # Indici invalidi o fuori intervallo devono essere ignorati
+            b64_ok = base64.b64encode(b"ID3DATA").decode("ascii")
+            ClientGUI.handle_audio_track_chunk(c_mock, {"track_id": "abc123", "index": -1, "total": 2, "data": b64_ok, "ext": ".mp3"})
+            ClientGUI.handle_audio_track_chunk(c_mock, {"track_id": "abc123", "index": 2, "total": 2, "data": b64_ok, "ext": ".mp3"})
+            ClientGUI.handle_audio_track_chunk(c_mock, {"track_id": "abc123", "index": 0, "total": 9999, "data": b64_ok, "ext": ".mp3"})
+            self.assertEqual(c_mock._audio_downloads, {})
+
+            # Ricomposizione valida in 2 chunk e scrittura atomica
+            c_mock._pending_play = {"track_id": "abc123", "name": "Taverna", "channel": "music", "loop": True, "volume": 0.7, "ext": ".mp3"}
+            ClientGUI.handle_audio_track_chunk(c_mock, {"track_id": "abc123", "index": 0, "total": 2, "data": base64.b64encode(b"PART1").decode("ascii"), "ext": ".mp3"})
+            self.assertIn("abc123", c_mock._audio_downloads)
+            ClientGUI.handle_audio_track_chunk(c_mock, {"track_id": "abc123", "index": 1, "total": 2, "data": base64.b64encode(b"PART2").decode("ascii"), "ext": ".mp3"})
+
+            target = os.path.join(tmpdir, "abc123.mp3")
+            self.assertTrue(os.path.isfile(target))
+            self.assertFalse(os.path.exists(target + ".tmp"))
+            with open(target, "rb") as fh:
+                self.assertEqual(fh.read(), b"PART1PART2")
+            c_mock.audio_manager.play.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

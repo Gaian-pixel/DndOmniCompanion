@@ -2,6 +2,7 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import queue
+import re
 # client_gui.py
 import tkinter as tk
 from common.messagebox import messagebox
@@ -4579,10 +4580,16 @@ class ClientGUI:
 
     def handle_audio_play(self, data):
         import webbrowser
-        url = data.get("url")
-        if url:
-            webbrowser.open(url)
-            self.log_to_chat("Stai ascoltando un audio avviato dal DM", "Globale", sender="Sistema", color="#99AAB5")
+        from urllib.parse import urlparse
+        url = str((data or {}).get("url") or "").strip()
+        if not url:
+            return
+        parsed = urlparse(url)
+        if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+            print(f"[SECURITY] URL audio bloccato (schema non consentito): {url}")
+            return
+        webbrowser.open(url)
+        self.log_to_chat("Stai ascoltando un audio avviato dal DM", "Globale", sender="Sistema", color="#99AAB5")
 
     def handle_audio_track_play(self, data):
         track_id = data.get("track_id")
@@ -4624,10 +4631,20 @@ class ClientGUI:
             self.log_to_chat(f"Scaricamento traccia '{name}' dal server in corso...", "Globale", sender="Audio", color="#7289DA")
 
     def handle_audio_track_chunk(self, data):
+        if not isinstance(data, dict):
+            return
         track_id = data.get("track_id")
-        index = data.get("index", 0)
-        total = data.get("total", 1)
+        try:
+            index = int(data.get("index", 0))
+            total = int(data.get("total", 1))
+        except (ValueError, TypeError):
+            return
+        if not (1 <= total <= 500) or not (0 <= index < total):
+            return
+
         b64_data = data.get("data", "")
+        if not isinstance(b64_data, str):
+            return
         ext = data.get("ext") or (self._pending_play.get("ext") if self._pending_play and self._pending_play.get("track_id") == track_id else ".mp3")
 
         if not track_id:
@@ -4640,6 +4657,14 @@ class ClientGUI:
         track_id = clean_track_id
         ext = clean_ext
 
+        try:
+            decoded_chunk = base64.b64decode(b64_data, validate=True)
+        except Exception as e:
+            print(f"[AUDIO] Errore decodifica chunk {index}: {e}")
+            return
+        if len(decoded_chunk) > 512 * 1024:
+            return
+
         if track_id not in self._audio_downloads:
             self._audio_downloads[track_id] = {
                 "total": total,
@@ -4648,25 +4673,32 @@ class ClientGUI:
             }
 
         rec = self._audio_downloads[track_id]
+        if rec.get("total") != total:
+            return
         if ext and not rec.get("ext"):
             rec["ext"] = ext
-        try:
-            rec["chunks"][index] = base64.b64decode(b64_data)
-        except Exception as e:
-            print(f"[AUDIO] Errore decodifica chunk {index}: {e}")
-            return
+        rec["chunks"][index] = decoded_chunk
 
-        if len(rec["chunks"]) == rec["total"]:
+        if len(rec["chunks"]) == rec["total"] and all(i in rec["chunks"] for i in range(rec["total"])):
             cache_dir_abs = os.path.realpath(self.audio_cache_dir)
             target_path = os.path.realpath(os.path.join(self.audio_cache_dir, f"{track_id}{rec['ext']}"))
             if not target_path.startswith(cache_dir_abs + os.sep) and target_path != cache_dir_abs:
                 return
+            tmp_path = f"{target_path}.tmp"
             try:
-                with open(target_path, "wb") as f:
+                os.makedirs(cache_dir_abs, exist_ok=True)
+                with open(tmp_path, "wb") as f:
                     for i in range(rec["total"]):
                         f.write(rec["chunks"][i])
+                os.replace(tmp_path, target_path)
             except Exception as e:
                 print(f"[AUDIO] Errore salvataggio file in cache {target_path}: {e}")
+                try:
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+                except OSError:
+                    pass
+                return
             finally:
                 if track_id in self._audio_downloads:
                     del self._audio_downloads[track_id]

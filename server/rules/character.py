@@ -444,38 +444,58 @@ def handle_set_travel_role_request(data, player, game_state):
     broadcast(game_state, make_game_state(game_state.get_state_dict()))
     broadcast(game_state, make_chat_broadcast("Viaggio", f"🏕️ {player.name} si posiziona in [{marching_order}] con ruolo: {role}"))
 
+def _require_dm_or_error(player) -> bool:
+    """Consente l'esecuzione solo al Dungeon Master, notificando eventuali client non autorizzati."""
+    from common.network_utils import is_dm_actor, send_message
+    from common.protocol import make_error_reply
+    if is_dm_actor(player):
+        return True
+    if getattr(player, "conn", None):
+        send_message(player.conn, make_error_reply("Azione riservata al Dungeon Master."))
+    return False
+
+
 def handle_set_travel_params_request(data, player, game_state):
+    if not _require_dm_or_error(player):
+        return
     if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
         data = data["data"]
-    biome = data.get("biome", getattr(game_state, "travel_biome", "foresta"))
-    danger = data.get("danger", getattr(game_state, "travel_danger", "moderate"))
-    pace = data.get("pace", getattr(game_state, "travel_pace", "Normale"))
-    terrain = data.get("terrain", getattr(game_state, "travel_terrain", "Foresta"))
 
-    game_state.travel_biome = biome
-    game_state.travel_danger = danger
-    game_state.travel_pace = pace
-    game_state.travel_terrain = terrain
+    with game_state.lock:
+        biome = data.get("biome", getattr(game_state, "travel_biome", "foresta"))
+        danger = data.get("danger", getattr(game_state, "travel_danger", "moderate"))
+        pace = data.get("pace", getattr(game_state, "travel_pace", "Normale"))
+        terrain = data.get("terrain", getattr(game_state, "travel_terrain", "Foresta"))
+
+        game_state.travel_biome = biome
+        game_state.travel_danger = danger
+        game_state.travel_pace = pace
+        game_state.travel_terrain = terrain
+        state_snap = game_state.get_state_dict()
 
     from common.protocol import make_game_state, make_chat_broadcast
     from common.network_utils import broadcast
-    broadcast(game_state, make_game_state(game_state.get_state_dict()))
+    broadcast(game_state, make_game_state(state_snap))
     msg = f"🧭 [VIAGGIO] Parametri aggiornati: Bioma={biome}, Pericolo={danger}, Andatura={pace}, Terreno={terrain}"
     broadcast(game_state, make_chat_broadcast("Viaggio", msg))
     game_state.log_dm_message(f"[TRAVEL] {msg}")
 
 def handle_set_watch_shifts_request(data, player, game_state):
+    if not _require_dm_or_error(player):
+        return
     if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
         data = data["data"]
     shifts = data.get("shifts", {})
     has_campfire = bool(data.get("has_campfire", True))
 
-    game_state.camp_watch_shifts = shifts
-    game_state.camp_has_campfire = has_campfire
+    with game_state.lock:
+        game_state.camp_watch_shifts = shifts
+        game_state.camp_has_campfire = has_campfire
+        state_snap = game_state.get_state_dict()
 
     from common.protocol import make_game_state, make_chat_broadcast
     from common.network_utils import broadcast
-    broadcast(game_state, make_game_state(game_state.get_state_dict()))
+    broadcast(game_state, make_game_state(state_snap))
     
     summary = []
     for s_idx in range(1, 5):
@@ -487,120 +507,135 @@ def handle_set_watch_shifts_request(data, player, game_state):
     game_state.log_dm_message(f"[CAMP] {msg}")
 
 def handle_resolve_night_camp_request(data, player, game_state):
+    if not _require_dm_or_error(player):
+        return
     if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
         data = data["data"]
 
     from common.travel_data import resolve_night_camp_simulation
     from common.protocol import make_chat_broadcast, make_game_state
-    from common.network_utils import broadcast
+    from common.network_utils import broadcast, send_message
 
-    res = resolve_night_camp_simulation(
-        watch_shifts=getattr(game_state, "camp_watch_shifts", {}),
-        players=getattr(game_state, "players", []),
-        biome_key=getattr(game_state, "travel_biome", "foresta"),
-        danger_key=getattr(game_state, "travel_danger", "moderate"),
-        has_campfire=getattr(game_state, "camp_has_campfire", True)
-    )
+    pending_broadcasts = []
+    pending_direct = []
 
-    # Avanza l'ora sul server di 8 ore
-    game_state.time_hour = getattr(game_state, "time_hour", 8) + 8
-    while game_state.time_hour >= 24:
-        game_state.time_hour -= 24
-        game_state.time_day = getattr(game_state, "time_day", 1) + 1
-        game_state.travel_hours_today = 0
-        game_state.travel_miles_today = 0
-        while game_state.time_day > 30:
-            game_state.time_day -= 30
-            game_state.time_month = getattr(game_state, "time_month", 1) + 1
-            while game_state.time_month > 12:
-                game_state.time_month -= 12
-                game_state.time_year = getattr(game_state, "time_year", 1492) + 1
+    with game_state.lock:
+        res = resolve_night_camp_simulation(
+            watch_shifts=getattr(game_state, "camp_watch_shifts", {}),
+            players=getattr(game_state, "players", []),
+            biome_key=getattr(game_state, "travel_biome", "foresta"),
+            danger_key=getattr(game_state, "travel_danger", "moderate"),
+            has_campfire=getattr(game_state, "camp_has_campfire", True)
+        )
 
-    header = "========================================\n🏕️ RISOLUZIONE NOTTE & RIPOSO LUNGO (8 ORE)\n========================================"
-    log_text = "\n".join(res["logs"])
-    full_msg = f"{header}\n{log_text}"
+        # Avanza l'ora sul server di 8 ore
+        game_state.time_hour = getattr(game_state, "time_hour", 8) + 8
+        while game_state.time_hour >= 24:
+            game_state.time_hour -= 24
+            game_state.time_day = getattr(game_state, "time_day", 1) + 1
+            game_state.travel_hours_today = 0
+            game_state.travel_miles_today = 0
+            while game_state.time_day > 30:
+                game_state.time_day -= 30
+                game_state.time_month = getattr(game_state, "time_month", 1) + 1
+                while game_state.time_month > 12:
+                    game_state.time_month -= 12
+                    game_state.time_year = getattr(game_state, "time_year", 1492) + 1
 
-    if res["ambush"]:
-        full_msg += "\n\n🚨 IMBOSCATA NOTTURNA! Il gruppo viene assalito durante il riposo! Iniziativa richiesta!"
-        # D&D 5e RAW: Solo i membri del party che stavano dormendo (esclusa la sentinella) iniziano Incoscienti e Proni
-        for p in getattr(game_state, "players", []):
-            if getattr(p, "is_party_member", False) and p.name != res.get("sentinel_name"):
+        header = "========================================\n🏕️ RISOLUZIONE NOTTE & RIPOSO LUNGO (8 ORE)\n========================================"
+        log_text = "\n".join(res["logs"])
+        full_msg = f"{header}\n{log_text}"
+
+        if res["ambush"]:
+            full_msg += "\n\n🚨 IMBOSCATA NOTTURNA! Il gruppo viene assalito durante il riposo! Iniziativa richiesta!"
+            # D&D 5e RAW: Solo i membri del party che stavano dormendo (esclusa la sentinella) iniziano Incoscienti e Proni
+            for p in getattr(game_state, "players", []):
+                if getattr(p, "is_party_member", False) and p.name != res.get("sentinel_name"):
+                    if "Morto" in getattr(p, "conditions", []) or "Dead" in getattr(p, "conditions", []):
+                        continue
+                    if not hasattr(p, "conditions"): p.conditions = []
+                    if "Incosciente" not in p.conditions: p.conditions.append("Incosciente")
+                    if "Prono" not in p.conditions: p.conditions.append("Prono")
+                    if getattr(p, "full_sheet", None):
+                        p.full_sheet["conditions"] = list(p.conditions)
+            pending_broadcasts.append(make_chat_broadcast("Sistema", full_msg))
+        else:
+            full_msg += "\n\n✨ Notte serena! Tutti recuperano HP e Slot Incantesimo (Riposo Lungo completato)."
+            for p in getattr(game_state, "players", []):
+                if not getattr(p, "is_party_member", False) and not getattr(p, "is_companion", False):
+                    continue
                 if "Morto" in getattr(p, "conditions", []) or "Dead" in getattr(p, "conditions", []):
                     continue
-                if not hasattr(p, "conditions"): p.conditions = []
-                if "Incosciente" not in p.conditions: p.conditions.append("Incosciente")
-                if "Prono" not in p.conditions: p.conditions.append("Prono")
+                _dm_s_camp = getattr(game_state, "automation_settings", {}) or {}
+                if not _dm_s_camp.get("opt_slow_natural_healing", False):
+                    p.hp = p.max_hp
+                p.temp_hp = 0
+                from common.feats_and_classes import evaluate_armor_sleep
+                from common.dnd5e_tables import entity_get_class_level as _cls_lvl, entity_get_attr_mod as _attr_m
+                _sleep_res = evaluate_armor_sleep(p, game_state)
+                if not _sleep_res["blocks_exhaustion_recovery"]:
+                    p.exhaustion_level = max(0, getattr(p, "exhaustion_level", 0) - 1)
+                elif getattr(p, "exhaustion_level", 0) > 0:
+                    pending_broadcasts.append(make_chat_broadcast("Sistema", _sleep_res["note"]))
+                elif _sleep_res["penalized"]:
+                    pending_broadcasts.append(make_chat_broadcast("Sistema", _sleep_res["note"]))
+                conds = [c for c in getattr(p, "conditions", []) if not c.startswith("Sfinimento") and c not in ("Incosciente", "Prono", "Avvelenato")]
+                if p.exhaustion_level > 0:
+                    conds.append(f"Sfinimento (Liv. {p.exhaustion_level})")
+                p.conditions = conds
                 if getattr(p, "full_sheet", None):
-                    p.full_sheet["conditions"] = list(p.conditions)
-        broadcast(game_state, make_chat_broadcast("Sistema", full_msg))
-    else:
-        full_msg += "\n\n✨ Notte serena! Tutti recuperano HP e Slot Incantesimo (Riposo Lungo completato)."
-        for p in getattr(game_state, "players", []):
-            if not getattr(p, "is_party_member", False) and not getattr(p, "is_companion", False):
-                continue
-            if "Morto" in getattr(p, "conditions", []) or "Dead" in getattr(p, "conditions", []):
-                continue
-            _dm_s_camp = getattr(game_state, "automation_settings", {}) or {}
-            if not _dm_s_camp.get("opt_slow_natural_healing", False):
-                p.hp = p.max_hp
-            p.temp_hp = 0
-            from common.feats_and_classes import evaluate_armor_sleep, init_or_get_arcane_ward_hp
-            from common.dnd5e_tables import entity_get_class_level as _cls_lvl, entity_get_attr_mod as _attr_m
-            _sleep_res = evaluate_armor_sleep(p, game_state)
-            if not _sleep_res["blocks_exhaustion_recovery"]:
-                p.exhaustion_level = max(0, getattr(p, "exhaustion_level", 0) - 1)
-            elif getattr(p, "exhaustion_level", 0) > 0:
-                broadcast(game_state, make_chat_broadcast("Sistema", _sleep_res["note"]))
-            elif _sleep_res["penalized"]:
-                broadcast(game_state, make_chat_broadcast("Sistema", _sleep_res["note"]))
-            conds = [c for c in getattr(p, "conditions", []) if not c.startswith("Sfinimento") and c not in ("Incosciente", "Prono", "Avvelenato")]
-            if p.exhaustion_level > 0:
-                conds.append(f"Sfinimento (Liv. {p.exhaustion_level})")
-            p.conditions = conds
-            if getattr(p, "full_sheet", None):
-                p.full_sheet["hp_current"] = p.hp
-                p.full_sheet["exhaustion_level"] = p.exhaustion_level
-                p.full_sheet["conditions"] = list(conds)
-                p.full_sheet["temp_hp"] = 0
-                # D&D 5e RAW: Ripristina tutti gli slot incantesimo
-                if isinstance(p.full_sheet.get("spell_slots"), dict):
-                    for lvl_k, sl_data in p.full_sheet["spell_slots"].items():
-                        if isinstance(sl_data, dict):
-                            sl_data["current"] = sl_data.get("max", 0)
-                # D&D 5e RAW: Ripristina metà dei Dadi Vita (minimo 1)
-                lvl = int(p.full_sheet.get("level", 1) or 1)
-                _hd_frac = _sleep_res["hd_fraction"] if "_sleep_res" in locals() else 0.5
-                hd_rec = max(1, int(lvl * _hd_frac)) if _hd_frac < 0.5 else max(1, lvl // 2)
-                cur_hd = int(p.full_sheet.get("hit_dice_current", lvl) or 0)
-                p.full_sheet["hit_dice_current"] = min(lvl, cur_hd + hd_rec)
-                # Talento Fortunato (Lucky, PHB p. 167): ricarica 3 Punti Fortuna
-                p.full_sheet["lucky_points"] = 3
-                # Mago Abiuratore: ripristina Interdizione Arcana al massimo
-                _wiz_l = _cls_lvl(p, "mago", "wizard")
-                _sub_w = str(p.full_sheet.get("subclass", "") or "").lower()
-                if _wiz_l >= 2 and ("abiuraz" in _sub_w or "abjur" in _sub_w):
-                    p.full_sheet["arcane_ward_hp"] = max(1, 2 * _wiz_l + max(0, _attr_m(p, "INT")))
-                sp_max = int(p.full_sheet.get("spell_points_max", 0) or 0)
-                if sp_max > 0:
-                    p.full_sheet["spell_points_current"] = sp_max
-                p.relentless_rage_uses = 0
-                p.frightful_immune_list = []
-            from server.dm_monster_engine import restore_drain_penalties
-            restore_drain_penalties(p, rest_type="long")
-            if getattr(p, "conn", None):
-                from common.network_utils import send_message
-                send_message(p.conn, {"type": "DO_LONG_REST", "data": {}})
-        broadcast(game_state, make_chat_broadcast("Sistema", full_msg))
+                    p.full_sheet["hp_current"] = p.hp
+                    p.full_sheet["exhaustion_level"] = p.exhaustion_level
+                    p.full_sheet["conditions"] = list(conds)
+                    p.full_sheet["temp_hp"] = 0
+                    # D&D 5e RAW: Ripristina tutti gli slot incantesimo
+                    if isinstance(p.full_sheet.get("spell_slots"), dict):
+                        for lvl_k, sl_data in p.full_sheet["spell_slots"].items():
+                            if isinstance(sl_data, dict):
+                                sl_data["current"] = sl_data.get("max", 0)
+                    # D&D 5e RAW: Ripristina metà dei Dadi Vita (minimo 1)
+                    lvl = int(p.full_sheet.get("level", 1) or 1)
+                    _hd_frac = _sleep_res["hd_fraction"] if "_sleep_res" in locals() else 0.5
+                    hd_rec = max(1, int(lvl * _hd_frac)) if _hd_frac < 0.5 else max(1, lvl // 2)
+                    cur_hd = int(p.full_sheet.get("hit_dice_current", lvl) or 0)
+                    p.full_sheet["hit_dice_current"] = min(lvl, cur_hd + hd_rec)
+                    # Talento Fortunato (Lucky, PHB p. 167): ricarica 3 Punti Fortuna
+                    p.full_sheet["lucky_points"] = 3
+                    # Mago Abiuratore: ripristina Interdizione Arcana al massimo
+                    _wiz_l = _cls_lvl(p, "mago", "wizard")
+                    _sub_w = str(p.full_sheet.get("subclass", "") or "").lower()
+                    if _wiz_l >= 2 and ("abiuraz" in _sub_w or "abjur" in _sub_w):
+                        p.full_sheet["arcane_ward_hp"] = max(1, 2 * _wiz_l + max(0, _attr_m(p, "INT")))
+                    sp_max = int(p.full_sheet.get("spell_points_max", 0) or 0)
+                    if sp_max > 0:
+                        p.full_sheet["spell_points_current"] = sp_max
+                    p.relentless_rage_uses = 0
+                    p.frightful_immune_list = []
+                from server.dm_monster_engine import restore_drain_penalties
+                restore_drain_penalties(p, rest_type="long")
+                if getattr(p, "conn", None):
+                    pending_direct.append((p.conn, {"type": "DO_LONG_REST", "data": {}}))
+            pending_broadcasts.append(make_chat_broadcast("Sistema", full_msg))
+
+        state_snap = game_state.get_state_dict()
+
+    for b_msg in pending_broadcasts:
+        broadcast(game_state, b_msg)
+    for c_conn, c_msg in pending_direct:
+        send_message(c_conn, c_msg)
 
     game_state.log_dm_message(f"[NIGHT-CAMP] {full_msg}")
     game_state._trigger_gui_update()
-    broadcast(game_state, make_game_state(game_state.get_state_dict()))
+    broadcast(game_state, make_game_state(state_snap))
 
 def handle_generate_encounter_request(data, player, game_state):
+    if not _require_dm_or_error(player):
+        return
     if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
         data = data["data"]
-    biome = data.get("biome", getattr(game_state, "travel_biome", "foresta"))
-    danger = data.get("danger", getattr(game_state, "travel_danger", "moderate"))
+    with game_state.lock:
+        biome = data.get("biome", getattr(game_state, "travel_biome", "foresta"))
+        danger = data.get("danger", getattr(game_state, "travel_danger", "moderate"))
     is_night = bool(data.get("is_night", False))
     force_category = data.get("force_category")
 

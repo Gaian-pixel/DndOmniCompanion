@@ -3,14 +3,15 @@
 Handler per le richieste di aggiornamento e sincronizzazione del Diario di Campagna.
 """
 
-from common.network_utils import broadcast
-from common.protocol import make_journal_sync, make_chat_broadcast
+from common.network_utils import broadcast, is_dm_actor, send_message
+from common.protocol import make_journal_sync, make_chat_broadcast, make_error_reply
 
 
 def handle_journal_update_request(data, player, game_state):
     """Aggiorna titolo, prosa o note riservate di una specifica sessione del diario."""
-    is_dm = (player is None or getattr(player, "role", "") == "DM" or getattr(player, "conn", None) is None)
-    if not is_dm:
+    if not is_dm_actor(player):
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Solo il Dungeon Master può modificare il Diario di Campagna."))
         return
 
     session_index = data.get("session_index", -1)
@@ -46,8 +47,9 @@ def handle_journal_update_request(data, player, game_state):
 
 def handle_new_journal_session_request(data, player, game_state):
     """Inizia una nuova sessione all'interno del Diario Continuativo di Campagna."""
-    is_dm = (player is None or getattr(player, "role", "") == "DM" or getattr(player, "conn", None) is None)
-    if not is_dm:
+    if not is_dm_actor(player):
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Solo il Dungeon Master può aprire una nuova sessione del Diario."))
         return
 
     title = data.get("title", "")
@@ -85,8 +87,9 @@ def handle_new_journal_session_request(data, player, game_state):
 
 def handle_conclude_journal_session_request(data, player, game_state):
     """Archivia la sessione attiva generando la sintesi se non presente."""
-    is_dm = (player is None or getattr(player, "role", "") == "DM" or getattr(player, "conn", None) is None)
-    if not is_dm:
+    if not is_dm_actor(player):
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Solo il Dungeon Master può concludere la sessione del Diario."))
         return
 
     with game_state.lock:
