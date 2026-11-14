@@ -21,6 +21,7 @@ from common.item_modifiers import get_effective_attribute_from_dict, get_effecti
 from common.dnd5e_tables import (
     entity_has_keyword, entity_get_class_level, entity_get_total_level,
     entity_get_attr_mod, entity_find_resource, entity_spend_resource,
+    is_incapacitated_entity,
     roll_system_shock, roll_lingering_injury, roll_madness,
     DMG_POISONS, DMG_DISEASES, roll_chase_complication, get_max_free_dashes,
     get_breath_hold_rounds, get_suffocation_rounds
@@ -116,11 +117,53 @@ def is_immune_to_frightened_by_aura(entity, game_state) -> Tuple[bool, Optional[
     return False, None
 
 
+def _send_actor_error(player, actor, msg: str):
+    """Invia un messaggio di errore sul socket disponibile tra player e actor."""
+    conn = getattr(player, "conn", None) or getattr(actor, "conn", None)
+    if conn:
+        send_message(conn, make_error_reply(msg))
+
+
 def _resolve_actor(data, player, game_state):
-    """Restituisce l'attore autorizzato: solo il DM può specificare actor_name arbitrario."""
-    if _is_dm(player) and data.get("actor_name") and game_state:
-        return game_state.find_player(data.get("actor_name"))
+    """Restituisce l'attore autorizzato: solo il DM o il proprietario/maestro del compagno può specificare actor_name."""
+    req_name = data.get("actor_name") if isinstance(data, dict) else None
+    if req_name and game_state:
+        cand = game_state.find_player(req_name)
+        if cand is None:
+            _send_actor_error(player, None, f"Attore '{req_name}' non trovato.")
+            return None
+        if _is_dm(player):
+            return cand
+        p_name = getattr(player, "name", None)
+        if (
+            cand is player
+            or cand.name == p_name
+            or getattr(cand, "owner", None) == p_name
+            or getattr(cand, "master_name", None) == p_name
+        ):
+            return cand
+        _send_actor_error(player, None, f"Non sei autorizzato a controllare '{cand.name}'.")
+        return None
     return player
+
+
+def _check_combat_turn_and_incapacitated(actor, player, game_state, action_label: str = "agire", require_turn: bool = True) -> bool:
+    """Verifica che l'attore non sia incapacitato/a 0 PF e (se strict_turn_lock in combattimento) che sia il suo turno."""
+    if is_incapacitated_entity(actor):
+        _send_actor_error(player, actor, f"{actor.name} è incapacitato o a 0 PF e non può {action_label}!")
+        return False
+    if require_turn and game_state and getattr(game_state, "combat_active", False):
+        strict_lock = (
+            game_state.automation_settings.get("strict_turn_lock", False)
+            if isinstance(getattr(game_state, "automation_settings", None), dict)
+            else getattr(game_state, "strict_turn_lock", False)
+        )
+        if strict_lock and not _is_dm(player):
+            curr_turn = game_state.get_current_turn_player() if hasattr(game_state, "get_current_turn_player") else None
+            if curr_turn and curr_turn.name != actor.name:
+                _send_actor_error(player, actor, f"Non è il tuo turno in combattimento! È il turno di {curr_turn.name}.")
+                return False
+    return True
 
 
 def handle_lay_on_hands_request(data, player, game_state):
@@ -574,8 +617,10 @@ def handle_maneuver_request(data, player, game_state):
 
 def handle_hide_request(data, player, game_state):
     """Azione Nascondersi (PHB p. 192 / Azione Scaltra se Ladro 2+): tira Furtività e imposta is_hidden e stealth_score."""
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     if not actor:
+        return
+    if not _check_combat_turn_and_incapacitated(actor, player, game_state, "nascondersi"):
         return
     if _check_surprised_block(actor, game_state, "nascondersi"):
         return
@@ -589,11 +634,16 @@ def handle_hide_request(data, player, game_state):
             or entity_has_keyword(actor, "azione scaltra", "cunning action", "svanire", "vanish")
         )
         if not can_ba_hide:
-            if getattr(actor, "conn", None):
-                send_message(actor.conn, make_error_reply("Nascondersi come Azione Bonus richiede Azione Scaltra (Ladro Lv 2+)."))
+            _send_actor_error(player, actor, "Nascondersi come Azione Bonus richiede Azione Scaltra (Ladro Lv 2+).")
+            return
+        if getattr(game_state, "combat_active", False) and getattr(actor, "bonus_action_used_this_turn", False):
+            _send_actor_error(player, actor, "Hai già consumato la tua Azione Bonus in questo turno!")
             return
         actor.bonus_action_used_this_turn = True
     else:
+        if getattr(game_state, "combat_active", False) and getattr(actor, "has_acted_this_turn", False):
+            _send_actor_error(player, actor, "Hai già consumato la tua Azione principale in questo turno!")
+            return
         actor.has_acted_this_turn = True
 
     fs = getattr(actor, "full_sheet", None) or {}
@@ -668,15 +718,19 @@ def handle_hide_request(data, player, game_state):
 def handle_cunning_action_request(data, player, game_state):
     """Ladro Lv 2+ - Azione Scaltra (PHB p. 96): Scatto, Disimpegno o Nascondersi come Azione Bonus."""
     sub = str(data.get("sub_action", "dash")).lower()
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     if not actor:
+        return
+    if not _check_combat_turn_and_incapacitated(actor, player, game_state, "usare Azione Scaltra"):
         return
     if _check_surprised_block(actor, game_state, "usare Azione Scaltra"):
         return
     rogue_lvl = entity_get_class_level(actor, "ladro", "rogue")
     if rogue_lvl < 2 and not entity_has_keyword(actor, "azione scaltra", "cunning action"):
-        if getattr(actor, "conn", None):
-            send_message(actor.conn, make_error_reply("Azione Scaltra richiede Ladro Lv 2+."))
+        _send_actor_error(player, actor, "Azione Scaltra richiede Ladro Lv 2+.")
+        return
+    if getattr(game_state, "combat_active", False) and getattr(actor, "bonus_action_used_this_turn", False):
+        _send_actor_error(player, actor, "Hai già consumato la tua Azione Bonus in questo turno!")
         return
     if "hide" in sub or "nascond" in sub:
         new_d = dict(data)
@@ -706,8 +760,10 @@ def handle_cunning_action_request(data, player, game_state):
 
 def handle_ki_ability_request(data, player, game_state):
     """Monaco Lv 2+ (e Lv 14+ Anima di Diamante): Raffica di Colpi, Difesa Paziente, Passo del Vento, Anima di Diamante."""
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     if not actor:
+        return
+    if not _check_combat_turn_and_incapacitated(actor, player, game_state, "usare Punti Ki"):
         return
     if _check_surprised_block(actor, game_state, "usare Punti Ki"):
         return
@@ -826,8 +882,10 @@ def handle_ki_ability_request(data, player, game_state):
 
 def handle_mystic_arcanum_request(data, player, game_state):
     """Warlock Lv 11+ - Arcanum Mistico (PHB p. 108): incantesimi 6°-9° separati dagli slot del Patto (1/Riposo Lungo)."""
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     if not actor:
+        return
+    if not _check_combat_turn_and_incapacitated(actor, player, game_state, "usare Arcanum Mistico"):
         return
     slot_lvl = int(data.get("level", 6) or 6)
     spell_name = data.get("spell_name") or f"Arcanum {slot_lvl}° Livello"
@@ -880,10 +938,13 @@ def _is_silenced_for_verbal(actor, game_state) -> bool:
 def validate_spell_casting_rules(actor, spell_level: int, casting_time: str = "action", has_verbal: bool = True, game_state=None, is_subtle: bool = False) -> Tuple[bool, str]:
     """
     Valida le regole fondamentali del lancio incantesimi 5e RAW:
-    1. Silenzio / Componenti Verbali (PHB p. 203) — aggirato da Incantesimo Celato (Subtle Spell)
-    2. Regola Incantesimi Azione Bonus (PHB p. 202): se lanci un incantesimo come Azione Bonus in questo turno,
+    1. Incapacitazione e Ira Barbarica (PHB p. 48)
+    2. Silenzio / Componenti Verbali (PHB p. 203) — aggirato da Incantesimo Celato (Subtle Spell)
+    3. Regola Incantesimi Azione Bonus (PHB p. 202): se lanci un incantesimo come Azione Bonus in questo turno,
        l'unico altro incantesimo che puoi lanciare come Azione è un Trucchetto (livello 0)!
     """
+    if any(is_condition_active(getattr(actor, "conditions", []) or [], c) for c in ("Ira", "Rage")):
+        return False, f"🩸 {actor.name} è in IRA e non può lanciare incantesimi (PHB p. 48)!"
     if has_verbal and not is_subtle and _is_silenced_for_verbal(actor, game_state):
         return False, f"🔇 {actor.name} è in area di SILENZIO / Silenziato e non può lanciare incantesimi con componente Verbale (V)!"
     from server.dm_monster_engine import is_in_beholder_antimagic_cone
@@ -914,20 +975,82 @@ def validate_spell_casting_rules(actor, spell_level: int, casting_time: str = "a
     return True, "OK"
 
 
+def _consume_or_refund_server_spell_slot(actor, spell_level: int, consume: bool = True, prefer_pact: bool = False) -> Tuple[bool, str]:
+    """Consuma o rimborsa uno slot incantesimo / slot Patto sulla scheda server di `actor`."""
+    if spell_level <= 0:
+        return True, ""
+    fs = getattr(actor, "full_sheet", None)
+    if not isinstance(fs, dict):
+        return True, ""
+
+    slots = fs.get("spell_slots")
+    pact = fs.get("pact_slots")
+
+    def _sync_pact_attrs():
+        if isinstance(pact, dict):
+            actor.pact_slots_current = int(pact.get("current", getattr(actor, "pact_slots_current", 0)) or 0)
+            actor.pact_slots_max = int(pact.get("max", getattr(actor, "pact_slots_max", 0)) or 0)
+            actor.pact_slot_level = int(pact.get("level", getattr(actor, "pact_slot_level", 0)) or 0)
+
+    if not consume:
+        if isinstance(slots, dict):
+            sl = slots.get(str(spell_level))
+            if isinstance(sl, dict) and int(sl.get("current", 0) or 0) < int(sl.get("max", 0) or 0):
+                sl["current"] = int(sl.get("current", 0) or 0) + 1
+                return True, f"Slot {spell_level}° rimborsato ({sl['current']}/{sl.get('max', 0)})"
+            elif isinstance(sl, list) and len(sl) >= 2 and int(sl[0]) < int(sl[1]):
+                sl[0] = int(sl[0]) + 1
+                return True, f"Slot {spell_level}° rimborsato ({sl[0]}/{sl[1]})"
+        if isinstance(pact, dict) and int(pact.get("level", 0) or 0) >= spell_level:
+            if int(pact.get("current", 0) or 0) < int(pact.get("max", 0) or 0):
+                pact["current"] = int(pact.get("current", 0) or 0) + 1
+                _sync_pact_attrs()
+                return True, f"Slot Patto rimborsato ({pact['current']}/{pact.get('max', 0)})"
+        return False, ""
+
+    has_std = isinstance(slots, dict) and any(
+        (isinstance(v, dict) and int(v.get("max", 0) or 0) > 0)
+        or (isinstance(v, list) and len(v) >= 2 and int(v[1] or 0) > 0)
+        for v in slots.values()
+    )
+    has_pact = isinstance(pact, dict) and int(pact.get("max", 0) or 0) > 0
+    if not has_std and not has_pact:
+        return True, ""
+
+    from common.character_schema import consume_spell_or_pact_slot
+    ok, msg = consume_spell_or_pact_slot(fs, spell_level, prefer_pact=prefer_pact)
+    if ok:
+        _sync_pact_attrs()
+        return True, msg
+    return False, f"Nessuno slot incantesimo di {spell_level}° livello disponibile per {actor.name}!"
+
+
 def handle_cast_special_spell_request(data, player, game_state):
     """
     Gestisce Dardo Incantato (Magic Missile), Deflagrazione Occulta (Eldritch Blast), Raggio Rovente (Scorching Ray),
-    e verifica Silenzio / Regola Azione Bonus / Adepto Elementale / Maledizioni (Remove Curse).
+    e verifica Silenzio / Regola Azione Bonus / Ira / Incapacitazione / Economia Turno / Rimborso Slot.
     """
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     if not actor:
         return
-    if _check_surprised_block(actor, game_state, "lanciare incantesimi"):
-        return
+
+    req_id = data.get("request_id") if isinstance(data, dict) else None
+    if req_id:
+        recent_ids = getattr(actor, "_recent_spell_req_ids", None)
+        if not isinstance(recent_ids, list):
+            recent_ids = []
+            actor._recent_spell_req_ids = recent_ids
+        if req_id in recent_ids:
+            _send_actor_error(player, actor, "Richiesta lancio incantesimo duplicata ignorata.")
+            return
+        recent_ids.append(req_id)
+        if len(recent_ids) > 16:
+            del recent_ids[:-16]
 
     spell_name = str(data.get("spell_name", "Dardo Incantato")).strip()
     s_low = spell_name.lower()
-    cast_level = int(data.get("cast_level", 1) or 1)
+    raw_cast = data.get("cast_level")
+    parsed_cast = int(raw_cast) if raw_cast not in (None, "") else 1
     meta_arg = str(data.get("metamagic", "") or getattr(actor, "active_metamagic", "") or "")
     from common.spell_effects_engine import normalize_metamagic_key, maybe_trigger_wild_magic_surge, cast_iconic_spell
     m_key = normalize_metamagic_key(meta_arg)
@@ -939,14 +1062,66 @@ def handle_cast_special_spell_request(data, player, game_state):
     ct_low = str(casting_time or "action").lower()
     is_bonus_spell = "bonus" in ct_low
     is_reaction_spell = ("reaz" in ct_low or "react" in ct_low)
-    base_lvl = 0 if ("deflagrazione" in s_low or "eldritch blast" in s_low or int(data.get("base_level", 1) or 1) == 0) else cast_level
+    raw_base = data.get("base_level")
+    parsed_base = int(raw_base) if raw_base not in (None, "") else parsed_cast
+    base_lvl = 0 if ("deflagrazione" in s_low or "eldritch blast" in s_low or parsed_base == 0 or parsed_cast == 0) else max(1, parsed_cast)
+    cast_level = max(1, parsed_cast)
+
+    def _reject_cast(err_text: str):
+        if already_consumed_slot and base_lvl > 0 and not is_ritual:
+            refunded, ref_note = _consume_or_refund_server_spell_slot(actor, cast_level, consume=False)
+            if refunded and game_state:
+                broadcast(game_state, make_chat_broadcast("Sistema", f"♻️ [RIMBORSO SLOT] {actor.name}: {ref_note} (lancio respinto)."))
+        if game_state:
+            broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        _send_actor_error(player, actor, err_text)
+        if game_state:
+            broadcast(game_state, make_chat_broadcast("Sistema", err_text))
+
+    if is_incapacitated_entity(actor):
+        _reject_cast(f"{actor.name} è incapacitato o a 0 PF e non può lanciare incantesimi!")
+        return
+
+    if getattr(actor, "surprised", False) or any(str(c).lower() in ("sorpreso", "surprised") for c in getattr(actor, "conditions", [])):
+        if getattr(game_state, "combat_active", False):
+            _reject_cast(f"😱 {actor.name} è SORPRESO al 1° turno e non può lanciare incantesimi fino alla fine del turno (PHB p. 189)!")
+            return
+
+    if getattr(game_state, "combat_active", False):
+        strict_lock = (
+            game_state.automation_settings.get("strict_turn_lock", False)
+            if isinstance(getattr(game_state, "automation_settings", None), dict)
+            else getattr(game_state, "strict_turn_lock", False)
+        )
+        if is_reaction_spell:
+            if not data.get("_already_consumed_reaction") and getattr(actor, "has_reacted_this_turn", False):
+                _reject_cast(f"{actor.name} ha già consumato la sua Reazione in questo round!")
+                return
+        else:
+            if strict_lock and not _is_dm(player):
+                curr_turn = game_state.get_current_turn_player() if hasattr(game_state, "get_current_turn_player") else None
+                if curr_turn and curr_turn.name != actor.name:
+                    _reject_cast(f"Non è il tuo turno in combattimento! È il turno di {curr_turn.name}.")
+                    return
+            if is_bonus_spell:
+                if getattr(actor, "bonus_action_used_this_turn", False):
+                    _reject_cast(f"{actor.name} ha già consumato la tua/sua Azione Bonus in questo turno!")
+                    return
+            elif not is_ritual:
+                if getattr(actor, "has_acted_this_turn", False):
+                    _reject_cast(f"{actor.name} ha già consumato la sua Azione principale in questo turno!")
+                    return
 
     ok_rules, err_msg = validate_spell_casting_rules(actor, base_lvl, casting_time, has_verbal, game_state, is_subtle=is_subtle)
     if not ok_rules:
-        if getattr(actor, "conn", None):
-            send_message(actor.conn, make_error_reply(err_msg))
-        broadcast(game_state, make_chat_broadcast("Sistema", err_msg))
+        _reject_cast(err_msg)
         return
+
+    if not already_consumed_slot and base_lvl > 0 and not is_ritual:
+        ok_sl, err_sl = _consume_or_refund_server_spell_slot(actor, cast_level, consume=True)
+        if not ok_sl:
+            _reject_cast(err_sl)
+            return
 
     if m_key and getattr(actor, "active_metamagic", None):
         actor.active_metamagic = None
@@ -1002,6 +1177,7 @@ def handle_cast_special_spell_request(data, player, game_state):
         num_darts = 3 + max(0, cast_level - 1)
         if not target:
             broadcast(game_state, make_chat_broadcast("Sistema", f"✨ [DARDO INCANTATO Lv.{cast_level}] {actor.name} lancia {num_darts} dardi di forza ({num_darts} x 1d4+1)."))
+            broadcast(game_state, make_game_state(game_state.get_state_dict()))
             return
         conds = [str(c).lower() for c in getattr(target, "conditions", [])]
         has_shield = any(c in ("scudo", "shield") for c in conds)
@@ -1116,7 +1292,7 @@ def handle_cast_special_spell_request(data, player, game_state):
 # ==============================================================================
 
 def handle_toggle_non_lethal_request(data, player, game_state):
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     if not actor:
         return
     actor.non_lethal_mode = bool(data.get("non_lethal", not getattr(actor, "non_lethal_mode", False)))
@@ -1127,19 +1303,19 @@ def handle_toggle_non_lethal_request(data, player, game_state):
 
 def handle_healer_feat_request(data, player, game_state):
     """Talento Guaritore (Healer, PHB p. 167): 1d6 + 4 + livello PF con Kit da Guaritore."""
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     if not actor:
         return
+    if not _check_combat_turn_and_incapacitated(actor, player, game_state, "usare Guaritore"):
+        return
     if not entity_has_keyword(actor, "guaritore", "healer"):
-        if getattr(actor, "conn", None):
-            send_message(actor.conn, make_error_reply("Richiede il talento Guaritore (Healer)."))
+        _send_actor_error(player, actor, "Richiede il talento Guaritore (Healer).")
         return
     target = _get_target_or_self(data, actor, game_state) or actor
     t_fs_hl = getattr(target, "full_sheet", None) or {}
     t_type_hl = (str(t_fs_hl.get("type", "")) + " " + str(target.name)).lower()
     if getattr(target, "is_object", False) or any(k in t_type_hl for k in ("costrutto", "construct", "non morto", "non-morto", "undead", "golem")):
-        if getattr(actor, "conn", None):
-            send_message(actor.conn, make_error_reply("Il talento Guaritore non può curare Oggetti, Costrutti o Non Morti (PHB p. 167)."))
+        _send_actor_error(player, actor, "Il talento Guaritore non può curare Oggetti, Costrutti o Non Morti (PHB p. 167).")
         return
     t_lvl = entity_get_total_level(target)
     heal_val = roll_dice("1d6+4")["total"] + t_lvl
@@ -1157,12 +1333,11 @@ def handle_healer_feat_request(data, player, game_state):
 
 def handle_inspiring_leader_request(data, player, game_state):
     """Talento Condottiero Ispiratore (Inspiring Leader, PHB p. 167): +Livello + Mod CAR Temp HP al party."""
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     if not actor:
         return
     if not entity_has_keyword(actor, "condottiero ispiratore", "inspiring leader"):
-        if getattr(actor, "conn", None):
-            send_message(actor.conn, make_error_reply("Richiede il talento Condottiero Ispiratore (Inspiring Leader)."))
+        _send_actor_error(player, actor, "Richiede il talento Condottiero Ispiratore (Inspiring Leader).")
         return
     temp_amt = max(1, entity_get_total_level(actor) + entity_get_attr_mod(actor, "CAR"))
     buffed = []
@@ -1187,7 +1362,7 @@ def handle_frightful_presence_request(data, player, game_state):
         if getattr(player, "conn", None):
             send_message(player.conn, make_error_reply("Solo il Dungeon Master può attivare Presenza Terrificante."))
         return
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     if not actor:
         return
     dc = int(data.get("dc", 16) or 16)
@@ -1237,7 +1412,7 @@ def handle_swallow_request(data, player, game_state):
         if getattr(player, "conn", None):
             send_message(player.conn, make_error_reply("Solo il Dungeon Master può attivare Inghiottire."))
         return
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     target = _get_target_or_self(data, player, game_state)
     release = bool(data.get("release", False))
     if not actor or not target:
@@ -1350,9 +1525,11 @@ def handle_dmg_maneuver_request(data, player, game_state):
         if player and getattr(player, "conn", None):
             send_message(player.conn, make_error_reply("Le Manovre Opzionali DMG sono disabilitate dal Master nel pannello automazioni."))
         return
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     target = _get_target_or_self(data, player, game_state)
     if not actor or not target:
+        return
+    if not _check_combat_turn_and_incapacitated(actor, player, game_state, "usare una Manovra DMG"):
         return
     if _check_surprised_block(actor, game_state, "usare una Manovra DMG"):
         return
@@ -1529,7 +1706,7 @@ def handle_apply_poison_or_disease_request(data, player, game_state):
 
 def handle_chase_dash_request(data, player, game_state):
     """DMG p. 252-255: Inseguimenti - Scatti gratuiti = 3 + mod COS, oltre scatta TS COS CD 10 o Sfinimento + Complicazione d20."""
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     if not actor:
         return
     con_mod = entity_get_attr_mod(actor, "COS")
@@ -1612,8 +1789,10 @@ def handle_survival_tick_request(data, player, game_state):
 
 def handle_mount_request(data, player, game_state):
     """Combattimento in Sella (PHB p. 198): collega o smonta un cavaliere dalla cavalcatura."""
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     if not actor:
+        return
+    if not _check_combat_turn_and_incapacitated(actor, player, game_state, "montare o smontare di sella"):
         return
     mount_name = data.get("mount_name")
     if not mount_name or data.get("dismount"):
@@ -1680,7 +1859,7 @@ def handle_surprise_request(data, player, game_state):
 
 def handle_submerged_breath_request(data, player, game_state):
     """Combattimento Subacqueo & Soffocamento (PHB p. 183 & 198)."""
-    actor = game_state.find_player(data.get("actor_name")) if data.get("actor_name") else player
+    actor = _resolve_actor(data, player, game_state)
     if not actor:
         return
     action = str(data.get("action", "toggle_submerged")).lower()
@@ -1743,10 +1922,13 @@ def handle_class_feature_request(data, player, game_state):
     actor = _resolve_actor(data, player, game_state)
     if not actor:
         return
+    feat = str(data.get("feature", "") or "").strip().lower()
+    combat_turn_feats = ("action_surge", "azione_furente", "azione_impetuosa", "second_wind", "secondo_fiato", "secondo fiato", "rage", "ira", "ira_barbarica")
+    if not _check_combat_turn_and_incapacitated(actor, player, game_state, "usare un privilegio di classe", require_turn=(feat in combat_turn_feats)):
+        return
     if _check_surprised_block(actor, game_state, "usare un privilegio di classe"):
         return
 
-    feat = str(data.get("feature", "") or "").strip().lower()
     target = _get_target_or_self(data, actor, game_state) or actor
     fs = getattr(actor, "full_sheet", None)
     if not isinstance(fs, dict):
@@ -1759,29 +1941,28 @@ def handle_class_feature_request(data, player, game_state):
         has_surge_feat = (
             f_lvl >= 2
             or entity_has_keyword(actor, "azione impetuosa", "azione furente", "action surge")
-            or bool(data.get("already_consumed"))
         )
         if not has_surge_feat:
-            if getattr(actor, "conn", None):
-                send_message(actor.conn, make_error_reply("Azione Furente richiede Guerriero Lv 2+."))
+            _send_actor_error(player, actor, "Azione Furente richiede Guerriero Lv 2+.")
             return
-        if not data.get("already_consumed"):
-            cr_dict = fs.setdefault("class_resources", {})
-            if isinstance(cr_dict, dict) and cr_dict.get("action_surge") is False and entity_find_resource(actor, "azione impetuosa", "azione furente", "action surge") is None:
-                if getattr(actor, "conn", None):
-                    send_message(actor.conn, make_error_reply("Azione Furente già utilizzata! Si ricarica con un Riposo Breve o Lungo."))
-                return
-            if entity_find_resource(actor, "azione impetuosa", "azione furente", "action surge") is None:
-                max_as = 2 if f_lvl >= 17 else 1
-                fs.setdefault("custom_resources", []).append({"name": "Azione Furente", "current": max_as, "max": max_as, "reset_on": "short"})
-            ok_as, new_c, _ = entity_spend_resource(actor, ("azione impetuosa", "azione furente", "action surge"), 1)
-            if not ok_as:
-                if getattr(actor, "conn", None):
-                    send_message(actor.conn, make_error_reply("Usi di Azione Furente esauriti."))
-                return
-            if isinstance(cr_dict, dict):
-                cr_dict["action_surge"] = (new_c > 0)
+        if getattr(game_state, "combat_active", False) and getattr(actor, "action_surge_used_this_turn", False):
+            _send_actor_error(player, actor, "Puoi usare Azione Furente solo una volta per turno (PHB p. 72)!")
+            return
+        cr_dict = fs.setdefault("class_resources", {})
+        if isinstance(cr_dict, dict) and cr_dict.get("action_surge") is False and entity_find_resource(actor, "azione impetuosa", "azione furente", "action surge") is None:
+            _send_actor_error(player, actor, "Azione Furente già utilizzata! Si ricarica con un Riposo Breve o Lungo.")
+            return
+        if entity_find_resource(actor, "azione impetuosa", "azione furente", "action surge") is None:
+            max_as = 2 if f_lvl >= 17 else 1
+            fs.setdefault("custom_resources", []).append({"name": "Azione Furente", "current": max_as, "max": max_as, "reset_on": "short"})
+        ok_as, new_c, _ = entity_spend_resource(actor, ("azione impetuosa", "azione furente", "action surge"), 1)
+        if not ok_as:
+            _send_actor_error(player, actor, "Usi di Azione Furente esauriti.")
+            return
+        if isinstance(cr_dict, dict):
+            cr_dict["action_surge"] = (new_c > 0)
         with game_state.lock:
+            actor.action_surge_used_this_turn = True
             actor.has_acted_this_turn = False
             actor.attacks_made_this_turn = 0
         msg = f"⚡ [AZIONE FURENTE] {actor.name} scatena Azione Furente e ottiene un'Azione Standard aggiuntiva in questo turno!"
@@ -1796,32 +1977,26 @@ def handle_class_feature_request(data, player, game_state):
         has_sw_feat = (
             f_lvl >= 1
             or entity_has_keyword(actor, "secondo fiato", "second wind")
-            or bool(data.get("already_consumed"))
         )
         if not has_sw_feat:
-            if getattr(actor, "conn", None):
-                send_message(actor.conn, make_error_reply("Secondo Fiato richiede Guerriero Lv 1+."))
+            _send_actor_error(player, actor, "Secondo Fiato richiede Guerriero Lv 1+.")
             return
         in_combat = bool(getattr(game_state, "combat_active", False))
         if in_combat and getattr(actor, "bonus_action_used_this_turn", False):
-            if getattr(actor, "conn", None):
-                send_message(actor.conn, make_error_reply("Hai già consumato la tua Azione Bonus in questo turno!"))
+            _send_actor_error(player, actor, "Hai già consumato la tua Azione Bonus in questo turno!")
             return
-        if not data.get("already_consumed"):
-            cr_dict = fs.setdefault("class_resources", {})
-            if isinstance(cr_dict, dict) and cr_dict.get("second_wind") is False and entity_find_resource(actor, "secondo fiato", "second wind") is None:
-                if getattr(actor, "conn", None):
-                    send_message(actor.conn, make_error_reply("Secondo Fiato già utilizzato! Si ricarica con un Riposo Breve o Lungo."))
-                return
-            if entity_find_resource(actor, "secondo fiato", "second wind") is None:
-                fs.setdefault("custom_resources", []).append({"name": "Secondo Fiato", "current": 1, "max": 1, "reset_on": "short"})
-            ok_sw, new_c, _ = entity_spend_resource(actor, ("secondo fiato", "second wind"), 1)
-            if not ok_sw:
-                if getattr(actor, "conn", None):
-                    send_message(actor.conn, make_error_reply("Secondo Fiato esaurito."))
-                return
-            if isinstance(cr_dict, dict):
-                cr_dict["second_wind"] = (new_c > 0)
+        cr_dict = fs.setdefault("class_resources", {})
+        if isinstance(cr_dict, dict) and cr_dict.get("second_wind") is False and entity_find_resource(actor, "secondo fiato", "second wind") is None:
+            _send_actor_error(player, actor, "Secondo Fiato già utilizzato! Si ricarica con un Riposo Breve o Lungo.")
+            return
+        if entity_find_resource(actor, "secondo fiato", "second wind") is None:
+            fs.setdefault("custom_resources", []).append({"name": "Secondo Fiato", "current": 1, "max": 1, "reset_on": "short"})
+        ok_sw, new_c, _ = entity_spend_resource(actor, ("secondo fiato", "second wind"), 1)
+        if not ok_sw:
+            _send_actor_error(player, actor, "Secondo Fiato esaurito.")
+            return
+        if isinstance(cr_dict, dict):
+            cr_dict["second_wind"] = (new_c > 0)
         eff_lvl = max(1, f_lvl or int(fs.get("level", 1) or 1))
         raw_heal = data.get("heal_amount")
         try:
@@ -1830,6 +2005,8 @@ def handle_class_feature_request(data, player, game_state):
             heal_val = 0
         if heal_val <= 0:
             heal_val = roll_dice(f"1d10+{eff_lvl}")["total"]
+        else:
+            heal_val = max(1 + eff_lvl, min(10 + eff_lvl, heal_val))
         with game_state.lock:
             if in_combat:
                 actor.bonus_action_used_this_turn = True
@@ -1852,35 +2029,59 @@ def handle_class_feature_request(data, player, game_state):
         has_rage_feat = (
             b_lvl >= 1
             or entity_has_keyword(actor, "ira", "rage")
-            or bool(data.get("already_consumed"))
         )
         if not has_rage_feat:
-            if getattr(actor, "conn", None):
-                send_message(actor.conn, make_error_reply("Ira Barbarica richiede Barbaro Lv 1+."))
+            _send_actor_error(player, actor, "Ira Barbarica richiede Barbaro Lv 1+.")
+            return
+        from common.feats_and_classes import _normalize_armor_category
+        from common.item_modifiers import calculate_character_item_modifiers
+        eq_armor = calculate_character_item_modifiers(actor).get("equipped_armor")
+        wearing_heavy = bool(
+            eq_armor
+            and _normalize_armor_category(
+                eq_armor.get("category") or eq_armor.get("armor_type") or eq_armor.get("name", "")
+            ) == "heavy"
+        )
+        if not wearing_heavy:
+            for it in (fs.get("inventory_grid", []) or []):
+                if isinstance(it, dict) and (it.get("container") == "equipped" or it.get("equipped") is True):
+                    if _normalize_armor_category(
+                        it.get("category") or it.get("armor_type") or it.get("name", "")
+                    ) == "heavy":
+                        wearing_heavy = True
+                        break
+        if wearing_heavy:
+            _send_actor_error(player, actor, f"🛡️ {actor.name} indossa un'armatura pesante e non può entrare in Ira Barbarica (PHB p. 48)!")
+            return
+        if any(is_condition_active(getattr(actor, "conditions", []) or [], c) for c in ("Ira", "Rage")):
+            _send_actor_error(player, actor, f"🩸 {actor.name} è già in Ira Barbarica!")
             return
         if getattr(game_state, "combat_active", False) and getattr(actor, "bonus_action_used_this_turn", False):
-            if getattr(actor, "conn", None):
-                send_message(actor.conn, make_error_reply("Hai già consumato la tua Azione Bonus in questo turno!"))
+            _send_actor_error(player, actor, "Hai già consumato la tua Azione Bonus in questo turno!")
             return
-        if not data.get("already_consumed"):
-            cr_dict = fs.setdefault("class_resources", {})
-            max_rage = 99 if b_lvl >= 20 else (6 if b_lvl >= 17 else (5 if b_lvl >= 12 else (4 if b_lvl >= 6 else (3 if b_lvl >= 3 else 2))))
-            if entity_find_resource(actor, "ira", "rage") is not None:
-                ok_rg, new_rg, _ = entity_spend_resource(actor, ("ira", "rage"), 1)
-                if not ok_rg:
-                    if getattr(actor, "conn", None):
-                        send_message(actor.conn, make_error_reply("Utilizzi di Ira Barbarica esauriti per oggi."))
-                    return
-                if isinstance(cr_dict, dict):
-                    cr_dict["rage_current"] = new_rg
-            else:
-                cur_r = int(cr_dict.get("rage_current", max_rage) if isinstance(cr_dict, dict) else max_rage)
-                if cur_r <= 0:
-                    if getattr(actor, "conn", None):
-                        send_message(actor.conn, make_error_reply("Utilizzi di Ira Barbarica esauriti per oggi."))
-                    return
-                if isinstance(cr_dict, dict):
-                    cr_dict["rage_current"] = cur_r - 1
+        cr_dict = fs.setdefault("class_resources", {})
+        max_rage = 99 if b_lvl >= 20 else (6 if b_lvl >= 17 else (5 if b_lvl >= 12 else (4 if b_lvl >= 6 else (3 if b_lvl >= 3 else 2))))
+        if entity_find_resource(actor, "ira", "rage") is not None:
+            ok_rg, new_rg, _ = entity_spend_resource(actor, ("ira", "rage"), 1)
+            if not ok_rg:
+                _send_actor_error(player, actor, "Utilizzi di Ira Barbarica esauriti per oggi.")
+                return
+            if isinstance(cr_dict, dict):
+                cr_dict["rage_current"] = new_rg
+        else:
+            cur_r = int(cr_dict.get("rage_current", max_rage) if isinstance(cr_dict, dict) else max_rage)
+            if cur_r <= 0:
+                _send_actor_error(player, actor, "Utilizzi di Ira Barbarica esauriti per oggi.")
+                return
+            if isinstance(cr_dict, dict):
+                cr_dict["rage_current"] = cur_r - 1
+        from server.rules.combat import drop_concentration
+        if (
+            getattr(actor, "concentrating_on", None)
+            or getattr(actor, "concentrating_spell", None)
+            or is_condition_active(getattr(actor, "conditions", []) or [], "Concentrazione")
+        ):
+            drop_concentration(actor, game_state, notify=True, reason="entrando in Ira (PHB p. 48)")
         with game_state.lock:
             if getattr(game_state, "combat_active", False):
                 actor.bonus_action_used_this_turn = True
@@ -1888,6 +2089,9 @@ def handle_class_feature_request(data, player, game_state):
                 actor.conditions = []
             if "Ira" not in actor.conditions:
                 actor.conditions.append("Ira")
+            if not hasattr(actor, "condition_durations") or not isinstance(actor.condition_durations, dict):
+                actor.condition_durations = {}
+            actor.condition_durations["Ira"] = 10
             _sync_sheet_conditions(actor)
         msg = f"🩸 [IRA BARBARICA] {actor.name} entra in IRA come Azione Bonus!"
         broadcast(game_state, make_player_stats_update(actor.name, actor.hp, actor.max_hp, actor.initiative, actor.conditions, getattr(actor, "temp_hp", 0)))

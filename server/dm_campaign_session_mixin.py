@@ -27,68 +27,100 @@ from common.theme import (
 )
 
 
-def _find_free_party_spawn_hex(game_state) -> list:
-    """Return the first unoccupied non-wall hex near map spawn or origin for tabletop PC placement."""
+def _safe_import_int(val, default=0) -> int:
+    try:
+        if val is None or isinstance(val, bool):
+            return int(default)
+        if isinstance(val, str):
+            val = val.strip()
+            if not val:
+                return int(default)
+        return int(float(val))
+    except (ValueError, TypeError):
+        return int(default)
+
+
+def _find_free_party_spawn_hex(game_state, exclude_name=None) -> list:
+    """Return the first unoccupied non-wall hex near map spawn or origin within map bounds for tabletop PC placement."""
     cur_map = getattr(game_state, "current_map", None) or {}
     raw_spawn = cur_map.get("spawn_point") if isinstance(cur_map, dict) else None
     base_q, base_r = (
-        (int(raw_spawn[0]), int(raw_spawn[1]))
+        (_safe_import_int(raw_spawn[0], 0), _safe_import_int(raw_spawn[1], 0))
         if isinstance(raw_spawn, (list, tuple)) and len(raw_spawn) >= 2
         else (0, 0)
     )
+    raw_w = _safe_import_int(cur_map.get("width") if isinstance(cur_map, dict) else None, 0)
+    raw_h = _safe_import_int(cur_map.get("height") if isinstance(cur_map, dict) else None, 0)
+    has_bounds = (raw_w > 0 and raw_h > 0)
+
     occupied = {
-        tuple(p.position)
+        (_safe_import_int(p.position[0], 0), _safe_import_int(p.position[1], 0))
         for p in getattr(game_state, "players", [])
-        if isinstance(getattr(p, "position", None), (list, tuple)) and len(p.position) >= 2
+        if p.name != exclude_name
+        and isinstance(getattr(p, "position", None), (list, tuple))
+        and len(p.position) >= 2
     }
     walls = {
-        tuple(w)
+        (_safe_import_int(w[0], 0), _safe_import_int(w[1], 0))
         for w in (cur_map.get("walls", []) if isinstance(cur_map, dict) else [])
         if isinstance(w, (list, tuple)) and len(w) >= 2
     }
+    max_radius = max(12, raw_w, raw_h)
     offsets = [(0, 0)]
-    for radius in range(1, 6):
+    for radius in range(1, min(max_radius, 30) + 1):
         for dq in range(-radius, radius + 1):
             for dr in range(-radius, radius + 1):
                 if max(abs(dq), abs(dr), abs(-dq - dr)) == radius:
                     offsets.append((dq, dr))
+
+    fallback = None
     for dq, dr in offsets:
         cand = (base_q + dq, base_r + dr)
-        if cand not in occupied and cand not in walls:
-            return [cand[0], cand[1]]
-    return [base_q, base_r]
+        if cand in occupied or cand in walls:
+            continue
+        if has_bounds and not (0 <= cand[0] < raw_w and 0 <= cand[1] < raw_h):
+            if fallback is None:
+                fallback = [cand[0], cand[1]]
+            continue
+        return [cand[0], cand[1]]
+    return fallback if fallback is not None else [base_q, base_r]
 
 
 def import_party_character_to_game_state(game_state, char_dict, spawn_pos=None):
     """Spawn or refresh a saved local Character dict/instance as an active party token in GameState."""
     from common.game_state import Player
     from common.item_modifiers import compute_effective_ac
+    from common.character_schema import normalize_character_dict
 
-    raw = char_dict.to_dict() if hasattr(char_dict, "to_dict") else copy.deepcopy(char_dict)
-    if not isinstance(raw, dict):
+    raw_orig = char_dict.to_dict() if hasattr(char_dict, "to_dict") else copy.deepcopy(char_dict)
+    if not isinstance(raw_orig, dict):
         raise ValueError("Dati personaggio non validi.")
+    raw = normalize_character_dict(copy.deepcopy(raw_orig))
+    if isinstance(raw, dict):
+        for k, v in raw_orig.items():
+            raw.setdefault(k, copy.deepcopy(v))
     name = str(raw.get("name", "") or "").strip()
     if not name:
         raise ValueError("Nome personaggio mancante.")
 
     attrs = raw.get("attributes", {}) if isinstance(raw.get("attributes"), dict) else {}
-    dex_val = int(attrs.get("DES", attrs.get("DEX", 10)) or 10)
+    dex_val = _safe_import_int(attrs.get("DES", attrs.get("DEX", 10)), 10)
     dex_mod = (dex_val - 10) // 2
-    try:
-        raw_init = raw.get("initiative")
-        init_bonus = int(raw_init) if (raw_init is not None and int(raw_init) != 0) else dex_mod
-    except (ValueError, TypeError):
+    raw_init = raw.get("initiative")
+    init_bonus = _safe_import_int(raw_init, dex_mod)
+    if raw_init is None or _safe_import_int(raw_init, 0) == 0:
         init_bonus = dex_mod
 
     try:
-        eff_ac = int(compute_effective_ac(raw))
+        eff_ac = _safe_import_int(compute_effective_ac(raw), 10)
     except Exception:
-        eff_ac = int(raw.get("ac", 10) or 10)
+        eff_ac = _safe_import_int(raw.get("ac", 10), 10)
 
-    max_hp = max(1, int(raw.get("hp_max", 10) or 10))
-    hp = int(raw.get("hp_current", max_hp) if raw.get("hp_current") is not None else max_hp)
-    temp_hp = int(raw.get("temp_hp", 0) or 0)
-    speed = int(raw.get("speed", 30) or 30)
+    max_hp = max(1, _safe_import_int(raw.get("hp_max", raw.get("max_hp", 10)), 10))
+    raw_cur_hp = raw.get("hp_current", raw.get("hp", max_hp))
+    hp = _safe_import_int(raw_cur_hp, max_hp) if raw_cur_hp is not None else max_hp
+    temp_hp = max(0, _safe_import_int(raw.get("temp_hp", 0), 0))
+    speed = max(0, _safe_import_int(raw.get("speed", 30), 30))
     speed_unit = raw.get("speed_unit", None)
     avatar_b64 = raw.get("avatar_b64", None)
     pact = raw.get("pact_slots", {}) if isinstance(raw.get("pact_slots"), dict) else {}
@@ -96,10 +128,13 @@ def import_party_character_to_game_state(game_state, char_dict, spawn_pos=None):
     with game_state.lock:
         existing = game_state.find_player(name)
         player = existing or Player(name)
+        player.role = "player"
         player.is_party_member = True
         player.is_npc = False
         player.layer = "token"
         player.is_hidden = False
+        player._preserve_server_state_on_join = True
+        player._preserve_stats_on_join = True
         player.hp = hp
         player.max_hp = max_hp
         player.temp_hp = temp_hp
@@ -113,19 +148,43 @@ def import_party_character_to_game_state(game_state, char_dict, spawn_pos=None):
         player.damage_resistances = list(raw.get("damage_resistances", []) or [])
         player.damage_immunities = list(raw.get("damage_immunities", []) or [])
         player.damage_vulnerabilities = list(raw.get("damage_vulnerabilities", []) or [])
-        player.exhaustion_level = int(raw.get("exhaustion_level", 0) or 0)
-        player.pact_slots_max = int(pact.get("max", 0) or 0)
-        player.pact_slots_current = int(pact.get("current", 0) or 0)
-        player.pact_slot_level = int(pact.get("level", 0) or 0)
+        player.exhaustion_level = max(0, _safe_import_int(raw.get("exhaustion_level", 0), 0))
+        player.hit_dice_max = max(0, _safe_import_int(raw.get("hit_dice_max", raw.get("hit_dice_total", raw.get("level", 1))), 1))
+        player.hit_dice_current = max(0, _safe_import_int(raw.get("hit_dice_current", player.hit_dice_max), player.hit_dice_max))
+        player.spell_points_max = max(0, _safe_import_int(raw.get("spell_points_max", 0), 0))
+        player.spell_points_current = max(0, _safe_import_int(raw.get("spell_points_current", 0), 0))
+        player.inspiration = bool(raw.get("inspiration", False))
+        player.size = str(raw.get("size", getattr(player, "size", "Medium")) or "Medium")
+        player.creature_type = str(raw.get("creature_type", getattr(player, "creature_type", "Humanoid")) or "Humanoid")
+        player.pact_slots_max = max(0, _safe_import_int(pact.get("max", 0), 0))
+        player.pact_slots_current = max(0, _safe_import_int(pact.get("current", 0), 0))
+        player.pact_slot_level = max(0, _safe_import_int(pact.get("level", 0), 0))
+        cur_map = getattr(game_state, "current_map", None) or {}
+        walls = {
+            (_safe_import_int(w[0], 0), _safe_import_int(w[1], 0))
+            for w in (cur_map.get("walls", []) if isinstance(cur_map, dict) else [])
+            if isinstance(w, (list, tuple)) and len(w) >= 2
+        }
+        occupied = {
+            (_safe_import_int(p.position[0], 0), _safe_import_int(p.position[1], 0))
+            for p in getattr(game_state, "players", [])
+            if p.name != name
+            and isinstance(getattr(p, "position", None), (list, tuple))
+            and len(p.position) >= 2
+        }
         if spawn_pos is not None and isinstance(spawn_pos, (list, tuple)) and len(spawn_pos) >= 2:
-            player.position = [int(spawn_pos[0]), int(spawn_pos[1])]
+            cand_pos = (_safe_import_int(spawn_pos[0], 0), _safe_import_int(spawn_pos[1], 0))
+            if cand_pos not in walls and cand_pos not in occupied:
+                player.position = [cand_pos[0], cand_pos[1]]
+            else:
+                player.position = _find_free_party_spawn_hex(game_state, exclude_name=name)
         elif not existing:
-            player.position = _find_free_party_spawn_hex(game_state)
+            player.position = _find_free_party_spawn_hex(game_state, exclude_name=name)
         if not existing:
             game_state.add_player(player)
         if player.check_has_darkvision():
             player.has_darkvision = True
-            player.vision_radius = max(12, int(getattr(player, "vision_radius", 6) or 6))
+            player.vision_radius = max(12, _safe_import_int(getattr(player, "vision_radius", 6), 6))
     return player
 
 

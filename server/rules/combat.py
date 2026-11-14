@@ -45,6 +45,30 @@ def has_effect_or_condition(entity, name_it, name_en=None):
             return True
     return False
 
+def _end_rage_if_unconscious(target_player, game_state=None) -> bool:
+    """Termina automaticamente l'Ira barbarica se il personaggio cade privo di sensi / a 0 PF (PHB p. 48)."""
+    if not target_player:
+        return False
+    rage_keys = {"ira", "rage", "ira barbarica", "barbarian rage"}
+    conds = list(getattr(target_player, "conditions", []) or [])
+    removed = any(str(c).strip().lower() in rage_keys for c in conds)
+    if removed:
+        target_player.conditions = [c for c in conds if str(c).strip().lower() not in rage_keys]
+    durs = getattr(target_player, "condition_durations", None)
+    if isinstance(durs, dict):
+        for k in list(durs.keys()):
+            if str(k).strip().lower() in rage_keys:
+                durs.pop(k, None)
+                removed = True
+    fs = getattr(target_player, "full_sheet", None)
+    if removed and isinstance(fs, dict):
+        fs["conditions"] = list(getattr(target_player, "conditions", []) or [])
+    if removed and game_state is not None:
+        msg = f"💨 L'Ira di {target_player.name} termina (0 PF / privo di sensi)."
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        game_state.log_dm_message(f"[COMBAT] {msg}")
+    return removed
+
 def _spawn_corpse_loot(target_player, game_state):
     """Spawna automaticamente un forziere con le spoglie sulla mappa quando un mostro o PNG muore a 0 HP."""
     if not game_state or not getattr(game_state, "current_map", None):
@@ -155,11 +179,15 @@ def drop_concentration(player, game_state, notify=True, reason=None):
     had_conc = False
     old_conc_spell = str(
         getattr(player, "concentrating_on", "")
+        or getattr(player, "concentrating_spell", "")
         or (player.full_sheet.get("concentrating_on", "") if isinstance(getattr(player, "full_sheet", None), dict) else "")
         or ""
     ).lower()
     if getattr(player, "concentrating_on", None):
         player.concentrating_on = None
+        had_conc = True
+    if getattr(player, "concentrating_spell", None):
+        player.concentrating_spell = None
         had_conc = True
     if hasattr(player, "conditions") and "Concentrazione" in player.conditions:
         player.conditions.remove("Concentrazione")
@@ -831,6 +859,7 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
         drop_concentration(target_player, game_state, notify=(not is_npc))
 
     if target_player.hp == 0:
+        _end_rage_if_unconscious(target_player, game_state)
         if is_non_lethal:
             # PHB p. 198: Colpo Non Letale - mette KO la creatura rendendola Incosciente e Stabile
             if not hasattr(target_player, "conditions"): target_player.conditions = []
@@ -1034,6 +1063,7 @@ def _apply_hp_change(target_player, new_hp_unbounded, game_state):
     
     if target_player.hp == 0:
         drop_concentration(target_player, game_state, notify=(not is_npc))
+        _end_rage_if_unconscious(target_player, game_state)
         if is_npc:
             if "Morto" not in getattr(target_player, "conditions", []):
                 if not hasattr(target_player, "conditions"): target_player.conditions = []
@@ -1288,7 +1318,10 @@ def advance_combat_turn(game_state, ending_player=None):
             next_p.slasher_slow_ft = 0
             next_p.open_hand_no_reactions = False
             # Scadenza eventuale Azione Preparata non innescata (PHB p. 193)
-            if getattr(next_p, "readied_action_data", None) or "Azione Preparata" in getattr(next_p, "conditions", []):
+            _expired_ready_flag = bool(getattr(next_p, "_expired_readied_action_this_turn", False))
+            if _expired_ready_flag:
+                next_p._expired_readied_action_this_turn = False
+            if _expired_ready_flag or getattr(next_p, "readied_action_data", None) or "Azione Preparata" in getattr(next_p, "conditions", []):
                 next_p.readied_action_data = None
                 if "Azione Preparata" in getattr(next_p, "conditions", []):
                     next_p.conditions.remove("Azione Preparata")
@@ -1578,8 +1611,15 @@ def handle_attack_request(data, player, game_state):
     is_reaction = bool(data.get("is_reaction", False))
     is_bonus_action = bool(data.get("is_bonus_action", False))
     _prev_ba_used = bool(getattr(player, "bonus_action_used_this_turn", False))
+    _prev_reacted_used = bool(getattr(player, "has_reacted_this_turn", False))
     _prev_attacks_made = getattr(player, "attacks_made_this_turn", 0)
     _prev_has_acted = bool(getattr(player, "has_acted_this_turn", False))
+    _reaction_already_consumed = bool(data.get("_already_consumed_reaction", False))
+    if is_reaction and not _reaction_already_consumed:
+        if getattr(player, "has_reacted_this_turn", False):
+            if player and getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply("Hai già consumato la tua Reazione in questo round!"))
+            return
     if getattr(game_state, "combat_active", False) and strict_lock and not is_reaction:
         curr_turn = game_state.get_current_turn_player()
         if curr_turn and curr_turn.name != player.name:
@@ -1644,6 +1684,8 @@ def handle_attack_request(data, player, game_state):
         player.attacks_made_this_turn += 1
         if player.attacks_made_this_turn >= max_attacks:
             player.has_acted_this_turn = True
+    elif is_reaction and not _reaction_already_consumed:
+        player.has_reacted_this_turn = True
     
     try:
         # 1. Roll to Hit
@@ -1713,6 +1755,7 @@ def handle_attack_request(data, player, game_state):
                     player.attacks_made_this_turn = _prev_attacks_made
                     player.has_acted_this_turn = _prev_has_acted
                     player.bonus_action_used_this_turn = _prev_ba_used
+                    player.has_reacted_this_turn = _prev_reacted_used
                     if player and getattr(player, "conn", None):
                         send_message(player.conn, make_error_reply(f"Bersaglio fuori portata! Portata dell'arma: {int(max_reach * 5)} ft ({int(max_reach)} caselle). Bersaglio a {dist_3d:.1f} caselle."))
                     return
@@ -1991,6 +2034,7 @@ def handle_attack_request(data, player, game_state):
             player.attacks_made_this_turn = _prev_attacks_made
             player.has_acted_this_turn = _prev_has_acted
             player.bonus_action_used_this_turn = _prev_ba_used
+            player.has_reacted_this_turn = _prev_reacted_used
             _sanc_msg = f"🕊️ [SANTUARIO] L'attacco di {player.name} contro {target_name} fallisce: {_spell_fx_mods['notes'][-1]}"
             broadcast(game_state, make_chat_broadcast("Sistema", _sanc_msg))
             game_state.log_dm_message(f"[COMBAT] {_sanc_msg}")
@@ -4007,9 +4051,46 @@ def handle_ready_action_request(data, player, game_state):
         data = data["data"]
     if not player:
         return
+    if is_incapacitated_entity(player) or getattr(player, "hp", 1) <= 0:
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Non puoi preparare un'azione mentre sei incapacitato o a 0 PF!"))
+        return
+    from server.rules.class_abilities import _check_surprised_block
+    if _check_surprised_block(player, game_state, "preparare un'azione"):
+        return
+
     trigger_text = str(data.get("trigger_text", "Appena si verifica la condizione") or "Appena si verifica la condizione").strip()
     readied_action = str(data.get("readied_action", "Attacco") or "Attacco").strip()
     is_spell = bool(data.get("is_spell", False))
+
+    if is_spell and is_condition_active(getattr(player, "conditions", []), "Ira"):
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Non puoi preparare o lanciare incantesimi mentre sei in Ira!"))
+        return
+
+    prev_acted = bool(getattr(player, "has_acted_this_turn", False))
+    if getattr(game_state, "combat_active", False):
+        if not _validate_combat_tactical_action(player, game_state, "Preparare un'Azione (Ready)"):
+            return
+
+    if is_spell and data.get("slot_level"):
+        try:
+            slot_lvl = int(data["slot_level"])
+        except (ValueError, TypeError):
+            slot_lvl = 0
+        if slot_lvl > 0:
+            from common.character_schema import consume_spell_or_pact_slot
+            fs = getattr(player, "full_sheet", None)
+            has_slot_tracking = isinstance(fs, dict) and bool(fs.get("spell_slots") or fs.get("pact_slots"))
+            if has_slot_tracking:
+                ok_slot, _ = consume_spell_or_pact_slot(fs, slot_lvl)
+                if not ok_slot:
+                    player.has_acted_this_turn = prev_acted
+                    if getattr(player, "conn", None):
+                        send_message(player.conn, make_error_reply(f"Nessuno slot incantesimo di {slot_lvl}° livello disponibile per preparare l'incantesimo!"))
+                    return
+            else:
+                consume_spell_or_pact_slot(fs if isinstance(fs, dict) else player, slot_lvl)
 
     player.readied_action_data = {
         "trigger": trigger_text,
@@ -4028,16 +4109,15 @@ def handle_ready_action_request(data, player, game_state):
     if is_spell:
         # PHB p. 193: preparare un incantesimo consuma subito lo slot e richiede Concentrazione (rompe quella precedente)
         drop_concentration(player, game_state, notify=True)
-        if data.get("slot_level"):
-            try:
-                from common.character_schema import consume_spell_or_pact_slot
-                consume_spell_or_pact_slot(player, int(data["slot_level"]))
-            except (ValueError, TypeError):
-                pass
         if "Concentrazione" not in player.conditions:
             player.conditions.append("Concentrazione")
-        player.concentrating_spell = f"Preparato: {readied_action}"
+        prep_label = f"Preparato: {readied_action}"
+        player.concentrating_on = prep_label
+        player.concentrating_spell = prep_label
         conc_note = " [🧠 Concentrazione attiva sull'incantesimo preparato (PHB p. 193)]"
+
+    if isinstance(getattr(player, "full_sheet", None), dict):
+        player.full_sheet["conditions"] = list(player.conditions)
 
     msg = f"⏱️ **Azione Preparata (PHB p. 193)**: {player.name} prepara «{readied_action}» con innesco: *«{trigger_text}»*{conc_note}."
     broadcast(game_state, make_chat_broadcast("Sistema", msg))
@@ -4053,6 +4133,13 @@ def handle_trigger_readied_action_request(data, player, game_state):
     if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
         data = data["data"]
     if not player:
+        return
+    if is_incapacitated_entity(player) or getattr(player, "hp", 1) <= 0:
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Non puoi innescare un'azione preparata mentre sei incapacitato o a 0 PF!"))
+        return
+    from server.rules.class_abilities import _check_surprised_block
+    if _check_surprised_block(player, game_state, "innescare l'azione preparata"):
         return
     if getattr(player, "has_reacted_this_turn", False):
         if getattr(player, "conn", None):
@@ -4074,6 +4161,14 @@ def handle_trigger_readied_action_request(data, player, game_state):
     player.readied_action_data = None
     if "Azione Preparata" in getattr(player, "conditions", []):
         player.conditions.remove("Azione Preparata")
+    was_prepared_conc = str(getattr(player, "concentrating_spell", "") or getattr(player, "concentrating_on", "") or "").startswith("Preparato:")
+    if was_prepared_conc:
+        player.concentrating_spell = None
+        player.concentrating_on = None
+        if "Concentrazione" in getattr(player, "conditions", []):
+            player.conditions.remove("Concentrazione")
+    if isinstance(getattr(player, "full_sheet", None), dict):
+        player.full_sheet["conditions"] = list(getattr(player, "conditions", []) or [])
 
     msg = f"⚡ **Innesco Azione Preparata**: {player.name} usa la propria REAZIONE in risposta a *«{trigger_str}»* ed esegue **{action_str}**{target_suffix}!"
     broadcast(game_state, make_chat_broadcast("Sistema", msg))
@@ -4086,7 +4181,13 @@ def handle_trigger_readied_action_request(data, player, game_state):
         if target_name:
             payload.setdefault("target_name", target_name)
         payload["is_reaction"] = True
-        if payload.get("target_name"):
+        payload["_already_consumed_reaction"] = True
+        if payload.get("spell_name"):
+            from server.rules.class_abilities import handle_cast_special_spell_request
+            payload.setdefault("casting_time", "Reazione")
+            payload.setdefault("already_consumed_slot", True)
+            handle_cast_special_spell_request(payload, player, game_state)
+        elif payload.get("target_name"):
             handle_attack_request(payload, player, game_state)
 
 def handle_set_automation_mode_request(data, player, game_state):

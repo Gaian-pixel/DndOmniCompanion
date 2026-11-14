@@ -104,6 +104,8 @@ class Player:
         self.pact_slots_current = 0
         self.pact_slot_level = 0
         self.temp_hp_pending = None
+        self.action_surge_used_this_turn = False
+        self._extra_fields = {}
 
 
 
@@ -233,7 +235,8 @@ class Player:
             return 0
 
     def to_dict(self):
-        return {
+        import copy as _copy
+        out = {
             "name": self.name, 
             "position": self.position,
             "hp": self.hp,
@@ -335,7 +338,14 @@ class Player:
             "pact_slots_max": getattr(self, "pact_slots_max", 0),
             "pact_slots_current": getattr(self, "pact_slots_current", 0),
             "pact_slot_level": getattr(self, "pact_slot_level", 0),
+            "action_surge_used_this_turn": getattr(self, "action_surge_used_this_turn", False),
         }
+        extra = getattr(self, "_extra_fields", None)
+        if isinstance(extra, dict):
+            for k, v in extra.items():
+                if k not in out:
+                    out[k] = _copy.deepcopy(v)
+        return out
 
     @classmethod
     def from_dict(cls, data):
@@ -440,6 +450,22 @@ class Player:
         p.pact_slots_max = data.get("pact_slots_max", 0)
         p.pact_slots_current = data.get("pact_slots_current", 0)
         p.pact_slot_level = data.get("pact_slot_level", 0)
+        p.action_surge_used_this_turn = bool(data.get("action_surge_used_this_turn", False))
+        if isinstance(p.full_sheet, dict):
+            from common.character_schema import normalize_character_dict
+            had_name = "name" in p.full_sheet
+            seed = p.full_sheet if had_name else {"name": p.name, **p.full_sheet}
+            norm_fs = normalize_character_dict(seed)
+            if not had_name:
+                norm_fs.pop("name", None)
+            p.full_sheet = norm_fs
+        import copy as _copy
+        known_keys = set(p.to_dict().keys())
+        p._extra_fields = {
+            k: _copy.deepcopy(v)
+            for k, v in data.items()
+            if k not in known_keys
+        }
         return p
 
 
@@ -540,6 +566,7 @@ class GameState:
         self.pending_legendary_resistances = {} # id -> dict
         self.active_complex_traps = []
         self.active_regional_effects = []
+        self._extra_state_fields = {}
 
     def set_automation_mode(self, mode: str, custom_settings: dict = None):
         """Imposta il profilo di automazione della campagna (manual, hybrid, full) e aggiorna i flag."""
@@ -695,6 +722,7 @@ class GameState:
                     p.last_move_dir = None
                     p.spell_cast_bonus_action_this_turn = False
                     p.spell_cast_action_level_this_turn = None
+                    p.action_surge_used_this_turn = False
             else:
                 for p in self.players:
                     p.in_combat = True
@@ -706,6 +734,7 @@ class GameState:
                     p.last_move_dir = None
                     p.spell_cast_bonus_action_this_turn = False
                     p.spell_cast_action_level_this_turn = None
+                    p.action_surge_used_this_turn = False
                     
             # Ordina i giocatori in combattimento per iniziativa decrescente, e sposta gli altri in fondo
             iv_mode = (getattr(self, "automation_settings", {}) or {}).get("opt_init_variant", "standard")
@@ -744,6 +773,7 @@ class GameState:
                 p.last_move_dir = None
                 p.spell_cast_bonus_action_this_turn = False
                 p.spell_cast_action_level_this_turn = None
+                p.action_surge_used_this_turn = False
                 p.surprised = False
                 p.attacks_made_this_turn = 0
                 if hasattr(p, "conditions") and p.conditions:
@@ -883,18 +913,27 @@ class GameState:
                 active.attacks_made_this_turn = 0
                 active.has_reacted_this_turn = False
                 active.sneak_attack_used_this_turn = False
+                active.action_surge_used_this_turn = False
+                active._expired_readied_action_this_turn = False
                 start_of_turn_conds = start_of_turn_conds | {"Attacco Irruento", "Reckless Attack"}
                 for c_p in combatants:
                     c_p.sneak_attack_used_this_turn = False
                     c_p.swallow_damage_taken = 0
-                if hasattr(active, "conditions") and active.conditions:
-                    active.conditions = [c for c in active.conditions if c not in start_of_turn_conds and c not in ("Scudo", "Shield", "Azione Preparata")]
+                had_readied = bool(getattr(active, "readied_action_data", None)) or ("Azione Preparata" in (getattr(active, "conditions", None) or []))
                 if getattr(active, "readied_action_data", None):
                     # PHB p. 193: L'azione preparata non innescata prima dell'inizio del turno successivo scade (incantesimo preparato svanisce!)
-                    if active.readied_action_data.get("is_spell") and getattr(active, "concentrating_on", None):
-                        if str(active.concentrating_on).startswith("Preparato:"):
+                    if active.readied_action_data.get("is_spell"):
+                        conc_val = str(getattr(active, "concentrating_on", "") or getattr(active, "concentrating_spell", "") or "")
+                        if conc_val.startswith("Preparato:"):
                             active.concentrating_on = None
+                            active.concentrating_spell = None
+                            if hasattr(active, "conditions") and active.conditions:
+                                active.conditions = [c for c in active.conditions if c != "Concentrazione"]
                     active.readied_action_data = None
+                if had_readied:
+                    active._expired_readied_action_this_turn = True
+                if hasattr(active, "conditions") and active.conditions:
+                    active.conditions = [c for c in active.conditions if c not in start_of_turn_conds and c not in ("Scudo", "Shield", "Azione Preparata")]
                 # Scadenza Azione di Aiuto all'inizio del turno successivo dell'aiutante (PHB p. 192)
                 for h_tgt_name in list(getattr(active, "helped_targets_this_turn", []) or []):
                     h_tgt = self.find_player(h_tgt_name)
@@ -1349,6 +1388,11 @@ class GameState:
                 state_out["active_map_id"] = getattr(self, "active_map_id", None)
                 state_out["pending_legendary_resistances"] = copy.deepcopy(getattr(self, "pending_legendary_resistances", {}))
                 state_out["campaign_starter_kit"] = copy.deepcopy(getattr(self, "campaign_starter_kit", None))
+                extra_st = getattr(self, "_extra_state_fields", None)
+                if isinstance(extra_st, dict):
+                    for ek, ev in extra_st.items():
+                        if ek not in state_out:
+                            state_out[ek] = copy.deepcopy(ev)
             return state_out
 
     def move_player(self, name, new_pos):
@@ -1476,6 +1520,21 @@ class GameState:
                 else:
                     loaded_players.append(Player.from_dict(p_data))
             self.players = loaded_players
+            known_state_keys = {
+                "players", "map", "maps", "active_map_id", "combat_active", "turn_index", "turn_player_name",
+                "round_number", "active_aoes", "drawn_lines", "time_day", "time_month", "time_year",
+                "time_hour", "time_minute", "time_second", "weather", "calendar_events", "quests",
+                "handouts", "shops", "travel_hours_today", "travel_pace", "travel_terrain",
+                "travel_biome", "travel_danger", "travel_miles_today", "camp_watch_shifts",
+                "camp_has_campfire", "active_campaign_folder", "automation_mode", "automation_settings",
+                "pending_damages", "pending_doors", "active_complex_traps", "active_regional_effects",
+                "campaign_journal", "pending_legendary_resistances", "campaign_starter_kit",
+            }
+            self._extra_state_fields = {
+                k: copy.deepcopy(v)
+                for k, v in state.items()
+                if k not in known_state_keys
+            }
         
         self._trigger_gui_update()
         self.log_dm_message(f"[SISTEMA] Sessione caricata da {filepath}")

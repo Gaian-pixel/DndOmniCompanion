@@ -2,6 +2,7 @@ import tkinter as tk
 import html
 import re
 import threading
+import uuid
 import urllib.request
 import urllib.parse
 import json
@@ -302,6 +303,36 @@ class FeatureEditorDialog(tk.Toplevel):
             
         ttk.Button(btn_box, text="💾 Salva", command=save_and_close, style="Success.TButton").pack(side=tk.RIGHT, padx=4)
         ttk.Button(btn_box, text="Annulla", command=self.destroy).pack(side=tk.RIGHT, padx=4)
+
+
+def _prevalidate_client_spell_cast(char, spell: dict, is_subtle: bool = False):
+    """Pre-valida le regole 5e fondamentali (0 PF/Incapacitato, Ira, Silenzio senza Celato, armatura non competente) prima di consumare risorse client."""
+    if not char:
+        return True, ""
+    try:
+        hp_val = int(getattr(char, "hp_current", getattr(char, "hp", 1)) or 0)
+    except (ValueError, TypeError):
+        hp_val = 1
+    from common.dnd5e_tables import is_incapacitated_entity
+    if hp_val <= 0 or is_incapacitated_entity(char):
+        return False, "Non puoi lanciare incantesimi mentre sei a 0 PF o incapacitato!"
+    conds = [str(c).strip().lower() for c in (getattr(char, "conditions", []) or [])]
+    if any(c in ("ira", "rage", "ira barbarica", "barbarian rage") for c in conds):
+        return False, "Non puoi lanciare incantesimi mentre sei in Ira Barbarica (PHB p. 48)!"
+    comps = str((spell or {}).get("components", "V") or "V").upper()
+    has_verbal = "V" in comps
+    if has_verbal and not is_subtle and any(
+        k in c for c in conds for k in ("silenzi", "silenc", "imbavagliat", "gagged", "muto")
+    ):
+        return False, "Sei Silenziato e non puoi lanciare incantesimi con componente Verbale (V)!"
+    try:
+        from common.feats_and_classes import get_armor_nonproficiency_penalties
+        pen = get_armor_nonproficiency_penalties(char)
+        if pen.get("cannot_cast_spells"):
+            return False, f"Indossi armatura/scudo senza competenza ({', '.join(pen.get('missing', []))}) e non puoi lanciare incantesimi (PHB p. 144)!"
+    except Exception:
+        pass
+    return True, ""
 
 
 def _get_spell_action_cost_type(spell: dict, metamagic_key: str = "") -> str:
@@ -2603,6 +2634,39 @@ class CharacterSheetFrame(ttk.Frame):
         else:
             self.pact_slots_row.pack_forget()
 
+    def sync_resources_from_character(self):
+        """Sincronizza i widget locali di slot incantesimo, Patto e PF da self.character."""
+        if not getattr(self, "character", None):
+            return
+        slots = getattr(self.character, "spell_slots", None)
+        if isinstance(slots, dict):
+            for lvl, vals in slots.items():
+                l_key = str(lvl)
+                if l_key in getattr(self, "slot_vars", {}):
+                    try:
+                        if isinstance(vals, dict):
+                            self.slot_vars[l_key]["current"].set(int(vals.get("current", 0) or 0))
+                            self.slot_vars[l_key]["max"].set(int(vals.get("max", 0) or 0))
+                        elif isinstance(vals, (list, tuple)) and len(vals) >= 2:
+                            self.slot_vars[l_key]["current"].set(int(vals[0] or 0))
+                            self.slot_vars[l_key]["max"].set(int(vals[1] or 0))
+                    except Exception:
+                        pass
+        try:
+            self.update_pact_slots_label()
+        except Exception:
+            pass
+        if hasattr(self, "hp_cur_var") and getattr(self.character, "hp_current", None) is not None:
+            try:
+                self.hp_cur_var.set(int(self.character.hp_current))
+            except Exception:
+                pass
+        if hasattr(self, "hp_max_var") and getattr(self.character, "hp_max", None) is not None:
+            try:
+                self.hp_max_var.set(int(self.character.hp_max))
+            except Exception:
+                pass
+
     def refresh_spell_list(self):
         SpellsPanel.refresh_spell_list(self)
 
@@ -2786,6 +2850,14 @@ class CharacterSheetFrame(ttk.Frame):
                     self.character.spell_slots[l_k]["max"] = v_dict["max"].get()
 
             meta_choice = "" if meta_var.get() == "Nessuna" else meta_var.get()
+            ok_pre, err_pre = _prevalidate_client_spell_cast(
+                self.character,
+                spell,
+                is_subtle=("celato" in meta_choice.lower() or "subtle" in meta_choice.lower()),
+            )
+            if not ok_pre:
+                messagebox.showwarning("Lancio Impossibile", err_pre, parent=win)
+                return
             ok_res, res_tags, err_res = SpellsPanel.execute_spell_resource_cost(
                 self.character,
                 spell,
@@ -2872,6 +2944,7 @@ class CharacterSheetFrame(ttk.Frame):
                         concentration=requires_conc,
                         action_cost_type=cost_type,
                         spell_data=spell,
+                        request_id=uuid.uuid4().hex[:12],
                     )
                 except Exception:
                     pass
@@ -2890,6 +2963,14 @@ class CharacterSheetFrame(ttk.Frame):
             eff_cast_lvl = lvl if is_ritual_cast else (upcast_var.get() if lvl > 0 else 0)
             meta_choice = "" if meta_var.get() == "Nessuna" else meta_var.get()
             cost_type = _get_spell_action_cost_type(spell, meta_choice)
+            ok_pre, err_pre = _prevalidate_client_spell_cast(
+                self.character,
+                spell,
+                is_subtle=("celato" in meta_choice.lower() or "subtle" in meta_choice.lower()),
+            )
+            if not ok_pre:
+                messagebox.showwarning("Lancio Impossibile", err_pre, parent=win)
+                return
 
             if lvl > 0 and SpellsPanel.spell_preparation_required(self.character) and spell.get("prepared", True) is False:
                 cls_low = str(getattr(self.character, "char_class", "") or "").lower()
@@ -2984,6 +3065,7 @@ class CharacterSheetFrame(ttk.Frame):
                         action_cost_type=cost_type,
                         spell_data=spell,
                         hit_bonus=hit_bonus,
+                        request_id=uuid.uuid4().hex[:12],
                     )
                 except Exception:
                     pass

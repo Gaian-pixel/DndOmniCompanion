@@ -6,6 +6,7 @@ Una campagna organizza metadati, mappe/scene, incontri preparati, quest, PNG e h
 
 import os
 import json
+import copy
 import re
 from typing import Dict, List, Any, Optional
 from common.file_utils import safe_write_json
@@ -72,9 +73,10 @@ class Campaign:
         # Diario Continuativo di Campagna (Multi-Session Journal)
         from common.campaign_journal import CampaignJournal
         self.journal = CampaignJournal(campaign_name=self.name)
+        self._extra_fields: Dict[str, Any] = {}
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        res = {
             "name": self.name,
             "description": self.description,
             "level_range": self.level_range,
@@ -94,6 +96,9 @@ class Campaign:
             "flow_graph": self.flow_graph,
             "journal": self.journal.to_dict() if hasattr(self.journal, "to_dict") else self.journal,
         }
+        for k, v in getattr(self, "_extra_fields", {}).items():
+            res.setdefault(k, copy.deepcopy(v))
+        return res
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any], folder_path: Optional[str] = None) -> "Campaign":
@@ -119,6 +124,17 @@ class Campaign:
             c.journal = CampaignJournal.from_dict(data["journal"])
         else:
             c.journal = CampaignJournal(campaign_name=c.name)
+        known_keys = {
+            "name", "description", "level_range", "dm_notes", "start_date",
+            "start_weather", "starter_kit", "starting_map_file", "scenes",
+            "encounters", "quests", "npcs", "factions", "shops", "treasures",
+            "handouts", "flow_graph", "journal",
+        }
+        c._extra_fields = {
+            k: copy.deepcopy(v)
+            for k, v in data.items()
+            if k not in known_keys
+        }
         return c
 
     def save(self, target_folder: Optional[str] = None) -> str:

@@ -7,6 +7,7 @@ from common.protocol import (
     make_player_stats_update,
 )
 from common.network_utils import send_message, broadcast
+import copy
 import math
 from server.rules.combat import _apply_hp_change, apply_damage
 from common.dice import roll_dice
@@ -45,48 +46,64 @@ def handle_update_stats_request(data, player, game_state):
             temp_hp = getattr(target, "temp_hp", 0)
         pending_fow_map = False
         stats_payload = None
+        preserved_on_reconnect = False
         with game_state.lock:
-            target.max_hp = max_hp
-            target.temp_hp = max(0, temp_hp)
-            if data.get("initiative") is not None:
-                target.initiative_bonus = initiative
-                if not (getattr(game_state, "combat_active", False) and getattr(target, "in_combat", False)):
-                    target.initiative = initiative
-            target.conditions = conditions
-            if "light_radius" in data:
-                target.light_radius = max(0, int(data["light_radius"]))
-            if "light_color" in data:
-                target.light_color = str(data["light_color"])
-            if "elevation" in data:
-                old_elev = getattr(target, "elevation", 0)
-                new_elev = int(data["elevation"])
-                target.elevation = new_elev
-                if old_elev > new_elev and data.get("is_fall", False):
-                    from server.rules.combat import resolve_falling
-                    resolve_falling(target, old_elev - new_elev, game_state)
-            incap = ("incapacitato", "incapacitated", "incosciente", "unconscious", "paralizzato", "paralyzed", "stordito", "stunned", "pietrificato", "petrified", "morto", "dead")
-            if any(str(c).strip().lower() in incap for c in conditions) or hp <= 0:
-                from server.rules.combat import drop_concentration
-                drop_concentration(target, game_state, notify=True)
-            _apply_hp_change(target, hp, game_state)
-            if isinstance(getattr(target, "full_sheet", None), dict):
-                target.full_sheet["hp_current"] = target.hp
-                target.full_sheet["hp"] = target.hp
-                target.full_sheet["current_hp"] = target.hp
-                target.full_sheet["hp_max"] = target.max_hp
-                target.full_sheet["max_hp"] = target.max_hp
-                target.full_sheet["temp_hp"] = target.temp_hp
-                target.full_sheet["conditions"] = list(target.conditions)
-            from server.rules.movement import auto_explore_fow
-            pending_fow_map = bool(auto_explore_fow(target, game_state))
-            stats_payload = make_player_stats_update(
-                target.name, target.hp, target.max_hp, target.initiative,
-                list(target.conditions), target.temp_hp, elevation=getattr(target, "elevation", 0)
-            )
+            if getattr(target, "_preserve_stats_on_join", False) and not is_dm:
+                target._preserve_stats_on_join = False
+                preserved_on_reconnect = True
+                if data.get("initiative") is not None:
+                    target.initiative_bonus = initiative
+                    if not (getattr(game_state, "combat_active", False) and getattr(target, "in_combat", False)):
+                        target.initiative = initiative
+                stats_payload = make_player_stats_update(
+                    target.name, target.hp, target.max_hp, target.initiative,
+                    list(getattr(target, "conditions", []) or []), getattr(target, "temp_hp", 0),
+                    elevation=getattr(target, "elevation", 0),
+                )
+            else:
+                target.max_hp = max_hp
+                target.temp_hp = max(0, temp_hp)
+                if data.get("initiative") is not None:
+                    target.initiative_bonus = initiative
+                    if not (getattr(game_state, "combat_active", False) and getattr(target, "in_combat", False)):
+                        target.initiative = initiative
+                target.conditions = conditions
+                if "light_radius" in data:
+                    target.light_radius = max(0, int(data["light_radius"]))
+                if "light_color" in data:
+                    target.light_color = str(data["light_color"])
+                if "elevation" in data:
+                    old_elev = getattr(target, "elevation", 0)
+                    new_elev = int(data["elevation"])
+                    target.elevation = new_elev
+                    if old_elev > new_elev and data.get("is_fall", False):
+                        from server.rules.combat import resolve_falling
+                        resolve_falling(target, old_elev - new_elev, game_state)
+                incap = ("incapacitato", "incapacitated", "incosciente", "unconscious", "paralizzato", "paralyzed", "stordito", "stunned", "pietrificato", "petrified", "morto", "dead")
+                if any(str(c).strip().lower() in incap for c in conditions) or hp <= 0:
+                    from server.rules.combat import drop_concentration
+                    drop_concentration(target, game_state, notify=True)
+                _apply_hp_change(target, hp, game_state)
+                if isinstance(getattr(target, "full_sheet", None), dict):
+                    target.full_sheet["hp_current"] = target.hp
+                    target.full_sheet["hp"] = target.hp
+                    target.full_sheet["current_hp"] = target.hp
+                    target.full_sheet["hp_max"] = target.max_hp
+                    target.full_sheet["max_hp"] = target.max_hp
+                    target.full_sheet["temp_hp"] = target.temp_hp
+                    target.full_sheet["conditions"] = list(target.conditions)
+                from server.rules.movement import auto_explore_fow
+                pending_fow_map = bool(auto_explore_fow(target, game_state))
+                stats_payload = make_player_stats_update(
+                    target.name, target.hp, target.max_hp, target.initiative,
+                    list(target.conditions), target.temp_hp, elevation=getattr(target, "elevation", 0)
+                )
         if pending_fow_map:
             broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
         game_state._trigger_gui_update()
         broadcast(game_state, stats_payload)
+        if preserved_on_reconnect:
+            broadcast(game_state, make_game_state(game_state.get_state_dict()))
     except Exception as e:
         print("Errore handle_update_stats_request:", e)
 
@@ -143,6 +160,8 @@ def handle_update_full_sheet_request(data, player, game_state):
             existing_sheet = getattr(player, "full_sheet", None)
             had_existing_sheet = isinstance(existing_sheet, dict) and bool(existing_sheet)
             is_dm = is_dm_actor(player)
+            preserve_reconnect = bool(getattr(player, "_preserve_server_state_on_join", False))
+            player._preserve_server_state_on_join = False
 
             # Preserva i flag di starter kit lato server per impedire ri-assegnazioni ripetute
             if had_existing_sheet:
@@ -179,6 +198,28 @@ def handle_update_full_sheet_request(data, player, game_state):
                 char_data["hp"] = char_data["hp_current"]
                 char_data["current_hp"] = char_data["hp_current"]
                 char_data["max_hp"] = char_data["hp_max"]
+
+                if preserve_reconnect:
+                    for dict_k in ("spell_slots", "pact_slots", "class_resources"):
+                        if isinstance(existing_sheet.get(dict_k), dict):
+                            char_data[dict_k] = copy.deepcopy(existing_sheet[dict_k])
+                    if isinstance(existing_sheet.get("custom_resources"), list):
+                        char_data["custom_resources"] = copy.deepcopy(existing_sheet["custom_resources"])
+                    for sc_k in ("spell_points_current", "spell_points_max", "hit_dice_current", "exhaustion_level", "inspiration"):
+                        if sc_k in existing_sheet and existing_sheet[sc_k] is not None:
+                            char_data[sc_k] = existing_sheet[sc_k]
+                    srv_temp = getattr(player, "temp_hp", existing_sheet.get("temp_hp", 0))
+                    char_data["temp_hp"] = max(0, int(srv_temp or 0))
+                    srv_conds = getattr(player, "conditions", None)
+                    if isinstance(srv_conds, list):
+                        char_data["conditions"] = list(srv_conds)
+                    elif isinstance(existing_sheet.get("conditions"), list):
+                        char_data["conditions"] = list(existing_sheet["conditions"])
+                    if isinstance(existing_sheet.get("pact_slots"), dict):
+                        pact_s = existing_sheet["pact_slots"]
+                        player.pact_slots_max = int(pact_s.get("max", 0) or 0)
+                        player.pact_slots_current = int(pact_s.get("current", 0) or 0)
+                        player.pact_slot_level = int(pact_s.get("level", 0) or 0)
 
                 server_currency = existing_sheet.get("currency", {})
                 client_currency = char_data.get("currency", {})
