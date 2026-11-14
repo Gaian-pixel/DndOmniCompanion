@@ -4,6 +4,8 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import socket
 import threading
+import hmac
+import time
 import queue
 import tkinter as tk
 import json
@@ -43,10 +45,17 @@ def sanitize_client_payload(data, player):
 
 
 class Server:
-    def __init__(self, host, port, gui_queue):
+    AUTH_MAX_ATTEMPTS = 5
+    AUTH_LOCKOUT_SECONDS = 30.0
+    AUTH_WINDOW_SECONDS = 60.0
+
+    def __init__(self, host, port, gui_queue, session_password: str = ""):
         self.host=host; self.port=port; self.server_socket=None; self.running=False
         self.active_sockets = set()
         self.active_sockets_lock = threading.Lock()
+        self.session_password = str(session_password or "").strip()
+        self._auth_failures = {}
+        self._auth_lock = threading.Lock()
         self.game_state=GameState(gui_queue)
         from common.starter_equipment import get_campaign_starter_kit
         self.game_state.campaign_starter_kit = get_campaign_starter_kit()
@@ -54,6 +63,63 @@ class Server:
         self.game_state.audio_library = AudioLibrary()
         self.game_state.current_music = None  # ultimo messaggio AUDIO_TRACK_PLAY in loop, per chi si collega dopo
         self.voice_server = VoiceServer(self.host, 53912)
+
+    def set_session_password(self, password: str):
+        """Imposta o rimuove la password/PIN di sessione richiesta per il JOIN."""
+        with self._auth_lock:
+            self.session_password = str(password or "").strip()
+            self._auth_failures.clear()
+
+    def _is_ip_rate_limited(self, ip: str, now: float = None) -> bool:
+        if now is None:
+            now = time.monotonic()
+        with self._auth_lock:
+            rec = self._auth_failures.get(ip)
+            if not rec:
+                return False
+            locked_until = float(rec.get("locked_until", 0.0) or 0.0)
+            if locked_until > now:
+                return True
+            if locked_until > 0.0 and locked_until <= now:
+                self._auth_failures.pop(ip, None)
+            elif (now - float(rec.get("window_start", now))) > self.AUTH_WINDOW_SECONDS:
+                self._auth_failures.pop(ip, None)
+            return False
+
+    def _record_auth_failure(self, ip: str, now: float = None) -> bool:
+        if now is None:
+            now = time.monotonic()
+        with self._auth_lock:
+            rec = self._auth_failures.get(ip)
+            if not rec or (now - float(rec.get("window_start", now))) > self.AUTH_WINDOW_SECONDS:
+                rec = {"count": 0, "window_start": now, "locked_until": 0.0}
+            rec["count"] += 1
+            if rec["count"] >= self.AUTH_MAX_ATTEMPTS:
+                rec["locked_until"] = now + self.AUTH_LOCKOUT_SECONDS
+                self._auth_failures[ip] = rec
+                return True
+            self._auth_failures[ip] = rec
+            return False
+
+    def _clear_auth_failures(self, ip: str):
+        with self._auth_lock:
+            self._auth_failures.pop(ip, None)
+
+    def _verify_join_password(self, join_data: dict, addr, now: float = None) -> tuple[bool, str]:
+        expected = str(getattr(self, "session_password", "") or "").strip()
+        if not expected:
+            return True, ""
+        client_ip = str(addr[0]) if isinstance(addr, (tuple, list)) and addr else str(addr or "unknown")
+        if self._is_ip_rate_limited(client_ip, now=now):
+            return False, "Troppi tentativi di accesso errati. Riprova tra qualche secondo."
+        provided = str((join_data or {}).get("password") or "").strip()
+        if hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8")):
+            self._clear_auth_failures(client_ip)
+            return True, ""
+        locked = self._record_auth_failure(client_ip, now=now)
+        if locked:
+            return False, "Troppi tentativi di accesso errati. Account IP temporaneamente bloccato."
+        return False, "Password o PIN della sessione errato o mancante."
 
     def send_loot_split(self, amount):
         from common.protocol import make_chat_broadcast, make_game_state
@@ -143,6 +209,10 @@ class Server:
             name = str(raw_name).strip() if isinstance(raw_name, str) else ""
             if not name or len(name) > 64:
                 send_message(conn, make_error_reply("Nome personaggio non valido."))
+                return
+            auth_ok, auth_err = self._verify_join_password(join_data, addr)
+            if not auth_ok:
+                send_message(conn, make_error_reply(auth_err))
                 return
             
             with self.game_state.lock:

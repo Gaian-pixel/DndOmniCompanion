@@ -12,6 +12,7 @@ class ProtocolMessage(TypedDict):
 class JoinData(TypedDict, total=False):
     name: str
     position: Optional[List[int]]
+    password: Optional[str]
 
 class ChatData(TypedDict, total=False):
     text: str
@@ -117,10 +118,12 @@ class ResolvePendingDoorData(TypedDict):
     outcome: str
 
 # --- Messaggi Client -> Server ---
-def make_join(name: str, position: Optional[List[int]] = None) -> ProtocolMessage:
+def make_join(name: str, position: Optional[List[int]] = None, password: Optional[str] = None) -> ProtocolMessage:
     data: Dict[str, Any] = {"name": name}
     if position:
         data["position"] = position
+    if password:
+        data["password"] = str(password)
     return {"type": "JOIN", "data": data}
 
 def make_chat(text: str) -> ProtocolMessage:

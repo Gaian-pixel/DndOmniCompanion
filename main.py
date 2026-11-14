@@ -41,13 +41,18 @@ def start_app():
         from server.server import DM_GUI
         app = DM_GUI(root, initial_campaign=campaign)
 
-    def launch_player(initial_character=None, auto_connect_ip=None):
+    def launch_player(initial_character=None, auto_connect_ip=None, session_password=""):
         for widget in root.winfo_children():
             widget.destroy()
         root.resizable(True, True)
         root.minsize(950, 650)
         from client.client import ClientGUI
-        app = ClientGUI(root, initial_character=initial_character, auto_connect_ip=auto_connect_ip)
+        app = ClientGUI(
+            root,
+            initial_character=initial_character,
+            auto_connect_ip=auto_connect_ip,
+            session_password=session_password,
+        )
 
     def prompt_join_game(initial_character=None, lock_character=False):
         """Apre il dialogo di connessione per scegliere il server IP (ed eventualmente il personaggio)."""
@@ -64,7 +69,8 @@ def start_app():
         if not login_dialog.result:
             return
         server_ip, char = login_dialog.result
-        launch_player(initial_character=char, auto_connect_ip=server_ip)
+        session_password = getattr(login_dialog, "session_password", "")
+        launch_player(initial_character=char, auto_connect_ip=server_ip, session_password=session_password)
 
     def show_campaign_selector_view(selected_folder=None):
         for w in content_container.winfo_children():

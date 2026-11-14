@@ -104,12 +104,13 @@ from common.theme import (
 from .network import ClientNetwork
 
 class ClientGUI:
-    def __init__(self, master, initial_character=None, auto_connect_ip=None):
+    def __init__(self, master, initial_character=None, auto_connect_ip=None, session_password=""):
         self.master = master
         setup_theme(master)
         self.master.title("D&D Client")
         self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.auto_connect_ip = auto_connect_ip
+        self.session_password = str(session_password or "").strip()
         self.audio_manager = AudioManager()
         from common.file_utils import get_writable_dir
         self.audio_cache_dir = os.path.join(get_writable_dir(), "client_data", "audio_cache")
@@ -166,7 +167,15 @@ class ClientGUI:
             self.set_active_character_from_manager(initial_character)
         self._process_queue_job = safe_after(self.master, 100, self.process_queue)
         if self.auto_connect_ip and self.active_character:
-            safe_after(self.master, 150, lambda: self.perform_connect(self.auto_connect_ip, self.active_character))
+            safe_after(
+                self.master,
+                150,
+                lambda: self.perform_connect(
+                    self.auto_connect_ip,
+                    self.active_character,
+                    password=self.session_password,
+                ),
+            )
 
     def _on_master_destroyed(self, event=None):
         if event and getattr(event, "widget", None) != self.master:
@@ -3498,12 +3507,15 @@ class ClientGUI:
         if not login_dialog.result: return
         
         server_ip, char = login_dialog.result
-        self.perform_connect(server_ip, char)
+        session_password = getattr(login_dialog, "session_password", "")
+        self.perform_connect(server_ip, char, password=session_password)
 
-    def perform_connect(self, server_ip: str, char=None):
+    def perform_connect(self, server_ip: str, char=None, password=None):
         """Esegue la connessione al server specificato con il personaggio selezionato."""
         if not server_ip:
             return
+        if password is not None:
+            self.session_password = str(password).strip()
         if char:
             self.name = char.name
             self.active_character = char
@@ -3537,7 +3549,8 @@ class ClientGUI:
                 
             char_to_send = self.active_character
             last_pos = getattr(char_to_send, "last_position", None) if char_to_send else None
-            self.network.send(make_join(self.name, last_pos))
+            pw = getattr(self, "session_password", "") or None
+            self.network.send(make_join(self.name, last_pos, password=pw))
             if char_to_send:
                 self.network.send(make_update_stats_request(char_to_send.hp_current, char_to_send.hp_max, char_to_send.initiative, getattr(char_to_send, "conditions", [])))
                 self.network.send(make_update_full_sheet_request(char_to_send.to_dict()))

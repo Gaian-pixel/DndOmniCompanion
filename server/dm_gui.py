@@ -255,6 +255,7 @@ class DM_GUI:
         file_menu.add_command(label=_t("menu_save_session"), command=self.save_session)
         file_menu.add_command(label=_t("menu_load_session"), command=self.load_session)
         file_menu.add_command(label=_t("menu_export_session_log"), command=self.export_session_log)
+        file_menu.add_command(label=_t("menu_session_password", default="🔐 Password / PIN Sessione..."), command=self.open_session_password_dialog)
         file_menu.add_separator()
         file_menu.add_command(label=_t("menu_exit"), command=self.on_closing)
         menubar.add_cascade(label=_t("menu_file"), menu=file_menu)
@@ -2605,6 +2606,28 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             messagebox.showinfo("Successo", "Sessione caricata correttamente.")
         except Exception as e:
             messagebox.showerror("Errore Caricamento", f"Impossibile caricare la sessione: {e}")
+
+    def open_session_password_dialog(self):
+        """Permette al DM di impostare o rimuovere una password/PIN opzionale per i client in ingresso."""
+        cur_pw = getattr(self.server, "session_password", "")
+        new_pw = simpledialog.askstring(
+            _t("menu_session_password", default="Password / PIN Sessione"),
+            "Inserisci il PIN o la password richiesta ai giocatori al JOIN (lascia vuoto per rimuovere la protezione):",
+            initialvalue=cur_pw,
+            show="*",
+            parent=self.master,
+        )
+        if new_pw is None:
+            return
+        self.server.set_session_password(new_pw)
+        if getattr(self.server, "session_password", ""):
+            self.log_to_chat("[SICUREZZA] Password/PIN della sessione impostata dal Dungeon Master.", "Sistema")
+            if hasattr(self, "show_toast"):
+                self.show_toast("Password / PIN sessione attivata!", title="Sicurezza Sessione", toast_type="success")
+        else:
+            self.log_to_chat("[SICUREZZA] Protezione password della sessione rimossa.", "Sistema")
+            if hasattr(self, "show_toast"):
+                self.show_toast("Password sessione rimossa (accesso libero).", title="Sicurezza Sessione", toast_type="info")
 
     def open_new_campaign_dialog(self):
         from server.campaign_editor_ui import CampaignEditorDialog

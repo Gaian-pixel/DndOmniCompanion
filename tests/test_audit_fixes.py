@@ -550,6 +550,55 @@ class TestDataCampaignAndUIFixes(unittest.TestCase):
         err_texts = [m["data"]["text"] for m in sent_messages if isinstance(m, dict) and m.get("type") == "ERROR_REPLY"]
         self.assertGreaterEqual(len(err_texts), 3)
 
+    def test_server_join_session_password_and_rate_limiting(self):
+        from common.protocol import make_join
+        from server.network import Server
+
+        class _FakeConn:
+            def settimeout(self, _t):
+                pass
+            def setsockopt(self, *_a):
+                pass
+            def close(self):
+                pass
+            def sendall(self, _b):
+                pass
+
+        # 1. make_join mantiene retrocompatibilità senza password e la include se valorizzata
+        self.assertNotIn("password", make_join("Elara")["data"])
+        self.assertEqual(make_join("Elara", password="1234")["data"]["password"], "1234")
+
+        # 2. Password errata + rate limit dopo 5 tentativi dallo stesso IP
+        srv = Server("127.0.0.1", 0, queue.Queue(), session_password="Drago5e")
+        sent_msgs = []
+        with patch("server.network.send_message", side_effect=lambda _c, m: sent_msgs.append(m)), \
+             patch("server.network.broadcast"):
+            for _ in range(Server.AUTH_MAX_ATTEMPTS):
+                with patch("server.network.receive_message", return_value=make_join("Intruder", password="wrong")):
+                    srv.handle_client(_FakeConn(), ("10.0.0.5", 40000))
+
+            self.assertIsNone(srv.game_state.find_player("Intruder"))
+            self.assertTrue(srv._is_ip_rate_limited("10.0.0.5"))
+
+            # Anche con la password giusta l'IP bloccato deve restare respinto
+            with patch("server.network.receive_message", return_value=make_join("Intruder", password="Drago5e")):
+                srv.handle_client(_FakeConn(), ("10.0.0.5", 40001))
+            self.assertIsNone(srv.game_state.find_player("Intruder"))
+
+            # Un IP diverso con password corretta viene ammesso
+            seq = iter([make_join("Elara", password="Drago5e"), None])
+            with patch("server.network.receive_message", side_effect=lambda _c: next(seq)):
+                srv.handle_client(_FakeConn(), ("10.0.0.99", 40002))
+            self.assertIsNotNone(srv.game_state.find_player("Elara"))
+
+            # Cambio/rimozione password sblocca e permette JOIN senza PIN
+            srv.set_session_password("")
+            self.assertFalse(srv._is_ip_rate_limited("10.0.0.5"))
+            seq2 = iter([make_join("Ospite"), None])
+            with patch("server.network.receive_message", side_effect=lambda _c: next(seq2)):
+                srv.handle_client(_FakeConn(), ("10.0.0.5", 40003))
+            self.assertIsNotNone(srv.game_state.find_player("Ospite"))
+
 
 if __name__ == "__main__":
     unittest.main()

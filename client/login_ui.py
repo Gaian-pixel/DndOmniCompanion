@@ -70,6 +70,8 @@ class LoginDialog(tk.Toplevel):
         self.manager = character_manager
         self.initial_character = initial_character
         self.result = None # Verrà impostato a (ip_server, character)
+        self.session_password = ""
+        self.password_var = tk.StringVar(value="")
         self.default_font = ("Georgia", 10)
         
         saved_ip, self.recent_servers = load_server_history()
@@ -140,6 +142,12 @@ class LoginDialog(tk.Toplevel):
         ttk.Button(ip_row, text=_t("login_btn_local"), command=self.set_local_ip, style="Dark.TButton").pack(side=tk.RIGHT)
         
         tk.Label(server_sec, text="Porta predefinita: 5000 (puoi specificare es. 192.168.1.100 o hostname:porta)", font=("Segoe UI", 8), bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(4, 0))
+
+        pin_row = tk.Frame(server_sec, bg=SURFACE_COLOR)
+        pin_row.pack(fill=tk.X, pady=(6, 0))
+        tk.Label(pin_row, text=_t("login_session_pin"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(side=tk.LEFT, padx=(0, 8))
+        self.pin_entry = ttk.Entry(pin_row, textvariable=self.password_var, show="•", font=("Segoe UI", 10))
+        self.pin_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         
         # 3. SEZIONE PERSONAGGIO
         char_sec = tk.Frame(main_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=12, pady=10)
@@ -271,6 +279,8 @@ class LoginDialog(tk.Toplevel):
         if not ip:
             messagebox.showerror("Errore", "Inserisci l'IP o l'indirizzo del server.")
             return
+
+        self.session_password = self.password_var.get().strip()
 
         if self.lock_character and self.initial_character is not None:
             save_server_history(ip)
