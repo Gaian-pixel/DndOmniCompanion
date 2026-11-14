@@ -3,8 +3,6 @@
 Modulo per la gestione dell'equipaggiamento iniziale, delle armi, delle armature
 e degli incantesimi base per classe, razza e campagna (D&D 5e).
 """
-import os
-import json
 
 # Equipaggiamento iniziale standard D&D 5e per ogni classe
 CLASS_STARTING_KITS = {

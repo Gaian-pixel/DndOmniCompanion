@@ -5,7 +5,6 @@ I file vengono copiati in `audio_library/` con nome = hash SHA1 del contenuto,
 così i client possono mettere in cache le tracce e scaricarle una sola volta.
 """
 import os
-import json
 import shutil
 import hashlib
 

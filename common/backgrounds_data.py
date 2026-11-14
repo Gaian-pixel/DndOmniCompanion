@@ -989,7 +989,7 @@ def generate_backstory(
     if clean_quest:
         p4_lines.append(f"A strapparlo dalla quiete del passato per spingerlo sui sentieri perigliosi dell'ignoto è stato un richiamo ineludibile: {clean_quest}.")
     else:
-        p4_lines.append(f"Il desiderio insopprimibile di scoprire cosa si celi oltre i confini del mondo conosciuto lo ha infine spinto a imbracciare armi e bagagli.")
+        p4_lines.append("Il desiderio insopprimibile di scoprire cosa si celi oltre i confini del mondo conosciuto lo ha infine spinto a imbracciare armi e bagagli.")
 
     if clean_trinket:
         p4_lines.append(f"Tra i suoi averi più cari conserva con gelosa cura {clean_trinket}, un cimelio a cui la sua memoria e il suo cuore sono indissolubilmente legati.")

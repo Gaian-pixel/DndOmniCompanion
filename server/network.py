@@ -8,12 +8,18 @@ import queue
 import tkinter as tk
 import json
 import base64
-import os
 from common.messagebox import messagebox
 from tkinter import filedialog, ttk, scrolledtext, simpledialog
 from PIL import Image, ImageTk
 
-from common.protocol import *
+from common.protocol import (
+    make_campaign_starter_granted,
+    make_chat_broadcast,
+    make_error_reply,
+    make_fow_update_broadcast,
+    make_game_state,
+    make_player_joined,
+)
 from common.theme import setup_theme, apply_modern_window_style, BG_COLOR, SURFACE_COLOR, TEXT_COLOR, TEXT_MUTED, FONT_MAIN, FONT_TITLE, FONT_BOLD, ACCENT_RED
 from server.commands import command_handlers
 from common.game_state import GameState, Player

@@ -14,7 +14,28 @@ from common.messagebox import messagebox
 from tkinter import filedialog, ttk, scrolledtext, simpledialog
 from PIL import Image, ImageTk
 
-from common.protocol import *
+from common.protocol import (
+    make_audio_stop,
+    make_audio_track_play,
+    make_chat_broadcast,
+    make_clear_drawings_broadcast,
+    make_currency_response,
+    make_custom_spell_response,
+    make_dice_roll_result,
+    make_fow_update_broadcast,
+    make_game_state,
+    make_handout_broadcast,
+    make_item_approval_response,
+    make_journal_approval_response,
+    make_map_data_update_broadcast,
+    make_ping_broadcast,
+    make_player_joined,
+    make_player_left,
+    make_player_move,
+    make_player_stats_update,
+    make_request_initiative,
+    make_update_inspiration,
+)
 from common.theme import (
     setup_theme, apply_modern_window_style, 
     BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT, BORDER_COLOR, BORDER_GOLD,

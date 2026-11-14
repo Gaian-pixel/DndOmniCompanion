@@ -13,7 +13,6 @@ common/subclass_and_race_rules.py - Motore puro-Python D&D 5e (PHB / XGtE / TCE)
 from __future__ import annotations
 
 import random
-import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from common.dnd5e_tables import (

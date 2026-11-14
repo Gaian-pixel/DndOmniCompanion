@@ -11,6 +11,7 @@ from common.hex_utils import (
     hex_linedraw, get_cover_between
 )
 from common.i18n import _t, format_distance_hexes, get_map_scale_info
+from common.ui_lifecycle import safe_after
 
 class HexMapCanvas(tk.Canvas):
     """Un widget Canvas riutilizzabile per visualizzare e interagire con una mappa esagonale."""

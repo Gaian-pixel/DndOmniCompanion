@@ -202,7 +202,7 @@ class ChronicleGenerator:
         if ledger.real_end_time:
             lines.append(f"**Fine Sessione:** {ledger.real_end_time}")
         
-        lines.append(f"\n### ⏳ Tempo nel Mondo (Calendario di Harptos)")
+        lines.append("\n### ⏳ Tempo nel Mondo (Calendario di Harptos)")
         lines.append(f"- **Inizio:** {format_harptos_date(ledger.start_game_date)}")
         lines.append(f"- **Fine:** {format_harptos_date(ledger.current_game_date)}")
         lines.append(f"- **Meteo Attuale:** {ledger.current_weather}")

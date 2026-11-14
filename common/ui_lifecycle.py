@@ -6,9 +6,6 @@ Previene memory leak, callback orfane e i tipici errori Tcl/Tk:
 - "bgerror failed to handle background error"
 """
 
-import sys
-import weakref
-
 def safe_after(widget, delay_ms, func, *args, **kwargs):
     """
     Pianifica l'esecuzione di func su widget in modo sicuro:

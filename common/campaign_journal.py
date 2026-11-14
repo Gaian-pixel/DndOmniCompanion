@@ -162,7 +162,7 @@ class CampaignJournal:
 
     def get_active_session(self) -> JournalSession:
         if not self.sessions:
-            sess = JournalSession(session_number=1, title=f"Sessione 1")
+            sess = JournalSession(session_number=1, title="Sessione 1")
             self.sessions.append(sess)
             self.active_session_index = 0
             return sess

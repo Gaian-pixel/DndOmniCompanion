@@ -4,7 +4,6 @@ Design System Dark Fantasy Moderno per DndOmniCompanion.
 Ispirato all'estetica di Foundry VTT, Baldur's Gate 3 e D&D 5e.
 """
 import tkinter as tk
-from tkinter import ttk
 import ttkbootstrap as tb
 
 # --- PALETTE DARK FANTASY MODERNA (Baldur's Gate 3 / Foundry VTT Inspired) ---

@@ -511,7 +511,7 @@ def cast_iconic_spell(
         actor.hex_target = tgt.name
         actor.concentrating_on = "Sortilegio (Hex)"
         if hasattr(tgt, "add_effect"):
-            tgt.add_effect({"id": "hex", "name": f"Maledetto (Hex +1d6 Necrotico)", "duration_rounds": 600 * dur_mult, "source": actor.name})
+            tgt.add_effect({"id": "hex", "name": "Maledetto (Hex +1d6 Necrotico)", "duration_rounds": 600 * dur_mult, "source": actor.name})
         return f"🕯️ [SORTILEGIO (HEX)] {actor.name} maledice {tgt.name}: +1d6 danni Necrotici per ogni colpo a segno e svantaggio alle prove di caratteristica!"
 
     if key == "absorb_elements":

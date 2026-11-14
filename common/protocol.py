@@ -1,5 +1,5 @@
 # protocol.py
-from typing import TypedDict, Any, Optional, Dict, List, Union
+from typing import TypedDict, Any, Optional, Dict, List
 
 # ==============================================================================
 # TYPED DICTIONARIES PER LA VALIDAZIONE STATICA DEL PROTOCOLLO (mypy / IDE)

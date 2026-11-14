@@ -1,6 +1,11 @@
 import re
 import random
-from common.protocol import *
+from common.protocol import (
+    make_chat_broadcast,
+    make_dice_roll_result,
+    make_error_reply,
+    make_game_state,
+)
 from common.hex_utils import Hex, hex_distance, get_sphere_hexes, hex_linedraw
 from common.network_utils import send_message, broadcast
 import math

@@ -20,7 +20,7 @@ from common.theme import (
     FONT_TITLE, FONT_HEADER, FONT_MAIN, FONT_BOLD, FONT_SMALL, FONT_BADGE
 )
 from common.messagebox import messagebox
-from common.campaign import Campaign, get_available_campaigns, DEFAULT_CAMPAIGNS_DIR
+from common.campaign import Campaign, get_available_campaigns, DEFAULT_CAMPAIGNS_DIR, slugify
 from common.game_state import GameState, Player
 from common.protocol import make_player_joined, make_handout_broadcast, make_chat_broadcast
 from common.network_utils import broadcast
@@ -590,7 +590,6 @@ class CampaignEditorFrame(tk.Frame):
         self.ent_title.bind("<KeyRelease>", self._on_title_changed)
 
         # Cartella di Salvataggio Campagna (Percorso Personalizzato)
-        from common.campaign import DEFAULT_CAMPAIGNS_DIR, slugify
         tk.Label(col_left, text=_t("camp_gen_folder_lbl", default="Cartella di Salvataggio (Percorso Personalizzato):"), font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(anchor="w")
         folder_row = tk.Frame(col_left, bg=SURFACE_COLOR)
         folder_row.pack(fill=tk.X, pady=(2, 10))
@@ -1761,7 +1760,6 @@ class CampaignEditorFrame(tk.Frame):
             t_val = self.ent_title.get().strip() or "Campagna Senza Nome"
             self.lbl_active_camp_badge.config(text=f"📜 {t_val}")
         if not getattr(self, "is_custom_folder_path", False):
-            from common.campaign import DEFAULT_CAMPAIGNS_DIR, slugify
             title = self.ent_title.get().strip()
             new_path = os.path.join(DEFAULT_CAMPAIGNS_DIR, slugify(title or "campagna"))
             if hasattr(self, "ent_folder_path"):
@@ -1772,7 +1770,6 @@ class CampaignEditorFrame(tk.Frame):
         self.is_custom_folder_path = True
 
     def browse_campaign_folder(self):
-        from common.campaign import DEFAULT_CAMPAIGNS_DIR
         curr = self.ent_folder_path.get().strip() if hasattr(self, "ent_folder_path") else ""
         if not curr or not os.path.exists(curr):
             curr = DEFAULT_CAMPAIGNS_DIR
@@ -1853,7 +1850,6 @@ class CampaignEditorFrame(tk.Frame):
         if hasattr(self, "lbl_active_camp_badge") and self.lbl_active_camp_badge:
             self.lbl_active_camp_badge.config(text=f"📜 {self.campaign.name}")
 
-        from common.campaign import DEFAULT_CAMPAIGNS_DIR, slugify
         if hasattr(self, "ent_title"):
             self.ent_title.delete(0, tk.END)
             self.ent_title.insert(0, self.campaign.name)
@@ -1957,7 +1953,6 @@ class CampaignEditorFrame(tk.Frame):
 
     def save_campaign_as(self) -> bool:
         self.sync_campaign_data()
-        from common.campaign import DEFAULT_CAMPAIGNS_DIR
         initial_dir = self.campaign.folder_path or DEFAULT_CAMPAIGNS_DIR
         if not os.path.exists(initial_dir):
             initial_dir = DEFAULT_CAMPAIGNS_DIR

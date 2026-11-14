@@ -2,12 +2,29 @@ import re
 import random
 import math
 import threading
-from common.protocol import *
+from common.protocol import (
+    make_automation_settings_broadcast,
+    make_chat_broadcast,
+    make_combat_state_update_broadcast,
+    make_error_reply,
+    make_game_state,
+    make_map_data_update_broadcast,
+    make_player_joined,
+    make_player_left,
+    make_player_move,
+    make_player_stats_update,
+    make_prompt_reaction,
+    make_prompt_save,
+)
 from common.hex_utils import Hex, hex_distance, grid_distance, grid_distance_3d, get_sphere_hexes, hex_linedraw, get_cover_between
 from common.network_utils import send_message, broadcast
 from common.dice import roll_dice
 from common.i18n import is_condition_active
-from common.item_modifiers import get_effective_attribute_from_dict, get_effective_save_bonus_from_dict
+from common.dnd5e_tables import is_incapacitated_entity
+from common.item_modifiers import (
+    get_effective_attribute_from_dict,
+    get_effective_save_bonus_from_dict,
+)
 
 def has_effect_or_condition(entity, name_it, name_en=None):
     """Verifica se un'entità è soggetta a un effetto attivo o a una condizione (D&D 5e)."""
@@ -265,8 +282,8 @@ def resolve_falling(entity, fall_distance_ft, game_state, is_voluntary=False, in
     if on_water and raw_dmg > 0:
         if opt_fall_xge:
             # TCE p. 170: TS/Prova CD 15 Atletica o Acrobazia per tuffarsi dimezzando i danni (altrimenti pieni)
-            ath = get_effective_skill_bonus_from_dict(entity, "Atletica") if "get_effective_skill_bonus_from_dict" in globals() else 0
-            acr = get_effective_skill_bonus_from_dict(entity, "Acrobazia") if "get_effective_skill_bonus_from_dict" in globals() else 0
+            ath = _get_entity_skill_bonus(entity, "Atletica", "Athletics", "FOR")
+            acr = _get_entity_skill_bonus(entity, "Acrobazia", "Acrobatics", "DES")
             best_b = max(ath, acr)
             dive_roll = roll_dice(f"1d20{'+' if best_b >= 0 else ''}{best_b}")["total"]
             if dive_roll >= 15:

@@ -2,7 +2,6 @@
 import os
 import re
 import threading
-import json
 
 class Player:
     def __init__(self, name, addr=None, conn=None):
