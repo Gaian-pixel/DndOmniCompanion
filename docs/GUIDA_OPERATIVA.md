@@ -176,6 +176,8 @@ Apparirà il selettore del ruolo del **Launcher unificato**:
   Compila l'applicazione con PyInstaller creando la distribuzione standalone `dist/DndOmniCompanion`:
   - **Su Windows**: include tutte le risorse (`srd_data`, `manuals`, `campaigns`, `audio_library`, `maps`), le dipendenze native e genera `DndOmniCompanion-v*-win64.zip`.
   - **Su Linux**: genera l'eseguibile binario ELF nativo, crea lo script `run.sh` con permessi di esecuzione `0755` e confeziona l'archivio `DndOmniCompanion-v*-linux-x64.tar.gz`.
+* **Verifica CI GitHub Actions (`.github/workflows/ci.yml`)**:
+  Attivata su push verso `main`, `dev/**`, `feat/**` e sulle pull request (`ubuntu-latest`, Python `3.11` con `xvfb`, `python3-tk` e librerie audio native). Esegue `py_compile` su tutti i moduli e test, verifica statica `pyflakes` (nomi non definiti, star import ed errori di sintassi) e l'intera suite headless `unittest discover tests -v` con `DND_MOCK_AUDIO=1` e isolamento temporaneo tramite `DND_SETTINGS_PATH` / `DND_CHARACTERS_PATH`.
 * **Automazione GitHub Actions (`.github/workflows/release.yml`)**:
   Ad ogni push di un tag `v*` (o dispatch manuale), GitHub Actions esegue parallelamente i runner `windows-latest` e `ubuntu-latest`, installando i pacchetti nativi di sistema, eseguendo `build_release.py` e allegando automaticamente i file scaricabili alla GitHub Release tramite `softprops/action-gh-release@v2`.
 * **Separazione Percorsi Read-Only e Writable (`common/file_utils.py`)**:
@@ -745,10 +747,10 @@ D&D OmniCompanion include un'infrastruttura completa di puntamento, calcolo geom
 
 ## 12. Suite di Test e Quality Assurance
 
-Il progetto include una suite consolidata nella cartella `tests/` con **549 test automatizzati** che passano al 100% con 0 errori, coprendo unit test headless, copertura completa regole PHB/DMG/MM & XGtE/TCE e 30 opzioni selezionabili dal DM (`test_block1_wiring.py` .. `test_block6_monster_manual.py`, `test_phb_dmg_mm_complete.py`, `test_full_5e_phb_dmg_mm.py`), meccaniche avanzate 5e RAW (Smite, Wild Shape, Fonte di Magia, Recupero Arcano, Reliable Talent, Tuttofare, Critici Brutali, Colpo Stordente, Dadi Superiorità, Scaling Trucchetti, Ricarica Mostri, Auto XP), modificatori automatici da equipaggiamento, simulazione fisica dei dadi 3D, combattimento tattico, spazio 3D ed elevazione, flusso di login rapido, compagni/famigli, viaggi e accampamento, smoke test della GUI, architettura mono-finestra e simulazioni di campagna complete:
+Il progetto include una suite consolidata nella cartella `tests/` con **583 test automatizzati** distribuiti su **63 moduli `unittest`** che passano al 100% con 0 errori (`python -m unittest discover tests`), affiancati da 2 script standalone GUI smoke/E2E (`tests/test_ui_smoke.py`, `tests/test_e2e_gui.py`) e 2 simulazioni multiplayer (`tests/simulate_game_session.py`, `tests/simulate_4player_campaign.py`), coprendo unit test headless, copertura completa regole PHB/DMG/MM & XGtE/TCE e 30 opzioni selezionabili dal DM (`test_block1_wiring.py` .. `test_block6_monster_manual.py`, `test_phb_dmg_mm_complete.py`, `test_full_5e_phb_dmg_mm.py`), meccaniche avanzate 5e RAW (Smite, Wild Shape, Fonte di Magia, Recupero Arcano, Reliable Talent, Tuttofare, Critici Brutali, Colpo Stordente, Dadi Superiorità, Scaling Trucchetti, Ricarica Mostri, Auto XP), modificatori automatici da equipaggiamento, simulazione fisica dei dadi 3D, combattimento tattico, spazio 3D ed elevazione, flusso di login rapido, compagni/famigli, viaggi e accampamento, smoke test della GUI e architettura mono-finestra:
 
 ```powershell
-# 1. Esegui l'intera suite di unit test (549 test con 0 fallimenti)
+# 1. Esegui l'intera suite di unit test (583 casi unittest su 63 moduli con 0 fallimenti)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 1b. Esegui le suite complete PHB / DMG (Selezionabile DM) / XGtE / TCE / MM
@@ -785,8 +787,9 @@ $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_authentic_5e.py
 # 3. Esegui i test dell'architettura Mono-Finestra (In-place frames, canvas overlay, docking/detaching, hotkeys C/Esc)
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_mono_finestra.py
 
-# 4. Esegui gli smoke test UI su tutte le 19 finestre server e client
+# 4. Esegui gli script standalone GUI smoke / E2E (avviati direttamente, separati da unittest discover)
 $env:DND_MOCK_AUDIO="1"; python tests/test_ui_smoke.py --no-screens
+$env:DND_MOCK_AUDIO="1"; python tests/test_e2e_gui.py
 
 # 5. Esegui la simulazione multiplayer end-to-end completa (53 fasi)
 $env:DND_MOCK_AUDIO="1"; python tests/simulate_game_session.py

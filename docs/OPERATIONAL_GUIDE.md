@@ -177,6 +177,8 @@ The **Unified Launcher** will prompt you to select a mode:
   Builds standalone distributions using PyInstaller into `dist/DndOmniCompanion`:
   - **On Windows**: bundles assets (`srd_data`, `manuals`, `campaigns`, `audio_library`, `maps`) and generates `DndOmniCompanion-v*-win64.zip`.
   - **On Linux**: generates the native ELF binary, sets `0755` execution permissions on `run.sh` and compiles `DndOmniCompanion-v*-linux-x64.tar.gz`.
+* **GitHub Actions CI Verification (`.github/workflows/ci.yml`)**:
+  Triggered on pushes to `main`, `dev/**`, `feat/**` and on pull requests (`ubuntu-latest`, Python `3.11` with `xvfb`, `python3-tk`, and native audio packages). Runs `py_compile` across all modules and tests, `pyflakes` critical checks (undefined names, star imports, syntax errors), and the full headless `unittest discover tests -v` suite with `DND_MOCK_AUDIO=1` and temporary `DND_SETTINGS_PATH` / `DND_CHARACTERS_PATH` isolation.
 * **GitHub Actions Automation (`.github/workflows/release.yml`)**:
   Triggered automatically on every `v*` tag push or manual workflow dispatch. Runs parallel runners on `windows-latest` and `ubuntu-latest`, compiles standalone binaries, and attaches both `.zip` and `.tar.gz` packages directly to the GitHub Release via `softprops/action-gh-release@v2`.
 * **Read-Only vs. Writable Path Abstraction (`common/file_utils.py`)**:
@@ -745,10 +747,10 @@ D&D OmniCompanion features comprehensive targeting infrastructure, dynamic rayca
 
 ## 12. Testing Suite & Quality Assurance
 
-The codebase includes a consolidated testing suite in the `tests/` directory with **549 automated tests** passing at 100% with 0 failures, covering headless unit tests, complete PHB/DMG/MM & XGtE/TCE mechanics & 30 selectable DM options (`test_block1_wiring.py` .. `test_block6_monster_manual.py`, `test_phb_dmg_mm_complete.py`, `test_full_5e_phb_dmg_mm.py`), advanced 5e RAW mechanics (Smite, Wild Shape, Font of Magic, Arcane Recovery, Reliable Talent, Jack of All Trades, Brutal Critical, Stunning Strike, Superiority Dice, Cantrip Scaling, Monster Recharge, Auto XP), automatic magic item modifiers, 3D dice physics and rendering, tactical combat, 3D space and elevation, join game flow and server history, companions/familiars, travel/camping, GUI smoke tests, single-window architecture, and full multiplayer campaign simulations:
+The codebase includes a consolidated testing suite in the `tests/` directory with **583 automated unit tests** across **63 `unittest` modules** passing at 100% with 0 failures (`python -m unittest discover tests`), alongside 2 standalone GUI smoke/E2E scripts (`tests/test_ui_smoke.py`, `tests/test_e2e_gui.py`) and 2 scripted multiplayer simulations (`tests/simulate_game_session.py`, `tests/simulate_4player_campaign.py`), covering headless unit tests, complete PHB/DMG/MM & XGtE/TCE mechanics & 30 selectable DM options (`test_block1_wiring.py` .. `test_block6_monster_manual.py`, `test_phb_dmg_mm_complete.py`, `test_full_5e_phb_dmg_mm.py`), advanced 5e RAW mechanics (Smite, Wild Shape, Font of Magic, Arcane Recovery, Reliable Talent, Jack of All Trades, Brutal Critical, Stunning Strike, Superiority Dice, Cantrip Scaling, Monster Recharge, Auto XP), automatic magic item modifiers, 3D dice physics and rendering, tactical combat, 3D space and elevation, join game flow and server history, companions/familiars, travel/camping, GUI smoke tests, and single-window architecture:
 
 ```powershell
-# 1. Run comprehensive unit tests (549 tests with 0 failures)
+# 1. Run comprehensive unit tests (583 automated unittest cases across 63 modules, 0 failures)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 1b. Run Complete PHB / Selectable DMG / XGtE / TCE / MM test suites
@@ -785,8 +787,9 @@ $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_authentic_5e.py
 # 3. Run Single-Window Architecture tests (In-place frames, canvas overlay, docking/detaching, hotkeys C/Esc)
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_mono_finestra.py
 
-# 4. Run UI smoke tests across all 19 server and client windows
+# 4. Run standalone GUI smoke / E2E scripts (invoked directly, separate from unittest discovery)
 $env:DND_MOCK_AUDIO="1"; python tests/test_ui_smoke.py --no-screens
+$env:DND_MOCK_AUDIO="1"; python tests/test_e2e_gui.py
 
 # 5. Run the complete 53-phase multiplayer game simulation
 $env:DND_MOCK_AUDIO="1"; python tests/simulate_game_session.py
