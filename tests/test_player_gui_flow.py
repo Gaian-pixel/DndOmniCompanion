@@ -7,6 +7,8 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 import client.character_manager as cm_mod
+import client.login_ui as login_ui_mod
+import common.i18n as i18n_mod
 from client.character_creation_wizard import CharacterCreationWizardFrame
 from client.character_manager import Character, CharacterManager
 from client.character_manager_ui import CharacterManagerFrame
@@ -71,12 +73,18 @@ class TestPlayerGuiFlow(unittest.TestCase):
                 pass
 
     def setUp(self):
+        self._tmp_dir = tempfile.TemporaryDirectory()
+        self._settings_path = os.path.join(self._tmp_dir.name, "settings.json")
+        self._char_file = os.path.join(self._tmp_dir.name, "characters.json")
+        self._patch_login_settings = patch.object(login_ui_mod, "SETTINGS_PATH", self._settings_path)
+        self._patch_i18n_settings = patch.object(i18n_mod, "SETTINGS_PATH", self._settings_path)
+        self._patch_char_file = patch.object(cm_mod, "CHARACTER_FILE", self._char_file)
+        self._patch_login_settings.start()
+        self._patch_i18n_settings.start()
+        self._patch_char_file.start()
+
         self._orig_lang = get_language()
         set_language("it")
-        self._tmp_dir = tempfile.TemporaryDirectory()
-        self._char_file = os.path.join(self._tmp_dir.name, "characters.json")
-        self._patch_char_file = patch.object(cm_mod, "CHARACTER_FILE", self._char_file)
-        self._patch_char_file.start()
 
         self.manager = CharacterManager()
         self.hero1 = Character(name="Aragorn", race="Umano", char_class="Guerriero", level=3)
@@ -89,6 +97,8 @@ class TestPlayerGuiFlow(unittest.TestCase):
     def tearDown(self):
         set_language(self._orig_lang)
         self._patch_char_file.stop()
+        self._patch_i18n_settings.stop()
+        self._patch_login_settings.stop()
         self._tmp_dir.cleanup()
 
     def test_character_manager_hub_no_manual_and_import_json(self):

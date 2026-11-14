@@ -15,9 +15,14 @@ from .character_creation_wizard import CharacterCreationWizard
 SETTINGS_PATH = os.path.join(get_writable_dir(), "client_data", "settings.json")
 
 
-def load_server_history():
+def _resolve_settings_path(settings_path=None):
+    return settings_path or os.environ.get("DND_SETTINGS_PATH") or SETTINGS_PATH
+
+
+def load_server_history(settings_path=None):
     """Carica l'ultimo IP server usato e la lista dei server recenti da settings.json."""
-    settings = load_json(SETTINGS_PATH, default={}) or {}
+    target_path = _resolve_settings_path(settings_path)
+    settings = load_json(target_path, default={}) or {}
     last_ip = settings.get("last_server_ip", "127.0.0.1")
     recents = settings.get("recent_servers", [])
     if not recents:
@@ -27,12 +32,13 @@ def load_server_history():
     return last_ip, recents
 
 
-def save_server_history(ip: str):
+def save_server_history(ip: str, settings_path=None):
     """Salva l'IP server nella cronologia persistente in settings.json."""
     if not ip or not ip.strip():
         return
     clean_ip = ip.strip()
-    settings = load_json(SETTINGS_PATH, default={}) or {}
+    target_path = _resolve_settings_path(settings_path)
+    settings = load_json(target_path, default={}) or {}
     recents = settings.get("recent_servers", [])
     if clean_ip in recents:
         recents.remove(clean_ip)
@@ -40,7 +46,7 @@ def save_server_history(ip: str):
     settings["recent_servers"] = recents[:6]
     settings["last_server_ip"] = clean_ip
     try:
-        atomic_save_json(SETTINGS_PATH, settings)
+        atomic_save_json(target_path, settings)
     except Exception as e:
         print(f"[LoginDialog] Errore salvataggio server: {e}")
 

@@ -1557,15 +1557,20 @@ class CharacterManager:
         self.characters = []
         self.load_characters()
         
+    def _resolve_character_file(self):
+        return os.environ.get("DND_CHARACTERS_PATH") or CHARACTER_FILE
+
     def load_characters(self):
-        data = load_json(CHARACTER_FILE, default=[])
+        char_file = self._resolve_character_file()
+        data = load_json(char_file, default=[])
         if isinstance(data, list):
             self.characters = [Character.from_dict(d) for d in data if isinstance(d, dict)]
         else:
             self.characters = []
 
     def save_characters(self):
-        atomic_save_json(CHARACTER_FILE, [c.to_dict() for c in self.characters], indent=4)
+        char_file = self._resolve_character_file()
+        atomic_save_json(char_file, [c.to_dict() for c in self.characters], indent=4)
             
     def add_character(self, character):
         self.characters.append(character)

@@ -1161,55 +1161,66 @@ class TestDndNewFeatures(unittest.TestCase):
 
     def test_offline_character_manager_features(self):
         """Testa la creazione e gestione autonoma dei personaggi offline."""
-        from common.i18n import _t, set_language
+        import tempfile
+        from unittest.mock import patch
+        from common.i18n import _t, get_language, set_language
         from client.character_sheet_ui import open_export_character_dialog, CharacterSheetUI
         from client.character_manager_ui import get_class_icon
 
-        # 1. Test icone classi
-        self.assertEqual(get_class_icon("Guerriero"), "⚔️")
-        self.assertEqual(get_class_icon("Mago"), "🔮")
-        self.assertEqual(get_class_icon("Ladro"), "🗡️")
-        self.assertEqual(get_class_icon("Chierico"), "🛡️")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_settings = os.path.join(tmpdir, "settings.json")
+            tmp_chars = os.path.join(tmpdir, "characters.json")
+            orig_lang = get_language()
+            with patch("common.i18n.SETTINGS_PATH", tmp_settings), \
+                 patch("client.character_manager.CHARACTER_FILE", tmp_chars):
+                try:
+                    # 1. Test icone classi
+                    self.assertEqual(get_class_icon("Guerriero"), "⚔️")
+                    self.assertEqual(get_class_icon("Mago"), "🔮")
+                    self.assertEqual(get_class_icon("Ladro"), "🗡️")
+                    self.assertEqual(get_class_icon("Chierico"), "🛡️")
 
-        # 2. Test export helper exportable/callable
-        self.assertTrue(callable(open_export_character_dialog))
-        self.assertTrue(hasattr(CharacterSheetUI, "open_export_character_dialog"))
+                    # 2. Test export helper exportable/callable
+                    self.assertTrue(callable(open_export_character_dialog))
+                    self.assertTrue(hasattr(CharacterSheetUI, "open_export_character_dialog"))
 
-        # 3. Test traduzioni i18n per launcher e menu personaggi in IT ed EN
-        set_language("it")
-        self.assertIn("Gestione Personaggi", _t("launcher_player_btn_manage_chars"))
-        self.assertIn("Crea Personaggio", _t("launcher_player_btn_create_char"))
-        self.assertEqual(_t("menu_character"), "Personaggio")
+                    # 3. Test traduzioni i18n per launcher e menu personaggi in IT ed EN
+                    set_language("it")
+                    self.assertIn("Gestione Personaggi", _t("launcher_player_btn_manage_chars"))
+                    self.assertIn("Crea Personaggio", _t("launcher_player_btn_create_char"))
+                    self.assertEqual(_t("menu_character"), "Personaggio")
 
-        set_language("en")
-        self.assertIn("Character Manager", _t("launcher_player_btn_manage_chars"))
-        self.assertIn("Create Character", _t("launcher_player_btn_create_char"))
-        self.assertEqual(_t("menu_character"), "Character")
-        set_language("it") # Reset ad italiano
+                    set_language("en")
+                    self.assertIn("Character Manager", _t("launcher_player_btn_manage_chars"))
+                    self.assertIn("Create Character", _t("launcher_player_btn_create_char"))
+                    self.assertEqual(_t("menu_character"), "Character")
+                    set_language("it") # Reset ad italiano
 
-        # 4. Test duplicazione e gestione personaggio in memoria
-        mgr = CharacterManager()
-        initial_count = len(mgr.characters)
-        test_char = Character(name="Eroe Offline Test")
-        test_char.char_class = "Paladino"
-        test_char.level = 3
-        mgr.add_character(test_char)
-        self.assertEqual(len(mgr.characters), initial_count + 1)
+                    # 4. Test duplicazione e gestione personaggio in memoria
+                    mgr = CharacterManager()
+                    initial_count = len(mgr.characters)
+                    test_char = Character(name="Eroe Offline Test")
+                    test_char.char_class = "Paladino"
+                    test_char.level = 3
+                    mgr.add_character(test_char)
+                    self.assertEqual(len(mgr.characters), initial_count + 1)
 
-        # Duplicazione
-        char_dict = test_char.to_dict()
-        char_dict["id"] = "dup_test_id_123"
-        char_dict["name"] = f"{test_char.name} (Copia)"
-        copied = Character.from_dict(char_dict)
-        mgr.add_character(copied)
-        self.assertEqual(copied.name, "Eroe Offline Test (Copia)")
-        self.assertEqual(copied.char_class, "Paladino")
-        self.assertEqual(copied.level, 3)
+                    # Duplicazione
+                    char_dict = test_char.to_dict()
+                    char_dict["id"] = "dup_test_id_123"
+                    char_dict["name"] = f"{test_char.name} (Copia)"
+                    copied = Character.from_dict(char_dict)
+                    mgr.add_character(copied)
+                    self.assertEqual(copied.name, "Eroe Offline Test (Copia)")
+                    self.assertEqual(copied.char_class, "Paladino")
+                    self.assertEqual(copied.level, 3)
 
-        # Pulizia
-        mgr.delete_character(test_char)
-        mgr.delete_character(copied)
-        self.assertEqual(len(mgr.characters), initial_count)
+                    # Pulizia
+                    mgr.delete_character(test_char)
+                    mgr.delete_character(copied)
+                    self.assertEqual(len(mgr.characters), initial_count)
+                finally:
+                    set_language(orig_lang)
 
     def test_srd_offline_system(self):
         """Verifica il modulo di fallback e ricerca SRD offline (incantesimi, mostri, progressione)."""

@@ -1,11 +1,14 @@
 import unittest
 import sys
 import os
+import tempfile
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 import tkinter as tk
 from tkinter import ttk
 from unittest.mock import MagicMock, patch
 
+import client.character_manager as cm_mod
+import common.i18n as i18n_mod
 from client.character_manager import Character, CharacterManager
 from client.character_sheet_ui import CharacterSheetFrame, CharacterSheetUI
 from client.character_manager_ui import CharacterManagerFrame, CharacterManagerDialog
@@ -31,11 +34,26 @@ class TestMonoFinestraArchitecture(unittest.TestCase):
     def setUp(self):
         if not self.root:
             self.skipTest("Tkinter display not available")
+        self._tmp_dir = tempfile.TemporaryDirectory()
+        self._settings_path = os.path.join(self._tmp_dir.name, "settings.json")
+        self._char_file = os.path.join(self._tmp_dir.name, "characters.json")
+        self._patch_i18n_settings = patch.object(i18n_mod, "SETTINGS_PATH", self._settings_path)
+        self._patch_char_file = patch.object(cm_mod, "CHARACTER_FILE", self._char_file)
+        self._patch_i18n_settings.start()
+        self._patch_char_file.start()
         self.char = Character(name="Gimli")
         self.char.char_class = "Guerriero"
         self.char.level = 3
         self.char.race = "Nano"
         self.mgr = CharacterManager()
+
+    def tearDown(self):
+        if getattr(self, "_patch_char_file", None):
+            self._patch_char_file.stop()
+        if getattr(self, "_patch_i18n_settings", None):
+            self._patch_i18n_settings.stop()
+        if getattr(self, "_tmp_dir", None):
+            self._tmp_dir.cleanup()
 
     def test_character_sheet_frame_and_ui_wrapper(self):
         """Verifica che CharacterSheetFrame possa essere incastonato in un Frame e che CharacterSheetUI sia un Toplevel retrocompatibile."""

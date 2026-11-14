@@ -1,5 +1,10 @@
+import os
+import tempfile
 import unittest
 import tkinter as tk
+from unittest.mock import patch
+import client.character_manager as cm_mod
+import common.i18n as i18n_mod
 from common.i18n import (
     _t, get_language, set_language, translate_ability, translate_skill,
     translate_race, translate_class, translate_alignment, translate_background,
@@ -12,12 +17,22 @@ from client.character_creation_wizard import CharacterCreationWizardFrame
 
 class TestI18nLanguageSwitch(unittest.TestCase):
     def setUp(self):
+        self._tmp_dir = tempfile.TemporaryDirectory()
+        self._settings_path = os.path.join(self._tmp_dir.name, "settings.json")
+        self._char_file = os.path.join(self._tmp_dir.name, "characters.json")
+        self._patch_i18n_settings = patch.object(i18n_mod, "SETTINGS_PATH", self._settings_path)
+        self._patch_char_file = patch.object(cm_mod, "CHARACTER_FILE", self._char_file)
+        self._patch_i18n_settings.start()
+        self._patch_char_file.start()
         reset_listeners_for_testing()
         self.original_lang = get_language()
 
     def tearDown(self):
         set_language(self.original_lang)
         reset_listeners_for_testing()
+        self._patch_char_file.stop()
+        self._patch_i18n_settings.stop()
+        self._tmp_dir.cleanup()
 
     def test_translation_dictionaries_symmetry(self):
         """Verifica che tutte le chiavi in Italiano abbiano la controparte in Inglese e viceversa."""

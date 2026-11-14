@@ -17,7 +17,7 @@ Test di conformità per le nuove feature D&D 5e RAW:
 
 import unittest
 import queue
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 from common.game_state import GameState, Player
 from common.character_schema import normalize_character_dict
 from client.character_manager import Character
@@ -62,11 +62,27 @@ class TestRaw5eAdvancedFeatures(unittest.TestCase):
             "damage_type": "Tagliente",
             "smite_slot": 1
         }
-        handle_attack_request(req_data, paladin, self.game_state)
+        with patch("random.randint", return_value=5):
+            handle_attack_request(req_data, paladin, self.game_state)
         # Lo slot di 1° cerchio deve essere decrementato
         self.assertEqual(paladin.full_sheet["spell_slots"]["1"]["current"], 3)
-        # Zombie deve aver subito danni arma + smite
-        self.assertLess(zombie.hp, 50)
+        # Danno atteso: arma (5+3=8) + Punizione Divina 3d8 (15) = 23 -> 50 - 23 = 27
+        self.assertEqual(zombie.hp, 27)
+
+        # Colpo Critico (20 naturale) con slot 2° su Non Morto: (2d8+3) + (8d8 radiosi)
+        req_crit = {
+            "target_name": "Zombie",
+            "weapon_name": "Spada Lunga",
+            "hit_bonus": 20,
+            "damage_formula": "1d8+3",
+            "damage_type": "Tagliente",
+            "smite_slot": 2
+        }
+        with patch("random.randint", side_effect=lambda a, b: 20 if b == 20 else 4):
+            handle_attack_request(req_crit, paladin, self.game_state)
+        self.assertEqual(paladin.full_sheet["spell_slots"]["2"]["current"], 1)
+        # Danno atteso critico: arma (2*4+3=11) + Punizione Divina 8d8 (32) = 43 >= 27 PF residui
+        self.assertEqual(zombie.hp, 0)
 
     # 2. Druid Wild Shape
     def test_druid_wild_shape_absorption_and_excess_carryover(self):

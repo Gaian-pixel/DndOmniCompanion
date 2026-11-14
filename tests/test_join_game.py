@@ -8,15 +8,30 @@ Test per il flusso di connessione e unione a una partita:
 - Parsing host e porta personalizzata
 """
 
+import os
+import tempfile
 import unittest
 import tkinter as tk
 from unittest.mock import MagicMock, patch
+import client.character_manager as cm_mod
+import client.login_ui as login_ui_mod
+import common.i18n as i18n_mod
 from client.character_manager import Character, CharacterManager
 from client.login_ui import LoginDialog, load_server_history, save_server_history
 
 
 class TestJoinGameFlow(unittest.TestCase):
     def setUp(self):
+        self._tmp_dir = tempfile.TemporaryDirectory()
+        self._settings_path = os.path.join(self._tmp_dir.name, "settings.json")
+        self._char_file = os.path.join(self._tmp_dir.name, "characters.json")
+        self._patch_login_settings = patch.object(login_ui_mod, "SETTINGS_PATH", self._settings_path)
+        self._patch_i18n_settings = patch.object(i18n_mod, "SETTINGS_PATH", self._settings_path)
+        self._patch_char_file = patch.object(cm_mod, "CHARACTER_FILE", self._char_file)
+        self._patch_login_settings.start()
+        self._patch_i18n_settings.start()
+        self._patch_char_file.start()
+
         self.root = tk.Tk()
         self.root.withdraw()
         self.char1 = Character("Aragorn", "Ranger")
@@ -34,6 +49,10 @@ class TestJoinGameFlow(unittest.TestCase):
             self.root.destroy()
         except Exception:
             pass
+        self._patch_char_file.stop()
+        self._patch_i18n_settings.stop()
+        self._patch_login_settings.stop()
+        self._tmp_dir.cleanup()
 
     def test_server_history_save_and_load(self):
         """Verifica che la cronologia degli IP server venga salvata e ricaricata correttamente."""

@@ -2638,12 +2638,17 @@ _current_distance_unit = "ft"
 _unit_listeners = []
 
 
+def _resolve_settings_path():
+    return os.environ.get("DND_SETTINGS_PATH") or SETTINGS_PATH
+
+
 def _load_settings():
     """Carica le impostazioni da client_data/settings.json se presente."""
     global _current_language, _current_distance_unit
+    settings_path = _resolve_settings_path()
     try:
-        if os.path.exists(SETTINGS_PATH):
-            with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+        if os.path.exists(settings_path):
+            with open(settings_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 lang = data.get("language")
                 if lang in SUPPORTED_LANGUAGES:
@@ -2657,12 +2662,13 @@ def _load_settings():
 
 def _save_settings():
     """Salva la lingua corrente e l'unità di misura in client_data/settings.json."""
+    settings_path = _resolve_settings_path()
     try:
-        os.makedirs(os.path.dirname(SETTINGS_PATH), exist_ok=True)
+        os.makedirs(os.path.dirname(settings_path), exist_ok=True)
         data = {}
-        if os.path.exists(SETTINGS_PATH):
+        if os.path.exists(settings_path):
             try:
-                with open(SETTINGS_PATH, "r", encoding="utf-8") as f:
+                with open(settings_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
             except Exception:
                 data = {}
@@ -2670,10 +2676,10 @@ def _save_settings():
         data["distance_unit"] = _current_distance_unit
         
         # Scrittura atomica
-        tmp_path = SETTINGS_PATH + ".tmp"
+        tmp_path = settings_path + ".tmp"
         with open(tmp_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-        os.replace(tmp_path, SETTINGS_PATH)
+        os.replace(tmp_path, settings_path)
     except Exception as e:
         print(f"[i18n] Errore salvataggio settings: {e}")
 
