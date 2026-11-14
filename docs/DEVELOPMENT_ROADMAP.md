@@ -20,7 +20,7 @@ main.py (Single-Window Unified Launcher: DM Host | Player Client)
 ├── campaigns/      # Campaign JSON & flow-graph projects (e.g., la_cripta_dei_sussurri)
 ├── manuals/        # Custom markdown rules + cached PDF index (pdf_index_cache.json)
 ├── docs/           # Bilingual EN/IT User Guides, Operational Guides, Roadmap & Handoff
-└── tests/          # 63 unittest modules (583 verified test cases) + 2 standalone GUI smoke/E2E scripts + 2 multiplayer simulations
+└── tests/          # 63 unittest modules (588 verified test cases) + 2 standalone GUI smoke/E2E scripts + 2 multiplayer simulations
 ```
 
 ### Communication & Persistence Model
@@ -92,8 +92,8 @@ main.py (Single-Window Unified Launcher: DM Host | Player Client)
 
 ## 7. Testing Gaps
 
-* **Verified Status (`dev/v0.6.0-autonomous`)**: `63` `unittest` modules (`583` discovered test cases) pass headlessly in `unittest discover tests` (`51.183s`, `DND_MOCK_AUDIO=1`, `0` failures, `0` errors); `2` standalone GUI smoke/E2E scripts (`tests/test_ui_smoke.py`, `tests/test_e2e_gui.py`); `2` scripted multiplayer simulations (`tests/simulate_game_session.py`, `tests/simulate_4player_campaign.py`).
-* **Documentation Drift**: Resolved in `TASK-004` (`README.md`, `README_IT.md`, `docs/OPERATIONAL_GUIDE.md`, and `docs/GUIDA_OPERATIVA.md` all updated to `583` tests and `.github/workflows/ci.yml` documented).
+* **Verified Status (`dev/v0.6.0-autonomous`)**: `63` `unittest` modules (`588` discovered test cases) pass headlessly in `unittest discover tests` (`61.292s`, `DND_MOCK_AUDIO=1`, `0` failures, `0` errors); `2` standalone GUI smoke/E2E scripts (`tests/test_ui_smoke.py`, `tests/test_e2e_gui.py`); `2` scripted multiplayer simulations (`tests/simulate_game_session.py`, `tests/simulate_4player_campaign.py`).
+* **Documentation Drift**: Resolved and kept synchronized through `TASK-008` (`README.md`, `README_IT.md`, `docs/OPERATIONAL_GUIDE.md`, and `docs/GUIDA_OPERATIVA.md` all updated to `588` tests, modular client/server mixins documented, and `.github/workflows/ci.yml` documented).
 * **Coverage Gaps**:
   * Missing negative security tests for travel/camp/encounter handlers (`server/rules/character.py`) and journal handlers (`server/rules/journal.py`).
   * Missing unit tests for `ClientGUI.handle_audio_play` URL scheme filtering and `handle_audio_track_chunk` chunk bounds/atomic caching.

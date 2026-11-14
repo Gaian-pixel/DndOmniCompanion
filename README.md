@@ -6,7 +6,7 @@
 [![Ruleset: D&D 5e](https://img.shields.io/badge/ruleset-D%26D%205e-red.svg)](https://dnd.wizards.com/)
 [![UI: ttkbootstrap](https://img.shields.io/badge/ui-ttkbootstrap-orange.svg)](https://ttkbootstrap.readthedocs.io/)
 [![Multiplayer: TCP/UDP](https://img.shields.io/badge/networking-TCP%20%2B%20UDP-green.svg)]()
-[![Tests: Passing](https://img.shields.io/badge/tests-583%2F583%20passing-brightgreen.svg)]()
+[![Tests: Passing](https://img.shields.io/badge/tests-588%2F588%20passing-brightgreen.svg)]()
 [![Localization: EN / IT](https://img.shields.io/badge/i18n-English%20%7C%20Italiano-blueviolet.svg)]()
 [![Units: Imperial / Metric](https://img.shields.io/badge/units-ft%2Fmi%20%7C%20m%2Fkm-informational.svg)]()
 [![Version](https://img.shields.io/badge/release-v0.5.0--alpha-gold.svg)](https://github.com/Gaian-pixel/DndOmniCompanion/releases)
@@ -340,10 +340,12 @@ DndOmniCompanion/
 │   ├── login_ui.py                 # Character selection & server connection dialog
 │   ├── manuals_ui.py               # Client-side rulebook & compendium browser
 │   ├── network.py                  # Client TCP socket networking
+│   ├── network_handlers.py         # ClientGUI network handler, audio cache & asset cache mixin
 │   └── voice_client.py             # UDP real-time voice streamer
 ├── server/                         # DM Server, 5e Rules Engine, DM GUI & Voice Host
 │   ├── server.py                   # Multi-client TCP game server
 │   ├── dm_gui.py                   # Main Dungeon Master dashboard
+│   ├── dm_campaign_session_mixin.py# DM campaign lifecycle, session save/load & approval mixin
 │   ├── dm_automation_panel.py      # Campaign Conduction Panel (3 styles) & DM Pending Actions Dock
 │   ├── dm_travel_dialog.py         # Overland Travel, Marching Order & Rations Dialog
 │   ├── dm_entity_dialogs.py        # Token Sizing, Magical Auras & Entity Config Dialogs
@@ -389,7 +391,7 @@ DndOmniCompanion/
 │   ├── GUIDA_ALL_UTILIZZO.md       # Manuale completo all'utilizzo (Italiano)
 │   ├── OPERATIONAL_GUIDE.md        # System & Operational Manual (English)
 │   └── GUIDA_OPERATIVA.md          # Manuale operativo e architettura (Italiano)
-├── tests/                          # Automated testing suite (583 passing tests)
+├── tests/                          # Automated testing suite (588 passing tests)
 │   ├── test_phb_dmg_mm_complete.py # Complete PHB/DMG/MM class powers, feats, monster traits & selectable DMG rules
 │   ├── test_raw_5e_advanced_features.py # Smite, Wild Shape, Font of Magic, Arcane Recovery, Reliable Talent, Auto XP
 │   ├── simulate_4player_campaign.py# Live 4-player + DM campaign simulation (11 phases)
@@ -409,10 +411,10 @@ DndOmniCompanion/
 
 ## 🧪 Automated Testing & Verification
 
-All **583 automated tests** pass with 100% success and 0 failures:
+All **588 automated tests** pass with 100% success and 0 failures:
 
 ```powershell
-# 1. Comprehensive Unit Tests (583 tests: complete PHB/DMG/MM & XGtE/TCE rules, 30 selectable DM options, magic items, 3D dice, join flow, tactical combat, UI)
+# 1. Comprehensive Unit Tests (588 tests: complete PHB/DMG/MM & XGtE/TCE rules, 30 selectable DM options, magic items, 3D dice, join flow, tactical combat, UI)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 1b. Run Complete PHB/DMG/MM & XGtE/TCE Selectable Rules test suites

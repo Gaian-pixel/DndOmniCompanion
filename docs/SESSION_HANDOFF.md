@@ -1,60 +1,80 @@
 # D&D OmniCompanion — Autonomous Development Session Handoff
 
-> **Branch:** `dev/v0.6.0-autonomous` (created from `main` at `3b28c99`; `main` untouched, no remote pushes or tags created)  
-> **Date:** 2026-11-14  
-> **Scope:** Initial Architecture Audit -> Priority Security, Test Isolation, Static Quality, CI & Documentation Reconciliation (`TASK-001` through `TASK-004`)
+> **Branch:** `dev/v0.6.0-autonomous` (`main` untouched at `3b28c99`, no remote pushes or tags)  
+> **Latest Code Commit:** `e1e0ec7` (`TASK-008` completed; followed by this bilingual docs & handoff commit)  
+> **Status:** All roadmap items (`TASK-001` through `TASK-008`) are **COMPLETED**, verified, and clean on `dev/v0.6.0-autonomous`.
 
 ---
 
-## 1. Executive Summary
+## 1. Completed Work & Commit Log (`dev/v0.6.0-autonomous`)
 
-This autonomous engineering session audited the D&D OmniCompanion codebase, established [`docs/DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md), and completed four prioritized work packages (`TASK-001` through `TASK-004`) on branch `dev/v0.6.0-autonomous`:
+1. **`2d03396` — Initial Audit & Roadmap (`docs/DEVELOPMENT_ROADMAP.md`)**
+   - Full repository audit establishing the baseline test suite, architecture map, security/reliability findings, and prioritized backlog (`TASK-001` through `TASK-008`).
 
-1. **Test Data Isolation & Flakiness Elimination (`TASK-001`, commit `8bbee8e`)**: Decoupled test persistence from tracked user configuration/character files via `DND_SETTINGS_PATH` and `DND_CHARACTERS_PATH`, restored clean `client_data/settings.json` (`127.0.0.1` default only), isolated the affected unit tests, and made `test_divine_smite_damage_and_crit` deterministic across hit and Natural 20 crit paths.
-2. **Server DM Authorization, Locking & Audio Security (`TASK-002`, commit `0e76c0a`)**: Enforced `is_dm_actor(player)` and `game_state.lock` across travel/camp/encounter handlers (`server/rules/character.py`) and journal mutation handlers (`server/rules/journal.py`); enforced safe `isalnum` track IDs and `os.path.realpath` containment in `server/audio_library.py`; and added strict `http`/`https` + `netloc` validation in `ClientGUI.handle_audio_play` plus index/size/contiguity validation and atomic replacement writes in `ClientGUI.handle_audio_track_chunk`, backed by 3 new regression tests in `tests/test_audit_fixes.py`.
-3. **Wildcard Import Removal, Latent Bug Fixes & CI Pipeline (`TASK-003`, commit `1e4881f`)**: Replaced all 15 application wildcard (`*`) imports with explicit imports, uncovering and fixing 3 latent `NameError`/missing-import defects (`is_incapacitated_entity` and `_get_entity_skill_bonus` in `server/rules/combat.py`, plus `safe_after` in `components/ui_components.py`), cleaned placeholder-free f-strings and unused imports across `common/` and `server/`, and added `.github/workflows/ci.yml`.
-4. **Bilingual Documentation Reconciliation & Handoff (`TASK-004`)**: Synchronized `README.md`, `README_IT.md`, `docs/OPERATIONAL_GUIDE.md`, and `docs/GUIDA_OPERATIVA.md` to the verified **583** `unittest` test count, documented `.github/workflows/ci.yml`, clarified standalone GUI smoke/E2E script execution (`tests/test_ui_smoke.py`, `tests/test_e2e_gui.py`), and updated `docs/DEVELOPMENT_ROADMAP.md`.
+2. **`8bbee8e` — `TASK-001`: Storage Isolation & Deterministic Smite Test**
+   - Added `DND_SETTINGS_PATH` and `DND_CHARACTERS_PATH` environment overrides in `client/settings_manager.py` and `client/character_manager.py` so automated test runs never mutate tracked files in `client_data/`.
+   - Stabilized `tests/test_raw_5e_advanced_features.py` (fixed Divine Smite test RNG flakiness).
+
+3. **`0e76c0a` — `TASK-002`: Security, Concurrency & Audio Hardening**
+   - Enforced `is_dm_actor(gs, player)` on privileged travel, camp, and journal handlers (`server/commands.py`).
+   - Added re-entrant lock synchronization (`game_state.lock`) around `GameState` mutations in `server/network.py` and `server/dm_gui.py`.
+   - Restricted audio playback URLs to safe HTTP/HTTPS schemes and hardened `AUDIO_TRACK_CHUNK` bounded assembly/atomic writes in `client/client.py` and `common/network_utils.py`.
+
+4. **`1e4881f` — `TASK-003`: Star Import Removal, Bug Fixes & GitHub CI**
+   - Eliminated wildcard (`*`) imports across `common/`, `server/`, `client/`, and `components/`, uncovering and fixing 3 latent missing-import bugs (`is_incapacitated_entity` and `_get_entity_skill_bonus` in `server/rules/combat.py`, `safe_after` in `components/ui_components.py`).
+   - Added `.github/workflows/ci.yml` running `py_compile`, `pyflakes` critical checks, and isolated headless `unittest discover tests`.
+
+5. **`75542e7` — `TASK-004`: Bilingual Documentation Reconciliation & Session Handoff**
+   - Reconciled EN/IT documentation test counts, documented CI execution and standalone GUI smoke/E2E scripts (`tests/test_ui_smoke.py`, `tests/test_e2e_gui.py`), and introduced `docs/SESSION_HANDOFF.md`.
+   - Verified async `task-43750` completion against `75542e7` (`Ran 583 tests in 51.183s — OK`).
+
+6. **`4f17d2e` — `TASK-005`: Malformed Packet Resilience & Audio Download Eviction**
+   - Added `JOIN` payload validation (`dict`/name/type/`position` checks) and malformed-packet loop guards in `server/network.py` so bad client payloads return `ERROR_REPLY` without tearing down the connection loop.
+   - Added `_audio_download_ttl = 60.0` stale cleanup (`_prune_stale_audio_downloads`), `_max_audio_downloads = 8` oldest-entry eviction, and clean reset on disconnect in `client/client.py`.
+   - Added `test_audio_downloads_ttl_eviction_and_max_concurrent_cap` and `test_server_malformed_packets_do_not_drop_connection` in `tests/test_audit_fixes.py`.
+
+7. **`5b597bf` — `TASK-006`: Optional Session Passphrase/PIN Auth & Rate Limiting**
+   - Added optional `password` field to `JoinData` / `make_join()` in `common/protocol.py`.
+   - Added constant-time passphrase verification (`hmac.compare_digest`), per-IP sliding-window rate limiting (`AUTH_MAX_ATTEMPTS = 5`, `AUTH_WINDOW_SECONDS = 60.0`, `AUTH_LOCKOUT_SECONDS = 30.0`), and live passphrase management (`Server.set_session_password`) in `server/network.py`.
+   - Added symmetric EN/IT translations (`login_session_pin`, `menu_session_password`) in `common/i18n.py`, optional masked PIN field in `client/login_ui.py` (keeping `.result == (ip, char)` 2-tuple compatibility), wiring in `main.py` / `client/client.py`, and `DM_GUI.open_session_password_dialog()` in `server/dm_gui.py`.
+   - Added `test_server_join_session_password_and_rate_limiting` in `tests/test_audit_fixes.py`.
+
+8. **`010aacb` — `TASK-007`: SHA-256 Hash-Cached Map & Handout Transfer Deduplication**
+   - Added `compute_asset_hash(b64_data)` (`SHA-256[:16]`) and per-player `_sent_asset_hashes` deduplication (`prepare_per_player_state_payload`, `_deduplicate_map_payload`, `_deduplicate_handout_dict`) in `common/network_utils.py`, wired through `broadcast()` and `server/network.py` (join/reconnect hash reset) without cross-player payload mutation.
+   - Added bounded 32-entry client asset cache (`_get_asset_cache`, `_store_asset_in_cache`, `_resolve_cached_map_assets`, `_resolve_cached_handout_assets`) in `client/client.py`.
+   - Added `test_hash_cached_map_and_handout_transfer_deduplication` in `tests/test_audit_fixes.py`.
+
+9. **`e1e0ec7` — `TASK-008`: Modular Mixin Extraction (`ClientNetworkHandlersMixin` & `DMCampaignSessionMixin`)**
+   - Extracted `ClientNetworkHandlersMixin` into `client/network_handlers.py` (861 lines: asset cache helpers + 36 network/audio/chat/dialog handlers, with `_monotonic_now()` preserving `unittest.mock.patch("client.client.time.monotonic", ...)` compatibility) and inherited it in `ClientGUI` (`client/client.py`, reduced to 5,109 lines while preserving mockable imports `ClientNetwork`, `AudioManager`, `VoiceClient`, `LoginDialog`, `time`).
+   - Extracted `DMCampaignSessionMixin` into `server/dm_campaign_session_mixin.py` (706 lines: campaign lifecycle, session save/load, scene atmosphere switching, and 4 player approval prompts) and inherited it in `DM_GUI` (`server/dm_gui.py`, reduced to 3,818 lines while preserving mockable imports `Server`, `AudioManager`, `VoiceClient`).
+   - Added `test_client_and_dm_gui_mixin_extraction_preserves_public_api` in `tests/test_audit_fixes.py` verifying inheritance, `MagicMock(spec=...)` compatibility, and intact mock targets.
 
 ---
 
-## 2. Commit History on `dev/v0.6.0-autonomous`
+## 2. Verified Final Baseline Metrics
 
-* `2d03396` — `docs: initial architecture audit and development roadmap`
-* `8bbee8e` — `fix(tests,data): isolate persistent settings/character storage and fix Divine Smite test flakiness (TASK-001)`
-* `0e76c0a` — `security(server,client): enforce DM role on travel/camp/journal handlers and harden audio playback (TASK-002)`
-* `1e4881f` — `refactor(quality): remove all star imports, fix missing-import bugs, and add GitHub CI workflow (TASK-003)`
-* *(HEAD)* — `docs: reconcile EN/IT test counts, document CI workflow, and add session handoff (TASK-004)`
-
----
-
-## 3. Verified Quality Metrics
-
-All checks below ran after all code and CI edits prior to final documentation commit on `dev/v0.6.0-autonomous`:
-
-| Check | Command | Outcome |
+| Check | Command / Scope | Observed Result |
 |---|---|---|
-| **Full Headless Unit Test Suite** | `$env:DND_MOCK_AUDIO="1";` with temp `DND_SETTINGS_PATH` & `DND_CHARACTERS_PATH`, `python -m unittest discover tests` | **PASSED**: `Ran 583 tests in 51.183s — OK` (`0` failures, `0` errors, `0` skipped across `63` `unittest` modules) |
-| **Full Bytecode Compilation** | `py_compile` across `common/`, `server/`, `client/`, `components/`, `tests/`, `main.py`, `build_release.py` | **PASSED**: `0` compilation/syntax errors |
-| **Static Critical Check** | `python -m pyflakes common server client components main.py` | **PASSED (Critical)**: `0` undefined names, `0` star imports (`unable to detect undefined names`), `0` syntax errors (`357` non-critical unused-import/variable lines remaining) |
-| **Persistent User Data Integrity** | `git diff client_data/` after running full test suite | **CLEAN**: empty diff (`settings.json` clean) |
-
-Note on standalone runners in `tests/`: `tests/test_ui_smoke.py` and `tests/test_e2e_gui.py` remain standalone script entry points (`if __name__ == "__main__":`) rather than `unittest.TestCase` suites; `tests/simulate_game_session.py` and `tests/simulate_4player_campaign.py` are scripted multiplayer simulations.
-
----
-
-## 4. Remaining Roadmap Backlog
-
-Next priorities tracked in [`docs/DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md):
-
-1. **TASK-005 (P3 — Reliability)**: Server/Client malformed packet type validation and TTL eviction for incomplete `_audio_downloads` entries in `client/client.py` and `server/network.py`.
-2. **TASK-006 (P4 — Security)**: Optional DM-configured session passphrase / Room PIN verified during the TCP `JOIN` handshake with rate limiting and test coverage.
-3. **TASK-007 (P5 — Performance)**: Hash-cached / chunked map background and handout image transfers to avoid resending large base64 blobs on every `GAME_STATE` sync.
-4. **TASK-008 (P8 — Maintainability)**: Incremental extraction of cohesive controller/toolbar modules from `client/client.py` and `server/dm_gui.py` while keeping public APIs and test mocks intact.
-5. **Cleanup Backlog (Non-Critical)**: Gradually triage the remaining `357` non-critical `pyflakes` warnings (mostly unused imports/variables) across modules.
+| **Full Headless Unit Test Suite** | `$env:DND_MOCK_AUDIO="1";` with isolated temp `DND_SETTINGS_PATH` & `DND_CHARACTERS_PATH`, `python -m unittest discover tests` | **PASSED**: `Ran 588 tests in 61.292s — OK` (`0` failures, `0` errors, `0` skipped across `63` `unittest` modules) |
+| **Static Bytecode Compile** | `py_compile.compile(...)` across all workspace `.py` files | **PASSED**: `py_compile OK for 174 files` |
+| **Static Analysis (`pyflakes`)** | `python -m pyflakes common server client components main.py build_release.py` | **PASSED**: `0` critical issues (`undefined name` / syntax errors) and `0` warnings in `client/network_handlers.py` and `server/dm_campaign_session_mixin.py` |
+| **Tracked Data Isolation** | `git diff --stat client_data/` after running full test suite | **CLEAN**: empty diff (no mutation of tracked files in `client_data/`) |
+| **Roadmapped Tasks** | `docs/DEVELOPMENT_ROADMAP.md` (`TASK-001`..`TASK-008`) | **8 / 8 `COMPLETED`** |
 
 ---
 
-## 5. Operational Notes for Next Maintainer / Reviewer
+## 3. Repository Conventions & Maintainer Notes
 
-* Running `unittest discover tests` directly modifies `client_data/settings.json` or `client_data/characters.json` only if an individual UI/launcher module writes defaults outside test mocks; always set `DND_SETTINGS_PATH` and `DND_CHARACTERS_PATH` to a temporary directory in CI or automated local runs (as implemented in `.github/workflows/ci.yml`).
-* Merge or cherry-pick `dev/v0.6.0-autonomous` into `main` only after reviewing the diff and deciding whether to push/trigger CI on GitHub.
+- **Isolated Test Runs**: Always set `$env:DND_MOCK_AUDIO="1"` and temporary `DND_SETTINGS_PATH` / `DND_CHARACTERS_PATH` paths when running `unittest discover tests` (or verify `git diff --stat client_data/` afterwards).
+- **Standalone Runners (Not in `unittest discover`)**: `tests/test_ui_smoke.py` and `tests/test_e2e_gui.py` are standalone Tkinter smoke/E2E scripts requiring a GUI display and explicit script invocation.
+- **Test Mock Compatibility**: Existing tests patch attributes directly on `client.client` (`ClientNetwork`, `AudioManager`, `VoiceClient`, `LoginDialog`, `time.monotonic`) and `server.dm_gui` (`Server`, `AudioManager`, `VoiceClient`), and use `MagicMock(spec=ClientGUI)` / `MagicMock(spec=DM_GUI)`. Keep these module attributes and mixin inheritance intact in future refactors.
+- **Documentation & Localization Parity**: Maintain symmetry between Italian (`common/i18n.py` `"it"`, `README_IT.md`, `docs/GUIDA_OPERATIVA.md`, `docs/GUIDA_ALL_UTILIZZO.md`) and English (`common/i18n.py` `"en"`, `README.md`, `docs/OPERATIONAL_GUIDE.md`, `docs/USER_GUIDE.md`).
+
+---
+
+## 4. Next Steps (For Future Sessions)
+
+All backlog items in `docs/DEVELOPMENT_ROADMAP.md` (`TASK-001`–`TASK-008`) are complete. Recommended follow-up actions when ready for release or further iteration:
+1. Review diffs across `main..dev/v0.6.0-autonomous` and run the standalone interactive GUI checks (`tests/test_ui_smoke.py`, `tests/test_e2e_gui.py`) in a desktop environment.
+2. Merge `dev/v0.6.0-autonomous` into `main` and publish a release/tag only upon explicit human authorization.
+3. Optional next maintainability wave: incrementally decompose remaining large UI setup sections (`ClientGUI.setup_gui` in `client/client.py` and `DM_GUI` initialization/context menus in `server/dm_gui.py`) into focused mixin/builder modules.
