@@ -42,6 +42,11 @@ class Player:
         self.speed_unit = None
         self.movement_spent_this_turn = 0
         self.has_acted_this_turn = False
+        self.attacks_made_this_turn = 0
+        self.has_reacted_this_turn = False
+        self.sneak_attack_used_this_turn = False
+        self.readied_action_data = None
+        self.helped_targets_this_turn = []
         self.layer = "token"
         self.has_darkvision = None
         self.has_lair_actions = False
@@ -278,6 +283,13 @@ class Player:
             "death_save_failures": getattr(self, "death_save_failures", 0),
             "combat_initiative": getattr(self, "combat_initiative", None),
             "bonus_action_used_this_turn": getattr(self, "bonus_action_used_this_turn", False),
+            "movement_spent_this_turn": getattr(self, "movement_spent_this_turn", 0),
+            "has_acted_this_turn": getattr(self, "has_acted_this_turn", False),
+            "attacks_made_this_turn": getattr(self, "attacks_made_this_turn", 0),
+            "has_reacted_this_turn": getattr(self, "has_reacted_this_turn", False),
+            "sneak_attack_used_this_turn": getattr(self, "sneak_attack_used_this_turn", False),
+            "readied_action_data": getattr(self, "readied_action_data", None),
+            "helped_targets_this_turn": list(getattr(self, "helped_targets_this_turn", []) or []),
             "reckless_attack_active": getattr(self, "reckless_attack_active", False),
             "non_lethal_mode": getattr(self, "non_lethal_mode", False),
             "moved_straight_hexes": getattr(self, "moved_straight_hexes", 0),
@@ -376,6 +388,13 @@ class Player:
         p.can_attack = data.get("can_attack", True)
         p.is_companion = data.get("is_companion", False)
         p.bonus_action_used_this_turn = data.get("bonus_action_used_this_turn", False)
+        p.movement_spent_this_turn = int(data.get("movement_spent_this_turn", 0) or 0)
+        p.has_acted_this_turn = bool(data.get("has_acted_this_turn", False))
+        p.attacks_made_this_turn = int(data.get("attacks_made_this_turn", 0) or 0)
+        p.has_reacted_this_turn = bool(data.get("has_reacted_this_turn", False))
+        p.sneak_attack_used_this_turn = bool(data.get("sneak_attack_used_this_turn", False))
+        p.readied_action_data = data.get("readied_action_data", None)
+        p.helped_targets_this_turn = list(data.get("helped_targets_this_turn", []) or [])
         p.reckless_attack_active = data.get("reckless_attack_active", False)
         p.non_lethal_mode = data.get("non_lethal_mode", False)
         p.moved_straight_hexes = data.get("moved_straight_hexes", 0)
@@ -1287,7 +1306,8 @@ class GameState:
             from common.network_utils import sanitize_map_for_players
             export_map = self.current_map if is_dm else (sanitize_map_for_players(self.current_map) if self.current_map else None)
 
-            return {
+            import copy
+            state_out = {
                 "players": players_data,
                 "map": export_map,
                 "combat_active": self.combat_active,
@@ -1324,6 +1344,12 @@ class GameState:
                 "active_regional_effects": getattr(self, "active_regional_effects", []),
                 "campaign_journal": self.campaign_journal.to_dict(include_dm_notes=True) if is_dm and hasattr(self, "campaign_journal") and self.campaign_journal else (self.campaign_journal.sanitize_for_players() if hasattr(self, "campaign_journal") and self.campaign_journal else None)
             }
+            if is_dm:
+                state_out["maps"] = copy.deepcopy(getattr(self, "maps", {}))
+                state_out["active_map_id"] = getattr(self, "active_map_id", None)
+                state_out["pending_legendary_resistances"] = copy.deepcopy(getattr(self, "pending_legendary_resistances", {}))
+                state_out["campaign_starter_kit"] = copy.deepcopy(getattr(self, "campaign_starter_kit", None))
+            return state_out
 
     def move_player(self, name, new_pos):
         player = self.find_player(name)
@@ -1355,6 +1381,7 @@ class GameState:
 
     def load_session(self, filepath):
         """Carica lo stato da un file JSON."""
+        import copy
         from common.file_utils import load_json
         state = load_json(filepath, default={})
         if not state:
@@ -1362,6 +1389,12 @@ class GameState:
         
         with self.lock:
             self.current_map = state.get("map")
+            if "maps" in state and isinstance(state["maps"], dict):
+                self.maps = copy.deepcopy(state["maps"])
+            if "active_map_id" in state:
+                self.active_map_id = state.get("active_map_id")
+                if self.active_map_id and hasattr(self, "maps") and self.active_map_id in self.maps:
+                    self.current_map = self.maps[self.active_map_id]
             self.combat_active = state.get("combat_active", False)
             self.turn_index = state.get("turn_index", 0)
             self.round_number = state.get("round_number", 1)
@@ -1388,6 +1421,10 @@ class GameState:
             self.camp_has_campfire = state.get("camp_has_campfire", True)
             self.active_complex_traps = state.get("active_complex_traps", [])
             self.active_regional_effects = state.get("active_regional_effects", [])
+            if "pending_legendary_resistances" in state and isinstance(state["pending_legendary_resistances"], dict):
+                self.pending_legendary_resistances = copy.deepcopy(state.get("pending_legendary_resistances", {}))
+            if "campaign_starter_kit" in state:
+                self.campaign_starter_kit = copy.deepcopy(state.get("campaign_starter_kit"))
             if "automation_mode" in state:
                 self.automation_mode = state.get("automation_mode", "hybrid")
             if "automation_settings" in state and isinstance(state["automation_settings"], dict):
@@ -1425,73 +1462,16 @@ class GameState:
                         break
                 
                 if existing:
-                    existing.position = p_data.get("position", [0, 0])
-                    existing.hp = p_data.get("hp", 10)
-                    existing.max_hp = p_data.get("max_hp", 10)
-                    existing.temp_hp = p_data.get("temp_hp", 0)
-                    existing.damage_resistances = p_data.get("damage_resistances", [])
-                    existing.damage_immunities = p_data.get("damage_immunities", [])
-                    existing.damage_vulnerabilities = p_data.get("damage_vulnerabilities", [])
-                    existing.exhaustion_level = p_data.get("exhaustion_level", 0)
-                    existing.initiative = p_data.get("initiative", 0)
-                    existing.full_sheet = p_data.get("full_sheet")
-                    existing.conditions = p_data.get("conditions", [])
-                    existing.condition_durations = p_data.get("condition_durations", {})
-                    existing.vision_radius = p_data.get("vision_radius", 6)
-                    existing.aura_radius = p_data.get("aura_radius", 0)
-                    existing.aura_color = p_data.get("aura_color", "yellow")
-                    existing.is_party_member = p_data.get("is_party_member", False)
-                    existing.travel_role = p_data.get("travel_role", "Nessuna")
-                    existing.marching_order = p_data.get("marching_order", "Centro")
-                    existing.light_radius = p_data.get("light_radius", 0)
-                    existing.light_color = p_data.get("light_color", "#FFA500")
-                    existing.legendary_resistances_max = p_data.get("legendary_resistances_max", 0)
-                    existing.legendary_resistances_current = p_data.get("legendary_resistances_current", 0)
-                    existing.legendary_actions_max = p_data.get("legendary_actions_max", 0)
-                    existing.legendary_actions_current = p_data.get("legendary_actions_current", 0)
-                    existing.speed = p_data.get("speed", 30)
-                    existing.speed_unit = p_data.get("speed_unit", None)
-                    existing.layer = p_data.get("layer", "token")
-                    existing.has_darkvision = p_data.get("has_darkvision", None)
-                    existing.has_lair_actions = p_data.get("has_lair_actions", False)
-                    existing.owner = p_data.get("owner", None)
-                    existing.elevation = p_data.get("elevation", 0)
-                    existing.ac = p_data.get("ac", 10)
-                    existing.size = p_data.get("size", 1)
-                    existing.is_hidden = p_data.get("is_hidden", False)
-                    existing.concentrating_on = p_data.get("concentrating_on", None)
-                    existing.concentration_rounds_remaining = p_data.get("concentration_rounds_remaining", None)
-                    existing.hero_points = p_data.get("hero_points", None)
-                    existing.facing = p_data.get("facing", None)
-                    existing.climbing_on_target = p_data.get("climbing_on_target", None)
-                    existing.is_mythic = bool(p_data.get("is_mythic", False))
-                    existing.mythic_phase_active = bool(p_data.get("mythic_phase_active", False))
-                    existing.mythic_actions_unlocked = bool(p_data.get("mythic_actions_unlocked", False))
-                    existing.lair_last_action = p_data.get("lair_last_action", None)
-                    existing.damage_transfer_target = p_data.get("damage_transfer_target", None)
-                    existing.petrification_stage = int(p_data.get("petrification_stage", 0) or 0)
-                    existing.regional_effects = list(p_data.get("regional_effects", []) or [])
-                    existing.in_combat = p_data.get("in_combat", False)
-                    existing.death_save_successes = p_data.get("death_save_successes", 0)
-                    existing.death_save_failures = p_data.get("death_save_failures", 0)
-                    existing.combat_initiative = p_data.get("combat_initiative", None)
-                    existing.active_effects = p_data.get("active_effects", [])
-                    existing.is_companion = p_data.get("is_companion", False)
-                    existing.in_pocket_dimension = p_data.get("in_pocket_dimension", False)
-                    existing.swallowed_by = p_data.get("swallowed_by", None)
-                    existing.mount_name = p_data.get("mount_name", None)
-                    existing.stealth_score = p_data.get("stealth_score", 0)
-                    existing.surprised = p_data.get("surprised", False)
-                    existing.bardic_inspiration_die = p_data.get("bardic_inspiration_die", None)
-                    existing.hunger_days = p_data.get("hunger_days", 0)
-                    existing.water_days = p_data.get("water_days", 0)
-                    existing.breath_rounds_left = p_data.get("breath_rounds_left", None)
-                    existing.madness_effects = p_data.get("madness_effects", [])
-                    existing.injuries = p_data.get("injuries", [])
-                    existing.diseases = p_data.get("diseases", [])
-                    existing.is_submerged = p_data.get("is_submerged", False)
-                    existing.is_object = p_data.get("is_object", False)
-                    existing.damage_threshold = p_data.get("damage_threshold", 0)
+                    saved_conn = getattr(existing, "conn", None)
+                    saved_addr = getattr(existing, "addr", None)
+                    saved_hashes = getattr(existing, "_sent_asset_hashes", {})
+                    restored = Player.from_dict(p_data)
+                    for attr_k, attr_v in restored.__dict__.items():
+                        if attr_k not in ("conn", "addr", "_sent_asset_hashes"):
+                            setattr(existing, attr_k, attr_v)
+                    existing.conn = saved_conn
+                    existing.addr = saved_addr
+                    existing._sent_asset_hashes = saved_hashes
                     loaded_players.append(existing)
                 else:
                     loaded_players.append(Player.from_dict(p_data))

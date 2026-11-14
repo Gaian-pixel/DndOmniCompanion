@@ -172,8 +172,11 @@ def make_player_joined(player_dict):
 def make_player_left(player_name):
     return {"type": "PLAYER_LEFT", "data": {"name": player_name}}
 
-def make_player_move(player_name, position):
-    return {"type": "PLAYER_MOVE", "data": {"name": player_name, "position": position}}
+def make_player_move(player_name, position, movement_spent_this_turn=None):
+    d = {"name": player_name, "position": position}
+    if movement_spent_this_turn is not None:
+        d["movement_spent_this_turn"] = int(movement_spent_this_turn)
+    return {"type": "PLAYER_MOVE", "data": d}
 
 def make_dice_roll_result(player_name, formula, reason, result):
     return {"type": "DICE_ROLL_RESULT", "data": {
@@ -610,12 +613,13 @@ def make_mystic_arcanum_request(level: int, spell_name: Optional[str] = None, ta
     if actor_name: d["actor_name"] = actor_name
     return {"type": "MYSTIC_ARCANUM_REQUEST", "data": d}
 
-def make_cast_special_spell_request(spell_name: str, cast_level: int = 1, target_name: Optional[str] = None, targets: Optional[List[str]] = None, casting_time: str = "action", has_verbal: bool = True, base_level: Optional[int] = None, actor_name: Optional[str] = None) -> ProtocolMessage:
+def make_cast_special_spell_request(spell_name: str, cast_level: int = 1, target_name: Optional[str] = None, targets: Optional[List[str]] = None, casting_time: str = "action", has_verbal: bool = True, base_level: Optional[int] = None, actor_name: Optional[str] = None, **extra: Any) -> ProtocolMessage:
     d: Dict[str, Any] = {"spell_name": spell_name, "cast_level": int(cast_level), "casting_time": casting_time, "has_verbal": bool(has_verbal)}
     if base_level is not None: d["base_level"] = int(base_level)
     if target_name: d["target_name"] = target_name
     if targets: d["targets"] = targets
     if actor_name: d["actor_name"] = actor_name
+    d.update(extra)
     return {"type": "CAST_SPECIAL_SPELL_REQUEST", "data": d}
 
 def make_toggle_non_lethal_request(non_lethal: Optional[bool] = None, actor_name: Optional[str] = None) -> ProtocolMessage:

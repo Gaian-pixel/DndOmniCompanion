@@ -1593,7 +1593,7 @@ def handle_attack_request(data, player, game_state):
                 return
             player.bonus_action_used_this_turn = True
         elif not data.get("extra_action"):
-            if getattr(player, "has_acted_this_turn", False) and getattr(player, "attacks_made_this_turn", 0) == 0:
+            if getattr(player, "has_acted_this_turn", False):
                 if player and getattr(player, "conn", None):
                     send_message(player.conn, make_error_reply("Hai già consumato la tua Azione principale in questo turno!"))
                 return
@@ -3196,6 +3196,10 @@ def _validate_combat_tactical_action(player, game_state, action_label: str) -> b
         if curr_turn and player and curr_turn.name != player.name:
             if getattr(player, "conn", None):
                 send_message(player.conn, make_error_reply(f"Non è il tuo turno in combattimento! È il turno di {curr_turn.name}."))
+            return False
+        if player and getattr(player, "has_acted_this_turn", False):
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply(f"Hai già consumato la tua Azione principale in questo turno ({action_label} non disponibile)!"))
             return False
 
     return True

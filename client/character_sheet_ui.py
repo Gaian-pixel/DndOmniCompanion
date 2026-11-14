@@ -304,8 +304,21 @@ class FeatureEditorDialog(tk.Toplevel):
         ttk.Button(btn_box, text="Annulla", command=self.destroy).pack(side=tk.RIGHT, padx=4)
 
 
+def _get_spell_action_cost_type(spell: dict, metamagic_key: str = "") -> str:
+    """Return 'bonus', 'reaction', or 'action' from spell casting time and active metamagic."""
+    m_low = str(metamagic_key or "").lower()
+    if "rapido" in m_low or "quicken" in m_low:
+        return "bonus"
+    t_low = str((spell or {}).get("time", "") or "").lower()
+    if "bonus" in t_low:
+        return "bonus"
+    if "reazion" in t_low or "reaction" in t_low:
+        return "reaction"
+    return "action"
+
+
 class CharacterSheetFrame(ttk.Frame):
-    def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, give_gold_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None, custom_spell_request_callback=None, request_currency_callback=None, request_item_callback=None, is_connected=False, request_journal_approval_callback=None, on_close_callback=None, on_detach_callback=None, on_dock_callback=None, is_overlay=False, network=None, **kwargs):
+    def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, give_gold_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None, custom_spell_request_callback=None, request_currency_callback=None, request_item_callback=None, is_connected=False, request_journal_approval_callback=None, on_close_callback=None, on_detach_callback=None, on_dock_callback=None, is_overlay=False, network=None, cast_spell_callback=None, **kwargs):
         super().__init__(master, **kwargs)
         self.character = character
         self.manager = manager
@@ -316,6 +329,7 @@ class CharacterSheetFrame(ttk.Frame):
         self.give_gold_callback = give_gold_callback
         self.players_list_callback = players_list_callback
         self.attack_callback = attack_callback
+        self.cast_spell_callback = cast_spell_callback
         self.custom_spell_request_callback = custom_spell_request_callback
         self.request_currency_callback = request_currency_callback
         self.request_item_callback = request_item_callback
@@ -2815,9 +2829,10 @@ class CharacterSheetFrame(ttk.Frame):
                     self.character.conditions.append("Concentrazione")
                     conc_info = " [🧠 Concentrazione Attiva]"
 
-            self.manager.update_character(self.character)
-            if hasattr(self.manager, 'save_characters'):
-                self.manager.save_characters()
+            if getattr(self, "manager", None):
+                self.manager.update_character(self.character)
+                if hasattr(self.manager, 'save_characters'):
+                    self.manager.save_characters()
             SpellsPanel.update_spell_stats(self)
             if hasattr(self, "update_pact_slots_label"):
                 self.update_pact_slots_label()
@@ -2845,17 +2860,50 @@ class CharacterSheetFrame(ttk.Frame):
                 tags_txt = (" " + " ".join(f"[{t}]" for t in res_tags)) if res_tags else ""
                 chat_msg = f"{self.character.name} lancia {spell.get('name', '')}{upcast_info}!{stats_tag}{conc_info}{dur_tag}{meta_tag}{tags_txt}{mat_note}{mat_cons_note}"
                 self.roll_callback("0d0", chat_msg)
+            if getattr(self, "cast_spell_callback", None):
+                cost_type = _get_spell_action_cost_type(spell, meta_choice)
+                try:
+                    self.cast_spell_callback(
+                        spell.get("name", ""),
+                        spell_lvl=lvl,
+                        slot_level=cast_level,
+                        cast_mode=meta_choice or "slot",
+                        is_ritual=is_ritual_cast,
+                        concentration=requires_conc,
+                        action_cost_type=cost_type,
+                        spell_data=spell,
+                    )
+                except Exception:
+                    pass
             win.destroy()
 
             
         def do_attack():
+            from common.feats_and_classes import check_spell_material_components
+            ok_mat, mat_consumed, mat_gp, mat_note = check_spell_material_components(self.character, spell)
+            if not ok_mat:
+                messagebox.showwarning("Componente Materiale Mancante", mat_note, parent=win)
+                return
+
+            lvl = int(spell.get('level', 0) or 0)
+            is_ritual_cast = bool(lvl > 0 and ritual_var.get())
+            eff_cast_lvl = lvl if is_ritual_cast else (upcast_var.get() if lvl > 0 else 0)
+            meta_choice = "" if meta_var.get() == "Nessuna" else meta_var.get()
+            cost_type = _get_spell_action_cost_type(spell, meta_choice)
+
+            if lvl > 0 and SpellsPanel.spell_preparation_required(self.character) and spell.get("prepared", True) is False:
+                cls_low = str(getattr(self.character, "char_class", "") or "").lower()
+                wizard_ritual_ok = ("mago" in cls_low or "wizard" in cls_low) and is_ritual_cast and is_ritual_capable and caster_can_ritual
+                if not wizard_ritual_ok:
+                    if not messagebox.askyesno("Incantesimo Non Preparato", f"'{spell.get('name', '')}' non è segnato come Preparato oggi (PHB).\nVuoi forzarne il lancio comunque (consenso DM)?", parent=win):
+                        return
+
             default_hit = str(spell_stats.get("attack_bonus", 0))
             hit_bonus_str = tk.simpledialog.askstring("Bonus Colpire", "Inserisci bonus per colpire (es. 5):", initialvalue=default_hit, parent=win)
             if hit_bonus_str is None: return
             try: hit_bonus = int(hit_bonus_str)
             except (ValueError, TypeError): hit_bonus = int(spell_stats.get("attack_bonus", 0))
             
-            eff_cast_lvl = base_lvl if ritual_var.get() else upcast_var.get()
             if base_lvl == 0 and raw_dmg_f:
                 char_lvl = int(getattr(self.character, "level", 1) or 1)
                 default_dmg = SpellsPanel.scale_cantrip_formula(raw_dmg_f, char_lvl, spell.get("name", ""))
@@ -2863,9 +2911,92 @@ class CharacterSheetFrame(ttk.Frame):
                 default_dmg = SpellsPanel.scale_spell_formula_for_upcast(raw_dmg_f, base_lvl, eff_cast_lvl, spell.get("name", "")) if raw_dmg_f else ""
             dmg_str = tk.simpledialog.askstring("Danno", "Inserisci formula danno (es. 1d8+3):", initialvalue=default_dmg, parent=win)
             if not dmg_str: return
-            
-            if getattr(self, 'attack_callback', None):
-                self.attack_callback(spell.get('name', ''), hit_bonus, dmg_str)
+
+            if not hasattr(self.character, "spell_slots") or not isinstance(self.character.spell_slots, dict):
+                self.character.spell_slots = {str(i): {"max": 0, "current": 0} for i in range(1, 10)}
+            for l_k, v_dict in getattr(self, "slot_vars", {}).items():
+                self.character.spell_slots.setdefault(l_k, {"max": 0, "current": 0})
+                if isinstance(self.character.spell_slots[l_k], dict):
+                    self.character.spell_slots[l_k]["current"] = v_dict["current"].get()
+                    self.character.spell_slots[l_k]["max"] = v_dict["max"].get()
+
+            ok_res, _res_tags, err_res = SpellsPanel.execute_spell_resource_cost(
+                self.character,
+                spell,
+                eff_cast_lvl,
+                is_ritual=is_ritual_cast,
+                use_pact=bool(use_pact_var.get()),
+                use_spell_points=bool(use_sp_var.get()),
+                metamagic_key=meta_choice,
+            )
+            if not ok_res:
+                if err_res.startswith("SLOT_EXHAUSTED:"):
+                    req_l = err_res.split(":", 1)[1]
+                    if not messagebox.askyesno("Slot Esauriti", f"Non hai più slot di livello {req_l}. Vuoi lanciarlo lo stesso?", parent=win):
+                        return
+                else:
+                    messagebox.showwarning("Impossibile Lanciare", err_res, parent=win)
+                    return
+
+            for l_k, v_dict in getattr(self, "slot_vars", {}).items():
+                sl_o = self.character.spell_slots.get(l_k, {})
+                if isinstance(sl_o, dict):
+                    v_dict["current"].set(int(sl_o.get("current", 0) or 0))
+                    v_dict["max"].set(int(sl_o.get("max", 0) or 0))
+
+            if mat_consumed and float(mat_gp or 0) > 0:
+                SpellsPanel.consume_material_component(self.character, spell, mat_gp)
+                if hasattr(self, "refresh_inventory_grid"):
+                    self.refresh_inventory_grid()
+
+            desc_text = (str(spell.get('desc', '')) + " " + str(spell.get('duration', ''))).lower()
+            requires_conc = ("concentrazione" in desc_text or "concentration" in desc_text)
+            if requires_conc:
+                if not hasattr(self.character, "conditions") or not isinstance(self.character.conditions, list):
+                    self.character.conditions = []
+                if "Concentrazione" not in self.character.conditions:
+                    self.character.conditions.append("Concentrazione")
+
+            if getattr(self, "manager", None):
+                self.manager.update_character(self.character)
+                if hasattr(self.manager, "save_characters"):
+                    self.manager.save_characters()
+            SpellsPanel.update_spell_stats(self)
+            if hasattr(self, "update_pact_slots_label"):
+                self.update_pact_slots_label()
+            if hasattr(self, "_capture_initial_state"):
+                self._capture_initial_state()
+            if hasattr(self, "on_save_callback") and self.on_save_callback:
+                try: self.on_save_callback(self.character)
+                except Exception: pass
+
+            s_low_name = str(spell.get("name", "") or "").lower()
+            is_special_multi = any(k in s_low_name for k in ("dardo incantato", "magic missile", "raggio rovente", "scorching ray", "deflagrazione", "eldritch blast"))
+            if is_special_multi and getattr(self, "cast_spell_callback", None):
+                try:
+                    self.cast_spell_callback(
+                        spell.get("name", ""),
+                        spell_lvl=lvl,
+                        slot_level=eff_cast_lvl,
+                        cast_mode=meta_choice or "slot",
+                        is_ritual=is_ritual_cast,
+                        concentration=requires_conc,
+                        action_cost_type=cost_type,
+                        spell_data=spell,
+                        hit_bonus=hit_bonus,
+                    )
+                except Exception:
+                    pass
+            elif getattr(self, 'attack_callback', None):
+                self.attack_callback(
+                    spell.get('name', ''),
+                    hit_bonus,
+                    dmg_str,
+                    is_spell=True,
+                    spell_level=eff_cast_lvl,
+                    is_bonus_action=(cost_type == "bonus"),
+                    is_reaction=(cost_type == "reaction"),
+                )
             elif getattr(self, 'roll_callback', None):
                 sign = f"+{hit_bonus}" if hit_bonus >= 0 else str(hit_bonus)
                 self.roll_callback(f"1d20{sign}", f"Attacco Incantesimo {spell.get('name', '')} (Danno: {dmg_str})")
@@ -3952,9 +4083,10 @@ class CharacterSheetFrame(ttk.Frame):
                 return
 
             self.character.inventory_grid[target_idx] = entry
-            self.manager.update_character(self.character)
-            if hasattr(self.manager, 'save_characters'):
-                self.manager.save_characters()
+            if getattr(self, "manager", None):
+                self.manager.update_character(self.character)
+                if hasattr(self.manager, 'save_characters'):
+                    self.manager.save_characters()
             self.refresh_inventory_grid()
             self.recalculate_and_refresh_derived_stats()
             win.destroy()
@@ -4189,9 +4321,10 @@ class CharacterSheetFrame(ttk.Frame):
                     item["qty"] = item_qty - donate_qty
                 self.refresh_inventory_grid()
                 self.recalculate_and_refresh_derived_stats()
-                self.manager.update_character(self.character)
-                if hasattr(self.manager, 'save_characters'):
-                    self.manager.save_characters()
+                if getattr(self, "manager", None):
+                    self.manager.update_character(self.character)
+                    if hasattr(self.manager, 'save_characters'):
+                        self.manager.save_characters()
                 self.trade_callback(item_to_send, target)
                 win.destroy()
             elif target:
@@ -5192,7 +5325,8 @@ class CharacterSheetUI(tk.Toplevel):
         is_connected=False, 
         request_journal_approval_callback=None,
         on_dock_callback=None,
-        network=None
+        network=None,
+        cast_spell_callback=None,
     ):
         super().__init__(master)
         self.title(f"{_t('sheet_title')} - {character.name}")
@@ -5220,7 +5354,8 @@ class CharacterSheetUI(tk.Toplevel):
             on_close_callback=self.destroy,
             on_dock_callback=self._handle_dock if on_dock_callback else None,
             is_overlay=False,
-            network=network
+            network=network,
+            cast_spell_callback=cast_spell_callback,
         )
         self._sheet_frame_internal.pack(fill=tk.BOTH, expand=True)
         self.protocol("WM_DELETE_WINDOW", self._on_window_close)

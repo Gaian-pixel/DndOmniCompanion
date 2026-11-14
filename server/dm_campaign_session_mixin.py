@@ -1,6 +1,7 @@
 """DM_GUI campaign, session persistence, scene audio, and player approval dialogs mixin."""
 
 import base64
+import copy
 import json
 import os
 import tkinter as tk
@@ -24,6 +25,108 @@ from common.theme import (
     TEXT_MUTED,
     apply_modern_window_style,
 )
+
+
+def _find_free_party_spawn_hex(game_state) -> list:
+    """Return the first unoccupied non-wall hex near map spawn or origin for tabletop PC placement."""
+    cur_map = getattr(game_state, "current_map", None) or {}
+    raw_spawn = cur_map.get("spawn_point") if isinstance(cur_map, dict) else None
+    base_q, base_r = (
+        (int(raw_spawn[0]), int(raw_spawn[1]))
+        if isinstance(raw_spawn, (list, tuple)) and len(raw_spawn) >= 2
+        else (0, 0)
+    )
+    occupied = {
+        tuple(p.position)
+        for p in getattr(game_state, "players", [])
+        if isinstance(getattr(p, "position", None), (list, tuple)) and len(p.position) >= 2
+    }
+    walls = {
+        tuple(w)
+        for w in (cur_map.get("walls", []) if isinstance(cur_map, dict) else [])
+        if isinstance(w, (list, tuple)) and len(w) >= 2
+    }
+    offsets = [(0, 0)]
+    for radius in range(1, 6):
+        for dq in range(-radius, radius + 1):
+            for dr in range(-radius, radius + 1):
+                if max(abs(dq), abs(dr), abs(-dq - dr)) == radius:
+                    offsets.append((dq, dr))
+    for dq, dr in offsets:
+        cand = (base_q + dq, base_r + dr)
+        if cand not in occupied and cand not in walls:
+            return [cand[0], cand[1]]
+    return [base_q, base_r]
+
+
+def import_party_character_to_game_state(game_state, char_dict, spawn_pos=None):
+    """Spawn or refresh a saved local Character dict/instance as an active party token in GameState."""
+    from common.game_state import Player
+    from common.item_modifiers import compute_effective_ac
+
+    raw = char_dict.to_dict() if hasattr(char_dict, "to_dict") else copy.deepcopy(char_dict)
+    if not isinstance(raw, dict):
+        raise ValueError("Dati personaggio non validi.")
+    name = str(raw.get("name", "") or "").strip()
+    if not name:
+        raise ValueError("Nome personaggio mancante.")
+
+    attrs = raw.get("attributes", {}) if isinstance(raw.get("attributes"), dict) else {}
+    dex_val = int(attrs.get("DES", attrs.get("DEX", 10)) or 10)
+    dex_mod = (dex_val - 10) // 2
+    try:
+        raw_init = raw.get("initiative")
+        init_bonus = int(raw_init) if (raw_init is not None and int(raw_init) != 0) else dex_mod
+    except (ValueError, TypeError):
+        init_bonus = dex_mod
+
+    try:
+        eff_ac = int(compute_effective_ac(raw))
+    except Exception:
+        eff_ac = int(raw.get("ac", 10) or 10)
+
+    max_hp = max(1, int(raw.get("hp_max", 10) or 10))
+    hp = int(raw.get("hp_current", max_hp) if raw.get("hp_current") is not None else max_hp)
+    temp_hp = int(raw.get("temp_hp", 0) or 0)
+    speed = int(raw.get("speed", 30) or 30)
+    speed_unit = raw.get("speed_unit", None)
+    avatar_b64 = raw.get("avatar_b64", None)
+    pact = raw.get("pact_slots", {}) if isinstance(raw.get("pact_slots"), dict) else {}
+
+    with game_state.lock:
+        existing = game_state.find_player(name)
+        player = existing or Player(name)
+        player.is_party_member = True
+        player.is_npc = False
+        player.layer = "token"
+        player.is_hidden = False
+        player.hp = hp
+        player.max_hp = max_hp
+        player.temp_hp = temp_hp
+        player.ac = eff_ac
+        player.speed = speed
+        player.speed_unit = speed_unit
+        player.initiative_bonus = init_bonus
+        player.avatar_b64 = avatar_b64
+        player.full_sheet = raw
+        player.conditions = list(raw.get("conditions", []) or [])
+        player.damage_resistances = list(raw.get("damage_resistances", []) or [])
+        player.damage_immunities = list(raw.get("damage_immunities", []) or [])
+        player.damage_vulnerabilities = list(raw.get("damage_vulnerabilities", []) or [])
+        player.exhaustion_level = int(raw.get("exhaustion_level", 0) or 0)
+        player.pact_slots_max = int(pact.get("max", 0) or 0)
+        player.pact_slots_current = int(pact.get("current", 0) or 0)
+        player.pact_slot_level = int(pact.get("level", 0) or 0)
+        if spawn_pos is not None and isinstance(spawn_pos, (list, tuple)) and len(spawn_pos) >= 2:
+            player.position = [int(spawn_pos[0]), int(spawn_pos[1])]
+        elif not existing:
+            player.position = _find_free_party_spawn_hex(game_state)
+        if not existing:
+            game_state.add_player(player)
+        if player.check_has_darkvision():
+            player.has_darkvision = True
+            player.vision_radius = max(12, int(getattr(player, "vision_radius", 6) or 6))
+    return player
 
 
 class DMCampaignSessionMixin:
@@ -703,4 +806,88 @@ class DMCampaignSessionMixin:
             if player.conn:
                 send_message(player.conn, make_custom_spell_response(p_name, spell, approved=False, reason="Il Master ha respinto la richiesta."))
             self.log_to_chat(f"[SISTEMA] Respinta richiesta per '{s_name}' di {p_name}.")
+
+    def import_party_character_data(self, char_dict, spawn_pos=None):
+        """Importa un PG locale nel GameState e notifica tutti i client connessi."""
+        player = import_party_character_to_game_state(self.server.game_state, char_dict, spawn_pos=spawn_pos)
+        broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
+        self.log_to_chat(
+            f"[TAVOLO LOCALE] PG '{player.name}' importato sulla mappa (PF {player.hp}/{player.max_hp}, CA {player.ac})."
+        )
+        self.server.game_state._trigger_gui_update()
+        return player
+
+    def open_import_party_character_dialog(self):
+        """Apre il selettore per importare Personaggi Giocanti locali (Sessione dal Vivo / Ibrida)."""
+        from client.character_manager import CharacterManager
+
+        mgr = CharacterManager()
+        mgr.load_characters()
+        chars = list(getattr(mgr, "characters", []) or [])
+        if not chars:
+            messagebox.showinfo(
+                _t("dlg_import_local_pc_title", default="Importa PG Locale"),
+                "Nessun personaggio salvato trovato nell'archivio locale.\nCrea prima un PG dalla finestra Giocatore/Scheda.",
+                parent=self.master,
+            )
+            return
+
+        dlg = tk.Toplevel(self.master)
+        dlg.title(_t("dlg_import_local_pc_title", default="Importa PG Locali sul Tavolo"))
+        dlg.geometry("460x380")
+        dlg.transient(self.master)
+        dlg.grab_set()
+        apply_modern_window_style(dlg)
+
+        tk.Label(
+            dlg,
+            text="Seleziona uno o più Eroi locali da schierare sul tavolo:",
+            font=FONT_BOLD,
+            bg=BG_COLOR,
+            fg=ACCENT_GOLD,
+            pady=8,
+        ).pack(fill=tk.X, padx=10)
+
+        lb_frame = tk.Frame(dlg, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
+        lb_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
+        lb = tk.Listbox(
+            lb_frame,
+            selectmode=tk.EXTENDED,
+            bg=SURFACE_COLOR,
+            fg=TEXT_COLOR,
+            font=FONT_MAIN,
+            activestyle="none",
+        )
+        lb.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+
+        for c in chars:
+            c_cls = getattr(c, "char_class", "") or "Avventuriero"
+            c_lvl = int(getattr(c, "level", 1) or 1)
+            c_hp = int(getattr(c, "hp_current", getattr(c, "hp_max", 10)) or 0)
+            c_max = int(getattr(c, "hp_max", 10) or 10)
+            lb.insert(tk.END, f"{c.name} — {c_cls} Lv.{c_lvl} (PF {c_hp}/{c_max})")
+
+        btn_row = tk.Frame(dlg, bg=BG_COLOR)
+        btn_row.pack(fill=tk.X, padx=10, pady=10)
+
+        def _do_import(indices):
+            if not indices:
+                messagebox.showwarning("Selezione Vuota", "Seleziona almeno un personaggio.", parent=dlg)
+                return
+            imported = []
+            for idx in indices:
+                if 0 <= idx < len(chars):
+                    p_obj = self.import_party_character_data(chars[idx])
+                    imported.append(p_obj.name)
+            dlg.destroy()
+            if imported and hasattr(self, "show_toast"):
+                self.show_toast(
+                    f"PG importati sul tavolo: {', '.join(imported)}",
+                    title="🧙 Tavolo Locale",
+                    toast_type="success",
+                )
+
+        ttk.Button(btn_row, text="🧙 Importa Selezionati", command=lambda: _do_import(lb.curselection()), style="Gold.TButton").pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_row, text="👥 Importa Tutti", command=lambda: _do_import(list(range(len(chars)))), style="Primary.TButton").pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_row, text="Chiudi", command=dlg.destroy).pack(side=tk.RIGHT, padx=4)
 

@@ -146,6 +146,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
         self.bonus_spent = False
         self.reaction_spent = False
         self.movement_spent_ft = 0
+        self._attacks_made_this_turn = 0
         self._is_closing = False
         self._process_queue_job = None
         self._char_save_timer = None
@@ -1669,7 +1670,128 @@ class ClientGUI(ClientNetworkHandlersMixin):
         self.bonus_spent = False
         self.reaction_spent = False
         self.movement_spent_ft = 0
+        self._attacks_made_this_turn = 0
         self.update_action_economy_ui()
+
+    def _get_local_max_attacks(self) -> int:
+        """Restituisce il numero di attacchi per Azione di Attacco (PHB Extra Attack)."""
+        char = getattr(self, "active_character", None)
+        if not char:
+            return 1
+        classes_dict = getattr(char, "classes", None)
+        cls_levels = {}
+        if isinstance(classes_dict, dict):
+            for k, v in classes_dict.items():
+                try:
+                    cls_levels[str(k).strip().lower()] = int(v or 0)
+                except (ValueError, TypeError):
+                    pass
+        base_cls = str(getattr(char, "char_class", "") or "").strip().lower()
+        base_lvl = int(getattr(char, "level", 1) or 1)
+        if base_cls and base_cls not in cls_levels:
+            cls_levels[base_cls] = base_lvl
+
+        def _cls_lvl(*keys):
+            return max((lvl for nm, lvl in cls_levels.items() if any(k in nm for k in keys)), default=0)
+
+        f_lvl = _cls_lvl("guerriero", "fighter")
+        if f_lvl >= 20:
+            return 4
+        if f_lvl >= 11:
+            return 3
+        if f_lvl >= 5:
+            return 2
+        if any(_cls_lvl(*ks) >= 5 for ks in (("barbar", "barbarian"), ("paladin",), ("ranger",), ("monac", "monk"))):
+            return 2
+        sub_low = str(getattr(char, "subclass", "") or "").lower()
+        if (_cls_lvl("bardo", "bard") >= 6 and any(k in sub_low for k in ("valore", "valor", "spade", "swords"))) or (
+            _cls_lvl("mago", "wizard") >= 6 and any(k in sub_low for k in ("lama", "bladesing"))
+        ):
+            return 2
+        feat_val = getattr(char, "features", "")
+        feat_list = getattr(char, "features_list", []) or []
+        feat_txt = (" ".join(str(x) for x in feat_val) if isinstance(feat_val, list) else str(feat_val or "")).lower()
+        feat_txt += " " + " ".join(
+            (str(f.get("name", "")) if isinstance(f, dict) else str(f)).lower() for f in feat_list
+        )
+        if any(k in feat_txt for k in ("attacco extra", "extra attack", "lama assetata", "thirsting blade")):
+            return 2
+        return 1
+
+    def _mark_attack_action_economy(self, **params):
+        """Aggiorna Azione / Azione Bonus / Reazione e contatore Attacco Extra dopo un invio di attacco."""
+        if params.get("is_reaction"):
+            self.reaction_spent = True
+        elif params.get("is_bonus_action"):
+            self.bonus_spent = True
+        elif not params.get("extra_action"):
+            cur = getattr(self, "_attacks_made_this_turn", 0)
+            cur = (cur if isinstance(cur, int) else 0) + 1
+            self._attacks_made_this_turn = cur
+            if cur >= ClientGUI._get_local_max_attacks(self):
+                self.action_spent = True
+        self.update_action_economy_ui()
+
+    def on_sheet_cast_spell(
+        self,
+        spell_name: str,
+        spell_lvl: int = 0,
+        slot_level: int = 0,
+        cast_mode: str = "slot",
+        is_ritual: bool = False,
+        concentration: bool = False,
+        action_cost_type: str = "action",
+        spell_data: dict = None,
+        target_name: str = None,
+        hit_bonus: int = None,
+    ):
+        """Sincronizza economia turno, scheda e motore incantesimi 5e sul server dal lancio su scheda."""
+        cost_low = str(action_cost_type or "action").lower()
+        if not is_ritual:
+            if cost_low == "bonus":
+                self.bonus_spent = True
+            elif cost_low == "reaction":
+                self.reaction_spent = True
+            else:
+                self.action_spent = True
+            self.update_action_economy_ui()
+
+        if not getattr(self, "is_connected", False):
+            return
+
+        if getattr(self, "active_character", None):
+            from common.protocol import make_update_full_sheet_request
+            self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
+
+        sp = spell_data if isinstance(spell_data, dict) else {}
+        comp_txt = str(sp.get("components", "") or "").upper()
+        has_verbal = True if not comp_txt else ("V" in comp_txt)
+        eff_target = target_name or (getattr(self.map_canvas, "current_target_name", None) if hasattr(self, "map_canvas") else None)
+        eff_cast_lvl = int(slot_level or spell_lvl or 0)
+        from common.protocol import make_cast_special_spell_request
+        extra_kwargs = {
+            "is_ritual": bool(is_ritual),
+            "already_consumed_slot": True,
+            "concentration": bool(concentration),
+            "school": str(sp.get("school", "") or ""),
+            "duration": str(sp.get("duration", "") or ""),
+            "damage_type": str(sp.get("damage_type", "Fuoco") or "Fuoco"),
+        }
+        if hit_bonus is not None:
+            extra_kwargs["hit_bonus"] = int(hit_bonus)
+        if cast_mode and cast_mode not in ("slot", "Nessuna"):
+            extra_kwargs["metamagic"] = str(cast_mode)
+        self.network.send(
+            make_cast_special_spell_request(
+                spell_name=str(spell_name or "Incantesimo"),
+                cast_level=max(1, eff_cast_lvl) if int(spell_lvl or 0) > 0 else 1,
+                target_name=eff_target,
+                casting_time=cost_low,
+                has_verbal=has_verbal,
+                base_level=int(spell_lvl or 0),
+                **extra_kwargs,
+            )
+        )
 
     def _has_cunning_action(self) -> bool:
         """Verifica se il personaggio attivo possiede Azione Scaltra (Ladro Lv 2+), che consente Scatto/Disimpegno come Azione Bonus."""
@@ -1994,8 +2116,12 @@ class ClientGUI(ClientNetworkHandlersMixin):
         else:
             self.show_toast("Hai già speso la tua Azione in questo turno!", title="⚠️ Azione Esaurita", toast_type="warning")
             return
-        from common.protocol import make_dash_request
-        self.network.send(make_dash_request())
+        if used_bonus:
+            from common.protocol import make_cunning_action_request
+            self.network.send(make_cunning_action_request("dash"))
+        else:
+            from common.protocol import make_dash_request
+            self.network.send(make_dash_request())
         self.update_action_economy_ui()
         slot_note = " (Azione Scaltra: Azione Bonus spesa)" if used_bonus else ""
         self.show_toast(f"Azione di Scatto inviata! Velocità raddoppiata per questo turno{slot_note}.", title="🏃 Scatto", toast_type="info")
@@ -2016,8 +2142,12 @@ class ClientGUI(ClientNetworkHandlersMixin):
         else:
             self.show_toast("Hai già speso la tua Azione in questo turno!", title="⚠️ Azione Esaurita", toast_type="warning")
             return
-        from common.protocol import make_disengage_request
-        self.network.send(make_disengage_request())
+        if used_bonus:
+            from common.protocol import make_cunning_action_request
+            self.network.send(make_cunning_action_request("disengage"))
+        else:
+            from common.protocol import make_disengage_request
+            self.network.send(make_disengage_request())
         self.update_action_economy_ui()
         slot_note = " (Azione Scaltra: Azione Bonus spesa)" if used_bonus else ""
         self.show_toast(f"Azione di Disimpegno inviata! Non provochi attacchi d'opportunità per questo turno{slot_note}.", title="💨 Disimpegno", toast_type="info")
@@ -2322,9 +2452,8 @@ class ClientGUI(ClientNetworkHandlersMixin):
         self.update_hero_summary_card()
         self.update_action_economy_ui()
         if self.is_connected:
-            from common.protocol import make_update_stats_request
-            self.network.send(make_update_stats_request(self.active_character.hp_current, self.active_character.hp_max, self.active_character.initiative, getattr(self.active_character, "conditions", []), getattr(self.active_character, "temp_hp", 0)))
-            self.send_chat_message(f"💨 {self.name} usa Secondo Fiato e recupera {healed} HP! (HP: {self.active_character.hp_current}/{self.active_character.hp_max})")
+            from common.protocol import make_class_feature_request
+            self.network.send(make_class_feature_request("second_wind", already_consumed=True, heal_amount=healed))
         self.show_toast(f"Secondo Fiato: recuperati {healed} HP!", title="💨 Secondo Fiato", toast_type="success")
 
     def use_action_surge(self):
@@ -2341,10 +2470,12 @@ class ClientGUI(ClientNetworkHandlersMixin):
         res["action_surge"] = False
         self.active_character.class_resources = res
         self.action_spent = False
+        self._attacks_made_this_turn = 0
         self.character_manager.save_characters()
         self.update_action_economy_ui()
         if self.is_connected:
-            self.send_chat_message(f"⚡ {self.name} scatena Azione Furente e ottiene un'Azione Standard aggiuntiva!")
+            from common.protocol import make_class_feature_request
+            self.network.send(make_class_feature_request("action_surge", already_consumed=True))
         self.show_toast("Azione Furente attivata: Azione Standard ripristinata per questo turno!", title="⚡ Azione Furente", toast_type="success")
 
     def use_rage(self):
@@ -2373,9 +2504,8 @@ class ClientGUI(ClientNetworkHandlersMixin):
         self.update_hero_summary_card()
         self.update_action_economy_ui()
         if self.is_connected:
-            from common.protocol import make_update_stats_request
-            self.network.send(make_update_stats_request(self.active_character.hp_current, self.active_character.hp_max, self.active_character.initiative, self.active_character.conditions, getattr(self.active_character, "temp_hp", 0)))
-            self.send_chat_message(f"🩸 {self.name} entra in IRA! (+2 danni da mischia e resistenza a contundente, perforante e tagliente, rimaste: {cur_rage-1})")
+            from common.protocol import make_class_feature_request
+            self.network.send(make_class_feature_request("rage", already_consumed=True))
         self.show_toast(f"Ira Barbarica attivata! (Utilizzi rimasti: {cur_rage-1})", title="🩸 Ira Barbarica", toast_type="success")
 
     def open_short_rest_dialog(self):
@@ -2692,6 +2822,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
                 self.attack_targeting_mode = False
                 self.map_canvas.set_target(target_name)
                 params = dict(self.attack_params or {})
+                eco_params = dict(params)
                 from common.protocol import make_attack_request
                 w_nm = params.pop("weapon_name", "Attacco")
                 h_bn = params.pop("hit_bonus", 0)
@@ -2700,8 +2831,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
                 self.network.send(make_attack_request(
                     target_name, w_nm, h_bn, d_fm, d_tp, **params
                 ))
-                self.action_spent = True
-                self.update_action_economy_ui()
+                ClientGUI._mark_attack_action_economy(self, **eco_params)
                 self.show_toast(f"Attacco contro {target_name} inviato!", title="Attacco Inviato", toast_type="info")
             else:
                 self.show_toast("Non c'è nessuno in questo esagono.", title="Nessun Bersaglio", toast_type="warning")
@@ -2768,8 +2898,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
             self.network.send(make_attack_request(
                 target_name, weapon_name, hit_bonus, damage_formula, damage_type, **kwargs
             ))
-            self.action_spent = True
-            self.update_action_economy_ui()
+            ClientGUI._mark_attack_action_economy(self, **kwargs)
             self.show_toast(f"🎯 Attacco contro {target_name} con {weapon_name} inviato!", title="Attacco Inviato", toast_type="info")
             return
 
@@ -3786,6 +3915,19 @@ class ClientGUI(ClientNetworkHandlersMixin):
             if not was_my_turn:
                 self.reset_turn_resources()
                 self.show_turn_banner()
+            if self.name in self.players_data:
+                me_p = self.players_data[self.name]
+                if isinstance(me_p, dict):
+                    if "has_acted_this_turn" in me_p:
+                        self.action_spent = bool(me_p.get("has_acted_this_turn", False))
+                    if "bonus_action_used_this_turn" in me_p:
+                        self.bonus_spent = bool(me_p.get("bonus_action_used_this_turn", False))
+                    if "has_reacted_this_turn" in me_p:
+                        self.reaction_spent = bool(me_p.get("has_reacted_this_turn", False))
+                    if "attacks_made_this_turn" in me_p:
+                        self._attacks_made_this_turn = int(me_p.get("attacks_made_this_turn", 0) or 0)
+                    if "movement_spent_this_turn" in me_p:
+                        self.movement_spent_ft = int(me_p.get("movement_spent_this_turn", 0) or 0) * 5
         else:
             self.end_turn_btn.pack_forget()
 
@@ -3838,10 +3980,14 @@ class ClientGUI(ClientNetworkHandlersMixin):
         if name == self.name and self.active_character:
             self.active_character.last_position = new_pos
             self.schedule_save_characters(delay_ms=1000)
-            if self.combat_active and getattr(self, "_is_my_turn", False) and old_pos and new_pos and old_pos != new_pos:
-                dist = max(abs(old_pos[0] - new_pos[0]), abs(old_pos[0] + old_pos[1] - new_pos[0] - new_pos[1]), abs(old_pos[1] - new_pos[1]))
-                self.movement_spent_ft += dist * 5
-                self.update_action_economy_ui()
+            if self.combat_active and getattr(self, "_is_my_turn", False):
+                if data.get("movement_spent_this_turn") is not None:
+                    self.movement_spent_ft = int(data.get("movement_spent_this_turn") or 0) * 5
+                    self.update_action_economy_ui()
+                elif old_pos and new_pos and old_pos != new_pos:
+                    dist = max(abs(old_pos[0] - new_pos[0]), abs(old_pos[0] + old_pos[1] - new_pos[0] - new_pos[1]), abs(old_pos[1] - new_pos[1]))
+                    self.movement_spent_ft += dist * 5
+                    self.update_action_economy_ui()
         self.redraw_map_and_players()
 
     def handle_player_stats_update(self, data):
@@ -4691,7 +4837,8 @@ class ClientGUI(ClientNetworkHandlersMixin):
             on_detach_callback=self.detach_character_sheet,
             is_overlay=True,
             long_rest_callback=self.request_long_rest,
-            network=getattr(self, "network", None)
+            network=getattr(self, "network", None),
+            cast_spell_callback=self.on_sheet_cast_spell
         )
         self.stats_sheet_frame.pack(fill=tk.BOTH, expand=True)
         self.stats_window = self.stats_sheet_frame
@@ -4747,7 +4894,8 @@ class ClientGUI(ClientNetworkHandlersMixin):
             request_journal_approval_callback=self.request_journal_approval,
             on_dock_callback=self.dock_character_sheet,
             long_rest_callback=self.request_long_rest,
-            network=getattr(self, "network", None)
+            network=getattr(self, "network", None),
+            cast_spell_callback=self.on_sheet_cast_spell
         )
         self.stats_window = self.stats_detached_window
 

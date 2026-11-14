@@ -892,7 +892,10 @@ class DM_GUI(DMCampaignSessionMixin):
         self.btn_encounter_builder.grid(row=0, column=1, sticky="ew", padx=(2, 0), pady=(0, 3))
 
         self.btn_add_npc = ttk.Button(spawn_grid, text=_t("btn_add_manual_npc"), command=self.add_npc, style="Dark.TButton")
-        self.btn_add_npc.grid(row=1, column=0, columnspan=2, sticky="ew")
+        self.btn_add_npc.grid(row=1, column=0, sticky="ew", padx=(0, 2))
+
+        self.btn_import_local_pc = ttk.Button(spawn_grid, text=_t("btn_import_local_pc", default="🧙 Importa PG Locale"), command=self.open_import_party_character_dialog, style="Primary.TButton")
+        self.btn_import_local_pc.grid(row=1, column=1, sticky="ew", padx=(2, 0))
 
         # Tab 3 ("Bestiario" - Scheda di Primo Livello)
         self.tab_bestiario = ttk.Frame(self.right_notebook)

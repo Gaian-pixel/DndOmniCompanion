@@ -32,6 +32,8 @@ def _monotonic_now() -> float:
 class ClientNetworkHandlersMixin:
     """Mixin encapsulating server message handlers, audio track streaming, and asset cache lookup."""
 
+    _MAX_ASSET_CACHE_ENTRIES = 32
+
     def _get_asset_cache(self) -> dict:
         cache = getattr(self, "_asset_cache", None)
         if not isinstance(cache, dict):
@@ -46,9 +48,15 @@ class ClientNetworkHandlersMixin:
         if not asset_hash or not isinstance(b64_data, str) or not b64_data:
             return
         cache = ClientNetworkHandlersMixin._get_asset_cache(self)
-        if asset_hash not in cache and len(cache) >= 32:
-            oldest_key = next(iter(cache), None)
-            if oldest_key is not None:
+        raw_cap = getattr(self, "_MAX_ASSET_CACHE_ENTRIES", 32)
+        max_entries = raw_cap if isinstance(raw_cap, int) and raw_cap > 0 else 32
+        if asset_hash in cache:
+            cache.pop(asset_hash, None)
+        else:
+            while len(cache) >= max_entries:
+                oldest_key = next(iter(cache), None)
+                if oldest_key is None:
+                    break
                 cache.pop(oldest_key, None)
         cache[asset_hash] = b64_data
 
@@ -60,13 +68,24 @@ class ClientNetworkHandlersMixin:
         bg_data = map_data.get("bg_image_data")
         bg_hash = map_data.get("bg_image_hash")
         if isinstance(bg_data, str) and bg_data:
-            eff_hash = bg_hash if isinstance(bg_hash, str) and bg_hash else compute_asset_hash(bg_data)
+            eff_hash = compute_asset_hash(bg_data)
             ClientNetworkHandlersMixin._store_asset_in_cache(self, eff_hash, bg_data)
             map_data["bg_image_hash"] = eff_hash
             map_data.pop("bg_image_cached", None)
-        elif isinstance(bg_hash, str) and bg_hash and bg_hash in cache:
-            map_data["bg_image_data"] = cache[bg_hash]
-            map_data.pop("bg_image_cached", None)
+        elif isinstance(bg_hash, str) and bg_hash:
+            if bg_hash in cache:
+                cached_b64 = cache.pop(bg_hash)
+                cache[bg_hash] = cached_b64
+                map_data["bg_image_data"] = cached_b64
+                map_data.pop("bg_image_cached", None)
+            else:
+                local_map = getattr(self, "local_map_data", None)
+                if isinstance(local_map, dict) and local_map.get("bg_image_hash") == bg_hash:
+                    fallback_b64 = local_map.get("bg_image_data")
+                    if isinstance(fallback_b64, str) and fallback_b64:
+                        ClientNetworkHandlersMixin._store_asset_in_cache(self, bg_hash, fallback_b64)
+                        map_data["bg_image_data"] = fallback_b64
+                        map_data.pop("bg_image_cached", None)
         return map_data
 
     def _resolve_cached_handout_assets(self, handouts_or_data):
@@ -79,12 +98,14 @@ class ClientNetworkHandlersMixin:
             img_b64 = item.get("image_b64")
             img_hash = item.get("image_hash")
             if isinstance(img_b64, str) and img_b64:
-                eff_hash = img_hash if isinstance(img_hash, str) and img_hash else compute_asset_hash(img_b64)
+                eff_hash = compute_asset_hash(img_b64)
                 ClientNetworkHandlersMixin._store_asset_in_cache(self, eff_hash, img_b64)
                 item["image_hash"] = eff_hash
                 item.pop("image_cached", None)
             elif isinstance(img_hash, str) and img_hash and img_hash in cache:
-                item["image_b64"] = cache[img_hash]
+                cached_b64 = cache.pop(img_hash)
+                cache[img_hash] = cached_b64
+                item["image_b64"] = cached_b64
                 item.pop("image_cached", None)
         return handouts_or_data
 

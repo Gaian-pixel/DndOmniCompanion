@@ -934,7 +934,11 @@ def handle_cast_special_spell_request(data, player, game_state):
     is_subtle = (m_key == "subtle")
     casting_time = "bonus" if m_key == "quickened" else data.get("casting_time", "action")
     has_verbal = bool(data.get("has_verbal", True))
-    is_bonus_spell = "bonus" in str(casting_time).lower()
+    is_ritual = bool(data.get("is_ritual", False))
+    already_consumed_slot = bool(data.get("already_consumed_slot", False))
+    ct_low = str(casting_time or "action").lower()
+    is_bonus_spell = "bonus" in ct_low
+    is_reaction_spell = ("reaz" in ct_low or "react" in ct_low)
     base_lvl = 0 if ("deflagrazione" in s_low or "eldritch blast" in s_low or int(data.get("base_level", 1) or 1) == 0) else cast_level
 
     ok_rules, err_msg = validate_spell_casting_rules(actor, base_lvl, casting_time, has_verbal, game_state, is_subtle=is_subtle)
@@ -950,12 +954,14 @@ def handle_cast_special_spell_request(data, player, game_state):
     if is_bonus_spell:
         actor.spell_cast_bonus_action_this_turn = True
         actor.bonus_action_used_this_turn = True
-    else:
+    elif is_reaction_spell:
+        actor.has_reacted_this_turn = True
+    elif not is_ritual:
         actor.spell_cast_action_level_this_turn = base_lvl
         actor.has_acted_this_turn = True
 
     # Rituale PHB p. 201: aggiunge +10 minuti all'orologio di gioco
-    if bool(data.get("is_ritual", False)):
+    if is_ritual:
         if hasattr(game_state, "advance_game_time"):
             game_state.advance_game_time(minutes=10)
         broadcast(game_state, make_chat_broadcast("Sistema", f"🕯️ [RITUALE +10 min] {actor.name} officia il lancio rituale di '{spell_name}'."))
@@ -981,7 +987,7 @@ def handle_cast_special_spell_request(data, player, game_state):
         from server.rules.reaction_magic import maybe_prompt_counterspell_reactions
         maybe_prompt_counterspell_reactions(actor, spell_name, cast_level, game_state)
 
-    if base_lvl >= 1:
+    if base_lvl >= 1 and not already_consumed_slot:
         fd20 = data.get("forced_wild_d20") if _allow_forced_roll(player) else None
         fd100 = data.get("forced_wild_d100") if _allow_forced_roll(player) else None
         wm_res = maybe_trigger_wild_magic_surge(actor, base_lvl, game_state, forced_d20=fd20, forced_d100=fd100)
@@ -1746,6 +1752,149 @@ def handle_class_feature_request(data, player, game_state):
     if not isinstance(fs, dict):
         fs = {}
         actor.full_sheet = fs
+
+    # 0A. Fighter Action Surge (PHB p. 72, Lv 2+): ripristina Azione Standard e contatore Attacchi Extra nel turno
+    if feat in ("action_surge", "azione_furente", "azione_impetuosa"):
+        f_lvl = entity_get_class_level(actor, "guerriero", "fighter")
+        has_surge_feat = (
+            f_lvl >= 2
+            or entity_has_keyword(actor, "azione impetuosa", "azione furente", "action surge")
+            or bool(data.get("already_consumed"))
+        )
+        if not has_surge_feat:
+            if getattr(actor, "conn", None):
+                send_message(actor.conn, make_error_reply("Azione Furente richiede Guerriero Lv 2+."))
+            return
+        if not data.get("already_consumed"):
+            cr_dict = fs.setdefault("class_resources", {})
+            if isinstance(cr_dict, dict) and cr_dict.get("action_surge") is False and entity_find_resource(actor, "azione impetuosa", "azione furente", "action surge") is None:
+                if getattr(actor, "conn", None):
+                    send_message(actor.conn, make_error_reply("Azione Furente già utilizzata! Si ricarica con un Riposo Breve o Lungo."))
+                return
+            if entity_find_resource(actor, "azione impetuosa", "azione furente", "action surge") is None:
+                max_as = 2 if f_lvl >= 17 else 1
+                fs.setdefault("custom_resources", []).append({"name": "Azione Furente", "current": max_as, "max": max_as, "reset_on": "short"})
+            ok_as, new_c, _ = entity_spend_resource(actor, ("azione impetuosa", "azione furente", "action surge"), 1)
+            if not ok_as:
+                if getattr(actor, "conn", None):
+                    send_message(actor.conn, make_error_reply("Usi di Azione Furente esauriti."))
+                return
+            if isinstance(cr_dict, dict):
+                cr_dict["action_surge"] = (new_c > 0)
+        with game_state.lock:
+            actor.has_acted_this_turn = False
+            actor.attacks_made_this_turn = 0
+        msg = f"⚡ [AZIONE FURENTE] {actor.name} scatena Azione Furente e ottiene un'Azione Standard aggiuntiva in questo turno!"
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        game_state.log_dm_message(msg)
+        return
+
+    # 0B. Fighter Second Wind (PHB p. 72, Lv 1+, Azione Bonus: cura 1d10 + Lv Guerriero PF)
+    if feat in ("second_wind", "secondo_fiato", "secondo fiato"):
+        f_lvl = entity_get_class_level(actor, "guerriero", "fighter")
+        has_sw_feat = (
+            f_lvl >= 1
+            or entity_has_keyword(actor, "secondo fiato", "second wind")
+            or bool(data.get("already_consumed"))
+        )
+        if not has_sw_feat:
+            if getattr(actor, "conn", None):
+                send_message(actor.conn, make_error_reply("Secondo Fiato richiede Guerriero Lv 1+."))
+            return
+        in_combat = bool(getattr(game_state, "combat_active", False))
+        if in_combat and getattr(actor, "bonus_action_used_this_turn", False):
+            if getattr(actor, "conn", None):
+                send_message(actor.conn, make_error_reply("Hai già consumato la tua Azione Bonus in questo turno!"))
+            return
+        if not data.get("already_consumed"):
+            cr_dict = fs.setdefault("class_resources", {})
+            if isinstance(cr_dict, dict) and cr_dict.get("second_wind") is False and entity_find_resource(actor, "secondo fiato", "second wind") is None:
+                if getattr(actor, "conn", None):
+                    send_message(actor.conn, make_error_reply("Secondo Fiato già utilizzato! Si ricarica con un Riposo Breve o Lungo."))
+                return
+            if entity_find_resource(actor, "secondo fiato", "second wind") is None:
+                fs.setdefault("custom_resources", []).append({"name": "Secondo Fiato", "current": 1, "max": 1, "reset_on": "short"})
+            ok_sw, new_c, _ = entity_spend_resource(actor, ("secondo fiato", "second wind"), 1)
+            if not ok_sw:
+                if getattr(actor, "conn", None):
+                    send_message(actor.conn, make_error_reply("Secondo Fiato esaurito."))
+                return
+            if isinstance(cr_dict, dict):
+                cr_dict["second_wind"] = (new_c > 0)
+        eff_lvl = max(1, f_lvl or int(fs.get("level", 1) or 1))
+        raw_heal = data.get("heal_amount")
+        try:
+            heal_val = int(raw_heal) if raw_heal is not None else 0
+        except (ValueError, TypeError):
+            heal_val = 0
+        if heal_val <= 0:
+            heal_val = roll_dice(f"1d10+{eff_lvl}")["total"]
+        with game_state.lock:
+            if in_combat:
+                actor.bonus_action_used_this_turn = True
+            old_hp = int(getattr(actor, "hp", 0) or 0)
+            max_hp = int(getattr(actor, "max_hp", old_hp) or old_hp)
+            actor.hp = min(max_hp, old_hp + heal_val)
+            healed_delta = actor.hp - old_hp
+            if isinstance(fs, dict):
+                fs["hp_current"] = actor.hp
+        msg = f"💨 [SECONDO FIATO] {actor.name} usa Secondo Fiato e recupera +{healed_delta} PF ({heal_val} tirato, PF: {actor.hp}/{actor.max_hp})!"
+        broadcast(game_state, make_player_stats_update(actor.name, actor.hp, actor.max_hp, actor.initiative, getattr(actor, "conditions", []), getattr(actor, "temp_hp", 0)))
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        game_state.log_dm_message(msg)
+        return
+
+    # 0C. Barbarian Rage (PHB p. 48, Azione Bonus)
+    if feat in ("rage", "ira", "ira_barbarica"):
+        b_lvl = entity_get_class_level(actor, "barbar", "barbarian")
+        has_rage_feat = (
+            b_lvl >= 1
+            or entity_has_keyword(actor, "ira", "rage")
+            or bool(data.get("already_consumed"))
+        )
+        if not has_rage_feat:
+            if getattr(actor, "conn", None):
+                send_message(actor.conn, make_error_reply("Ira Barbarica richiede Barbaro Lv 1+."))
+            return
+        if getattr(game_state, "combat_active", False) and getattr(actor, "bonus_action_used_this_turn", False):
+            if getattr(actor, "conn", None):
+                send_message(actor.conn, make_error_reply("Hai già consumato la tua Azione Bonus in questo turno!"))
+            return
+        if not data.get("already_consumed"):
+            cr_dict = fs.setdefault("class_resources", {})
+            max_rage = 99 if b_lvl >= 20 else (6 if b_lvl >= 17 else (5 if b_lvl >= 12 else (4 if b_lvl >= 6 else (3 if b_lvl >= 3 else 2))))
+            if entity_find_resource(actor, "ira", "rage") is not None:
+                ok_rg, new_rg, _ = entity_spend_resource(actor, ("ira", "rage"), 1)
+                if not ok_rg:
+                    if getattr(actor, "conn", None):
+                        send_message(actor.conn, make_error_reply("Utilizzi di Ira Barbarica esauriti per oggi."))
+                    return
+                if isinstance(cr_dict, dict):
+                    cr_dict["rage_current"] = new_rg
+            else:
+                cur_r = int(cr_dict.get("rage_current", max_rage) if isinstance(cr_dict, dict) else max_rage)
+                if cur_r <= 0:
+                    if getattr(actor, "conn", None):
+                        send_message(actor.conn, make_error_reply("Utilizzi di Ira Barbarica esauriti per oggi."))
+                    return
+                if isinstance(cr_dict, dict):
+                    cr_dict["rage_current"] = cur_r - 1
+        with game_state.lock:
+            if getattr(game_state, "combat_active", False):
+                actor.bonus_action_used_this_turn = True
+            if not hasattr(actor, "conditions") or actor.conditions is None:
+                actor.conditions = []
+            if "Ira" not in actor.conditions:
+                actor.conditions.append("Ira")
+            _sync_sheet_conditions(actor)
+        msg = f"🩸 [IRA BARBARICA] {actor.name} entra in IRA come Azione Bonus!"
+        broadcast(game_state, make_player_stats_update(actor.name, actor.hp, actor.max_hp, actor.initiative, actor.conditions, getattr(actor, "temp_hp", 0)))
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        broadcast(game_state, make_game_state(game_state.get_state_dict()))
+        game_state.log_dm_message(msg)
+        return
 
     # 1. Bard Countercharm (PHB p. 54, Lv 6+)
     if feat in ("countercharm", "controfascino", "contro-fascino"):

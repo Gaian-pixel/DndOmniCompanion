@@ -178,42 +178,76 @@ def sanitize_map_for_players(map_data: dict) -> dict:
             clean["loots"] = [l for l in clean["loots"] if not l.get("hidden", False)]
 
     if isinstance(clean.get("bg_image_data"), str) and clean["bg_image_data"]:
-        clean["bg_image_hash"] = clean.get("bg_image_hash") or compute_asset_hash(clean["bg_image_data"])
+        clean["bg_image_hash"] = compute_asset_hash(clean["bg_image_data"])
 
     return clean
 
 
-def _deduplicate_map_payload(map_dict: dict, sent_hashes: set) -> dict:
+MAX_TRACKED_SENT_ASSET_HASHES = 24
+
+
+def _track_and_check_sent_hash(sent_hashes, asset_hash: str) -> bool:
+    """Record an asset hash in bounded LRU/FIFO order; return True if already tracked."""
+    if not asset_hash:
+        return False
+    if isinstance(sent_hashes, dict):
+        if asset_hash in sent_hashes:
+            sent_hashes.pop(asset_hash, None)
+            sent_hashes[asset_hash] = True
+            return True
+        while len(sent_hashes) >= MAX_TRACKED_SENT_ASSET_HASHES:
+            oldest = next(iter(sent_hashes), None)
+            if oldest is None:
+                break
+            sent_hashes.pop(oldest, None)
+        sent_hashes[asset_hash] = True
+        return False
+    if isinstance(sent_hashes, list):
+        if asset_hash in sent_hashes:
+            sent_hashes.remove(asset_hash)
+            sent_hashes.append(asset_hash)
+            return True
+        while len(sent_hashes) >= MAX_TRACKED_SENT_ASSET_HASHES:
+            sent_hashes.pop(0)
+        sent_hashes.append(asset_hash)
+        return False
+    if isinstance(sent_hashes, set):
+        if asset_hash in sent_hashes:
+            return True
+        while len(sent_hashes) >= MAX_TRACKED_SENT_ASSET_HASHES:
+            sent_hashes.pop()
+        sent_hashes.add(asset_hash)
+        return False
+    return False
+
+
+def _deduplicate_map_payload(map_dict: dict, sent_hashes) -> dict:
     if not isinstance(map_dict, dict):
         return map_dict
     bg_data = map_dict.get("bg_image_data")
     if not isinstance(bg_data, str) or not bg_data:
         return map_dict
-    bg_hash = map_dict.get("bg_image_hash") or compute_asset_hash(bg_data)
+    bg_hash = compute_asset_hash(bg_data)
     map_copy = dict(map_dict)
     map_copy["bg_image_hash"] = bg_hash
-    if bg_hash in sent_hashes:
+    if _track_and_check_sent_hash(sent_hashes, bg_hash):
         map_copy["bg_image_data"] = None
         map_copy["bg_image_cached"] = True
-    else:
-        sent_hashes.add(bg_hash)
     return map_copy
 
 
-def _deduplicate_handout_dict(handout_dict: dict, sent_hashes: set) -> dict:
+def _deduplicate_handout_dict(handout_dict: dict, sent_hashes) -> dict:
     if not isinstance(handout_dict, dict):
         return handout_dict
     img_b64 = handout_dict.get("image_b64")
     if not isinstance(img_b64, str) or not img_b64:
         return handout_dict
-    img_hash = handout_dict.get("image_hash") or compute_asset_hash(img_b64)
+    img_hash = compute_asset_hash(img_b64)
     h_copy = dict(handout_dict)
     h_copy["image_hash"] = img_hash
-    if img_hash in sent_hashes:
+    if _track_and_check_sent_hash(sent_hashes, img_hash):
         h_copy["image_b64"] = None
         h_copy["image_cached"] = True
-    else:
-        sent_hashes.add(img_hash)
     return h_copy
 
 
@@ -230,8 +264,8 @@ def prepare_per_player_state_payload(message_data: dict, player) -> dict:
         return message_data
 
     sent_hashes = getattr(player, "_sent_asset_hashes", None)
-    if not isinstance(sent_hashes, set):
-        sent_hashes = set()
+    if not isinstance(sent_hashes, (dict, list, set)):
+        sent_hashes = {}
         if player is not None:
             try:
                 player._sent_asset_hashes = sent_hashes

@@ -716,5 +716,381 @@ class TestDataCampaignAndUIFixes(unittest.TestCase):
             self.assertTrue(hasattr(dm_mod, dm_patch_target))
 
 
+class TestPhase2ProductMaturityAndE2E(unittest.TestCase):
+    """TASK-009 .. TASK-012: Post-review hardening, combat/spell integration, and session/tabletop E2E."""
+
+    def test_task009_join_password_redacted_in_server_logs(self):
+        import contextlib
+        import io
+        import socket
+        from server.network import Server
+        from common.network_utils import send_message, receive_message
+        from common.protocol import make_join
+
+        srv = Server(host="127.0.0.1", port=0, gui_queue=queue.Queue())
+        srv.set_session_password("SuperSegreto99")
+        try:
+            s_client, s_srv = socket.socketpair()
+            s_client.settimeout(2.0)
+            s_srv.settimeout(2.0)
+            out_buf = io.StringIO()
+            t_buf = [None]
+
+            def _run_srv():
+                with contextlib.redirect_stdout(out_buf):
+                    srv.handle_client(s_srv, ("127.0.0.1", 55555))
+
+            import threading
+            t = threading.Thread(target=_run_srv, daemon=True)
+            t.start()
+            send_message(s_client, make_join("RedactedHero", password="SuperSegreto99"))
+            resp = receive_message(s_client)
+            self.assertEqual(resp.get("type"), "GAME_STATE")
+            s_client.close()
+            t.join(timeout=2.0)
+            logs = out_buf.getvalue()
+            self.assertNotIn("SuperSegreto99", logs)
+            self.assertIn("***", logs)
+            _ = t_buf
+        finally:
+            srv.stop()
+
+    def test_task009_inplace_asset_mutation_and_bounded_lru_sync(self):
+        import base64
+        from common.network_utils import MAX_TRACKED_SENT_ASSET_HASHES, broadcast, compute_asset_hash, sanitize_map_for_players
+        from common.protocol import make_game_state, make_handout_broadcast
+        from client.client import ClientGUI
+
+        b64_a = base64.b64encode(b"MAP_IMAGE_V1").decode("ascii")
+        b64_b = base64.b64encode(b"MAP_IMAGE_V2_MUTATED").decode("ascii")
+        hash_a = compute_asset_hash(b64_a)
+        hash_b = compute_asset_hash(b64_b)
+
+        gs = GameState(queue.Queue())
+        p1 = Player("P1", conn=object())
+        gs.players = [p1]
+        gs.current_map = {"name": "Arena", "bg_image_data": b64_a, "bg_image_hash": hash_a, "hexes": {}}
+
+        delivered = []
+        with patch("common.network_utils.send_message", side_effect=lambda c, m: delivered.append(m)):
+            # Mutazione in-place del blob senza azzerare il vecchio bg_image_hash
+            gs.current_map["bg_image_data"] = b64_b
+            san = sanitize_map_for_players(gs.current_map)
+            self.assertEqual(san["bg_image_hash"], hash_b)
+
+            p1._sent_asset_hashes = {hash_a: True}
+            broadcast(gs, make_game_state(gs.get_state_dict(is_dm=False)))
+            pkt = delivered[-1]
+            self.assertEqual(pkt["data"]["map"]["bg_image_data"], b64_b)
+            self.assertEqual(pkt["data"]["map"]["bg_image_hash"], hash_b)
+
+            # Saturazione oltre 32 asset: il server mantiene <= 24 hash e ritrasmette asset #0 una volta evicted
+            c_mock = MagicMock()
+            c_mock.name = "P1"
+            c_mock.active_character = None
+            c_mock._asset_cache = {}
+            c_mock._MAX_ASSET_CACHE_ENTRIES = 32
+            c_mock.local_map_data = None
+            first_blob = base64.b64encode(b"ASSET_0").decode("ascii")
+            for idx in range(36):
+                blob = base64.b64encode(f"ASSET_{idx}".encode("ascii")).decode("ascii")
+                gs.current_map = {"name": f"M{idx}", "bg_image_data": blob, "hexes": {}}
+                broadcast(gs, make_game_state(gs.get_state_dict(is_dm=False)))
+                ClientGUI._resolve_cached_map_assets(c_mock, delivered[-1]["data"]["map"])
+
+            self.assertLessEqual(len(p1._sent_asset_hashes), MAX_TRACKED_SENT_ASSET_HASHES)
+            self.assertLessEqual(len(c_mock._asset_cache), 32)
+            # Asset #0 e' stato evitto sia lato server sia lato client -> server lo reinvia completo
+            gs.current_map = {"name": "M0", "bg_image_data": first_blob, "hexes": {}}
+            broadcast(gs, make_game_state(gs.get_state_dict(is_dm=False)))
+            self.assertEqual(delivered[-1]["data"]["map"]["bg_image_data"], first_blob)
+
+            # Mutazione in-place su handout
+            h_mut = make_handout_broadcast("Foglio", b64_a)["data"]
+            h_mut["image_hash"] = hash_a
+            h_mut["image_b64"] = b64_b
+            broadcast(gs, {"type": "HANDOUT_BROADCAST", "data": h_mut})
+            self.assertEqual(delivered[-1]["data"]["image_b64"], b64_b)
+            self.assertEqual(delivered[-1]["data"]["image_hash"], hash_b)
+
+    def test_task010_combat_extra_attack_lock_cunning_and_action_surge_sync(self):
+        from server.rules.combat import handle_attack_request, handle_dash_request
+        from server.rules.class_abilities import handle_class_feature_request
+        from client.client import ClientGUI
+
+        gs = GameState(queue.Queue())
+        gs.combat_active = True
+        gs.automation_settings["strict_turn_lock"] = True
+
+        fighter = Player("Garrick", conn=_MockConn())
+        fighter.is_party_member = True
+        fighter.position = [0, 0]
+        fighter.combat_initiative = 20
+        fighter.full_sheet = {
+            "name": "Garrick",
+            "char_class": "Guerriero",
+            "level": 5,
+            "classes": {"Guerriero": 5},
+            "class_resources": {"action_surge": True, "second_wind": True},
+        }
+        goblin = Player("Goblin", conn=None)
+        goblin.hp = 100
+        goblin.max_hp = 100
+        goblin.ac = 5
+        goblin.position = [1, 0]
+        goblin.combat_initiative = 5
+        gs.players = [fighter, goblin]
+        gs.turn_index = 0
+
+        # 1. Attacco 1 e Attacco 2 consentiti (Extra Attack = 2); Attacco 3 bloccato
+        handle_attack_request({"target_name": "Goblin", "weapon_name": "Spada", "hit_bonus": 15, "damage_formula": "1d4"}, fighter, gs)
+        self.assertEqual(fighter.attacks_made_this_turn, 1)
+        self.assertFalse(fighter.has_acted_this_turn)
+
+        handle_attack_request({"target_name": "Goblin", "weapon_name": "Spada", "hit_bonus": 15, "damage_formula": "1d4"}, fighter, gs)
+        self.assertEqual(fighter.attacks_made_this_turn, 2)
+        self.assertTrue(fighter.has_acted_this_turn)
+
+        fighter.conn.sent.clear()
+        handle_attack_request({"target_name": "Goblin", "weapon_name": "Spada", "hit_bonus": 15, "damage_formula": "1d4"}, fighter, gs)
+        self.assertTrue(fighter.conn.sent, "Expected third attack after max_attacks to be rejected")
+
+        # 2. Azione tattica standard (Scatto) bloccata una volta consumata l'Azione principale
+        fighter.conn.sent.clear()
+        handle_dash_request({}, fighter, gs)
+        self.assertTrue(fighter.conn.sent, "Expected standard Dash to be rejected after Action spent")
+
+        # 3. Action Surge ripristina Azione e contatore attacchi
+        handle_class_feature_request({"feature": "action_surge"}, fighter, gs)
+        self.assertFalse(fighter.has_acted_this_turn)
+        self.assertEqual(fighter.attacks_made_this_turn, 0)
+        handle_attack_request({"target_name": "Goblin", "weapon_name": "Spada", "hit_bonus": 15, "damage_formula": "1d4"}, fighter, gs)
+        self.assertEqual(fighter.attacks_made_this_turn, 1)
+
+        # 4. Second Wind cura HP e consuma Azione Bonus
+        fighter.hp = 10
+        fighter.max_hp = 40
+        handle_class_feature_request({"feature": "second_wind", "heal_amount": 12}, fighter, gs)
+        self.assertEqual(fighter.hp, 22)
+        self.assertTrue(fighter.bonus_action_used_this_turn)
+
+        # 5. Serializzazione Player.to_dict / from_dict dei campi economia turno
+        rt = Player.from_dict(fighter.to_dict())
+        self.assertEqual(rt.attacks_made_this_turn, 1)
+        self.assertTrue(rt.bonus_action_used_this_turn)
+
+        # 6. ClientGUI Extra Attack, Cunning Action bonus packet, e handle_game_state sync
+        c = MagicMock()
+        c.name = "Garrick"
+        c.is_connected = True
+        c.combat_active = True
+        c._is_my_turn = True
+        c.action_spent = False
+        c.bonus_spent = False
+        c.reaction_spent = False
+        c._attacks_made_this_turn = 0
+        c.movement_spent_ft = 0
+        c.active_character = SimpleNamespace(char_class="Guerriero", level=5, classes={"Guerriero": 5}, features="", features_list=[])
+        c.players_data = {"Goblin": {"name": "Goblin", "position": [1, 0]}}
+        c.map_canvas = SimpleNamespace(current_target_name="Goblin")
+        c.network = MagicMock()
+
+        ClientGUI.on_attack_action(c, "Spada", 5, "1d8+3")
+        self.assertFalse(c.action_spent)
+        self.assertEqual(c._attacks_made_this_turn, 1)
+        ClientGUI.on_attack_action(c, "Spada", 5, "1d8+3")
+        self.assertTrue(c.action_spent)
+        self.assertEqual(c._attacks_made_this_turn, 2)
+
+        # Cunning Action su Ladro Lv 2 invia CUNNING_ACTION_REQUEST
+        c.active_character = SimpleNamespace(char_class="Ladro", level=2, classes={"Ladro": 2}, features="", features_list=[])
+        c.action_spent = True
+        c.bonus_spent = False
+        c.network.send.reset_mock()
+        ClientGUI.perform_dash(c)
+        sent_pkt = c.network.send.call_args[0][0]
+        self.assertEqual(sent_pkt["type"], "CUNNING_ACTION_REQUEST")
+        self.assertEqual(sent_pkt["data"]["sub_action"], "dash")
+
+    def test_task011_sheet_spellcasting_charges_attack_slots_and_syncs_server(self):
+        from client.character_manager import Character
+        from client.character_sheet_ui import CharacterSheetFrame
+        from client.client import ClientGUI
+        from server.rules.class_abilities import handle_cast_special_spell_request
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            wizard_char = Character(name="Elara", char_class="Mago", level=3)
+            wizard_char.spell_slots["1"] = {"max": 4, "current": 2}
+            wizard_char.spellbook = [
+                {
+                    "name": "Dardo Incantato",
+                    "level": 1,
+                    "time": "1 azione",
+                    "range": "120 ft",
+                    "school": "Invocazione",
+                    "duration": "Istantanea",
+                    "components": "V, S",
+                    "damage_formula": "1d4+1",
+                    "prepared": True,
+                    "desc": "Tre dardi di forza colpiscono automaticamente.",
+                },
+                {
+                    "name": "Dardo Tracciante",
+                    "level": 1,
+                    "time": "1 azione",
+                    "range": "120 ft",
+                    "school": "Invocazione",
+                    "duration": "1 round",
+                    "components": "V, S",
+                    "damage_formula": "4d6",
+                    "prepared": True,
+                    "desc": "Un lampo di luce infligge 4d6 danni radiosi.",
+                },
+            ]
+
+            c_mock = MagicMock()
+            c_mock.name = "Elara"
+            c_mock.is_connected = True
+            c_mock.combat_active = True
+            c_mock.action_spent = False
+            c_mock.bonus_spent = False
+            c_mock.reaction_spent = False
+            c_mock.active_character = wizard_char
+            c_mock.map_canvas = SimpleNamespace(current_target_name="Goblin")
+            c_mock.network = MagicMock()
+
+            sent_packets = []
+            c_mock.network.send.side_effect = lambda p: sent_packets.append(p)
+
+            attacks_received = []
+            frame = CharacterSheetFrame(
+                root,
+                wizard_char,
+                manager=None,
+                roll_callback=lambda *a: None,
+                attack_callback=lambda *a, **kw: attacks_received.append((a, kw)),
+                cast_spell_callback=lambda *a, **kw: ClientGUI.on_sheet_cast_spell(c_mock, *a, **kw),
+                is_connected=True,
+            )
+
+            # 1. Attacca Bersaglio con incantesimo di 1° livello ('Dardo Tracciante') DEVE consumare lo slot (2 -> 1)
+            item_ids = frame.spell_tree.get_children()
+            frame.spell_tree.selection_set(item_ids[1])
+            with patch("tkinter.Toplevel.grab_set"), patch("tkinter.simpledialog.askstring", side_effect=["+5", "4d6"]):
+                frame.cast_spell()
+                dlg = [w for w in frame.winfo_children() if isinstance(w, tk.Toplevel)][-1]
+                atk_btn = next(
+                    b for child in dlg.winfo_children()
+                    if isinstance(child, ttk.Frame)
+                    for b in child.winfo_children()
+                    if isinstance(b, ttk.Button) and "Attacca" in str(b.cget("text"))
+                )
+                atk_btn.invoke()
+
+            self.assertEqual(wizard_char.spell_slots["1"]["current"], 1)
+            self.assertEqual(len(attacks_received), 1)
+            self.assertTrue(attacks_received[0][1].get("is_spell"))
+
+            # 2. Lancia in Chat su 'Dardo Incantato' consuma slot (1 -> 0) e invia CAST_SPECIAL_SPELL_REQUEST al server
+            sent_packets.clear()
+            c_mock.action_spent = False
+            frame.spell_tree.selection_set(item_ids[0])
+            with patch("tkinter.Toplevel.grab_set"):
+                frame.cast_spell()
+                dlg = [w for w in frame.winfo_children() if isinstance(w, tk.Toplevel)][-1]
+                cast_btn = next(
+                    b for child in dlg.winfo_children()
+                    if isinstance(child, ttk.Frame)
+                    for b in child.winfo_children()
+                    if isinstance(b, ttk.Button) and "Lancia" in str(b.cget("text"))
+                )
+                cast_btn.invoke()
+
+            self.assertEqual(wizard_char.spell_slots["1"]["current"], 0)
+            self.assertTrue(c_mock.action_spent)
+            spell_pkts = [p for p in sent_packets if p.get("type") == "CAST_SPECIAL_SPELL_REQUEST"]
+            self.assertEqual(len(spell_pkts), 1)
+            self.assertTrue(spell_pkts[0]["data"].get("already_consumed_slot"))
+
+            # 3. Il server risolve il pacchetto senza doppio consumo di slot e colpisce il Goblin
+            gs = GameState(queue.Queue())
+            srv_wiz = Player("Elara", conn=_MockConn())
+            srv_wiz.is_party_member = True
+            srv_wiz.full_sheet = wizard_char.to_dict()
+            srv_gob = Player("Goblin", conn=None)
+            srv_gob.hp = 30
+            srv_gob.max_hp = 30
+            gs.players = [srv_wiz, srv_gob]
+            handle_cast_special_spell_request(spell_pkts[0]["data"], srv_wiz, gs)
+            self.assertLess(srv_gob.hp, 30)
+            self.assertEqual(srv_wiz.full_sheet["spell_slots"]["1"]["current"], 0)
+        finally:
+            root.destroy()
+
+    def test_task012_lossless_session_persistence_and_tabletop_local_pc_import(self):
+        import tempfile
+        from client.character_manager import Character
+        from server.dm_campaign_session_mixin import import_party_character_to_game_state
+
+        gs = GameState(queue.Queue())
+        gs.maps = {
+            "Taverna": {"name": "Taverna", "hexes": {}},
+            "Cripta": {"name": "Cripta", "hexes": {"1,1": {"difficult": True}}},
+        }
+        gs.active_map_id = "Cripta"
+        gs.current_map = gs.maps["Cripta"]
+        gs.pending_legendary_resistances = {"req-1": {"monster": "Drago", "save": "DES"}}
+        gs.campaign_starter_kit = {"gold": 50}
+
+        hero = Character(name="Thorin", char_class="Warlock", level=5, race="Nano")
+        hero.hp_max = 42
+        hero.hp_current = 37
+        hero.attributes["DES"] = 14
+        hero.pact_slots = {"current": 2, "max": 2, "level": 3}
+
+        p = import_party_character_to_game_state(gs, hero)
+        self.assertTrue(p.is_party_member)
+        self.assertEqual(p.hp, 37)
+        self.assertEqual(p.max_hp, 42)
+        self.assertEqual(p.initiative_bonus, 2)
+        self.assertEqual(p.pact_slots_max, 2)
+        self.assertEqual(p.pact_slots_current, 2)
+        self.assertEqual(p.pact_slot_level, 3)
+        self.assertTrue(p.has_darkvision)
+
+        p.attacks_made_this_turn = 1
+        p.movement_spent_this_turn = 3
+        p.pact_slots_current = 1
+        p.honor = 15
+        p.sanity = 8
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sess_file = os.path.join(tmpdir, "session_test.json")
+            gs.save_session(sess_file)
+
+            gs2 = GameState(queue.Queue())
+            live_sock = _MockConn()
+            live_thorin = Player("Thorin", addr=("127.0.0.1", 12345), conn=live_sock)
+            live_thorin._sent_asset_hashes = {"keep_hash": True}
+            gs2.players = [live_thorin]
+
+            gs2.load_session(sess_file)
+            self.assertEqual(set(gs2.maps.keys()), {"Taverna", "Cripta"})
+            self.assertEqual(gs2.active_map_id, "Cripta")
+            self.assertEqual(gs2.pending_legendary_resistances, {"req-1": {"monster": "Drago", "save": "DES"}})
+            self.assertEqual(gs2.campaign_starter_kit, {"gold": 50})
+
+            reloaded = gs2.find_player("Thorin")
+            self.assertIs(reloaded.conn, live_sock)
+            self.assertEqual(reloaded._sent_asset_hashes, {"keep_hash": True})
+            self.assertEqual(reloaded.attacks_made_this_turn, 1)
+            self.assertEqual(reloaded.movement_spent_this_turn, 3)
+            self.assertEqual(reloaded.pact_slots_current, 1)
+            self.assertEqual(reloaded.honor, 15)
+            self.assertEqual(reloaded.sanity, 8)
+
+
 if __name__ == "__main__":
     unittest.main()

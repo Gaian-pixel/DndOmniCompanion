@@ -198,7 +198,13 @@ class Server:
                     conn.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
                 except Exception:
                     pass
-            print('RICEVUTO MESSAGGIO INIZIALE:', join_msg)
+            log_join_msg = join_msg
+            if isinstance(join_msg, dict) and isinstance(join_msg.get("data"), dict) and join_msg["data"].get("password"):
+                log_join_msg = dict(join_msg)
+                safe_data = dict(join_msg["data"])
+                safe_data["password"] = "***"
+                log_join_msg["data"] = safe_data
+            print('RICEVUTO MESSAGGIO INIZIALE:', log_join_msg)
             if join_msg is None or not isinstance(join_msg, dict) or join_msg.get("type") != "JOIN":
                 return
             join_data = join_msg.get("data")
@@ -271,7 +277,7 @@ class Server:
                         old_conn_to_close.close()
                     except Exception:
                         pass
-                player._sent_asset_hashes = set()
+                player._sent_asset_hashes = {}
                 init_gs = prepare_per_player_state_payload(
                     make_game_state(self.game_state.get_state_dict(is_dm=False)),
                     player,
@@ -284,7 +290,7 @@ class Server:
                     from server.rules.movement import auto_explore_fow
                     if auto_explore_fow(player, self.game_state):
                         self.game_state._trigger_gui_update()
-                player._sent_asset_hashes = set()
+                player._sent_asset_hashes = {}
                 init_gs = prepare_per_player_state_payload(
                     make_game_state(self.game_state.get_state_dict(is_dm=False)),
                     player,

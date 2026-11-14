@@ -623,12 +623,12 @@ def handle_move_request(data, player, game_state):
             if changed:
                 game_state._trigger_gui_update()
                 from common.protocol import make_fow_update_broadcast, make_player_move
-                broadcast(game_state, make_player_move(player.name, to_pos))
+                broadcast(game_state, make_player_move(player.name, to_pos, movement_spent_this_turn=getattr(player, "movement_spent_this_turn", 0)))
                 broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"], fow_enabled=True))
                 return
                 
         from common.protocol import make_player_move
-        broadcast(game_state, make_player_move(player.name, to_pos))
+        broadcast(game_state, make_player_move(player.name, to_pos, movement_spent_this_turn=getattr(player, "movement_spent_this_turn", 0)))
 
 
 def handle_stand_up_request(data, player, game_state):
