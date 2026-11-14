@@ -3,8 +3,16 @@ import socket
 import select
 import struct
 import json
+import hashlib
 import threading
 import weakref
+
+
+def compute_asset_hash(b64_data: str) -> str:
+    """Calcola un digest breve deterministico per asset immagine codificati in base64."""
+    if not isinstance(b64_data, str) or not b64_data:
+        return ""
+    return hashlib.sha256(b64_data.encode("utf-8")).hexdigest()[:16]
 
 
 def is_dm_actor(player) -> bool:
@@ -169,7 +177,81 @@ def sanitize_map_for_players(map_data: dict) -> dict:
         else:
             clean["loots"] = [l for l in clean["loots"] if not l.get("hidden", False)]
 
+    if isinstance(clean.get("bg_image_data"), str) and clean["bg_image_data"]:
+        clean["bg_image_hash"] = clean.get("bg_image_hash") or compute_asset_hash(clean["bg_image_data"])
+
     return clean
+
+
+def _deduplicate_map_payload(map_dict: dict, sent_hashes: set) -> dict:
+    if not isinstance(map_dict, dict):
+        return map_dict
+    bg_data = map_dict.get("bg_image_data")
+    if not isinstance(bg_data, str) or not bg_data:
+        return map_dict
+    bg_hash = map_dict.get("bg_image_hash") or compute_asset_hash(bg_data)
+    map_copy = dict(map_dict)
+    map_copy["bg_image_hash"] = bg_hash
+    if bg_hash in sent_hashes:
+        map_copy["bg_image_data"] = None
+        map_copy["bg_image_cached"] = True
+    else:
+        sent_hashes.add(bg_hash)
+    return map_copy
+
+
+def _deduplicate_handout_dict(handout_dict: dict, sent_hashes: set) -> dict:
+    if not isinstance(handout_dict, dict):
+        return handout_dict
+    img_b64 = handout_dict.get("image_b64")
+    if not isinstance(img_b64, str) or not img_b64:
+        return handout_dict
+    img_hash = handout_dict.get("image_hash") or compute_asset_hash(img_b64)
+    h_copy = dict(handout_dict)
+    h_copy["image_hash"] = img_hash
+    if img_hash in sent_hashes:
+        h_copy["image_b64"] = None
+        h_copy["image_cached"] = True
+    else:
+        sent_hashes.add(img_hash)
+    return h_copy
+
+
+def prepare_per_player_state_payload(message_data: dict, player) -> dict:
+    """Deduplica blob immagine (mappa e handout) gia inviati al singolo client tramite hash contenuto."""
+    if not isinstance(message_data, dict):
+        return message_data
+    msg_type = message_data.get("type")
+    if msg_type not in ("GAME_STATE", "MAP_DATA_UPDATE", "HANDOUT_BROADCAST"):
+        return message_data
+
+    data = message_data.get("data")
+    if not isinstance(data, dict):
+        return message_data
+
+    sent_hashes = getattr(player, "_sent_asset_hashes", None)
+    if not isinstance(sent_hashes, set):
+        sent_hashes = set()
+        if player is not None:
+            try:
+                player._sent_asset_hashes = sent_hashes
+            except Exception:
+                pass
+
+    if msg_type == "HANDOUT_BROADCAST":
+        new_data = _deduplicate_handout_dict(data, sent_hashes)
+        return message_data if new_data is data else {"type": msg_type, "data": new_data}
+
+    data_copy = dict(data)
+    if "map" in data_copy and isinstance(data_copy["map"], dict):
+        data_copy["map"] = _deduplicate_map_payload(data_copy["map"], sent_hashes)
+
+    if msg_type == "GAME_STATE" and isinstance(data_copy.get("handouts"), list):
+        data_copy["handouts"] = [
+            _deduplicate_handout_dict(h, sent_hashes) for h in data_copy["handouts"]
+        ]
+
+    return {"type": msg_type, "data": data_copy}
 
 def broadcast(game_state, message_data, exclude_player=None):
     """ La funzione broadcast invia messaggi filtrando le informazioni riservate del GM layer ai giocatori. """
@@ -220,8 +302,8 @@ def broadcast(game_state, message_data, exclude_player=None):
                 continue
 
         if player_filtered_game_state is not None:
-            send_message(p.conn, player_filtered_game_state)
+            send_message(p.conn, prepare_per_player_state_payload(player_filtered_game_state, p))
         elif player_filtered_map_data is not None:
-            send_message(p.conn, player_filtered_map_data)
+            send_message(p.conn, prepare_per_player_state_payload(player_filtered_map_data, p))
         else:
-            send_message(p.conn, message_data)
+            send_message(p.conn, prepare_per_player_state_payload(message_data, p))

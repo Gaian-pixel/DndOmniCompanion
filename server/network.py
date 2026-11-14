@@ -28,7 +28,7 @@ from common.game_state import GameState, Player
 from server.map_editor import MapEditorWindow
 from server.map_downloader import MapDownloaderDialog
 from common.hex_utils import Hex
-from common.network_utils import send_message, receive_message, broadcast
+from common.network_utils import send_message, receive_message, broadcast, prepare_per_player_state_payload
 from components.ui_components import HexMapCanvas
 from server.voice_server import VoiceServer
 
@@ -271,7 +271,12 @@ class Server:
                         old_conn_to_close.close()
                     except Exception:
                         pass
-                send_message(conn, make_game_state(self.game_state.get_state_dict(is_dm=False)))
+                player._sent_asset_hashes = set()
+                init_gs = prepare_per_player_state_payload(
+                    make_game_state(self.game_state.get_state_dict(is_dm=False)),
+                    player,
+                )
+                send_message(conn, init_gs)
                 broadcast(self.game_state, make_player_joined(player.to_dict()), exclude_player=player)
                 self.game_state._trigger_gui_update()
             else:
@@ -279,7 +284,12 @@ class Server:
                     from server.rules.movement import auto_explore_fow
                     if auto_explore_fow(player, self.game_state):
                         self.game_state._trigger_gui_update()
-                send_message(conn, make_game_state(self.game_state.get_state_dict(is_dm=False)))
+                player._sent_asset_hashes = set()
+                init_gs = prepare_per_player_state_payload(
+                    make_game_state(self.game_state.get_state_dict(is_dm=False)),
+                    player,
+                )
+                send_message(conn, init_gs)
                 broadcast(self.game_state, make_player_joined(player.to_dict()), exclude_player=player)
                 if self.game_state.current_map and self.game_state.current_map.get("fow_enabled", False):
                     broadcast(self.game_state, make_fow_update_broadcast(self.game_state.current_map.get("fow_revealed", []), self.game_state.current_map.get("fow_draft", []), fow_enabled=True))

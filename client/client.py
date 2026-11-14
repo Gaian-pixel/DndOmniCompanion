@@ -118,6 +118,7 @@ class ClientGUI:
         self._audio_downloads = {}
         self._audio_download_ttl = 60.0
         self._max_audio_downloads = 8
+        self._asset_cache = {}
         self._pending_play = None
         self._audio_muted = False
         self._saved_music_vol = 0.8
@@ -3662,8 +3663,64 @@ class ClientGUI:
             auto_day_night=auto_day_night
         )
 
+    def _get_asset_cache(self) -> dict:
+        cache = getattr(self, "_asset_cache", None)
+        if not isinstance(cache, dict):
+            cache = {}
+            try:
+                self._asset_cache = cache
+            except Exception:
+                pass
+        return cache
+
+    def _store_asset_in_cache(self, asset_hash: str, b64_data: str):
+        if not asset_hash or not isinstance(b64_data, str) or not b64_data:
+            return
+        cache = ClientGUI._get_asset_cache(self)
+        if asset_hash not in cache and len(cache) >= 32:
+            oldest_key = next(iter(cache), None)
+            if oldest_key is not None:
+                cache.pop(oldest_key, None)
+        cache[asset_hash] = b64_data
+
+    def _resolve_cached_map_assets(self, map_data):
+        if not isinstance(map_data, dict):
+            return map_data
+        from common.network_utils import compute_asset_hash
+        cache = ClientGUI._get_asset_cache(self)
+        bg_data = map_data.get("bg_image_data")
+        bg_hash = map_data.get("bg_image_hash")
+        if isinstance(bg_data, str) and bg_data:
+            eff_hash = bg_hash if isinstance(bg_hash, str) and bg_hash else compute_asset_hash(bg_data)
+            ClientGUI._store_asset_in_cache(self, eff_hash, bg_data)
+            map_data["bg_image_hash"] = eff_hash
+            map_data.pop("bg_image_cached", None)
+        elif isinstance(bg_hash, str) and bg_hash and bg_hash in cache:
+            map_data["bg_image_data"] = cache[bg_hash]
+            map_data.pop("bg_image_cached", None)
+        return map_data
+
+    def _resolve_cached_handout_assets(self, handouts_or_data):
+        from common.network_utils import compute_asset_hash
+        cache = ClientGUI._get_asset_cache(self)
+        items = handouts_or_data if isinstance(handouts_or_data, list) else [handouts_or_data]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            img_b64 = item.get("image_b64")
+            img_hash = item.get("image_hash")
+            if isinstance(img_b64, str) and img_b64:
+                eff_hash = img_hash if isinstance(img_hash, str) and img_hash else compute_asset_hash(img_b64)
+                ClientGUI._store_asset_in_cache(self, eff_hash, img_b64)
+                item["image_hash"] = eff_hash
+                item.pop("image_cached", None)
+            elif isinstance(img_hash, str) and img_hash and img_hash in cache:
+                item["image_b64"] = cache[img_hash]
+                item.pop("image_cached", None)
+        return handouts_or_data
+
     def handle_map_data_update(self, data):
-        self.local_map_data = data.get("map")
+        self.local_map_data = ClientGUI._resolve_cached_map_assets(self, data.get("map"))
         self.redraw_map_and_players()
         
     def handle_combat_state_update(self, data):
@@ -3712,7 +3769,9 @@ class ClientGUI:
         was_combat = getattr(self, "combat_active", False)
         self.game_state = data
         self.players_data = {p['name']: p for p in data.get('players', [])}
-        self.local_map_data = data.get("map")
+        self.local_map_data = ClientGUI._resolve_cached_map_assets(self, data.get("map"))
+        if isinstance(data.get("handouts"), list):
+            ClientGUI._resolve_cached_handout_assets(self, data["handouts"])
         
         if self.active_character and self.name in self.players_data:
             p_dict = self.players_data[self.name]
@@ -4379,6 +4438,8 @@ class ClientGUI:
             ttk.Button(btn_frame, text="Ignora", command=decline_gen).pack(side=tk.LEFT, padx=6)
 
     def handle_handout_broadcast(self, data):
+        if isinstance(data, dict):
+            ClientGUI._resolve_cached_handout_assets(self, data)
         title = data.get("title", "Documento Condiviso")
         content = data.get("content", "")
         img_b64 = data.get("image_b64")

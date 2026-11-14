@@ -599,6 +599,74 @@ class TestDataCampaignAndUIFixes(unittest.TestCase):
                 srv.handle_client(_FakeConn(), ("10.0.0.5", 40003))
             self.assertIsNotNone(srv.game_state.find_player("Ospite"))
 
+    def test_hash_cached_map_and_handout_transfer_deduplication(self):
+        import base64
+        from common.network_utils import broadcast, compute_asset_hash
+        from common.protocol import make_game_state, make_handout_broadcast, make_map_data_update_broadcast
+        from client.client import ClientGUI
+
+        b64_map = base64.b64encode(b"FAKE_PNG_MAP_PAYLOAD_DATA").decode("ascii")
+        b64_handout = base64.b64encode(b"FAKE_PNG_HANDOUT_DATA").decode("ascii")
+        expected_map_hash = compute_asset_hash(b64_map)
+        expected_handout_hash = compute_asset_hash(b64_handout)
+
+        gs = GameState(queue.Queue())
+        gs.current_map = {"name": "Cripta", "bg_image_data": b64_map, "hexes": {}}
+        gs.handouts = [{"title": "Pergamena", "content": "Testo", "image_b64": b64_handout}]
+
+        p1 = Player("P1", conn=object())
+        p2 = Player("P2", conn=object())
+        gs.players = [p1]
+
+        delivered = []
+        with patch("common.network_utils.send_message", side_effect=lambda conn, msg: delivered.append((conn, msg))):
+            # 1. Primo broadcast: solo P1 -> riceve payload completi
+            broadcast(gs, make_game_state(gs.get_state_dict(is_dm=False)))
+            self.assertEqual(len(delivered), 1)
+            pkt1 = delivered[0][1]
+            self.assertEqual(pkt1["data"]["map"]["bg_image_data"], b64_map)
+            self.assertEqual(pkt1["data"]["map"]["bg_image_hash"], expected_map_hash)
+            self.assertEqual(pkt1["data"]["handouts"][0]["image_b64"], b64_handout)
+
+            # 2. Secondo broadcast: P1 e P2 insieme -> P1 riceve riferimenti hash/cached, P2 riceve i blob completi
+            gs.players = [p1, p2]
+            delivered.clear()
+            broadcast(gs, make_game_state(gs.get_state_dict(is_dm=False)))
+            self.assertEqual(len(delivered), 2)
+            pkt_p1 = delivered[0][1]
+            pkt_p2 = delivered[1][1]
+            self.assertIsNone(pkt_p1["data"]["map"]["bg_image_data"])
+            self.assertTrue(pkt_p1["data"]["map"].get("bg_image_cached"))
+            self.assertEqual(pkt_p1["data"]["map"]["bg_image_hash"], expected_map_hash)
+            self.assertIsNone(pkt_p1["data"]["handouts"][0]["image_b64"])
+            self.assertTrue(pkt_p1["data"]["handouts"][0].get("image_cached"))
+            self.assertEqual(pkt_p1["data"]["handouts"][0]["image_hash"], expected_handout_hash)
+            self.assertEqual(pkt_p2["data"]["map"]["bg_image_data"], b64_map)
+            self.assertEqual(pkt_p2["data"]["handouts"][0]["image_b64"], b64_handout)
+
+            # 3. ClientGUI ricostruisce map_data e handout dalla cache client anche su pacchetti deduplicati
+            c_mock = MagicMock()
+            c_mock.name = "P1"
+            c_mock.active_character = None
+            c_mock._asset_cache = {}
+            ClientGUI.handle_game_state(c_mock, pkt1["data"])
+            self.assertIn(expected_map_hash, c_mock._asset_cache)
+            ClientGUI.handle_game_state(c_mock, pkt_p1["data"])
+            self.assertEqual(c_mock.local_map_data["bg_image_data"], b64_map)
+            self.assertEqual(pkt_p1["data"]["handouts"][0]["image_b64"], b64_handout)
+
+            # 4. Verifica MAP_DATA_UPDATE e HANDOUT_BROADCAST deduplicati su P1
+            delivered.clear()
+            broadcast(gs, make_map_data_update_broadcast(gs.current_map))
+            ClientGUI.handle_map_data_update(c_mock, delivered[0][1]["data"])
+            self.assertEqual(c_mock.local_map_data["bg_image_data"], b64_map)
+
+            delivered.clear()
+            broadcast(gs, make_handout_broadcast("Pergamena", b64_handout))
+            self.assertIsNone(delivered[0][1]["data"]["image_b64"])
+            ClientGUI._resolve_cached_handout_assets(c_mock, delivered[0][1]["data"])
+            self.assertEqual(delivered[0][1]["data"]["image_b64"], b64_handout)
+
 
 if __name__ == "__main__":
     unittest.main()
