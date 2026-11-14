@@ -1,8 +1,8 @@
 # D&D OmniCompanion — Autonomous Development Session Handoff
 
 > **Branch:** `dev/v0.6.0-autonomous` (`main` untouched at `3b28c99`, no remote pushes or tags)  
-> **Latest Phase:** Phase 3 Gameplay Integrity, System Integration & End-to-End Validation (`TASK-013` through `TASK-016` completed on top of `58cac3b`)  
-> **Status:** All roadmap items (`TASK-001` through `TASK-016`) are **COMPLETED**, verified, and ready on `dev/v0.6.0-autonomous`.
+> **Latest Phase:** Phase 3.5 Adversarial Gameplay Review & Phase 4 UX Polish (`TASK-017` through `TASK-020` completed on top of Phase 3)  
+> **Status:** All roadmap items (`TASK-001` through `TASK-020`) are **COMPLETED**, verified, and ready on `dev/v0.6.0-autonomous`.
 
 ---
 
@@ -82,6 +82,20 @@
 17. **`TASK-016` (Phase 3) — Real Loopback TCP Multiplayer & Gameplay Integration E2E Suite & Doc Sync**
    - Created `tests/test_gameplay_integration_e2e.py` (9 integration and real loopback TCP multiplayer E2E tests via `LoopbackSessionHarness` covering PIN auth, action economy, spell refunds/dedup, reconnect state protection, and lossless persistence).
    - Reconciled bilingual documentation (`README.md`, `README_IT.md`, `docs/OPERATIONAL_GUIDE.md`, `docs/GUIDA_OPERATIVA.md`, `docs/DEVELOPMENT_ROADMAP.md`, `docs/FEATURE_MATURITY.md`, `docs/SESSION_HANDOFF.md`) to `602` verified tests across `64` modules.
+18. **`TASK-017` (Phase 3.5) — 5e 2014 Ruleset Determination, Action Surge Lv 17+ & Rest/Combat State Correctness**
+   - Codified **D&D 5e (2014 Core Rules — PHB / DMG / MM / SRD 5.1)** + **XGtE (2017) / TCE (2020)** + **30 DM-configurable optional rules** (`GameState.automation_settings`) with zero silent mixing of incompatible 2024 rules.
+   - Normalized Fighter Lv 17+ `action_surge_max=2` in `common/character_schema.py` and `add_class_level` `custom_resources` upgrades in `client/character_manager.py`, extracted `restore_entity_rest_resources(entity_or_sheet, rest_type)` and `_apply_player_long_rest(p, game_state)`, and added `0`-HD Short Rest support (`hd_spent=0`) in `server/rules/combat.py` and `client/client.py`.
+   - Cleared `readied_action_data` / `"Azione Preparata"` on 0 HP or incapacitation (`apply_damage`, `handle_update_stats_request`, `handle_update_full_sheet_request`) and reset turn/reaction/readied-action/prepared-concentration state cleanly in `GameState.end_combat()`, while guarding `_extra_fields`/`_extra_state_fields` against self-key collisions across `Player`, `GameState`, and `Campaign`.
+19. **`TASK-018` (Phase 3.5) — Server Authority Concurrency, Atomic Resource Transactions & Reconnect Window Hardening**
+   - Added lock-synchronized bounded/TTL `_check_and_record_request_id(..., max_entries=32, ttl_sec=120.0)` deduplication in `server/rules/class_abilities.py` and default 12-char hex `request_id` attachment via `_attach_request_id` in `common/protocol.py` (`make_cast_special_spell_request`, `make_class_feature_request`, honoring explicit `request_id=None`).
+   - Refactored `handle_cast_special_spell_request` and `handle_class_feature_request` (`action_surge`, `second_wind`, `rage`) to validate and commit resource/slot/ward/turn-flag changes atomically under `game_state.lock`, scrubbing optimistic `"Concentrazione"` in `_reject_cast` when `actor.concentrating_on is None`.
+   - Replaced sticky reconnect preservation with monotonic TTL timestamps (`_preserve_join_until = time.monotonic() + 5.0` on TCP reconnect in `server/network.py`, `+ 1.0` after campaign import in `server/rules/character.py`).
+20. **`TASK-019` (Phase 4) — Player HUD & DM Party Tracker UX Polish**
+   - Added live `🔮 [Conc: <Spell>]` badge in `update_hero_summary_card` (`hero_hp_lbl`), remaining `(cur/max)` / `(∞)` counters and dynamic `_get_feature_tooltip` ToolTips on Second Wind, Action Surge, and Rage buttons (preserved across `apply_translations`), mid-turn Action Surge lock via `_action_surge_used_this_turn`, and `0`-HD Short Rest controls in `open_short_rest_dialog`.
+   - Extracted `DM_GUI._format_dm_player_row` in `server/dm_gui.py` to display `+temp_hp`, `🔮[Conc: ...]`, `⏳[Prep]`, and active-turn `[A:... B:... R:...]` badges in the DM party tracker.
+21. **`TASK-020` (Phase 3.5 & 4) — Deterministic E2E Hardening, Regression Coverage & Bilingual Doc Sync**
+   - Fixed the 5% Natural-1 attack roll flake in `test_real_tcp_pin_combat_action_surge_spellcast_and_reconnect` and added `TestPhase35AndPhase4HardeningAndUX` (3 new integration & headless Tk UX test methods in `tests/test_gameplay_integration_e2e.py`), reaching `605/605` passing tests across `64` modules.
+   - Synchronized all 7 bilingual docs (`README.md`, `README_IT.md`, `docs/OPERATIONAL_GUIDE.md`, `docs/GUIDA_OPERATIVA.md`, `docs/DEVELOPMENT_ROADMAP.md`, `docs/FEATURE_MATURITY.md`, `docs/SESSION_HANDOFF.md`).
 
 ---
 
@@ -89,11 +103,11 @@
 
 | Check | Command / Scope | Observed Result |
 |---|---|---|
-| **Full Headless Unit Test Suite** | `$env:DND_MOCK_AUDIO="1";` with isolated temp `DND_SETTINGS_PATH` & `DND_CHARACTERS_PATH`, `python -m unittest discover tests` | **PASSED**: `Ran 602 tests in 46.453s — OK` (`0` failures, `0` errors, `0` skipped across `64` `unittest` modules) |
+| **Full Headless Unit Test Suite** | `$env:DND_MOCK_AUDIO="1";` with isolated temp `DND_SETTINGS_PATH` & `DND_CHARACTERS_PATH`, `python -m unittest discover -s tests -p "test_*.py" -v` | **PASSED**: `Ran 605 tests in 47.578s — OK` (`0` failures, `0` errors, `0` skipped across `64` `unittest` modules, including in-memory integration and real loopback TCP E2E tests) |
 | **Static Bytecode Compile** | `py_compile.compile(...)` across `common`, `server`, `client`, `components`, `tests`, `main.py`, `build_release.py` | **PASSED**: `py_compile succeeded for all Python files.` |
-| **Static Analysis (`pyflakes` Critical Check)** | CI check (`undefined name` / star-import / syntax error across `common`, `server`, `client`, `components`, `main.py`) | **PASSED**: `Pyflakes critical check clean (0 undefined names, 0 star imports). Total non-critical lines: 349` |
+| **Static Analysis (`pyflakes` Critical Check)** | CI check (`undefined name` / star-import / syntax error across `common`, `server`, `client`, `components`, `main.py`) | **PASSED**: `Pyflakes critical check clean (0 undefined names, 0 star imports). Total non-critical lines: 348` |
 | **Tracked Data Isolation** | `git diff --stat client_data/` after running full test suite | **CLEAN**: empty diff (no mutation of tracked files in `client_data/`) |
-| **Roadmapped Tasks** | `docs/DEVELOPMENT_ROADMAP.md` (`TASK-001`..`TASK-016`) | **16 / 16 `COMPLETED`** |
+| **Roadmapped Tasks** | `docs/DEVELOPMENT_ROADMAP.md` (`TASK-001`..`TASK-020`) | **20 / 20 `COMPLETED`** |
 
 ---
 
@@ -108,7 +122,7 @@
 
 ## 4. Next Steps (For Future Sessions)
 
-All backlog items in `docs/DEVELOPMENT_ROADMAP.md` (`TASK-001`–`TASK-016`) are complete. Recommended follow-up actions when ready for release or further iteration:
+All backlog items in `docs/DEVELOPMENT_ROADMAP.md` (`TASK-001`–`TASK-020`) are complete. Recommended follow-up actions when ready for release or further iteration:
 1. Review diffs across `main..dev/v0.6.0-autonomous` and run the standalone interactive GUI checks (`tests/test_ui_smoke.py`, `tests/test_e2e_gui.py`) in a desktop environment.
 2. Merge `dev/v0.6.0-autonomous` into `main` and publish a release/tag only upon explicit human authorization.
 3. Optional next maintainability wave: incrementally decompose remaining large UI setup sections (`ClientGUI.setup_gui` in `client/client.py` and `DM_GUI` initialization/context menus in `server/dm_gui.py`) into focused mixin/builder modules.
