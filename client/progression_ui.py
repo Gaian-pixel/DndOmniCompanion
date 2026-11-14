@@ -373,7 +373,8 @@ class LevelUpDialog(tk.Toplevel):
 
             opts = [s["name"] for s in self.matching_subclasses]
             self.subclass_choice_var = tk.StringVar(value="")
-            self.subclass_combo = ttk.Combobox(sub_frame, textvariable=self.subclass_choice_var, values=opts, width=45, state="readonly")
+            sub_state = "readonly" if cls_lvl >= unlock_lvl else "disabled"
+            self.subclass_combo = ttk.Combobox(sub_frame, textvariable=self.subclass_choice_var, values=opts, width=45, state=sub_state)
             self.subclass_combo.pack(anchor="w", pady=(0, 8))
             self.subclass_combo.bind("<<ComboboxSelected>>", self._on_subclass_selected)
 
@@ -510,6 +511,7 @@ class LevelUpDialog(tk.Toplevel):
         self.tree_spells.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         self.tree_spells.bind("<<TreeviewSelect>>", self._on_spell_selected)
+        self.tree_spells.bind("<Double-1>", lambda e: self._toggle_spell_selection())
 
         # Destra: Dettaglio incantesimo e pulsante di selezione
         right_side = ttk.Frame(self.spells_paned, padding=4)
@@ -532,6 +534,7 @@ class LevelUpDialog(tk.Toplevel):
 
         self.lst_selected_spells = tk.Listbox(right_side, height=4, font=("Segoe UI", 8))
         self.lst_selected_spells.pack(fill=tk.X, pady=(2, 0))
+        self.lst_selected_spells.bind("<Double-1>", self._on_remove_selected_spell_double_click)
 
     def _build_tab_asi(self):
         for w in self.tab_asi.winfo_children():
@@ -579,6 +582,7 @@ class LevelUpDialog(tk.Toplevel):
         self.asi_single_stat = ttk.Combobox(f_single, values=[f"{a} (attuale: {self.character.attributes.get(a, 10)})" for a in attrs], width=24, state="readonly")
         self.asi_single_stat.set(f"INT (attuale: {self.character.attributes.get('INT', 10)})" if self.char_class_en == "wizard" else f"FOR (attuale: {self.character.attributes.get('FOR', 10)})")
         self.asi_single_stat.pack(side=tk.LEFT, padx=6)
+        self.asi_single_stat.bind("<<ComboboxSelected>>", lambda e: self.asi_choice_var.set("single"))
 
         # Opzione 2: +1 a due stat
         rb2 = ttk.Radiobutton(asi_frame, text="+1 a due Punteggi di Caratteristica differenti:", variable=self.asi_choice_var, value="dual", command=self._on_asi_mode_changed)
@@ -590,11 +594,13 @@ class LevelUpDialog(tk.Toplevel):
         self.asi_dual_stat1 = ttk.Combobox(f_dual, values=[f"{a} (attuale: {self.character.attributes.get(a, 10)})" for a in attrs], width=20, state="readonly")
         self.asi_dual_stat1.set(f"DES (attuale: {self.character.attributes.get('DES', 10)})")
         self.asi_dual_stat1.pack(side=tk.LEFT, padx=4)
+        self.asi_dual_stat1.bind("<<ComboboxSelected>>", lambda e: self.asi_choice_var.set("dual"))
 
         ttk.Label(f_dual, text="Stat 2:").pack(side=tk.LEFT, padx=(6, 0))
         self.asi_dual_stat2 = ttk.Combobox(f_dual, values=[f"{a} (attuale: {self.character.attributes.get(a, 10)})" for a in attrs], width=20, state="readonly")
         self.asi_dual_stat2.set(f"COS (attuale: {self.character.attributes.get('COS', 10)})")
         self.asi_dual_stat2.pack(side=tk.LEFT, padx=4)
+        self.asi_dual_stat2.bind("<<ComboboxSelected>>", lambda e: self.asi_choice_var.set("dual"))
 
         # Opzione 3: Talento
         rb3 = ttk.Radiobutton(asi_frame, text=_t("prog_choose_feat"), variable=self.asi_choice_var, value="feat", command=self._on_asi_mode_changed)
@@ -607,7 +613,7 @@ class LevelUpDialog(tk.Toplevel):
         if feat_names:
             self.asi_feat_choice.set(feat_names[0])
         self.asi_feat_choice.pack(anchor="w", pady=(0, 4))
-        self.asi_feat_choice.bind("<<ComboboxSelected>>", self._on_feat_selected)
+        self.asi_feat_choice.bind("<<ComboboxSelected>>", lambda e: (self.asi_choice_var.set("feat"), self._on_feat_selected()))
 
         self.txt_feat_preview = tk.Text(f_feat, wrap=tk.WORD, height=4, font=("Segoe UI", 9))
         self.txt_feat_preview.pack(fill=tk.BOTH, expand=True)
@@ -910,6 +916,23 @@ class LevelUpDialog(tk.Toplevel):
 
         self.txt_spell_desc.insert(tk.END, header + sp.get("desc", ""))
         self.txt_spell_desc.configure(state="disabled")
+
+    def _on_remove_selected_spell_double_click(self, event=None):
+        """Rimuove un incantesimo selezionato con doppio clic dalla lista delle scelte."""
+        if not hasattr(self, "lst_selected_spells"):
+            return
+        sel = self.lst_selected_spells.curselection()
+        if not sel:
+            return
+        idx = sel[0]
+        if 0 <= idx < len(self.selected_spells):
+            self.selected_spells.pop(idx)
+            if hasattr(self, "btn_toggle_spell"):
+                self.btn_toggle_spell.config(text=_t("prog_btn_add_spell"), style="Primary.TButton")
+            if hasattr(self, "_refresh_selected_spells_listbox"):
+                self._refresh_selected_spells_listbox()
+            elif hasattr(self, "_refresh_selected_spells_list"):
+                self._refresh_selected_spells_list()
 
     def _toggle_spell_selection(self):
         sel = self.tree_spells.selection()

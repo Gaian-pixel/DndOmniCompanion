@@ -747,13 +747,13 @@ D&D OmniCompanion include un'infrastruttura completa di puntamento, calcolo geom
 
 ## 12. Suite di Test e Quality Assurance
 
-Il progetto include una suite consolidata nella cartella `tests/` con **605 test automatizzati** distribuiti su **64 moduli `unittest`** che passano al 100% con 0 errori (`python -m unittest discover tests`), affiancati da 2 script standalone GUI smoke/E2E (`tests/test_ui_smoke.py`, `tests/test_e2e_gui.py`) e 2 simulazioni multiplayer (`tests/simulate_game_session.py`, `tests/simulate_4player_campaign.py`), coprendo unit test headless, test di integrazione gameplay, UX e socket TCP reali Phase 3, 3.5 e 4 (`tests/test_gameplay_integration_e2e.py`), copertura completa regole 2014 PHB/DMG/MM & XGtE/TCE e 30 opzioni selezionabili dal DM (`test_block1_wiring.py` .. `test_block6_monster_manual.py`, `test_phb_dmg_mm_complete.py`, `test_full_5e_phb_dmg_mm.py`), meccaniche avanzate 5e RAW (Smite, Wild Shape, Fonte di Magia, Recupero Arcano, Reliable Talent, Tuttofare, Critici Brutali, Colpo Stordente, Dadi Superiorità, Scaling Trucchetti, Ricarica Mostri, Auto XP), modificatori automatici da equipaggiamento, simulazione fisica dei dadi 3D, combattimento tattico, spazio 3D ed elevazione, flusso di login rapido, compagni/famigli, viaggi e accampamento, smoke test della GUI e architettura mono-finestra:
+Il progetto include una suite consolidata nella cartella `tests/` con **610 test automatizzati** distribuiti su **64 moduli `unittest`** che passano al 100% con 0 errori (`python -m unittest discover tests`), affiancati da 2 script standalone GUI smoke/E2E (`tests/test_ui_smoke.py`, `tests/test_e2e_gui.py`) e 2 simulazioni multiplayer (`tests/simulate_game_session.py`, `tests/simulate_4player_campaign.py`), coprendo unit test headless, test di integrazione gameplay, UX e socket TCP reali Phase 3, 3.5, 4 e 4.5 (`tests/test_gameplay_integration_e2e.py`), copertura completa regole 2014 PHB/DMG/MM & XGtE/TCE e 30 opzioni selezionabili dal DM (`test_block1_wiring.py` .. `test_block6_monster_manual.py`, `test_phb_dmg_mm_complete.py`, `test_full_5e_phb_dmg_mm.py`), meccaniche avanzate 5e RAW (Smite, Wild Shape, Fonte di Magia, Recupero Arcano, Reliable Talent, Tuttofare, Critici Brutali, Colpo Stordente, Dadi Superiorità, Scaling Trucchetti, Ricarica Mostri, Auto XP), modificatori automatici da equipaggiamento, simulazione fisica dei dadi 3D, combattimento tattico, spazio 3D ed elevazione, flusso di login rapido, compagni/famigli, viaggi e accampamento, smoke test della GUI e architettura mono-finestra:
 
 ```powershell
-# 1. Esegui l'intera suite di unit test (605 casi unittest su 64 moduli con 0 fallimenti)
+# 1. Esegui l'intera suite di unit test (610 casi unittest su 64 moduli con 0 fallimenti)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
-# 1a. Esegui la suite Phase 3, 3.5 & 4 Integrità Gameplay, UX e E2E Loopback TCP Multiplayer
+# 1a. Esegui la suite Phase 3, 3.5, 4 & 4.5 Integrità Gameplay, UX e E2E Loopback TCP Multiplayer
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_gameplay_integration_e2e.py
 
 # 1b. Esegui le suite complete PHB / DMG (Selezionabile DM) / XGtE / TCE / MM

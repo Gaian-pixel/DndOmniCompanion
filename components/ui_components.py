@@ -76,6 +76,8 @@ class HexMapCanvas(tk.Canvas):
         self._configure_timer = None
         self._last_win_w, self._last_win_h = 0, 0
         self._map_hexes_set = None
+        self._last_coord_hud_hex = None
+        self._srd_lookup_cache = {}
         
         self.hex_layout = None
         self.map_background_original = None
@@ -83,7 +85,13 @@ class HexMapCanvas(tk.Canvas):
         self._last_b64 = None
         self._last_zoom = None
         self.dragging_token_name = None
+        self._drag_blocked_reason = None
+        self._drag_blocked_shown = False
         self.on_token_drop_callback = None
+        self.can_move_token_callback = None
+        self.on_token_select_callback = None
+        self.is_hex_click_priority_callback = None
+        self.interaction_override_mode = False
         
         self.on_hex_click_callback = None
         self.on_ping_callback = None
@@ -312,7 +320,7 @@ class HexMapCanvas(tk.Canvas):
             self._is_panning = True
 
         self.move("all", dx, dy)
-        for hud_tag in ("hud_controls", "hud_coords", "hud_initiative", "weather_overlay"):
+        for hud_tag in ("hud_controls", "hud_coords", "hud_initiative", "weather_overlay", "night_overlay", "dice_3d"):
             self.move(hud_tag, -dx, -dy)
 
         cw = max(self.winfo_width(), 200)
@@ -370,7 +378,7 @@ class HexMapCanvas(tk.Canvas):
         self.pan_offset_x += dx
         self.pan_offset_y += dy
         self.move("all", dx, dy)
-        for hud_tag in ("hud_controls", "hud_coords", "hud_initiative", "weather_overlay"):
+        for hud_tag in ("hud_controls", "hud_coords", "hud_initiative", "weather_overlay", "night_overlay", "dice_3d"):
             self.move(hud_tag, -dx, -dy)
         self._schedule_pan_redraw()
 
@@ -554,7 +562,16 @@ class HexMapCanvas(tk.Canvas):
         
         self.dragging_token_name = None
         self._drag_start_hex = None
-        if getattr(self, 'players_data', None):
+        self._drag_blocked_reason = None
+        self._drag_blocked_shown = False
+
+        priority_click = bool(
+            getattr(self, "interaction_override_mode", False)
+            or (callable(getattr(self, "is_hex_click_priority_callback", None)) and self.is_hex_click_priority_callback())
+        )
+
+        clicked_token = None
+        if not priority_click and getattr(self, 'players_data', None):
             is_dm = not bool(getattr(self, "player_name", None))
             fow_active = getattr(self, 'fow_enabled', False) or (isinstance(getattr(self, 'map_data', None), dict) and self.map_data.get('fow_enabled', False))
             visible = getattr(self, 'visible_hexes', set()) if fow_active else set()
@@ -567,34 +584,61 @@ class HexMapCanvas(tk.Canvas):
                         if fow_active and name != self.player_name and not pdata.get("is_party_member", False) and not pdata.get("is_companion", False):
                             if (clicked_hex.q, clicked_hex.r) not in visible and clicked_hex not in visible:
                                 continue
-                    self.dragging_token_name = name
-                    self._drag_start_hex = clicked_hex
+                    clicked_token = name
                     break
         
-        # Ctrl+Click su token: Multi-selezione per DM / tavolo
-        ctrl_held = bool(event.state & 0x0004)
-        if ctrl_held and self.dragging_token_name:
-            if not hasattr(self, "selected_tokens"):
-                self.selected_tokens = set()
-            if self.dragging_token_name in self.selected_tokens:
-                self.selected_tokens.remove(self.dragging_token_name)
-            else:
-                self.selected_tokens.add(self.dragging_token_name)
-            self.redraw()
-            return
+        if clicked_token:
+            # Ctrl+Click su token: Multi-selezione per DM / tavolo
+            ctrl_held = bool(getattr(event, "state", 0) & 0x0004)
+            if ctrl_held:
+                if not hasattr(self, "selected_tokens"):
+                    self.selected_tokens = set()
+                if clicked_token in self.selected_tokens:
+                    self.selected_tokens.remove(clicked_token)
+                else:
+                    self.selected_tokens.add(clicked_token)
+                self.redraw()
+                return
 
-        # Shift+Click su token: toggle mirino tattico target
-        shift_held = bool(event.state & 0x0001)
-        if shift_held and self.dragging_token_name:
-            if self.current_target_name == self.dragging_token_name:
-                self.clear_target()
-            else:
-                self.set_target(self.dragging_token_name)
-            return
+            # Shift+Click su token: toggle mirino tattico target
+            shift_held = bool(getattr(event, "state", 0) & 0x0001)
+            if shift_held:
+                if self.current_target_name == clicked_token:
+                    self.clear_target()
+                else:
+                    self.set_target(clicked_token)
+                return
 
-        # Click normale su un token diverso dal proprio eroe (es. nemico o PNG): seleziona come target
-        if self.dragging_token_name and self.dragging_token_name != getattr(self, "player_name", None):
-            self.set_target(self.dragging_token_name)
+            if callable(getattr(self, "on_token_select_callback", None)):
+                try:
+                    self.on_token_select_callback(clicked_token)
+                except Exception:
+                    pass
+
+            # Click normale su un token diverso dal proprio eroe (es. nemico o PNG): seleziona come target
+            if clicked_token != getattr(self, "player_name", None):
+                self.set_target(clicked_token)
+
+            can_drag = True
+            deny_reason = None
+            if callable(getattr(self, "can_move_token_callback", None)):
+                try:
+                    res = self.can_move_token_callback(clicked_token)
+                    if isinstance(res, tuple):
+                        can_drag, deny_reason = bool(res[0]), res[1]
+                    else:
+                        can_drag = bool(res)
+                except Exception:
+                    can_drag = True
+
+            if can_drag:
+                self.dragging_token_name = clicked_token
+                self._drag_start_hex = clicked_hex
+            else:
+                self._drag_blocked_reason = deny_reason or f"Non puoi muovere il token '{clicked_token}'."
+
+            self._last_clicked_hex = clicked_hex
+            return
 
         self._last_clicked_hex = clicked_hex
         self.on_hex_click_callback(clicked_hex)
@@ -608,6 +652,15 @@ class HexMapCanvas(tk.Canvas):
             return
         if getattr(self, "ruler_mode", False) and self._ruler_start_hex:
             self._on_ruler_drag(event)
+            return
+        if getattr(self, "_drag_blocked_reason", None):
+            if not getattr(self, "_drag_blocked_shown", False):
+                self._drag_blocked_shown = True
+                try:
+                    parent = self.winfo_toplevel()
+                except Exception:
+                    parent = self
+                show_toast(parent, self._drag_blocked_reason, title="🔒 Movimento Bloccato", toast_type="warning")
             return
         if getattr(self, 'dragging_token_name', None) and getattr(self, '_drag_start_hex', None) and self.hex_layout:
             self.delete('ghost_token')
@@ -686,6 +739,8 @@ class HexMapCanvas(tk.Canvas):
                 self.on_token_drop_callback(self.dragging_token_name, drop_hex.q, drop_hex.r)
             self.dragging_token_name = None
         self._drag_start_hex = None
+        self._drag_blocked_reason = None
+        self._drag_blocked_shown = False
 
     def _on_ping_click(self, event):
         if not self.hex_layout or not self.on_ping_callback: return
@@ -726,7 +781,9 @@ class HexMapCanvas(tk.Canvas):
         world_y = (event.y - self.pan_offset_y) / self.zoom_level
         hovered_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
         self._last_hover_hex = hovered_hex
-        self._update_coord_hud(hovered_hex)
+        if hovered_hex != getattr(self, "_last_coord_hud_hex", None):
+            self._last_coord_hud_hex = hovered_hex
+            self._update_coord_hud(hovered_hex)
         
         token_name = None
         if getattr(self, 'players_data', None):
@@ -804,13 +861,20 @@ class HexMapCanvas(tk.Canvas):
                 sheet = pdata.get('full_sheet') if isinstance(pdata, dict) else {}
                 actions = sheet.get('actions') if isinstance(sheet, dict) else []
                 if not actions and token_name:
-                    try:
-                        from common.srd_offline import get_monster_offline
-                        srd_m = get_monster_offline(token_name)
-                        if srd_m and srd_m.get('actions'):
-                            actions = srd_m.get('actions', [])
-                    except Exception:
-                        pass
+                    srd_cache = getattr(self, "_srd_lookup_cache", None)
+                    if srd_cache is None:
+                        srd_cache = {}
+                        self._srd_lookup_cache = srd_cache
+                    if token_name in srd_cache:
+                        actions = srd_cache[token_name]
+                    else:
+                        try:
+                            from common.srd_offline import get_monster_offline
+                            srd_m = get_monster_offline(token_name)
+                            actions = srd_m.get('actions', []) if (srd_m and srd_m.get('actions')) else []
+                        except Exception:
+                            actions = []
+                        srd_cache[token_name] = actions
                 if actions:
                     act_summaries = []
                     for a in actions[:3]:
@@ -2650,7 +2714,14 @@ class ToastNotification:
         lbl_msg = tk.Label(frame, text=message, font=("Arial", 9), fg=style["fg"], bg=style["bg"], wraplength=300, justify=tk.LEFT)
         lbl_msg.pack(anchor="w", pady=(2, 0))
 
+        self.win.update_idletasks()
+        toast_h = max(68, min(140, frame.winfo_reqheight() + 4))
+        self._toast_height = toast_h
+        self._parent = parent
+        self.win.geometry(f"330x{toast_h}+{px + max(10, pw - 350)}+{py + offset_y}")
+
         ToastNotification._active_toasts.append(self)
+        ToastNotification._reflow_active_toasts()
         def _on_toast_destroyed(e=None):
             if e and getattr(e, "widget", None) != self.win:
                 return
@@ -2660,11 +2731,30 @@ class ToastNotification:
                 self._after_id = None
             if self in ToastNotification._active_toasts:
                 ToastNotification._active_toasts.remove(self)
+                ToastNotification._reflow_active_toasts()
         try:
             self.win.bind("<Destroy>", _on_toast_destroyed, add="+")
         except Exception:
             pass
         self._after_id = self.win.after(self.duration, self.destroy)
+
+    @classmethod
+    def _reflow_active_toasts(cls):
+        """Riallinea verticalmente i toast attivi evitando sovrapposizioni o spazi vuoti."""
+        y_cursor = 60
+        for t in list(cls._active_toasts):
+            try:
+                if not t.win.winfo_exists():
+                    continue
+                parent = getattr(t, "_parent", None)
+                pw = parent.winfo_width() if parent else 1000
+                px = parent.winfo_rootx() if parent else 100
+                py = parent.winfo_rooty() if parent else 100
+                th = max(68, getattr(t, "_toast_height", 68))
+                t.win.geometry(f"330x{th}+{px + max(10, pw - 350)}+{py + y_cursor}")
+                y_cursor += th + 8
+            except Exception:
+                pass
 
     def destroy(self):
         if self in ToastNotification._active_toasts:
@@ -2679,6 +2769,7 @@ class ToastNotification:
             self.win.destroy()
         except Exception:
             pass
+        ToastNotification._reflow_active_toasts()
 
 
 def show_toast(parent, message, title=None, duration=3500, toast_type="info", icon=None, color=None):

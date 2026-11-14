@@ -524,8 +524,12 @@ class ClientGUI(ClientNetworkHandlersMixin):
         self.stats_sheet_frame = None
         self.aoe_mode = False
         self.aoe_params = None
+        self._unread_chat_count = 0
+        self._pending_economy_snapshot = None
         self.map_canvas.set_on_click_callback(self.on_hex_click)
         self.map_canvas.on_token_drop_callback = self.on_token_drop
+        self.map_canvas.can_move_token_callback = self._can_player_move_token
+        self.map_canvas.is_hex_click_priority_callback = self._is_player_hex_click_priority
         self.map_canvas.set_on_ping_callback(self.on_ping_callback)
         self.map_canvas.set_on_hex_right_click_callback(self.on_hex_right_clicked)
         self.map_canvas.set_on_target_changed_callback(self.on_target_changed)
@@ -556,6 +560,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
         
         self.right_notebook = ttk.Notebook(right_panel)
         self.right_notebook.pack(fill=tk.BOTH, expand=True)
+        self.right_notebook.bind("<<NotebookTabChanged>>", self._on_right_notebook_tab_changed)
         
         # --- TAB 1: CHAT ---
         chat_tab = ttk.Frame(self.right_notebook)
@@ -757,14 +762,14 @@ class ClientGUI(ClientNetworkHandlersMixin):
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_dash
         )
         self.btn_dash.pack(side=tk.LEFT, padx=(0, 2), fill=tk.X, expand=True)
-        ToolTip(self.btn_dash, lambda: _t("tooltip_dash"))
+        self.btn_dash._tooltip = ToolTip(self.btn_dash, lambda: _t("tooltip_dash"))
 
         self.btn_disengage = tk.Button(
             econ_quick_actions, text=_t("btn_disengage"), font=FONT_SMALL, relief=tk.FLAT, bd=0,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_disengage
         )
         self.btn_disengage.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
-        ToolTip(self.btn_disengage, lambda: _t("tooltip_disengage"))
+        self.btn_disengage._tooltip = ToolTip(self.btn_disengage, lambda: _t("tooltip_disengage"))
 
         # Seconda riga: Schivata & Aiuto
         econ_quick_actions_2 = tk.Frame(self.economy_frame, bg=SURFACE_COLOR)
@@ -775,14 +780,14 @@ class ClientGUI(ClientNetworkHandlersMixin):
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_dodge
         )
         self.btn_dodge.pack(side=tk.LEFT, padx=(0, 2), fill=tk.X, expand=True)
-        ToolTip(self.btn_dodge, lambda: _t("tooltip_dodge"))
+        self.btn_dodge._tooltip = ToolTip(self.btn_dodge, lambda: _t("tooltip_dodge"))
 
         self.btn_help = tk.Button(
             econ_quick_actions_2, text=_t("btn_help"), font=FONT_SMALL, relief=tk.FLAT, bd=0,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_help
         )
         self.btn_help.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
-        ToolTip(self.btn_help, lambda: _t("tooltip_help"))
+        self.btn_help._tooltip = ToolTip(self.btn_help, lambda: _t("tooltip_help"))
 
         # Terza riga: Manovre Tattiche 5e (Lotta & Spinta RAW)
         econ_quick_actions_3 = tk.Frame(self.economy_frame, bg=SURFACE_COLOR)
@@ -793,28 +798,28 @@ class ClientGUI(ClientNetworkHandlersMixin):
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_grapple
         )
         self.btn_grapple.pack(side=tk.LEFT, padx=(0, 2), fill=tk.X, expand=True)
-        ToolTip(self.btn_grapple, lambda: "Tenta di afferrare il bersaglio con una prova contrapposta di Forza (Atletica) [PHB p. 195]")
+        self.btn_grapple._tooltip = ToolTip(self.btn_grapple, lambda: "Tenta di afferrare il bersaglio con una prova contrapposta di Forza (Atletica) [PHB p. 195]")
 
         self.btn_shove = tk.Button(
             econ_quick_actions_3, text="💨 Spingi", font=FONT_SMALL, relief=tk.FLAT, bd=0,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_shove
         )
         self.btn_shove.pack(side=tk.LEFT, padx=(2, 2), fill=tk.X, expand=True)
-        ToolTip(self.btn_shove, lambda: "Spingi il bersaglio per atterrarlo Prono o farlo arretrare di 5 ft [PHB p. 195]")
+        self.btn_shove._tooltip = ToolTip(self.btn_shove, lambda: "Spingi il bersaglio per atterrarlo Prono o farlo arretrare di 5 ft [PHB p. 195]")
 
         self.btn_ammo = tk.Button(
             econ_quick_actions_3, text="🏹 Munizioni", font=FONT_SMALL, relief=tk.FLAT, bd=0,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_ammo_recovery
         )
         self.btn_ammo.pack(side=tk.LEFT, padx=(2, 2), fill=tk.X, expand=True)
-        ToolTip(self.btn_ammo, lambda: "Recupera il 50% delle munizioni impiegate in combattimento (PHB p. 146)")
+        self.btn_ammo._tooltip = ToolTip(self.btn_ammo, lambda: "Recupera il 50% delle munizioni impiegate in combattimento (PHB p. 146)")
 
         self.btn_ready = tk.Button(
             econ_quick_actions_3, text="⏱️ Prepara", font=FONT_SMALL, relief=tk.FLAT, bd=0,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_ready_action
         )
         self.btn_ready.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
-        ToolTip(self.btn_ready, lambda: "Prepara un'Azione (Ready Action - PHB p. 193) o innesca l'azione preparata con la tua Reazione")
+        self.btn_ready._tooltip = ToolTip(self.btn_ready, lambda: "Prepara un'Azione (Ready Action - PHB p. 193) o innesca l'azione preparata con la tua Reazione")
 
         # Quarta riga: Utility Rapide (Alzati da Prono, Negozi, Downtime, Poteri Speciali 5e)
         econ_quick_actions_4 = tk.Frame(self.economy_frame, bg=SURFACE_COLOR)
@@ -825,28 +830,28 @@ class ClientGUI(ClientNetworkHandlersMixin):
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.perform_stand_up
         )
         self.btn_stand_up.pack(side=tk.LEFT, padx=(0, 2), fill=tk.X, expand=True)
-        ToolTip(self.btn_stand_up, lambda: "Alzati dalla condizione Prono consumando metà velocità di movimento (PHB p. 190)")
+        self.btn_stand_up._tooltip = ToolTip(self.btn_stand_up, lambda: "Alzati dalla condizione Prono consumando metà velocità di movimento (PHB p. 190)")
 
         self.btn_shop = tk.Button(
             econ_quick_actions_4, text="💰 Negozi", font=FONT_SMALL, relief=tk.FLAT, bd=0,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.open_shop_dialog
         )
         self.btn_shop.pack(side=tk.LEFT, padx=(2, 2), fill=tk.X, expand=True)
-        ToolTip(self.btn_shop, lambda: "Sfoglia ed acquista equipaggiamento dai negozi aperti dal DM")
+        self.btn_shop._tooltip = ToolTip(self.btn_shop, lambda: "Sfoglia ed acquista equipaggiamento dai negozi aperti dal DM")
 
         self.btn_downtime = tk.Button(
             econ_quick_actions_4, text="🛠️ Downtime", font=FONT_SMALL, relief=tk.FLAT, bd=0,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.open_downtime_dialog
         )
         self.btn_downtime.pack(side=tk.LEFT, padx=(2, 2), fill=tk.X, expand=True)
-        ToolTip(self.btn_downtime, lambda: "Avvia attività di Tempo Libero tra un'avventura e l'altra (PHB / XGtE)")
+        self.btn_downtime._tooltip = ToolTip(self.btn_downtime, lambda: "Avvia attività di Tempo Libero tra un'avventura e l'altra (PHB / XGtE)")
 
         self.btn_special_powers = tk.Button(
             econ_quick_actions_4, text="⚔️ Poteri 5e", font=FONT_SMALL, relief=tk.FLAT, bd=0,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.open_special_abilities_dialog
         )
         self.btn_special_powers.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
-        ToolTip(self.btn_special_powers, lambda: "Pannello rapido per Privilegi di Classe, Tratti Razziali, Regole Opzionali DMG e Manovre")
+        self.btn_special_powers._tooltip = ToolTip(self.btn_special_powers, lambda: "Pannello rapido per Privilegi di Classe, Tratti Razziali, Regole Opzionali DMG e Manovre")
 
         # Barra HUD Bersaglio Corrente (Target HUD)
         self.target_hud_frame = tk.Frame(self.economy_frame, bg=SURFACE_COLOR_ALT, highlightbackground=BORDER_COLOR, highlightthickness=1)
@@ -1042,6 +1047,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
                 self.btn_hud_toggle_sidebar.config(text="▶", width=3, style="HudGold.TButton")
             if hasattr(self, "btn_collapse_panel"):
                 self.btn_collapse_panel.config(text="▶ Comprimi")
+            self._on_right_notebook_tab_changed()
 
     def toggle_3d_dice(self):
         self.enable_3d_dice = not getattr(self, "enable_3d_dice", True)
@@ -1725,8 +1731,35 @@ class ClientGUI(ClientNetworkHandlersMixin):
             return 2
         return 1
 
+    def _save_economy_snapshot(self):
+        """Salva uno snapshot dell'economia turno per eventuale rollback su ERROR_REPLY."""
+        if not isinstance(getattr(self, "action_spent", False), bool):
+            return
+        cur_attacks = getattr(self, "_attacks_made_this_turn", 0)
+        self._pending_economy_snapshot = {
+            "action_spent": bool(getattr(self, "action_spent", False)),
+            "bonus_spent": bool(getattr(self, "bonus_spent", False)),
+            "reaction_spent": bool(getattr(self, "reaction_spent", False)),
+            "attacks_made": cur_attacks if isinstance(cur_attacks, int) else 0,
+        }
+
+    def _rollback_economy_snapshot(self):
+        """Ripristina lo snapshot pre-invio quando il server rifiuta un'azione."""
+        snap = getattr(self, "_pending_economy_snapshot", None)
+        if not isinstance(snap, dict):
+            return False
+        self.action_spent = bool(snap.get("action_spent", False))
+        self.bonus_spent = bool(snap.get("bonus_spent", False))
+        self.reaction_spent = bool(snap.get("reaction_spent", False))
+        self._attacks_made_this_turn = int(snap.get("attacks_made", 0) or 0)
+        self._pending_economy_snapshot = None
+        if hasattr(self, "update_action_economy_ui"):
+            self.update_action_economy_ui()
+        return True
+
     def _mark_attack_action_economy(self, **params):
         """Aggiorna Azione / Azione Bonus / Reazione e contatore Attacco Extra dopo un invio di attacco."""
+        ClientGUI._save_economy_snapshot(self)
         if params.get("is_reaction"):
             self.reaction_spent = True
         elif params.get("is_bonus_action"):
@@ -1756,6 +1789,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
         """Sincronizza economia turno, scheda e motore incantesimi 5e sul server dal lancio su scheda."""
         cost_low = str(action_cost_type or "action").lower()
         if not is_ritual:
+            ClientGUI._save_economy_snapshot(self)
             if cost_low == "bonus":
                 self.bonus_spent = True
             elif cost_low == "reaction":
@@ -1949,11 +1983,11 @@ class ClientGUI(ClientNetworkHandlersMixin):
                 self.lbl_movement_tracker.config(text=mov_text + status_tag, fg=TEXT_COLOR if my_turn else TEXT_MUTED)
 
         # 4. Abilitazione contestuale dei pulsanti tattici e privilegi di classe
-        can_std = connected and in_combat and (not self.action_spent)
-        can_cunning = connected and in_combat and self._has_cunning_action() and (not self.action_spent or not self.bonus_spent)
-        can_bonus = connected and in_combat and (not self.bonus_spent)
+        can_std = connected and in_combat and my_turn and (not self.action_spent)
+        can_cunning = connected and in_combat and my_turn and self._has_cunning_action() and (not self.action_spent or not self.bonus_spent)
+        can_bonus = connected and in_combat and my_turn and (not self.bonus_spent)
 
-        def _cfg_tactical_btn(btn_attr, enabled):
+        def _cfg_tactical_btn(btn_attr, enabled, tooltip_text=None):
             btn = getattr(self, btn_attr, None)
             if not btn:
                 return
@@ -1961,17 +1995,65 @@ class ClientGUI(ClientNetworkHandlersMixin):
                 btn.config(state=tk.NORMAL, bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR)
             else:
                 btn.config(state=tk.DISABLED, bg="#25282C", fg="#666666")
+            if tooltip_text is not None and hasattr(btn, "_tooltip") and btn._tooltip:
+                btn._tooltip.set_text(tooltip_text)
 
-        _cfg_tactical_btn("btn_dash", can_std or can_cunning)
-        _cfg_tactical_btn("btn_disengage", can_std or can_cunning)
-        _cfg_tactical_btn("btn_dodge", can_std)
-        _cfg_tactical_btn("btn_help", can_std)
+        def _turn_reason(base_tip: str, *, need_combat=True, need_turn=True, spent=False, bonus_only=False) -> str:
+            if not connected:
+                return f"{base_tip}\n⚠ Non connesso al server."
+            if need_combat and not in_combat:
+                return f"{base_tip}\n⚠ Disponibile solo in combattimento."
+            if need_combat and in_combat and need_turn and not my_turn:
+                return f"{base_tip}\n⚠ Non è il tuo turno."
+            if spent:
+                slot_lbl = "Azione Bonus già spesa in questo turno." if bonus_only else "Azione già spesa in questo turno."
+                return f"{base_tip}\n⚠ {slot_lbl}"
+            return base_tip
+
+        dash_spent = self.action_spent and not (self._has_cunning_action() and not self.bonus_spent)
+        _cfg_tactical_btn(
+            "btn_dash", can_std or can_cunning,
+            _turn_reason(_t("tooltip_dash"), spent=dash_spent)
+        )
+        _cfg_tactical_btn(
+            "btn_disengage", can_std or can_cunning,
+            _turn_reason(_t("tooltip_disengage"), spent=dash_spent)
+        )
+        _cfg_tactical_btn(
+            "btn_dodge", can_std,
+            _turn_reason(_t("tooltip_dodge"), spent=self.action_spent)
+        )
+        _cfg_tactical_btn(
+            "btn_help", can_std,
+            _turn_reason(_t("tooltip_help"), spent=self.action_spent)
+        )
+        _cfg_tactical_btn(
+            "btn_grapple", can_std,
+            _turn_reason("Tenta di afferrare il bersaglio (Atletica contrapposta) [PHB p. 195]", spent=self.action_spent)
+        )
+        _cfg_tactical_btn(
+            "btn_shove", can_std,
+            _turn_reason("Spingi il bersaglio Prono o indietro di 5 ft [PHB p. 195]", spent=self.action_spent)
+        )
+        _cfg_tactical_btn(
+            "btn_ammo", connected,
+            _turn_reason("Recupera il 50% delle munizioni impiegate in combattimento (PHB p. 146)", need_combat=False, need_turn=False)
+        )
         has_readied = False
         if self.name in getattr(self, "players_data", {}):
             has_readied = "Azione Preparata" in self.players_data[self.name].get("conditions", [])
         elif self.active_character and hasattr(self.active_character, "conditions"):
             has_readied = "Azione Preparata" in getattr(self.active_character, "conditions", [])
-        _cfg_tactical_btn("btn_ready", can_std or (connected and in_combat and has_readied and not self.reaction_spent))
+        ready_enabled = can_std or (connected and in_combat and has_readied and not self.reaction_spent)
+        if has_readied:
+            ready_tip = _turn_reason(
+                "Innesca l'azione preparata usando la tua Reazione (PHB p. 193)",
+                need_turn=False,
+                spent=bool(self.reaction_spent),
+            )
+        else:
+            ready_tip = _turn_reason("Prepara un'Azione (Ready Action - PHB p. 193)", spent=self.action_spent)
+        _cfg_tactical_btn("btn_ready", ready_enabled, ready_tip)
         if hasattr(self, "btn_ready") and self.btn_ready:
             if has_readied:
                 self.btn_ready.config(text="⚡ Innesca", fg=ACCENT_GOLD if not self.reaction_spent else "#666666")
@@ -1985,12 +2067,20 @@ class ClientGUI(ClientNetworkHandlersMixin):
         elif self.active_character and hasattr(self.active_character, "conditions"):
             p_conds = getattr(self.active_character, "conditions", [])
         is_prone = is_condition_active(p_conds, "Prono")
-        _cfg_tactical_btn("btn_stand_up", connected and is_prone)
-        if hasattr(self, "btn_stand_up") and self.btn_stand_up and is_prone and connected:
+        stand_enabled = connected and is_prone and (not in_combat or my_turn)
+        stand_base = "Alzati dalla condizione Prono consumando metà velocità di movimento (PHB p. 190)"
+        stand_tip = stand_base if not connected else (f"{stand_base}\n⚠ Richiede Prono attivo." if not is_prone else _turn_reason(stand_base, need_combat=False, need_turn=in_combat))
+        _cfg_tactical_btn("btn_stand_up", stand_enabled, stand_tip)
+        if hasattr(self, "btn_stand_up") and self.btn_stand_up and stand_enabled:
             self.btn_stand_up.config(fg=ACCENT_GOLD)
-        _cfg_tactical_btn("btn_shop", connected)
-        _cfg_tactical_btn("btn_downtime", connected and not in_combat)
-        _cfg_tactical_btn("btn_special_powers", connected)
+        _cfg_tactical_btn("btn_shop", connected, _turn_reason("Sfoglia ed acquista equipaggiamento dai negozi aperti dal DM", need_combat=False, need_turn=False))
+        downtime_tip = "Avvia attività di Tempo Libero tra un'avventura e l'altra (PHB / XGtE)"
+        if not connected:
+            downtime_tip += "\n⚠ Non connesso al server."
+        elif in_combat:
+            downtime_tip += "\n⚠ Disponibile solo fuori dal combattimento."
+        _cfg_tactical_btn("btn_downtime", connected and not in_combat, downtime_tip)
+        _cfg_tactical_btn("btn_special_powers", connected, _turn_reason("Pannello rapido per Privilegi di Classe, Tratti Razziali, Regole Opzionali DMG e Manovre", need_combat=False, need_turn=False))
 
         counts = self._get_class_feature_counts()
         has_sw = counts["sw_cur"] > 0
@@ -2001,7 +2091,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
         # Secondo Fiato può essere usato anche fuori dal combattimento per curarsi, ma in combattimento richiede l'Azione Bonus
         self._update_contextual_class_features(counts=counts)
         _cfg_tactical_btn("btn_second_wind", connected and has_sw and (not in_combat or can_bonus))
-        _cfg_tactical_btn("btn_action_surge", connected and in_combat and has_as)
+        _cfg_tactical_btn("btn_action_surge", connected and in_combat and my_turn and has_as)
         _cfg_tactical_btn("btn_rage", connected and in_combat and can_bonus and has_rage)
 
     def _get_class_feature_counts(self):
@@ -2255,6 +2345,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
             self.show_toast("Puoi usare Scatto solo durante il combattimento! In esplorazione il movimento è libero.", title="🧭 Modalità Esplorazione", toast_type="warning")
             return
         used_bonus = False
+        ClientGUI._save_economy_snapshot(self)
         if not self.action_spent:
             self.action_spent = True
         elif self._has_cunning_action() and not self.bonus_spent:
@@ -2281,6 +2372,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
             self.show_toast("Puoi usare Disimpegno solo durante il combattimento!", title="🧭 Modalità Esplorazione", toast_type="warning")
             return
         used_bonus = False
+        ClientGUI._save_economy_snapshot(self)
         if not self.action_spent:
             self.action_spent = True
         elif self._has_cunning_action() and not self.bonus_spent:
@@ -2309,6 +2401,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
         if self.action_spent:
             self.show_toast("Hai già speso la tua Azione Standard in questo turno!", title="⚠️ Azione Esaurita", toast_type="warning")
             return
+        ClientGUI._save_economy_snapshot(self)
         from common.protocol import make_dodge_request
         self.network.send(make_dodge_request())
         self.action_spent = True
@@ -2850,14 +2943,42 @@ class ClientGUI(ClientNetworkHandlersMixin):
         self.network.send({"type": "TOGGLE_COVER_REQUEST", "data": {"q": q, "r": r, "cover_type": cover_type}})
 
 
+    def _is_player_hex_click_priority(self):
+        """Restituisce True quando il clic mappa deve risolversi come target/AoE invece di selezionare un token."""
+        return bool(
+            getattr(self, "aoe_mode", False)
+            or getattr(self, "attack_targeting_mode", False)
+            or getattr(self, "help_targeting_mode", False)
+            or getattr(self, "targeting_mode", False)
+        )
+
+    def _can_player_move_token(self, token_name):
+        """Consente al giocatore di trascinare il proprio token o un famiglio/compagno controllato."""
+        if not token_name:
+            return (False, "Token non valido.")
+        if token_name == getattr(self, "name", None):
+            return (True, "")
+        p_data = getattr(self, "players_data", {}).get(token_name, {})
+        owner = str(p_data.get("owner") or p_data.get("master_name") or "").strip()
+        if owner and owner == getattr(self, "name", None):
+            return (True, "")
+        return (False, f"Puoi spostare solo il tuo personaggio o i tuoi famigli/compagni (non {token_name}).")
+
     def on_token_drop(self, token_name, q, r):
         if not self.is_connected:
-            if self.active_character:
+            if self.active_character and token_name == getattr(self, "name", None):
                 self.active_character.last_position = (q, r)
                 self.redraw_map_and_players()
             return
-        if token_name == self.name:
-            self.network.send({"type": "MOVE_REQUEST", "data": {"to": [q, r]}})
+        can_move, reason = ClientGUI._can_player_move_token(self, token_name)
+        if not can_move:
+            self.show_toast(reason, title="Movimento Negato", toast_type="warning")
+            self.redraw_map_and_players()
+            return
+        payload = {"to": [q, r]}
+        if token_name != self.name:
+            payload["entity_name"] = token_name
+        self.network.send({"type": "MOVE_REQUEST", "data": payload})
 
     def on_hex_right_clicked(self, event, clicked_hex, token_name):
         import tkinter as tk
@@ -3008,6 +3129,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
                         self.show_toast(f"Attenzione: Non avevi slot di Livello {slot_level} disponibili!", title="⚠️ Slot Esauriti", toast_type="warning")
                 
             from common.protocol import make_create_aoe_request
+            ClientGUI._save_economy_snapshot(self)
             self.network.send(make_create_aoe_request(aoe_data))
             self.aoe_mode = False
             if hasattr(self, "aoe_button"):
@@ -3051,6 +3173,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
                     break
             if target_name:
                 self.help_targeting_mode = False
+                ClientGUI._save_economy_snapshot(self)
                 from common.protocol import make_help_request
                 self.network.send(make_help_request(target_name))
                 self.action_spent = True
@@ -3137,6 +3260,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
             self.show_toast("Seleziona prima un bersaglio sulla mappa (o fai Shift+Click su un token)!", title="🤼 Lotta", toast_type="warning")
             return
         from common.protocol import make_grapple_request
+        ClientGUI._save_economy_snapshot(self)
         self.network.send(make_grapple_request(target_name))
         self.action_spent = True
         self.update_action_economy_ui()
@@ -3160,6 +3284,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
         tk.Label(pop, text=f"Come vuoi spingere {target_name}?", font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(pady=(12, 8))
 
         def _do_shove(opt):
+            ClientGUI._save_economy_snapshot(self)
             self.network.send(make_shove_request(target_name, option=opt))
             self.action_spent = True
             self.update_action_economy_ui()
@@ -4433,7 +4558,58 @@ class ClientGUI(ClientNetworkHandlersMixin):
         if hasattr(self, 'btn_quick_connect'):
             self.btn_quick_connect.pack(side=tk.RIGHT, padx=2)
         self.set_controls_state(tk.DISABLED)
-        self.local_map_data=None; self.players_data={}; self.update_player_listbox(); self.redraw_map_and_players()
+        if hasattr(self, "update_action_economy_ui"):
+            self.update_action_economy_ui()
+
+    def _on_right_notebook_tab_changed(self, event=None):
+        """Azzera il contatore dei messaggi non letti quando l'utente apre il tab Chat."""
+        nb = getattr(self, "right_notebook", None)
+        if not nb:
+            return
+        try:
+            cur_idx = nb.index(nb.select())
+        except Exception:
+            cur_idx = -1
+        if cur_idx == 0:
+            self._unread_chat_count = 0
+            try:
+                nb.tab(0, text=_t("tab_chat"))
+            except Exception:
+                pass
+
+    def _on_server_error_reply(self, d):
+        """Gestisce gli errori server: annulla economia ottimistica e mostra toast non bloccante (o dialog su auth)."""
+        err_text = str((d or {}).get("text") or "Errore dal server.")
+        ClientGUI._rollback_economy_snapshot(self)
+        if hasattr(self, "log_to_chat"):
+            self.log_to_chat(f"[ERRORE SERVER]: {err_text}", "Globale", "Sistema", "#EF4444")
+        low = err_text.lower()
+        is_auth_err = any(k in low for k in ("password", "pin", "autenticazione", "non autorizzat", "sessione scaduta"))
+        if is_auth_err:
+            self.session_password = ""
+            messagebox.showerror("Errore dal Server", err_text)
+        else:
+            if hasattr(self, "show_toast"):
+                self.show_toast(err_text, title="Azione Negata / Errore Server", toast_type="danger", duration=4500)
+            else:
+                messagebox.showerror("Errore dal Server", err_text)
+
+    def _on_server_simple_reply(self, d):
+        """Logga una risposta server in Chat con colore corretto e mostra toast se la chat è nascosta."""
+        reply_text = str((d or {}).get("text") or "").strip()
+        if not reply_text:
+            return
+        if hasattr(self, "log_to_chat"):
+            self.log_to_chat(f"[SERVER]: {reply_text}", "Globale", "Server", "#93C5FD")
+        chat_hidden = bool(getattr(self, "sidebar_collapsed", False))
+        nb = getattr(self, "right_notebook", None)
+        if not chat_hidden and nb:
+            try:
+                chat_hidden = (nb.index(nb.select()) != 0)
+            except Exception:
+                pass
+        if chat_hidden and hasattr(self, "show_toast"):
+            self.show_toast(reply_text, title="Server", toast_type="info", duration=3200)
 
     def handle_server_message(self, msg):
         if not isinstance(msg, dict):
@@ -4445,8 +4621,8 @@ class ClientGUI(ClientNetworkHandlersMixin):
         if not isinstance(data, dict):
             data = {}
         handler_map={
-            "ERROR_REPLY": lambda d: messagebox.showerror("Errore dal Server", d.get("text")), 
-            "SIMPLE_REPLY": lambda d: self.log_to_chat(f"[SERVER]: {d.get('text')}", "Globale", "lightblue"), 
+            "ERROR_REPLY": self._on_server_error_reply,
+            "SIMPLE_REPLY": self._on_server_simple_reply,
             "CHAT_BROADCAST": self.handle_chat_broadcast, 
             "GAME_STATE": self.handle_game_state, 
             "MAP_DATA_UPDATE": self.handle_map_data_update,
@@ -4865,6 +5041,19 @@ class ClientGUI(ClientNetworkHandlersMixin):
             
         text_widget.config(state='disabled')
         text_widget.see(tk.END)
+
+        nb = getattr(self, "right_notebook", None)
+        if nb:
+            try:
+                cur_idx = nb.index(nb.select())
+            except Exception:
+                cur_idx = 0
+            if cur_idx != 0 or getattr(self, "sidebar_collapsed", False):
+                self._unread_chat_count = int(getattr(self, "_unread_chat_count", 0) or 0) + 1
+                try:
+                    nb.tab(0, text=f"{_t('tab_chat')} ({self._unread_chat_count})")
+                except Exception:
+                    pass
         
     def send_chat_message(self, message_or_event=None):
         if isinstance(message_or_event, str):

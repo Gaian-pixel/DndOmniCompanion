@@ -88,34 +88,54 @@ def open_combat_config(dm_gui, initiator_name=None):
     canvas.pack(side="left", fill="both", expand=True)
     scrollbar.pack(side="right", fill="y")
 
-    # Create checkboxes
+    # Create participant rows with unified inline NPC initiative control
+    init_vars = {}
     for p in all_players:
         var = tk.BooleanVar(value=True)
         checkbox_vars[p.name] = var
-        ttk.Checkbutton(scrollable_frame, text=f"{p.name} (HP: {p.hp}/{p.max_hp})", variable=var).pack(anchor="w", pady=2)
+        row = ttk.Frame(scrollable_frame)
+        row.pack(fill=tk.X, anchor="w", pady=2)
+        ttk.Checkbutton(row, text=f"{p.name} (HP: {p.hp}/{p.max_hp})", variable=var).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        if p.conn is None:
+            if getattr(p, "initiative_bonus", None) is None:
+                p.initiative_bonus = p.initiative
+            auto_roll = random.randint(1, 20) + p.get_initiative_bonus()
+            ivar = tk.StringVar(value=str(auto_roll))
+            init_vars[p.name] = ivar
+            ttk.Label(row, text="Init:").pack(side=tk.LEFT, padx=(6, 2))
+            ttk.Entry(row, textvariable=ivar, width=5, justify="center").pack(side=tk.RIGHT)
+
+    def reroll_npcs():
+        for p in all_players:
+            if p.conn is None and p.name in init_vars:
+                init_vars[p.name].set(str(random.randint(1, 20) + p.get_initiative_bonus()))
 
     def finalize_combat(selected_names, npc_initiatives):
+        from common.protocol import make_request_initiative, make_player_stats_update, make_chat_broadcast, make_game_state
+        # Assign newly rolled NPC initiatives BEFORE start_combat sorts turn order for Round 1
+        with dm_gui.server.game_state.lock:
+            for p in dm_gui.server.game_state.players:
+                if p.name in selected_names and p.conn is None:
+                    p.initiative = npc_initiatives.get(p.name, p.initiative)
+
         dm_gui.server.game_state.start_combat(participant_names=selected_names)
         if hasattr(dm_gui, "_auto_play_battle_music"):
             dm_gui._auto_play_battle_music()
         dm_gui.server.game_state.add_calendar_event(f"Combattimento Iniziato (Partecipanti: {len(selected_names)})")
-        
-        from common.protocol import make_request_initiative, make_player_stats_update
+
         for p in dm_gui.server.game_state.get_all_players():
             if p.name in selected_names:
-                if p.conn is None: # NPC
-                    p.initiative = npc_initiatives.get(p.name, p.initiative)
+                if p.conn is None:
                     dm_gui.log_to_chat(f"[COMBAT] {p.name} (NPC) iniziativa: {p.initiative}")
                     broadcast(dm_gui.server.game_state, make_player_stats_update(p.name, p.hp, p.max_hp, p.initiative, p.conditions))
-                else: # Player
+                else:
                     send_message(p.conn, make_request_initiative())
-        
+
         dm_gui.log_to_chat("[SISTEMA] Inizio Combattimento!")
-        from common.protocol import make_chat_broadcast, make_game_state
         broadcast(dm_gui.server.game_state, make_chat_broadcast("Sistema", "Inizio Combattimento! Ai giocatori è stata richiesta l'iniziativa."))
-        
-        # Re-sort state and update
-        dm_gui.server.game_state.players.sort(key=lambda p: (getattr(p, 'in_combat', True), p.initiative), reverse=True)
+
+        if hasattr(dm_gui, "_announce_turn"):
+            dm_gui._announce_turn()
         dm_gui.server.game_state._trigger_gui_update()
         broadcast(dm_gui.server.game_state, make_game_state(dm_gui.server.game_state.get_state_dict()))
         dialog.destroy()
@@ -125,61 +145,21 @@ def open_combat_config(dm_gui, initiator_name=None):
         if not selected_names:
             messagebox.showwarning(_t("warning", default="Attenzione"), _t("msg_select_at_least_one_participant", default="Seleziona almeno un partecipante."))
             return
-        
-        npcs_in_combat = [p for p in dm_gui.server.game_state.get_all_players() if p.name in selected_names and p.conn is None]
-        
-        if not npcs_in_combat:
-            finalize_combat(selected_names, {})
-            return
-            
-        # Mostra dialog per l'iniziativa degli NPC
-        init_dialog = tk.Toplevel(dialog)
-        init_dialog.title(_t("npc_init_dialog_title", default="Iniziativa NPC"))
-        init_dialog.minsize(300, 400)
-        init_dialog.transient(dialog)
-        init_dialog.grab_set()
-        apply_modern_window_style(init_dialog)
-        
-        ttk.Label(init_dialog, text=_t("npc_init_dialog_prompt", default="Inserisci l'iniziativa per gli NPC:"), font=dm_gui.default_font).pack(pady=10)
-        
-        entries = {}
-        frame = ttk.Frame(init_dialog)
-        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
-        
-        # Canvas per scrollare se ci sono troppi NPC
-        c = tk.Canvas(frame, bg=SURFACE_COLOR, highlightthickness=0)
-        s = ttk.Scrollbar(frame, orient="vertical", command=c.yview)
-        sf = ttk.Frame(c)
-        sf.bind("<Configure>", lambda e: c.configure(scrollregion=c.bbox("all")))
-        c.create_window((0, 0), window=sf, anchor="nw")
-        c.configure(yscrollcommand=s.set)
-        c.pack(side="left", fill="both", expand=True)
-        s.pack(side="right", fill="y")
-        
-        for npc in npcs_in_combat:
-            row = ttk.Frame(sf)
-            row.pack(fill=tk.X, pady=2)
-            ttk.Label(row, text=npc.name, width=15).pack(side=tk.LEFT)
-            if getattr(npc, "initiative_bonus", None) is None:
-                npc.initiative_bonus = npc.initiative
-            auto_roll = random.randint(1, 20) + npc.get_initiative_bonus()
-            var = tk.StringVar(value=str(auto_roll))
-            entries[npc.name] = var
-            ttk.Entry(row, textvariable=var, width=5).pack(side=tk.RIGHT)
-            
-        def submit_init():
-            npc_initiatives = {}
-            for name, var in entries.items():
+
+        npc_initiatives = {}
+        for name in selected_names:
+            if name in init_vars:
                 try:
-                    npc_initiatives[name] = int(var.get())
+                    npc_initiatives[name] = int(init_vars[name].get())
                 except ValueError:
                     npc_initiatives[name] = 0
-            init_dialog.destroy()
-            finalize_combat(selected_names, npc_initiatives)
-            
-        ttk.Button(init_dialog, text=_t("btn_confirm_initiatives", default="Conferma Iniziative"), command=submit_init, style="Primary.TButton").pack(pady=10)
+        finalize_combat(selected_names, npc_initiatives)
 
-    ttk.Button(dialog, text=_t("btn_next", default="Avanti"), command=confirm, style='Primary.TButton').pack(pady=15)
+    btn_row = ttk.Frame(dialog)
+    btn_row.pack(fill=tk.X, padx=10, pady=12)
+    if init_vars:
+        ttk.Button(btn_row, text="🎲 Rilancia NPC", command=reroll_npcs, style='Dark.TButton').pack(side=tk.LEFT)
+    ttk.Button(btn_row, text=_t("btn_start_combat", default="⚔️ Avvia Combattimento"), command=confirm, style='Primary.TButton').pack(side=tk.RIGHT)
 
 
 def open_room_pin_dialog(dm_gui, pin, clicked_hex):
@@ -389,12 +369,25 @@ def open_modify_hp_dialog(dm_gui):
         
         try:
             delta = int(delta_str)
-            with dm_gui.server.game_state.lock:
-                player.hp = max(0, min(player.max_hp, player.hp + delta))
-            dm_gui.server.game_state._trigger_gui_update()
-            from common.protocol import make_player_stats_update
-            broadcast(dm_gui.server.game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, getattr(player, "conditions", []), getattr(player, "temp_hp", 0)))
-            dm_gui.log_to_chat(f"[SISTEMA] HP di {player.name} aggiornati a {player.hp}/{player.max_hp}")
+            if hasattr(dm_gui, "apply_dm_hp_delta"):
+                dm_gui.apply_dm_hp_delta(player.name, delta)
+            else:
+                with dm_gui.server.game_state.lock:
+                    if delta < 0:
+                        dmg = abs(delta)
+                        temp = int(getattr(player, "temp_hp", 0) or 0)
+                        absorbed = min(temp, dmg)
+                        player.temp_hp = temp - absorbed
+                        player.hp = max(0, player.hp - (dmg - absorbed))
+                    else:
+                        player.hp = min(player.max_hp, player.hp + delta)
+                    if isinstance(getattr(player, "full_sheet", None), dict):
+                        player.full_sheet["hp_current"] = player.hp
+                        player.full_sheet["temp_hp"] = getattr(player, "temp_hp", 0)
+                dm_gui.server.game_state._trigger_gui_update()
+                from common.protocol import make_player_stats_update
+                broadcast(dm_gui.server.game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, getattr(player, "conditions", []), getattr(player, "temp_hp", 0)))
+                dm_gui.log_to_chat(f"[SISTEMA] HP di {player.name} aggiornati a {player.hp}/{player.max_hp}")
         except ValueError:
             messagebox.showerror("Errore", "Valore non valido.", parent=dm_gui.master)
     else:
@@ -408,12 +401,27 @@ def open_modify_hp_dialog(dm_gui):
             from common.protocol import make_player_stats_update
             updated = []
             for p_name in names:
-                p = dm_gui.server.game_state.find_player(p_name)
-                if p:
-                    with dm_gui.server.game_state.lock:
-                        p.hp = max(0, min(p.max_hp, p.hp + delta))
-                    broadcast(dm_gui.server.game_state, make_player_stats_update(p.name, p.hp, p.max_hp, p.initiative, getattr(p, "conditions", []), getattr(p, "temp_hp", 0)))
-                    updated.append(f"{p.name}: {p.hp}/{p.max_hp}")
+                if hasattr(dm_gui, "apply_dm_hp_delta"):
+                    p = dm_gui.apply_dm_hp_delta(p_name, delta, trigger_gui=False, log_change=False)
+                    if p:
+                        updated.append(f"{p.name}: {p.hp}/{p.max_hp}")
+                else:
+                    p = dm_gui.server.game_state.find_player(p_name)
+                    if p:
+                        with dm_gui.server.game_state.lock:
+                            if delta < 0:
+                                dmg = abs(delta)
+                                temp = int(getattr(p, "temp_hp", 0) or 0)
+                                absorbed = min(temp, dmg)
+                                p.temp_hp = temp - absorbed
+                                p.hp = max(0, p.hp - (dmg - absorbed))
+                            else:
+                                p.hp = min(p.max_hp, p.hp + delta)
+                            if isinstance(getattr(p, "full_sheet", None), dict):
+                                p.full_sheet["hp_current"] = p.hp
+                                p.full_sheet["temp_hp"] = getattr(p, "temp_hp", 0)
+                        broadcast(dm_gui.server.game_state, make_player_stats_update(p.name, p.hp, p.max_hp, p.initiative, getattr(p, "conditions", []), getattr(p, "temp_hp", 0)))
+                        updated.append(f"{p.name}: {p.hp}/{p.max_hp}")
             dm_gui.server.game_state._trigger_gui_update()
             dm_gui.log_to_chat(f"🩹 [SISTEMA] HP di Gruppo ({len(names)} creature) aggiornati ({delta:+d}): {', '.join(updated)}")
         except ValueError:
@@ -450,9 +458,9 @@ def open_conditions_dialog(dm_gui):
     listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
     
     all_conditions = [
-        "Accecato", "Affascinato", "Assordato", "Avvelenato", "In Fiamme", 
-        "Invisibile", "Prono", "Spaventato", "Stordito", "Incosciente", 
-        "Trattenuto", "Pietrificato", "Schivata", "Concentrazione", "Ira"
+        "Accecato", "Affascinato", "Afferrato", "Assordato", "Avvelenato", "In Fiamme",
+        "Incapacitato", "Incosciente", "Invisibile", "Paralizzato", "Pietrificato",
+        "Prono", "Spaventato", "Stordito", "Trattenuto", "Schivata", "Concentrazione", "Ira"
     ]
     
     for i, cond in enumerate(all_conditions):

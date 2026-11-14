@@ -2590,6 +2590,7 @@ class CharacterSheetFrame(ttk.Frame):
         self.spell_tree.column("Tempo", width=80)
         self.spell_tree.column("Raggio", width=80)
         self.spell_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.spell_tree.bind("<Double-1>", lambda e: self.cast_spell())
         scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.spell_tree.yview)
         self.spell_tree.configure(yscroll=scrollbar.set)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -4955,7 +4956,15 @@ class CharacterSheetFrame(ttk.Frame):
             "<Configure>",
             lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
         )
-        canvas.create_window((0, 0), window=self.weapons_cards_frame, anchor="nw")
+        win_id = canvas.create_window((0, 0), window=self.weapons_cards_frame, anchor="nw")
+        canvas.bind("<Configure>", lambda e: canvas.itemconfig(win_id, width=e.width))
+        def _on_weapons_mousewheel(event):
+            try:
+                canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            except Exception:
+                pass
+        canvas.bind("<MouseWheel>", _on_weapons_mousewheel)
+        self.weapons_cards_frame.bind("<MouseWheel>", _on_weapons_mousewheel)
         canvas.configure(yscrollcommand=sb.set)
         
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -4966,7 +4975,7 @@ class CharacterSheetFrame(ttk.Frame):
     def refresh_weapons_list(self):
         CombatPanel.refresh_weapons_list(self)
 
-    def execute_targeted_attack(self, weapon, total_txc, dmg_str):
+    def execute_targeted_attack(self, weapon, total_txc, dmg_str, is_bonus_action=False):
         if getattr(self, "attack_callback", None):
             w_name = weapon.get("name", "Arma")
             d_type = weapon.get("damage_type", "Tagliente")
@@ -4994,6 +5003,17 @@ class CharacterSheetFrame(ttk.Frame):
                 except Exception:
                     _w_prof = True
             extra_attack_args = {"weapon_proficient": _w_prof}
+            if is_bonus_action:
+                extra_attack_args["is_bonus_action"] = True
+            if hasattr(self, "adv_dis_var"):
+                try:
+                    adv_val = str(self.adv_dis_var.get() or "").lower()
+                    if "vantaggio" in adv_val and "svantaggio" not in adv_val:
+                        extra_attack_args["advantage"] = True
+                    elif "svantaggio" in adv_val:
+                        extra_attack_args["disadvantage"] = True
+                except Exception:
+                    pass
             if hasattr(self, "_divine_smite_var"):
                 try:
                     smite_raw = str(self._divine_smite_var.get()).split()[0]

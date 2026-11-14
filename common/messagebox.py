@@ -49,7 +49,7 @@ class _MessageBoxWrapper:
         try:
             result = Messagebox.yesno(message=str(message), title=str(title), parent=parent)
             if isinstance(result, str):
-                return result.lower() == "yes"
+                return result.strip().lower() in ("yes", "sì", "si", "ok", "true", "1")
             return bool(result)
         except Exception:
             try:
@@ -65,7 +65,7 @@ class _MessageBoxWrapper:
         try:
             result = Messagebox.okcancel(message=str(message), title=str(title), parent=parent)
             if isinstance(result, str):
-                return result.lower() == "ok"
+                return result.strip().lower() in ("ok", "yes", "sì", "si", "true", "1")
             return bool(result)
         except Exception:
             try:

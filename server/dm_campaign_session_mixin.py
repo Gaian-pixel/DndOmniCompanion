@@ -40,15 +40,23 @@ def _safe_import_int(val, default=0) -> int:
         return int(default)
 
 
-def _find_free_party_spawn_hex(game_state, exclude_name=None) -> list:
-    """Return the first unoccupied non-wall hex near map spawn or origin within map bounds for tabletop PC placement."""
+def find_free_spawn_hex(game_state, anchor_hex=None, exclude_name=None) -> list:
+    """Return the first unoccupied non-wall hex near anchor_hex, map spawn, or origin within bounds."""
     cur_map = getattr(game_state, "current_map", None) or {}
-    raw_spawn = cur_map.get("spawn_point") if isinstance(cur_map, dict) else None
-    base_q, base_r = (
-        (_safe_import_int(raw_spawn[0], 0), _safe_import_int(raw_spawn[1], 0))
-        if isinstance(raw_spawn, (list, tuple)) and len(raw_spawn) >= 2
-        else (0, 0)
-    )
+    if anchor_hex is not None:
+        if hasattr(anchor_hex, "q") and hasattr(anchor_hex, "r"):
+            base_q, base_r = _safe_import_int(anchor_hex.q, 0), _safe_import_int(anchor_hex.r, 0)
+        elif isinstance(anchor_hex, (list, tuple)) and len(anchor_hex) >= 2:
+            base_q, base_r = _safe_import_int(anchor_hex[0], 0), _safe_import_int(anchor_hex[1], 0)
+        else:
+            base_q, base_r = 0, 0
+    else:
+        raw_spawn = cur_map.get("spawn_point") if isinstance(cur_map, dict) else None
+        base_q, base_r = (
+            (_safe_import_int(raw_spawn[0], 0), _safe_import_int(raw_spawn[1], 0))
+            if isinstance(raw_spawn, (list, tuple)) and len(raw_spawn) >= 2
+            else (0, 0)
+        )
     raw_w = _safe_import_int(cur_map.get("width") if isinstance(cur_map, dict) else None, 0)
     raw_h = _safe_import_int(cur_map.get("height") if isinstance(cur_map, dict) else None, 0)
     has_bounds = (raw_w > 0 and raw_h > 0)
@@ -84,6 +92,11 @@ def _find_free_party_spawn_hex(game_state, exclude_name=None) -> list:
             continue
         return [cand[0], cand[1]]
     return fallback if fallback is not None else [base_q, base_r]
+
+
+def _find_free_party_spawn_hex(game_state, exclude_name=None) -> list:
+    """Return the first unoccupied non-wall hex near map spawn or origin within map bounds for tabletop PC placement."""
+    return find_free_spawn_hex(game_state, anchor_hex=None, exclude_name=exclude_name)
 
 
 def import_party_character_to_game_state(game_state, char_dict, spawn_pos=None):

@@ -235,7 +235,7 @@ class CombatPanel:
                     btn_offhand = ttk.Button(
                         r4,
                         text=f"🗡️ 2ª Mano ({off_formula})",
-                        command=lambda weapon=w, txc=total_txc, dmg=off_formula: sheet.execute_targeted_attack(weapon, txc, dmg),
+                        command=lambda weapon=w, txc=total_txc, dmg=off_formula: sheet.execute_targeted_attack(weapon, txc, dmg, is_bonus_action=True),
                         style="Tool.TButton"
                     )
                 else:

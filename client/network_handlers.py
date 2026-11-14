@@ -735,8 +735,11 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         ttk.Label(win, text="Combattimento Iniziato!", font=("Georgia", 14, "bold"), foreground="#D4AF37").pack(pady=10)
         ttk.Label(win, text="Tira l'Iniziativa:").pack(pady=5)
         
-        mod = getattr(self.active_character, 'initiative', 0) if self.active_character else 0
-        ttk.Label(win, text=f"Il tuo modificatore è: {mod}").pack(pady=5)
+        if self.active_character and hasattr(self.active_character, "get_initiative_bonus"):
+            mod = self.active_character.get_initiative_bonus()
+        else:
+            mod = getattr(self.active_character, 'initiative', 0) if self.active_character else 0
+        ttk.Label(win, text=f"Il tuo modificatore è: {mod:+d}").pack(pady=5)
         
         def roll():
             import random

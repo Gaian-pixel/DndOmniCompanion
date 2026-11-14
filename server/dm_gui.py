@@ -701,6 +701,8 @@ class DM_GUI(DMCampaignSessionMixin):
         self.map_canvas.on_token_drop_callback = self.on_token_drop
         self.map_canvas.set_on_ping_callback(self.on_ping_callback)
         self.map_canvas.set_on_hex_right_click_callback(self.on_hex_right_clicked)
+        self.map_canvas.is_hex_click_priority_callback = self._is_dm_hex_click_priority
+        self.map_canvas.on_token_select_callback = self.on_map_token_selected
 
         # --- VTT FLOATING HUD BAR (Allineata al Client Giocatore) ---
         self.vtt_hud_bar = tk.Frame(self.map_viewport_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_GOLD, highlightthickness=1, padx=4, pady=3)
@@ -830,8 +832,10 @@ class DM_GUI(DMCampaignSessionMixin):
         turn_nav_frame.pack(fill=tk.X)
         self.btn_prev_turn = ttk.Button(turn_nav_frame, text=_t("btn_prev_turn"), command=self.prev_turn_gui, state=tk.DISABLED)
         self.btn_prev_turn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 2))
+        ToolTip(self.btn_prev_turn, "Torna al turno precedente (Alt+Freccia Sinistra)")
         self.btn_next_turn = ttk.Button(turn_nav_frame, text=_t("btn_next_turn"), command=self.next_turn_gui, state=tk.DISABLED, style="Primary.TButton")
         self.btn_next_turn.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(2, 0))
+        ToolTip(self.btn_next_turn, "Passa al turno successivo (Alt+Freccia Destra)")
         
         # Container Player Listbox (espandibile verticalmente)
         list_frame = tk.Frame(tab_combat, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1)
@@ -849,9 +853,34 @@ class DM_GUI(DMCampaignSessionMixin):
         )
         self.player_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.config(command=self.player_listbox.yview)
-        self.player_listbox.bind("<Double-Button-1>", self.open_private_chat_from_list)
+        self.player_listbox.bind("<Double-Button-1>", self.on_player_double_clicked)
+        self.player_listbox.bind("<Alt-Double-Button-1>", self.open_private_chat_from_list)
         self.player_listbox.bind("<Button-3>", self.show_player_context_menu)
         self.player_listbox.bind("<<ListboxSelect>>", self.on_player_selected)
+
+        # Barra Azioni Rapide Inline per Entità Selezionata (separata da npc_actions_frame)
+        self.selected_entity_quick_bar = tk.Frame(tab_combat, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=4)
+        self.selected_entity_quick_bar.pack(fill=tk.X, side=tk.TOP, pady=(0, 4))
+        tk.Label(self.selected_entity_quick_bar, text="ΔHP:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(side=tk.LEFT, padx=(0, 3))
+        self.quick_hp_var = tk.StringVar(value="5")
+        self.quick_hp_entry = ttk.Entry(self.selected_entity_quick_bar, textvariable=self.quick_hp_var, width=4, justify="center")
+        self.quick_hp_entry.pack(side=tk.LEFT, padx=(0, 4))
+        ToolTip(self.quick_hp_entry, "Quantità di Danno o Cura rapida da applicare ai combattenti selezionati")
+        self.btn_quick_dmg = ttk.Button(self.selected_entity_quick_bar, text="-HP", width=4, style="Danger.TButton", command=lambda: self._apply_quick_bar_hp(-1))
+        self.btn_quick_dmg.pack(side=tk.LEFT, padx=1)
+        ToolTip(self.btn_quick_dmg, "Infliggi danno rapido (assorbe Temp HP, aggiorna scheda e segnala Concentrazione)")
+        self.btn_quick_heal = ttk.Button(self.selected_entity_quick_bar, text="+HP", width=4, style="Success.TButton", command=lambda: self._apply_quick_bar_hp(1))
+        self.btn_quick_heal.pack(side=tk.LEFT, padx=1)
+        ToolTip(self.btn_quick_heal, "Applica cura rapida ai combattenti selezionati")
+        self.btn_quick_conds = ttk.Button(self.selected_entity_quick_bar, text="🩹", width=3, style="Dark.TButton", command=self.open_conditions_dialog)
+        self.btn_quick_conds.pack(side=tk.RIGHT, padx=(2, 0))
+        ToolTip(self.btn_quick_conds, "Gestisci Condizioni ed Effetti a Tempo")
+        self.btn_quick_sheet = ttk.Button(self.selected_entity_quick_bar, text="📋", width=3, style="Dark.TButton", command=self.view_player_sheet)
+        self.btn_quick_sheet.pack(side=tk.RIGHT, padx=(2, 0))
+        ToolTip(self.btn_quick_sheet, "Apri Scheda / Statblock completo")
+        self.btn_quick_center = ttk.Button(self.selected_entity_quick_bar, text="🎯", width=3, style="Dark.TButton", command=self.center_on_selected_player)
+        self.btn_quick_center.pack(side=tk.RIGHT, padx=(2, 0))
+        ToolTip(self.btn_quick_center, "Centra la mappa sull'entità selezionata")
 
         # Badge Bilanciamento 5e
         self.lbl_encounter_diff = tk.Label(tab_combat, text=_t("lbl_balance_waiting"), font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, padx=6, pady=3, highlightbackground=BORDER_COLOR, highlightthickness=1)
@@ -1000,9 +1029,11 @@ class DM_GUI(DMCampaignSessionMixin):
         self.master.bind("<Control-K>", self.open_command_palette)
         self.master.bind("<Control-b>", self.toggle_sidebar)
         self.master.bind("<Control-B>", self.toggle_sidebar)
-        # Scorciatoia Schermo Intero (F11 / Esc)
+        # Scorciatoia Schermo Intero (F11 / Esc) e Progressione Turni (Alt+Destra / Alt+Sinistra)
         self.master.bind("<F11>", self.toggle_fullscreen)
         self.master.bind("<Escape>", self.exit_fullscreen)
+        self.master.bind("<Alt-Right>", self._on_shortcut_next_turn)
+        self.master.bind("<Alt-Left>", self._on_shortcut_prev_turn)
         # Scorciatoie Navigazione Mappa (Spazio, H, P)
         self.master.bind("<KeyPress-space>", self._on_space_key_press)
         self.master.bind("<KeyRelease-space>", self._on_space_key_release)
@@ -1315,6 +1346,9 @@ class DM_GUI(DMCampaignSessionMixin):
                     "legendary_actions_max": leg_act,
                     "has_lair_actions": has_lair
                 }
+                from server.dm_campaign_session_mixin import find_free_spawn_hex
+                anchor_hex = getattr(getattr(self, "map_canvas", None), "_last_clicked_hex", None)
+                npc.position = find_free_spawn_hex(self.server.game_state, anchor_hex=anchor_hex, exclude_name=npc.name)
                 self.server.game_state.add_player(npc)
                 broadcast(self.server.game_state, make_player_joined(npc.to_dict()))
                 added_names.append(name)
@@ -1397,6 +1431,9 @@ class DM_GUI(DMCampaignSessionMixin):
             "has_lair_actions": has_lair
         }
         
+        from server.dm_campaign_session_mixin import find_free_spawn_hex
+        anchor_hex = getattr(getattr(self, "map_canvas", None), "_last_clicked_hex", None)
+        npc.position = find_free_spawn_hex(self.server.game_state, anchor_hex=anchor_hex, exclude_name=npc.name)
         self.server.game_state.add_player(npc)
         
         from common.protocol import make_player_joined, make_game_state
@@ -1459,6 +1496,9 @@ class DM_GUI(DMCampaignSessionMixin):
             "has_lair_actions": has_lair
         }
         
+        from server.dm_campaign_session_mixin import find_free_spawn_hex
+        anchor_hex = getattr(getattr(self, "map_canvas", None), "_last_clicked_hex", None)
+        npc.position = find_free_spawn_hex(self.server.game_state, anchor_hex=anchor_hex, exclude_name=npc.name)
         self.server.game_state.add_player(npc)
         broadcast(self.server.game_state, make_player_joined(npc.to_dict()))
         self.log_to_chat(f"[SISTEMA] NPC '{npc.name}' importato dal SRD e aggiunto.")
@@ -1525,14 +1565,8 @@ class DM_GUI(DMCampaignSessionMixin):
         broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
 
     def toggle_party_status(self):
-        sel = self.player_listbox.curselection()
-        if not sel: return
-        display_text = self.player_listbox.get(sel[0])
-        if display_text.startswith('---'): return
-        if display_text.startswith("---"): return
-        player_name = display_text.split(" (HP")[0].replace("▶", "").replace("➡️", "").strip()
-        if player_name.startswith("[N] "):
-            player_name = player_name[4:]
+        player_name = self.get_player_name_from_listbox()
+        if not player_name: return
         player = self.server.game_state.find_player(player_name)
         if not player: return
 
@@ -1572,14 +1606,17 @@ class DM_GUI(DMCampaignSessionMixin):
             for p in self.server.game_state.players:
                 # Mostri/PNG non hanno una connessione client attiva
                 if not getattr(p, "conn", None):
-                    dex_mod = 0
-                    if getattr(p, "full_sheet", None):
-                        attr = p.full_sheet.get("attributes", {})
-                        if "DES" in attr:
-                            try:
-                                dex_mod = (int(attr["DES"]) - 10) // 2
-                            except (ValueError, TypeError):
-                                pass
+                    if hasattr(p, "get_initiative_bonus"):
+                        dex_mod = p.get_initiative_bonus()
+                    else:
+                        dex_mod = 0
+                        if getattr(p, "full_sheet", None):
+                            attr = p.full_sheet.get("attributes", {})
+                            if "DES" in attr:
+                                try:
+                                    dex_mod = (int(attr["DES"]) - 10) // 2
+                                except (ValueError, TypeError):
+                                    pass
                     d20 = random.randint(1, 20)
                     p.initiative = d20 + dex_mod
                     rolled_count += 1
@@ -2871,11 +2908,155 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         text_widget.tag_config("sender", font=FONT_BOLD, foreground=ACCENT_GOLD)
         text_widget.tag_config("text", foreground=TEXT_COLOR, font=FONT_MAIN)
         
+    def _can_handle_dm_shortcut(self, event=None):
+        """Evita di attivare scorciatoie DM mentre si digita in campi di testo."""
+        try:
+            focus_widget = event.widget if event and getattr(event, "widget", None) else self.master.focus_get()
+            if focus_widget and focus_widget.winfo_class() in ("Entry", "Text", "TEntry", "Combobox", "TCombobox", "Spinbox", "TSpinbox"):
+                return False
+        except Exception:
+            pass
+        return True
+
+    def _on_shortcut_next_turn(self, event=None):
+        if self._can_handle_dm_shortcut(event) and self.server.game_state.combat_active:
+            self.next_turn_gui()
+            return "break"
+
+    def _on_shortcut_prev_turn(self, event=None):
+        if self._can_handle_dm_shortcut(event) and self.server.game_state.combat_active:
+            self.prev_turn_gui()
+            return "break"
+
+    def _is_dm_hex_click_priority(self):
+        """Restituisce True quando uno strumento mappa del DM ha precedenza sul drag delle pedine."""
+        if getattr(self, "aoe_mode", False) or getattr(self, "terrain_paint_mode", False):
+            return True
+        for var_name in ("door_mode_var", "room_pin_mode_var", "teleport_mode_var"):
+            v = getattr(self, var_name, None)
+            if v is not None and v.get():
+                return True
+        fow_v = getattr(self, "fow_mode_var", None)
+        if fow_v is not None:
+            mode_str = fow_v.get()
+            if mode_str in ("Cancella Nebbia", "Erase Fog", _t("fow_mode_erase"), "Disegna Nebbia", "Draw Fog", _t("fow_mode_draw")):
+                return True
+        return False
+
+    def on_map_token_selected(self, token_name):
+        """Sincronizza la selezione del token cliccato sulla mappa con la player_listbox."""
+        if not token_name or not hasattr(self, "player_listbox"):
+            return
+        for idx in range(self.player_listbox.size()):
+            if self.get_player_name_from_listbox(idx) == token_name:
+                self.player_listbox.selection_clear(0, tk.END)
+                self.player_listbox.selection_set(idx)
+                self.player_listbox.activate(idx)
+                self.player_listbox.see(idx)
+                self.on_player_selected(None)
+                break
+
+    def center_on_selected_player(self):
+        """Centra la visuale della mappa sull'entità selezionata nella lista."""
+        name = self.get_player_name_from_listbox()
+        if not name or not getattr(self, "map_canvas", None):
+            return
+        try:
+            self.map_canvas.center_on_token(name)
+        except Exception:
+            pass
+
+    def on_player_double_clicked(self, event=None):
+        """Doppio clic su combattente: centra la mappa e apre la scheda/statblock (Alt+DoppioClic per chat)."""
+        name = self.get_player_name_from_listbox()
+        if not name:
+            return
+        self.center_on_selected_player()
+        self.view_player_sheet()
+
+    def apply_dm_hp_delta(self, player_name, delta, trigger_gui=True, log_change=True):
+        """Applica una variazione HP DM rispettando temp_hp, sincronia full_sheet e avvisi di Concentrazione."""
+        player = self.server.game_state.find_player(player_name)
+        if not player:
+            return None
+        conc_warning = None
+        zero_hit_msg = None
+        with self.server.game_state.lock:
+            old_hp = int(getattr(player, "hp", 0) or 0)
+            if delta < 0:
+                dmg = abs(int(delta))
+                temp = int(getattr(player, "temp_hp", 0) or 0)
+                absorbed = min(temp, dmg)
+                player.temp_hp = temp - absorbed
+                rem = dmg - absorbed
+                player.hp = max(0, old_hp - rem)
+                if rem > 0 and getattr(player, "concentrating_on", None):
+                    dc = max(10, rem // 2)
+                    conc_warning = f"🔮 [CONCENTRAZIONE] {player.name} mantiene '{player.concentrating_on}'? Richiesto TS Costituzione CD {dc}!"
+                if player.hp == 0 and old_hp > 0:
+                    conds = list(getattr(player, "conditions", []) or [])
+                    if "Incosciente" not in conds:
+                        conds.append("Incosciente")
+                    player.conditions = conds
+                    zero_hit_msg = f"💀 [SISTEMA] {player.name} è sceso a 0 HP ed è ora Incosciente!"
+            else:
+                player.hp = min(player.max_hp, old_hp + int(delta))
+                if old_hp == 0 and player.hp > 0:
+                    conds = [c for c in (getattr(player, "conditions", []) or []) if c != "Incosciente"]
+                    player.conditions = conds
+            if isinstance(getattr(player, "full_sheet", None), dict):
+                player.full_sheet["hp_current"] = player.hp
+                player.full_sheet["temp_hp"] = getattr(player, "temp_hp", 0)
+                player.full_sheet["conditions"] = list(getattr(player, "conditions", []) or [])
+        from common.protocol import make_player_stats_update
+        broadcast(self.server.game_state, make_player_stats_update(
+            player.name, player.hp, player.max_hp, player.initiative,
+            getattr(player, "conditions", []), getattr(player, "temp_hp", 0)
+        ))
+        if log_change:
+            self.log_to_chat(f"[SISTEMA] HP di {player.name} aggiornati a {player.hp}/{player.max_hp} ({delta:+d})")
+        if conc_warning:
+            self.log_to_chat(conc_warning)
+        if zero_hit_msg:
+            self.log_to_chat(zero_hit_msg)
+        if trigger_gui:
+            self.server.game_state._trigger_gui_update()
+        return player
+
+    def _apply_quick_bar_hp(self, sign):
+        """Applica rapidamente danno o cura dalla barra inline usando il valore in quick_hp_var."""
+        try:
+            amount = abs(int(self.quick_hp_var.get().strip()))
+        except Exception:
+            self.show_toast("Inserisci un numero intero valido nella casella ΔHP.", title="⚠️ Valore non valido", toast_type="warning")
+            return
+        if amount <= 0:
+            return
+        names = self.get_selected_player_names()
+        if not names:
+            p_name = self.get_player_name_from_listbox()
+            if p_name:
+                names = [p_name]
+        if not names:
+            self.show_toast("Seleziona prima un combattente dalla lista o dalla mappa.", title="⚠️ Nessuna Selezione", toast_type="warning")
+            return
+        delta = sign * amount
+        updated = []
+        for idx, p_name in enumerate(names):
+            p = self.apply_dm_hp_delta(p_name, delta, trigger_gui=(idx == len(names) - 1), log_change=(len(names) == 1))
+            if p:
+                updated.append(f"{p.name}: {p.hp}/{p.max_hp}")
+        if len(names) > 1 and updated:
+            self.log_to_chat(f"🩹 [SISTEMA] HP rapidi ({delta:+d}) applicati a: {', '.join(updated)}")
+
     def open_private_chat_from_list(self, event):
         player_name = self.get_player_name_from_listbox()
         if player_name is not None and not isinstance(player_name, str):
             player_name = DM_GUI.get_player_name_from_listbox(self)
         if not player_name: return
+        player = self.server.game_state.find_player(player_name)
+        if player is not None and getattr(player, "conn", None) is None:
+            return self.view_player_sheet()
         self.create_chat_tab(player_name)
         for i, tab in enumerate(self.notebook.tabs()):
             if self.notebook.tab(i, "text") == player_name: self.notebook.select(i); break

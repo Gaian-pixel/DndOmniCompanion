@@ -62,7 +62,7 @@ class LoginDialog(tk.Toplevel):
         super().__init__(master)
         self.title(_t("login_dialog_title"))
         self.lock_character = bool(lock_character and initial_character is not None)
-        self.minsize(480, 340 if self.lock_character else 480)
+        self.minsize(480, 415 if self.lock_character else 480)
         apply_modern_window_style(self)
         self.transient(master)
         self.grab_set()
@@ -92,7 +92,7 @@ class LoginDialog(tk.Toplevel):
             mx = master.winfo_rootx()
             my = master.winfo_rooty()
             w = 520
-            h = 370 if self.lock_character else 500
+            h = 435 if self.lock_character else 520
             x = max(0, mx + (mw - w) // 2)
             y = max(0, my + (mh - h) // 2)
             self.geometry(f"{w}x{h}+{x}+{y}")
@@ -148,6 +148,9 @@ class LoginDialog(tk.Toplevel):
         tk.Label(pin_row, text=_t("login_session_pin"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(side=tk.LEFT, padx=(0, 8))
         self.pin_entry = ttk.Entry(pin_row, textvariable=self.password_var, show="•", font=("Segoe UI", 10))
         self.pin_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self._pin_visible = False
+        self.pin_toggle_btn = ttk.Button(pin_row, text="👁", width=3, command=self._toggle_pin_visibility, style="Dark.TButton")
+        self.pin_toggle_btn.pack(side=tk.RIGHT, padx=(6, 0))
         
         # 3. SEZIONE PERSONAGGIO
         char_sec = tk.Frame(main_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=12, pady=10)
@@ -168,12 +171,13 @@ class LoginDialog(tk.Toplevel):
                 bg=SURFACE_COLOR_ALT,
                 fg=ACCENT_GOLD
             ).pack(side=tk.LEFT, fill=tk.X, expand=True, anchor="w")
-            ttk.Button(
+            self.btn_change_char = ttk.Button(
                 hero_row,
                 text=_t("login_btn_change_char"),
-                command=self.on_close,
+                command=self.unlock_character_selection,
                 style="Dark.TButton"
-            ).pack(side=tk.RIGHT)
+            )
+            self.btn_change_char.pack(side=tk.RIGHT)
         else:
             tk.Label(char_sec, text=_t("login_select_char"), font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(anchor="w", pady=(0, 6))
             
@@ -211,6 +215,29 @@ class LoginDialog(tk.Toplevel):
         
         ttk.Button(bottom_box, text=_t("login_btn_cancel"), command=self.on_close, style="Dark.TButton").pack(side=tk.RIGHT, padx=(8, 0))
         ttk.Button(bottom_box, text=_t("login_btn_connect"), command=self.connect, style="Primary.TButton").pack(side=tk.RIGHT)
+
+    def _toggle_pin_visibility(self):
+        """Mostra o nasconde il PIN di sessione."""
+        self._pin_visible = not getattr(self, "_pin_visible", False)
+        if getattr(self, "pin_entry", None):
+            self.pin_entry.config(show="" if self._pin_visible else "•")
+
+    def unlock_character_selection(self):
+        """Sblocca la selezione completa dei personaggi restando nel dialogo di connessione."""
+        self.lock_character = False
+        self.minsize(480, 480)
+        for child in list(self.winfo_children()):
+            child.destroy()
+        self.setup_ui()
+        self.update_idletasks()
+        try:
+            w = max(520, self.winfo_width())
+            h = max(520, self.winfo_height())
+            x = self.winfo_rootx()
+            y = self.winfo_rooty()
+            self.geometry(f"{w}x{h}+{x}+{y}")
+        except Exception:
+            pass
 
     def set_local_ip(self):
         """Imposta rapidamente l'IP su localhost (127.0.0.1)."""
@@ -279,6 +306,11 @@ class LoginDialog(tk.Toplevel):
         if not ip:
             messagebox.showerror("Errore", "Inserisci l'IP o l'indirizzo del server.")
             return
+        if ":" in ip and ip.count(":") == 1:
+            host_part, port_part = ip.split(":", 1)
+            if not host_part.strip() or not port_part.strip().isdigit() or not (1 <= int(port_part.strip()) <= 65535):
+                messagebox.showerror("Errore", "Porta del server non valida (usa un numero tra 1 e 65535).")
+                return
 
         self.session_password = self.password_var.get().strip()
 

@@ -1168,5 +1168,426 @@ class TestPhase35AndPhase4HardeningAndUX(unittest.TestCase):
             root.destroy()
 
 
+class TestPhase45UxAuditAndWorkflows(unittest.TestCase):
+    """Phase 4.5 UX audit, workflow polish, companion drag-drop & regression tests."""
+
+    def test_localized_messagebox_yesno_and_okcancel(self):
+        from common.messagebox import messagebox as app_mb
+
+        for res, expected in [("Sì", True), ("si", True), ("Yes", True), ("OK", True), ("No", False), (None, False)]:
+            with patch("common.messagebox.Messagebox.yesno", return_value=res):
+                self.assertIs(app_mb.askyesno("Titolo", "Confermi?"), expected, f"yesno failed for {res!r}")
+        for res, expected in [("OK", True), ("ok", True), ("Cancel", False), (None, False)]:
+            with patch("common.messagebox.Messagebox.okcancel", return_value=res):
+                self.assertIs(app_mb.askokcancel("Titolo", "Procedi?"), expected, f"okcancel failed for {res!r}")
+
+    def test_login_dialog_unlocked_geometry_change_hero_and_pin_toggle(self):
+        from client.login_ui import LoginDialog
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            settings_path = os.path.join(tmpdir, "settings.json")
+            root = tk.Tk()
+            root.withdraw()
+            try:
+                char = Character(name="Lyra")
+                char.char_class = "Bardo"
+                char.level = 4
+                mock_cm = MagicMock()
+                mock_cm.characters = [char]
+                mock_cm.get_all_characters.return_value = [char]
+                mock_cm.get_character.return_value = char
+                root.geometry("1x1+-2000+-2000")
+                root.deiconify()
+                with patch.dict(os.environ, {"DND_SETTINGS_PATH": settings_path, "DND_MOCK_AUDIO": "1"}):
+                    dlg = LoginDialog(root, mock_cm, initial_character=char, initial_ip="127.0.0.1", lock_character=True)
+                    dlg.update()
+                    geom_w, geom_h = [int(x) for x in dlg.geometry().split("+")[0].split("x")]
+                    self.assertGreaterEqual(geom_h, dlg.winfo_reqheight(), "Login locked dialog clips vertically")
+                    self.assertGreaterEqual(dlg.minsize()[1], dlg.winfo_reqheight())
+
+                    # PIN eye toggle switches show="•" <-> ""
+                    init_show = dlg.pin_entry.cget("show")
+                    self.assertIn(init_show, ("•", "*"))
+                    dlg._toggle_pin_visibility()
+                    self.assertEqual(dlg.pin_entry.cget("show"), "")
+                    dlg._toggle_pin_visibility()
+                    self.assertEqual(dlg.pin_entry.cget("show"), init_show)
+
+                    # "Cambia Eroe" unlocks character selector & expands height
+                    dlg.unlock_character_selection()
+                    dlg.update()
+                    unlocked_h = int(dlg.geometry().split("+")[0].split("x")[1])
+                    self.assertGreaterEqual(unlocked_h, 520)
+                    self.assertFalse(dlg.lock_character)
+                    self.assertIsNotNone(dlg.char_listbox)
+
+                    # Invalid port validation prevents connect and history save
+                    dlg.ip_var.set("127.0.0.1:99999")
+                    with patch("client.login_ui.messagebox.showerror") as mock_err:
+                        dlg.connect()
+                        self.assertTrue(mock_err.called)
+                    self.assertIsNone(dlg.result)
+                    self.assertFalse(os.path.exists(settings_path))
+                    dlg.destroy()
+            finally:
+                root.destroy()
+
+    def test_hex_map_canvas_ownership_block_dm_token_click_and_companion_drag_drop(self):
+        from components.ui_components import HexMapCanvas
+        from common.hex_utils import Hex
+        from client.client import ClientGUI
+        from server.rules.movement import handle_move_request
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            canvas = HexMapCanvas(root, width=500, height=400)
+            canvas.pack()
+            canvas.map_data = {"width": 10, "height": 10, "hex_size": 30, "grid_type": "hex"}
+            canvas.players_data = {
+                "Druido": {"name": "Druido", "position": [0, 0], "color": "#4CAF50", "hp": 28, "max_hp": 28},
+                "Goblin": {"name": "Goblin", "position": [1, 0], "color": "#E53935", "hp": 7, "max_hp": 7},
+                "LupoEvocato": {
+                    "name": "LupoEvocato", "position": [0, 1], "color": "#60A5FA",
+                    "hp": 11, "max_hp": 11, "owner": "Druido", "master_name": "Druido",
+                },
+            }
+            canvas.redraw()
+            canvas.update_idletasks()
+
+            hex_clicks = []
+            selected_tokens = []
+            dropped_tokens = []
+            canvas.on_hex_click_callback = lambda hx: hex_clicks.append((hx.q, hx.r))
+            canvas.on_token_select_callback = lambda nm: selected_tokens.append(nm)
+            canvas.on_token_drop_callback = lambda nm, q, r: dropped_tokens.append((nm, q, r))
+            canvas.can_move_token_callback = lambda nm: (
+                (True, "") if nm in ("Druido", "LupoEvocato") else (False, f"Token {nm} bloccato")
+            )
+
+            # DM / normal click on token selects it WITHOUT triggering hex click (fixes DM click-to-teleport)
+            wx, wy = canvas.hex_layout.hex_to_pixel(Hex(1, 0))
+            cx = int(round(wx * canvas.zoom_level + canvas.pan_offset_x))
+            cy = int(round(wy * canvas.zoom_level + canvas.pan_offset_y))
+            ev_click = SimpleNamespace(x=cx, y=cy, num=1, state=0)
+            canvas._on_canvas_click(ev_click)
+            self.assertEqual(selected_tokens, ["Goblin"])
+            self.assertEqual(hex_clicks, [])
+
+            # Dragging unowned token shows warning & blocks drop callback
+            ev_drag = SimpleNamespace(x=cx + 30, y=cy + 10, state=0)
+            with patch("components.ui_components.show_toast") as mock_toast:
+                canvas._on_canvas_drag(ev_drag)
+                self.assertTrue(mock_toast.called)
+                self.assertTrue(canvas._drag_blocked_shown)
+            canvas._on_canvas_release(SimpleNamespace(x=cx + 30, y=cy + 10))
+            self.assertEqual(dropped_tokens, [])
+
+            # When hex click priority (AoE/target mode) is active, clicking on a token triggers hex click!
+            canvas.is_hex_click_priority_callback = lambda: True
+            canvas._on_canvas_click(ev_click)
+            self.assertEqual(len(hex_clicks), 1)
+            self.assertEqual(hex_clicks[0], (1, 0))
+
+            # Companion Drag-Drop end-to-end: ClientGUI.on_token_drop -> server handle_move_request
+            gs = GameState(gui_queue=queue.Queue())
+            gs.map_data = {"width": 10, "height": 10}
+            druido = Player("Druido", conn=_MockConn())
+            druido.position = [0, 0]
+            druido.speed = 30
+            lupo = Player("LupoEvocato", conn=None)
+            lupo.position = [0, 1]
+            lupo.speed = 40
+            lupo.owner = "Druido"
+            lupo.master_name = "Druido"
+            lupo.is_npc = True
+            gs.add_player(druido)
+            gs.add_player(lupo)
+            gs.combat_active = True
+            gs.players.sort(key=lambda p: 10 if p.name == "Druido" else 5, reverse=True)
+            gs.current_turn_index = 0
+
+            client_host = SimpleNamespace(
+                is_connected=True,
+                name="Druido",
+                active_character=Character("Druido"),
+                players_data={
+                    "Druido": {"name": "Druido", "position": [0, 0]},
+                    "LupoEvocato": {"name": "LupoEvocato", "position": [0, 1], "owner": "Druido", "master_name": "Druido"},
+                },
+                network=MagicMock(),
+                show_toast=MagicMock(),
+                redraw_map_and_players=MagicMock(),
+            )
+            ClientGUI.on_token_drop(client_host, "LupoEvocato", 1, 1)
+            self.assertTrue(client_host.network.send.called)
+            sent_pkt = client_host.network.send.call_args[0][0]
+            self.assertEqual(sent_pkt["data"]["entity_name"], "LupoEvocato")
+            self.assertEqual(sent_pkt["data"]["to"], [1, 1])
+
+            handle_move_request(sent_pkt["data"], druido, gs)
+            self.assertEqual(lupo.position, [1, 1])
+            self.assertEqual(druido.position, [0, 0])
+        finally:
+            root.destroy()
+
+    def test_dm_workflows_hp_temp_absorption_spawn_party_level_and_dialogs(self):
+        from server.dm_gui import DM_GUI
+        from server.dm_campaign_session_mixin import find_free_spawn_hex
+        from server.encounter_builder_ui import EncounterBuilderDialog
+        from server.dm_entity_dialogs import open_combat_config, open_conditions_dialog
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            gs = GameState(gui_queue=queue.Queue())
+            gs.map_data = {"width": 10, "height": 10, "obstacles": []}
+            hero = Player("Kaelen", conn=MagicMock())
+            hero.hp = 20
+            hero.max_hp = 30
+            hero.temp_hp = 5
+            hero.concentrating_on = "Benedizione"
+            hero.full_sheet = {"hp_current": 20, "level": 5}
+            gs.add_player(hero)
+
+            dm_logs = []
+            dm_mock = SimpleNamespace(
+                master=root,
+                server=SimpleNamespace(game_state=gs),
+                log_to_chat=lambda msg: dm_logs.append(msg),
+                map_canvas=MagicMock(),
+                default_font=("Arial", 10),
+            )
+
+            # DM HP delta absorbs Temp HP, syncs full_sheet["hp_current"], warns Concentration DC 10
+            with patch("server.dm_gui.broadcast"):
+                DM_GUI.apply_dm_hp_delta(dm_mock, "Kaelen", -8)
+            self.assertEqual(hero.temp_hp, 0)
+            self.assertEqual(hero.hp, 17)
+            self.assertEqual(hero.full_sheet["hp_current"], 17)
+            self.assertTrue(any("CD 10" in l for l in dm_logs))
+
+            # Non-overlapping spawn around (0, 0)
+            hero.position = [0, 0]
+            seen = set()
+            for idx in range(4):
+                hx = find_free_spawn_hex(gs, anchor_hex=[0, 0])
+                self.assertNotIn(tuple(hx), seen)
+                seen.add(tuple(hx))
+                gob = Player(f"Goblin_{idx}", conn=None)
+                gob.is_npc = True
+                gob.position = hx
+                gs.add_player(gob)
+
+            # EncounterBuilder includes local is_party_member=True heroes in average level
+            ally = Player("CompagnoLocale", conn=None)
+            ally.is_npc = True
+            ally.is_party_member = True
+            ally.full_sheet = {"level": 5}
+            gs.add_player(ally)
+            eb = EncounterBuilderDialog(root, gs)
+            info_txt = eb.lbl_party_info.cget("text")
+            self.assertIn("Giocatori: 2", info_txt)
+            self.assertIn("5.0", info_txt)
+            eb.destroy()
+
+            # open_conditions_dialog includes new 5e conditions while keeping Applica first
+            dm_mock.get_player_name_from_listbox = lambda: "Kaelen"
+            dm_mock.get_selected_player = lambda: (hero, "Kaelen")
+            dm_mock._apply_status_update_to_player = MagicMock()
+            open_conditions_dialog(dm_mock)
+            cond_win = [w for w in root.winfo_children() if isinstance(w, tk.Toplevel)][-1]
+            def _collect_widgets(w, cls_type):
+                out = []
+                for ch in w.winfo_children():
+                    if isinstance(ch, cls_type):
+                        out.append(ch)
+                    out.extend(_collect_widgets(ch, cls_type))
+                return out
+            from tkinter import ttk
+            cond_btns = _collect_widgets(cond_win, (ttk.Button, tk.Button))
+            self.assertEqual(cond_btns[0].cget("text"), "Applica Condizioni")
+            cond_listboxes = _collect_widgets(cond_win, tk.Listbox)
+            cond_items = list(cond_listboxes[0].get(0, tk.END))
+            for expected_cond in ("Afferrato", "Paralizzato", "Incapacitato"):
+                self.assertIn(expected_cond, cond_items)
+            cond_win.destroy()
+
+            # open_combat_config applies inline NPC initiative entry & starts combat sorted
+            captured_start = {}
+            def _fake_start_combat(participant_names=None):
+                captured_start["names"] = participant_names
+                gs.combat_active = True
+                gs.players.sort(key=lambda p: (p.name in (participant_names or []), p.initiative), reverse=True)
+            gs.start_combat = _fake_start_combat
+            dm_mock._announce_turn = MagicMock()
+            hero.initiative = 12
+            open_combat_config(dm_mock)
+            cfg_win = [w for w in root.winfo_children() if isinstance(w, tk.Toplevel)][-1]
+            # Find Goblin_0 row frame and set its inline initiative entry to 25 (highest)
+            gob0_chk = next(
+                c for c in _collect_widgets(cfg_win, (ttk.Checkbutton, tk.Checkbutton))
+                if str(c.cget("text")).startswith("Goblin_0")
+            )
+            gob0_entry = next(c for c in _collect_widgets(gob0_chk.master, (ttk.Entry, tk.Entry)))
+            gob0_entry.delete(0, tk.END)
+            gob0_entry.insert(0, "25")
+            from common.i18n import _t
+            expected_start_lbl = _t("btn_start_combat")
+            start_btn = next(
+                b for b in _collect_widgets(cfg_win, (ttk.Button, tk.Button))
+                if expected_start_lbl in str(b.cget("text")) or "Avvia" in str(b.cget("text")) or "Start" in str(b.cget("text"))
+            )
+            start_btn.invoke()
+            self.assertTrue(gs.combat_active)
+            self.assertEqual(gs.players[0].name, "Goblin_0")
+            self.assertEqual(gs.players[0].initiative, 25)
+            self.assertTrue(dm_mock._announce_turn.called)
+        finally:
+            root.destroy()
+
+    def test_player_client_rollback_unread_chat_offhand_init_and_levelup(self):
+        from tkinter import ttk
+        from client.client import ClientGUI
+        from client.network_handlers import ClientNetworkHandlersMixin
+        from client.sheet_panels.combat_panel import CombatPanel
+        from client.progression_ui import LevelUpDialog
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            # 1. ClientGUI optimistic economy rollback + unread chat counter
+            host = SimpleNamespace(
+                is_connected=True,
+                combat_active=True,
+                _is_my_turn=True,
+                name="Aria",
+                session_password="secret",
+                action_spent=False,
+                bonus_spent=False,
+                reaction_spent=False,
+                _attacks_made_this_turn=0,
+                _pending_economy_snapshot=None,
+                sidebar_collapsed=False,
+                _unread_chat_count=0,
+                network=MagicMock(),
+                show_toast=MagicMock(),
+                update_action_economy_ui=lambda: None,
+                _has_cunning_action=lambda: False,
+            )
+            ClientGUI.perform_dash(host)
+            self.assertTrue(host.action_spent)
+            self.assertIsInstance(host._pending_economy_snapshot, dict)
+            ClientGUI._on_server_error_reply(host, {"text": "Azione negata dal server"})
+            self.assertFalse(host.action_spent)
+            self.assertIsNone(host._pending_economy_snapshot)
+
+            with patch("client.client.messagebox.showerror"):
+                ClientGUI._on_server_error_reply(host, {"text": "PIN di sessione errato"})
+            self.assertEqual(host.session_password, "")
+
+            # Unread chat counter when viewing another tab
+            nb = ttk.Notebook(root)
+            tab0 = ttk.Frame(nb)
+            tab1 = ttk.Frame(nb)
+            nb.add(tab0, text="Chat")
+            nb.add(tab1, text="Scheda")
+            nb.select(tab1)
+            txt = tk.Text(tab0)
+            host.right_notebook = nb
+            host.chat_tabs = {"Globale": txt}
+            ClientGUI.log_to_chat(host, "Nuovo messaggio DM", tab_name="Globale", sender="DM", color="gold")
+            self.assertEqual(host._unread_chat_count, 1)
+            self.assertEqual(nb.tab(0, "text"), "Chat (1)")
+            nb.select(tab0)
+            ClientGUI._on_right_notebook_tab_changed(host)
+            self.assertEqual(host._unread_chat_count, 0)
+            self.assertEqual(nb.tab(0, "text"), "Chat")
+
+            # 2. CombatPanel Off-Hand attack forwards is_bonus_action=True
+            recorded = []
+            sheet_mock = SimpleNamespace(
+                character=SimpleNamespace(
+                    name="Aria", attributes={"FOR": 10, "DES": 16}, level=3, char_class="Ladro",
+                    weapons=[{"name": "Pugnale", "ability": "DES", "damage_dice": "1d4", "damage_type": "Perforante", "properties": "Leggera"}],
+                    find_ammunition=lambda _n: (None, None),
+                ),
+                weapons_cards_frame=ttk.Frame(root),
+                attack_callback=lambda *a, **kw: None,
+                execute_targeted_attack=lambda w, txc, dmg, **kw: recorded.append((w["name"], kw)),
+                open_weapon_dialog=lambda *a, **kw: None,
+                delete_weapon=lambda *a, **kw: None,
+            )
+            CombatPanel.refresh_weapons_list(sheet_mock)
+            parent_w = sheet_mock.weapons_cards_frame
+            def _find_buttons(w):
+                out = []
+                for ch in w.winfo_children():
+                    if isinstance(ch, (ttk.Button, tk.Button)):
+                        out.append(ch)
+                    out.extend(_find_buttons(ch))
+                return out
+            offhand_btn = next(b for b in _find_buttons(parent_w) if "2ª Mano" in str(b.cget("text")))
+            offhand_btn.invoke()
+            self.assertEqual(recorded[0][1].get("is_bonus_action"), True)
+
+            # 3. Initiative uses get_initiative_bonus() (e.g. Alert feat +5)
+            init_char = Character("Sentinella")
+            init_char.attributes["DES"] = 14  # +2
+            init_char.feats = ["Allerta"]     # +5 => +7 total
+            init_host = SimpleNamespace(
+                master=root,
+                active_character=init_char,
+                name="Sentinella",
+                network=MagicMock(),
+                show_toast=MagicMock(),
+                log_to_chat=MagicMock(),
+            )
+            with patch("tkinter.Toplevel.grab_set"), patch("random.randint", return_value=10):
+                ClientNetworkHandlersMixin.handle_request_initiative(init_host, {})
+                init_win = [w for w in root.winfo_children() if isinstance(w, tk.Toplevel)][-1]
+                init_btns = _find_buttons(init_win)
+                roll_btn = next(b for b in init_btns if "Tira" in str(b.cget("text")) or "Roll" in str(b.cget("text")) or "🎲" in str(b.cget("text")))
+                roll_btn.invoke()
+            sent_init = init_host.network.send.call_args[0][0]["data"]["initiative"]
+            self.assertEqual(sent_init, 10 + init_char.get_initiative_bonus())
+
+            # 4. LevelUpDialog locks subclass combo before unlock_lvl & auto-switches ASI radio
+            lu_char = Character("Beren")
+            lu_char.char_class = "Guerriero"
+            lu_char.level = 1  # Leveling to 2 (unlock_lvl=3) -> subclass disabled
+            lu_dlg = LevelUpDialog(root, lu_char, lambda *a: None)
+            self.assertEqual(str(lu_dlg.subclass_combo.cget("state")), "disabled")
+            lu_dlg.destroy()
+
+            asi_char = Character("Beren4")
+            asi_char.char_class = "Guerriero"
+            asi_char.level = 3  # Leveling to 4 -> ASI tab enabled
+            asi_dlg = LevelUpDialog(root, asi_char, lambda *a: None)
+            def _find_combos(w):
+                out = []
+                for ch in w.winfo_children():
+                    if isinstance(ch, ttk.Combobox):
+                        out.append(ch)
+                    out.extend(_find_combos(ch))
+                return out
+            asi_combos = _find_combos(asi_dlg.tab_asi)
+            # Combos in tab_asi: [single_stat, dual_stat_1, dual_stat_2, feat_combo]
+            self.assertGreaterEqual(len(asi_combos), 4)
+            asi_combos[2].set("COS")
+            asi_combos[2].event_generate("<<ComboboxSelected>>")
+            asi_dlg.update_idletasks()
+            self.assertEqual(asi_dlg.asi_choice_var.get(), "dual")
+            feat_vals = list(asi_combos[3].cget("values") or [])
+            if feat_vals:
+                asi_combos[3].set(feat_vals[0])
+                asi_combos[3].event_generate("<<ComboboxSelected>>")
+                asi_dlg.update_idletasks()
+                self.assertEqual(asi_dlg.asi_choice_var.get(), "feat")
+            asi_dlg.destroy()
+        finally:
+            root.destroy()
+
+
 if __name__ == "__main__":
     unittest.main()

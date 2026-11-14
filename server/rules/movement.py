@@ -121,6 +121,25 @@ def _evaluate_creature_space_traversal(player, step_hex, is_final_step: bool, ga
 
 
 def handle_move_request(data, player, game_state):
+    reply_conn = getattr(player, "conn", None)
+    caller_name = getattr(player, "name", None)
+    is_dm_caller = getattr(player, "is_dm", False) or getattr(player, "role", "") == "DM"
+    if isinstance(data, dict) and data.get("entity_name") and data.get("entity_name") != caller_name:
+        target_mover = game_state.find_player(data.get("entity_name"))
+        is_owner = target_mover and (
+            is_dm_caller
+            or getattr(target_mover, "owner", None) == caller_name
+            or getattr(target_mover, "master_name", None) == caller_name
+        )
+        if not is_owner:
+            from common.protocol import make_error_reply
+            if reply_conn:
+                send_message(reply_conn, make_error_reply(f"Non sei autorizzato a muovere il token '{data.get('entity_name')}'."))
+            return
+        player = target_mover
+
+    err_conn = getattr(player, "conn", None) or reply_conn
+
     from server.rules.class_abilities import _check_surprised_block
     if _check_surprised_block(player, game_state, "muoverti"):
         return
@@ -129,13 +148,13 @@ def handle_move_request(data, player, game_state):
     blocking = ["Afferrato", "Grappled", "Trattenuto", "Restrained", "Privo di Sensi", "Incapacitato", "Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto"]
     if any(is_condition_active(conds, c) for c in blocking) or getattr(player, "exhaustion_level", 0) >= 5 or getattr(player, "hp", 1) <= 0:
         from common.protocol import make_error_reply
-        if player.conn:
-            send_message(player.conn, make_error_reply("La tua velocità è 0 o sei incapacitato/morto. Non puoi muoverti."))
+        if err_conn:
+            send_message(err_conn, make_error_reply("La tua velocità è 0 o sei incapacitato/morto. Non puoi muoverti."))
         return
 
     to_pos = data.get("to")
     move_path = None
-    is_dm_caller = getattr(player, "is_dm", False) or getattr(player, "role", "") == "DM"
+    is_dm_caller = is_dm_caller or getattr(player, "is_dm", False) or getattr(player, "role", "") == "DM"
     if getattr(player, "is_party_member", False) and getattr(player, "conn", None) is not None:
         is_dm = is_dm_caller
     else:
@@ -204,10 +223,15 @@ def handle_move_request(data, player, game_state):
 
         if in_combat and not is_dm and strict_lock:
             curr_turn = game_state.get_current_turn_player()
-            if curr_turn and curr_turn.name != player.name:
+            allowed_turn_names = {player.name}
+            if getattr(player, "name", None) != caller_name and (
+                getattr(player, "owner", None) == caller_name or getattr(player, "master_name", None) == caller_name
+            ):
+                allowed_turn_names.add(caller_name)
+            if curr_turn and curr_turn.name not in allowed_turn_names:
                 from common.protocol import make_error_reply
-                if player.conn:
-                    send_message(player.conn, make_error_reply(f"Non è il tuo turno in combattimento! È il turno di {curr_turn.name}."))
+                if err_conn:
+                    send_message(err_conn, make_error_reply(f"Non è il tuo turno in combattimento! È il turno di {curr_turn.name}."))
                 return
 
         if in_combat and hasattr(player, "position") and player.position and len(player.position) >= 2:

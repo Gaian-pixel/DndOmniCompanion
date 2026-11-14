@@ -74,10 +74,13 @@ class EncounterBuilderDialog(tk.Toplevel):
         
     def calculate_party_level(self):
         players = self.game_state.get_all_players()
-        real_players = [p for p in players if getattr(p, "conn", None) is not None]
+        real_players = [
+            p for p in players
+            if getattr(p, "is_party_member", False) or getattr(p, "conn", None) is not None
+        ]
         
         if not real_players:
-            self.lbl_party_info.config(text="Nessun giocatore connesso. Imposto budget di default (Livello 1 x 4).")
+            self.lbl_party_info.config(text="Nessun giocatore o PG locale nel party. Imposto budget di default (Livello 1 x 4).")
             # Fake 4 players of level 1
             levels = [1, 1, 1, 1]
         else:
