@@ -239,6 +239,7 @@ class Server:
                         existing_player.is_party_member = True
                         existing_player._preserve_server_state_on_join = True
                         existing_player._preserve_stats_on_join = True
+                        existing_player._preserve_join_until = time.monotonic() + 5.0
                         player = existing_player
                         player_action = "reconnect"
                     else:

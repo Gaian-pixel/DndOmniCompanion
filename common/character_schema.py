@@ -462,6 +462,106 @@ def normalize_character_dict(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         merged = list(dict.fromkeys([str(x) for x in existing_list if x] + computed_profs[pk]))
         clean[sk] = merged
 
+    # 17. Risorse di Classe (Action Surge Lv 17+ = 2 usi, Rage, Second Wind) e Custom Resources
+    fighter_lvl = 0
+    barb_lvl = 0
+    for c_k, c_v in clean.get("classes", {}).items():
+        c_low = str(c_k).lower()
+        try:
+            c_int = max(0, int(c_v or 0))
+        except (ValueError, TypeError):
+            c_int = 0
+        if "guerrier" in c_low or "fighter" in c_low:
+            fighter_lvl = max(fighter_lvl, c_int)
+        if "barbar" in c_low:
+            barb_lvl = max(barb_lvl, c_int)
+
+    as_max = 2 if fighter_lvl >= 17 else (1 if fighter_lvl >= 2 else 0)
+    raw_cr = clean.get("class_resources")
+    cr = copy.deepcopy(raw_cr) if isinstance(raw_cr, dict) else {}
+    cr["second_wind"] = bool(cr.get("second_wind", True))
+
+    has_explicit_as_cur = ("action_surge_current" in cr and cr.get("action_surge_current") is not None)
+    if as_max > 0:
+        if has_explicit_as_cur:
+            try:
+                as_cur = max(0, min(as_max, int(cr.get("action_surge_current") or 0)))
+            except (ValueError, TypeError):
+                as_cur = as_max
+            # Se era al massimo precedente (es. 1/1 -> upgrade a Lv 17), aggiorna a 2/2
+            try:
+                prev_max = int(cr.get("action_surge_max") or 0)
+            except (ValueError, TypeError):
+                prev_max = 0
+            if 0 < prev_max < as_max and as_cur == prev_max and bool(cr.get("action_surge", True)):
+                as_cur = as_max
+        else:
+            prev_bool = cr.get("action_surge")
+            as_cur = as_max if (True if prev_bool is None else bool(prev_bool)) else 0
+        cr["action_surge_max"] = as_max
+        cr["action_surge_current"] = as_cur
+        cr["action_surge"] = (as_cur > 0)
+    else:
+        cr["action_surge_max"] = int(cr.get("action_surge_max") or 0)
+        cr["action_surge_current"] = int(cr.get("action_surge_current") or 0)
+        if "action_surge" in cr:
+            cr["action_surge"] = bool(cr["action_surge"])
+        else:
+            cr["action_surge"] = (fighter_lvl == 0)
+
+    if barb_lvl > 0:
+        rage_by_lvl = 99 if barb_lvl >= 20 else (6 if barb_lvl >= 17 else (5 if barb_lvl >= 12 else (4 if barb_lvl >= 6 else (3 if barb_lvl >= 3 else 2))))
+        try:
+            old_rmax = int(cr.get("rage_max") or 0)
+        except (ValueError, TypeError):
+            old_rmax = 0
+        eff_rmax = max(rage_by_lvl, old_rmax)
+        if "rage_current" in cr and cr.get("rage_current") is not None:
+            try:
+                r_cur = max(0, min(eff_rmax, int(cr.get("rage_current") or 0)))
+            except (ValueError, TypeError):
+                r_cur = eff_rmax
+        else:
+            r_cur = eff_rmax
+        cr["rage_max"] = eff_rmax
+        cr["rage_current"] = r_cur
+    else:
+        cr["rage_max"] = int(cr.get("rage_max", 0) if cr.get("rage_max") is not None else 0)
+        cr["rage_current"] = int(cr.get("rage_current", 0) if cr.get("rage_current") is not None else 0)
+    clean["class_resources"] = cr
+
+    if not isinstance(clean.get("custom_resources"), list):
+        clean["custom_resources"] = []
+    elif as_max > 0:
+        for res_item in clean["custom_resources"]:
+            if not isinstance(res_item, dict):
+                continue
+            r_low = str(res_item.get("name", "")).lower()
+            if any(k in r_low for k in ("azione impetuosa", "azione furente", "action surge")):
+                try:
+                    old_m = int(res_item.get("max", 1) or 1)
+                except (ValueError, TypeError):
+                    old_m = 1
+                try:
+                    cur_v = int(res_item.get("current", old_m) if res_item.get("current") is not None else old_m)
+                except (ValueError, TypeError):
+                    cur_v = old_m
+                if old_m < as_max:
+                    res_item["max"] = as_max
+                    if cur_v == old_m and not has_explicit_as_cur:
+                        cur_v = as_max
+                res_item["current"] = max(0, min(int(res_item.get("max", as_max) or as_max), cur_v))
+                if not has_explicit_as_cur:
+                    cr["action_surge_current"] = res_item["current"]
+                    cr["action_surge"] = (res_item["current"] > 0)
+
+    if isinstance(clean.get("_extra_fields"), dict):
+        clean["_extra_fields"] = {
+            k: copy.deepcopy(v)
+            for k, v in clean["_extra_fields"].items()
+            if k not in clean and k != "_extra_fields"
+        }
+
     return clean
 
 
@@ -786,5 +886,178 @@ def consume_spell_or_pact_slot(sheet_or_char: Any, min_level: int, prefer_pact: 
         if ok:
             return True, msg
         return _try_pact()
+
+
+def restore_entity_rest_resources(entity_or_sheet: Any, rest_type: str = "short") -> List[str]:
+    """
+    Unifica il ripristino delle risorse di classe/incantesimi su Riposo Breve ("short")
+    e Riposo Lungo ("long") per Player, Character o dizionari full_sheet (D&D 5e RAW).
+    Restituisce la lista descrittiva delle risorse ripristinate.
+    """
+    if entity_or_sheet is None:
+        return []
+
+    is_dict = isinstance(entity_or_sheet, dict)
+    obj = None if is_dict else entity_or_sheet
+    if is_dict:
+        sheet = entity_or_sheet
+    elif isinstance(getattr(entity_or_sheet, "full_sheet", None), dict):
+        sheet = entity_or_sheet.full_sheet
+    elif hasattr(entity_or_sheet, "__dict__"):
+        sheet = entity_or_sheet.__dict__
+    else:
+        sheet = None
+
+    rest_norm = "long" if str(rest_type or "short").strip().lower() in ("long", "lungo", "complete") else "short"
+    restored: List[str] = []
+
+    from common.dnd5e_tables import entity_get_class_level
+    src = obj if obj is not None else sheet
+    fighter_lvl = entity_get_class_level(src, "guerriero", "fighter")
+    barb_lvl = entity_get_class_level(src, "barbar", "barbarian")
+    war_lvl = entity_get_class_level(src, "warlock")
+    other_caster = any(
+        entity_get_class_level(src, *keys) > 0
+        for keys in (
+            ("mago", "wizard"), ("chierico", "cleric"), ("stregone", "sorcerer"),
+            ("bardo", "bard"), ("druido", "druid"), ("paladino", "paladin"),
+            ("ranger",), ("artefice", "artificer"),
+        )
+    )
+
+    as_max = 2 if fighter_lvl >= 17 else (1 if fighter_lvl >= 2 else 0)
+    if sheet is not None:
+        cr = sheet.get("class_resources")
+        if not isinstance(cr, dict):
+            cr = {}
+            sheet["class_resources"] = cr
+        cr["second_wind"] = True
+        if fighter_lvl >= 2:
+            cr["action_surge_max"] = as_max
+            cr["action_surge_current"] = as_max
+            cr["action_surge"] = True
+            restored.append(f"Azione Furente ({as_max}/{as_max})")
+        elif fighter_lvl == 1:
+            cr["action_surge_max"] = 0
+            cr["action_surge_current"] = 0
+            cr["action_surge"] = False
+        else:
+            cr.setdefault("action_surge_max", 0)
+            cr.setdefault("action_surge_current", 0)
+            cr["action_surge"] = True
+
+    if obj is not None:
+        obj.action_surge_used_this_turn = False
+        obj.relentless_rage_uses = 0
+    if sheet is not None and "relentless_rage_uses" in sheet:
+        sheet["relentless_rage_uses"] = 0
+
+    # Warlock Pact Magic Slots (PHB p. 164): sempre a Riposo Breve e Lungo
+    pact = sheet.get("pact_slots") if sheet is not None else None
+    if isinstance(pact, dict) and int(pact.get("max", 0) or 0) > 0:
+        pact_max = int(pact.get("max", 0) or 0)
+        pact["current"] = pact_max
+        if obj is not None:
+            obj.pact_slots_max = pact_max
+            obj.pact_slots_current = pact_max
+            obj.pact_slot_level = int(pact.get("level", getattr(obj, "pact_slot_level", 0)) or 0)
+        restored.append(f"Magia del Patto ({pact_max}/{pact_max})")
+    elif (war_lvl > 0 or (sheet and "warlock" in str(sheet.get("char_class", "")).lower())) and not other_caster:
+        slots = sheet.get("spell_slots") if sheet is not None else None
+        if isinstance(slots, dict):
+            for sl_lvl, sl_info in slots.items():
+                try:
+                    lvl_i = int(sl_lvl)
+                except (ValueError, TypeError):
+                    continue
+                if lvl_i <= 5:
+                    if isinstance(sl_info, dict) and int(sl_info.get("max", 0) or 0) > 0:
+                        sl_info["current"] = int(sl_info.get("max", 0) or 0)
+                    elif isinstance(sl_info, list) and len(sl_info) >= 2 and int(sl_info[1] or 0) > 0:
+                        sl_info[0] = int(sl_info[1] or 0)
+
+    # Dadi di Superiorità (Battle Master: ricarica a Riposo Breve/Lungo)
+    sup_max = int((sheet or {}).get("superiority_dice_max", 0) or 0)
+    if sup_max > 0:
+        sheet["superiority_dice_current"] = sup_max
+        if obj is not None and hasattr(obj, "superiority_dice_current"):
+            obj.superiority_dice_current = sup_max
+        restored.append(f"Dadi di Superiorità ({sup_max}/{sup_max})")
+
+    # Risorse personalizzate (short reset su Short Rest; tutte su Long Rest)
+    res_list = sheet.get("custom_resources") if sheet is not None else None
+    if isinstance(res_list, list):
+        for res_item in res_list:
+            if not isinstance(res_item, dict):
+                continue
+            r_name = str(res_item.get("name", "") or "")
+            r_low = r_name.lower()
+            if as_max > 0 and any(k in r_low for k in ("azione impetuosa", "azione furente", "action surge")):
+                res_item["max"] = max(int(res_item.get("max", 1) or 1), as_max)
+            rst = str(res_item.get("reset_on", "long") or "long").strip().lower()
+            if rest_norm == "long" or rst in ("short", "breve", "both"):
+                r_max = int(res_item.get("max", 0) or 0)
+                res_item["current"] = r_max
+                restored.append(f"{r_name or 'Risorsa'} ({r_max}/{r_max})")
+
+    if rest_norm == "long":
+        if sheet is not None:
+            cr = sheet.get("class_resources")
+            if isinstance(cr, dict):
+                if barb_lvl > 0:
+                    max_rage = 99 if barb_lvl >= 20 else (6 if barb_lvl >= 17 else (5 if barb_lvl >= 12 else (4 if barb_lvl >= 6 else (3 if barb_lvl >= 3 else 2))))
+                else:
+                    max_rage = int(cr.get("rage_max", 0) or 0)
+                cr["rage_max"] = max_rage
+                cr["rage_current"] = max_rage
+                if barb_lvl > 0:
+                    restored.append(f"Ira Barbarica ({max_rage}/{max_rage})")
+
+            slots = sheet.get("spell_slots")
+            if isinstance(slots, dict):
+                for sl_data in slots.values():
+                    if isinstance(sl_data, dict):
+                        sl_data["current"] = int(sl_data.get("max", 0) or 0)
+                    elif isinstance(sl_data, list) and len(sl_data) >= 2:
+                        sl_data[0] = int(sl_data[1] or 0)
+
+            sp_sorc_max = int(sheet.get("sorcery_points_max", 0) or 0)
+            if sp_sorc_max > 0:
+                sheet["sorcery_points_current"] = sp_sorc_max
+                if obj is not None and hasattr(obj, "sorcery_points_current"):
+                    obj.sorcery_points_current = sp_sorc_max
+                restored.append(f"Punti Stregoneria ({sp_sorc_max}/{sp_sorc_max})")
+
+            sp_opt_max = int(sheet.get("spell_points_max", 0) or 0)
+            if sp_opt_max > 0:
+                sheet["spell_points_current"] = sp_opt_max
+                if obj is not None and hasattr(obj, "spell_points_current"):
+                    obj.spell_points_current = sp_opt_max
+
+            if fighter_lvl >= 9:
+                ind_max = 3 if fighter_lvl >= 17 else (2 if fighter_lvl >= 13 else 1)
+                sheet["indomitable_uses"] = ind_max
+                if obj is not None:
+                    obj.indomitable_uses = ind_max
+
+            ma = sheet.get("mystic_arcanum")
+            if isinstance(ma, dict):
+                for k in list(ma.keys()):
+                    ma[k] = True
+
+            if "cleave_used" in sheet or (obj is not None and hasattr(obj, "cleave_used")):
+                sheet["cleave_used"] = False
+                if obj is not None:
+                    obj.cleave_used = False
+            if "relentless_endurance_used" in sheet or (obj is not None and hasattr(obj, "relentless_endurance_used")):
+                sheet["relentless_endurance_used"] = False
+                if obj is not None:
+                    obj.relentless_endurance_used = False
+            if "arcane_recovery_used" in sheet or (obj is not None and hasattr(obj, "arcane_recovery_used")):
+                sheet["arcane_recovery_used"] = False
+                if obj is not None:
+                    obj.arcane_recovery_used = False
+
+    return restored
 
 

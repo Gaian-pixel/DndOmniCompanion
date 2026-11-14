@@ -133,7 +133,7 @@ class Campaign:
         c._extra_fields = {
             k: copy.deepcopy(v)
             for k, v in data.items()
-            if k not in known_keys
+            if k not in known_keys and k != "_extra_fields"
         }
         return c
 

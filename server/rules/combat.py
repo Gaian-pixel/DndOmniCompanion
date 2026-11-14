@@ -857,6 +857,11 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
     incapacitating = ("incapacitato", "incapacitated", "incosciente", "unconscious", "paralizzato", "paralyzed", "stordito", "stunned", "pietrificato", "petrified", "morto", "dead")
     if target_player.hp == 0 or any(str(c).strip().lower() in incapacitating for c in getattr(target_player, "conditions", [])):
         drop_concentration(target_player, game_state, notify=(not is_npc))
+        target_player.readied_action_data = None
+        if hasattr(target_player, "conditions") and isinstance(target_player.conditions, list) and "Azione Preparata" in target_player.conditions:
+            target_player.conditions.remove("Azione Preparata")
+        if isinstance(getattr(target_player, "full_sheet", None), dict) and isinstance(target_player.full_sheet.get("conditions"), list):
+            target_player.full_sheet["conditions"] = [c for c in target_player.full_sheet["conditions"] if c != "Azione Preparata"]
 
     if target_player.hp == 0:
         _end_rage_if_unconscious(target_player, game_state)
@@ -3716,49 +3721,38 @@ def handle_short_rest_request(data, player, game_state):
             send_message(player.conn, make_error_reply("Non puoi effettuare un Riposo Breve durante il combattimento!"))
         return
 
-    hd_spent = int(data.get("hd_spent", 1) or 1)
-    try: hp_rec = max(0, int(data.get("hp_recovered", 0)))
-    except (ValueError, TypeError): hp_rec = 0
+    raw_hd = data.get("hd_spent", 1) if isinstance(data, dict) else 1
+    try:
+        hd_spent = max(0, int(raw_hd if raw_hd is not None else 1))
+    except (ValueError, TypeError):
+        hd_spent = 1
+    try:
+        hp_rec = max(0, int(data.get("hp_recovered", 0) or 0)) if isinstance(data, dict) else 0
+    except (ValueError, TypeError):
+        hp_rec = 0
 
     if not player:
         return
 
+    from common.character_schema import restore_entity_rest_resources
+    restored_list = []
     with game_state.lock:
         sheet = getattr(player, "full_sheet", None)
         if sheet:
             cur_hd = int(sheet.get("hit_dice_current", sheet.get("level", 1)) or 0)
-            if cur_hd < hd_spent:
+            if hd_spent > 0 and cur_hd < hd_spent:
                 if getattr(player, "conn", None):
                     send_message(player.conn, make_error_reply(f"Dadi Vita insufficienti! Ne possiedi {cur_hd}."))
                 return
             sheet["hit_dice_current"] = max(0, cur_hd - hd_spent)
-            
-            # D&D 5e RAW (PHB p. 164): Warlock ricarica gli slot di Magia del Patto a Riposo Breve senza ricaricare slot di altre classi
-            pact = sheet.get("pact_slots") if isinstance(sheet, dict) else None
-            if isinstance(pact, dict) and pact.get("max", 0) > 0:
-                pact["current"] = pact.get("max", 0)
-                player.pact_slots_max = pact.get("max", 0)
-                player.pact_slots_current = pact["current"]
-                player.pact_slot_level = pact.get("level", 0)
-            else:
-                from common.dnd5e_tables import entity_get_class_level
-                war_lvl = entity_get_class_level(player, "warlock")
-                other_caster = any(
-                    entity_get_class_level(player, *keys) > 0
-                    for keys in (("mago", "wizard"), ("chierico", "cleric"), ("stregone", "sorcerer"), ("bardo", "bard"), ("druido", "druid"), ("paladino", "paladin"), ("ranger",), ("artefice", "artificer"))
-                )
-                char_cls = str(sheet.get("char_class", "")).lower()
-                if (war_lvl > 0 or "warlock" in char_cls) and not other_caster and isinstance(sheet.get("spell_slots"), dict):
-                    for sl_lvl, sl_info in sheet["spell_slots"].items():
-                        try:
-                            if int(sl_lvl) <= 5 and isinstance(sl_info, dict):
-                                sl_info["current"] = sl_info.get("max", 0)
-                        except (ValueError, TypeError):
-                            pass
+
+        restored_list = restore_entity_rest_resources(player, rest_type="short")
+        player.relentless_rage_uses = 0
+        from server.dm_monster_engine import restore_drain_penalties
+        restore_drain_penalties(player, rest_type="short")
 
         if hp_rec > 0:
             # Canto di Riposo (Song of Rest - Bardo Lv 2+, PHB p. 54): cura extra se spende almeno 1 Dado Vita e un Bardo è nel party
-            song_bonus = 0
             if hd_spent > 0:
                 from common.dnd5e_tables import entity_get_class_level
                 best_bard = entity_get_class_level(player, "bardo", "bard")
@@ -3767,18 +3761,17 @@ def handle_short_rest_request(data, player, game_state):
                         best_bard = max(best_bard, entity_get_class_level(ally, "bardo", "bard"))
                 if best_bard >= 2:
                     sor_sides = 6 if best_bard < 9 else (8 if best_bard < 13 else (10 if best_bard < 17 else 12))
-                    song_bonus = random.randint(1, sor_sides)
-                    hp_rec += song_bonus
-            player.relentless_rage_uses = 0
-            from server.dm_monster_engine import restore_drain_penalties
-            restore_drain_penalties(player, rest_type="short")
+                    hp_rec += random.randint(1, sor_sides)
             player.hp = min(player.max_hp, player.hp + hp_rec)
             if sheet:
                 sheet["hp_current"] = player.hp
-            broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, getattr(player, "conditions", []), getattr(player, "temp_hp", 0)))
-            game_state._trigger_gui_update()
 
-    msg = f"☕ {player.name} ha completato un Riposo Breve (ha speso {hd_spent} Dado/i Vita e recuperato {hp_rec} HP)!"
+    broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, getattr(player, "conditions", []), getattr(player, "temp_hp", 0)))
+    broadcast(game_state, make_game_state(game_state.get_state_dict()))
+    game_state._trigger_gui_update()
+
+    restored_suffix = f" Risorse ricaricate: {', '.join(restored_list)}." if restored_list else ""
+    msg = f"☕ {player.name} ha completato un Riposo Breve (ha speso {hd_spent} Dado/i Vita e recuperato {hp_rec} HP)!{restored_suffix}"
     # Variante Riposo DMG (opt_rest_variant) + avanzamento tempo
     dm_settings = getattr(game_state, "automation_settings", {}) or {}
     rest_key = dm_settings.get("opt_rest_variant", "standard")

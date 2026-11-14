@@ -1,5 +1,6 @@
 import os
 from common.file_utils import atomic_save_json, load_json, get_writable_dir
+from common.character_schema import restore_entity_rest_resources
 
 CHARACTER_FILE = os.path.join(get_writable_dir(), "client_data", "characters.json")
 
@@ -247,14 +248,7 @@ class Character:
         self.hp_current = min(self.hp_max, self.hp_current + recovered)
         if not hasattr(self, "class_resources") or not isinstance(self.class_resources, dict):
             self.class_resources = {}
-        self.class_resources["second_wind"] = True
-        self.class_resources["action_surge"] = True
-        self.superiority_dice_current = self.superiority_dice_max
-        
-        # Reset custom class resources configured for Short Rest
-        for res in getattr(self, "custom_resources", []):
-            if isinstance(res, dict) and res.get("reset_on") == "short":
-                res["current"] = res.get("max", 0)
+        restore_entity_rest_resources(self, "short")
 
         # Canto di Riposo (Song of Rest - Bardo Lv 2+, PHB p. 54): cura extra se spende almeno 1 Dado Vita
         if actual_spend > 0:
@@ -320,16 +314,11 @@ class Character:
         from common.dnd5e_tables import entity_get_class_level
         barb_lvl = entity_get_class_level(self, "barbar", "barbarian") or lvl
         max_rage = 2 if barb_lvl < 3 else (3 if barb_lvl < 6 else (4 if barb_lvl < 12 else (5 if barb_lvl < 17 else (6 if barb_lvl < 20 else 99))))
-        self.class_resources = {
-            "second_wind": True,
-            "action_surge": True,
-            "rage_current": max_rage,
-            "rage_max": max_rage
-        }
-        # Reset ALL custom class resources on Long Rest
-        for res in getattr(self, "custom_resources", []):
-            if isinstance(res, dict):
-                res["current"] = res.get("max", 0)
+        if not hasattr(self, "class_resources") or not isinstance(self.class_resources, dict):
+            self.class_resources = {}
+        self.class_resources["rage_current"] = max_rage
+        self.class_resources["rage_max"] = max_rage
+        restore_entity_rest_resources(self, "long")
 
         # Ripristina Tenacia Implacabile (Mezzorco), Talento Fortunato, Portento (Divinatore) e Cariche Oggetti Magici
         self.relentless_endurance_used = False
@@ -811,6 +800,35 @@ class Character:
         self.armor_proficiencies = list(dict.fromkeys(list(getattr(self, "armor_proficiencies", []) or []) + profs["armor"]))
         self.weapon_proficiencies = list(dict.fromkeys(list(getattr(self, "weapon_proficiencies", []) or []) + profs["weapons"]))
         self.tool_proficiencies = list(dict.fromkeys(list(getattr(self, "tool_proficiencies", []) or []) + profs["tools"]))
+
+        from common.dnd5e_tables import entity_get_class_level
+        f_lvl = entity_get_class_level(self, "guerriero", "fighter")
+        if f_lvl >= 2:
+            cr = getattr(self, "class_resources", None)
+            if not isinstance(cr, dict):
+                cr = {}
+                self.class_resources = cr
+            expected_as_max = 2 if f_lvl >= 17 else 1
+            old_as_max = int(cr.get("action_surge_max", 0) or 0)
+            if old_as_max == 0 and ("action_surge" in cr or cr.get("action_surge_current") is not None):
+                old_as_max = 1
+            old_as_cur = cr.get("action_surge_current")
+            if old_as_cur is None:
+                old_as_cur = 1 if cr.get("action_surge", True) else 0
+            else:
+                old_as_cur = int(old_as_cur)
+            cr["action_surge_max"] = expected_as_max
+            new_as_cur = min(expected_as_max, old_as_cur + max(0, expected_as_max - old_as_max))
+            cr["action_surge_current"] = new_as_cur
+            cr["action_surge"] = new_as_cur > 0
+            cr.setdefault("second_wind", True)
+            for res in getattr(self, "custom_resources", []) or []:
+                if isinstance(res, dict) and str(res.get("name", "")).strip().lower() in ("azione impetuosa", "azione furente", "action surge"):
+                    r_old_max = int(res.get("max", 0) or 0)
+                    r_old_cur = int(res.get("current", r_old_max) or 0)
+                    if expected_as_max > r_old_max:
+                        res["max"] = expected_as_max
+                        res["current"] = min(expected_as_max, r_old_cur + (expected_as_max - r_old_max))
 
         return True, f"Livello acquisito in {matched_key} (Totale: Liv. {self.level})."
 

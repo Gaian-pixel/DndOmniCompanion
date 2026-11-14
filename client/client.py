@@ -367,6 +367,8 @@ class ClientGUI(ClientNetworkHandlersMixin):
             self.btn_action_surge.config(text=_t("btn_action_surge"))
         if hasattr(self, 'btn_rage'):
             self.btn_rage.config(text=_t("btn_rage"))
+        if hasattr(self, '_update_contextual_class_features') and getattr(self, 'active_character', None):
+            self._update_contextual_class_features()
         if hasattr(self, 'travel_button'):
             self.travel_button.config(text=_t("btn_travel_actions"))
         if hasattr(self, 'btn_long_rest'):
@@ -914,21 +916,21 @@ class ClientGUI(ClientNetworkHandlersMixin):
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.use_second_wind
         )
         self.btn_second_wind.pack(side=tk.LEFT, padx=(0, 2), fill=tk.X, expand=True)
-        ToolTip(self.btn_second_wind, lambda: _t("tooltip_second_wind"))
+        ToolTip(self.btn_second_wind, lambda: self._get_feature_tooltip("second_wind"))
 
         self.btn_action_surge = tk.Button(
             cf_row, text=_t("btn_action_surge"), font=FONT_SMALL, relief=tk.FLAT, bd=0, pady=3,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.use_action_surge
         )
         self.btn_action_surge.pack(side=tk.LEFT, padx=2, fill=tk.X, expand=True)
-        ToolTip(self.btn_action_surge, lambda: _t("tooltip_action_surge"))
+        ToolTip(self.btn_action_surge, lambda: self._get_feature_tooltip("action_surge"))
 
         self.btn_rage = tk.Button(
             cf_row, text=_t("btn_rage"), font=FONT_SMALL, relief=tk.FLAT, bd=0, pady=3,
             bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, command=self.use_rage
         )
         self.btn_rage.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
-        ToolTip(self.btn_rage, lambda: _t("tooltip_rage"))
+        ToolTip(self.btn_rage, lambda: self._get_feature_tooltip("rage"))
         
         self.combat_btn = ttk.Button(controls_tab, text=_t("btn_request_combat"), command=lambda: getattr(self, "network", None) and self.network.send({"type": "COMBAT_TOGGLE_REQUEST", "data": {}}), style='Gold.TButton')
         self.combat_btn.pack(fill=tk.X, pady=2)
@@ -1183,9 +1185,13 @@ class ClientGUI(ClientNetworkHandlersMixin):
         temp_str = f" (+{temp_hp} Temp)" if temp_hp > 0 else ""
         exh = getattr(char, 'exhaustion_level', 0)
         exh_str = f" [{_t('exhaustion_prefix')} Lv{exh}]" if exh > 0 else ""
+        conc_spell = getattr(char, 'concentrating_on', None)
+        if not conc_spell and getattr(self, 'players_data', None) and getattr(self, 'name', None) in self.players_data:
+            conc_spell = self.players_data[self.name].get('concentrating_on')
+        conc_str = f"  🔮 [Conc: {conc_spell}]" if conc_spell else ""
         conds = getattr(char, 'conditions', [])
         cond_str = f"  ({', '.join(conds)})" if conds else ""
-        self.hero_hp_lbl.config(text=f"HP: {hp_cur} / {hp_max}{temp_str}{exh_str}{cond_str}")
+        self.hero_hp_lbl.config(text=f"HP: {hp_cur} / {hp_max}{temp_str}{exh_str}{conc_str}{cond_str}")
         
         ratio = max(0.0, min(1.0, hp_cur / max(1, hp_max)))
         bar_color = ACCENT_GREEN if ratio > 0.5 else ("#F59F00" if ratio > 0.25 else ACCENT_RED)
@@ -1671,6 +1677,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
         self.reaction_spent = False
         self.movement_spent_ft = 0
         self._attacks_made_this_turn = 0
+        self._action_surge_used_this_turn = False
         self.update_action_economy_ui()
 
     def _get_local_max_attacks(self) -> int:
@@ -1985,18 +1992,124 @@ class ClientGUI(ClientNetworkHandlersMixin):
         _cfg_tactical_btn("btn_downtime", connected and not in_combat)
         _cfg_tactical_btn("btn_special_powers", connected)
 
-        res = getattr(self.active_character, "class_resources", {}) if self.active_character else {}
-        has_sw = res.get("second_wind", True)
-        has_as = res.get("action_surge", True)
-        has_rage = res.get("rage_current", 2) > 0
+        counts = self._get_class_feature_counts()
+        has_sw = counts["sw_cur"] > 0
+        used_as_turn = bool(getattr(self, "_action_surge_used_this_turn", False))
+        has_as = (counts["as_cur"] > 0) and (not used_as_turn)
+        has_rage = counts["rage_cur"] > 0
 
         # Secondo Fiato può essere usato anche fuori dal combattimento per curarsi, ma in combattimento richiede l'Azione Bonus
-        self._update_contextual_class_features()
+        self._update_contextual_class_features(counts=counts)
         _cfg_tactical_btn("btn_second_wind", connected and has_sw and (not in_combat or can_bonus))
         _cfg_tactical_btn("btn_action_surge", connected and in_combat and has_as)
         _cfg_tactical_btn("btn_rage", connected and in_combat and can_bonus and has_rage)
 
-    def _update_contextual_class_features(self):
+    def _get_class_feature_counts(self):
+        char = getattr(self, "active_character", None)
+        res = getattr(char, "class_resources", None) if char else None
+        if not isinstance(res, dict):
+            res = {}
+        try:
+            from common.dnd5e_tables import entity_get_class_level
+            f_lvl = entity_get_class_level(char, "guerriero", "fighter") if char else 0
+            b_lvl = entity_get_class_level(char, "barbaro", "barbarian") if char else 0
+        except Exception:
+            f_lvl = 0
+            b_lvl = 0
+
+        sw_max = 1 if f_lvl >= 1 else 0
+        sw_cur = 1 if res.get("second_wind", True) else 0
+        if sw_max > 0:
+            sw_cur = min(sw_max, sw_cur)
+
+        as_max = int(res.get("action_surge_max", 0) or (2 if f_lvl >= 17 else (1 if f_lvl >= 2 else 0)))
+        if f_lvl >= 17 and as_max < 2:
+            as_max = 2
+        if "action_surge_current" in res and res["action_surge_current"] is not None:
+            as_cur = max(0, min(as_max if as_max > 0 else int(res["action_surge_current"]), int(res["action_surge_current"])))
+        else:
+            as_cur = as_max if res.get("action_surge", True) else 0
+
+        rage_max = int(res.get("rage_max", 0) or 0)
+        if rage_max <= 0 and b_lvl >= 1:
+            if b_lvl >= 20:
+                rage_max = 99
+            elif b_lvl >= 17:
+                rage_max = 6
+            elif b_lvl >= 12:
+                rage_max = 5
+            elif b_lvl >= 6:
+                rage_max = 4
+            elif b_lvl >= 3:
+                rage_max = 3
+            else:
+                rage_max = 2
+        rage_cur = int(res.get("rage_current", rage_max if rage_max > 0 else 2) or 0)
+        if rage_max > 0:
+            rage_cur = max(0, min(rage_max, rage_cur))
+        return {
+            "f_lvl": f_lvl,
+            "b_lvl": b_lvl,
+            "sw_cur": sw_cur,
+            "sw_max": sw_max,
+            "as_cur": as_cur,
+            "as_max": as_max,
+            "rage_cur": rage_cur,
+            "rage_max": rage_max,
+        }
+
+    def _get_feature_tooltip(self, feature_key: str) -> str:
+        base = _t(f"tooltip_{feature_key}")
+        char = getattr(self, "active_character", None)
+        if not char:
+            return base
+        counts = self._get_class_feature_counts()
+        in_combat = bool(getattr(self, "combat_active", False))
+        connected = bool(getattr(self, "is_connected", False))
+        my_turn = bool(not in_combat or not connected or getattr(self, "_is_my_turn", True))
+        can_bonus = not bool(getattr(self, "bonus_spent", False))
+
+        reasons = []
+        if not connected:
+            reasons.append("Disconnesso")
+        elif in_combat and not my_turn:
+            reasons.append("Turno avversario")
+
+        if feature_key == "second_wind":
+            cur, mx = counts["sw_cur"], max(1, counts["sw_max"])
+            status = f"Utilizzi rimasti: {cur}/{mx} (Riposo Breve o Lungo)"
+            if cur <= 0:
+                reasons.append("Esaurito — effettua un Riposo Breve o Lungo")
+            elif in_combat and not can_bonus:
+                reasons.append("Azione Bonus già spesa in questo turno")
+        elif feature_key == "action_surge":
+            cur, mx = counts["as_cur"], max(1, counts["as_max"])
+            status = f"Utilizzi rimasti: {cur}/{mx} (Riposo Breve o Lungo • Max 1/turno)"
+            if not in_combat:
+                reasons.append("Utilizzabile solo in combattimento")
+            elif getattr(self, "_action_surge_used_this_turn", False):
+                reasons.append("Già usata in questo turno (PHB p. 72)")
+            elif cur <= 0:
+                reasons.append("Esaurito — effettua un Riposo Breve o Lungo")
+        elif feature_key == "rage":
+            cur, mx = counts["rage_cur"], max(2, counts["rage_max"])
+            disp = "∞" if mx >= 99 else f"{cur}/{mx}"
+            status = f"Utilizzi rimasti: {disp} (Riposo Lungo)"
+            if not in_combat:
+                reasons.append("Utilizzabile solo in combattimento")
+            elif cur <= 0:
+                reasons.append("Esaurito — effettua un Riposo Lungo")
+            elif not can_bonus:
+                reasons.append("Azione Bonus già spesa in questo turno")
+        else:
+            return base
+
+        lines = [base, status]
+        if reasons:
+            lines.append("⚠ " + " • ".join(reasons))
+        return "\n".join(lines)
+
+    def _update_contextual_class_features(self, counts=None):
         """Mostra il riquadro privilegi di classe solo se pertinenti alla classe dell'eroe attivo."""
         if not hasattr(self, "class_features_frame") or not self.class_features_frame:
             return
@@ -2023,6 +2136,21 @@ class ClientGUI(ClientNetworkHandlersMixin):
                 fighter_lvl = int(getattr(char, "level", 1) or 1)
             except (ValueError, TypeError):
                 fighter_lvl = 1
+
+        if counts is None:
+            counts = self._get_class_feature_counts()
+        if getattr(self, "btn_second_wind", None):
+            sw_mx = max(1, counts["sw_max"])
+            sw_cur = min(sw_mx, counts["sw_cur"])
+            self.btn_second_wind.config(text=f"{_t('btn_second_wind')} ({sw_cur}/{sw_mx})")
+        if getattr(self, "btn_action_surge", None):
+            as_mx = max(2 if fighter_lvl >= 17 else 1, counts["as_max"])
+            as_cur = min(as_mx, counts["as_cur"]) if counts["as_max"] > 0 or fighter_lvl >= 2 else (as_mx if getattr(getattr(char, "class_resources", None) or {}, "get", lambda *a: True)("action_surge", True) else 0)
+            self.btn_action_surge.config(text=f"{_t('btn_action_surge')} ({as_cur}/{as_mx})")
+        if getattr(self, "btn_rage", None):
+            r_mx = max(2, counts["rage_max"])
+            r_lbl = "∞" if r_mx >= 99 else f"{counts['rage_cur']}/{r_mx}"
+            self.btn_rage.config(text=f"{_t('btn_rage')} ({r_lbl})")
 
         for attr in ("btn_second_wind", "btn_action_surge", "btn_rage"):
             w = getattr(self, attr, None)
@@ -2496,11 +2624,23 @@ class ClientGUI(ClientNetworkHandlersMixin):
         if getattr(self, "_action_surge_used_this_turn", False):
             self.show_toast("Puoi usare Azione Furente una sola volta per turno (PHB p. 72)!", title="⚡ Azione Furente", toast_type="warning")
             return
-        res = getattr(self.active_character, "class_resources", {})
-        if not res.get("action_surge", True):
+        res = getattr(self.active_character, "class_resources", None)
+        if not isinstance(res, dict):
+            res = {}
+        as_max = int(res.get("action_surge_max", 0) or (2 if f_lvl >= 17 else 1))
+        if f_lvl >= 17 and as_max < 2:
+            as_max = 2
+        if "action_surge_current" in res and res["action_surge_current"] is not None:
+            as_cur = int(res["action_surge_current"])
+        else:
+            as_cur = as_max if res.get("action_surge", True) else 0
+        if as_cur <= 0:
             self.show_toast("Hai già usato Azione Furente! Si ricarica con un Riposo Breve o Lungo.", title="⚡ Azione Furente", toast_type="warning")
             return
-        res["action_surge"] = False
+        new_as_cur = max(0, as_cur - 1)
+        res["action_surge_max"] = as_max
+        res["action_surge_current"] = new_as_cur
+        res["action_surge"] = new_as_cur > 0
         self.active_character.class_resources = res
         self._action_surge_used_this_turn = True
         self.action_spent = False
@@ -2510,7 +2650,11 @@ class ClientGUI(ClientNetworkHandlersMixin):
         if self.is_connected:
             from common.protocol import make_class_feature_request
             self.network.send(make_class_feature_request("action_surge", already_consumed=False))
-        self.show_toast("Azione Furente attivata: Azione Standard ripristinata per questo turno!", title="⚡ Azione Furente", toast_type="success")
+        self.show_toast(
+            f"Azione Furente attivata: Azione Standard ripristinata per questo turno! (Rimasti: {new_as_cur}/{as_max})",
+            title="⚡ Azione Furente",
+            toast_type="success",
+        )
 
     def use_rage(self):
         if not self.active_character:
@@ -2570,33 +2714,59 @@ class ClientGUI(ClientNetworkHandlersMixin):
         sign = f"+{con_mod}" if con_mod >= 0 else str(con_mod)
         ttk.Label(win, text=f"Bonus Costituzione per dado: {sign}", font=FONT_SMALL).pack(pady=2)
         
-        if hd_cur <= 0:
-            ttk.Label(win, text="Non hai Dadi Vita rimasti. Effettua un Riposo Lungo per recuperarli.", foreground="#ED4245").pack(pady=10)
-            ttk.Button(win, text="Chiudi", command=win.destroy).pack(pady=10)
-            return
-            
-        spend_frame = ttk.Frame(win)
-        spend_frame.pack(pady=10)
-        ttk.Label(spend_frame, text="Dadi da spendere: ").pack(side=tk.LEFT)
-        spend_var = tk.IntVar(value=1)
-        spin = ttk.Spinbox(spend_frame, from_=1, to=hd_cur, textvariable=spend_var, width=5)
-        spin.pack(side=tk.LEFT)
-        
-        def do_rest():
-            try: n_dice = int(spend_var.get())
-            except (ValueError, tk.TclError): return
-            if n_dice <= 0 or n_dice > hd_cur:
-                return
+        def _execute_short_rest(n_dice):
             recovered = char.short_rest(n_dice)
             self.character_manager.save_characters()
             self.update_hero_summary_card()
+            self.update_action_economy_ui()
             if self.is_connected:
                 from common.protocol import make_update_stats_request, make_short_rest_request
                 self.network.send(make_update_stats_request(char.hp_current, char.hp_max, char.initiative, getattr(char, "conditions", []), getattr(char, "temp_hp", 0)))
                 self.network.send(make_short_rest_request(n_dice, recovered))
             win.destroy()
-            self.show_toast(f"Hai speso {n_dice} Dado/i Vita e recuperato {recovered} HP! Privilegi di classe ricaricati.", title="☕ Riposo Breve Completato", toast_type="success")
-            
+            if n_dice == 0:
+                self.show_toast(
+                    "Hai completato un Riposo Breve (0 Dadi Vita spesi)! Privilegi di classe e Slot Patto ricaricati.",
+                    title="☕ Riposo Breve Completato",
+                    toast_type="success",
+                )
+            else:
+                self.show_toast(
+                    f"Hai speso {n_dice} Dado/i Vita e recuperato {recovered} HP! Privilegi di classe ricaricati.",
+                    title="☕ Riposo Breve Completato",
+                    toast_type="success",
+                )
+
+        if hd_cur <= 0:
+            ttk.Label(
+                win,
+                text="Nessun Dado Vita rimasto, ma puoi comunque riposare (0 DV) per ricaricare i privilegi di classe e gli Slot Patto.",
+                foreground="#FAA61A",
+                wraplength=300,
+                justify=tk.CENTER,
+            ).pack(pady=8)
+            btn_row = ttk.Frame(win)
+            btn_row.pack(pady=8)
+            ttk.Button(btn_row, text="☕ Riposa senza spendere Dadi Vita (0 DV)", command=lambda: _execute_short_rest(0), style='Primary.TButton').pack(side=tk.LEFT, padx=4)
+            ttk.Button(btn_row, text="Chiudi", command=win.destroy).pack(side=tk.LEFT, padx=4)
+            return
+
+        spend_frame = ttk.Frame(win)
+        spend_frame.pack(pady=10)
+        ttk.Label(spend_frame, text="Dadi da spendere: ").pack(side=tk.LEFT)
+        spend_var = tk.IntVar(value=1)
+        spin = ttk.Spinbox(spend_frame, from_=0, to=hd_cur, textvariable=spend_var, width=5)
+        spin.pack(side=tk.LEFT)
+
+        def do_rest():
+            try:
+                n_dice = int(spend_var.get())
+            except (ValueError, tk.TclError):
+                return
+            if n_dice < 0 or n_dice > hd_cur:
+                return
+            _execute_short_rest(n_dice)
+
         ttk.Button(win, text="Tira Dadi & Riposa", command=do_rest, style='Primary.TButton').pack(pady=12)
 
 
@@ -3895,6 +4065,8 @@ class ClientGUI(ClientNetworkHandlersMixin):
                 self.active_character.hp_max = p_dict["max_hp"]
             if "temp_hp" in p_dict and p_dict["temp_hp"] is not None:
                 self.active_character.temp_hp = p_dict["temp_hp"]
+            if "concentrating_on" in p_dict:
+                self.active_character.concentrating_on = p_dict.get("concentrating_on")
             self._action_surge_used_this_turn = bool(p_dict.get("action_surge_used_this_turn", False))
             srv_sheet = p_dict.get("full_sheet")
             if isinstance(srv_sheet, dict) and srv_sheet:

@@ -1,4 +1,5 @@
 # protocol.py
+import uuid
 from typing import TypedDict, Any, Optional, Dict, List
 
 # ==============================================================================
@@ -613,6 +614,16 @@ def make_mystic_arcanum_request(level: int, spell_name: Optional[str] = None, ta
     if actor_name: d["actor_name"] = actor_name
     return {"type": "MYSTIC_ARCANUM_REQUEST", "data": d}
 
+def _attach_request_id(payload: Dict[str, Any], extra: Dict[str, Any]) -> None:
+    """Attach a default correlation/idempotency request_id unless explicitly suppressed with None."""
+    if "request_id" not in extra:
+        payload["request_id"] = uuid.uuid4().hex[:12]
+    elif extra.get("request_id") is None:
+        payload.pop("request_id", None)
+    else:
+        payload["request_id"] = str(extra.get("request_id") or uuid.uuid4().hex[:12])
+
+
 def make_cast_special_spell_request(spell_name: str, cast_level: int = 1, target_name: Optional[str] = None, targets: Optional[List[str]] = None, casting_time: str = "action", has_verbal: bool = True, base_level: Optional[int] = None, actor_name: Optional[str] = None, **extra: Any) -> ProtocolMessage:
     d: Dict[str, Any] = {"spell_name": spell_name, "cast_level": int(cast_level), "casting_time": casting_time, "has_verbal": bool(has_verbal)}
     if base_level is not None: d["base_level"] = int(base_level)
@@ -620,6 +631,7 @@ def make_cast_special_spell_request(spell_name: str, cast_level: int = 1, target
     if targets: d["targets"] = targets
     if actor_name: d["actor_name"] = actor_name
     d.update(extra)
+    _attach_request_id(d, extra)
     return {"type": "CAST_SPECIAL_SPELL_REQUEST", "data": d}
 
 def make_toggle_non_lethal_request(non_lethal: Optional[bool] = None, actor_name: Optional[str] = None) -> ProtocolMessage:
@@ -711,6 +723,7 @@ def make_downtime_request(activity: str, days: int = 5, skill_bonus: int = 0, co
 def make_class_feature_request(feature: str, action: str = "activate", **extra: Any) -> ProtocolMessage:
     payload: Dict[str, Any] = {"feature": feature, "action": action}
     payload.update(extra)
+    _attach_request_id(payload, extra)
     return {"type": "CLASS_FEATURE_REQUEST", "data": payload}
 
 

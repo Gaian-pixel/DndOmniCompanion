@@ -2692,11 +2692,7 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                     else:
                         p = item[0]
                         self._listbox_player_names.append(p.name)
-                        prefix = "  "
-                        conds = f" {{{', '.join(p.conditions)}}}" if getattr(p, "conditions", []) else ""
-                        hidden_str = "[N] " if getattr(p, "is_hidden", False) else ""
-                        init_badge = _t('sheet_init_badge')
-                        display_text = f"{prefix}{hidden_str}{p.name} (HP: {p.hp}/{p.max_hp}) [{init_badge}: {p.initiative}]{conds}"
+                        display_text = self._format_dm_player_row(p, prefix="  ", is_turn=False, in_combat=True)
                         self.player_listbox.insert(tk.END, display_text)
                         self.player_listbox.itemconfig(i, {'bg': SURFACE_COLOR, 'fg': TEXT_COLOR})
             else:
@@ -2707,14 +2703,7 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                     is_turn = bool(self.server.game_state.combat_active and in_combat and curr_turn_p and p.name == curr_turn_p.name)
                     
                     prefix = "➡️ " if is_turn else "  "
-                    conds = f" {{{', '.join(p.conditions)}}}" if getattr(p, "conditions", []) else ""
-                    
-                    hidden_str = "[N] " if getattr(p, "is_hidden", False) else ""
-                    if not in_combat and self.server.game_state.combat_active:
-                        display_text = f"  {hidden_str}{p.name} [{_t('not_in_combat')}]{conds}"
-                    else:
-                        init_badge = _t('sheet_init_badge')
-                        display_text = f"{prefix}{hidden_str}{p.name} (HP: {p.hp}/{p.max_hp}) [{init_badge}: {p.initiative}]{conds}"
+                    display_text = self._format_dm_player_row(p, prefix=prefix, is_turn=is_turn, in_combat=in_combat)
                         
                     self.player_listbox.insert(tk.END, display_text)
                     
@@ -2728,6 +2717,30 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         if current_selection:
             try: self.player_listbox.selection_set(current_selection[0])
             except tk.TclError: pass
+
+    def _format_dm_player_row(self, p, prefix="  ", is_turn=False, in_combat=True):
+        """Format a single DM player/entity listbox line with HP, temp HP, concentration, ready, and turn economy badges."""
+        cond_list = list(getattr(p, "conditions", []) or [])
+        conds = f" {{{', '.join(cond_list)}}}" if cond_list else ""
+        hidden_str = "[N] " if getattr(p, "is_hidden", False) else ""
+        conc_spell = getattr(p, "concentrating_on", None)
+        conc_str = f" 🔮[Conc: {conc_spell}]" if conc_spell else ""
+        has_ready = bool(getattr(p, "readied_action_data", None)) or any(
+            str(c).strip().lower() == "azione preparata" for c in cond_list
+        )
+        ready_str = " ⏳[Prep]" if has_ready else ""
+        if not in_combat and self.server.game_state.combat_active:
+            return f"  {hidden_str}{p.name} [{_t('not_in_combat')}]{conc_str}{ready_str}{conds}"
+        temp_hp = int(getattr(p, "temp_hp", 0) or 0)
+        temp_str = f"+{temp_hp}" if temp_hp > 0 else ""
+        init_badge = _t('sheet_init_badge')
+        econ_str = ""
+        if is_turn and self.server.game_state.combat_active:
+            a_mark = "❌" if getattr(p, "has_acted_this_turn", False) else "✔"
+            b_mark = "❌" if getattr(p, "bonus_action_used_this_turn", False) else "✔"
+            r_mark = "❌" if getattr(p, "has_reacted_this_turn", False) else "✔"
+            econ_str = f" [A:{a_mark} B:{b_mark} R:{r_mark}]"
+        return f"{prefix}{hidden_str}{p.name} (HP: {p.hp}{temp_str}/{p.max_hp}) [{init_badge}: {p.initiative}]{econ_str}{conc_str}{ready_str}{conds}"
 
     def process_queue(self):
         if getattr(self, "_is_closing", False) or not hasattr(self, "master"):

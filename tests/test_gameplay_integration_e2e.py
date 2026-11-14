@@ -735,16 +735,17 @@ class TestLoopbackMultiplayerGameplayE2E(unittest.TestCase):
             self.assertEqual(srv_elara.full_sheet["spell_slots"]["1"]["current"], 4)
 
             # 4. Kaelen performs 2 Extra Attacks + Action Surge + 3rd attack over TCP
-            for _ in range(2):
-                c_k.send(make_attack_request("Goblin", "Spada Lunga", 20, "1d8+4"))
-            self.assertTrue(_wait_until(lambda: srv_kaelen.has_acted_this_turn, timeout=3.0))
-            hp_after_two = goblin.hp
-            self.assertLess(hp_after_two, 100)
+            with patch("random.randint", side_effect=lambda a, b: max(a, (a + b) // 2)):
+                for _ in range(2):
+                    c_k.send(make_attack_request("Goblin", "Spada Lunga", 20, "1d8+4"))
+                self.assertTrue(_wait_until(lambda: srv_kaelen.has_acted_this_turn, timeout=3.0))
+                hp_after_two = goblin.hp
+                self.assertLess(hp_after_two, 100)
 
-            c_k.send(make_class_feature_request("action_surge", already_consumed=False))
-            self.assertTrue(_wait_until(lambda: srv_kaelen.action_surge_used_this_turn and not srv_kaelen.has_acted_this_turn, timeout=3.0))
-            c_k.send(make_attack_request("Goblin", "Spada Lunga", 20, "1d8+4"))
-            self.assertTrue(_wait_until(lambda: goblin.hp < hp_after_two, timeout=3.0))
+                c_k.send(make_class_feature_request("action_surge", already_consumed=False))
+                self.assertTrue(_wait_until(lambda: srv_kaelen.action_surge_used_this_turn and not srv_kaelen.has_acted_this_turn, timeout=3.0))
+                c_k.send(make_attack_request("Goblin", "Spada Lunga", 20, "1d8+4"))
+                self.assertTrue(_wait_until(lambda: goblin.hp < hp_after_two, timeout=3.0))
 
             # 5. Kaelen ends turn -> Elara casts Dardo Incantato on her turn -> Lv 1 slot drops 4 -> 3
             c_k.send(make_end_turn_request())
@@ -793,6 +794,378 @@ class TestLoopbackMultiplayerGameplayE2E(unittest.TestCase):
             self.assertEqual(last_p_map["Elara"]["full_sheet"]["spell_slots"]["1"]["current"], 3)
         finally:
             harness.close()
+
+
+class TestPhase35AndPhase4HardeningAndUX(unittest.TestCase):
+    """
+    Phase 3.5 & Phase 4 regression suite covering:
+    - TASK-017: Fighter Lv 17+ Action Surge (2/rest, max 1/turn), unified rest resource restoration, 0-HD short rest
+    - TASK-018: Lock-protected bounded TTL request_id dedup, rejected cast optimistic concentration cleanup,
+                reconnect _preserve_join_until expiry, end_combat / 0-HP readied cleanup, _extra_fields guard
+    - TASK-019 / TASK-020: UI class feature counters & tooltips, hero Conc badge, 0-HD rest UI, DM listbox badges
+
+    Note: Tests in this class exercise in-memory server handlers and headless Tk widgets; real TCP socket E2E
+    coverage lives in TestLoopbackMultiplayerGameplayE2E above.
+    """
+
+    def test_task017_fighter_lv17_action_surge_upgrade_and_rest_restoration(self):
+        from server.rules.class_abilities import handle_class_feature_request
+        from server.rules.combat import handle_short_rest_request
+        from server.rules.character import trigger_group_long_rest
+
+        # Client level-up 16 -> 17 upgrades Action Surge max 1 -> 2 and bumps current by delta
+        f_pc = make_fighter_pc("Titus", level=16)
+        f_pc.class_resources = {"second_wind": True, "action_surge": False, "action_surge_max": 1, "action_surge_current": 0}
+        f_pc.custom_resources = [{"name": "Azione Furente", "current": 0, "max": 1, "reset_on": "short"}]
+        ok_lvl, _ = f_pc.add_class_level("Guerriero")
+        self.assertTrue(ok_lvl)
+        self.assertEqual(f_pc.level, 17)
+        self.assertEqual(f_pc.class_resources["action_surge_max"], 2)
+        self.assertEqual(f_pc.class_resources["action_surge_current"], 1)
+        self.assertTrue(f_pc.class_resources["action_surge"])
+        self.assertEqual(f_pc.custom_resources[0]["max"], 2)
+        self.assertEqual(f_pc.custom_resources[0]["current"], 1)
+
+        # Fresh Lv 17 Fighter with legacy custom_resources max=1 upgrades automatically on server Action Surge
+        gs = GameState(queue.Queue())
+        gs.combat_active = True
+        f17 = make_fighter_pc("Valkor", level=17)
+        f17.superiority_dice_max = 4
+        f17.superiority_dice_current = 1
+        f17_p = _pc_to_player(f17, pos=[0, 0], conn=_MockConn())
+        f17_p.full_sheet["custom_resources"] = [{"name": "Azione Furente", "current": 1, "max": 1, "reset_on": "short"}]
+        warlock_p = _pc_to_player(make_warlock_pc("Malakor", level=5), pos=[1, 0], conn=_MockConn())
+        warlock_p.full_sheet["pact_slots"]["current"] = 0
+        barb_p = _pc_to_player(make_barbarian_pc("Krag", level=5), pos=[2, 0], conn=_MockConn())
+        barb_p.full_sheet["class_resources"]["rage_current"] = 0
+        barb_p.full_sheet["class_resources"]["rage_max"] = 3
+        wiz_p = _pc_to_player(make_wizard_pc("Lyra", level=5), pos=[3, 0], conn=_MockConn())
+        wiz_p.full_sheet["spell_slots"]["1"]["current"] = 1
+        wiz_p.full_sheet["sorcery_points_max"] = 5
+        wiz_p.full_sheet["sorcery_points_current"] = 1
+
+        gs.players = [f17_p, warlock_p, barb_p, wiz_p]
+        gs.turn_index = 0
+
+        # Use #1 on Turn 1 -> consumes 1/2 (1 remaining)
+        handle_class_feature_request({"feature": "action_surge", "request_id": "as-1"}, f17_p, gs)
+        self.assertTrue(f17_p.action_surge_used_this_turn)
+        self.assertEqual(f17_p.full_sheet["class_resources"]["action_surge_max"], 2)
+        self.assertEqual(f17_p.full_sheet["class_resources"]["action_surge_current"], 1)
+        self.assertTrue(f17_p.full_sheet["class_resources"]["action_surge"])
+
+        # Same turn #2 -> rejected (PHB p. 72 max 1/turn) without burning 2nd charge
+        f17_p.conn.sent.clear()
+        handle_class_feature_request({"feature": "action_surge", "request_id": "as-2-same-turn"}, f17_p, gs)
+        errs = [f for f in _decode_sent_frames(f17_p.conn.sent) if f.get("type") == "ERROR_REPLY"]
+        self.assertTrue(errs)
+        self.assertEqual(f17_p.full_sheet["class_resources"]["action_surge_current"], 1)
+
+        # Next turn -> 2nd Action Surge succeeds and leaves 0/2
+        f17_p.action_surge_used_this_turn = False
+        handle_class_feature_request({"feature": "action_surge", "request_id": "as-3-next-turn"}, f17_p, gs)
+        self.assertEqual(f17_p.full_sheet["class_resources"]["action_surge_current"], 0)
+        self.assertFalse(f17_p.full_sheet["class_resources"]["action_surge"])
+
+        # Spend Second Wind before resting
+        handle_class_feature_request({"feature": "second_wind", "heal_amount": 18, "request_id": "sw-1"}, f17_p, gs)
+        self.assertFalse(f17_p.full_sheet["class_resources"]["second_wind"])
+
+        # Short Rest with 0 Hit Dice outside combat restores Fighter & Warlock short-rest resources
+        gs.end_combat()
+        handle_short_rest_request({"hd_spent": 0, "hp_recovered": 0}, f17_p, gs)
+        handle_short_rest_request({"hd_spent": 0, "hp_recovered": 0}, warlock_p, gs)
+        self.assertEqual(f17_p.full_sheet["class_resources"]["action_surge_current"], 2)
+        self.assertTrue(f17_p.full_sheet["class_resources"]["action_surge"])
+        self.assertTrue(f17_p.full_sheet["class_resources"]["second_wind"])
+        self.assertEqual(f17_p.full_sheet["superiority_dice_current"], 4)
+        self.assertFalse(f17_p.action_surge_used_this_turn)
+        self.assertEqual(warlock_p.full_sheet["pact_slots"]["current"], 2)
+
+        # Drain Fighter/Barb/Wizard then trigger Group Long Rest -> restores Rage, Spell Slots, Sorcery Points, Action Surge
+        f17_p.full_sheet["class_resources"]["action_surge_current"] = 0
+        f17_p.full_sheet["class_resources"]["action_surge"] = False
+        trigger_group_long_rest(gs, reason="Riposo Test")
+        self.assertEqual(f17_p.full_sheet["class_resources"]["action_surge_current"], 2)
+        self.assertEqual(barb_p.full_sheet["class_resources"]["rage_current"], 3)
+        self.assertEqual(wiz_p.full_sheet["spell_slots"]["1"]["current"], 4)
+        self.assertEqual(wiz_p.full_sheet["sorcery_points_current"], 5)
+
+        # Client 0-HD Short Rest preserves int return value and restores 2/2 Action Surge
+        f_pc.class_resources["action_surge_current"] = 0
+        f_pc.class_resources["action_surge"] = False
+        f_pc.class_resources["second_wind"] = False
+        rec = f_pc.short_rest(hd_to_spend=0)
+        self.assertIsInstance(rec, int)
+        self.assertEqual(rec, 0)
+        self.assertEqual(f_pc.class_resources["action_surge_current"], 2)
+        self.assertTrue(f_pc.class_resources["second_wind"])
+
+    def test_task018_request_id_dedup_conc_cleanup_reconnect_expiry_and_end_combat(self):
+        from server.rules.class_abilities import handle_cast_special_spell_request, handle_class_feature_request
+        from server.rules.character import handle_update_stats_request
+        from server.rules.combat import apply_damage
+
+        # Protocol helpers attach distinct request_id by default, respect explicit overrides and None suppression
+        m1 = make_class_feature_request("second_wind")
+        m2 = make_class_feature_request("second_wind")
+        self.assertTrue(m1["data"].get("request_id"))
+        self.assertNotEqual(m1["data"]["request_id"], m2["data"]["request_id"])
+        self.assertNotIn("request_id", make_class_feature_request("rage", request_id=None)["data"])
+        s1 = make_cast_special_spell_request("Dardo Incantato")
+        self.assertTrue(s1["data"].get("request_id"))
+
+        gs = GameState(queue.Queue())
+        gs.combat_active = True
+        fighter = _pc_to_player(make_fighter_pc("Doran", level=5), pos=[0, 0], conn=_MockConn())
+        fighter.hp = 20
+        fighter.max_hp = 44
+        wiz = _pc_to_player(make_wizard_pc("Nyx", level=5), pos=[1, 0], conn=_MockConn())
+        wiz.readied_action_data = {"trigger": "Goblin moves", "action": "Dardo Incantato", "is_spell": True}
+        wiz.conditions = ["Concentrazione", "Azione Preparata"]
+        wiz.concentrating_on = None  # Simulates optimistic client Concentrazione before server commit
+        wiz.full_sheet["conditions"] = list(wiz.conditions)
+
+        rogue = _pc_to_player(make_rogue_pc("Shade", level=5), pos=[2, 0], conn=_MockConn())
+        rogue.has_reacted_this_turn = True
+        rogue.sneak_attack_used_this_turn = True
+        rogue.readied_action_data = {"trigger": "Enemy attacks", "action": "Stocco", "is_spell": False}
+        rogue.conditions = ["Azione Preparata"]
+
+        gs.players = [fighter, wiz, rogue]
+        gs.turn_index = 0
+
+        # Class feature request_id deduplication (duplicate Second Wind ignored -> single heal only)
+        handle_class_feature_request({"feature": "second_wind", "heal_amount": 8, "request_id": "dup-sw"}, fighter, gs)
+        self.assertEqual(fighter.hp, 28)
+        fighter.hp = 20
+        fighter.full_sheet["class_resources"]["second_wind"] = True
+        fighter.bonus_action_used_this_turn = False
+        handle_class_feature_request({"feature": "second_wind", "heal_amount": 8, "request_id": "dup-sw"}, fighter, gs)
+        self.assertEqual(fighter.hp, 20)
+
+        # Bounded dedup cache (max 32 entries) evicts oldest once exceeded
+        for idx in range(36):
+            handle_cast_special_spell_request(
+                {"spell_name": "Dardo Incantato", "cast_level": 1, "request_id": f"fill-{idx}"},
+                fighter,  # Rejected for no slots/non-caster or processed into recent map -> wait test on wiz out of combat
+                gs,
+            )
+        self.assertLessEqual(len(getattr(fighter, "_recent_spell_req_ids", {})), 32)
+
+        # Rejected cast cleans optimistic "Concentrazione" when server concentrating_on is None, preserving if active
+        gs.turn_index = 1
+        wiz.conditions = ["Silenzio", "Concentrazione"]
+        wiz.full_sheet["conditions"] = ["Silenzio", "Concentrazione"]
+        wiz.concentrating_on = None
+        handle_cast_special_spell_request(
+            {"spell_name": "Dardo Incantato", "cast_level": 1, "base_level": 1, "concentration": True, "request_id": "rej-conc"},
+            wiz,
+            gs,
+        )
+        self.assertNotIn("Concentrazione", wiz.conditions)
+        self.assertNotIn("Concentrazione", wiz.full_sheet["conditions"])
+
+        wiz.concentrating_on = "Silenzio"
+        wiz.conditions = ["Silenzio", "Concentrazione"]
+        handle_cast_special_spell_request(
+            {"spell_name": "Dardo Incantato", "cast_level": 1, "base_level": 1, "request_id": "rej-keep"},
+            wiz,
+            gs,
+        )
+        self.assertIn("Concentrazione", wiz.conditions)
+
+        # Reconnect _preserve_join_until expiry allows post-handshake handle_update_stats_request
+        fighter._preserve_stats_on_join = True
+        fighter._preserve_server_state_on_join = True
+        fighter._preserve_join_until = time.monotonic() - 1.0
+        handle_update_stats_request({"hp": 31, "max_hp": 44, "initiative": 2, "conditions": []}, fighter, gs)
+        self.assertEqual(fighter.hp, 31)
+        self.assertFalse(fighter._preserve_stats_on_join)
+
+        # Incapacitated via handle_update_stats_request clears readied action & Azione Preparata
+        fighter.readied_action_data = {"trigger": "Any", "action": "Attack", "is_spell": False}
+        fighter.conditions = ["Azione Preparata"]
+        handle_update_stats_request({"hp": 31, "max_hp": 44, "initiative": 2, "conditions": ["Azione Preparata", "Incapacitato"]}, fighter, gs)
+        self.assertIsNone(fighter.readied_action_data)
+        self.assertNotIn("Azione Preparata", fighter.conditions)
+
+        # apply_damage dropping target to 0 HP clears readied action & Azione Preparata
+        wiz.hp = 5
+        wiz.conditions = ["Azione Preparata", "Concentrazione"]
+        wiz.readied_action_data = {"trigger": "Enemy casts", "action": "Fireball", "is_spell": True}
+        wiz.concentrating_on = "Preparato: Fireball"
+        apply_damage(wiz, 10, game_state=gs)
+        self.assertEqual(wiz.hp, 0)
+        self.assertIsNone(wiz.readied_action_data)
+        self.assertNotIn("Azione Preparata", wiz.conditions)
+
+        # end_combat resets readied actions, "Preparato:" concentration, reaction, and sneak attack
+        wiz.concentrating_on = "Preparato: Palla di Fuoco"
+        wiz.conditions = ["Azione Preparata", "Concentrazione"]
+        wiz.readied_action_data = {"trigger": "Door opens", "action": "Cast", "is_spell": True}
+        wiz.full_sheet["conditions"] = list(wiz.conditions)
+        gs.end_combat()
+        self.assertFalse(gs.combat_active)
+        self.assertFalse(rogue.has_reacted_this_turn)
+        self.assertFalse(rogue.sneak_attack_used_this_turn)
+        self.assertIsNone(rogue.readied_action_data)
+        self.assertNotIn("Azione Preparata", rogue.conditions)
+        self.assertIsNone(wiz.concentrating_on)
+        self.assertIsNone(wiz.readied_action_data)
+        self.assertNotIn("Azione Preparata", wiz.conditions)
+        self.assertNotIn("Concentrazione", wiz.conditions)
+        self.assertNotIn("Concentrazione", wiz.full_sheet["conditions"])
+
+        # _extra_fields / _extra_state_fields never nest self-keys across repeated from_dict / load_session
+        p_rt = Player.from_dict({**fighter.to_dict(), "custom_flag": 42, "_extra_fields": {"stale": True}})
+        self.assertNotIn("_extra_fields", p_rt._extra_fields)
+        self.assertEqual(p_rt._extra_fields.get("custom_flag"), 42)
+        c_rt = Campaign.from_dict({**Campaign(name="C1").to_dict(), "ext_k": "ok", "_extra_fields": {"stale": True}})
+        self.assertNotIn("_extra_fields", c_rt._extra_fields)
+        self.assertEqual(c_rt._extra_fields.get("ext_k"), "ok")
+
+    def test_task019_and_task020_ui_counters_tooltips_conc_badge_zero_hd_rest_and_dm_badges(self):
+        from client.client import ClientGUI
+        from server.dm_gui import DM_GUI
+        from common.i18n import _t
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            pc17 = make_fighter_pc("Ares", level=17)
+            pc17.class_resources = {
+                "second_wind": True,
+                "action_surge": True,
+                "action_surge_max": 2,
+                "action_surge_current": 2,
+                "rage_current": 0,
+                "rage_max": 0,
+            }
+            pc17.concentrating_on = "Scudo della Fede"
+            pc17.temp_hp = 5
+            pc17.hit_dice_current = 0
+
+            # Build lightweight Tk host wired to real ClientGUI unbound methods
+            host = SimpleNamespace()
+            host.name = pc17.name
+            host.active_character = pc17
+            host.players_data = {pc17.name: {"hp": 44, "max_hp": 44, "temp_hp": 5, "concentrating_on": "Scudo della Fede", "conditions": []}}
+            host.combat_active = True
+            host.is_connected = True
+            host._is_my_turn = True
+            host.action_spent = False
+            host.bonus_spent = False
+            host.reaction_spent = False
+            host.movement_spent_ft = 0
+            host._attacks_made_this_turn = 0
+            host._action_surge_used_this_turn = False
+            host.character_manager = MagicMock()
+            host.network = MagicMock()
+            host.show_toast = MagicMock()
+
+            host.hero_name_lbl = tk.Label(root)
+            host.hero_class_lbl = tk.Label(root)
+            host.hero_hp_lbl = tk.Label(root)
+            host.hero_hp_bar_fill = tk.Frame(root)
+            host.hero_ac_badge = tk.Label(root)
+            host.hero_speed_badge = tk.Label(root)
+            host.hero_init_badge = tk.Label(root)
+            host.btn_act_tracker = tk.Button(root)
+            host.btn_bonus_tracker = tk.Button(root)
+            host.btn_react_tracker = tk.Button(root)
+            host.class_features_frame = tk.LabelFrame(root)
+            host.btn_second_wind = tk.Button(host.class_features_frame)
+            host.btn_action_surge = tk.Button(host.class_features_frame)
+            host.btn_rage = tk.Button(host.class_features_frame)
+            host.combat_btn = tk.Button(root)
+            host.combat_btn.pack()
+            host.center_window = lambda *a, **kw: None
+
+            # Bind methods needed for chained calls
+            host._get_class_feature_counts = lambda: ClientGUI._get_class_feature_counts(host)
+            host._get_feature_tooltip = lambda k: ClientGUI._get_feature_tooltip(host, k)
+            host._update_contextual_class_features = lambda counts=None: ClientGUI._update_contextual_class_features(host, counts=counts)
+            host.update_hero_summary_card = lambda: ClientGUI.update_hero_summary_card(host)
+            host.update_action_economy_ui = lambda: ClientGUI.update_action_economy_ui(host)
+            host._has_cunning_action = lambda: False
+
+            # Hero card shows temp HP + Concentration spell badge
+            host.update_hero_summary_card()
+            hp_txt = host.hero_hp_lbl.cget("text")
+            self.assertIn("+5 Temp", hp_txt)
+            self.assertIn("🔮 [Conc: Scudo della Fede]", hp_txt)
+
+            # Live counters show (2/2) for Lv 17 Action Surge & (1/1) for Second Wind
+            host.update_action_economy_ui()
+            self.assertIn("(2/2)", host.btn_action_surge.cget("text"))
+            self.assertIn("(1/1)", host.btn_second_wind.cget("text"))
+            self.assertEqual(str(host.btn_action_surge.cget("state")), "normal")
+
+            # Use Action Surge once -> (1/2) left, button disabled for remainder of same turn with PHB p. 72 tooltip
+            ClientGUI.use_action_surge(host)
+            self.assertTrue(host._action_surge_used_this_turn)
+            self.assertEqual(pc17.class_resources["action_surge_current"], 1)
+            self.assertTrue(pc17.class_resources["action_surge"])
+            self.assertIn("(1/2)", host.btn_action_surge.cget("text"))
+            self.assertEqual(str(host.btn_action_surge.cget("state")), "disabled")
+            tip_same_turn = host._get_feature_tooltip("action_surge")
+            self.assertIn("1/2", tip_same_turn)
+            self.assertIn("PHB p. 72", tip_same_turn)
+
+            # Reset turn resources re-enables Action Surge with 1/2 still available
+            ClientGUI.reset_turn_resources(host)
+            self.assertFalse(host._action_surge_used_this_turn)
+            self.assertEqual(str(host.btn_action_surge.cget("state")), "normal")
+
+            # Language switch / apply_translations preserves live counters when active_character present
+            host.btn_action_surge.config(text=_t("btn_action_surge"))
+            host._update_contextual_class_features()
+            self.assertIn("(1/2)", host.btn_action_surge.cget("text"))
+
+            # DM player listbox row badges (+temp_hp, Conc, Prep, [A/B/R] on active turn)
+            dm_mock = MagicMock()
+            dm_mock.server = SimpleNamespace(game_state=SimpleNamespace(combat_active=True))
+            dm_p = Player("Ares", conn=None)
+            dm_p.hp = 38
+            dm_p.max_hp = 44
+            dm_p.temp_hp = 7
+            dm_p.initiative = 18
+            dm_p.concentrating_on = "Benedizione"
+            dm_p.conditions = ["Benedetto", "Azione Preparata"]
+            dm_p.has_acted_this_turn = True
+            dm_p.bonus_action_used_this_turn = False
+            dm_p.has_reacted_this_turn = True
+            row = DM_GUI._format_dm_player_row(dm_mock, dm_p, prefix="➡️ ", is_turn=True, in_combat=True)
+            self.assertIn("(HP: 38+7/44)", row)
+            self.assertIn("[A:❌ B:✔ R:❌]", row)
+            self.assertIn("🔮[Conc: Benedizione]", row)
+            self.assertIn("⏳[Prep]", row)
+
+            # Verify open_short_rest_dialog supports 0 HD rest button without returning empty warning-only close
+            host.master = root
+            pc17.class_resources["action_surge_current"] = 0
+            pc17.class_resources["action_surge"] = False
+            ClientGUI.open_short_rest_dialog(host)
+            toplevels = [w for w in root.winfo_children() if isinstance(w, tk.Toplevel)]
+            self.assertEqual(len(toplevels), 1)
+            sr_win = toplevels[0]
+            def _find_buttons(widget):
+                from tkinter import ttk
+                out = []
+                for child in widget.winfo_children():
+                    if isinstance(child, (ttk.Button, tk.Button)):
+                        out.append(child)
+                    out.extend(_find_buttons(child))
+                return out
+            sr_btns = _find_buttons(sr_win)
+            zero_hd_btns = [b for b in sr_btns if "0 DV" in str(b.cget("text"))]
+            self.assertTrue(zero_hd_btns, f"Expected 0-HD rest button, found {[b.cget('text') for b in sr_btns]}")
+            zero_hd_btns[0].invoke()
+            self.assertEqual(pc17.class_resources["action_surge_current"], 2)
+            self.assertTrue(pc17.class_resources["action_surge"])
+        finally:
+            root.destroy()
 
 
 if __name__ == "__main__":

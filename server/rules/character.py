@@ -9,6 +9,8 @@ from common.protocol import (
 from common.network_utils import send_message, broadcast
 import copy
 import math
+import time
+from common.character_schema import restore_entity_rest_resources
 from server.rules.combat import _apply_hp_change, apply_damage
 from common.dice import roll_dice
 from common.i18n import is_condition_active
@@ -48,7 +50,14 @@ def handle_update_stats_request(data, player, game_state):
         stats_payload = None
         preserved_on_reconnect = False
         with game_state.lock:
-            if getattr(target, "_preserve_stats_on_join", False) and not is_dm:
+            preserve_stats = bool(getattr(target, "_preserve_stats_on_join", False)) and not is_dm
+            preserve_until = getattr(target, "_preserve_join_until", None)
+            if preserve_stats and isinstance(preserve_until, (int, float)) and time.monotonic() > preserve_until:
+                target._preserve_stats_on_join = False
+                target._preserve_server_state_on_join = False
+                target._preserve_join_until = None
+                preserve_stats = False
+            if preserve_stats:
                 target._preserve_stats_on_join = False
                 preserved_on_reconnect = True
                 if data.get("initiative") is not None:
@@ -83,6 +92,15 @@ def handle_update_stats_request(data, player, game_state):
                 if any(str(c).strip().lower() in incap for c in conditions) or hp <= 0:
                     from server.rules.combat import drop_concentration
                     drop_concentration(target, game_state, notify=True)
+                    target.readied_action_data = None
+                    if isinstance(conditions, list):
+                        conditions[:] = [c for c in conditions if str(c).strip().lower() != "azione preparata"]
+                    if isinstance(getattr(target, "conditions", None), list):
+                        target.conditions = [c for c in target.conditions if str(c).strip().lower() != "azione preparata"]
+                    if isinstance(getattr(target, "full_sheet", None), dict) and isinstance(target.full_sheet.get("conditions"), list):
+                        target.full_sheet["conditions"] = [
+                            c for c in target.full_sheet["conditions"] if str(c).strip().lower() != "azione preparata"
+                        ]
                 _apply_hp_change(target, hp, game_state)
                 if isinstance(getattr(target, "full_sheet", None), dict):
                     target.full_sheet["hp_current"] = target.hp
@@ -160,7 +178,16 @@ def handle_update_full_sheet_request(data, player, game_state):
             existing_sheet = getattr(player, "full_sheet", None)
             had_existing_sheet = isinstance(existing_sheet, dict) and bool(existing_sheet)
             is_dm = is_dm_actor(player)
+            preserve_until = getattr(player, "_preserve_join_until", None)
             preserve_reconnect = bool(getattr(player, "_preserve_server_state_on_join", False))
+            if preserve_reconnect and isinstance(preserve_until, (int, float)) and time.monotonic() > preserve_until:
+                preserve_reconnect = False
+                player._preserve_stats_on_join = False
+                player._preserve_join_until = None
+            elif preserve_reconnect and preserve_until is None:
+                player._preserve_join_until = time.monotonic() + 1.0
+            elif not preserve_reconnect and not getattr(player, "_preserve_stats_on_join", False):
+                player._preserve_join_until = None
             player._preserve_server_state_on_join = False
 
             # Preserva i flag di starter kit lato server per impedire ri-assegnazioni ripetute
@@ -614,53 +641,8 @@ def handle_resolve_night_camp_request(data, player, game_state):
                     continue
                 if "Morto" in getattr(p, "conditions", []) or "Dead" in getattr(p, "conditions", []):
                     continue
-                _dm_s_camp = getattr(game_state, "automation_settings", {}) or {}
-                if not _dm_s_camp.get("opt_slow_natural_healing", False):
-                    p.hp = p.max_hp
-                p.temp_hp = 0
-                from common.feats_and_classes import evaluate_armor_sleep
-                from common.dnd5e_tables import entity_get_class_level as _cls_lvl, entity_get_attr_mod as _attr_m
-                _sleep_res = evaluate_armor_sleep(p, game_state)
-                if not _sleep_res["blocks_exhaustion_recovery"]:
-                    p.exhaustion_level = max(0, getattr(p, "exhaustion_level", 0) - 1)
-                elif getattr(p, "exhaustion_level", 0) > 0:
-                    pending_broadcasts.append(make_chat_broadcast("Sistema", _sleep_res["note"]))
-                elif _sleep_res["penalized"]:
-                    pending_broadcasts.append(make_chat_broadcast("Sistema", _sleep_res["note"]))
-                conds = [c for c in getattr(p, "conditions", []) if not c.startswith("Sfinimento") and c not in ("Incosciente", "Prono", "Avvelenato")]
-                if p.exhaustion_level > 0:
-                    conds.append(f"Sfinimento (Liv. {p.exhaustion_level})")
-                p.conditions = conds
-                if getattr(p, "full_sheet", None):
-                    p.full_sheet["hp_current"] = p.hp
-                    p.full_sheet["exhaustion_level"] = p.exhaustion_level
-                    p.full_sheet["conditions"] = list(conds)
-                    p.full_sheet["temp_hp"] = 0
-                    # D&D 5e RAW: Ripristina tutti gli slot incantesimo
-                    if isinstance(p.full_sheet.get("spell_slots"), dict):
-                        for lvl_k, sl_data in p.full_sheet["spell_slots"].items():
-                            if isinstance(sl_data, dict):
-                                sl_data["current"] = sl_data.get("max", 0)
-                    # D&D 5e RAW: Ripristina metà dei Dadi Vita (minimo 1)
-                    lvl = int(p.full_sheet.get("level", 1) or 1)
-                    _hd_frac = _sleep_res["hd_fraction"] if "_sleep_res" in locals() else 0.5
-                    hd_rec = max(1, int(lvl * _hd_frac)) if _hd_frac < 0.5 else max(1, lvl // 2)
-                    cur_hd = int(p.full_sheet.get("hit_dice_current", lvl) or 0)
-                    p.full_sheet["hit_dice_current"] = min(lvl, cur_hd + hd_rec)
-                    # Talento Fortunato (Lucky, PHB p. 167): ricarica 3 Punti Fortuna
-                    p.full_sheet["lucky_points"] = 3
-                    # Mago Abiuratore: ripristina Interdizione Arcana al massimo
-                    _wiz_l = _cls_lvl(p, "mago", "wizard")
-                    _sub_w = str(p.full_sheet.get("subclass", "") or "").lower()
-                    if _wiz_l >= 2 and ("abiuraz" in _sub_w or "abjur" in _sub_w):
-                        p.full_sheet["arcane_ward_hp"] = max(1, 2 * _wiz_l + max(0, _attr_m(p, "INT")))
-                    sp_max = int(p.full_sheet.get("spell_points_max", 0) or 0)
-                    if sp_max > 0:
-                        p.full_sheet["spell_points_current"] = sp_max
-                    p.relentless_rage_uses = 0
-                    p.frightful_immune_list = []
-                from server.dm_monster_engine import restore_drain_penalties
-                restore_drain_penalties(p, rest_type="long")
+                for note in _apply_player_long_rest(p, game_state):
+                    pending_broadcasts.append(make_chat_broadcast("Sistema", note))
                 if getattr(p, "conn", None):
                     pending_direct.append((p.conn, {"type": "DO_LONG_REST", "data": {}}))
             pending_broadcasts.append(make_chat_broadcast("Sistema", full_msg))
@@ -710,6 +692,59 @@ def handle_generate_encounter_request(data, player, game_state):
             send_message(player.conn, make_chat_broadcast("Viaggio", msg))
         game_state.log_dm_message(f"[ENCOUNTER] {msg}")
 
+def _apply_player_long_rest(p, game_state):
+    """Apply canonical D&D 5e Long Rest recovery to a Player entity and return alert notes."""
+    from common.feats_and_classes import evaluate_armor_sleep
+    from common.dnd5e_tables import entity_get_class_level as _cls_lvl, entity_get_attr_mod as _attr_m
+    from server.dm_monster_engine import restore_drain_penalties
+
+    alerts = []
+    dm_settings = getattr(game_state, "automation_settings", {}) or {}
+    if not dm_settings.get("opt_slow_natural_healing", False):
+        p.hp = p.max_hp
+    p.temp_hp = 0
+    _sleep_res = evaluate_armor_sleep(p, game_state)
+    if not _sleep_res["blocks_exhaustion_recovery"]:
+        p.exhaustion_level = max(0, getattr(p, "exhaustion_level", 0) - 1)
+    elif getattr(p, "exhaustion_level", 0) > 0:
+        alerts.append(_sleep_res["note"])
+    elif _sleep_res["penalized"]:
+        alerts.append(_sleep_res["note"])
+
+    conds = [
+        c for c in getattr(p, "conditions", [])
+        if not c.startswith("Sfinimento")
+        and c not in ("Incosciente", "Prono", "Avvelenato", "Azione Preparata")
+    ]
+    if p.exhaustion_level > 0:
+        conds.append(f"Sfinimento (Liv. {p.exhaustion_level})")
+    p.conditions = conds
+    p.readied_action_data = None
+    p.relentless_rage_uses = 0
+    p.frightful_immune_list = []
+    if getattr(p, "full_sheet", None):
+        p.full_sheet["hp_current"] = p.hp
+        p.full_sheet["exhaustion_level"] = p.exhaustion_level
+        p.full_sheet["temp_hp"] = 0
+        p.full_sheet["conditions"] = list(conds)
+        # D&D 5e RAW: Ripristina metà dei Dadi Vita (minimo 1)
+        lvl = int(p.full_sheet.get("level", 1) or 1)
+        _hd_frac = _sleep_res["hd_fraction"] if "_sleep_res" in locals() else 0.5
+        hd_rec = max(1, int(lvl * _hd_frac)) if _hd_frac < 0.5 else max(1, lvl // 2)
+        cur_hd = int(p.full_sheet.get("hit_dice_current", lvl) or 0)
+        p.full_sheet["hit_dice_current"] = min(lvl, cur_hd + hd_rec)
+        # Talento Fortunato (Lucky, PHB p. 167): ricarica 3 Punti Fortuna
+        p.full_sheet["lucky_points"] = 3
+        # Mago Abiuratore: ripristina Interdizione Arcana al massimo
+        _wiz_l = _cls_lvl(p, "mago", "wizard")
+        _sub_w = str(p.full_sheet.get("subclass", "") or "").lower()
+        if _wiz_l >= 2 and ("abiuraz" in _sub_w or "abjur" in _sub_w):
+            p.full_sheet["arcane_ward_hp"] = max(1, 2 * _wiz_l + max(0, _attr_m(p, "INT")))
+    restore_entity_rest_resources(p, rest_type="long")
+    restore_drain_penalties(p, rest_type="long")
+    return alerts
+
+
 def trigger_group_long_rest(game_state, reason="Il gruppo si è accampato per un Riposo Lungo."):
     game_state.travel_hours_today = 0
     from common.protocol import make_chat_broadcast
@@ -727,57 +762,17 @@ def trigger_group_long_rest(game_state, reason="Il gruppo si è accampato per un
         game_state._trigger_gui_update()
         return
 
+    _pending_notes = []
     with game_state.lock:
         for p in getattr(game_state, "players", []):
             if not getattr(p, "is_party_member", False) and not getattr(p, "is_companion", False):
                 continue
             if "Morto" in getattr(p, "conditions", []) or "Dead" in getattr(p, "conditions", []):
                 continue
-            _dm_s_camp = getattr(game_state, "automation_settings", {}) or {}
-            if not _dm_s_camp.get("opt_slow_natural_healing", False):
-                p.hp = p.max_hp
-            p.temp_hp = 0
-            from common.feats_and_classes import evaluate_armor_sleep, init_or_get_arcane_ward_hp
-            from common.dnd5e_tables import entity_get_class_level as _cls_lvl, entity_get_attr_mod as _attr_m
-            _sleep_res = evaluate_armor_sleep(p, game_state)
-            if not _sleep_res["blocks_exhaustion_recovery"]:
-                p.exhaustion_level = max(0, getattr(p, "exhaustion_level", 0) - 1)
-            elif getattr(p, "exhaustion_level", 0) > 0:
-                broadcast(game_state, make_chat_broadcast("Sistema", _sleep_res["note"]))
-            elif _sleep_res["penalized"]:
-                broadcast(game_state, make_chat_broadcast("Sistema", _sleep_res["note"]))
-            conds = [c for c in getattr(p, "conditions", []) if not c.startswith("Sfinimento") and c not in ("Incosciente", "Prono", "Avvelenato")]
-            if p.exhaustion_level > 0:
-                conds.append(f"Sfinimento (Liv. {p.exhaustion_level})")
-            p.conditions = conds
-            if getattr(p, "full_sheet", None):
-                p.full_sheet["hp_current"] = p.hp
-                p.full_sheet["exhaustion_level"] = p.exhaustion_level
-                p.full_sheet["temp_hp"] = 0
-                p.full_sheet["conditions"] = list(conds)
-                if isinstance(p.full_sheet.get("spell_slots"), dict):
-                    for lvl_k, sl_data in p.full_sheet["spell_slots"].items():
-                        if isinstance(sl_data, dict):
-                            sl_data["current"] = sl_data.get("max", 0)
-                lvl = int(p.full_sheet.get("level", 1) or 1)
-                _hd_frac = _sleep_res["hd_fraction"] if "_sleep_res" in locals() else 0.5
-                hd_rec = max(1, int(lvl * _hd_frac)) if _hd_frac < 0.5 else max(1, lvl // 2)
-                cur_hd = int(p.full_sheet.get("hit_dice_current", lvl) or 0)
-                p.full_sheet["hit_dice_current"] = min(lvl, cur_hd + hd_rec)
-                # Talento Fortunato (Lucky, PHB p. 167): ricarica 3 Punti Fortuna
-                p.full_sheet["lucky_points"] = 3
-                # Mago Abiuratore: ripristina Interdizione Arcana al massimo
-                _wiz_l = _cls_lvl(p, "mago", "wizard")
-                _sub_w = str(p.full_sheet.get("subclass", "") or "").lower()
-                if _wiz_l >= 2 and ("abiuraz" in _sub_w or "abjur" in _sub_w):
-                    p.full_sheet["arcane_ward_hp"] = max(1, 2 * _wiz_l + max(0, _attr_m(p, "INT")))
-                sp_max = int(p.full_sheet.get("spell_points_max", 0) or 0)
-                if sp_max > 0:
-                    p.full_sheet["spell_points_current"] = sp_max
-                p.relentless_rage_uses = 0
-                p.frightful_immune_list = []
-            from server.dm_monster_engine import restore_drain_penalties
-            restore_drain_penalties(p, rest_type="long")
+            _pending_notes.extend(_apply_player_long_rest(p, game_state))
+        state_snap = game_state.get_state_dict()
+    for note in _pending_notes:
+        broadcast(game_state, make_chat_broadcast("Sistema", note))
     dm_settings = getattr(game_state, "automation_settings", {}) or {}
     rest_key = dm_settings.get("opt_rest_variant", "standard")
     from common.dnd5e_tables import REST_VARIANTS
@@ -793,6 +788,7 @@ def trigger_group_long_rest(game_state, reason="Il gruppo si è accampato per un
             send_message(p.conn, {"type": "DO_LONG_REST", "data": {}})
     game_state.ongoing_rest_vote = None
     game_state._trigger_gui_update()
+    broadcast(game_state, make_game_state(state_snap))
 
 def handle_long_rest_request(data, player, game_state):
     if getattr(game_state, "combat_active", False):

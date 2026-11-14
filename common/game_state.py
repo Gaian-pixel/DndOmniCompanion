@@ -464,7 +464,7 @@ class Player:
         p._extra_fields = {
             k: _copy.deepcopy(v)
             for k, v in data.items()
-            if k not in known_keys
+            if k not in known_keys and k != "_extra_fields"
         }
         return p
 
@@ -760,7 +760,12 @@ class GameState:
         self._trigger_gui_update()
 
     def end_combat(self):
-        temp_combat_conds = {"Scatto", "Disimpegno", "Schivata", "Aiutato", "Dash", "Disengage", "Dodge", "Helped", "Scudo", "Attacco Irruento", "Reckless Attack", "Sorpreso", "Surprised"}
+        temp_combat_conds = {
+            "Scatto", "Disimpegno", "Schivata", "Aiutato",
+            "Dash", "Disengage", "Dodge", "Helped",
+            "Scudo", "Attacco Irruento", "Reckless Attack",
+            "Sorpreso", "Surprised", "Azione Preparata", "Ready Action",
+        }
         with self.lock:
             self.combat_active = False
             for p in self.players:
@@ -768,6 +773,8 @@ class GameState:
                 p.movement_spent_this_turn = 0
                 p.has_acted_this_turn = False
                 p.bonus_action_used_this_turn = False
+                p.has_reacted_this_turn = False
+                p.sneak_attack_used_this_turn = False
                 p.reckless_attack_active = False
                 p.moved_straight_hexes = 0
                 p.last_move_dir = None
@@ -776,10 +783,24 @@ class GameState:
                 p.action_surge_used_this_turn = False
                 p.surprised = False
                 p.attacks_made_this_turn = 0
+                p.readied_action_data = None
+                p._expired_readied_action_this_turn = False
+                drop_prep_conc = str(getattr(p, "concentrating_on", "") or "").startswith("Preparato:")
+                if drop_prep_conc:
+                    p.concentrating_on = None
+                    p.concentration_rounds_remaining = None
                 if hasattr(p, "conditions") and p.conditions:
-                    p.conditions = [c for c in p.conditions if c not in temp_combat_conds]
+                    p.conditions = [
+                        c for c in p.conditions
+                        if c not in temp_combat_conds
+                        and not (drop_prep_conc and str(c).strip().lower() == "concentrazione")
+                    ]
                 if getattr(p, "full_sheet", None) and isinstance(p.full_sheet.get("conditions"), list):
-                    p.full_sheet["conditions"] = [c for c in p.full_sheet["conditions"] if c not in temp_combat_conds]
+                    p.full_sheet["conditions"] = [
+                        c for c in p.full_sheet["conditions"]
+                        if c not in temp_combat_conds
+                        and not (drop_prep_conc and str(c).strip().lower() == "concentrazione")
+                    ]
             try:
                 from server.rules.combat import recover_expended_ammunition
                 for p in list(self.players):
@@ -1533,7 +1554,7 @@ class GameState:
             self._extra_state_fields = {
                 k: copy.deepcopy(v)
                 for k, v in state.items()
-                if k not in known_state_keys
+                if k not in known_state_keys and k != "_extra_state_fields"
             }
         
         self._trigger_gui_update()
