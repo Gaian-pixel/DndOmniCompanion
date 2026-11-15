@@ -1069,7 +1069,7 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
         
     return final_dmg, note, temp_absorbed, dmg_to_hp
 
-def _apply_hp_change(target_player, new_hp_unbounded, game_state):
+def _apply_hp_change(target_player, new_hp_unbounded, game_state, same_hit_secondary=False):
     """Gestisce variazioni dirette di HP (cure, comandi DM o statistiche)."""
     old_hp = target_player.hp
     excess_damage = 0

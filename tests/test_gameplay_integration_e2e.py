@@ -1589,5 +1589,499 @@ class TestPhase45UxAuditAndWorkflows(unittest.TestCase):
             root.destroy()
 
 
+# ==============================================================================
+# TEST SUITE 7: PHASE 5 END-TO-END WORKFLOWS A-D
+# ==============================================================================
+
+class TestPhase5EndToEndWorkflows(unittest.TestCase):
+    """Deterministic Phase 5 end-to-end integration tests across Workflows A-D."""
+
+    def test_workflow_a_campaign_scene_walls_fow_journal_backup_and_share_lore(self):
+        from client.player_journal_dialog import PlayerJournalDialog
+        from common.campaign_journal import CampaignJournal, JournalEvent, JournalSession
+        from common.hex_utils import Hex, has_line_of_sight
+        from common.network_utils import resolve_map_image_data
+        from server.dm_live_flow import DMLiveFlowDialog
+
+        with tempfile.TemporaryDirectory() as td:
+            camp_dir = os.path.join(td, "cripta_e2e")
+            maps_dir = os.path.join(camp_dir, "maps")
+            os.makedirs(maps_dir, exist_ok=True)
+            map_file = os.path.join(maps_dir, "cripta.json")
+            with open(map_file, "w", encoding="utf-8") as mf:
+                json.dump(
+                    {
+                        "name": "Cripta Antica",
+                        "grid_type": "hex",
+                        "hexes": [[q, r] for q in range(6) for r in range(6)],
+                        "walls": [[1, 0]],
+                        "doors": [
+                            {"q": 2, "r": 0, "state": "secret", "is_secret": True, "discovered": False},
+                            {"q": 0, "r": 1, "state": "closed", "is_secret": False},
+                        ],
+                        "lights": [{"q": 0, "r": 0, "radius": 3, "color": "#ffbb44"}],
+                        "fow_enabled": True,
+                        "fow_revealed": [[0, 0]],
+                        "fow_draft": [[4, 4]],
+                        "bg_image_data": "ZmFrZQ==",
+                    },
+                    mf,
+                )
+
+            camp = Campaign(name="Cripta E2E", folder_path=camp_dir)
+            camp.starting_map_file = "maps/cripta.json"
+            camp.description = "Versione 1"
+            camp.add_scene("Atrio", "maps/cripta.json", "Ingresso della cripta")
+            camp.quests = [
+                {"title": "Trova l'altare", "status": "In Corso", "completed": False, "dm_notes": "Trappola a DC 16"},
+                {"title": "Patto Segreto", "status": "In Corso", "secret": True},
+            ]
+            camp.handouts = [
+                {"title": "Iscrizione Pubblica", "content": "Prega prima di entrare", "is_revealed": True},
+                {"title": "Lettera del Negromante", "content": "Solo DM", "is_revealed": False},
+            ]
+            journal = CampaignJournal(campaign_name="Cripta E2E")
+            sess = JournalSession(
+                session_number=1,
+                title="Discesa",
+                prose="### Capitolo 1\nIl gruppo **entra** nell'atrio.\n- Torce accese",
+                dm_notes="NOTA SEGRETA DM",
+            )
+            sess.events = [
+                JournalEvent(category="dm_note", title="Segreto", description="TRAP_DM_ONLY", data={"dm_only": True}, timestamp="09:00"),
+                JournalEvent(category="discovery", title="Soglia", description="Porta runica individuata", timestamp="09:10"),
+            ]
+            journal.sessions = [sess]
+            camp.journal = journal
+
+            camp.save(camp_dir)
+            camp.description = "Versione 2"
+            camp.save(camp_dir)
+
+            manifest_path = os.path.join(camp_dir, "campaign.json")
+            bak_path = manifest_path + ".bak"
+            self.assertTrue(os.path.exists(bak_path))
+            with open(bak_path, "r", encoding="utf-8") as bf:
+                self.assertEqual(json.load(bf)["description"], "Versione 1")
+
+            reloaded = Campaign.load(camp_dir)
+            self.assertEqual(reloaded.description, "Versione 2")
+            self.assertEqual(len(reloaded.scenes), 1)
+
+            gs = GameState(queue.Queue())
+            reloaded.apply_to_game_state(gs)
+            self.assertEqual(gs.current_map.get("name"), "Cripta Antica")
+            self.assertEqual(resolve_map_image_data(gs.current_map), "ZmFrZQ==")
+            self.assertEqual(len(gs.current_map.get("lights", [])), 1)
+
+            hero = Player("Lyra", conn=object())
+            hero.position = [0, 0]
+            hero.is_party_member = True
+            hero.light_radius = 20
+            hero.full_sheet = {"name": "Lyra", "notes": "Note pubbliche.\n\nDM SECRET: Chiave d'osso"}
+            hidden_fow_orc = Player("OrcoNascosto")
+            hidden_fow_orc.position = [4, 4]
+            hidden_fow_orc.is_party_member = False
+            gs.players = [hero, hidden_fow_orc]
+
+            player_state = gs.get_state_dict(is_dm=False)
+            dm_state = gs.get_state_dict(is_dm=True)
+            self.assertEqual(len(dm_state["quests"]), 2)
+            self.assertEqual([q["title"] for q in player_state["quests"]], ["Trova l'altare"])
+            self.assertNotIn("dm_notes", player_state["quests"][0])
+            self.assertEqual([h["title"] for h in player_state["handouts"]], ["Iscrizione Pubblica"])
+            self.assertNotIn("Chiave d'osso", player_state["players"][0]["full_sheet"]["notes"])
+            self.assertEqual([p["name"] for p in player_state["players"]], ["Lyra"])
+
+            p_map = player_state["map"]
+            self.assertEqual(p_map.get("fow_draft", []), [])
+            self.assertIn([2, 0], p_map["walls"])
+            self.assertFalse(has_line_of_sight(Hex(0, 0), Hex(3, 0), p_map["walls"]))
+
+            root = tk.Tk()
+            root.withdraw()
+            try:
+                with patch("client.player_journal_dialog.get_writable_dir", return_value=td):
+                    jdlg = PlayerJournalDialog(root, campaign_journal=reloaded.journal, character_name="Lyra")
+                    ev_txt = jdlg.txt_events.get("1.0", tk.END)
+                    self.assertNotIn("TRAP_DM_ONLY", ev_txt)
+                    self.assertIn("Porta runica individuata", ev_txt)
+                    prose_txt = jdlg.txt_prose.get("1.0", tk.END)
+                    self.assertIn("Capitolo 1", prose_txt)
+                    self.assertNotIn("###", prose_txt)
+                    jdlg.destroy()
+
+                lore_node = MagicMock(
+                    title="Stele dell'Alba",
+                    data={"author": "Saggio", "language": "Comune", "read_aloud": "Sigillo spezzato"},
+                )
+                flow_mock = MagicMock(spec=DMLiveFlowDialog)
+                flow_mock._get_game_state.return_value = gs
+                flow_mock.game_state = gs
+                flow_mock.dm_gui = MagicMock()
+                flow_mock.session_ledger = MagicMock()
+                flow_mock.active_campaign = reloaded
+                with patch("common.network_utils.broadcast") as mock_bcast, \
+                     patch("server.dm_live_flow.messagebox.showinfo"):
+                    DMLiveFlowDialog.share_lore(flow_mock, lore_node)
+                    bcast_pkt = mock_bcast.call_args[0][1]
+                    self.assertEqual(bcast_pkt["type"], "HANDOUT_BROADCAST")
+                    self.assertIsNone(bcast_pkt["data"]["image_b64"])
+                    self.assertIn("Sigillo spezzato", bcast_pkt["data"]["content"])
+                revealed_state = gs.get_state_dict(is_dm=False)
+                self.assertTrue(any(h.get("title") == "Stele dell'Alba" and h.get("is_revealed") for h in revealed_state["handouts"]))
+            finally:
+                try:
+                    if root.winfo_exists():
+                        root.destroy()
+                except tk.TclError:
+                    pass
+
+    def test_workflow_b_real_tcp_pin_reconnect_keepalive_asset_dedup_clamp_and_password_retain(self):
+        from client.client import ClientGUI
+        from client.network_handlers import ClientNetworkHandlersMixin
+        from common.network_utils import prepare_per_player_state_payload
+        from server.dm_campaign_session_mixin import import_party_character_to_game_state
+
+        harness = LoopbackSessionHarness(session_password="Pin5e")
+        try:
+            gs = harness.server.game_state
+            kaelen_pc = make_fighter_pc("Kaelen", level=5)
+            kaelen_pc.hp_current = 22
+            kaelen_pc.hp_max = 44
+            kaelen_pc.avatar_b64 = "ZmFrZV9wbmdfYnl0ZXNfZWJfaWNvbg=="
+            srv_k = import_party_character_to_game_state(gs, kaelen_pc, spawn_pos=[0, 0])
+            srv_k.avatar_b64 = kaelen_pc.avatar_b64
+            srv_k.full_sheet["avatar_b64"] = kaelen_pc.avatar_b64
+
+            # 1. Wrong PIN refused over TCP
+            bad_cli, bad_q, _ = harness.connect_client("Intruder", password="wrong")
+            err_pkt = _wait_until(
+                lambda: next((m for m in _drain_queue(bad_q) if m.get("type") == "ERROR_REPLY"), None),
+                timeout=3.0,
+            )
+            self.assertIsNotNone(err_pkt)
+            bad_cli.disconnect()
+
+            # 2. First join receives full avatar asset + avatar_hash; second payload deduplicates it
+            c1, q1, d1 = harness.connect_client("Kaelen", password="Pin5e")
+            state_pkt1 = _wait_until(
+                lambda: next((m for m in _drain_queue(q1) if m.get("type") == "GAME_STATE"), None),
+                timeout=3.0,
+            )
+            self.assertIsNotNone(state_pkt1)
+            k1 = next(p for p in state_pkt1["data"]["players"] if p["name"] == "Kaelen")
+            self.assertEqual(k1.get("avatar_b64"), "ZmFrZV9wbmdfYnl0ZXNfZWJfaWNvbg==")
+            av_hash = k1.get("avatar_hash")
+            self.assertTrue(bool(av_hash))
+
+            class _DummyClient(ClientNetworkHandlersMixin):
+                pass
+
+            dummy = _DummyClient()
+            cache = ClientNetworkHandlersMixin._get_asset_cache(dummy)
+            dummy._resolve_cached_avatar_assets(state_pkt1["data"]["players"])
+            self.assertEqual(cache.get(av_hash), "ZmFrZV9wbmdfYnl0ZXNfZWJfaWNvbg==")
+
+            dedup_pkt = prepare_per_player_state_payload(make_game_state(gs.get_state_dict(is_dm=True)), srv_k)
+            k_dedup = next(p for p in dedup_pkt["data"]["players"] if p["name"] == "Kaelen")
+            self.assertFalse(k_dedup.get("avatar_b64"))
+            self.assertEqual(k_dedup.get("avatar_hash"), av_hash)
+            dummy._resolve_cached_avatar_assets(dedup_pkt["data"]["players"])
+            self.assertEqual(k_dedup.get("avatar_b64"), "ZmFrZV9wbmdfYnl0ZXNfZWJfaWNvbg==")
+
+            # 3. Cross-IP / fresh socket reconnect with known_asset_hashes & stale client resource clamp
+            old_sock = srv_k.conn
+            c2, q2, _ = harness.connect_client(None)
+            c2.send(make_join("Kaelen", password="Pin5e", known_asset_hashes=[av_hash]))
+            self.assertTrue(_wait_until(lambda: srv_k.conn is not None and srv_k.conn is not old_sock and d1.is_set(), timeout=3.0))
+
+            # Client attempting to push inflated HP after trusted window is clamped to server authority
+            c2.send(
+                make_update_full_sheet_request(
+                    {"name": "Kaelen", "hp_current": 999, "hp_max": 44, "ac": 18}
+                )
+            )
+            time.sleep(0.15)
+            self.assertEqual(srv_k.hp, 22)
+
+            # 4. PING -> PONG keepalive in ClientNetwork
+            net2 = ClientNetwork(queue.Queue(), lambda: None)
+            net2.is_connected = True
+            net2.client_socket = MagicMock()
+            msgs = iter([{"type": "PING", "data": {}}, None])
+            with patch("client.network.receive_message", side_effect=lambda _s, **_kw: next(msgs)), \
+                 patch.object(net2, "send", return_value=True) as mock_send:
+                net2.listen_to_server()
+                mock_send.assert_any_call({"type": "PONG", "data": {}})
+
+            # 5. ClientGUI preserves session_password across transient drop
+            root = tk.Tk()
+            root.withdraw()
+            try:
+                with patch.object(ClientGUI, "process_queue", return_value=None):
+                    cli = ClientGUI(root, session_password="Pin5e")
+                cli.network.is_connected = True
+                cli.handle_disconnection(silent=True)
+                self.assertEqual(cli.session_password, "Pin5e")
+                with patch("client.client.messagebox.askokcancel", return_value=True):
+                    cli.on_closing()
+            finally:
+                try:
+                    if root.winfo_exists():
+                        root.destroy()
+                except tk.TclError:
+                    pass
+        finally:
+            harness.close()
+
+    def test_workflow_c_tabletop_and_full_combat_initiative_death_saves_rests_display_writeback(self):
+        from client.character_manager import CharacterManager
+        from server.dm_campaign_session_mixin import import_party_character_to_game_state
+        from server.dm_dialogs import DMPlayerSheetViewer
+        from server.dm_gui import DM_GUI
+        from server.rules.combat import handle_death_save_request
+
+        with tempfile.TemporaryDirectory() as td:
+            char_file = os.path.join(td, "characters.json")
+            with patch.dict(os.environ, {"DND_CHARACTERS_PATH": char_file}):
+                pc_char = make_fighter_pc("Garrick", level=5)
+                pc_char.temp_hp = 8
+                pc_char.hit_dice_total = 5
+                pc_char.hit_dice_current = 2
+                pc_char.spell_slots["1"] = {"max": 2, "current": 2}
+                pc_char.custom_resources = [{"name": "Azione Impetuosa", "current": 0, "max": 1, "reset_on": "short"}]
+                mgr = CharacterManager()
+                mgr.add_character(pc_char)
+
+                root = tk.Tk()
+                root.withdraw()
+                try:
+                    with patch("server.network.Server.start"), patch.object(DM_GUI, "process_queue", return_value=None):
+                        dm = DM_GUI(root)
+                    gs = dm.server.game_state
+
+                    srv_pc = import_party_character_to_game_state(gs, pc_char.to_dict(), spawn_pos=[0, 0])
+                    self.assertTrue(srv_pc.is_party_member)
+
+                    goblin = Player("Goblin")
+                    goblin.hp = 20
+                    goblin.max_hp = 20
+                    goblin.is_npc = True
+                    goblin.position = [1, 0]
+                    ogre_gm = Player("Ogre Occulto")
+                    ogre_gm.hp = 59
+                    ogre_gm.max_hp = 59
+                    ogre_gm.is_npc = True
+                    ogre_gm.is_hidden = True
+                    ogre_gm.layer = "gm"
+                    ogre_gm.position = [2, 0]
+                    gs.players.extend([goblin, ogre_gm])
+
+                    # Roll initiative for NPCs only — local PC skipped
+                    with patch("random.randint", return_value=12), patch("server.dm_gui.broadcast"):
+                        dm.roll_all_npcs_initiative()
+                    self.assertEqual(srv_pc.initiative, 0)
+                    self.assertGreater(goblin.initiative, 0)
+                    self.assertGreater(ogre_gm.initiative, 0)
+
+                    # Start combat + TempHP absorption + drop to 0 HP
+                    gs.start_combat(["Garrick", "Goblin"])
+                    with patch("server.dm_gui.broadcast"):
+                        dm.apply_dm_hp_delta("Garrick", -14, trigger_gui=False, log_change=False)
+                    self.assertEqual(srv_pc.temp_hp, 0)
+                    self.assertEqual(srv_pc.hp, 38)
+                    with patch("server.dm_gui.broadcast"):
+                        dm.apply_dm_hp_delta("Garrick", -40, trigger_gui=False, log_change=False)
+                    self.assertEqual(srv_pc.hp, 0)
+                    self.assertIn("Incosciente", srv_pc.conditions)
+
+                    # Server-authoritative Death Save nat-1 adds 2 failures; direct _apply_hp_change honors same_hit_secondary
+                    from server.rules.combat import _apply_hp_change
+                    with patch("server.rules.combat.broadcast"):
+                        _apply_hp_change(srv_pc, -5, gs, same_hit_secondary=True)
+                        self.assertEqual((getattr(srv_pc, "death_saves", None) or {}).get("failures", 0), 0)
+                        handle_death_save_request({"manual_roll": 1, "actor_name": "Garrick"}, None, gs)
+                        self.assertEqual(srv_pc.death_saves["failures"], 2)
+                        _apply_hp_change(srv_pc, -5, gs)
+                    self.assertEqual(srv_pc.death_saves["failures"], 3)
+                    self.assertIn("Morto", srv_pc.conditions)
+                    srv_pc.conditions = [c for c in srv_pc.conditions if c != "Morto"]
+                    srv_pc.death_saves["failures"] = 2
+
+                    # Interactive DMPlayerSheetViewer tabletop controls (nat 20 rescue, slot spend, ability roll)
+                    viewer = DMPlayerSheetViewer(
+                        root,
+                        "Garrick",
+                        srv_pc.full_sheet,
+                        game_state=gs,
+                        on_change_callback=lambda msg=None: dm._on_dm_sheet_changed("Garrick", msg),
+                    )
+                    with patch("server.dm_dialogs.random.randint", return_value=20):
+                        viewer.roll_death_save()
+                    self.assertEqual(srv_pc.hp, 1)
+                    self.assertNotIn("Incosciente", srv_pc.conditions)
+
+                    viewer._adjust_spell_slot("1", -1)
+                    self.assertEqual(srv_pc.full_sheet["spell_slots"]["1"]["current"], 1)
+                    with patch("server.dm_dialogs.random.randint", return_value=15):
+                        total = viewer.roll_ability_check("FOR", proficient=True)
+                    self.assertGreaterEqual(total, 15)
+                    viewer.destroy()
+
+                    # Short Rest restores custom short-rest resource; Long Rest restores HP, slots & half HD
+                    with patch("server.dm_gui.broadcast"):
+                        dm.advance_time(1, is_rest=True)
+                    self.assertEqual(srv_pc.full_sheet["custom_resources"][0]["current"], 1)
+
+                    with patch("server.dm_gui.broadcast"):
+                        dm.advance_time(8, is_rest=True)
+                    self.assertEqual(srv_pc.hp, 44)
+                    self.assertEqual(srv_pc.full_sheet["spell_slots"]["1"]["current"], 2)
+                    self.assertEqual(srv_pc.full_sheet["hit_dice_current"], 4)
+
+                    # Detached read-only Player Display hides GM-layer & hidden NPCs
+                    disp_win = dm.open_player_display_window()
+                    self.assertFalse(dm.player_display_canvas.is_dm)
+                    self.assertFalse(dm.player_display_canvas.can_move_token_callback("Garrick", (0, 0), (1, 1)))
+                    self.assertIn("Garrick", dm.player_display_canvas.players_data)
+                    self.assertIn("Goblin", dm.player_display_canvas.players_data)
+                    self.assertNotIn("Ogre Occulto", dm.player_display_canvas.players_data)
+                    self.assertTrue(disp_win.winfo_exists())
+
+                    with patch("server.dm_gui.messagebox.askokcancel", return_value=True):
+                        dm.on_closing()
+
+                    # Verify writeback persisted to CharacterManager
+                    reloaded = CharacterManager().get_character_by_name("Garrick")
+                    self.assertIsNotNone(reloaded)
+                    self.assertEqual(reloaded.hp_current, 44)
+                    self.assertEqual(reloaded.spell_slots["1"]["current"], 2)
+                finally:
+                    try:
+                        if root.winfo_exists():
+                            root.destroy()
+                    except tk.TclError:
+                        pass
+
+    def test_workflow_d_wizard_inventory_levelup_multires_sheet_and_client_hud(self):
+        from client.character_creation_wizard import CharacterCreationWizardFrame
+        from client.character_manager import CharacterManager
+        from client.character_sheet_ui import CharacterSheetUI
+        from client.client import ClientGUI
+        from client.progression_ui import LevelUpDialog
+        from common.item_modifiers import compute_effective_ac
+        from common.theme import apply_modern_window_style
+
+        with tempfile.TemporaryDirectory() as td:
+            char_file = os.path.join(td, "chars.json")
+            with patch.dict(os.environ, {"DND_CHARACTERS_PATH": char_file}):
+                mgr = CharacterManager()
+                root = tk.Tk()
+                root.withdraw()
+                try:
+                    # 1. CharacterCreationWizardFrame -> created Lv1 Character + _extra_fields round-trip
+                    created_chars = []
+                    wiz = CharacterCreationWizardFrame(
+                        root,
+                        mgr,
+                        on_complete_callback=lambda c: created_chars.append(c),
+                        is_embedded=True,
+                    )
+                    wiz.char_data["name"] = "Aerin"
+                    wiz.char_data["race"] = "Elfo"
+                    wiz.char_data["char_class"] = "Mago"
+                    wiz.char_data["attributes"] = {"FOR": 8, "DES": 16, "COS": 14, "INT": 16, "SAG": 12, "CAR": 10}
+                    with patch("urllib.request.urlopen", side_effect=OSError("offline")), \
+                         patch("client.character_creation_wizard.messagebox.showinfo"):
+                        wiz.finish_creation()
+                        _wait_until(
+                            lambda: (root.update(), bool(created_chars))[-1],
+                            timeout=3.0,
+                        )
+                    self.assertEqual(len(created_chars), 1)
+                    char = created_chars[0]
+                    char._extra_fields["e2e_marker"] = "phase5"
+                    char.inventory_grid = [
+                        {
+                            "name": "Armatura di Cuoio Borchiato",
+                            "type": "Armatura",
+                            "container": "equipped",
+                            "qty": 1,
+                        }
+                    ] + [None] * 19
+                    char.ac = compute_effective_ac(char)
+                    self.assertEqual(char.ac, 16)
+                    mgr.save_characters()
+
+                    reloaded = CharacterManager().get_character_by_name("Aerin")
+                    self.assertIsNotNone(reloaded)
+                    self.assertEqual(reloaded._extra_fields.get("e2e_marker"), "phase5")
+
+                    # 2. Multi-resolution CharacterSheetUI geometry probe (1920x1080, 1366x768, 860x700)
+                    ui = CharacterSheetUI(root, reloaded, mgr, is_connected=False)
+                    sheet = ui.sheet_frame
+                    for geom, expected_mode in (
+                        ("1920x1080", "wide4"),
+                        ("1366x768", "wide4"),
+                        ("860x700", "compact"),
+                    ):
+                        ui.geometry(geom)
+                        ui.update_idletasks()
+                        ui.update()
+                        sheet._apply_responsive_layout(force=True)
+                        ui.update()
+                        self.assertEqual(sheet._layout_mode, expected_mode)
+                        self.assertGreater(sheet.winfo_width(), 200)
+                        self.assertGreater(sheet.winfo_height(), 200)
+                        self.assertGreater(sheet.notebook.winfo_width(), 200)
+                        self.assertGreater(sheet.lbl_sheet_banner.winfo_width(), 100)
+                    ui.destroy()
+
+                    # 3. LevelUpDialog Lv1 -> Lv2 unlocks Wizard Arcane Tradition & updates slots cleanly
+                    up_calls = []
+                    lu = LevelUpDialog(root, reloaded, lambda *a: up_calls.append(a))
+                    self.assertEqual(str(lu.subclass_combo.cget("state")), "readonly")
+                    with patch("client.progression_ui.messagebox.showinfo"), \
+                         patch("client.progression_ui.messagebox.showwarning"):
+                        lu.apply()
+                    self.assertEqual(reloaded.level, 2)
+                    self.assertEqual(reloaded.spell_slots["1"]["max"], 3)
+                    self.assertTrue(len(up_calls) >= 1)
+
+                    # 4. Theme Escape exits fullscreen first & Player HUD sidebar/indicator active
+                    win = tk.Toplevel(root)
+                    win.title("E2E Probe")
+                    win.geometry("640x480")
+                    apply_modern_window_style(win)
+                    win.deiconify()
+                    win.update()
+                    win.focus_force()
+                    win.update()
+                    with patch.object(win, "attributes", side_effect=[True, None]) as mock_attr:
+                        win.event_generate("<Escape>")
+                        win.update()
+                        mock_attr.assert_any_call("-fullscreen", False)
+                    self.assertTrue(win.winfo_exists())
+                    with patch.object(win, "attributes", return_value=False):
+                        win.event_generate("<Escape>")
+                        win.update()
+                    self.assertFalse(win.winfo_exists())
+
+                    with patch.object(ClientGUI, "process_queue", return_value=None):
+                        cli = ClientGUI(root, initial_character=reloaded)
+                    self.assertTrue(hasattr(cli, "hud_conn_btn"))
+                    self.assertTrue(hasattr(cli, "hdr_conn_badge"))
+                    self.assertTrue(hasattr(cli, "controls_canvas"))
+                    with patch("client.client.messagebox.askokcancel", return_value=True):
+                        cli.on_closing()
+                finally:
+                    try:
+                        if root.winfo_exists():
+                            root.destroy()
+                    except tk.TclError:
+                        pass
+
+
 if __name__ == "__main__":
     unittest.main()
