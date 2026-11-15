@@ -48,47 +48,64 @@ def _recv_exact(sock, n):
     """Riceve esattamente n byte (recv può restituirne meno di quelli richiesti)."""
     buf = bytearray()
     while len(buf) < n:
-        chunk = sock.recv(n - len(buf))
+        try:
+            chunk = sock.recv(n - len(buf))
+        except socket.timeout:
+            # Timeout a frame integro (0 byte letti): propagabile al caller senza corrompere lo stream.
+            if not buf:
+                raise
+            raise ConnectionError("Timeout durante la ricezione di un frame parziale.")
         if not chunk:
             return None
         buf.extend(chunk)
     return bytes(buf)
 
-def send_message(sock, message_data):
-    """Codifica un dizionario Python in JSON e lo invia in modo robusto."""
+def _send_message_impl(sock, message_data, pre_encoded=None) -> bool:
+    """Codifica (o riusa buffer pre-serializzato) e invia un messaggio TCP in modo robusto."""
     if sock is None:
-        return
+        return False
     try:
-        message_json = json.dumps(message_data)
-        message_bytes = message_json.encode('utf-8')
-        header = struct.pack('!I', len(message_bytes))
+        if isinstance(pre_encoded, (bytes, bytearray)):
+            payload = bytes(pre_encoded)
+        else:
+            message_json = json.dumps(message_data)
+            message_bytes = message_json.encode('utf-8')
+            header = struct.pack('!I', len(message_bytes))
+            payload = header + message_bytes
         with _get_send_lock(sock):
             # Attesa scrivibilità non invasiva: evita di mutare sock.settimeout() sul thread condiviso con receive_message()
             if hasattr(sock, "fileno"):
                 try:
                     fd = sock.fileno()
                     if isinstance(fd, int) and fd >= 0:
-                        _, writable, _ = select.select([], [sock], [], 5.0)
+                        _, writable, _ = select.select([], [sock], [], 2.0)
                         if not writable:
                             raise socket.timeout("Timeout attesa scrittura socket")
                 except socket.timeout:
                     raise
                 except (ValueError, TypeError, OSError):
                     pass
-            sock.sendall(header + message_bytes)
+            sock.sendall(payload)
+        return True
     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, socket.timeout):
         # Errori normali di disconnessione client o timeout invio
-        pass
+        return False
     except OSError as e:
         # Codici normali di socket chiuso/reimpostato su Windows (10038, 10054, 10053, 10058) o POSIX
         if getattr(e, 'winerror', None) in (10038, 10054, 10053, 10058) or e.errno in (9, 104, 32):
-            pass
+            return False
         else:
             print(f"Errore socket durante l'invio: {e}")
+            return False
     except Exception as e:
         print(f"Errore imprevisto durante l'invio: {e}")
+        return False
 
-def receive_message(sock):
+def send_message(sock, message_data) -> bool:
+    """Codifica un dizionario Python in JSON e lo invia in modo robusto."""
+    return _send_message_impl(sock, message_data)
+
+def receive_message(sock, raise_on_timeout: bool = False):
     """Riceve un messaggio in modo robusto e lo decodifica da JSON a dizionario."""
     try:
         header_bytes = _recv_exact(sock, 4)
@@ -100,6 +117,10 @@ def receive_message(sock):
         if full_message_bytes is None:
             raise ConnectionError("Connessione interrotta.")
         return json.loads(full_message_bytes.decode('utf-8'))
+    except socket.timeout:
+        if raise_on_timeout:
+            raise
+        return None
     except (ConnectionError, struct.error, json.JSONDecodeError, BrokenPipeError, ConnectionResetError, OSError, ValueError):
         return None
 
@@ -388,12 +409,42 @@ def _deduplicate_handout_dict(handout_dict: dict, sent_hashes) -> dict:
     return h_copy
 
 
+def _deduplicate_player_dict(player_dict: dict, sent_hashes) -> dict:
+    if not isinstance(player_dict, dict):
+        return player_dict
+    av_b64 = player_dict.get("avatar_b64")
+    fs = player_dict.get("full_sheet")
+    fs_av = fs.get("avatar_b64") if isinstance(fs, dict) else None
+    has_top_av = isinstance(av_b64, str) and bool(av_b64)
+    has_fs_av = isinstance(fs_av, str) and bool(fs_av)
+    if not has_top_av and not has_fs_av:
+        return player_dict
+
+    p_copy = dict(player_dict)
+    if has_top_av:
+        av_hash = compute_asset_hash(av_b64)
+        p_copy["avatar_hash"] = av_hash
+        if _track_and_check_sent_hash(sent_hashes, av_hash):
+            p_copy["avatar_b64"] = None
+            p_copy["avatar_cached"] = True
+    if has_fs_av:
+        fs_hash = compute_asset_hash(fs_av)
+        fs_copy = dict(fs)
+        fs_copy["avatar_hash"] = fs_hash
+        # Se già presente al top-level con stesso hash o già in cache client, evita duplicazione nella full_sheet
+        if (has_top_av and fs_hash == p_copy.get("avatar_hash")) or _track_and_check_sent_hash(sent_hashes, fs_hash):
+            fs_copy["avatar_b64"] = None
+            fs_copy["avatar_cached"] = True
+        p_copy["full_sheet"] = fs_copy
+    return p_copy
+
+
 def prepare_per_player_state_payload(message_data: dict, player) -> dict:
-    """Deduplica blob immagine (mappa e handout) gia inviati al singolo client tramite hash contenuto."""
+    """Deduplica blob immagine (mappa, handout e avatar) gia inviati al singolo client tramite hash contenuto."""
     if not isinstance(message_data, dict):
         return message_data
     msg_type = message_data.get("type")
-    if msg_type not in ("GAME_STATE", "MAP_DATA_UPDATE", "HANDOUT_BROADCAST"):
+    if msg_type not in ("GAME_STATE", "MAP_DATA_UPDATE", "HANDOUT_BROADCAST", "PLAYER_JOINED"):
         return message_data
 
     data = message_data.get("data")
@@ -413,6 +464,10 @@ def prepare_per_player_state_payload(message_data: dict, player) -> dict:
         new_data = _deduplicate_handout_dict(data, sent_hashes)
         return message_data if new_data is data else {"type": msg_type, "data": new_data}
 
+    if msg_type == "PLAYER_JOINED":
+        new_data = _deduplicate_player_dict(data, sent_hashes)
+        return message_data if new_data is data else {"type": msg_type, "data": new_data}
+
     data_copy = dict(data)
     if "map" in data_copy and isinstance(data_copy["map"], dict):
         data_copy["map"] = _deduplicate_map_payload(data_copy["map"], sent_hashes)
@@ -420,6 +475,11 @@ def prepare_per_player_state_payload(message_data: dict, player) -> dict:
     if msg_type == "GAME_STATE" and isinstance(data_copy.get("handouts"), list):
         data_copy["handouts"] = [
             _deduplicate_handout_dict(h, sent_hashes) for h in data_copy["handouts"]
+        ]
+
+    if msg_type == "GAME_STATE" and isinstance(data_copy.get("players"), list):
+        data_copy["players"] = [
+            _deduplicate_player_dict(pl, sent_hashes) for pl in data_copy["players"]
         ]
 
     return {"type": msg_type, "data": data_copy}
@@ -493,10 +553,32 @@ def broadcast(game_state, message_data, exclude_player=None):
                 cdata["turn_player_name"] = "Sconosciuto"
         player_filtered_combat = {"type": "COMBAT_STATE_UPDATE", "data": cdata}
 
+    send_is_native = (
+        getattr(send_message, "__module__", "") == __name__
+        and getattr(send_message, "__name__", "") == "send_message"
+    )
+    shared_payload = None
+    shared_pre_encoded = None
+    if msg_type not in ("GAME_STATE", "MAP_DATA_UPDATE", "HANDOUT_BROADCAST", "PLAYER_JOINED"):
+        if player_filtered_fow is not None:
+            shared_payload = player_filtered_fow
+        elif player_filtered_combat is not None:
+            shared_payload = player_filtered_combat
+        else:
+            shared_payload = message_data
+        if send_is_native:
+            try:
+                raw_bytes = json.dumps(shared_payload).encode("utf-8")
+                shared_pre_encoded = struct.pack("!I", len(raw_bytes)) + raw_bytes
+            except Exception:
+                shared_pre_encoded = None
+
+    failed_conns = set()
     for p in game_state.get_all_players():
         if exclude_player and p.name == exclude_player.name:
             continue
-        if not getattr(p, "conn", None):
+        conn = getattr(p, "conn", None)
+        if not conn or id(conn) in failed_conns:
             continue
 
         # Non inviare aggiornamenti o stats di entità sul GM layer, in pocket dimension, nascoste o fuori FoW ai client regolari
@@ -519,13 +601,19 @@ def broadcast(game_state, message_data, exclude_player=None):
             if not is_entity_visible_to_players(entity_ref, cur_map, game_state=game_state, recipient_name=p.name, allow_self_hidden=True):
                 continue
 
-        if player_filtered_game_state is not None:
-            send_message(p.conn, prepare_per_player_state_payload(player_filtered_game_state, p))
-        elif player_filtered_map_data is not None:
-            send_message(p.conn, prepare_per_player_state_payload(player_filtered_map_data, p))
-        elif player_filtered_fow is not None:
-            send_message(p.conn, prepare_per_player_state_payload(player_filtered_fow, p))
-        elif player_filtered_combat is not None:
-            send_message(p.conn, prepare_per_player_state_payload(player_filtered_combat, p))
+        if shared_pre_encoded is not None:
+            ok = _send_message_impl(conn, shared_payload, pre_encoded=shared_pre_encoded)
         else:
-            send_message(p.conn, prepare_per_player_state_payload(message_data, p))
+            if player_filtered_game_state is not None:
+                payload = prepare_per_player_state_payload(player_filtered_game_state, p)
+            elif player_filtered_map_data is not None:
+                payload = prepare_per_player_state_payload(player_filtered_map_data, p)
+            elif player_filtered_fow is not None:
+                payload = prepare_per_player_state_payload(player_filtered_fow, p)
+            elif player_filtered_combat is not None:
+                payload = prepare_per_player_state_payload(player_filtered_combat, p)
+            else:
+                payload = prepare_per_player_state_payload(message_data, p)
+            ok = send_message(conn, payload)
+        if ok is False:
+            failed_conns.add(id(conn))

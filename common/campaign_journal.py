@@ -119,6 +119,11 @@ class JournalSession:
         return evt
 
     def to_dict(self, include_dm_notes: bool = True) -> Dict[str, Any]:
+        ev_list = self.events if include_dm_notes else [
+            e for e in self.events
+            if getattr(e, "category", "") != "dm_note"
+            and not (isinstance(getattr(e, "data", None), dict) and e.data.get("dm_only"))
+        ]
         return {
             "session_id": self.session_id,
             "session_number": self.session_number,
@@ -130,7 +135,7 @@ class JournalSession:
             "prose": self.prose,
             "dm_notes": self.dm_notes if include_dm_notes else "",
             "is_concluded": self.is_concluded,
-            "events": [e.to_dict() for e in self.events]
+            "events": [e.to_dict() for e in ev_list]
         }
 
     @classmethod
@@ -243,15 +248,30 @@ class CampaignJournal:
                 "*No events recorded for this session.*"
             )
 
+        # Filtra note strettamente riservate al DM prima della sintesi
+        public_events = [
+            e for e in events
+            if getattr(e, "category", "") != "dm_note"
+            and not (isinstance(getattr(e, "data", None), dict) and e.data.get("dm_only"))
+        ]
+        if not public_events:
+            return (
+                "*Nessun evento pubblico registrato per questa sessione.*"
+                if language == "it" else
+                "*No public events recorded for this session.*"
+            )
+
         # Raggruppamento tematico degli eventi
-        combats = [e for e in events if e.category == "combat"]
-        doors = [e for e in events if e.category == "door"]
-        traps = [e for e in events if e.category == "trap"]
-        discoveries = [e for e in events if e.category in ("discovery", "secret")]
-        loots = [e for e in events if e.category == "loot"]
-        rests = [e for e in events if e.category == "rest"]
-        deaths = [e for e in events if e.category == "death"]
-        notes = [e for e in events if e.category in ("note", "generic")]
+        combats = [e for e in public_events if e.category == "combat"]
+        doors = [e for e in public_events if e.category == "door"]
+        traps = [e for e in public_events if e.category == "trap"]
+        explorations = [e for e in public_events if e.category == "exploration"]
+        socials = [e for e in public_events if e.category == "social"]
+        discoveries = [e for e in public_events if e.category in ("discovery", "secret")]
+        loots = [e for e in public_events if e.category == "loot"]
+        rests = [e for e in public_events if e.category == "rest"]
+        deaths = [e for e in public_events if e.category == "death"]
+        notes = [e for e in public_events if e.category in ("note", "generic")]
 
         sections: List[str] = []
 
@@ -261,9 +281,12 @@ class CampaignJournal:
             intro = f"La sessione ha preso avvio nei pressi di **{sess.location}** ({date_str}), sotto un cielo caratterizzato da condizioni di *{sess.weather}*."
             sections.append(intro)
 
-            # 1. Esplorazione & Passaggi
-            if doors or discoveries:
+            # 1. Esplorazione, Viaggio & Passaggi
+            if doors or discoveries or explorations:
                 exp_lines = []
+                for ex in explorations:
+                    actor_str = f"**{ex.actor}**" if ex.actor else "Il gruppo"
+                    exp_lines.append(f"{actor_str} ha proseguito l'esplorazione: *{ex.title}*. {ex.description}")
                 for d in doors:
                     actor_str = f"**{d.actor}**" if d.actor else "Il gruppo"
                     exp_lines.append(f"{actor_str} ha affrontato il passaggio: *{d.title}* ({d.description}).")
@@ -271,6 +294,14 @@ class CampaignJournal:
                     exp_lines.append(f"È stato svelato un dettaglio degno di nota: **{disc.title}**. {disc.description}")
                 if exp_lines:
                     sections.append("### 🗺️ Esplorazione & Percorso\n" + " ".join(exp_lines))
+
+            # 1b. Incontri Sociali & PNG
+            if socials:
+                soc_lines = []
+                for s in socials:
+                    actor_str = f"**{s.actor}**" if s.actor else "Il gruppo"
+                    soc_lines.append(f"{actor_str} ha intavolato un confronto: **{s.title}**. {s.description}")
+                sections.append("### 💬 Incontri & Dialoghi\n" + " ".join(soc_lines))
 
             # 2. Pericoli & Trappole
             if traps:
@@ -325,8 +356,11 @@ class CampaignJournal:
             intro = f"The session began near **{sess.location}** ({date_str}), under a sky marked by *{sess.weather}* conditions."
             sections.append(intro)
 
-            if doors or discoveries:
+            if doors or discoveries or explorations:
                 exp_lines = []
+                for ex in explorations:
+                    actor_str = f"**{ex.actor}**" if ex.actor else "The party"
+                    exp_lines.append(f"{actor_str} explored further: *{ex.title}*. {ex.description}")
                 for d in doors:
                     actor_str = f"**{d.actor}**" if d.actor else "The party"
                     exp_lines.append(f"{actor_str} tackled the passage: *{d.title}* ({d.description}).")
@@ -334,6 +368,13 @@ class CampaignJournal:
                     exp_lines.append(f"A notable discovery was made: **{disc.title}**. {disc.description}")
                 if exp_lines:
                     sections.append("### 🗺️ Exploration & Journey\n" + " ".join(exp_lines))
+
+            if socials:
+                soc_lines = []
+                for s in socials:
+                    actor_str = f"**{s.actor}**" if s.actor else "The party"
+                    soc_lines.append(f"{actor_str} engaged in parley: **{s.title}**. {s.description}")
+                sections.append("### 💬 Encounters & Diplomacy\n" + " ".join(soc_lines))
 
             if traps:
                 trap_lines = []

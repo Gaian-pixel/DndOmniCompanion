@@ -405,6 +405,91 @@ def handle_update_full_sheet_request(data, player, game_state):
                         player.pact_slots_max = int(pact_s.get("max", 0) or 0)
                         player.pact_slots_current = int(pact_s.get("current", 0) or 0)
                         player.pact_slot_level = int(pact_s.get("level", 0) or 0)
+                elif client_lvl <= server_lvl:
+                    # Proteggi le risorse autorevoli lato server da ripristini/sovrascritture fuori finestra di riconnessione
+                    srv_slots = existing_sheet.get("spell_slots")
+                    cli_slots = char_data.get("spell_slots")
+                    if isinstance(srv_slots, dict) and isinstance(cli_slots, dict):
+                        merged_slots = copy.deepcopy(srv_slots)
+                        for lv_k, s_ent in srv_slots.items():
+                            c_ent = cli_slots.get(lv_k)
+                            if isinstance(s_ent, dict) and isinstance(c_ent, dict):
+                                try:
+                                    s_cur = int(s_ent.get("current", s_ent.get("max", 0)) or 0)
+                                    c_cur = int(c_ent.get("current", s_cur) or 0)
+                                    merged_slots[lv_k]["current"] = max(0, min(s_cur, c_cur))
+                                except (ValueError, TypeError):
+                                    pass
+                        char_data["spell_slots"] = merged_slots
+                    srv_pact = existing_sheet.get("pact_slots")
+                    cli_pact = char_data.get("pact_slots")
+                    if isinstance(srv_pact, dict):
+                        merged_pact = copy.deepcopy(srv_pact)
+                        if isinstance(cli_pact, dict):
+                            try:
+                                s_p_cur = int(srv_pact.get("current", 0) or 0)
+                                c_p_cur = int(cli_pact.get("current", s_p_cur) or 0)
+                                merged_pact["current"] = max(0, min(s_p_cur, c_p_cur))
+                            except (ValueError, TypeError):
+                                pass
+                        char_data["pact_slots"] = merged_pact
+                    for sc_k in ("spell_points_current", "hit_dice_current", "temp_hp"):
+                        if sc_k in existing_sheet and existing_sheet[sc_k] is not None:
+                            try:
+                                s_v = int(existing_sheet[sc_k] or 0)
+                                c_v = int(char_data.get(sc_k, s_v) if char_data.get(sc_k) is not None else s_v)
+                                char_data[sc_k] = max(0, min(s_v, c_v))
+                            except (ValueError, TypeError):
+                                char_data[sc_k] = existing_sheet[sc_k]
+                    if "spell_points_max" in existing_sheet and existing_sheet["spell_points_max"] is not None:
+                        char_data["spell_points_max"] = existing_sheet["spell_points_max"]
+                    if "exhaustion_level" in existing_sheet and existing_sheet["exhaustion_level"] is not None:
+                        try:
+                            s_ex = int(existing_sheet["exhaustion_level"] or 0)
+                            c_ex = int(char_data.get("exhaustion_level", s_ex) or 0)
+                            char_data["exhaustion_level"] = max(s_ex, c_ex)
+                        except (ValueError, TypeError):
+                            char_data["exhaustion_level"] = existing_sheet["exhaustion_level"]
+                    if "inspiration" in existing_sheet:
+                        char_data["inspiration"] = bool(existing_sheet["inspiration"]) and bool(char_data.get("inspiration", False))
+                    srv_cr = existing_sheet.get("class_resources")
+                    cli_cr = char_data.get("class_resources")
+                    if isinstance(srv_cr, dict) and isinstance(cli_cr, dict):
+                        merged_cr = copy.deepcopy(srv_cr)
+                        for rk, sv in srv_cr.items():
+                            if rk in cli_cr:
+                                cv = cli_cr[rk]
+                                if isinstance(sv, bool):
+                                    merged_cr[rk] = bool(sv) and bool(cv)
+                                elif isinstance(sv, int) and str(rk).endswith("_current"):
+                                    try:
+                                        merged_cr[rk] = max(0, min(int(sv), int(cv)))
+                                    except (ValueError, TypeError):
+                                        pass
+                        char_data["class_resources"] = merged_cr
+                    srv_cust = existing_sheet.get("custom_resources")
+                    cli_cust = char_data.get("custom_resources")
+                    if isinstance(srv_cust, list) and isinstance(cli_cust, list):
+                        cli_by_name = {
+                            str(r.get("name", "")).strip().lower(): r
+                            for r in cli_cust if isinstance(r, dict) and r.get("name")
+                        }
+                        merged_cust = copy.deepcopy(srv_cust)
+                        for sr in merged_cust:
+                            if not isinstance(sr, dict):
+                                continue
+                            cr = cli_by_name.get(str(sr.get("name", "")).strip().lower())
+                            if isinstance(cr, dict):
+                                try:
+                                    sr["current"] = max(0, min(int(sr.get("current", 0) or 0), int(cr.get("current", sr.get("current", 0)) or 0)))
+                                except (ValueError, TypeError):
+                                    pass
+                        char_data["custom_resources"] = merged_cust
+                    srv_conds = getattr(player, "conditions", None)
+                    if isinstance(srv_conds, list):
+                        char_data["conditions"] = list(srv_conds)
+                    elif isinstance(existing_sheet.get("conditions"), list):
+                        char_data["conditions"] = list(existing_sheet["conditions"])
 
                 server_currency = existing_sheet.get("currency", {})
                 client_currency = char_data.get("currency", {})

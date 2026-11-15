@@ -116,7 +116,15 @@ from server.rules.journal import (
     handle_conclude_journal_session_request
 )
 
+def _handle_ping(data, player, game_state):
+    conn = getattr(player, "conn", None) if player else None
+    if conn is not None:
+        from common.network_utils import send_message
+        send_message(conn, {"type": "PONG", "data": {}})
+
+
 command_handlers = {
+    "PING": _handle_ping,
     "DRAW_REQUEST": handle_draw_request,
     "CHAT": handle_chat,
     "WHISPER": handle_whisper,

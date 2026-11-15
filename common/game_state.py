@@ -1569,6 +1569,15 @@ class GameState:
                     p_dict["full_sheet"] = dict(p_dict["full_sheet"])
                     p_dict["full_sheet"].pop("secret", None)
                     p_dict["full_sheet"].pop("dm_notes", None)
+                    for txt_k in ("notes", "desc", "description"):
+                        raw_txt = p_dict["full_sheet"].get(txt_k)
+                        if isinstance(raw_txt, str) and ("SEGRETO DM" in raw_txt.upper() or "DM SECRET" in raw_txt.upper() or "[DM" in raw_txt.upper()):
+                            cleaned = re.sub(
+                                r"(?ims)(?:^|\n)\s*(?:\[?\s*SEGRETO\s+DM[^\n]*\]?.*(?:\n(?!\s*$).*)*|\[?\s*DM\s+SECRET[^\n]*\]?.*(?:\n(?!\s*$).*)*)",
+                                "",
+                                raw_txt,
+                            ).strip()
+                            p_dict["full_sheet"][txt_k] = cleaned
                     if not getattr(p, "is_party_member", False) and not getattr(p, "is_companion", False):
                         for priv_k in ["special_abilities", "legendary_actions_details", "reactions_details", "features", "actions"]:
                             p_dict["full_sheet"].pop(priv_k, None)
@@ -1586,6 +1595,40 @@ class GameState:
 
             from common.network_utils import sanitize_map_for_players
             export_map = self.current_map if is_dm else (sanitize_map_for_players(self.current_map) if self.current_map else None)
+
+            raw_quests = getattr(self, 'quests', [])
+            raw_handouts = getattr(self, 'handouts', [])
+            if is_dm:
+                export_quests = raw_quests
+                export_handouts = raw_handouts
+            else:
+                export_quests = []
+                for q in (raw_quests if isinstance(raw_quests, list) else []):
+                    if not isinstance(q, dict):
+                        continue
+                    if q.get("secret") or q.get("dm_only") or q.get("hidden") or q.get("is_revealed") is False:
+                        continue
+                    q_pub = dict(q)
+                    q_pub.pop("dm_notes", None)
+                    q_pub.pop("secret_notes", None)
+                    q_pub.pop("secrets", None)
+                    for qk in ("description", "desc"):
+                        qv = q_pub.get(qk)
+                        if isinstance(qv, str) and ("SEGRETO DM" in qv.upper() or "DM SECRET" in qv.upper() or "[DM" in qv.upper()):
+                            q_pub[qk] = re.sub(
+                                r"(?ims)(?:^|\n)\s*(?:\[?\s*SEGRETO\s+DM[^\n]*\]?.*(?:\n(?!\s*$).*)*|\[?\s*DM\s+SECRET[^\n]*\]?.*(?:\n(?!\s*$).*)*)",
+                                "",
+                                qv,
+                            ).strip()
+                    export_quests.append(q_pub)
+                export_handouts = [
+                    h for h in (raw_handouts if isinstance(raw_handouts, list) else [])
+                    if isinstance(h, dict)
+                    and not h.get("secret")
+                    and not h.get("dm_only")
+                    and not h.get("hidden")
+                    and h.get("is_revealed") is not False
+                ]
 
             import copy
             state_out = {
@@ -1605,8 +1648,8 @@ class GameState:
                 "time_second": getattr(self, 'time_second', 0),
                 "weather": getattr(self, 'weather', "Sereno"),
                 "calendar_events": getattr(self, 'calendar_events', {}) if is_dm else {},
-                "quests": getattr(self, 'quests', []),
-                "handouts": getattr(self, 'handouts', []),
+                "quests": export_quests,
+                "handouts": export_handouts,
                 "shops": getattr(self, 'shops', {}),
                 "travel_hours_today": getattr(self, 'travel_hours_today', 0),
                 "travel_pace": getattr(self, 'travel_pace', "Normale"),

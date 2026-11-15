@@ -329,8 +329,15 @@ class DMJournalDialog(tk.Toplevel):
             if getattr(camp, "folder_path", None):
                 try:
                     camp.save()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    try:
+                        messagebox.showerror(
+                            "Errore Salvataggio Diario",
+                            f"Impossibile salvare il diario di campagna su disco:\n{exc}",
+                            parent=self,
+                        )
+                    except Exception:
+                        pass
 
     def _on_close(self):
         try:

@@ -514,6 +514,13 @@ class ClientGUI(ClientNetworkHandlersMixin):
 
         tk.Frame(self.vtt_hud_bar, bg=BORDER_COLOR, width=1, height=18).pack(side=tk.LEFT, padx=4)
 
+        self.hud_conn_btn = ttk.Button(
+            self.vtt_hud_bar, text="🔴", width=3, style="Hud.TButton",
+            command=lambda: self._on_conn_pill_click()
+        )
+        self.hud_conn_btn.pack(side=tk.LEFT, padx=1)
+        ToolTip(self.hud_conn_btn, lambda: self._get_conn_pill_tooltip())
+
         self.btn_hud_toggle_sidebar = ttk.Button(self.vtt_hud_bar, text="▶", width=3, style="HudGold.TButton", command=self.toggle_sidebar)
         self.btn_hud_toggle_sidebar.pack(side=tk.LEFT, padx=1)
         ToolTip(self.btn_hud_toggle_sidebar, "Comprimi / Espandi Barra Laterale (Chat & Eroe - Ctrl+B)")
@@ -527,6 +534,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
         self.aoe_params = None
         self._unread_chat_count = 0
         self._pending_economy_snapshot = None
+        self._is_connecting = False
         self.map_canvas.set_on_click_callback(self.on_hex_click)
         self.map_canvas.on_token_drop_callback = self.on_token_drop
         self.map_canvas.can_move_token_callback = self._can_player_move_token
@@ -546,11 +554,25 @@ class ClientGUI(ClientNetworkHandlersMixin):
         self.right_panel.pack_propagate(False) # Mantieni la larghezza fissa
         right_panel = self.right_panel
 
-        # Header Barra Laterale con pulsante rapido di compressione
+        # Header Barra Laterale con pillola stato connessione persistente e pulsante compressione
         self.right_panel_hdr = tk.Frame(right_panel, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=8, pady=5)
         self.right_panel_hdr.pack(fill=tk.X, pady=(0, 4))
         
         tk.Label(self.right_panel_hdr, text="🧭 VTT Console", font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD).pack(side=tk.LEFT)
+
+        self.hdr_conn_badge = tk.Label(
+            self.right_panel_hdr, text="● Offline", font=FONT_SMALL,
+            bg=SURFACE_COLOR, fg=ACCENT_RED, padx=6
+        )
+        self.hdr_conn_badge.pack(side=tk.LEFT, padx=(4, 2))
+
+        self.hdr_conn_btn = tk.Button(
+            self.right_panel_hdr, text="🔄", font=FONT_SMALL, relief=tk.FLAT, bd=0, padx=5, pady=1,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, activebackground=BORDER_COLOR, activeforeground=ACCENT_GOLD,
+            cursor="hand2", command=lambda: self._on_conn_pill_click()
+        )
+        self.hdr_conn_btn.pack(side=tk.LEFT, padx=2)
+        ToolTip(self.hdr_conn_btn, lambda: self._get_conn_pill_tooltip())
         
         self.btn_collapse_panel = tk.Button(
             self.right_panel_hdr, text="▶ Comprimi", font=FONT_SMALL, relief=tk.FLAT, bd=0, padx=6, pady=2,
@@ -625,9 +647,78 @@ class ClientGUI(ClientNetworkHandlersMixin):
         self.btn_mute.pack(side=tk.RIGHT, padx=2)
         ToolTip(self.btn_mute, lambda: _t("tooltip_mute_mic"))
         
-        # --- TAB 2: CONTROLLI PG ---
-        controls_tab = ttk.Frame(self.right_notebook, padding=10)
-        self.right_notebook.add(controls_tab, text=_t("tab_player_controls"))
+        # --- TAB 2: CONTROLLI PG (Scrollable per risoluzioni compatte / 768p) ---
+        self.controls_tab_outer = ttk.Frame(self.right_notebook)
+        self.right_notebook.add(self.controls_tab_outer, text=_t("tab_player_controls"))
+
+        self.controls_canvas = tk.Canvas(
+            self.controls_tab_outer, bg=BG_COLOR, highlightthickness=0, borderwidth=0
+        )
+        controls_scroll = ttk.Scrollbar(
+            self.controls_tab_outer, orient=tk.VERTICAL, command=self.controls_canvas.yview
+        )
+        self.controls_canvas.configure(yscrollcommand=controls_scroll.set)
+        controls_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.controls_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        controls_tab = ttk.Frame(self.controls_canvas, padding=10)
+        self.controls_inner = controls_tab
+        self._controls_canvas_win_id = self.controls_canvas.create_window(
+            (0, 0), window=controls_tab, anchor="nw", tags=("inner",)
+        )
+
+        def _on_controls_inner_configure(event=None):
+            try:
+                if self.controls_canvas.winfo_exists():
+                    self.controls_canvas.configure(scrollregion=self.controls_canvas.bbox("all"))
+            except Exception:
+                pass
+
+        def _on_controls_canvas_configure(event):
+            try:
+                if self.controls_canvas.winfo_exists() and event.width > 10:
+                    self.controls_canvas.itemconfigure(self._controls_canvas_win_id, width=event.width)
+            except Exception:
+                pass
+
+        controls_tab.bind("<Configure>", _on_controls_inner_configure)
+        self.controls_canvas.bind("<Configure>", _on_controls_canvas_configure)
+
+        def _on_controls_wheel(event):
+            try:
+                if not self.controls_canvas.winfo_exists():
+                    return
+                ptr = self.master.winfo_containing(event.x_root, event.y_root)
+                is_descendant = False
+                chk = ptr
+                while chk is not None:
+                    if chk is self.controls_canvas or chk is controls_tab:
+                        is_descendant = True
+                        break
+                    chk = getattr(chk, "master", None)
+                if not is_descendant:
+                    return
+                if getattr(event, "num", None) == 4:
+                    steps = -1
+                elif getattr(event, "num", None) == 5:
+                    steps = 1
+                else:
+                    delta = getattr(event, "delta", 0) or 0
+                    if delta == 0:
+                        return
+                    steps = -1 if delta > 0 else 1
+                first, last = self.controls_canvas.yview()
+                if (steps < 0 and first > 0.0) or (steps > 0 and last < 1.0):
+                    self.controls_canvas.yview_scroll(steps, "units")
+                    return "break"
+            except Exception:
+                return
+
+        for _seq in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            try:
+                self.master.bind(_seq, _on_controls_wheel, add="+")
+            except Exception:
+                pass
         
         status_bar = tk.Frame(controls_tab, bg=SURFACE_COLOR_ALT)
         status_bar.pack(fill=tk.X, pady=(0, 6))
@@ -4047,7 +4138,127 @@ class ClientGUI(ClientNetworkHandlersMixin):
         session_password = getattr(login_dialog, "session_password", "")
         self.perform_connect(server_ip, char, password=session_password)
 
-    def perform_connect(self, server_ip: str, char=None, password=None):
+    def _get_conn_pill_tooltip(self):
+        if getattr(self, "_is_connecting", False):
+            return "Connessione in corso... Clicca per annullare"
+        if self.is_connected:
+            last_ip = getattr(self, "last_server_ip", "") or "server"
+            return f"Connesso a {last_ip} — Clicca per disconnetterti"
+        if getattr(self, "last_server_ip", None) and self.active_character:
+            return f"Disconnesso — Clicca per riconnetterti a {self.last_server_ip}"
+        return "Disconnesso — Clicca per connetterti al server"
+
+    def _sync_connection_status_ui(self, state: str, detail: str = ""):
+        """Sincronizza barra controlli, header sidebar e HUD flottante sullo stato rete."""
+        if state == "connected":
+            label_txt = f"Stato: Connesso a {detail}" if detail else _t("status_connected")
+            if hasattr(self, "status_label"):
+                self.status_label.config(text=label_txt, style="Success.TLabel")
+            if hasattr(self, "btn_quick_connect"):
+                self.btn_quick_connect.pack_forget()
+            if hasattr(self, "hdr_conn_badge"):
+                self.hdr_conn_badge.config(text="● Online", fg=ACCENT_GREEN)
+            if hasattr(self, "hdr_conn_btn"):
+                self.hdr_conn_btn.config(text="🔌", fg=ACCENT_GREEN)
+            if hasattr(self, "hud_conn_btn"):
+                self.hud_conn_btn.config(text="🟢")
+        elif state == "connecting":
+            label_txt = f"Connessione a {detail}..." if detail else "Connessione in corso..."
+            if hasattr(self, "status_label"):
+                self.status_label.config(text=label_txt, style="Info.TLabel")
+            if hasattr(self, "btn_quick_connect"):
+                self.btn_quick_connect.pack(side=tk.RIGHT, padx=2)
+                self.btn_quick_connect.config(text="✖ Annulla", command=self.cancel_connect_attempt)
+            if hasattr(self, "hdr_conn_badge"):
+                self.hdr_conn_badge.config(text="◌ Connessione...", fg=ACCENT_GOLD)
+            if hasattr(self, "hdr_conn_btn"):
+                self.hdr_conn_btn.config(text="✖", fg=ACCENT_GOLD)
+            if hasattr(self, "hud_conn_btn"):
+                self.hud_conn_btn.config(text="🟡")
+        else:
+            label_txt = detail or _t("status_disconnected")
+            if hasattr(self, "status_label"):
+                self.status_label.config(text=label_txt, style="Danger.TLabel")
+            if hasattr(self, "btn_quick_connect"):
+                self.btn_quick_connect.config(text="🔗 Connetti", command=self.connect_to_server)
+                self.btn_quick_connect.pack(side=tk.RIGHT, padx=2)
+            if hasattr(self, "hdr_conn_badge"):
+                self.hdr_conn_badge.config(text="● Offline", fg=ACCENT_RED)
+            if hasattr(self, "hdr_conn_btn"):
+                self.hdr_conn_btn.config(text="🔄", fg=TEXT_COLOR)
+            if hasattr(self, "hud_conn_btn"):
+                self.hud_conn_btn.config(text="🔴")
+
+    def _on_conn_pill_click(self):
+        if getattr(self, "_is_connecting", False):
+            self.cancel_connect_attempt()
+            return
+        if self.is_connected:
+            if messagebox.askyesno("Disconnessione", "Vuoi disconnetterti dal server?"):
+                self.disconnect()
+                self.handle_disconnection(silent=True)
+            return
+        self.reconnect_to_server()
+
+    def cancel_connect_attempt(self):
+        self._is_connecting = False
+        if hasattr(self, "network") and hasattr(self.network, "cancel_pending_connect"):
+            self.network.cancel_pending_connect()
+        self._sync_connection_status_ui("disconnected", _t("status_disconnected"))
+
+    def _finalize_connect_success(self, host: str, port: int, server_ip: str):
+        self._is_connecting = False
+        self.is_connected = True
+        self.last_server_ip = server_ip
+
+        # Start Voice Client
+        try:
+            if self.voice_client:
+                try: self.voice_client.stop()
+                except Exception: pass
+            self.voice_client = VoiceClient(host, 53912)
+            self.voice_client.start()
+        except Exception as ve:
+            print(f"[Client] Avviso VoiceClient: {ve}")
+
+        char_to_send = self.active_character
+        last_pos = getattr(char_to_send, "last_position", None) if char_to_send else None
+        pw = getattr(self, "session_password", "") or None
+        known_hashes = list(self._get_asset_cache().keys()) if hasattr(self, "_get_asset_cache") else None
+        self.network.send(make_join(self.name, last_pos, password=pw, known_asset_hashes=known_hashes))
+        if char_to_send:
+            self.network.send(make_update_stats_request(char_to_send.hp_current, char_to_send.hp_max, char_to_send.initiative, getattr(char_to_send, "conditions", [])))
+            self.network.send(make_update_full_sheet_request(char_to_send.to_dict()))
+            char_info = f" (Lv.{char_to_send.level} {char_to_send.char_class})"
+        else:
+            char_info = ""
+
+        self.log_to_chat(f"Connesso a {host}:{port} come {self.name}{char_info}.", "Globale", sender="Sistema", color="#2ECC71")
+        self.master.title(f"D&D Client - {self.name}")
+        self._sync_connection_status_ui("connected", f"{host}:{port}")
+        if hasattr(self, 'voice_status_lbl'):
+            self.voice_status_lbl.config(text="🟢 Voice: Connesso", fg=ACCENT_GREEN)
+        self.set_controls_state(tk.NORMAL)
+        self.update_hero_summary_card()
+        if self.active_character and hasattr(self, 'hotbar_buttons') and hasattr(self.active_character, 'hotbar') and isinstance(self.active_character.hotbar, list):
+            for i in range(min(10, len(self.active_character.hotbar))):
+                cmd = self.active_character.hotbar[i]
+                btn_style = "HotbarAssigned.TButton" if cmd else "Hotbar.TButton"
+                self.hotbar_buttons[i].config(text=cmd[:10] if cmd else f"{i+1}", style=btn_style)
+        if hasattr(self, "show_toast"):
+            self.show_toast(f"Connesso a {host}:{port}!", title="Connessione Riuscita", toast_type="success")
+
+    def _finalize_connect_error(self, host: str, port: int, err_text: str):
+        self._is_connecting = False
+        self.is_connected = False
+        self._sync_connection_status_ui("disconnected", _t("status_disconnected"))
+        self.set_controls_state(tk.DISABLED)
+        messagebox.showerror(
+            "Errore di Connessione",
+            f"Impossibile connettersi a {host}:{port}.\n\nAssicurati che il server del Dungeon Master sia avviato e raggiungibile.\n\nDettagli: {err_text}",
+        )
+
+    def perform_connect(self, server_ip: str, char=None, password=None, async_connect=None):
         """Esegue la connessione al server specificato con il personaggio selezionato."""
         if not server_ip:
             return
@@ -4058,7 +4269,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
             self.active_character = char
             if hasattr(self, 'active_character_var'):
                 self.active_character_var.set(self.name)
-            
+
         host = server_ip.strip()
         port = 5000
         if ":" in host:
@@ -4068,56 +4279,29 @@ class ClientGUI(ClientNetworkHandlersMixin):
                 port = int(parts[1].strip())
             except ValueError:
                 port = 5000
-                
+
+        from client.network import ClientNetwork as _RealClientNetwork
+        use_async = isinstance(self.network, _RealClientNetwork) if async_connect is None else bool(async_connect)
+        if use_async and hasattr(self.network, "connect_async"):
+            self._is_connecting = True
+            self._sync_connection_status_ui("connecting", f"{host}:{port}")
+
+            def _on_ok():
+                if not getattr(self, "_is_closing", False):
+                    self.gui_queue.put({"type": "_CONNECT_OK", "data": {"host": host, "port": port, "server_ip": server_ip}})
+
+            def _on_err(exc):
+                if not getattr(self, "_is_closing", False):
+                    self.gui_queue.put({"type": "_CONNECT_ERR", "data": {"host": host, "port": port, "error": str(exc)}})
+
+            self.network.connect_async(host, port, on_success=_on_ok, on_error=_on_err)
+            return
+
         try:
             self.network.connect(host, port)
-            self.is_connected = True
-            self.last_server_ip = server_ip
-            
-            # Start Voice Client
-            try:
-                if self.voice_client:
-                    try: self.voice_client.stop()
-                    except Exception: pass
-                self.voice_client = VoiceClient(host, 53912)
-                self.voice_client.start()
-            except Exception as ve:
-                print(f"[Client] Avviso VoiceClient: {ve}")
-                
-            char_to_send = self.active_character
-            last_pos = getattr(char_to_send, "last_position", None) if char_to_send else None
-            pw = getattr(self, "session_password", "") or None
-            self.network.send(make_join(self.name, last_pos, password=pw))
-            if char_to_send:
-                self.network.send(make_update_stats_request(char_to_send.hp_current, char_to_send.hp_max, char_to_send.initiative, getattr(char_to_send, "conditions", [])))
-                self.network.send(make_update_full_sheet_request(char_to_send.to_dict()))
-                char_info = f" (Lv.{char_to_send.level} {char_to_send.char_class})"
-            else:
-                char_info = ""
-                
-            self.log_to_chat(f"Connesso a {host}:{port} come {self.name}{char_info}.", "Globale", sender="Sistema", color="#2ECC71")
-            self.master.title(f"D&D Client - {self.name}")
-            self.status_label.config(text=f"Stato: Connesso a {host}:{port}", style="Success.TLabel")
-            if hasattr(self, 'btn_quick_connect'):
-                self.btn_quick_connect.pack_forget()
-            if hasattr(self, 'voice_status_lbl'):
-                self.voice_status_lbl.config(text="🟢 Voice: Connesso", fg=ACCENT_GREEN)
-            self.set_controls_state(tk.NORMAL)
-            self.update_hero_summary_card()
-            if self.active_character and hasattr(self, 'hotbar_buttons') and hasattr(self.active_character, 'hotbar') and isinstance(self.active_character.hotbar, list):
-                for i in range(min(10, len(self.active_character.hotbar))):
-                    cmd = self.active_character.hotbar[i]
-                    btn_style = "HotbarAssigned.TButton" if cmd else "Hotbar.TButton"
-                    self.hotbar_buttons[i].config(text=cmd[:10] if cmd else f"{i+1}", style=btn_style)
-            if hasattr(self, "show_toast"):
-                self.show_toast(f"Connesso a {host}:{port}!", title="Connessione Riuscita", toast_type="success")
+            self._finalize_connect_success(host, port, server_ip)
         except Exception as e:
-            self.is_connected = False
-            self.status_label.config(text=_t("status_disconnected"), style="Danger.TLabel")
-            if hasattr(self, 'btn_quick_connect'):
-                self.btn_quick_connect.pack(side=tk.RIGHT, padx=2)
-            self.set_controls_state(tk.DISABLED)
-            messagebox.showerror("Errore di Connessione", f"Impossibile connettersi a {host}:{port}.\n\nAssicurati che il server del Dungeon Master sia avviato e raggiungibile.\n\nDettagli: {e}")
+            self._finalize_connect_error(host, port, str(e))
 
     def reconnect_to_server(self):
         if self.is_connected:
@@ -4146,6 +4330,14 @@ class ClientGUI(ClientNetworkHandlersMixin):
                     break
                 if isinstance(msg, dict) and msg.get("type") == "DISCONNECTED":
                     self.handle_disconnection()
+                    continue
+                if isinstance(msg, dict) and msg.get("type") == "_CONNECT_OK":
+                    d = msg.get("data") or {}
+                    self._finalize_connect_success(d.get("host", ""), int(d.get("port", 5000)), d.get("server_ip", ""))
+                    continue
+                if isinstance(msg, dict) and msg.get("type") == "_CONNECT_ERR":
+                    d = msg.get("data") or {}
+                    self._finalize_connect_error(d.get("host", ""), int(d.get("port", 5000)), d.get("error", ""))
                     continue
                 try:
                     self.handle_server_message(msg)
@@ -4210,7 +4402,8 @@ class ClientGUI(ClientNetworkHandlersMixin):
         self.round_number = data.get("round_number", 1)
         self.aoes_data = data.get("active_aoes", [])
         turn_player_name = data.get("turn_player_name")
-        
+        resolved_turn_name = turn_player_name or ""
+
         was_my_turn = getattr(self, "_is_my_turn", False)
         is_my_turn = False
         if self.combat_active:
@@ -4220,8 +4413,10 @@ class ClientGUI(ClientNetworkHandlersMixin):
                 combatants = [p for p in self.players_data.values() if p.get('in_combat', True)]
                 combatants.sort(key=lambda x: x.get('initiative', 0), reverse=True)
                 if 0 <= self.turn_index < len(combatants):
-                    is_my_turn = (combatants[self.turn_index].get('name') == self.name)
-        
+                    resolved_turn_name = combatants[self.turn_index].get('name', '') or ""
+                    is_my_turn = (resolved_turn_name == self.name)
+        self.turn_player_name = resolved_turn_name if self.combat_active else ""
+
         self._is_my_turn = is_my_turn
         if not self.combat_active and was_combat:
             self.help_targeting_mode = False
@@ -4248,7 +4443,11 @@ class ClientGUI(ClientNetworkHandlersMixin):
     def handle_game_state(self, data):
         was_combat = getattr(self, "combat_active", False)
         self.game_state = data
-        self.players_data = {p['name']: p for p in data.get('players', [])}
+        raw_players = data.get('players', [])
+        if isinstance(raw_players, list):
+            ClientGUI._resolve_cached_avatar_assets(self, raw_players)
+        self.players_data = {p['name']: p for p in raw_players if isinstance(p, dict) and p.get('name')}
+        self.turn_player_name = (data.get("turn_player_name") or "") if data.get("combat_active", False) else ""
         self.local_map_data = ClientGUI._resolve_cached_map_assets(self, data.get("map"))
         if isinstance(data.get("handouts"), list):
             ClientGUI._resolve_cached_handout_assets(self, data["handouts"])
@@ -4342,9 +4541,11 @@ class ClientGUI(ClientNetworkHandlersMixin):
             self.lbl_time.config(text=f"Data: {day} {month_name} {year} - {time_str}")
         
         is_my_turn = False
+        resolved_turn = ""
         if self.combat_active:
             turn_player = data.get("turn_player_name")
             if turn_player is not None:
+                resolved_turn = turn_player
                 is_my_turn = (turn_player == self.name)
             else:
                 all_players_list = data.get('players', [])
@@ -4353,9 +4554,11 @@ class ClientGUI(ClientNetworkHandlersMixin):
                     key=lambda x: (-float(x.get('initiative', 0) or 0), -float(x.get('initiative_bonus', 0) or 0), str(x.get('name', '')))
                 )
                 if 0 <= self.turn_index < len(combatants_list):
-                    if combatants_list[self.turn_index]['name'] == self.name:
+                    resolved_turn = combatants_list[self.turn_index].get('name', '') or ""
+                    if resolved_turn == self.name:
                         is_my_turn = True
-        
+        self.turn_player_name = resolved_turn
+
         self._is_my_turn = is_my_turn
         if not self.combat_active and was_combat:
             self.help_targeting_mode = False
@@ -4411,7 +4614,10 @@ class ClientGUI(ClientNetworkHandlersMixin):
         self.master.after(2000, lambda: banner.destroy() if hasattr(banner, "winfo_exists") and banner.winfo_exists() else None)
 
     def handle_player_joined(self, data):
-        self.players_data[data.get('name')] = data
+        if isinstance(data, dict):
+            ClientGUI._resolve_cached_avatar_assets(self, data)
+        if isinstance(data, dict) and data.get('name'):
+            self.players_data[data.get('name')] = data
         self.update_player_listbox()
         self.redraw_map_and_players()
 
@@ -4639,6 +4845,12 @@ class ClientGUI(ClientNetworkHandlersMixin):
         msg = _t("confirm_exit_connected") if self.is_connected else _t("confirm_exit_client")
         if messagebox.askokcancel(_t("menu_exit"), msg):
             self._is_closing = True
+            self._is_connecting = False
+            if hasattr(self, "network") and hasattr(self.network, "cancel_pending_connect"):
+                try:
+                    self.network.cancel_pending_connect()
+                except Exception:
+                    pass
             cancel_all_after_timers(self.master)
             self._process_queue_job = None
             if getattr(self, "_char_save_timer", None):
@@ -4659,7 +4871,8 @@ class ClientGUI(ClientNetworkHandlersMixin):
             self.disconnect()
             self.master.destroy()
 
-    def handle_disconnection(self):
+    def handle_disconnection(self, silent: bool = False):
+        self._is_connecting = False
         self.is_connected = False
         if getattr(self, "audio_manager", None):
             try: self.audio_manager.stop("all")
@@ -4670,11 +4883,10 @@ class ClientGUI(ClientNetworkHandlersMixin):
         if self.voice_client:
             try: self.voice_client.stop()
             except Exception: pass
-        self.show_toast("La connessione con il server è stata persa.\nPuoi usare 'Riconnetti Ultimo Server' dal menu Server.", title="Disconnesso", toast_type="danger")
+        if not silent:
+            self.show_toast("La connessione con il server è stata persa.\nPuoi usare 'Riconnetti Ultimo Server' dal menu Server o la pillola di stato.", title="Disconnesso", toast_type="danger")
         self.master.title("D&D Client - Disconnesso")
-        self.status_label.config(text="Stato: Disconnesso", style="Danger.TLabel")
-        if hasattr(self, 'btn_quick_connect'):
-            self.btn_quick_connect.pack(side=tk.RIGHT, padx=2)
+        self._sync_connection_status_ui("disconnected", "Stato: Disconnesso")
         self.set_controls_state(tk.DISABLED)
         if hasattr(self, "update_action_economy_ui"):
             self.update_action_economy_ui()

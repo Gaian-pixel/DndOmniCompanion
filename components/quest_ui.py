@@ -69,7 +69,7 @@ class QuestLogDialog(tk.Toplevel):
         self.quest_listbox.delete(0, tk.END)
         quests = self._get_quests()
         for i, q in enumerate(quests):
-            is_done = q.get("completed", False) or q.get("status") == "completed"
+            is_done = bool(q.get("completed", False)) or str(q.get("status", "")).lower() in ("completed", "completata", "done")
             status = "✅" if is_done else "📜"
             chap = f"[{q.get('chapter')}] " if q.get("chapter") else ""
             self.quest_listbox.insert(tk.END, f"{status} {chap}{q.get('title', 'Senza Titolo')}")
@@ -82,7 +82,7 @@ class QuestLogDialog(tk.Toplevel):
         quests = self._get_quests()
         if idx < len(quests):
             q = quests[idx]
-            is_done = q.get("completed", False) or q.get("status") == "completed"
+            is_done = bool(q.get("completed", False)) or str(q.get("status", "")).lower() in ("completed", "completata", "done")
             st_text = "Completata" if is_done else "In Corso"
             self.detail_text.config(state=tk.NORMAL)
             self.detail_text.delete("1.0", tk.END)
@@ -119,9 +119,11 @@ class QuestLogDialog(tk.Toplevel):
         if not sel: return
         idx = sel[0]
         quests = self._get_quests()
-        quests[idx]["status"] = "completed"
-        self._sync()
-        self.refresh_list()
+        if 0 <= idx < len(quests):
+            quests[idx]["status"] = "completed"
+            quests[idx]["completed"] = True
+            self._sync()
+            self.refresh_list()
 
     def delete_quest(self):
         sel = self.quest_listbox.curselection()
@@ -130,14 +132,15 @@ class QuestLogDialog(tk.Toplevel):
             return
         idx = sel[0]
         quests = self._get_quests()
-        quests.pop(idx)
-        self._sync()
-        self.refresh_list()
+        if 0 <= idx < len(quests):
+            quests.pop(idx)
+            self._sync()
+            self.refresh_list()
         
     def save_quest(self, title, desc, idx=None):
         quests = self._get_quests()
         if idx is None:
-            quests.append({"title": title, "description": desc, "status": "active"})
+            quests.append({"title": title, "description": desc, "status": "active", "completed": False})
         else:
             quests[idx]["title"] = title
             quests[idx]["description"] = desc
@@ -152,8 +155,15 @@ class QuestLogDialog(tk.Toplevel):
             from server.network import broadcast
             g_state = getattr(self.network, "game_state", self.game_state)
             try:
-                broadcast(g_state, make_quest_list_update(self._get_quests()))
-                broadcast(g_state, make_game_state(g_state.get_state_dict()))
+                public_quests = [
+                    q for q in self._get_quests()
+                    if isinstance(q, dict)
+                    and not q.get("secret", False)
+                    and not q.get("dm_only", False)
+                    and q.get("is_revealed", True) is not False
+                ]
+                broadcast(g_state, make_quest_list_update(public_quests))
+                broadcast(g_state, make_game_state(g_state.get_state_dict(is_dm=False)))
             except Exception as e:
                 print("Errore sync quest:", e)
 

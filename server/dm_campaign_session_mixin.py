@@ -475,6 +475,7 @@ class DMCampaignSessionMixin:
         if active_camp:
             def on_saved(camp):
                 camp.apply_to_game_state(self.server.game_state)
+                broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
                 self.log_to_chat(f"[SISTEMA] Campagna '{camp.name}' aggiornata.")
             CampaignEditorDialog(self.master, campaign=active_camp, game_state=self.server.game_state, on_save_callback=on_saved)
         else:
@@ -1054,6 +1055,69 @@ class DMCampaignSessionMixin:
         )
         self.server.game_state._trigger_gui_update()
         return player
+
+    def sync_local_party_characters_to_manager(self, target_name=None):
+        """Sincronizza PF, CA, risorse, slot, dadi vita, tiri morte e XP dei PG locali su CharacterManager."""
+        server = getattr(self, "server", None)
+        gs = getattr(server, "game_state", None) if server else None
+        if not gs:
+            return 0
+        party_players = [
+            p for p in getattr(gs, "players", [])
+            if getattr(p, "is_party_member", False)
+            and (target_name is None or getattr(p, "name", None) == target_name)
+        ]
+        if not party_players:
+            return 0
+
+        from client.character_manager import CharacterManager
+
+        mgr = CharacterManager()
+        updated = 0
+        for p in party_players:
+            sheet = getattr(p, "full_sheet", None)
+            if not isinstance(sheet, dict):
+                sheet = {}
+            char = None
+            char_id = sheet.get("id") or sheet.get("character_id")
+            if char_id:
+                char = mgr.get_character_by_id(char_id)
+            if char is None and getattr(p, "name", None):
+                char = mgr.get_character_by_name(p.name)
+            if char is None:
+                continue
+
+            char.hp_current = int(getattr(p, "hp", sheet.get("hp_current", char.hp_current)) or 0)
+            char.hp_max = int(getattr(p, "max_hp", sheet.get("hp_max", char.hp_max)) or 1)
+            char.temp_hp = int(getattr(p, "temp_hp", sheet.get("temp_hp", getattr(char, "temp_hp", 0))) or 0)
+            char.ac = int(getattr(p, "ac", sheet.get("ac", char.ac)) or 10)
+            char.conditions = list(getattr(p, "conditions", None) if getattr(p, "conditions", None) is not None else sheet.get("conditions", []))
+            ds_src = getattr(p, "death_saves", None) or sheet.get("death_saves") or {"successes": 0, "failures": 0}
+            char.death_saves = copy.deepcopy(ds_src) if isinstance(ds_src, dict) else {"successes": 0, "failures": 0}
+            char.exhaustion_level = int(getattr(p, "exhaustion_level", sheet.get("exhaustion_level", 0)) or 0)
+
+            for int_field in ("hit_dice_current", "hit_dice_total", "xp", "level"):
+                if int_field in sheet and sheet.get(int_field) is not None:
+                    try:
+                        setattr(char, int_field, int(sheet[int_field]))
+                    except (ValueError, TypeError):
+                        pass
+
+            for dict_field in ("spell_slots", "pact_slots", "class_resources", "currency"):
+                val = sheet.get(dict_field)
+                if isinstance(val, dict):
+                    setattr(char, dict_field, copy.deepcopy(val))
+
+            for list_field in ("custom_resources", "spells", "inventory_grid"):
+                val = sheet.get(list_field)
+                if isinstance(val, list):
+                    setattr(char, list_field, copy.deepcopy(val))
+
+            updated += 1
+
+        if updated > 0:
+            mgr.save_characters()
+        return updated
 
     def open_import_party_character_dialog(self):
         """Apre il selettore per importare Personaggi Giocanti locali (Sessione dal Vivo / Ibrida)."""

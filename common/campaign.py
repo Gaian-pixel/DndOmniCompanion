@@ -149,7 +149,7 @@ class Campaign:
             
         os.makedirs(self.folder_path, exist_ok=True)
         manifest_file = os.path.join(self.folder_path, "campaign.json")
-        safe_write_json(manifest_file, self.to_dict())
+        safe_write_json(manifest_file, self.to_dict(), create_backup=True)
         return self.folder_path
 
     @classmethod

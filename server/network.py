@@ -165,6 +165,7 @@ class Server:
         broadcast(self.game_state, make_game_state(self.game_state.get_state_dict()))
 
     def start(self):
+        self._stopped = False
         self.voice_server.start()
         self.server_socket=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -177,6 +178,7 @@ class Server:
                 thread=threading.Thread(target=self.handle_client, args=(conn, addr), daemon=True); thread.start()
             except OSError: break
     def stop(self):
+        self._stopped = True
         self.running=False
         self.voice_server.stop()
         if self.server_socket:
@@ -184,6 +186,8 @@ class Server:
             except Exception: pass
         with self.active_sockets_lock:
             for s in list(self.active_sockets):
+                try: s.shutdown(socket.SHUT_RDWR)
+                except Exception: pass
                 try: s.close()
                 except Exception: pass
             self.active_sockets.clear()
@@ -228,15 +232,29 @@ class Server:
                     existing_conn = getattr(existing_player, "conn", None)
                     existing_addr = getattr(existing_player, "addr", None)
                     same_host = bool(existing_addr and addr and existing_addr[0] == addr[0])
-                    if is_human and existing_conn is not None and existing_conn != conn and not same_host:
+                    has_session_pin = bool(str(getattr(self, "session_password", "") or "").strip())
+                    existing_conn_dead = False
+                    if existing_conn is not None and existing_conn != conn:
+                        try:
+                            if hasattr(existing_conn, "fileno") and existing_conn.fileno() < 0:
+                                existing_conn_dead = True
+                            elif hasattr(existing_conn, "getpeername"):
+                                existing_conn.getpeername()
+                        except Exception:
+                            existing_conn_dead = True
+                    last_seen = float(getattr(existing_player, "_last_seen_ts", 0.0) or 0.0)
+                    existing_conn_stale = bool(last_seen and (time.monotonic() - last_seen) > 35.0)
+                    can_takeover = same_host or has_session_pin or existing_conn_dead or existing_conn_stale
+                    if is_human and existing_conn is not None and existing_conn != conn and not can_takeover:
                         reject_msg = f"Il personaggio '{name}' è già connesso da un altro indirizzo."
                         player_action = "reject"
                     elif is_human:
-                        # Riconnessione consentita dallo stesso host anche in caso di socket zombie
+                        # Riconnessione consentita (stesso host, sessione protetta da PIN o socket precedente morto/stantio)
                         old_conn_to_close = existing_conn if (existing_conn is not None and existing_conn != conn) else None
                         existing_player.conn = conn
                         existing_player.addr = addr
                         existing_player.is_party_member = True
+                        existing_player._last_seen_ts = time.monotonic()
                         existing_player._preserve_server_state_on_join = True
                         existing_player._preserve_stats_on_join = True
                         existing_player._preserve_join_until = time.monotonic() + 5.0
@@ -289,16 +307,30 @@ class Server:
 
                     self.game_state.add_player(player)
 
+            def _seed_known_hashes(target_player):
+                raw_known = join_data.get("known_asset_hashes")
+                seeded = {}
+                if isinstance(raw_known, (list, tuple, set)):
+                    from common.network_utils import MAX_TRACKED_SENT_ASSET_HASHES
+                    for h in list(raw_known)[:MAX_TRACKED_SENT_ASSET_HASHES]:
+                        if isinstance(h, str) and h:
+                            seeded[h] = True
+                target_player._sent_asset_hashes = seeded
+
             if player_action == "reject":
                 send_message(conn, make_error_reply(reject_msg))
                 return
             elif player_action == "reconnect":
                 if old_conn_to_close is not None:
                     try:
+                        old_conn_to_close.shutdown(socket.SHUT_RDWR)
+                    except Exception:
+                        pass
+                    try:
                         old_conn_to_close.close()
                     except Exception:
                         pass
-                player._sent_asset_hashes = {}
+                _seed_known_hashes(player)
                 init_gs = prepare_per_player_state_payload(
                     make_game_state(self.game_state.get_state_dict(is_dm=False)),
                     player,
@@ -307,11 +339,12 @@ class Server:
                 broadcast(self.game_state, make_player_joined(player.to_dict()), exclude_player=player)
                 self.game_state._trigger_gui_update()
             else:
+                player._last_seen_ts = time.monotonic()
                 if self.game_state.current_map and self.game_state.current_map.get("fow_enabled", False) and getattr(player, "position", None):
                     from server.rules.movement import auto_explore_fow
                     if auto_explore_fow(player, self.game_state):
                         self.game_state._trigger_gui_update()
-                player._sent_asset_hashes = {}
+                _seed_known_hashes(player)
                 init_gs = prepare_per_player_state_payload(
                     make_game_state(self.game_state.get_state_dict(is_dm=False)),
                     player,
@@ -335,16 +368,43 @@ class Server:
                     send_message(conn, make_campaign_starter_granted(player.full_sheet.get("inventory_grid", []), full_sheet=player.full_sheet))
                     broadcast(self.game_state, make_chat_broadcast("Sistema", f"[CAMPAGNA] {player.name} ha ricevuto l'equipaggiamento iniziale della campagna dal Master!"))
             
-            while True:
-                msg = receive_message(conn)
+            try:
+                conn.settimeout(30.0)
+            except Exception:
+                pass
+            idle_timeouts = 0
+            was_started = bool(self.running)
+            while not getattr(self, "_stopped", False) and (not was_started or self.running):
+                if getattr(player, "conn", None) is not conn:
+                    break
+                try:
+                    try:
+                        msg = receive_message(conn, raise_on_timeout=True)
+                    except TypeError as _te:
+                        if "raise_on_timeout" not in str(_te):
+                            raise
+                        msg = receive_message(conn)
+                except socket.timeout:
+                    idle_timeouts += 1
+                    if getattr(self, "_stopped", False) or (was_started and not self.running) or getattr(player, "conn", None) is not conn or idle_timeouts >= 2:
+                        break
+                    try:
+                        send_message(conn, {"type": "PING", "data": {}})
+                    except Exception:
+                        break
+                    continue
+                idle_timeouts = 0
                 if msg is None:
                     break
+                player._last_seen_ts = time.monotonic()
                 if not isinstance(msg, dict):
                     send_message(conn, make_error_reply("Formato pacchetto non valido."))
                     continue
                 msg_type = msg.get("type")
                 if not isinstance(msg_type, str) or not msg_type:
                     send_message(conn, make_error_reply("Tipo comando mancante o non valido."))
+                    continue
+                if msg_type == "PONG":
                     continue
                 raw_data = msg.get("data", {})
                 if raw_data is None:
@@ -371,10 +431,11 @@ class Server:
             with self.active_sockets_lock:
                 self.active_sockets.discard(conn)
             if player:
-                curr_sock = getattr(player, "conn", None)
-                self.game_state.disconnect_player(player, conn=conn)
+                with self.game_state.lock:
+                    was_current_conn = (getattr(player, "conn", None) is conn)
+                    self.game_state.disconnect_player(player, conn=conn)
                 # Avvisiamo in chat solo se il giocatore non si è già riconnesso con un nuovo socket
-                if curr_sock is conn:
+                if was_current_conn:
                     broadcast(self.game_state, make_chat_broadcast("Sistema", f"{player.name} si è disconnesso."))
             try:
                 conn.close()

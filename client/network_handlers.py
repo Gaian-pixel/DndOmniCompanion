@@ -109,6 +109,46 @@ class ClientNetworkHandlersMixin:
                 item.pop("image_cached", None)
         return handouts_or_data
 
+    def _resolve_cached_avatar_assets(self, players_or_player):
+        from common.network_utils import compute_asset_hash
+        cache = ClientNetworkHandlersMixin._get_asset_cache(self)
+        items = players_or_player if isinstance(players_or_player, list) else [players_or_player]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            av_b64 = item.get("avatar_b64")
+            av_hash = item.get("avatar_hash")
+            resolved_b64 = None
+            if isinstance(av_b64, str) and av_b64:
+                eff_hash = compute_asset_hash(av_b64)
+                ClientNetworkHandlersMixin._store_asset_in_cache(self, eff_hash, av_b64)
+                item["avatar_hash"] = eff_hash
+                item.pop("avatar_cached", None)
+                resolved_b64 = av_b64
+            elif isinstance(av_hash, str) and av_hash and av_hash in cache:
+                cached_b64 = cache.pop(av_hash)
+                cache[av_hash] = cached_b64
+                item["avatar_b64"] = cached_b64
+                item.pop("avatar_cached", None)
+                resolved_b64 = cached_b64
+            else:
+                # Fallback locale su players_data gia noto prima dell'update
+                pdata = getattr(self, "players_data", None)
+                pname = item.get("name")
+                if isinstance(pdata, dict) and pname and isinstance(pdata.get(pname), dict):
+                    prev_av = pdata[pname].get("avatar_b64")
+                    if isinstance(prev_av, str) and prev_av and (not av_hash or compute_asset_hash(prev_av) == av_hash):
+                        ClientNetworkHandlersMixin._store_asset_in_cache(self, av_hash or compute_asset_hash(prev_av), prev_av)
+                        item["avatar_b64"] = prev_av
+                        item.pop("avatar_cached", None)
+                        resolved_b64 = prev_av
+            if resolved_b64 and isinstance(item.get("full_sheet"), dict) and item["full_sheet"].get("avatar_cached"):
+                fs_copy = dict(item["full_sheet"])
+                fs_copy["avatar_b64"] = resolved_b64
+                fs_copy.pop("avatar_cached", None)
+                item["full_sheet"] = fs_copy
+        return players_or_player
+
 
     def handle_handout_broadcast(self, data):
         if isinstance(data, dict):

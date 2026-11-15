@@ -262,8 +262,35 @@ def apply_modern_window_style(win, bind_escape=True, center_on_parent=True):
 
     if isinstance(win, tk.Toplevel):
         if bind_escape:
+            def _on_escape(event=None):
+                try:
+                    if not win.winfo_exists():
+                        return "break"
+                    try:
+                        if bool(win.attributes("-fullscreen")):
+                            win.attributes("-fullscreen", False)
+                            return "break"
+                    except Exception:
+                        pass
+                    custom_cb = getattr(win, "_on_escape_close", None)
+                    if callable(custom_cb):
+                        custom_cb()
+                        return "break"
+                    wm_cmd = ""
+                    try:
+                        wm_cmd = str(win.protocol("WM_DELETE_WINDOW") or "")
+                    except Exception:
+                        wm_cmd = ""
+                    if wm_cmd:
+                        win.tk.eval(wm_cmd)
+                        return "break"
+                    win.destroy()
+                except Exception:
+                    pass
+                return "break"
+
             try:
-                win.bind("<Escape>", lambda e: win.destroy())
+                win.bind("<Escape>", _on_escape)
             except Exception:
                 pass
         if center_on_parent:
@@ -291,19 +318,32 @@ def apply_modern_window_style(win, bind_escape=True, center_on_parent=True):
                     if w <= 1 or h <= 1:
                         w = win.winfo_reqwidth()
                         h = win.winfo_reqheight()
+                    try:
+                        vx = int(win.winfo_vrootx())
+                        vy = int(win.winfo_vrooty())
+                        vw = int(win.winfo_vrootwidth())
+                        vh = int(win.winfo_vrootheight())
+                    except Exception:
+                        vx, vy, vw, vh = 0, 0, 0, 0
+                    if vw <= 1 or vh <= 1:
+                        vx, vy = 0, 0
+                        vw = max(1, int(win.winfo_screenwidth()))
+                        vh = max(1, int(win.winfo_screenheight()))
                     parent = win.master
                     if parent and parent.winfo_exists() and parent.winfo_width() > 100:
                         px = parent.winfo_rootx()
                         py = parent.winfo_rooty()
                         pw = parent.winfo_width()
                         ph = parent.winfo_height()
-                        x = max(10, px + (pw - w) // 2)
-                        y = max(10, py + (ph - h) // 2)
+                        x = px + (pw - w) // 2
+                        y = py + (ph - h) // 2
                     else:
-                        sw = win.winfo_screenwidth()
-                        sh = win.winfo_screenheight()
-                        x = max(10, (sw - w) // 2)
-                        y = max(10, (sh - h) // 2)
+                        x = vx + (vw - w) // 2
+                        y = vy + (vh - h) // 2
+                    max_x = max(vx + 8, vx + vw - w - 8)
+                    max_y = max(vy + 8, vy + vh - h - 8)
+                    x = max(vx + 8, min(max_x, x))
+                    y = max(vy + 8, min(max_y, y))
                     win.geometry(f"+{x}+{y}")
                 except Exception:
                     pass

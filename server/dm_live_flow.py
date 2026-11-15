@@ -665,11 +665,52 @@ class DMLiveFlowDialog(tk.Toplevel):
     def commence_rest(self, node: FlowNode):
         rtype = node.data.get("rest_type", "Breve")
         safe = node.data.get("safety", "Sicuro")
+        is_long = any(k in str(rtype).lower() for k in ("lung", "long", "complet"))
+        gs = self._get_game_state()
+        if gs is not None:
+            from common.character_schema import restore_entity_rest_resources
+            from common.network_utils import broadcast
+            from common.protocol import make_game_state
+            slow_heal = bool((getattr(gs, "automation_settings", {}) or {}).get("opt_slow_natural_healing", False))
+            with gs.lock:
+                for p in gs.players:
+                    is_pc = bool(getattr(p, "is_party_member", False) or getattr(p, "is_companion", False) or getattr(p, "conn", None) is not None)
+                    if not is_pc:
+                        continue
+                    restore_entity_rest_resources(p, rest_type=("long" if is_long else "short"))
+                    if is_long:
+                        if not slow_heal:
+                            p.hp = p.max_hp
+                        p.exhaustion_level = max(0, getattr(p, "exhaustion_level", 0) - 1)
+                        conds = [c for c in getattr(p, "conditions", []) if not str(c).startswith("Sfinimento")]
+                        if p.exhaustion_level > 0:
+                            conds.append(f"Sfinimento (Liv. {p.exhaustion_level})")
+                        p.conditions = conds
+                        hd_max = int(getattr(p, "hit_dice_max", 0) or (p.full_sheet.get("hit_dice_max", p.full_sheet.get("level", 1)) if isinstance(getattr(p, "full_sheet", None), dict) else 1))
+                        hd_cur = int(getattr(p, "hit_dice_current", hd_max) or 0)
+                        hd_rec = max(1, hd_max // 2) if hd_max > 0 else 0
+                        new_hd = min(hd_max, hd_cur + hd_rec)
+                        p.hit_dice_current = new_hd
+                        if isinstance(getattr(p, "full_sheet", None), dict):
+                            p.full_sheet["hp_current"] = p.hp
+                            p.full_sheet["exhaustion_level"] = p.exhaustion_level
+                            p.full_sheet["conditions"] = list(conds)
+                            p.full_sheet["hit_dice_current"] = new_hd
+                if is_long:
+                    gs.travel_hours_today = 0
+                state_snap = gs.get_state_dict()
+            gs._trigger_gui_update()
+            broadcast(gs, make_game_state(state_snap))
+            if self.master_gui and hasattr(self.master_gui, "sync_local_party_characters_to_manager"):
+                try:
+                    self.master_gui.sync_local_party_characters_to_manager()
+                except Exception:
+                    pass
         msg = f"⛺ [RIPOSO {rtype.upper()}] Il party si accampa per riposare (Luogo: {safe}). Recupero slot e dadi vita secondo le regole."
         self._broadcast_chat("Sistema", msg)
         self.session_ledger.record_dm_note(f"Riposo {rtype} effettuato a {node.title}")
         self._record_to_campaign_journal("rest", f"Riposo {rtype.capitalize()}", f"Luogo: {node.title} ({safe})", actor="Party")
-        messagebox.showinfo("Riposo Avviato", f"Riposo {rtype} annunciato in chat!", parent=self)
+        messagebox.showinfo("Riposo Avviato", f"Riposo {rtype} applicato e annunciato in chat!", parent=self)
 
     def share_lore(self, node: FlowNode):
         auth = node.data.get("author", "Anonimo")
@@ -681,11 +722,21 @@ class DMLiveFlowDialog(tk.Toplevel):
         if gs is not None:
             from common.network_utils import broadcast
             from common.protocol import make_handout_broadcast
-            handout = {"title": node.title, "content": text, "description": text, "author": auth, "language": lang}
+            handout = {
+                "title": node.title,
+                "content": text,
+                "description": text,
+                "author": auth,
+                "language": lang,
+                "is_revealed": True,
+            }
             if hasattr(gs, "handouts") and isinstance(gs.handouts, list):
-                if not any(h.get("title") == node.title for h in gs.handouts if isinstance(h, dict)):
+                existing = next((h for h in gs.handouts if isinstance(h, dict) and h.get("title") == node.title), None)
+                if existing is not None:
+                    existing.update(handout)
+                else:
                     gs.handouts.append(handout)
-            broadcast(gs, make_handout_broadcast(node.title, text, ""))
+            broadcast(gs, make_handout_broadcast(node.title, None, text))
         self.session_ledger.record_secret(title=node.title, check=f"Lingua {lang}", text=text)
         self._record_to_campaign_journal("discovery", f"Documento: {node.title}", text, actor="DM")
         messagebox.showinfo("Documento Condiviso", f"Documento '{node.title}' inviato ai giocatori!", parent=self)
@@ -717,11 +768,17 @@ class DMLiveFlowDialog(tk.Toplevel):
         messagebox.showinfo("Modalità Fuori Pista", "Modalità Improvvisazione attivata! Tutte le azioni manuali verranno tracciate nella cronistoria.", parent=self)
 
     def add_quick_dm_note(self):
-        note = simpledialog.askstring("Nota Rapida del Master", "Cosa è appena successo?", parent=self)
+        note = simpledialog.askstring("Nota Rapida del Master", "Cosa è appena successo? (Privata DM)", parent=self)
         if note and note.strip():
-            self.session_ledger.record_dm_note(note.strip())
-            self._record_to_campaign_journal("dm_note", "Nota DM", note.strip(), actor="DM")
-            messagebox.showinfo("Nota Registrata", "Nota salvata nella cronistoria della sessione!", parent=self)
+            clean_note = note.strip()
+            self.session_ledger.record_dm_note(clean_note)
+            gs = self._get_game_state()
+            journal = getattr(gs, "campaign_journal", None) if gs else None
+            if journal and hasattr(journal, "get_active_session"):
+                sess = journal.get_active_session()
+                sess.dm_notes = f"{sess.dm_notes}\n- {clean_note}".strip() if sess.dm_notes else f"- {clean_note}"
+            self._record_to_campaign_journal("dm_note", "Nota Riservata DM", clean_note, actor="DM")
+            messagebox.showinfo("Nota Registrata", "Nota privata del DM salvata nel diario di sessione!", parent=self)
 
 
 # ---------------------------------------------------------------------------

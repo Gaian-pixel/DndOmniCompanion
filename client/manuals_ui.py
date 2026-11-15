@@ -87,11 +87,19 @@ class ManualsDialog(tk.Toplevel):
         self.cat_cb.pack(fill=tk.X, pady=(2, 6))
         self.cat_cb.bind("<<ComboboxSelected>>", lambda e: self.refresh_list())
 
-        # Campo di Ricerca con icona
+        # Campo di Ricerca con debounce reattivo (150ms)
+        self._search_debounce_job = None
         tk.Label(filters_f, text=_t("manuals_search_placeholder"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w")
         search_entry = ttk.Entry(filters_f, textvariable=self.search_var)
         search_entry.pack(fill=tk.X, pady=(2, 8))
-        search_entry.bind("<KeyRelease>", lambda e: self.refresh_list())
+        def _schedule_refresh(event=None):
+            if getattr(self, "_search_debounce_job", None) is not None:
+                try:
+                    self.after_cancel(self._search_debounce_job)
+                except Exception:
+                    pass
+            self._search_debounce_job = self.after(150, self._run_debounced_refresh)
+        search_entry.bind("<KeyRelease>", _schedule_refresh)
 
         # Treeview / Lista Argomenti
         list_container = tk.Frame(left_panel, bg=SURFACE_COLOR)
@@ -148,6 +156,13 @@ class ManualsDialog(tk.Toplevel):
         self.lbl_summary = tk.Label(self.summary_frame, text="Scegli un argomento per visualizzare il sunto rapido o cerca con parole chiave.", font=FONT_SMALL, bg="#212529", fg=TEXT_COLOR, wraplength=480, justify="left")
         self.lbl_summary.pack(anchor="w", padx=8, pady=(0, 6))
 
+        def _sync_wraplength(event):
+            if event.width > 80:
+                target_w = max(220, event.width - 36)
+                self.lbl_title.config(wraplength=target_w)
+                self.lbl_summary.config(wraplength=target_w)
+        right_panel.bind("<Configure>", _sync_wraplength)
+
         # Testo Completo con supporto Markdown
         self.txt_content = scrolledtext.ScrolledText(right_panel, wrap=tk.WORD, bg=BG_COLOR, fg=TEXT_COLOR,
                                                      font=("Segoe UI", 10), insertbackground="white", highlightthickness=0, bd=0)
@@ -188,6 +203,10 @@ class ManualsDialog(tk.Toplevel):
         cats = ["Tutte"] + self.manager.get_manual_categories(manual_code if manual_code != "Tutti" else None)
         self.cat_cb["values"] = cats
         self.selected_category.set("Tutte")
+        self.refresh_list()
+
+    def _run_debounced_refresh(self):
+        self._search_debounce_job = None
         self.refresh_list()
 
     def refresh_list(self):
@@ -402,8 +421,14 @@ class ManualsDialog(tk.Toplevel):
         full_pdf_path = os.path.join(PDF_DIR, fname)
         if os.path.exists(full_pdf_path):
             try:
-                if os.name == 'nt':
+                import subprocess
+                import sys
+                if os.name == "nt":
                     os.startfile(full_pdf_path)
+                elif sys.platform == "darwin":
+                    subprocess.Popen(["open", full_pdf_path])
+                else:
+                    subprocess.Popen(["xdg-open", full_pdf_path])
                 self._notify_action(f"Aperto '{fname}' (Riferimento: {page_ref})")
             except Exception:
                 from common.messagebox import messagebox
@@ -420,12 +445,16 @@ class ManualsDialog(tk.Toplevel):
             
         def do_query():
             online_res = self.manager.query_online_srd_rule(query)
-            if online_res:
-                self.manager.rules.append(online_res)
-                self.after(0, lambda: self.show_rule_details(online_res))
-                self.after(0, lambda: self._notify_action(f"Regola '{online_res['title']}' trovata online su SRD!"))
-            else:
-                self.after(0, lambda: self._notify_action(f"Nessuna regola trovata online per '{query}'."))
+            def _apply_result():
+                if not self.winfo_exists():
+                    return
+                if online_res:
+                    self.manager.rules.append(online_res)
+                    self.show_rule_details(online_res)
+                    self._notify_action(f"Regola '{online_res['title']}' trovata online su SRD!")
+                else:
+                    self._notify_action(f"Nessuna regola trovata online per '{query}'.")
+            self.after(0, _apply_result)
 
         threading.Thread(target=do_query, daemon=True).start()
 

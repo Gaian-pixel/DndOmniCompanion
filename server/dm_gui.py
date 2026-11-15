@@ -287,6 +287,7 @@ class DM_GUI(DMCampaignSessionMixin):
         # Menu Visualizza / View
         view_menu = tk.Menu(menubar, tearoff=0)
         view_menu.add_command(label=_t("menu_toggle_sidebar_dm", default="Barra Laterale DM (Ctrl+B)"), command=self.toggle_sidebar, accelerator="Ctrl+B")
+        view_menu.add_command(label="🖥️ Finestra Mappa Giocatori (Secondo Schermo)", command=self.open_player_display_window)
         view_menu.add_command(label=_t("menu_fullscreen"), command=self.toggle_fullscreen, accelerator="F11")
         menubar.add_cascade(label=_t("menu_view"), menu=view_menu)
 
@@ -472,6 +473,7 @@ class DM_GUI(DMCampaignSessionMixin):
         self.player_menu.add_command(label=_t("ctx_assign_item"), command=self.open_assign_item_dialog)
         self.player_menu.add_command(label=_t("ctx_modify_hp"), command=self.open_modify_hp_dialog)
         self.player_menu.add_command(label=_t("ctx_modify_conditions"), command=self.open_conditions_dialog)
+        self.player_menu.add_command(label="💀 Tira Death Save (d20)", command=self.roll_selected_death_save)
         self.player_menu.add_command(label=_t("ctx_execute_action"), command=self.open_action_dialog)
         self.player_menu.add_command(label=_t("ctx_set_aura"), command=self.open_aura_dialog)
         self.player_menu.add_command(label=_t("ctx_light_source"), command=self.open_light_source_dialog)
@@ -910,9 +912,45 @@ class DM_GUI(DMCampaignSessionMixin):
         self.lbl_encounter_diff = tk.Label(tab_combat, text=_t("lbl_balance_waiting"), font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED, padx=6, pady=3, highlightbackground=BORDER_COLOR, highlightthickness=1)
         self.lbl_encounter_diff.pack(fill=tk.X, side=tk.TOP, pady=(0, 4))
 
-        # Azioni Rapide PNG Selezionato
+        # Azioni Rapide PNG Selezionato ([UX-M08] Container ad altezza limitata con scroll)
         self.npc_actions_frame = ttk.LabelFrame(tab_combat, text=_t("npc_actions_header"))
         self.npc_actions_frame.pack(fill=tk.X, side=tk.TOP, pady=(0, 4))
+        self.npc_actions_canvas = tk.Canvas(self.npc_actions_frame, height=170, bg=SURFACE_COLOR, highlightthickness=0)
+        self.npc_actions_scroll = ttk.Scrollbar(self.npc_actions_frame, orient="vertical", command=self.npc_actions_canvas.yview)
+        self.npc_actions_inner = ttk.Frame(self.npc_actions_canvas)
+        self.npc_actions_inner.bind(
+            "<Configure>",
+            lambda e: self.npc_actions_canvas.configure(scrollregion=self.npc_actions_canvas.bbox("all"))
+        )
+        self._npc_actions_win_id = self.npc_actions_canvas.create_window((0, 0), window=self.npc_actions_inner, anchor="nw")
+        self.npc_actions_canvas.bind(
+            "<Configure>",
+            lambda e: self.npc_actions_canvas.itemconfigure(self._npc_actions_win_id, width=max(1, e.width))
+        )
+        self.npc_actions_canvas.configure(yscrollcommand=self.npc_actions_scroll.set)
+        self.npc_actions_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.npc_actions_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        def _on_npc_wheel(ev):
+            if ev.delta:
+                self.npc_actions_canvas.yview_scroll(int(-1 * (ev.delta / 120)), "units")
+            elif getattr(ev, "num", None) == 4:
+                self.npc_actions_canvas.yview_scroll(-1, "units")
+            elif getattr(ev, "num", None) == 5:
+                self.npc_actions_canvas.yview_scroll(1, "units")
+
+        def _bind_npc_wheel(_ev):
+            self.npc_actions_canvas.bind_all("<MouseWheel>", _on_npc_wheel)
+            self.npc_actions_canvas.bind_all("<Button-4>", _on_npc_wheel)
+            self.npc_actions_canvas.bind_all("<Button-5>", _on_npc_wheel)
+
+        def _unbind_npc_wheel(_ev):
+            self.npc_actions_canvas.unbind_all("<MouseWheel>")
+            self.npc_actions_canvas.unbind_all("<Button-4>")
+            self.npc_actions_canvas.unbind_all("<Button-5>")
+
+        self.npc_actions_canvas.bind("<Enter>", _bind_npc_wheel)
+        self.npc_actions_canvas.bind("<Leave>", _unbind_npc_wheel)
         
         # Griglia 1: Regia Combattimento & Visibilità (2x2 compatta)
         combat_grid = tk.Frame(tab_combat, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=5)
@@ -1714,8 +1752,8 @@ class DM_GUI(DMCampaignSessionMixin):
         updates_to_broadcast = []
         with self.server.game_state.lock:
             for p in self.server.game_state.players:
-                # Mostri/PNG non hanno una connessione client attiva
-                if not getattr(p, "conn", None):
+                # Solo Mostri/PNG non hanno una connessione client attiva né il flag PG locale
+                if not getattr(p, "conn", None) and not getattr(p, "is_party_member", False):
                     if hasattr(p, "get_initiative_bonus"):
                         dex_mod = p.get_initiative_bonus()
                     else:
@@ -1827,18 +1865,57 @@ class DM_GUI(DMCampaignSessionMixin):
             self.log_to_chat(f"Il party ha completato un Riposo Lungo! (Giorno {gs.time_day})")
             gs.add_calendar_event("Il party ha completato un Riposo Lungo")
             slow_heal = bool((getattr(gs, "automation_settings", {}) or {}).get("opt_slow_natural_healing", False))
+            from common.character_schema import restore_entity_rest_resources
             for p in gs.players:
+                is_npc_flag = getattr(p, "is_npc", False) or (isinstance(getattr(p, "full_sheet", None), dict) and p.full_sheet.get("is_npc"))
+                if is_npc_flag:
+                    continue
                 if not slow_heal:
                     p.hp = p.max_hp
+                p.temp_hp = 0
+                p.death_saves = {"successes": 0, "failures": 0}
                 p.exhaustion_level = max(0, getattr(p, "exhaustion_level", 0) - 1)
-                conds = [c for c in getattr(p, "conditions", []) if not c.startswith("Sfinimento")]
+                conds = [c for c in getattr(p, "conditions", []) if not c.startswith("Sfinimento") and c not in ("Incosciente", "Unconscious", "Stabilizzato", "Stabilized")]
                 if p.exhaustion_level > 0:
                     conds.append(f"Sfinimento (Liv. {p.exhaustion_level})")
                 p.conditions = conds
+                restore_entity_rest_resources(p, rest_type="long")
                 if p.full_sheet:
                     p.full_sheet["hp_current"] = p.hp
+                    p.full_sheet["temp_hp"] = 0
+                    p.full_sheet["death_saves"] = {"successes": 0, "failures": 0}
                     p.full_sheet["exhaustion_level"] = p.exhaustion_level
                     p.full_sheet["conditions"] = conds
+                    hd_tot = int(p.full_sheet.get("hit_dice_total", p.full_sheet.get("level", 1)) or 0)
+                    if hd_tot > 0:
+                        hd_cur = int(p.full_sheet.get("hit_dice_current", 0) or 0)
+                        regained = max(1, hd_tot // 2)
+                        p.full_sheet["hit_dice_current"] = min(hd_tot, hd_cur + regained)
+            if hasattr(self, "sync_local_party_characters_to_manager"):
+                self.sync_local_party_characters_to_manager()
+            from common.protocol import make_game_state
+            from server.network import broadcast
+            broadcast(gs, make_game_state(gs.get_state_dict()))
+            if hasattr(gs, "_trigger_gui_update"):
+                gs._trigger_gui_update()
+        elif is_rest and hours >= 1:
+            from common.character_schema import restore_entity_rest_resources
+            for p in gs.players:
+                is_npc_flag = getattr(p, "is_npc", False) or (isinstance(getattr(p, "full_sheet", None), dict) and p.full_sheet.get("is_npc"))
+                if is_npc_flag:
+                    continue
+                restore_entity_rest_resources(p, rest_type="short")
+                if p.full_sheet:
+                    p.full_sheet["hp_current"] = p.hp
+            if hasattr(self, "sync_local_party_characters_to_manager"):
+                self.sync_local_party_characters_to_manager()
+            self.log_to_chat(f"⛺ Il party ha completato un Riposo Breve (+{hours}h)! (Giorno {gs.time_day})")
+            gs.add_calendar_event("Il party ha completato un Riposo Breve")
+            from common.protocol import make_game_state
+            from server.network import broadcast
+            broadcast(gs, make_game_state(gs.get_state_dict()))
+            if hasattr(gs, "_trigger_gui_update"):
+                gs._trigger_gui_update()
         else:
             self.log_to_chat(f"Il tempo avanza di {hours} ore.")
         
@@ -2223,9 +2300,9 @@ class DM_GUI(DMCampaignSessionMixin):
         menu.add_command(label="⏱️ Avanzamento Rapido Tempo (Orologio Campagna)", state="disabled")
         menu.add_separator()
         
-        def adv(seconds=0, minutes=0, hours=0, label=""):
+        def adv(seconds=0, minutes=0, hours=0, label="", is_rest=False):
             if hours > 0:
-                self.advance_time(hours, is_rest=(hours >= 8))
+                self.advance_time(hours, is_rest=(is_rest or hours >= 8))
             else:
                 self.server.game_state.advance_game_time(seconds=seconds, minutes=minutes)
                 from common.protocol import make_game_state
@@ -2237,8 +2314,8 @@ class DM_GUI(DMCampaignSessionMixin):
         menu.add_command(label="+6 Secondi (1 Round)", command=lambda: adv(seconds=6, label="6 secondi (1 round)"))
         menu.add_command(label="+1 Minuto (10 Round)", command=lambda: adv(minutes=1, label="1 minuto"))
         menu.add_command(label="+10 Minuti (Esplorazione Stanza)", command=lambda: adv(minutes=10, label="10 minuti"))
-        menu.add_command(label="+1 Ora (Riposo Breve)", command=lambda: adv(hours=1, label="1 ora"))
-        menu.add_command(label="+8 Ore (Riposo Lungo)", command=lambda: adv(hours=8, label="8 ore (Riposo Lungo)"))
+        menu.add_command(label="+1 Ora (Riposo Breve)", command=lambda: adv(hours=1, is_rest=True, label="1 ora (Riposo Breve)"))
+        menu.add_command(label="+8 Ore (Riposo Lungo)", command=lambda: adv(hours=8, is_rest=True, label="8 ore (Riposo Lungo)"))
         menu.add_separator()
         menu.add_command(label="📅 Apri Calendario di Harptos...", command=self.open_calendar_dialog)
 
@@ -2494,6 +2571,10 @@ class DM_GUI(DMCampaignSessionMixin):
 
         self._update_map_scale_pill()
         self._update_map_env_pill()
+        try:
+            self._sync_player_display_window()
+        except Exception:
+            pass
         self.map_canvas.update_data(
             map_data, 
             players_data, 
@@ -3055,6 +3136,16 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
                 except Exception: pass
             if hasattr(self, 'voice_client'):
                 self.voice_client.stop()
+            if getattr(self, "player_display_window", None) is not None:
+                try:
+                    self.player_display_window.destroy()
+                except Exception:
+                    pass
+                self.player_display_window = None
+            try:
+                self.sync_local_party_characters_to_manager()
+            except Exception:
+                pass
             self.server.stop()
             self.master.destroy()
 
@@ -3277,6 +3368,181 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         finally:
             self.player_menu.grab_release()
 
+    def _sync_player_display_window(self):
+        """Aggiorna la finestra separata Mappa Giocatori (Secondo Schermo) dal punto di vista sicuro dei giocatori."""
+        win = getattr(self, "player_display_window", None)
+        canvas = getattr(self, "player_display_canvas", None)
+        if not win or not canvas:
+            return
+        try:
+            if not win.winfo_exists():
+                self.player_display_window = None
+                self.player_display_canvas = None
+                return
+        except Exception:
+            self.player_display_window = None
+            self.player_display_canvas = None
+            return
+
+        gs = self.server.game_state
+        state_safe = gs.get_state_dict(is_dm=False)
+        players_list = state_safe.get("players", [])
+        if isinstance(players_list, list):
+            players_dict = {p.get("name"): p for p in players_list if isinstance(p, dict) and p.get("name")}
+        elif isinstance(players_list, dict):
+            players_dict = players_list
+        else:
+            players_dict = {}
+
+        canvas.is_dm = False
+        canvas.update_data(
+            state_safe.get("current_map"),
+            players_dict,
+            player_name="",
+            turn_player_name=state_safe.get("turn_player_name", ""),
+            aoes_data=state_safe.get("aoes", []),
+            time_hour=state_safe.get("time_hour", 12),
+            weather=state_safe.get("weather", "Sereno"),
+            combat_active=state_safe.get("combat_active", False),
+            combat_order=state_safe.get("combat_order", []),
+            round_number=state_safe.get("round_number", 1),
+            time_minute=state_safe.get("time_minute", 0),
+            auto_day_night=state_safe.get("auto_day_night", True),
+        )
+
+    def open_player_display_window(self):
+        """Apre o porta in primo piano la finestra Mappa Giocatori di sola lettura per secondo schermo / TV da tavolo."""
+        existing = getattr(self, "player_display_window", None)
+        if existing is not None:
+            try:
+                if existing.winfo_exists():
+                    existing.deiconify()
+                    existing.lift()
+                    self._sync_player_display_window()
+                    return existing
+            except Exception:
+                pass
+
+        from components.ui_components import HexMapCanvas
+
+        win = tk.Toplevel(self.master)
+        win.title("🗺️ Schermo Giocatori • Tavolo dal Vivo (Vista Sicura)")
+        win.geometry("1024x720")
+        apply_modern_window_style(win)
+
+        toolbar = tk.Frame(win, bg=SURFACE_COLOR, padx=8, pady=4)
+        toolbar.pack(fill=tk.X)
+        tk.Label(
+            toolbar,
+            text="🖥️ Vista Giocatori (Livello GM, PNG Nascosti e Bozze FoW esclusi)",
+            font=FONT_SMALL,
+            bg=SURFACE_COLOR,
+            fg=ACCENT_GOLD,
+        ).pack(side=tk.LEFT)
+
+        def _toggle_fs(_ev=None):
+            try:
+                cur = bool(win.attributes("-fullscreen"))
+                win.attributes("-fullscreen", not cur)
+            except Exception:
+                pass
+
+        ttk.Button(toolbar, text="⛶ Schermo Intero (F11)", command=_toggle_fs).pack(side=tk.RIGHT, padx=2)
+        ttk.Button(toolbar, text="🔄 Sincronizza", command=self._sync_player_display_window).pack(side=tk.RIGHT, padx=2)
+
+        canvas = HexMapCanvas(win, bg=BG_COLOR)
+        canvas.is_dm = False
+        canvas.can_move_token_callback = lambda *a, **kw: False
+        canvas.on_token_drop_callback = None
+        canvas.on_hex_click_callback = None
+        canvas.pack(fill=tk.BOTH, expand=True)
+
+        self.player_display_window = win
+        self.player_display_canvas = canvas
+
+        def _close_display():
+            self.player_display_window = None
+            self.player_display_canvas = None
+            try:
+                win.destroy()
+            except Exception:
+                pass
+
+        win.bind("<F11>", _toggle_fs)
+        win._on_escape_close = _close_display
+        win.protocol("WM_DELETE_WINDOW", _close_display)
+        self._sync_player_display_window()
+        return win
+
+    def _on_dm_sheet_changed(self, player_name, log_msg=None):
+        """Propaga le modifiche dal vivo dalla scheda DM a client, tracker e persistenza PG locale."""
+        if log_msg:
+            self.log_to_chat(log_msg)
+        if hasattr(self, "sync_local_party_characters_to_manager"):
+            try:
+                self.sync_local_party_characters_to_manager(target_name=player_name)
+            except Exception:
+                pass
+        from common.protocol import make_game_state
+        from server.network import broadcast
+        broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict(is_dm=False)))
+        self.server.game_state._trigger_gui_update()
+
+    def roll_selected_death_save(self):
+        """Tira un Death Save (5e RAW) per il PG selezionato nel menu/lista giocatori."""
+        import random
+
+        name = self.get_selected_player_name() if hasattr(self, "get_selected_player_name") else None
+        if not name:
+            messagebox.showwarning("Selezione", "Seleziona prima un personaggio dalla mappa o dalla lista.", parent=self.master)
+            return None
+        gs = self.server.game_state
+        target = next((p for p in gs.players if p.name == name), None)
+        if not target:
+            return None
+
+        roll = random.randint(1, 20)
+        ds = getattr(target, "death_saves", None)
+        if not isinstance(ds, dict):
+            ds = {"successes": 0, "failures": 0}
+            target.death_saves = ds
+        conds = list(getattr(target, "conditions", []) or [])
+
+        if roll == 20:
+            target.hp = max(1, int(getattr(target, "hp", 0) or 0))
+            ds["successes"] = 0
+            ds["failures"] = 0
+            conds = [c for c in conds if c not in ("Incosciente", "Unconscious", "Stabilizzato", "Stabilized", "Privo di Sensi")]
+            outcome = f"🌟 NAT 20! {target.name} torna cosciente con 1 PF!"
+        elif roll == 1:
+            ds["failures"] = min(3, int(ds.get("failures", 0) or 0) + 2)
+            outcome = f"💥 NAT 1! {target.name} subisce 2 Fallimenti Morte ({ds['failures']}/3)!"
+        elif roll >= 10:
+            ds["successes"] = min(3, int(ds.get("successes", 0) or 0) + 1)
+            outcome = f"✅ Death Save ({roll}): {target.name} ottiene 1 Successo ({ds['successes']}/3)."
+        else:
+            ds["failures"] = min(3, int(ds.get("failures", 0) or 0) + 1)
+            outcome = f"❌ Death Save ({roll}): {target.name} subisce 1 Fallimento ({ds['failures']}/3)."
+
+        if ds.get("successes", 0) >= 3 and int(getattr(target, "hp", 0) or 0) <= 0:
+            if "Stabilizzato" not in conds:
+                conds.append("Stabilizzato")
+            outcome += " [Stabilizzato]"
+        if ds.get("failures", 0) >= 3 and int(getattr(target, "hp", 0) or 0) <= 0:
+            conds = [c for c in conds if c not in ("Incosciente", "Unconscious", "Stabilizzato", "Stabilized", "Privo di Sensi")]
+            if "Morto" not in conds:
+                conds.append("Morto")
+            outcome += " [MORTO 💀]"
+
+        target.conditions = conds
+        if isinstance(getattr(target, "full_sheet", None), dict):
+            target.full_sheet["hp_current"] = target.hp
+            target.full_sheet["death_saves"] = dict(ds)
+            target.full_sheet["conditions"] = list(conds)
+
+        self._on_dm_sheet_changed(target.name, f"💀 {outcome}")
+        return outcome
+
     def view_player_sheet(self):
         player_name = self.get_player_name_from_listbox()
         if player_name is not None and not isinstance(player_name, str):
@@ -3288,7 +3554,13 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
             messagebox.showinfo("Nessuna Scheda", f"Nessuna scheda disponibile per {player_name}.")
             return
             
-        DMPlayerSheetViewer(self.master, player_name, player.full_sheet)
+        DMPlayerSheetViewer(
+            self.master,
+            player_name,
+            player.full_sheet,
+            game_state=self.server.game_state,
+            on_change_callback=lambda msg=None: self._on_dm_sheet_changed(player_name, msg),
+        )
 
     def open_campaign_starter_kit_dialog(self):
         CampaignStarterKitDialog(self)
@@ -3677,8 +3949,16 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         self.log_to_chat(f"[SISTEMA] {player_name} è ora {'nascosto' if is_hid else 'visibile'}.")
 
     def on_player_selected(self, event):
-        for widget in self.npc_actions_frame.winfo_children():
+        actions_host = getattr(self, "npc_actions_inner", None) or getattr(self, "npc_actions_frame", None)
+        if actions_host is None:
+            return
+        for widget in actions_host.winfo_children():
             widget.destroy()
+        if getattr(self, "npc_actions_canvas", None) is not None and actions_host is getattr(self, "npc_actions_inner", None):
+            try:
+                self.npc_actions_canvas.yview_moveto(0)
+            except Exception:
+                pass
 
         player_name = self.get_player_name_from_listbox()
         if player_name is not None and not isinstance(player_name, str):
@@ -3708,14 +3988,18 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
             mythic_acts = list(player.full_sheet.get("mythic_actions") or [])
             has_lair = getattr(player, "has_lair_actions", False)
 
-        if not actions and not innate_sp and not slot_sp and not has_lair and not mythic_acts:
-            ttk.Label(self.npc_actions_frame, text="Nessuna azione SRD registrata", font=FONT_SMALL).pack(pady=2)
+        has_renderable_slots = isinstance(slot_sp, dict) and any(
+            isinstance(v, dict) and (v.get("spells") or int(v.get("max", 0) or 0) > 0)
+            for v in slot_sp.values()
+        )
+        if not actions and not innate_sp and not has_renderable_slots and not has_lair and not mythic_acts:
+            ttk.Label(actions_host, text="Nessuna azione SRD registrata", font=FONT_SMALL).pack(pady=2)
             return
 
         for act in actions:
             act_name = act.get("name", "Azione") if isinstance(act, dict) else str(act).split(".")[0].strip()
             lbl_btn = f"⚔️ {act_name} (1-Click)" if "multiatt" in act_name.lower() else act_name
-            btn = ttk.Button(self.npc_actions_frame, text=lbl_btn,
+            btn = ttk.Button(actions_host, text=lbl_btn,
                              command=lambda a=act, n=player_name: self.roll_npc_action(n, a))
             btn.pack(fill=tk.X, pady=1)
             tip_text = format_monster_action_tooltip(act, player_name)
@@ -3724,18 +4008,18 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         from server.dm_monster_engine import entity_has_keyword as _ehk_b
         if "beholder" in player_name.lower() or _ehk_b(player, "raggi oculari", "eye rays", "cono antimagia", "antimagic cone"):
             ttk.Button(
-                self.npc_actions_frame,
+                actions_host,
                 text="👁️ Beholder: Tira 3 Raggi Oculari",
                 command=lambda n=player_name: self.roll_beholder_rays_gui(n),
             ).pack(fill=tk.X, pady=1)
             ttk.Button(
-                self.npc_actions_frame,
+                actions_host,
                 text="🚫 Beholder: Toggle Cono Antimagia",
                 command=lambda n=player_name: self.toggle_beholder_cone_gui(n),
             ).pack(fill=tk.X, pady=1)
 
         if isinstance(innate_sp, dict) and innate_sp:
-            ttk.Label(self.npc_actions_frame, text="✨ Incantesimi Innati:", font=FONT_SMALL).pack(anchor="w", pady=(4, 1))
+            ttk.Label(actions_host, text="✨ Incantesimi Innati:", font=FONT_SMALL).pack(anchor="w", pady=(4, 1))
             for sp_name, sp_val in innate_sp.items():
                 if isinstance(sp_val, dict):
                     mx_i = int(sp_val.get("max", 0) or 0)
@@ -3743,39 +4027,65 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
                     freq = "A Volontà" if mx_i <= 0 else f"{cur_i}/{mx_i}"
                 else:
                     freq = str(sp_val)
-                btn_sp = ttk.Button(self.npc_actions_frame, text=f"✨ {sp_name} ({freq})",
+                btn_sp = ttk.Button(actions_host, text=f"✨ {sp_name} ({freq})",
                                     command=lambda s=sp_name, n=player_name: self.cast_monster_spell_gui(n, s, None))
                 btn_sp.pack(fill=tk.X, pady=1)
 
-        if isinstance(slot_sp, dict) and slot_sp:
-            ttk.Label(self.npc_actions_frame, text="📜 Slot Incantesimi Mostro:", font=FONT_SMALL).pack(anchor="w", pady=(4, 1))
-            for lvl_k, s_info in sorted(slot_sp.items(), key=lambda x: str(x[0])):
+        if has_renderable_slots:
+            is_pc_entity = bool(getattr(player, "conn", None) or getattr(player, "is_party_member", False))
+            slot_hdr = "📜 Slot Incantesimi:" if is_pc_entity else "📜 Slot Incantesimi Mostro:"
+            ttk.Label(actions_host, text=slot_hdr, font=FONT_SMALL).pack(anchor="w", pady=(4, 1))
+            for lvl_k, s_info in sorted(slot_sp.items(), key=lambda x: int(x[0]) if str(x[0]).isdigit() else 99):
                 if not isinstance(s_info, dict):
                     continue
-                cur_sl = s_info.get("current", s_info.get("cur", 0))
-                max_sl = s_info.get("max", 0)
-                for sp_name in (s_info.get("spells") or [])[:6]:
-                    btn_sl = ttk.Button(self.npc_actions_frame, text=f"Lv{lvl_k} ({cur_sl}/{max_sl}): {sp_name}",
-                                        command=lambda s=sp_name, lv=int(lvl_k) if str(lvl_k).isdigit() else 1, n=player_name: self.cast_monster_spell_gui(n, s, lv))
-                    btn_sl.pack(fill=tk.X, pady=1)
+                cur_sl = int(s_info.get("current", s_info.get("cur", 0)) or 0)
+                max_sl = int(s_info.get("max", 0) or 0)
+                spells_in_lvl = s_info.get("spells") or []
+                if spells_in_lvl:
+                    for sp_name in spells_in_lvl[:6]:
+                        btn_sl = ttk.Button(actions_host, text=f"Lv{lvl_k} ({cur_sl}/{max_sl}): {sp_name}",
+                                            command=lambda s=sp_name, lv=int(lvl_k) if str(lvl_k).isdigit() else 1, n=player_name: self.cast_monster_spell_gui(n, s, lv))
+                        btn_sl.pack(fill=tk.X, pady=1)
+                elif max_sl > 0:
+                    def _spend_pc_slot(lk=lvl_k, n=player_name):
+                        with self.server.game_state.lock:
+                            ent = self.server.game_state.find_player(n)
+                            if not ent or not isinstance(getattr(ent, "full_sheet", None), dict):
+                                return
+                            sl = (ent.full_sheet.get("spell_slots") or {}).get(lk)
+                            if not isinstance(sl, dict):
+                                return
+                            c = int(sl.get("current", sl.get("cur", 0)) or 0)
+                            m = int(sl.get("max", 0) or 0)
+                            if c <= 0:
+                                return
+                            sl["current"] = c - 1
+                        self._on_dm_sheet_changed(n, f"✨ [Tavolo] {n} consuma uno Slot Incantesimo Lv.{lk} ({c - 1}/{m}).")
+                        self.on_player_selected(None)
+
+                    ttk.Button(
+                        actions_host,
+                        text=f"✨ Consuma Slot Lv.{lvl_k} ({cur_sl}/{max_sl})",
+                        command=_spend_pc_slot,
+                    ).pack(fill=tk.X, pady=1)
 
         if getattr(player, "has_lair_actions", False) or lair_acts:
-            ttk.Label(self.npc_actions_frame, text="🏰 Azioni di Tana:", font=FONT_SMALL).pack(anchor="w", pady=(4, 1))
+            ttk.Label(actions_host, text="🏰 Azioni di Tana:", font=FONT_SMALL).pack(anchor="w", pady=(4, 1))
             if lair_acts:
                 for la in lair_acts:
                     la_name = la.get("name", "Azione di Tana") if isinstance(la, dict) else str(la).split(".")[0].strip()
-                    btn_la = ttk.Button(self.npc_actions_frame, text=f"🏰 {la_name}",
+                    btn_la = ttk.Button(actions_host, text=f"🏰 {la_name}",
                                         command=lambda l_n=la_name, n=player_name: self.execute_lair_action_gui(n, l_n))
                     btn_la.pack(fill=tk.X, pady=1)
             else:
-                ttk.Button(self.npc_actions_frame, text="🏰 Attiva Azione di Tana (Init 20)",
+                ttk.Button(actions_host, text="🏰 Attiva Azione di Tana (Init 20)",
                            command=lambda n=player_name: self.execute_lair_action_gui(n, "Impulso della Tana")).pack(fill=tk.X, pady=1)
 
         if getattr(player, "mythic_phase_active", False) and mythic_acts:
-            ttk.Label(self.npc_actions_frame, text="🔱 Azioni Mitiche (Sbloccate):", font=FONT_SMALL).pack(anchor="w", pady=(4, 1))
+            ttk.Label(actions_host, text="🔱 Azioni Mitiche (Sbloccate):", font=FONT_SMALL).pack(anchor="w", pady=(4, 1))
             for ma in mythic_acts:
                 ma_name = ma.get("name", "Azione Mitica") if isinstance(ma, dict) else str(ma).split(".")[0].strip()
-                btn_ma = ttk.Button(self.npc_actions_frame, text=f"🔱 {ma_name}",
+                btn_ma = ttk.Button(actions_host, text=f"🔱 {ma_name}",
                                     command=lambda a=ma, n=player_name: self.roll_npc_action(n, a))
                 btn_ma.pack(fill=tk.X, pady=1)
             

@@ -88,7 +88,7 @@ def open_combat_config(dm_gui, initiator_name=None):
     canvas.pack(side="left", fill="both", expand=True)
     scrollbar.pack(side="right", fill="y")
 
-    # Create participant rows with unified inline NPC initiative control
+    # Create participant rows with unified inline initiative control (auto-roll monsters/NPCs; preserve local tabletop PCs for physical dice)
     init_vars = {}
     for p in all_players:
         var = tk.BooleanVar(value=True)
@@ -97,22 +97,23 @@ def open_combat_config(dm_gui, initiator_name=None):
         row.pack(fill=tk.X, anchor="w", pady=2)
         ttk.Checkbutton(row, text=f"{p.name} (HP: {p.hp}/{p.max_hp})", variable=var).pack(side=tk.LEFT, fill=tk.X, expand=True)
         if p.conn is None:
+            is_local_pc = bool(getattr(p, "is_party_member", False))
             if getattr(p, "initiative_bonus", None) is None:
                 p.initiative_bonus = p.initiative
-            auto_roll = random.randint(1, 20) + p.get_initiative_bonus()
-            ivar = tk.StringVar(value=str(auto_roll))
+            default_init = getattr(p, "initiative", 0) if is_local_pc else (random.randint(1, 20) + p.get_initiative_bonus())
+            ivar = tk.StringVar(value=str(default_init))
             init_vars[p.name] = ivar
-            ttk.Label(row, text="Init:").pack(side=tk.LEFT, padx=(6, 2))
+            ttk.Label(row, text=("Init PG:" if is_local_pc else "Init:")).pack(side=tk.LEFT, padx=(6, 2))
             ttk.Entry(row, textvariable=ivar, width=5, justify="center").pack(side=tk.RIGHT)
 
     def reroll_npcs():
         for p in all_players:
-            if p.conn is None and p.name in init_vars:
+            if p.conn is None and not getattr(p, "is_party_member", False) and p.name in init_vars:
                 init_vars[p.name].set(str(random.randint(1, 20) + p.get_initiative_bonus()))
 
     def finalize_combat(selected_names, npc_initiatives):
         from common.protocol import make_request_initiative, make_player_stats_update, make_chat_broadcast, make_game_state
-        # Assign newly rolled NPC initiatives BEFORE start_combat sorts turn order for Round 1
+        # Assign inline initiatives BEFORE start_combat sorts turn order for Round 1
         with dm_gui.server.game_state.lock:
             for p in dm_gui.server.game_state.players:
                 if p.name in selected_names and p.conn is None:
@@ -126,7 +127,8 @@ def open_combat_config(dm_gui, initiator_name=None):
         for p in dm_gui.server.game_state.get_all_players():
             if p.name in selected_names:
                 if p.conn is None:
-                    dm_gui.log_to_chat(f"[COMBAT] {p.name} (NPC) iniziativa: {p.initiative}")
+                    kind = "PG Locale" if getattr(p, "is_party_member", False) else "NPC"
+                    dm_gui.log_to_chat(f"[COMBAT] {p.name} ({kind}) iniziativa: {p.initiative}")
                     broadcast(dm_gui.server.game_state, make_player_stats_update(p.name, p.hp, p.max_hp, p.initiative, p.conditions))
                 else:
                     send_message(p.conn, make_request_initiative())

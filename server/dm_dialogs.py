@@ -3,6 +3,8 @@
 Dialoghi e finestre secondarie per il Dungeon Master (DM_GUI).
 Decomposti per migliorare la manutenibilità e leggibilità del codice server.
 """
+from contextlib import nullcontext
+import random
 import re
 import tkinter as tk
 from tkinter import ttk, scrolledtext, simpledialog
@@ -453,8 +455,255 @@ class CustomNPCDialog(tk.Toplevel):
 
 
 class DMPlayerSheetViewer(tk.Toplevel):
-    def __init__(self, master, player_name, sheet):
+    """Finestra interattiva per la consultazione e gestione dal vivo della Scheda da parte del DM."""
+
+    def _refresh_tabletop_labels(self):
+        hp_cur = int(self.sheet.get("hp_current", 0) or 0)
+        hp_max = int(self.sheet.get("hp_max", 0) or 0)
+        temp_hp = int(self.sheet.get("temp_hp", 0) or 0)
+        from common.srd_offline import normalize_ac_value
+        ac_val = normalize_ac_value(self.sheet.get("ac", self.sheet.get("armor_class", 10)))
+        if hasattr(self, "hp_var"):
+            self.hp_var.set(f"{hp_cur} / {hp_max}" + (f" (+{temp_hp})" if temp_hp > 0 else ""))
+        if hasattr(self, "ac_var"):
+            self.ac_var.set(str(ac_val))
+        if hasattr(self, "lbl_tabletop_vitals"):
+            conds = self.sheet.get("conditions", []) or []
+            cond_txt = f"  •  Condizioni: {', '.join(conds)}" if conds else ""
+            self.lbl_tabletop_vitals.config(
+                text=f"PF: {hp_cur}/{hp_max}" + (f" (+{temp_hp} Temp)" if temp_hp > 0 else "") + f"  •  CA: {ac_val}{cond_txt}"
+            )
+        ds = self.sheet.get("death_saves", {}) if isinstance(self.sheet.get("death_saves"), dict) else {}
+        if hasattr(self, "lbl_ds_counts"):
+            self.lbl_ds_counts.config(
+                text=f"Successi: {int(ds.get('successes', 0) or 0)}/3   |   Fallimenti: {int(ds.get('failures', 0) or 0)}/3"
+            )
+        if hasattr(self, "_refresh_resources_ui"):
+            self._refresh_resources_ui()
+
+    def _commit_tabletop_change(self, log_msg=None):
+        if self.game_state is not None:
+            from common.srd_offline import normalize_ac_value
+            with (getattr(self.game_state, "lock", None) or nullcontext()):
+                for p in getattr(self.game_state, "players", []):
+                    if getattr(p, "name", None) == self.player_name:
+                        p.hp = int(self.sheet.get("hp_current", getattr(p, "hp", 0)) or 0)
+                        p.max_hp = int(self.sheet.get("hp_max", getattr(p, "max_hp", 1)) or 1)
+                        p.temp_hp = int(self.sheet.get("temp_hp", getattr(p, "temp_hp", 0)) or 0)
+                        p.ac = normalize_ac_value(self.sheet.get("ac", self.sheet.get("armor_class", getattr(p, "ac", 10))))
+                        p.conditions = list(self.sheet.get("conditions", getattr(p, "conditions", [])) or [])
+                        ds_src = self.sheet.get("death_saves")
+                        if isinstance(ds_src, dict):
+                            p.death_saves = {"successes": int(ds_src.get("successes", 0) or 0), "failures": int(ds_src.get("failures", 0) or 0)}
+                        p.full_sheet = self.sheet
+                        break
+        self._refresh_tabletop_labels()
+        cb = getattr(self, "on_change_callback", None)
+        if callable(cb):
+            try:
+                cb(log_msg)
+            except TypeError:
+                cb()
+
+    def _apply_hp_delta(self, delta: int):
+        hp_cur = int(self.sheet.get("hp_current", 0) or 0)
+        hp_max = max(1, int(self.sheet.get("hp_max", hp_cur or 1) or 1))
+        temp_hp = max(0, int(self.sheet.get("temp_hp", 0) or 0))
+        conds = list(self.sheet.get("conditions", []) or [])
+        if delta < 0:
+            dmg = abs(delta)
+            if temp_hp > 0:
+                absorbed = min(temp_hp, dmg)
+                temp_hp -= absorbed
+                dmg -= absorbed
+            hp_cur = max(0, hp_cur - dmg)
+            self.sheet["temp_hp"] = temp_hp
+            self.sheet["hp_current"] = hp_cur
+            if hp_cur == 0 and "Morto" not in conds and "Incosciente" not in conds:
+                conds.append("Incosciente")
+            msg = f"⚔️ [Tavolo] {self.player_name} subisce {abs(delta)} danni -> PF {hp_cur}/{hp_max}" + (f" (+{temp_hp} Temp)" if temp_hp else "") + "."
+        else:
+            hp_cur = min(hp_max, hp_cur + delta)
+            self.sheet["hp_current"] = hp_cur
+            if hp_cur > 0:
+                conds = [c for c in conds if c not in ("Incosciente", "Unconscious", "Stabilizzato", "Stabilized", "Privo di Sensi")]
+                self.sheet["death_saves"] = {"successes": 0, "failures": 0}
+            msg = f"💚 [Tavolo] {self.player_name} recupera {delta} PF -> PF {hp_cur}/{hp_max}."
+        self.sheet["conditions"] = conds
+        self._commit_tabletop_change(msg)
+
+    def _set_full_hp(self):
+        hp_max = max(1, int(self.sheet.get("hp_max", 1) or 1))
+        self.sheet["hp_current"] = hp_max
+        conds = [c for c in (self.sheet.get("conditions", []) or []) if c not in ("Incosciente", "Unconscious", "Stabilizzato", "Stabilized", "Privo di Sensi")]
+        self.sheet["conditions"] = conds
+        self.sheet["death_saves"] = {"successes": 0, "failures": 0}
+        self._commit_tabletop_change(f"✨ [Tavolo] {self.player_name} riportato a PF pieni ({hp_max}/{hp_max}).")
+
+    def _apply_temp_hp(self, amount: int):
+        amount = max(0, int(amount))
+        cur_temp = int(self.sheet.get("temp_hp", 0) or 0)
+        new_temp = max(cur_temp, amount) if amount > 0 else 0
+        self.sheet["temp_hp"] = new_temp
+        self._commit_tabletop_change(f"🛡️ [Tavolo] {self.player_name} ottiene {new_temp} PF Temporanei.")
+
+    def _apply_ac(self, new_ac: int):
+        val = max(1, min(40, int(new_ac)))
+        self.sheet["ac"] = val
+        self._commit_tabletop_change(f"🛡️ [Tavolo] CA di {self.player_name} aggiornata a {val}.")
+
+    def _adjust_death_save(self, key: str, delta: int):
+        ds = self.sheet.setdefault("death_saves", {"successes": 0, "failures": 0})
+        if not isinstance(ds, dict):
+            ds = {"successes": 0, "failures": 0}
+            self.sheet["death_saves"] = ds
+        ds[key] = max(0, min(3, int(ds.get(key, 0) or 0) + delta))
+        conds = list(self.sheet.get("conditions", []) or [])
+        if ds.get("successes", 0) >= 3 and "Stabilizzato" not in conds and "Morto" not in conds:
+            conds.append("Stabilizzato")
+        if ds.get("failures", 0) >= 3 and int(self.sheet.get("hp_current", 0) or 0) <= 0:
+            conds = [c for c in conds if c not in ("Incosciente", "Unconscious", "Stabilizzato", "Stabilized")]
+            if "Morto" not in conds:
+                conds.append("Morto")
+        self.sheet["conditions"] = conds
+        self._commit_tabletop_change(
+            f"💀 [Death Save Manuale] {self.player_name}: Successi {ds.get('successes', 0)}/3, Fallimenti {ds.get('failures', 0)}/3."
+        )
+
+    def _reset_death_saves(self):
+        self.sheet["death_saves"] = {"successes": 0, "failures": 0}
+        self._commit_tabletop_change(f"🔄 [Tavolo] Tiri Salvezza Morte di {self.player_name} azzerati.")
+
+    def roll_death_save(self):
+        roll = random.randint(1, 20)
+        ds = self.sheet.setdefault("death_saves", {"successes": 0, "failures": 0})
+        if not isinstance(ds, dict):
+            ds = {"successes": 0, "failures": 0}
+            self.sheet["death_saves"] = ds
+        conds = list(self.sheet.get("conditions", []) or [])
+        if roll == 20:
+            self.sheet["hp_current"] = max(1, int(self.sheet.get("hp_current", 0) or 0))
+            ds["successes"] = 0
+            ds["failures"] = 0
+            conds = [c for c in conds if c not in ("Incosciente", "Unconscious", "Stabilizzato", "Stabilized", "Privo di Sensi")]
+            outcome = f"🌟 NAT 20! {self.player_name} torna cosciente con 1 PF!"
+        elif roll == 1:
+            ds["failures"] = min(3, int(ds.get("failures", 0) or 0) + 2)
+            outcome = f"💥 NAT 1! {self.player_name} subisce 2 Fallimenti ({ds['failures']}/3)!"
+        elif roll >= 10:
+            ds["successes"] = min(3, int(ds.get("successes", 0) or 0) + 1)
+            outcome = f"✅ Death Save ({roll}): Successo ({ds['successes']}/3)."
+        else:
+            ds["failures"] = min(3, int(ds.get("failures", 0) or 0) + 1)
+            outcome = f"❌ Death Save ({roll}): Fallimento ({ds['failures']}/3)."
+
+        if ds.get("successes", 0) >= 3 and int(self.sheet.get("hp_current", 0) or 0) <= 0:
+            if "Stabilizzato" not in conds:
+                conds.append("Stabilizzato")
+            outcome += " [Stabilizzato]"
+        if ds.get("failures", 0) >= 3 and int(self.sheet.get("hp_current", 0) or 0) <= 0:
+            conds = [c for c in conds if c not in ("Incosciente", "Unconscious", "Stabilizzato", "Stabilized", "Privo di Sensi")]
+            if "Morto" not in conds:
+                conds.append("Morto")
+            outcome += " [MORTO 💀]"
+
+        self.sheet["conditions"] = conds
+        if hasattr(self, "lbl_ds_result"):
+            self.lbl_ds_result.config(text=outcome)
+        self._commit_tabletop_change(f"💀 {outcome}")
+        return outcome
+
+    def roll_ability_check(self, stat_code: str, proficient: bool = False):
+        attrs = self.sheet.get("attributes") or self.sheet.get("stats") or {}
+        alias = {"FOR": "STR", "DES": "DEX", "COS": "CON", "INT": "INT", "SAG": "WIS", "CAR": "CHA"}
+        raw_score = attrs.get(stat_code, attrs.get(alias.get(stat_code, stat_code), 10))
+        try:
+            score = int(raw_score)
+        except (ValueError, TypeError):
+            score = 10
+        mod = (score - 10) // 2
+        lvl = max(1, int(self.sheet.get("level", 1) or 1))
+        prof_bonus = int(self.sheet.get("proficiency_bonus") or (2 + (lvl - 1) // 4))
+        total_bonus = mod + (prof_bonus if proficient else 0)
+        d20 = random.randint(1, 20)
+        total = d20 + total_bonus
+        sign = f"+{total_bonus}" if total_bonus >= 0 else str(total_bonus)
+        kind = "TS" if proficient else "Prova"
+        msg = f"🎲 [{kind} {stat_code}] {self.player_name}: d20({d20}) {sign} = {total}"
+        if hasattr(self, "lbl_ability_roll"):
+            self.lbl_ability_roll.config(text=msg)
+        self._commit_tabletop_change(msg)
+        return total
+
+    def _adjust_spell_slot(self, lvl_key: str, delta: int):
+        slots = self.sheet.setdefault("spell_slots", {})
+        if not isinstance(slots, dict):
+            return
+        entry = slots.get(lvl_key)
+        if isinstance(entry, dict):
+            mx = int(entry.get("max", 0) or 0)
+            cur = max(0, min(mx, int(entry.get("current", 0) or 0) + delta))
+            entry["current"] = cur
+            self._commit_tabletop_change(f"✨ [Slot Liv.{lvl_key}] {self.player_name}: {cur}/{mx}.")
+
+    def _adjust_pact_slot(self, delta: int):
+        pact = self.sheet.get("pact_slots")
+        if isinstance(pact, dict):
+            mx = int(pact.get("max", 0) or 0)
+            cur = max(0, min(mx, int(pact.get("current", 0) or 0) + delta))
+            pact["current"] = cur
+            self._commit_tabletop_change(f"🔮 [Slot Patto] {self.player_name}: {cur}/{mx}.")
+
+    def _adjust_hit_dice(self, delta: int, roll_heal: bool = False):
+        tot = int(self.sheet.get("hit_dice_total", self.sheet.get("level", 1)) or 1)
+        cur = int(self.sheet.get("hit_dice_current", tot) or 0)
+        if roll_heal:
+            if cur <= 0:
+                return
+            self.sheet["hit_dice_current"] = cur - 1
+            hd_str = str(self.sheet.get("hit_dice_type", "d8") or "d8").lower().replace("d", "")
+            try:
+                sides = max(4, int(hd_str))
+            except ValueError:
+                sides = 8
+            attrs = self.sheet.get("attributes") or self.sheet.get("stats") or {}
+            con_score = int(attrs.get("COS", attrs.get("CON", 10)) or 10)
+            con_mod = (con_score - 10) // 2
+            healed = max(1, random.randint(1, sides) + con_mod)
+            hp_max = max(1, int(self.sheet.get("hp_max", 1) or 1))
+            hp_cur = min(hp_max, int(self.sheet.get("hp_current", 0) or 0) + healed)
+            self.sheet["hp_current"] = hp_cur
+            self._commit_tabletop_change(f"🩹 [Dado Vita d{sides}] {self.player_name} recupera {healed} PF -> {hp_cur}/{hp_max} (DV rimasti: {cur - 1}/{tot}).")
+        else:
+            new_cur = max(0, min(tot, cur + delta))
+            self.sheet["hit_dice_current"] = new_cur
+            self._commit_tabletop_change(f"🎲 [Dadi Vita] {self.player_name}: {new_cur}/{tot}.")
+
+    def _adjust_custom_resource(self, idx: int, delta: int):
+        res_list = self.sheet.get("custom_resources")
+        if isinstance(res_list, list) and 0 <= idx < len(res_list) and isinstance(res_list[idx], dict):
+            r = res_list[idx]
+            mx = int(r.get("max", r.get("current", 0)) or 0)
+            cur = max(0, min(mx, int(r.get("current", 0) or 0) + delta))
+            r["current"] = cur
+            self._commit_tabletop_change(f"⚡ [{r.get('name', 'Risorsa')}] {self.player_name}: {cur}/{mx}.")
+
+    def _adjust_class_resource(self, cur_key: str, max_key: str, delta: int):
+        cr = self.sheet.get("class_resources")
+        if isinstance(cr, dict):
+            mx = int(cr.get(max_key, cr.get(cur_key, 0)) or 0)
+            cur = max(0, min(mx, int(cr.get(cur_key, 0) or 0) + delta))
+            cr[cur_key] = cur
+            label = cur_key.replace("_current", "").replace("_", " ").title()
+            self._commit_tabletop_change(f"⚡ [{label}] {self.player_name}: {cur}/{mx}.")
+
+    def __init__(self, master, player_name, sheet, game_state=None, on_change_callback=None):
         super().__init__(master)
+        self.player_name = player_name
+        self.sheet = sheet if isinstance(sheet, dict) else {}
+        self.game_state = game_state
+        self.on_change_callback = on_change_callback
+        sheet = self.sheet
         self.title(_t("sheet_viewer_title", name=player_name, default=f"Scheda Personaggio: {player_name}"))
         self.minsize(700, 680)
         self.transient(master)
@@ -492,23 +741,30 @@ class DMPlayerSheetViewer(tk.Toplevel):
         vital_frame.pack(fill=tk.X, pady=(0, 10))
         
         from common.srd_offline import normalize_ac_value, normalize_speed_value
-        hp_cur = sheet.get("hp_current", 0)
-        hp_max = sheet.get("hp_max", 0)
+        hp_cur = int(sheet.get("hp_current", 0) or 0)
+        hp_max = int(sheet.get("hp_max", 0) or 0)
+        temp_hp = int(sheet.get("temp_hp", 0) or 0)
         ac = normalize_ac_value(sheet.get("ac", sheet.get("armor_class", 10)))
         init = sheet.get("initiative", 0)
         raw_speed = sheet.get("speed", 30)
         speed_val, speed_disp, speed_unit = normalize_speed_value(raw_speed, default_unit=sheet.get("speed_unit"))
 
-        for col, (label, val, subtitle, tooltip_str) in enumerate([
-            (_t("hit_points", default="Punti Ferita (HP)"), f"{hp_cur} / {hp_max}", None, None),
-            (_t("armor_class", default="Classe Armatura (CA)"), str(ac), None, f"CA Base: {ac}"),
+        self.hp_var = tk.StringVar(value=f"{hp_cur} / {hp_max}" + (f" (+{temp_hp})" if temp_hp > 0 else ""))
+        self.ac_var = tk.StringVar(value=str(ac))
+
+        for col, (label, val_or_var, subtitle, tooltip_str) in enumerate([
+            (_t("hit_points", default="Punti Ferita (HP)"), self.hp_var, None, None),
+            (_t("armor_class", default="Classe Armatura (CA)"), self.ac_var, None, f"CA Base: {ac}"),
             (_t("initiative", default="Iniziativa"), f"{'+' if init >= 0 else ''}{init}", None, None),
             (_t("speed", default="Velocità"), f"{speed_val} {speed_unit}", (speed_disp if " • " in speed_disp else None), speed_disp)
         ]):
             box = ttk.Frame(vital_frame, relief="ridge", padding="8")
             box.pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=5)
             ttk.Label(box, text=label, font=FONT_SMALL, anchor="center").pack()
-            ttk.Label(box, text=val, font=FONT_HEADER, anchor="center").pack(pady=2)
+            if isinstance(val_or_var, tk.StringVar):
+                ttk.Label(box, textvariable=val_or_var, font=FONT_HEADER, anchor="center").pack(pady=2)
+            else:
+                ttk.Label(box, text=val_or_var, font=FONT_HEADER, anchor="center").pack(pady=2)
             if subtitle:
                 ttk.Label(box, text=subtitle, font=("Segoe UI", 8, "italic"), foreground="#9CA3AF", anchor="center").pack()
             if tooltip_str:
@@ -550,6 +806,167 @@ class DMPlayerSheetViewer(tk.Toplevel):
             mod = (score - 10) // 2
             mod_str = f"+{mod}" if mod >= 0 else str(mod)
             attr_tree.insert("", tk.END, values=(attr_names.get(k, k), score, mod_str))
+
+        # Tab Tavolo & Risorse Interattive (DM Live Tabletop)
+        tab_tabletop = ttk.Frame(nb, padding="8")
+        nb.add(tab_tabletop, text=_t("tab_dm_tabletop", default="🎮 Tavolo & Risorse"))
+
+        tt_canvas = tk.Canvas(tab_tabletop, bg=SURFACE_COLOR, highlightthickness=0)
+        tt_scroll = ttk.Scrollbar(tab_tabletop, orient="vertical", command=tt_canvas.yview)
+        tt_inner = ttk.Frame(tt_canvas, padding="6")
+        tt_inner.bind("<Configure>", lambda e: tt_canvas.configure(scrollregion=tt_canvas.bbox("all")))
+        tt_win = tt_canvas.create_window((0, 0), window=tt_inner, anchor="nw")
+        tt_canvas.bind("<Configure>", lambda e: tt_canvas.itemconfigure(tt_win, width=max(1, e.width)))
+        tt_canvas.configure(yscrollcommand=tt_scroll.set)
+        tt_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        tt_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # 1. Vitals & Quick HP/TempHP/CA
+        f_vitals_live = ttk.LabelFrame(tt_inner, text="❤️ Punti Ferita, Temp & CA (Dal Vivo)", padding="8")
+        f_vitals_live.pack(fill=tk.X, pady=(0, 8))
+
+        self.lbl_tabletop_vitals = ttk.Label(f_vitals_live, text="", font=FONT_BOLD)
+        self.lbl_tabletop_vitals.pack(anchor="w", pady=(0, 6))
+
+        row_hp = ttk.Frame(f_vitals_live)
+        row_hp.pack(fill=tk.X, pady=2)
+        ttk.Label(row_hp, text="Quantità:", font=FONT_SMALL).pack(side=tk.LEFT, padx=(0, 4))
+        self.hp_delta_var = tk.IntVar(value=5)
+        ttk.Spinbox(row_hp, from_=1, to=999, width=5, textvariable=self.hp_delta_var).pack(side=tk.LEFT, padx=(0, 6))
+
+        def _safe_delta():
+            try:
+                return max(1, int(self.hp_delta_var.get()))
+            except (tk.TclError, ValueError, TypeError):
+                return 1
+
+        ttk.Button(row_hp, text="- PF", width=6, command=lambda: self._apply_hp_delta(-_safe_delta())).pack(side=tk.LEFT, padx=2)
+        ttk.Button(row_hp, text="+ PF", width=6, command=lambda: self._apply_hp_delta(_safe_delta())).pack(side=tk.LEFT, padx=2)
+        ttk.Button(row_hp, text="💯 Full PF", width=9, command=self._set_full_hp).pack(side=tk.LEFT, padx=2)
+        ttk.Button(row_hp, text="+Temp", width=7, command=lambda: self._apply_temp_hp(_safe_delta())).pack(side=tk.LEFT, padx=2)
+
+        row_ac = ttk.Frame(f_vitals_live)
+        row_ac.pack(fill=tk.X, pady=(6, 0))
+        ttk.Label(row_ac, text="CA:", font=FONT_SMALL).pack(side=tk.LEFT, padx=(0, 4))
+        self.ac_edit_var = tk.IntVar(value=int(ac))
+        ttk.Spinbox(row_ac, from_=1, to=40, width=5, textvariable=self.ac_edit_var).pack(side=tk.LEFT, padx=(0, 6))
+
+        def _safe_ac():
+            try:
+                return int(self.ac_edit_var.get())
+            except (tk.TclError, ValueError, TypeError):
+                return 10
+
+        ttk.Button(row_ac, text="Applica CA", command=lambda: self._apply_ac(_safe_ac())).pack(side=tk.LEFT, padx=2)
+
+        # 2. Death Saves
+        f_ds = ttk.LabelFrame(tt_inner, text="💀 Tiri Salvezza contro la Morte (5e RAW)", padding="8")
+        f_ds.pack(fill=tk.X, pady=(0, 8))
+        self.lbl_ds_counts = ttk.Label(f_ds, text="", font=FONT_BOLD)
+        self.lbl_ds_counts.pack(anchor="w")
+
+        ds_btns = ttk.Frame(f_ds)
+        ds_btns.pack(fill=tk.X, pady=4)
+        ttk.Button(ds_btns, text="Succ -", width=7, command=lambda: self._adjust_death_save("successes", -1)).pack(side=tk.LEFT, padx=2)
+        ttk.Button(ds_btns, text="Succ +", width=7, command=lambda: self._adjust_death_save("successes", 1)).pack(side=tk.LEFT, padx=2)
+        ttk.Button(ds_btns, text="Fail -", width=7, command=lambda: self._adjust_death_save("failures", -1)).pack(side=tk.LEFT, padx=2)
+        ttk.Button(ds_btns, text="Fail +", width=7, command=lambda: self._adjust_death_save("failures", 1)).pack(side=tk.LEFT, padx=2)
+        ttk.Button(ds_btns, text="Reset", width=6, command=self._reset_death_saves).pack(side=tk.LEFT, padx=2)
+        ttk.Button(ds_btns, text="💀 Tira Death Save (d20)", command=self.roll_death_save, style="Gold.TButton").pack(side=tk.RIGHT, padx=2)
+
+        self.lbl_ds_result = ttk.Label(f_ds, text="", font=FONT_SMALL, foreground=ACCENT_GOLD)
+        self.lbl_ds_result.pack(anchor="w", pady=(2, 0))
+
+        # 3. Quick Ability / Save Roller
+        f_roll = ttk.LabelFrame(tt_inner, text="🎲 Tiro Rapido Caratteristica / Tiro Salvezza", padding="8")
+        f_roll.pack(fill=tk.X, pady=(0, 8))
+        roll_row = ttk.Frame(f_roll)
+        roll_row.pack(fill=tk.X)
+        self.roll_stat_var = tk.StringVar(value="FOR")
+        ttk.Combobox(roll_row, textvariable=self.roll_stat_var, values=["FOR", "DES", "COS", "INT", "SAG", "CAR"], width=6, state="readonly").pack(side=tk.LEFT, padx=(0, 6))
+        self.roll_prof_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(roll_row, text="Competenza / TS", variable=self.roll_prof_var).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(roll_row, text="🎲 Tira 1d20", command=lambda: self.roll_ability_check(self.roll_stat_var.get(), self.roll_prof_var.get())).pack(side=tk.LEFT, padx=2)
+        self.lbl_ability_roll = ttk.Label(f_roll, text="", font=FONT_SMALL, foreground=ACCENT_GOLD)
+        self.lbl_ability_roll.pack(anchor="w", pady=(4, 0))
+
+        # 4. Hit Dice, Spell Slots, Pact & Class/Custom Resources
+        f_res = ttk.LabelFrame(tt_inner, text="✨ Dadi Vita, Slot Incantesimi & Risorse di Classe", padding="8")
+        f_res.pack(fill=tk.X, pady=(0, 8))
+        self._res_rows_container = ttk.Frame(f_res)
+        self._res_rows_container.pack(fill=tk.X)
+
+        def _refresh_resources_ui():
+            for child in self._res_rows_container.winfo_children():
+                child.destroy()
+            any_row = False
+            hd_tot = int(self.sheet.get("hit_dice_total", 0) or 0)
+            if hd_tot > 0:
+                any_row = True
+                hd_cur = int(self.sheet.get("hit_dice_current", hd_tot) or 0)
+                hd_typ = self.sheet.get("hit_dice_type", "d8")
+                r = ttk.Frame(self._res_rows_container)
+                r.pack(fill=tk.X, pady=2)
+                ttk.Label(r, text=f"Dadi Vita ({hd_typ}): {hd_cur}/{hd_tot}", font=FONT_SMALL).pack(side=tk.LEFT)
+                ttk.Button(r, text="+1", width=4, command=lambda: self._adjust_hit_dice(1)).pack(side=tk.RIGHT, padx=1)
+                ttk.Button(r, text="-1", width=4, command=lambda: self._adjust_hit_dice(-1)).pack(side=tk.RIGHT, padx=1)
+                ttk.Button(r, text="🩹 Usa DV", width=8, command=lambda: self._adjust_hit_dice(-1, roll_heal=True)).pack(side=tk.RIGHT, padx=2)
+
+            slots = self.sheet.get("spell_slots") or {}
+            if isinstance(slots, dict):
+                for lvl_k in sorted(slots.keys(), key=lambda x: int(x) if str(x).isdigit() else 99):
+                    s_obj = slots.get(lvl_k)
+                    if isinstance(s_obj, dict) and int(s_obj.get("max", 0) or 0) > 0:
+                        any_row = True
+                        r = ttk.Frame(self._res_rows_container)
+                        r.pack(fill=tk.X, pady=2)
+                        ttk.Label(r, text=f"Slot Liv. {lvl_k}: {s_obj.get('current', 0)}/{s_obj.get('max', 0)}", font=FONT_SMALL).pack(side=tk.LEFT)
+                        ttk.Button(r, text="+1", width=4, command=lambda k=lvl_k: self._adjust_spell_slot(k, 1)).pack(side=tk.RIGHT, padx=1)
+                        ttk.Button(r, text="-1", width=4, command=lambda k=lvl_k: self._adjust_spell_slot(k, -1)).pack(side=tk.RIGHT, padx=1)
+
+            pact = self.sheet.get("pact_slots")
+            if isinstance(pact, dict) and int(pact.get("max", 0) or 0) > 0:
+                any_row = True
+                r = ttk.Frame(self._res_rows_container)
+                r.pack(fill=tk.X, pady=2)
+                ttk.Label(r, text=f"Slot Patto (Liv.{pact.get('level', 1)}): {pact.get('current', 0)}/{pact.get('max', 0)}", font=FONT_SMALL).pack(side=tk.LEFT)
+                ttk.Button(r, text="+1", width=4, command=lambda: self._adjust_pact_slot(1)).pack(side=tk.RIGHT, padx=1)
+                ttk.Button(r, text="-1", width=4, command=lambda: self._adjust_pact_slot(-1)).pack(side=tk.RIGHT, padx=1)
+
+            cr = self.sheet.get("class_resources")
+            if isinstance(cr, dict):
+                seen_cr = set()
+                for k, val in cr.items():
+                    if k.endswith("_current"):
+                        base = k[:-8]
+                        max_k = f"{base}_max"
+                        mx = int(cr.get(max_k, 0) or 0)
+                        if mx > 0 and base not in seen_cr:
+                            seen_cr.add(base)
+                            any_row = True
+                            r = ttk.Frame(self._res_rows_container)
+                            r.pack(fill=tk.X, pady=2)
+                            lbl = base.replace("_", " ").title()
+                            ttk.Label(r, text=f"{lbl}: {val}/{mx}", font=FONT_SMALL).pack(side=tk.LEFT)
+                            ttk.Button(r, text="+1", width=4, command=lambda ck=k, mk=max_k: self._adjust_class_resource(ck, mk, 1)).pack(side=tk.RIGHT, padx=1)
+                            ttk.Button(r, text="-1", width=4, command=lambda ck=k, mk=max_k: self._adjust_class_resource(ck, mk, -1)).pack(side=tk.RIGHT, padx=1)
+
+            custom_res = self.sheet.get("custom_resources") or []
+            if isinstance(custom_res, list):
+                for idx, cres in enumerate(custom_res):
+                    if isinstance(cres, dict) and int(cres.get("max", cres.get("current", 0)) or 0) > 0:
+                        any_row = True
+                        r = ttk.Frame(self._res_rows_container)
+                        r.pack(fill=tk.X, pady=2)
+                        ttk.Label(r, text=f"{cres.get('name', 'Risorsa')}: {cres.get('current', 0)}/{cres.get('max', 0)}", font=FONT_SMALL).pack(side=tk.LEFT)
+                        ttk.Button(r, text="+1", width=4, command=lambda i=idx: self._adjust_custom_resource(i, 1)).pack(side=tk.RIGHT, padx=1)
+                        ttk.Button(r, text="-1", width=4, command=lambda i=idx: self._adjust_custom_resource(i, -1)).pack(side=tk.RIGHT, padx=1)
+
+            if not any_row:
+                ttk.Label(self._res_rows_container, text="Nessuna risorsa o slot tracciato.", font=FONT_SMALL, foreground=TEXT_MUTED).pack(anchor="w")
+
+        self._refresh_resources_ui = _refresh_resources_ui
+        self._refresh_tabletop_labels()
 
         # Tab Azioni & Attacchi (Mostri / PNG)
         from common.srd_offline import normalize_npc_actions

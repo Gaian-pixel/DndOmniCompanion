@@ -22,7 +22,7 @@ from common.theme import (
 from common.messagebox import messagebox
 from common.campaign import Campaign, get_available_campaigns, DEFAULT_CAMPAIGNS_DIR, slugify
 from common.game_state import GameState, Player
-from common.protocol import make_player_joined, make_handout_broadcast, make_chat_broadcast
+from common.protocol import make_player_joined, make_handout_broadcast, make_chat_broadcast, make_game_state
 from common.network_utils import broadcast
 from common.srd_offline import (
     extract_and_normalize_attributes,
@@ -1235,14 +1235,90 @@ class CampaignEditorFrame(tk.Frame):
                 q.get("description", "")
             ))
 
+    def _open_quest_form_dialog(self, title_win: str, initial: Optional[dict] = None) -> Optional[dict]:
+        """Dialogo modale unificato per Creazione/Modifica Quest (Annulla lascia l'originale intatto)."""
+        init = dict(initial or {})
+        init_rewards = init.get("rewards") if isinstance(init.get("rewards"), dict) else {}
+        dlg = tk.Toplevel(self)
+        dlg.title(title_win)
+        dlg.minsize(460, 340)
+        dlg.transient(self)
+        dlg.grab_set()
+        apply_modern_window_style(dlg)
+        dlg.configure(bg=BG_COLOR)
+
+        frm = tk.Frame(dlg, bg=BG_COLOR, padx=14, pady=12)
+        frm.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(frm, text="Titolo Missione *", font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+        ent_title = ttk.Entry(frm)
+        ent_title.pack(fill=tk.X, pady=(2, 8))
+        ent_title.insert(0, str(init.get("title", "") or ""))
+
+        row_meta = tk.Frame(frm, bg=BG_COLOR)
+        row_meta.pack(fill=tk.X, pady=(0, 8))
+        col_c = tk.Frame(row_meta, bg=BG_COLOR)
+        col_c.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        tk.Label(col_c, text="Capitolo / Atto", font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+        ent_chap = ttk.Entry(col_c)
+        ent_chap.pack(fill=tk.X, pady=(2, 0))
+        ent_chap.insert(0, str(init.get("chapter", init.get("act", "Atto 1")) or "Atto 1"))
+
+        col_xp = tk.Frame(row_meta, bg=BG_COLOR)
+        col_xp.pack(side=tk.LEFT, padx=(0, 6))
+        tk.Label(col_xp, text="XP", font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+        ent_xp = ttk.Entry(col_xp, width=8)
+        ent_xp.pack(pady=(2, 0))
+        ent_xp.insert(0, str(init_rewards.get("xp", init.get("xp", 150)) or 0))
+
+        col_gp = tk.Frame(row_meta, bg=BG_COLOR)
+        col_gp.pack(side=tk.LEFT)
+        tk.Label(col_gp, text="MO", font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+        ent_gp = ttk.Entry(col_gp, width=8)
+        ent_gp.pack(pady=(2, 0))
+        ent_gp.insert(0, str(init_rewards.get("gp", init.get("gp", 50)) or 0))
+
+        tk.Label(frm, text="Descrizione / Obiettivi", font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+        txt_desc = scrolledtext.ScrolledText(frm, height=6, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=FONT_MAIN, wrap=tk.WORD)
+        txt_desc.pack(fill=tk.BOTH, expand=True, pady=(2, 10))
+        txt_desc.insert("1.0", str(init.get("description", "") or ""))
+
+        result = {"data": None}
+
+        def _confirm():
+            t_val = ent_title.get().strip()
+            if not t_val:
+                messagebox.showwarning("Titolo mancante", "Inserisci un titolo per la missione.", parent=dlg)
+                return
+            try:
+                xp_val = max(0, int(ent_xp.get().strip() or 0))
+            except ValueError:
+                xp_val = 0
+            try:
+                gp_val = max(0, int(ent_gp.get().strip() or 0))
+            except ValueError:
+                gp_val = 0
+            result["data"] = {
+                "title": t_val,
+                "chapter": ent_chap.get().strip() or "Atto 1",
+                "description": txt_desc.get("1.0", tk.END).strip(),
+                "rewards": {"xp": xp_val, "gp": gp_val},
+            }
+            dlg.destroy()
+
+        bbar = tk.Frame(frm, bg=BG_COLOR)
+        bbar.pack(fill=tk.X)
+        ttk.Button(bbar, text="Annulla", command=dlg.destroy).pack(side=tk.RIGHT, padx=(6, 0))
+        ttk.Button(bbar, text="💾 Salva", style="Primary.TButton", command=_confirm).pack(side=tk.RIGHT)
+        ent_title.focus_set()
+        self.wait_window(dlg)
+        return result["data"]
+
     def add_quest_dialog(self):
-        title = simpledialog.askstring("Nuova Missione", "Titolo della missione:", parent=self)
-        if not title or not title.strip(): return
-        chapter = simpledialog.askstring("Capitolo", "Capitolo / Atto:", initialvalue="Atto 1", parent=self) or "Atto 1"
-        desc = simpledialog.askstring("Descrizione", "Obiettivo e informazioni:", parent=self) or ""
-        xp = simpledialog.askinteger("Ricompensa XP", "XP:", initialvalue=150, minvalue=0, parent=self) or 150
-        gp = simpledialog.askinteger("Ricompensa Oro", "Monete d'Oro (MO):", initialvalue=50, minvalue=0, parent=self) or 50
-        self.campaign.add_quest(title.strip(), desc.strip(), chapter.strip(), {"xp": xp, "gp": gp})
+        payload = self._open_quest_form_dialog("Nuova Missione")
+        if not payload:
+            return
+        self.campaign.add_quest(payload["title"], payload["description"], payload["chapter"], payload["rewards"])
         self.refresh_quests()
 
     def edit_quest_dialog(self):
@@ -1250,11 +1326,13 @@ class CampaignEditorFrame(tk.Frame):
         if not sel: return
         idx = int(sel[0])
         q = self.campaign.quests[idx]
-        title = simpledialog.askstring("Modifica Missione", "Titolo:", initialvalue=q.get("title"), parent=self)
-        if not title: return
-        q["title"] = title.strip()
-        q["chapter"] = simpledialog.askstring("Capitolo", "Capitolo:", initialvalue=q.get("chapter"), parent=self) or "Atto 1"
-        q["description"] = simpledialog.askstring("Descrizione", "Descrizione:", initialvalue=q.get("description"), parent=self) or ""
+        payload = self._open_quest_form_dialog("Modifica Missione", initial=q)
+        if not payload:
+            return
+        q["title"] = payload["title"]
+        q["chapter"] = payload["chapter"]
+        q["description"] = payload["description"]
+        q["rewards"] = payload["rewards"]
         self.refresh_quests()
 
     def remove_quest(self):
@@ -1374,15 +1452,90 @@ class CampaignEditorFrame(tk.Frame):
                 desc,
             ))
 
+    def _open_faction_form_dialog(self, title_win: str, initial: Optional[dict] = None) -> Optional[dict]:
+        """Dialogo modale unificato per Creazione/Modifica Fazione."""
+        init = dict(initial or {})
+        dlg = tk.Toplevel(self)
+        dlg.title(title_win)
+        dlg.minsize(450, 330)
+        dlg.transient(self)
+        dlg.grab_set()
+        apply_modern_window_style(dlg)
+        dlg.configure(bg=BG_COLOR)
+
+        frm = tk.Frame(dlg, bg=BG_COLOR, padx=14, pady=12)
+        frm.pack(fill=tk.BOTH, expand=True)
+
+        tk.Label(frm, text="Nome Fazione / Gilda *", font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+        ent_name = ttk.Entry(frm)
+        ent_name.pack(fill=tk.X, pady=(2, 8))
+        ent_name.insert(0, str(init.get("name", "") or ""))
+
+        row_meta = tk.Frame(frm, bg=BG_COLOR)
+        row_meta.pack(fill=tk.X, pady=(0, 8))
+        col_a = tk.Frame(row_meta, bg=BG_COLOR)
+        col_a.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+        tk.Label(col_a, text="Allineamento", font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+        ent_align = ttk.Entry(col_a)
+        ent_align.pack(fill=tk.X, pady=(2, 0))
+        ent_align.insert(0, str(init.get("alignment", "Neutrale") or "Neutrale"))
+
+        col_rep = tk.Frame(row_meta, bg=BG_COLOR)
+        col_rep.pack(side=tk.LEFT)
+        tk.Label(col_rep, text="Reputazione (-5..+5)", font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+        ent_rep = ttk.Entry(col_rep, width=10)
+        ent_rep.pack(pady=(2, 0))
+        ent_rep.insert(0, str(int(init.get("reputation", 0) or 0)))
+
+        tk.Label(frm, text="Sede Principale / Scena", font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+        ent_hq = ttk.Entry(frm)
+        ent_hq.pack(fill=tk.X, pady=(2, 8))
+        ent_hq.insert(0, str(init.get("headquarters", "") or ""))
+
+        tk.Label(frm, text="Obiettivi, Alleati e Segreti", font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+        txt_desc = scrolledtext.ScrolledText(frm, height=5, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=FONT_MAIN, wrap=tk.WORD)
+        txt_desc.pack(fill=tk.BOTH, expand=True, pady=(2, 10))
+        txt_desc.insert("1.0", str(init.get("description", "") or ""))
+
+        result = {"data": None}
+
+        def _confirm():
+            n_val = ent_name.get().strip()
+            if not n_val:
+                messagebox.showwarning("Nome mancante", "Inserisci il nome della fazione.", parent=dlg)
+                return
+            try:
+                rep_val = int(ent_rep.get().strip() or 0)
+            except ValueError:
+                rep_val = 0
+            result["data"] = {
+                "name": n_val,
+                "alignment": ent_align.get().strip() or "Neutrale",
+                "headquarters": ent_hq.get().strip(),
+                "description": txt_desc.get("1.0", tk.END).strip(),
+                "reputation": rep_val,
+            }
+            dlg.destroy()
+
+        bbar = tk.Frame(frm, bg=BG_COLOR)
+        bbar.pack(fill=tk.X)
+        ttk.Button(bbar, text="Annulla", command=dlg.destroy).pack(side=tk.RIGHT, padx=(6, 0))
+        ttk.Button(bbar, text="💾 Salva", style="Primary.TButton", command=_confirm).pack(side=tk.RIGHT)
+        ent_name.focus_set()
+        self.wait_window(dlg)
+        return result["data"]
+
     def add_faction_dialog(self):
-        name = simpledialog.askstring("Nuova Fazione", "Nome fazione / gilda:", parent=self)
-        if not name or not name.strip():
+        payload = self._open_faction_form_dialog("Nuova Fazione")
+        if not payload:
             return
-        align = simpledialog.askstring("Allineamento", "Allineamento prevalente:", initialvalue="Neutrale", parent=self) or "Neutrale"
-        hq = simpledialog.askstring("Sede Principale", "Sede o Scena di riferimento:", initialvalue="", parent=self) or ""
-        desc = simpledialog.askstring("Descrizione", "Obiettivi, alleati e segreti:", initialvalue="", parent=self) or ""
-        rep = simpledialog.askinteger("Reputazione Partito", "Reputazione iniziale (-5..+5):", initialvalue=0, parent=self) or 0
-        self.campaign.add_faction(name.strip(), alignment=align.strip(), headquarters=hq.strip(), description=desc.strip(), reputation=rep)
+        self.campaign.add_faction(
+            payload["name"],
+            alignment=payload["alignment"],
+            headquarters=payload["headquarters"],
+            description=payload["description"],
+            reputation=payload["reputation"],
+        )
         self.refresh_factions()
 
     def edit_faction_dialog(self):
@@ -1391,16 +1544,14 @@ class CampaignEditorFrame(tk.Frame):
             return
         idx = int(sel[0])
         fac = self.campaign.factions[idx]
-        new_name = simpledialog.askstring("Modifica Fazione", "Nome:", initialvalue=fac.get("name", ""), parent=self)
-        if not new_name:
+        payload = self._open_faction_form_dialog("Modifica Fazione", initial=fac)
+        if not payload:
             return
-        fac["name"] = new_name.strip()
-        fac["alignment"] = simpledialog.askstring("Allineamento", "Allineamento:", initialvalue=fac.get("alignment", "Neutrale"), parent=self) or "Neutrale"
-        fac["headquarters"] = simpledialog.askstring("Sede", "Sede principale:", initialvalue=fac.get("headquarters", ""), parent=self) or ""
-        fac["description"] = simpledialog.askstring("Descrizione", "Descrizione:", initialvalue=fac.get("description", ""), parent=self) or ""
-        rep = simpledialog.askinteger("Reputazione", "Reputazione:", initialvalue=int(fac.get("reputation", 0)), parent=self)
-        if rep is not None:
-            fac["reputation"] = rep
+        fac["name"] = payload["name"]
+        fac["alignment"] = payload["alignment"]
+        fac["headquarters"] = payload["headquarters"]
+        fac["description"] = payload["description"]
+        fac["reputation"] = payload["reputation"]
         self.refresh_factions()
 
     def remove_faction(self):
@@ -1705,23 +1856,41 @@ class CampaignEditorFrame(tk.Frame):
         
         dlg = tk.Toplevel(self)
         dlg.title(f"Handout: {h.get('title')}")
-        dlg.minsize(500, 350)
+        dlg.minsize(500, 380)
         dlg.transient(self)
         dlg.grab_set()
         apply_modern_window_style(dlg)
         dlg.configure(bg=BG_COLOR)
         
-        tk.Label(dlg, text=h.get("title", ""), font=("Georgia", 14, "bold"), bg=BG_COLOR, fg=ACCENT_GOLD).pack(anchor="w", padx=15, pady=(12, 6))
+        hdr = tk.Frame(dlg, bg=BG_COLOR)
+        hdr.pack(fill=tk.X, padx=15, pady=(12, 6))
+        tk.Label(hdr, text="Titolo:", font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w")
+        ent_title = ttk.Entry(hdr)
+        ent_title.pack(fill=tk.X, pady=(2, 0))
+        ent_title.insert(0, str(h.get("title", "") or ""))
         
+        txt = None
         if h.get("image_path"):
             tk.Label(dlg, text=f"File immagine: {h.get('image_path')}", font=FONT_SMALL, bg=BG_COLOR, fg=TEXT_MUTED).pack(anchor="w", padx=15, pady=(0, 8))
         else:
             txt = scrolledtext.ScrolledText(dlg, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=FONT_MAIN, wrap=tk.WORD)
             txt.insert("1.0", h.get("content", ""))
-            txt.configure(state=tk.DISABLED)
             txt.pack(fill=tk.BOTH, expand=True, padx=15, pady=(0, 12))
-            
-        ttk.Button(dlg, text="Chiudi", command=dlg.destroy).pack(pady=(0, 12))
+
+        bbar = tk.Frame(dlg, bg=BG_COLOR)
+        bbar.pack(fill=tk.X, padx=15, pady=(0, 12))
+
+        def _save_handout():
+            new_title = ent_title.get().strip()
+            if new_title:
+                h["title"] = new_title
+            if txt is not None:
+                h["content"] = txt.get("1.0", tk.END).strip()
+            self.refresh_handouts()
+            dlg.destroy()
+
+        ttk.Button(bbar, text="Chiudi", command=dlg.destroy).pack(side=tk.RIGHT, padx=(6, 0))
+        ttk.Button(bbar, text="💾 Salva Modifiche", style="Primary.TButton", command=_save_handout).pack(side=tk.RIGHT)
 
     def remove_handout(self):
         sel = self.tree_handouts.selection()
@@ -1747,6 +1916,22 @@ class CampaignEditorFrame(tk.Frame):
                     img_b64 = base64.b64encode(f.read()).decode('utf-8')
             except Exception as e:
                 print(f"[CAMPAIGN] Errore lettura immagine handout: {e}")
+
+        h["is_revealed"] = True
+        if self.game_state is not None:
+            if not hasattr(self.game_state, "handouts") or not isinstance(self.game_state.handouts, list):
+                self.game_state.handouts = []
+            revealed_entry = {
+                "title": title,
+                "content": content or "",
+                "image_b64": img_b64,
+                "is_revealed": True,
+            }
+            existing_h = next((it for it in self.game_state.handouts if isinstance(it, dict) and it.get("title") == title), None)
+            if existing_h is not None:
+                existing_h.update(revealed_entry)
+            else:
+                self.game_state.handouts.append(revealed_entry)
                 
         broadcast(self.game_state, make_handout_broadcast(title, img_b64, content))
         messagebox.showinfo("Handout Inviato", f"'{title}' condiviso con tutti i giocatori!", parent=self)
@@ -2266,6 +2451,12 @@ class CampaignEditorFrame(tk.Frame):
             return
         self.sync_campaign_data()
         self.campaign.apply_to_game_state(self.game_state)
+        try:
+            broadcast(self.game_state, make_game_state(self.game_state.get_state_dict(is_dm=False)))
+        except Exception:
+            pass
+        if hasattr(self.game_state, "_trigger_gui_update"):
+            self.game_state._trigger_gui_update()
         messagebox.showinfo("Applicato", f"La campagna '{self.campaign.name}' è ora attiva nella sessione corrente!", parent=self)
 
 
@@ -2293,6 +2484,8 @@ class CampaignEditorDialog(tk.Toplevel):
             on_close_callback=self.destroy
         )
         self._frame_internal.pack(fill=tk.BOTH, expand=True)
+        self._on_escape_close = self._frame_internal.close_editor
+        self.protocol("WM_DELETE_WINDOW", self._frame_internal.close_editor)
 
     def toggle_fullscreen(self, event=None):
         if hasattr(self, "_frame_internal"):

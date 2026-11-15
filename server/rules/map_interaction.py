@@ -661,6 +661,18 @@ def handle_quest_action_request(data, player, game_state):
             game_state.quests = []
 
         if action == "add":
+            if isinstance(quest, dict):
+                quest = dict(quest)
+                st_low = str(quest.get("status", "")).strip().lower()
+                if st_low in ("completed", "completata", "done"):
+                    quest["completed"] = True
+                elif st_low in ("failed", "fallita"):
+                    quest["completed"] = False
+                elif quest.get("completed"):
+                    quest.setdefault("status", "Completata")
+                else:
+                    quest.setdefault("status", "Attiva")
+                    quest.setdefault("completed", False)
             game_state.quests.append(quest)
             chat_msg = f"📜 [NUOVA MISSIONE] '{quest.get('title', 'Nuova Missione')}' aggiunta al registro!"
         elif action in ("complete", "done"):
@@ -668,6 +680,7 @@ def handle_quest_action_request(data, player, game_state):
             for q in game_state.quests:
                 if q.get("id") == q_id or q.get("title") == q_id:
                     q["completed"] = True
+                    q["status"] = "Completata"
                     chat_msg = f"✅ [MISSIONE COMPLETATA] '{q.get('title')}' completata dal gruppo!"
                     break
         elif action == "delete":

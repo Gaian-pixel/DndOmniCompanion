@@ -119,12 +119,21 @@ class ResolvePendingDoorData(TypedDict):
     outcome: str
 
 # --- Messaggi Client -> Server ---
-def make_join(name: str, position: Optional[List[int]] = None, password: Optional[str] = None) -> ProtocolMessage:
+def make_join(
+    name: str,
+    position: Optional[List[int]] = None,
+    password: Optional[str] = None,
+    known_asset_hashes: Optional[List[str]] = None,
+) -> ProtocolMessage:
     data: Dict[str, Any] = {"name": name}
     if position:
         data["position"] = position
     if password:
         data["password"] = str(password)
+    if known_asset_hashes and isinstance(known_asset_hashes, (list, tuple, set)):
+        clean_hashes = [str(h) for h in list(known_asset_hashes)[:64] if isinstance(h, str) and h]
+        if clean_hashes:
+            data["known_asset_hashes"] = clean_hashes
     return {"type": "JOIN", "data": data}
 
 def make_chat(text: str) -> ProtocolMessage:

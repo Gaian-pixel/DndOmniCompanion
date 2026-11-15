@@ -129,6 +129,10 @@ class PlayerJournalDialog(tk.Toplevel):
             highlightbackground=BORDER_COLOR
         )
         self.txt_prose.pack(fill=tk.BOTH, expand=True)
+        self.txt_prose.tag_configure("md_h3", font=("Georgia", 12, "bold"), foreground=ACCENT_GOLD, spacing1=8, spacing3=3)
+        self.txt_prose.tag_configure("md_bold", font=("Georgia", 11, "bold"), foreground="#F8F9FA")
+        self.txt_prose.tag_configure("md_italic", font=("Georgia", 11, "italic"), foreground="#CED4DA")
+        self.txt_prose.tag_configure("md_bullet", lmargin1=14, lmargin2=24)
         self.txt_prose.configure(state="disabled")
 
         # Tab 2: Note Personali dell'Eroe
@@ -161,6 +165,8 @@ class PlayerJournalDialog(tk.Toplevel):
             highlightbackground=BORDER_COLOR
         )
         self.txt_personal.pack(fill=tk.BOTH, expand=True)
+        self.txt_personal.bind("<Control-s>", lambda e: (self._save_personal_notes(), "break")[1])
+        self.txt_personal.bind("<Control-S>", lambda e: (self._save_personal_notes(), "break")[1])
 
         # Tab 3: Timeline Eventi Salienti
         tab_events = ttk.Frame(self.notebook, padding=6)
@@ -234,6 +240,33 @@ class PlayerJournalDialog(tk.Toplevel):
         self.selected_index = sel[0]
         self._load_session_data(self.selected_index)
 
+    def _insert_markdown_prose(self, text: str):
+        import re as _re
+        for raw_line in (text or "").splitlines():
+            s = raw_line.strip()
+            if not s:
+                self.txt_prose.insert(tk.END, "\n")
+                continue
+            if s.startswith("### "):
+                self.txt_prose.insert(tk.END, s[4:] + "\n", ("md_h3",))
+                continue
+            if s.startswith("## "):
+                self.txt_prose.insert(tk.END, s[3:] + "\n", ("md_h3",))
+                continue
+            line_tag = ("md_bullet",) if s.startswith("- ") else ()
+            line_body = f"  • {s[2:]}" if s.startswith("- ") else raw_line
+            tokens = _re.split(r"(\*\*.*?\*\*|\*.*?\*)", line_body)
+            for tok in tokens:
+                if not tok:
+                    continue
+                if tok.startswith("**") and tok.endswith("**") and len(tok) >= 4:
+                    self.txt_prose.insert(tk.END, tok[2:-2], ("md_bold",) + line_tag)
+                elif tok.startswith("*") and tok.endswith("*") and len(tok) >= 2:
+                    self.txt_prose.insert(tk.END, tok[1:-1], ("md_italic",) + line_tag)
+                else:
+                    self.txt_prose.insert(tk.END, tok, line_tag)
+            self.txt_prose.insert(tk.END, "\n", line_tag)
+
     def _load_session_data(self, idx: int):
         if idx < 0 or idx >= len(self.journal.sessions):
             return
@@ -246,24 +279,30 @@ class PlayerJournalDialog(tk.Toplevel):
             text=f"🗓️ {sess.real_date} | ⏳ {game_dt_str} | 🌤️ {sess.weather} | 🧭 {sess.location}"
         )
 
-        # Prosa
+        # Prosa con rendering Markdown leggero
         self.txt_prose.configure(state="normal")
         self.txt_prose.delete("1.0", tk.END)
         prose_text = sess.prose.strip() or self.journal.synthesize_prose(idx, language=get_language())
-        self.txt_prose.insert("1.0", prose_text)
+        self._insert_markdown_prose(prose_text)
         self.txt_prose.configure(state="disabled")
 
-        # Eventi
+        # Eventi (filtrando eventuali note private DM per sicurezza)
         self.txt_events.configure(state="normal")
         self.txt_events.delete("1.0", tk.END)
         category_icons = {
             "combat": "⚔️", "door": "🚪", "trap": "⚠️", "discovery": "🔍",
-            "loot": "💰", "rest": "🏕️", "death": "💀", "note": "📜"
+            "loot": "💰", "rest": "🏕️", "death": "💀", "note": "📜",
+            "exploration": "🗺️", "social": "💬"
         }
-        if not sess.events:
+        visible_events = [
+            e for e in (sess.events or [])
+            if getattr(e, "category", "") != "dm_note"
+            and not (isinstance(getattr(e, "data", None), dict) and e.data.get("dm_only"))
+        ]
+        if not visible_events:
             self.txt_events.insert("1.0", "*Nessun evento registrato in questa sessione.*")
         else:
-            for e in sess.events:
+            for e in visible_events:
                 ico = category_icons.get(e.category, "●")
                 self.txt_events.insert(tk.END, f"[{e.timestamp}] {ico} {e.title}\n")
                 if e.description:

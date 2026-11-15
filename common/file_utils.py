@@ -6,6 +6,7 @@ Previene la corruzione dei file JSON in caso di arresti anomali o crash.
 import os
 import sys
 import json
+import shutil
 import tempfile
 
 
@@ -31,12 +32,13 @@ def get_writable_dir() -> str:
 
 
 
-def atomic_save_json(filepath, data, indent=4, ensure_ascii=False):
+def atomic_save_json(filepath, data, indent=4, ensure_ascii=False, create_backup: bool = False):
     """
     Salva i dati in formato JSON in modo atomico.
     Scrive prima su un file temporaneo nella stessa directory e poi esegue
     la sostituzione atomica (os.replace) per garantire che il file di destinazione
     non rimanga mai vuoto o parzialmente scritto in caso di errori.
+    Se create_backup=True ed esiste un file precedente, preserva `<filepath>.bak`.
     """
     dir_name = os.path.dirname(os.path.abspath(filepath))
     os.makedirs(dir_name, exist_ok=True)
@@ -47,6 +49,11 @@ def atomic_save_json(filepath, data, indent=4, ensure_ascii=False):
         json.dump(data, tf, indent=indent, ensure_ascii=ensure_ascii)
         tf.flush()
         tf.close()
+        if create_backup and os.path.exists(filepath):
+            try:
+                shutil.copy2(filepath, f"{filepath}.bak")
+            except OSError:
+                pass
         os.replace(tmp_path, filepath)
     except Exception:
         try:
