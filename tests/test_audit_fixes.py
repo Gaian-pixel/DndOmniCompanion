@@ -1092,5 +1092,205 @@ class TestPhase2ProductMaturityAndE2E(unittest.TestCase):
             self.assertEqual(reloaded.sanity, 8)
 
 
+class TestTask036UxSecurityAndManualsTests(unittest.TestCase):
+    @staticmethod
+    def _contrast_ratio(hex1: str, hex2: str) -> float:
+        def _lum(hx: str) -> float:
+            hx = hx.lstrip("#")
+            vals = []
+            for idx in (0, 2, 4):
+                c = int(hx[idx:idx + 2], 16) / 255.0
+                vals.append(c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4)
+            return 0.2126 * vals[0] + 0.7152 * vals[1] + 0.0722 * vals[2]
+
+        l1, l2 = _lum(hex1), _lum(hex2)
+        hi, lo = max(l1, l2), min(l1, l2)
+        return (hi + 0.05) / (lo + 0.05)
+
+    def test_theme_disabled_button_contrast_and_dice_banner_i18n_en_it(self):
+        import tkinter as tk
+        import ttkbootstrap as tb
+        from common.theme import setup_theme
+        from common.i18n import get_language, set_language
+        from components.dice_3d_canvas import Dice3DOverlay
+
+        prev_lang = get_language()
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            setup_theme(root)
+            style = tb.Style.instance
+            self.assertIsNotNone(style)
+            for sname in ("TButton", "Gold.TButton", "Accent.TButton", "Secondary.TButton", "Primary.TButton", "Hud.TButton", "SlotFilled.TButton"):
+                bg_map = dict(style.map(sname, "background"))
+                fg_map = dict(style.map(sname, "foreground"))
+                self.assertIn("disabled", bg_map, sname)
+                self.assertIn("disabled", fg_map, sname)
+                self.assertGreaterEqual(self._contrast_ratio(bg_map["disabled"], fg_map["disabled"]), 4.5, sname)
+
+            canvas = tk.Canvas(root, width=640, height=480)
+            ov = Dice3DOverlay(canvas, sound_enabled=False)
+
+            def _canvas_texts():
+                return [canvas.itemcget(item, "text") for item in canvas.find_all() if canvas.type(item) == "text"]
+
+            set_language("it")
+            ov.banner_info = {"player": "", "reason": "Tiro", "formula": "1d20", "total": 20, "rolls": [20], "other_rolls": [4], "modifier": 0, "is_crit": True, "is_fumble": False}
+            ov._render_result_banner(640, 480)
+            txt_it = " ".join(_canvas_texts())
+            self.assertIn("Giocatore", txt_it)
+            self.assertIn("scartato", txt_it)
+            self.assertIn("20 NATURALE - SUCCESSO CRITICO!", txt_it)
+
+            canvas.delete("all")
+            set_language("en")
+            ov.banner_info = {"player": "", "reason": "Check", "formula": "1d100", "total": 100, "rolls": [100], "other_rolls": [12], "modifier": 0, "is_crit": True, "is_fumble": False}
+            ov._render_result_banner(640, 480)
+            txt_en = " ".join(_canvas_texts())
+            self.assertIn("Player", txt_en)
+            self.assertIn("discarded", txt_en)
+            self.assertIn("NATURAL 100 - CRITICAL SUCCESS!", txt_en)
+
+            canvas.delete("all")
+            ov.banner_info = {"player": "Aria", "reason": "Save", "formula": "1d20", "total": 1, "rolls": [1], "other_rolls": [], "modifier": 0, "is_crit": False, "is_fumble": True}
+            ov._render_result_banner(640, 480)
+            self.assertIn("NATURAL 1 - CRITICAL FAILURE!", " ".join(_canvas_texts()))
+
+            canvas.delete("all")
+            ov.banner_info = {"player": "Aria", "reason": "Skill", "formula": "1d20", "total": 11, "rolls": [11], "other_rolls": [], "modifier": 0, "is_crit": False, "is_fumble": False}
+            ov._render_result_banner(640, 480)
+            self.assertIn("Click to close immediately", " ".join(_canvas_texts()))
+        finally:
+            set_language(prev_lang)
+            try:
+                root.destroy()
+            except Exception:
+                pass
+
+    def test_journal_and_character_dm_privilege_rejection_and_spoof_guards(self):
+        from server.rules.journal import handle_new_journal_session_request, handle_conclude_journal_session_request
+        from server.rules.character import handle_set_elevation_request, handle_update_stats_request
+
+        gs = GameState(queue.Queue())
+        s0 = gs.campaign_journal.get_active_session()
+        initial_count = len(gs.campaign_journal.sessions)
+
+        rogue = Player("Rogue", conn=_MockConn())
+        rogue.role = "PLAYER"
+        rogue.hp = 12
+        rogue.max_hp = 30
+        rogue.conditions = ["Avvelenato"]
+        rogue._preserve_server_state_on_join = True
+        rogue._preserve_stats_on_join = True
+
+        ally = Player("Paladin", conn=_MockConn())
+        ally.elevation = 0
+        gs.players = [rogue, ally]
+
+        # 1. journal.py: non-DM cannot open or conclude sessions
+        handle_new_journal_session_request({"title": "Illegale"}, rogue, gs)
+        self.assertEqual(len(gs.campaign_journal.sessions), initial_count)
+        handle_conclude_journal_session_request({}, rogue, gs)
+        self.assertFalse(getattr(s0, "concluded", False) or bool(getattr(s0, "ended_at", "")))
+        self.assertGreaterEqual(len(rogue.conn.sent), 2)
+
+        # 2. character.py: non-DM cannot alter another actor's elevation, nor bypass server-protected HP
+        handle_set_elevation_request({"target_name": "Paladin", "elevation": 40}, rogue, gs)
+        self.assertEqual(ally.elevation, 0)
+        handle_set_elevation_request({"target_name": "Rogue", "elevation": 15}, rogue, gs)
+        self.assertEqual(rogue.elevation, 15)
+
+        handle_update_stats_request({"hp": 30, "max_hp": 30, "temp_hp": 10, "conditions": []}, rogue, gs)
+        self.assertEqual(rogue.hp, 12)
+        self.assertIn("Avvelenato", rogue.conditions)
+
+    def test_audio_library_security_bounds_traversal_extension_size_and_chunks(self):
+        import tempfile
+        import server.audio_library as al_mod
+        from client.client import ClientGUI
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            lib_dir = os.path.join(tmpdir, "lib")
+            idx_file = os.path.join(lib_dir, "library.json")
+            with patch.object(al_mod, "LIB_DIR", lib_dir), \
+                 patch.object(al_mod, "INDEX_FILE", idx_file), \
+                 patch.object(al_mod, "CHUNK_SIZE", 10):
+                lib = al_mod.AudioLibrary()
+
+                # Path traversal rejection
+                bad_path = lib._file_for({"id": "../../etc/passwd", "ext": ".mp3"})
+                self.assertEqual(os.path.basename(bad_path), "__invalid__")
+                self.assertIsNone(lib.get("../secret"))
+                self.assertIsNone(lib.get_path("..\\secret"))
+                self.assertEqual(list(lib.iter_chunks("bad/id")), [])
+
+                # Bad extension rejection
+                exe_path = os.path.join(tmpdir, "bad.exe")
+                with open(exe_path, "wb") as f:
+                    f.write(b"MZ90")
+                with self.assertRaises(ValueError):
+                    lib.import_file(exe_path)
+
+                # Oversized file rejection
+                wav_path = os.path.join(tmpdir, "huge.wav")
+                with open(wav_path, "wb") as f:
+                    f.write(b"RIFF" + b"A" * 21)
+                with patch.object(al_mod.os.path, "getsize", return_value=al_mod.MAX_FILE_SIZE + 1):
+                    with self.assertRaises(ValueError):
+                        lib.import_file(wav_path)
+
+                # Valid import + chunk iteration bounds (25 bytes -> 10, 10, 5)
+                with patch.object(al_mod, "get_audio_info", return_value=(12.0, 44100, 1)):
+                    trk = lib.import_file(wav_path)
+                chunks = list(lib.iter_chunks(trk["id"]))
+                self.assertEqual([(i, t, len(b)) for i, t, b in chunks], [(0, 3, 10), (1, 3, 10), (2, 3, 5)])
+                self.assertEqual(b"".join(b for _, _, b in chunks), b"RIFF" + b"A" * 21)
+
+            # Client URL schemes + traversal track_id bounds
+            c_mock = MagicMock()
+            c_mock.audio_cache_dir = tmpdir
+            c_mock._audio_downloads = {}
+            with patch("webbrowser.open") as mock_open:
+                for bad_url in ("data:text/html,<script>", "vbscript:msgbox(1)", "ftp://evil/x.mp3"):
+                    ClientGUI.handle_audio_play(c_mock, {"url": bad_url})
+                mock_open.assert_not_called()
+            ClientGUI.handle_audio_track_chunk(c_mock, {"track_id": "../evil", "index": 0, "total": 1, "data": "QUJD", "ext": ".mp3"})
+            self.assertEqual(c_mock._audio_downloads, {})
+
+    def test_manuals_ui_open_pdf_and_manuals_folder_actions(self):
+        import tempfile
+        import subprocess
+        from client.manuals_ui import ManualsDialog
+        import common.pdf_manuals_indexer as pdf_idx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            pdf_dir = os.path.join(tmpdir, "pdfs")
+            stub = MagicMock()
+            with patch.object(pdf_idx, "PDF_DIR", pdf_dir):
+                with patch("os.name", "nt"), patch("os.startfile", create=True) as mock_start:
+                    ManualsDialog.open_pdf_folder(stub)
+                    self.assertTrue(os.path.isdir(pdf_dir))
+                    mock_start.assert_called_once_with(pdf_dir)
+
+                with patch("os.name", "posix"), patch.object(subprocess, "Popen") as mock_popen:
+                    ManualsDialog.open_pdf_folder(stub)
+                    mock_popen.assert_called_once_with(["xdg-open", pdf_dir])
+
+                with patch("os.name", "nt"), \
+                     patch("os.startfile", side_effect=OSError("no shell"), create=True), \
+                     patch("client.manuals_ui.messagebox.showinfo") as mock_info:
+                    ManualsDialog.open_pdf_folder(stub)
+                    mock_info.assert_called_once()
+                    self.assertIn(pdf_dir, mock_info.call_args[0][1])
+
+                man_dir = os.path.join(tmpdir, "manuals")
+                with patch("client.manuals_ui.MANUALS_DIR", man_dir), \
+                     patch("os.name", "posix"), \
+                     patch.object(subprocess, "Popen") as mock_popen:
+                    ManualsDialog.open_manuals_folder(stub)
+                    self.assertTrue(os.path.isdir(man_dir))
+                    mock_popen.assert_called_once_with(["xdg-open", man_dir])
+
+
 if __name__ == "__main__":
     unittest.main()

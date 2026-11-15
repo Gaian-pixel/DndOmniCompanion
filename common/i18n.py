@@ -1462,6 +1462,12 @@ STRINGS = {
         "login_btn_cancel": "Annulla",
         "login_no_char_selected": "Seleziona o crea un personaggio per connetterti.",
         "login_no_characters_note": "Nessun personaggio trovato. Apri 'Gestisci / Crea Personaggi' per iniziare!",
+        "dice_banner_default_player": "Giocatore",
+        "dice_banner_discarded": "scartato",
+        "dice_banner_nat100_crit": "🌟 100 NATURALE - SUCCESSO CRITICO!",
+        "dice_banner_nat20_crit": "🌟 20 NATURALE - SUCCESSO CRITICO!",
+        "dice_banner_nat1_fumble": "💀 1 NATURALE - FALLIMENTO CRITICO!",
+        "dice_banner_click_close": "Clicca per chiudere subito",
     },
     "en": {
 
@@ -2633,6 +2639,12 @@ STRINGS = {
         "login_btn_cancel": "Cancel",
         "login_no_char_selected": "Select or create a character to connect.",
         "login_no_characters_note": "No characters found. Open 'Manage / Create Heroes' to get started!",
+        "dice_banner_default_player": "Player",
+        "dice_banner_discarded": "discarded",
+        "dice_banner_nat100_crit": "🌟 NATURAL 100 - CRITICAL SUCCESS!",
+        "dice_banner_nat20_crit": "🌟 NATURAL 20 - CRITICAL SUCCESS!",
+        "dice_banner_nat1_fumble": "💀 NATURAL 1 - CRITICAL FAILURE!",
+        "dice_banner_click_close": "Click to close immediately",
     }
 }
 

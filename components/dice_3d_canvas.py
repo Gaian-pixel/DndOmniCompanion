@@ -31,6 +31,8 @@ import threading
 import tkinter as tk
 from typing import List, Dict, Any, Tuple, Optional, Callable
 
+from common.i18n import _t
+
 
 # ==============================================================================
 # 1. MATEMATICA VETTORIALE, MATRICIALE E QUATERNIONI 3D
@@ -1266,7 +1268,7 @@ class Dice3DOverlay:
             fill="#CBD5E1", tags=("dice_3d", "close_btn", "banner")
         )
         
-        p_name = self.banner_info.get("player", "Giocatore")
+        p_name = self.banner_info.get("player") or _t("dice_banner_default_player")
         reason = self.banner_info.get("reason", "")
         form = self.banner_info.get("formula", "")
         tot = self.banner_info.get("total", 0)
@@ -1286,7 +1288,7 @@ class Dice3DOverlay:
         # Stringa formula dettagliata
         rolls_str = "+".join(map(str, rolls))
         if other_rolls:
-            rolls_str = f"[{rolls_str}] (scartato: {other_rolls})"
+            rolls_str = f"[{rolls_str}] ({_t('dice_banner_discarded')}: {other_rolls})"
         else:
             rolls_str = f"[{rolls_str}]"
             
@@ -1303,15 +1305,15 @@ class Dice3DOverlay:
         # Badge di stato
         if is_crit:
             if "100" in form or any(d.model.name == "d100" for d in self.dice):
-                badge = "🌟 100 NATURALE - SUCCESSO CRITICO!"
+                badge = _t("dice_banner_nat100_crit")
             else:
-                badge = "🌟 20 NATURALE - SUCCESSO CRITICO!"
+                badge = _t("dice_banner_nat20_crit")
             b_color = "#2ECC71"
         elif is_fumble:
-            badge = "💀 1 NATURALE - FALLIMENTO CRITICO!"
+            badge = _t("dice_banner_nat1_fumble")
             b_color = "#ED4245"
         else:
-            badge = "Clicca per chiudere subito"
+            badge = _t("dice_banner_click_close")
             b_color = "#94A3B8"
             
         self.canvas.create_text(

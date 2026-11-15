@@ -97,83 +97,98 @@ def setup_theme(root):
     style.configure('Danger.TLabel', foreground=colors.danger, font=FONT_BOLD)
 
     # --- BOTTONI ---
+    # Mappatura accessibile per bottoni disabilitati (WCAG contrast >= 4.5:1 su tema dark)
+    DISABLED_BG_DARK = "#1A1D24"
+    DISABLED_FG_DARK = "#9CA3AF"
+    DISABLED_BG_GOLD = "#4A3F24"
+    DISABLED_FG_GOLD = "#D6CBAE"
+    DISABLED_BG_ACCENT = "#2D323E"
+    DISABLED_FG_ACCENT = "#A8B0BC"
+
+    def _map_btn(style_name: str, bg_states=None, fg_states=None, dis_bg: str = DISABLED_BG_DARK, dis_fg: str = DISABLED_FG_DARK):
+        bg_list = list(bg_states or []) + [('disabled', dis_bg)]
+        fg_list = list(fg_states or []) + [('disabled', dis_fg)]
+        style.map(style_name, background=bg_list, foreground=fg_list)
+
+    _map_btn('TButton')
+
     # Bottone Dorato (Gold / Primary fantasy)
     style.configure('Gold.TButton', font=FONT_BOLD, background=ACCENT_GOLD, foreground=TEXT_DARK, borderwidth=0, padding=(10, 6))
-    style.map('Gold.TButton', background=[('active', ACCENT_GOLD_LIGHT), ('pressed', ACCENT_GOLD_HOVER)])
+    _map_btn('Gold.TButton', [('active', ACCENT_GOLD_LIGHT), ('pressed', ACCENT_GOLD_HOVER)], dis_bg=DISABLED_BG_GOLD, dis_fg=DISABLED_FG_GOLD)
     style.configure('Accent.TButton', font=FONT_BOLD, background=ACCENT_GOLD, foreground=TEXT_DARK, borderwidth=0, padding=(10, 6))
-    style.map('Accent.TButton', background=[('active', ACCENT_GOLD_LIGHT), ('pressed', ACCENT_GOLD_HOVER)])
+    _map_btn('Accent.TButton', [('active', ACCENT_GOLD_LIGHT), ('pressed', ACCENT_GOLD_HOVER)], dis_bg=DISABLED_BG_GOLD, dis_fg=DISABLED_FG_GOLD)
 
     # Bottone Secondario
     style.configure('Secondary.TButton', font=FONT_MAIN, background=SURFACE_COLOR_ALT, foreground=TEXT_COLOR, padding=(8, 5))
-    style.map('Secondary.TButton', background=[('active', SURFACE_LIGHT)])
+    _map_btn('Secondary.TButton', [('active', SURFACE_LIGHT)])
 
     # Bottone Cremisi (Crimson / Danger D&D)
     style.configure('Primary.TButton', font=FONT_BOLD, background=ACCENT_RED, foreground="#FFFFFF", borderwidth=0, padding=(10, 6))
-    style.map('Primary.TButton', background=[('active', "#E03131"), ('pressed', ACCENT_RED_HOVER)])
+    _map_btn('Primary.TButton', [('active', "#E03131"), ('pressed', ACCENT_RED_HOVER)], dis_bg=DISABLED_BG_ACCENT, dis_fg=DISABLED_FG_ACCENT)
     style.configure('Danger.TButton', font=FONT_BOLD, background=ACCENT_RED, foreground="#FFFFFF", padding=(8, 5))
-    style.map('Danger.TButton', background=[('active', ACCENT_RED_HOVER)])
+    _map_btn('Danger.TButton', [('active', ACCENT_RED_HOVER)], dis_bg=DISABLED_BG_ACCENT, dis_fg=DISABLED_FG_ACCENT)
 
     # Bottone Smeraldo (Success)
     style.configure('Success.TButton', font=FONT_BOLD, background=ACCENT_GREEN, foreground="#FFFFFF", padding=(8, 5))
-    style.map('Success.TButton', background=[('active', ACCENT_GREEN_HOVER)])
+    _map_btn('Success.TButton', [('active', ACCENT_GREEN_HOVER)], dis_bg=DISABLED_BG_ACCENT, dis_fg=DISABLED_FG_ACCENT)
 
     # Bottone Arcano (Info)
     style.configure('Info.TButton', font=FONT_BOLD, background=ACCENT_BLUE, foreground="#FFFFFF", padding=(8, 5))
-    style.map('Info.TButton', background=[('active', ACCENT_BLUE_HOVER)])
+    _map_btn('Info.TButton', [('active', ACCENT_BLUE_HOVER)], dis_bg=DISABLED_BG_ACCENT, dis_fg=DISABLED_FG_ACCENT)
 
     # Bottone Scuro (Dark card action)
     style.configure('Dark.TButton', font=FONT_MAIN, background=SURFACE_COLOR_ALT, foreground=TEXT_COLOR, padding=(8, 5))
-    style.map('Dark.TButton', background=[('active', SURFACE_LIGHT)])
+    _map_btn('Dark.TButton', [('active', SURFACE_LIGHT)])
 
     # Bottone Warning (Ambra / Avviso)
     style.configure('Warning.TButton', font=FONT_BOLD, background="#D97706", foreground="#FFFFFF", borderwidth=0, padding=(8, 5))
-    style.map('Warning.TButton', background=[('active', "#F59E0B"), ('pressed', "#B45309")])
+    _map_btn('Warning.TButton', [('active', "#F59E0B"), ('pressed', "#B45309")], dis_bg=DISABLED_BG_ACCENT, dis_fg=DISABLED_FG_ACCENT)
 
     # Bottone Compatto
     style.configure('Small.TButton', font=FONT_SMALL, background=SURFACE_COLOR_ALT, foreground=TEXT_COLOR, padding=(4, 2))
-    style.map('Small.TButton', background=[('active', SURFACE_LIGHT)])
+    _map_btn('Small.TButton', [('active', SURFACE_LIGHT)])
 
     # Bottone Toolbar Quadrato
     style.configure('Tool.TButton', font=("Segoe UI", 11), background=SURFACE_COLOR, foreground=TEXT_COLOR, padding=(4, 4))
-    style.map('Tool.TButton', background=[('active', SURFACE_COLOR_ALT), ('selected', ACCENT_GOLD)])
+    _map_btn('Tool.TButton', [('active', SURFACE_COLOR_ALT), ('selected', ACCENT_GOLD)], [('selected', TEXT_DARK)])
 
     # Bottone Toolbar Attivo (evidenziato in oro quando uno strumento mappa è attivo)
     style.configure('ToolActive.TButton', font=("Segoe UI", 11, "bold"), background=ACCENT_GOLD, foreground=TEXT_DARK, padding=(4, 4))
-    style.map('ToolActive.TButton', background=[('active', ACCENT_GOLD_LIGHT), ('pressed', ACCENT_GOLD_HOVER)])
+    _map_btn('ToolActive.TButton', [('active', ACCENT_GOLD_LIGHT), ('pressed', ACCENT_GOLD_HOVER)], dis_bg=DISABLED_BG_GOLD, dis_fg=DISABLED_FG_GOLD)
 
     # Bottoni HUD Fluttuante VTT (Modern Dark Fantasy)
     style.configure('Hud.TButton', font=("Segoe UI", 10, "bold"), background=SURFACE_COLOR, foreground=TEXT_COLOR, padding=(6, 4))
-    style.map('Hud.TButton', background=[('active', SURFACE_COLOR_ALT), ('pressed', ACCENT_GOLD)], foreground=[('pressed', TEXT_DARK)])
+    _map_btn('Hud.TButton', [('active', SURFACE_COLOR_ALT), ('pressed', ACCENT_GOLD)], [('pressed', TEXT_DARK)])
     style.configure('HudGold.TButton', font=("Segoe UI", 10, "bold"), background=SURFACE_COLOR_ALT, foreground=ACCENT_GOLD, padding=(6, 4))
-    style.map('HudGold.TButton', background=[('active', ACCENT_GOLD), ('pressed', ACCENT_GOLD_HOVER)], foreground=[('active', TEXT_DARK)])
+    _map_btn('HudGold.TButton', [('active', ACCENT_GOLD), ('pressed', ACCENT_GOLD_HOVER)], [('active', TEXT_DARK)])
     style.configure('HudActive.TButton', font=("Segoe UI", 10, "bold"), background=ACCENT_GOLD, foreground=TEXT_DARK, padding=(6, 4))
-    style.map('HudActive.TButton', background=[('active', ACCENT_GOLD_LIGHT), ('pressed', ACCENT_GOLD_HOVER)])
+    _map_btn('HudActive.TButton', [('active', ACCENT_GOLD_LIGHT), ('pressed', ACCENT_GOLD_HOVER)], dis_bg=DISABLED_BG_GOLD, dis_fg=DISABLED_FG_GOLD)
 
     # Bottoni Action Economy (Stati Attivo / Speso)
     style.configure('ActionActive.TButton', font=("Segoe UI", 8, "bold"), background=ACCENT_GREEN, foreground="#FFFFFF", padding=(4, 2))
-    style.map('ActionActive.TButton', background=[('active', ACCENT_GREEN_HOVER)])
+    _map_btn('ActionActive.TButton', [('active', ACCENT_GREEN_HOVER)], dis_bg=DISABLED_BG_ACCENT, dis_fg=DISABLED_FG_ACCENT)
     style.configure('BonusActive.TButton', font=("Segoe UI", 8, "bold"), background="#3B82F6", foreground="#FFFFFF", padding=(4, 2))
-    style.map('BonusActive.TButton', background=[('active', "#2563EB")])
+    _map_btn('BonusActive.TButton', [('active', "#2563EB")], dis_bg=DISABLED_BG_ACCENT, dis_fg=DISABLED_FG_ACCENT)
     style.configure('ReactionActive.TButton', font=("Segoe UI", 8, "bold"), background="#F59E0B", foreground="#FFFFFF", padding=(4, 2))
-    style.map('ReactionActive.TButton', background=[('active', "#D97706")])
+    _map_btn('ReactionActive.TButton', [('active', "#D97706")], dis_bg=DISABLED_BG_ACCENT, dis_fg=DISABLED_FG_ACCENT)
     style.configure('ActionSpent.TButton', font=("Segoe UI", 8), background=SURFACE_COLOR_ALT, foreground=TEXT_MUTED, padding=(4, 2))
-    style.map('ActionSpent.TButton', background=[('active', SURFACE_LIGHT)])
+    _map_btn('ActionSpent.TButton', [('active', SURFACE_LIGHT)])
 
     # Bottone Dado Rapido (Quick Roll Pill in chat)
     style.configure('QuickDie.TButton', font=("Segoe UI", 8, "bold"), background=SURFACE_COLOR_ALT, foreground=ACCENT_GOLD, padding=(4, 2), borderwidth=1)
-    style.map('QuickDie.TButton', background=[('active', ACCENT_GOLD), ('pressed', ACCENT_GOLD_HOVER)], foreground=[('active', TEXT_DARK)])
+    _map_btn('QuickDie.TButton', [('active', ACCENT_GOLD), ('pressed', ACCENT_GOLD_HOVER)], [('active', TEXT_DARK)])
 
     # Hotbar Slot Buttons
     style.configure('Hotbar.TButton', font=("Segoe UI", 8), background=SURFACE_COLOR_ALT, foreground=TEXT_MUTED, padding=(2, 2))
-    style.map('Hotbar.TButton', background=[('active', SURFACE_LIGHT)])
+    _map_btn('Hotbar.TButton', [('active', SURFACE_LIGHT)])
     style.configure('HotbarAssigned.TButton', font=("Segoe UI", 8, "bold"), background=SURFACE_COLOR_ALT, foreground=ACCENT_GOLD, padding=(2, 2))
-    style.map('HotbarAssigned.TButton', background=[('active', ACCENT_GOLD), ('pressed', ACCENT_GOLD_HOVER)], foreground=[('active', TEXT_DARK)])
+    _map_btn('HotbarAssigned.TButton', [('active', ACCENT_GOLD), ('pressed', ACCENT_GOLD_HOVER)], [('active', TEXT_DARK)])
 
     # Slot Inventario
     style.configure('Slot.TButton', background=SURFACE_COLOR, foreground=TEXT_MUTED, padding=(4, 8), bordercolor=BORDER_COLOR)
-    style.map('Slot.TButton', background=[('active', SURFACE_COLOR_ALT)])
+    _map_btn('Slot.TButton', [('active', SURFACE_COLOR_ALT)])
     style.configure('SlotFilled.TButton', background='#253323', foreground=TEXT_COLOR, padding=(4, 8), bordercolor='#2B8A3E')
-    style.map('SlotFilled.TButton', background=[('active', '#32472F')])
+    _map_btn('SlotFilled.TButton', [('active', '#32472F')], dis_bg=DISABLED_BG_ACCENT, dis_fg=DISABLED_FG_ACCENT)
 
     # --- TREEVIEWS ---
     style.configure('Treeview', background=SURFACE_COLOR, fieldbackground=SURFACE_COLOR, 
