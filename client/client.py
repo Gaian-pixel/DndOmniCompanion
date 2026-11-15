@@ -537,6 +537,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
         self.map_canvas.set_on_wall_toggle_callback(self.on_wall_toggle_callback)
         self.map_canvas.set_on_cover_toggle_callback(self.on_cover_toggle_callback)
         self.map_canvas.set_on_draw_callback(self.on_draw_request)
+        self.map_canvas.on_tool_mode_changed_callback = self._on_canvas_tool_mode_changed
         
         # --- COLONNA 2: RIGHT SIDEBAR (Notebook Dark Fantasy) ---
         self.sidebar_collapsed = False
@@ -1084,8 +1085,60 @@ class ClientGUI(ClientNetworkHandlersMixin):
         elif self.map_canvas and getattr(self.map_canvas, "pan_mode", False):
             self.map_canvas.toggle_pan_mode(False)
 
+    def _deactivate_all_map_tools(self, except_tool=None):
+        """Garantisce la mutua esclusione tra gli strumenti mappa (Pan, Righello, Penna, AoE, Targeting)."""
+        if except_tool != "pan" and getattr(self, "map_canvas", None) and getattr(self.map_canvas, "pan_mode", False):
+            self.map_canvas.toggle_pan_mode(False)
+        if hasattr(self, "pan_btn") and self.pan_btn and except_tool != "pan":
+            self.pan_btn.configure(style="Tool.TButton")
+        if hasattr(self, "btn_hud_pan") and self.btn_hud_pan and except_tool != "pan":
+            self.btn_hud_pan.configure(style="Hud.TButton")
+
+        if except_tool != "ruler" and getattr(self, "map_canvas", None) and getattr(self.map_canvas, "ruler_mode", False):
+            self.map_canvas.toggle_ruler_mode(False)
+        if hasattr(self, "measure_btn") and self.measure_btn and except_tool != "ruler":
+            self.measure_btn.configure(style="Tool.TButton")
+        if hasattr(self, "btn_hud_ruler") and self.btn_hud_ruler and except_tool != "ruler":
+            self.btn_hud_ruler.configure(style="Hud.TButton")
+
+        if except_tool != "pen" and getattr(self, "map_canvas", None) and getattr(self.map_canvas, "pen_mode", False):
+            self.map_canvas.toggle_pen_mode(False)
+        if hasattr(self, "pen_btn") and self.pen_btn and except_tool != "pen":
+            self.pen_btn.configure(style="Tool.TButton")
+
+        if except_tool != "aoe" and getattr(self, "aoe_mode", False):
+            self.aoe_mode = False
+            self.aoe_params = None
+        if hasattr(self, "aoe_button") and self.aoe_button and except_tool != "aoe":
+            self.aoe_button.configure(style="Tool.TButton")
+
+        if except_tool != "targeting":
+            for attr in ("attack_targeting_mode", "help_targeting_mode", "targeting_mode"):
+                if getattr(self, attr, False):
+                    setattr(self, attr, False)
+
+    def _on_canvas_tool_mode_changed(self, active_tool):
+        if active_tool == "escape":
+            self._deactivate_all_map_tools(except_tool=None)
+            return
+        if active_tool in ("pan", "ruler", "pen"):
+            self._deactivate_all_map_tools(except_tool=active_tool)
+        if hasattr(self, "pan_btn") and self.pan_btn:
+            self.pan_btn.configure(style="ToolActive.TButton" if getattr(self.map_canvas, "pan_mode", False) else "Tool.TButton")
+        if hasattr(self, "btn_hud_pan") and self.btn_hud_pan:
+            self.btn_hud_pan.configure(style="HudGold.TButton" if getattr(self.map_canvas, "pan_mode", False) else "Hud.TButton")
+        if hasattr(self, "measure_btn") and self.measure_btn:
+            self.measure_btn.configure(style="ToolActive.TButton" if getattr(self.map_canvas, "ruler_mode", False) else "Tool.TButton")
+        if hasattr(self, "btn_hud_ruler") and self.btn_hud_ruler:
+            self.btn_hud_ruler.configure(style="HudGold.TButton" if getattr(self.map_canvas, "ruler_mode", False) else "Hud.TButton")
+        if hasattr(self, "pen_btn") and self.pen_btn:
+            self.pen_btn.configure(style="ToolActive.TButton" if getattr(self.map_canvas, "pen_mode", False) else "Tool.TButton")
+
     def toggle_pan_mode(self):
         if self.map_canvas and hasattr(self.map_canvas, "toggle_pan_mode"):
+            will_activate = not getattr(self.map_canvas, "pan_mode", False)
+            if will_activate:
+                self._deactivate_all_map_tools(except_tool="pan")
             is_active = self.map_canvas.toggle_pan_mode()
             if hasattr(self, "pan_btn") and self.pan_btn:
                 self.pan_btn.configure(style="ToolActive.TButton" if is_active else "Tool.TButton")
@@ -3642,13 +3695,16 @@ class ClientGUI(ClientNetworkHandlersMixin):
             messagebox.showerror("Errore", f"Impossibile aprire i manuali: {e}")
 
     def toggle_ruler_mode(self):
+        will_activate = not getattr(self.map_canvas, "ruler_mode", False)
+        if will_activate:
+            self._deactivate_all_map_tools(except_tool="ruler")
         active = self.map_canvas.toggle_ruler_mode()
         style = "ToolActive.TButton" if active else "Tool.TButton"
         if hasattr(self, 'measure_btn') and self.measure_btn:
             self.measure_btn.configure(style=style)
         if hasattr(self, 'btn_hud_ruler') and self.btn_hud_ruler:
             self.btn_hud_ruler.configure(style="HudGold.TButton" if active else "Hud.TButton")
-        msg = "Righello attivato: clicca due punti sulla mappa per misurare la distanza." if active else "Righello disattivato."
+        msg = "Righello attivato: clicca due punti o trascina col tasto destro sulla mappa per misurare." if active else "Righello disattivato."
         self.show_toast(msg, title="📏 Righello", toast_type="info" if active else "secondary")
         return active
 
@@ -3915,6 +3971,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
                 sz = int(size_entry.get())
             except (ValueError, TypeError):
                 sz = 3
+            self._deactivate_all_map_tools(except_tool="aoe")
             self.aoe_mode = True
             if hasattr(self, "aoe_button"):
                 self.aoe_button.configure(style="ToolActive.TButton")

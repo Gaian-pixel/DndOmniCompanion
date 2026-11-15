@@ -13,6 +13,7 @@ from common.network_utils import broadcast
 from common.protocol import make_chat_broadcast, make_game_state
 from common.theme import (
     ACCENT_GOLD,
+    ACCENT_GREEN,
     BG_COLOR,
     BORDER_COLOR,
     FONT_BOLD,
@@ -204,23 +205,189 @@ def import_party_character_to_game_state(game_state, char_dict, spawn_pos=None):
 class DMCampaignSessionMixin:
     """Mixin encapsulating DM campaign lifecycle, session save/load, scenes, and player approval prompts."""
 
+    def _sync_gui_after_map_change(self, broadcast_state: bool = True):
+        gs = self.server.game_state
+        cur_map = getattr(gs, "current_map", None) or {}
+        if hasattr(self, "fow_enabled_var"):
+            self.fow_enabled_var.set(bool(cur_map.get("fow_enabled", False)))
+        if hasattr(self, "top_status_env_lbl") and hasattr(self, "_apply_weather_change"):
+            try:
+                is_out = bool(cur_map.get("outdoor", True))
+                self.top_status_env_lbl.config(
+                    text=_t("map_env_outdoor") if is_out else _t("map_env_indoor"),
+                    fg=ACCENT_GREEN if is_out else ACCENT_GOLD,
+                )
+            except Exception:
+                pass
+        if hasattr(self, "top_status_map_lbl"):
+            try:
+                m_title = str(cur_map.get("name") or getattr(gs, "active_map_id", "Mappa") or "Mappa")
+                self.top_status_map_lbl.config(text=f"🗺️ {m_title[:20]}")
+            except Exception:
+                pass
+        if hasattr(self, "redraw_map_and_players"):
+            self.redraw_map_and_players()
+        if broadcast_state:
+            broadcast(gs, make_game_state(gs.get_state_dict(is_dm=False)))
+
     def load_map_from_file(self):
         maps_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "maps")
-        file_path=filedialog.askopenfilename(initialdir=maps_dir, filetypes=[("Mappe D&D", "*.json")])
-        if not file_path: return
+        file_path = filedialog.askopenfilename(initialdir=maps_dir, filetypes=[("Mappe D&D", "*.json")])
+        if not file_path:
+            return
         try:
-            with open(file_path, 'r', encoding='utf-8') as f: map_data=json.load(f)
+            with open(file_path, 'r', encoding='utf-8') as f:
+                map_data = json.load(f)
             from common.network_utils import resolve_map_image_data
             camp_folder = os.path.dirname(file_path)
             resolve_map_image_data(map_data, extra_dirs=[camp_folder])
-            
+            map_data.setdefault("name", os.path.splitext(os.path.basename(file_path))[0])
+
             self.server.game_state.load_map(map_data)
-            self.fow_enabled_var.set(self.server.game_state.current_map.get("fow_enabled", False))
-            self.redraw_map_and_players()
-            broadcast(self.server.game_state, make_game_state(self.server.game_state.get_state_dict()))
+            self._sync_gui_after_map_change(broadcast_state=True)
             self.log_to_chat(f"[SISTEMA] Mappa '{os.path.basename(file_path)}' caricata.")
         except Exception as e:
             messagebox.showerror("Errore Caricamento", f"Impossibile caricare la mappa: {e}")
+
+    def open_map_manager_dialog(self):
+        """Finestra di gestione runtime delle mappe di sessione (Cambio, Creazione, Ridimensiona, Elimina)."""
+        win = tk.Toplevel(self.master)
+        win.title("🗺️ Gestione & Cambio Mappe Sessione")
+        win.minsize(560, 420)
+        win.transient(self.master)
+        win.grab_set()
+        apply_modern_window_style(win)
+
+        gs = self.server.game_state
+        if not getattr(gs, "maps", None):
+            gs.maps = {}
+        if getattr(gs, "current_map", None) and getattr(gs, "active_map_id", None) not in gs.maps:
+            cur_id = str(gs.current_map.get("name") or getattr(gs, "active_map_id", None) or "default")
+            gs.active_map_id = cur_id
+            gs.maps[cur_id] = gs.current_map
+
+        ttk.Label(win, text="Mappe disponibili nella sessione:", font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=12, pady=(10, 4))
+        list_frame = tk.Frame(win, bg="#181B22")
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+        listbox = tk.Listbox(list_frame, bg="#121316", fg="#E5E7EB", selectbackground="#2563EB", font=("Segoe UI", 10))
+        listbox.pack(fill=tk.BOTH, expand=True, side=tk.LEFT)
+        sb = ttk.Scrollbar(list_frame, orient="vertical", command=listbox.yview)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        listbox.config(yscrollcommand=sb.set)
+
+        map_keys = []
+
+        def refresh_list():
+            nonlocal map_keys
+            listbox.delete(0, tk.END)
+            map_keys = list((getattr(gs, "maps", {}) or {}).keys())
+            active_id = getattr(gs, "active_map_id", None)
+            for k in map_keys:
+                m = gs.maps[k]
+                gtype = m.get("grid_type", "hex")
+                cells = len(m.get("hexes", []))
+                prefix = "★ [ATTIVA] " if k == active_id else "   "
+                listbox.insert(tk.END, f"{prefix}{k}  ({gtype}, {cells} celle)")
+
+        def get_selected_key():
+            sel = listbox.curselection()
+            if not sel:
+                return None
+            idx = sel[0]
+            return map_keys[idx] if 0 <= idx < len(map_keys) else None
+
+        def do_switch():
+            key = get_selected_key()
+            if not key:
+                return
+            gs.switch_map(key)
+            self._sync_gui_after_map_change(broadcast_state=False)
+            refresh_list()
+            if hasattr(self, "show_toast"):
+                self.show_toast(f"Mappa attiva cambiata in '{key}'", title="🗺️ Mappa Attiva", toast_type="success")
+
+        def do_create():
+            dlg = tk.Toplevel(win)
+            dlg.title("Nuova Mappa Griglia")
+            dlg.minsize(340, 260)
+            dlg.transient(win)
+            dlg.grab_set()
+            apply_modern_window_style(dlg)
+
+            name_var = tk.StringVar(value=f"Arena {len(gs.maps) + 1}")
+            grid_var = tk.StringVar(value="square")
+            cols_var = tk.IntVar(value=24)
+            rows_var = tk.IntVar(value=18)
+            outdoor_var = tk.BooleanVar(value=True)
+
+            frm = ttk.Frame(dlg, padding=12)
+            frm.pack(fill=tk.BOTH, expand=True)
+            ttk.Label(frm, text="Nome Mappa:").grid(row=0, column=0, sticky="w", pady=3)
+            ttk.Entry(frm, textvariable=name_var, width=22).grid(row=0, column=1, sticky="ew", pady=3)
+            ttk.Label(frm, text="Griglia:").grid(row=1, column=0, sticky="w", pady=3)
+            ttk.Combobox(frm, textvariable=grid_var, values=["hex", "square", "none"], state="readonly", width=19).grid(row=1, column=1, sticky="ew", pady=3)
+            ttk.Label(frm, text="Colonne / Larghezza:").grid(row=2, column=0, sticky="w", pady=3)
+            ttk.Spinbox(frm, from_=4, to=120, textvariable=cols_var, width=10).grid(row=2, column=1, sticky="w", pady=3)
+            ttk.Label(frm, text="Righe / Altezza:").grid(row=3, column=0, sticky="w", pady=3)
+            ttk.Spinbox(frm, from_=4, to=120, textvariable=rows_var, width=10).grid(row=3, column=1, sticky="w", pady=3)
+            ttk.Checkbutton(frm, text="Ambiente Esterno (Ciclo Giorno/Notte)", variable=outdoor_var).grid(row=4, column=0, columnspan=2, sticky="w", pady=6)
+
+            def confirm_create():
+                created = gs.create_map(
+                    name_var.get(),
+                    cols=int(cols_var.get() or 20),
+                    rows=int(rows_var.get() or 15),
+                    grid_type=grid_var.get(),
+                    outdoor=bool(outdoor_var.get()),
+                    activate=True,
+                )
+                self._sync_gui_after_map_change(broadcast_state=False)
+                dlg.destroy()
+                refresh_list()
+                self.log_to_chat(f"[SISTEMA] Creata e attivata mappa '{created.get('name')}'.")
+
+            ttk.Button(frm, text="Crea e Attiva", command=confirm_create, style="Success.TButton").grid(row=5, column=0, columnspan=2, pady=10)
+
+        def do_resize():
+            cur = getattr(gs, "current_map", None)
+            if not cur:
+                return
+            cols_s = simpledialog.askinteger("Ridimensiona Mappa Attuale", "Numero di colonne (q):", initialvalue=20, minvalue=2, maxvalue=120, parent=win)
+            if not cols_s:
+                return
+            rows_s = simpledialog.askinteger("Ridimensiona Mappa Attuale", "Numero di righe (r):", initialvalue=15, minvalue=2, maxvalue=120, parent=win)
+            if not rows_s:
+                return
+            gs.resize_current_map(cols_s, rows_s)
+            self._sync_gui_after_map_change(broadcast_state=False)
+            refresh_list()
+            self.log_to_chat(f"[SISTEMA] Griglia ridimensionata a {cols_s}x{rows_s} celle.")
+
+        def do_load_file():
+            self.load_map_from_file()
+            refresh_list()
+
+        def do_delete():
+            key = get_selected_key()
+            if not key:
+                return
+            if len(getattr(gs, "maps", {}) or {}) <= 1:
+                messagebox.showwarning("Attenzione", "Deve rimanere almeno una mappa nella sessione.", parent=win)
+                return
+            if messagebox.askyesno("Elimina Mappa", f"Eliminare la mappa '{key}' dalla sessione?", parent=win):
+                if gs.delete_map(key):
+                    self._sync_gui_after_map_change(broadcast_state=False)
+                    refresh_list()
+
+        btn_bar = ttk.Frame(win)
+        btn_bar.pack(fill=tk.X, padx=12, pady=(6, 12))
+        ttk.Button(btn_bar, text="✅ Attiva Selezionata", command=do_switch, style="Success.TButton").pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_bar, text="➕ Nuova Mappa", command=do_create, style="Primary.TButton").pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_bar, text="📐 Ridimensiona Attuale", command=do_resize).pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_bar, text="📂 Carica File", command=do_load_file).pack(side=tk.LEFT, padx=3)
+        ttk.Button(btn_bar, text="🗑️ Elimina", command=do_delete, style="Danger.TButton").pack(side=tk.RIGHT, padx=3)
+
+        refresh_list()
 
     def save_session(self):
         file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("Sessione D&D", "*.json")])

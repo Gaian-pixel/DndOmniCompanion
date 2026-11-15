@@ -467,5 +467,364 @@ class TestBattlemapFoWLoS(unittest.TestCase):
         self.assertNotEqual(p1.position, gs.current_map["walls"][0])
 
 
+class TestBattlemapInteractionAndEditorTask028(unittest.TestCase):
+    """Test di regressione TASK-028: righello click destro, hit-test, drag-paint, tool exclusion, map switcher, live flow e >4MP."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = tk.Tk()
+        cls.root.withdraw()
+
+    @classmethod
+    def tearDownClass(cls):
+        try:
+            cls.root.destroy()
+        except Exception:
+            pass
+
+    def _build_canvas(self, map_data, players_data, is_dm=True, player_name="", width=800, height=600):
+        top = tk.Toplevel(self.root)
+        top.withdraw()
+        top.geometry(f"{width}x{height}")
+        canvas = HexMapCanvas(top, width=width, height=height, bg="#1e293b")
+        canvas.pack(fill=tk.BOTH, expand=True)
+        canvas.is_dm = is_dm
+        canvas.update_data(map_data, players_data, player_name=player_name)
+        top.update_idletasks()
+        canvas.redraw()
+        return top, canvas
+
+    def test_right_click_drag_ruler_and_clean_tap_context_menu(self):
+        """[UX-H11] Trascinare con il tasto destro attiva il righello senza aprire il menu; click pulito apre il menu."""
+        map_data = {
+            "grid_type": "square",
+            "hex_size": 40,
+            "hexes": [[q, r] for q in range(8) for r in range(8)],
+        }
+        top, canvas = self._build_canvas(map_data, {"Eroe": {"position": [1, 1], "hp": 10, "hp_max": 10}})
+        try:
+            menu_calls = []
+            canvas.set_on_hex_right_click_callback(lambda h, e, tok=None: menu_calls.append((h, tok)))
+
+            class _Ev:
+                def __init__(self, x, y):
+                    self.x = x
+                    self.y = y
+                    self.x_root = x
+                    self.y_root = y
+                    self.state = 0
+
+            sx0, sy0 = canvas.hex_layout.hex_to_pixel(Hex(1, 1))
+            sx0 = sx0 * canvas.zoom_level + canvas.pan_offset_x
+            sy0 = sy0 * canvas.zoom_level + canvas.pan_offset_y
+
+            # 1) Drag >= 6px attiva righello, NON apre menu al press o release
+            canvas._on_ruler_start(_Ev(sx0, sy0))
+            self.assertEqual(len(menu_calls), 0)
+            canvas._on_ruler_drag(_Ev(sx0 + 80, sy0))
+            self.assertTrue(canvas._rclick_dragged)
+            self.assertIsNotNone(canvas._ruler_line_id)
+            canvas._on_ruler_end(_Ev(sx0 + 80, sy0))
+            self.assertIsNone(canvas._ruler_line_id)
+            self.assertEqual(len(menu_calls), 0)
+
+            # 2) Tap pulito (< 6px) apre menu contestuale con nome token colpito
+            canvas._on_ruler_start(_Ev(sx0, sy0))
+            canvas._on_ruler_end(_Ev(sx0 + 2, sy0 + 1))
+            self.assertEqual(len(menu_calls), 1)
+            self.assertEqual(menu_calls[0][1], "Eroe")
+        finally:
+            top.destroy()
+
+    def test_multihex_and_elevated_token_hit_testing_and_drag_paint_dispatch(self):
+        """Verifica hit-test token Huge/elevati e dispatch drag-paint <B1-Motion> su Canvas."""
+        map_data = {
+            "grid_type": "square",
+            "hex_size": 40,
+            "hexes": [[q, r] for q in range(10) for r in range(10)],
+        }
+        players = {
+            "Drago": {"position": [5, 5], "hp": 120, "hp_max": 120, "size": "Huge", "size_mult": 3},
+            "Falco": {"position": [1, 5], "hp": 25, "hp_max": 25, "elevation": 30},
+        }
+        top, canvas = self._build_canvas(map_data, players)
+        try:
+            # 1) Token Huge hit off-center all'interno dell'area multi-cella
+            cx, cy = canvas.hex_layout.hex_to_pixel(Hex(5, 5))
+            sx_boss = cx * canvas.zoom_level + canvas.pan_offset_x + canvas.hex_layout.size * canvas.zoom_level * 0.9
+            sy_boss = cy * canvas.zoom_level + canvas.pan_offset_y
+            self.assertEqual(canvas._find_token_at_screen_pos(sx_boss, sy_boss), "Drago")
+
+            # 2) Token elevato: hit sul centro visivo traslato verso l'alto per elevation
+            tx, _, ty, _, _, _ = canvas._token_screen_geometry(players["Falco"])
+            self.assertEqual(canvas._find_token_at_screen_pos(tx, ty), "Falco")
+
+            # 3) Drag-paint <B1-Motion> chiama on_hex_drag_callback e release chiama on_hex_drag_end_callback
+            dragged = []
+            ended = []
+            canvas.set_on_click_callback(lambda h: None)
+            canvas.is_hex_click_priority_callback = lambda: True
+            canvas.on_hex_drag_callback = lambda h: dragged.append((h.q, h.r))
+            canvas.on_hex_drag_end_callback = lambda: ended.append(True)
+
+            class _Ev:
+                def __init__(self, x, y):
+                    self.x = x
+                    self.y = y
+                    self.state = 0
+
+            p0 = canvas.hex_layout.hex_to_pixel(Hex(0, 0))
+            p1 = canvas.hex_layout.hex_to_pixel(Hex(1, 0))
+            p2 = canvas.hex_layout.hex_to_pixel(Hex(2, 0))
+            ox, oy = canvas.pan_offset_x, canvas.pan_offset_y
+            canvas._on_canvas_click(_Ev(p0[0] + ox, p0[1] + oy))
+            canvas._on_canvas_drag(_Ev(p1[0] + ox, p1[1] + oy))
+            canvas._on_canvas_drag(_Ev(p2[0] + ox, p2[1] + oy))
+            canvas._on_canvas_release(_Ev(p2[0] + ox, p2[1] + oy))
+            self.assertIn((1, 0), dragged)
+            self.assertIn((2, 0), dragged)
+            self.assertEqual(ended, [True])
+        finally:
+            top.destroy()
+
+    def test_canvas_large_4mp_image_mipmap_cache_and_pan(self):
+        """Immagini >4MP creano un mipmap cacheato <=2048px e riusano crop slice durante il pan."""
+        from io import BytesIO
+        from PIL import Image
+
+        buf = BytesIO()
+        Image.new("RGB", (2500, 2000), color="#334155").save(buf, format="PNG")
+        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+        map_data = {
+            "grid_type": "square",
+            "hex_size": 40,
+            "hexes": [[q, r] for q in range(4) for r in range(4)],
+            "bg_image_data": b64,
+        }
+        top, canvas = self._build_canvas(map_data, {}, width=600, height=400)
+        try:
+            self.assertIsNotNone(canvas._bg_preview_img)
+            self.assertLessEqual(max(canvas._bg_preview_img.size), 2048)
+            self.assertIsNotNone(canvas._bg_cache_key)
+            self.assertIsNotNone(canvas._bg_cache_crop)
+            # Piccolo pan entro margine overdraw mantiene cache valida
+            canvas.pan_offset_x -= 10
+            canvas.redraw()
+            self.assertIsNotNone(canvas._bg_cache_key)
+        finally:
+            if getattr(canvas, "_zoom_polish_timer", None):
+                try:
+                    canvas.after_cancel(canvas._zoom_polish_timer)
+                except Exception:
+                    pass
+            top.destroy()
+
+    def test_mutual_tool_exclusion_and_dm_player_view_and_teleport_guard(self):
+        """Verifica mutual exclusion tra strumenti (Canvas/DM/Client), FoW quadra drag-paint, teleport guard e Vista Giocatore."""
+        from common.campaign import Campaign
+        from server.dm_gui import DM_GUI
+        from client.client import ClientGUI
+
+        with tempfile.TemporaryDirectory() as tmpd:
+            camp_dir = os.path.join(tmpd, "camp_ux")
+            camp = Campaign(name="Test UX", folder_path=camp_dir)
+            camp.save(camp_dir)
+
+            dm_top = tk.Toplevel(self.root)
+            dm_top.withdraw()
+            cli_top = tk.Toplevel(self.root)
+            cli_top.withdraw()
+            dm = None
+            cli = None
+            try:
+                dm = DM_GUI(dm_top, initial_campaign=camp)
+                cli = ClientGUI(cli_top)
+
+                # A) ClientGUI mutual exclusion: pan -> ruler -> escape
+                cli.toggle_pan_mode()
+                self.assertTrue(cli.map_canvas.pan_mode)
+                cli.toggle_ruler_mode()
+                self.assertFalse(cli.map_canvas.pan_mode)
+                self.assertTrue(cli.map_canvas.ruler_mode)
+                cli.map_canvas._on_escape_press()
+                self.assertFalse(cli.map_canvas.ruler_mode)
+
+                # B) DM_GUI mutual exclusion: pen -> ruler -> fow -> terrain -> door checktool
+                dm.toggle_whiteboard_pen()
+                self.assertTrue(dm.map_canvas.pen_mode)
+                dm.toggle_ruler_mode()
+                self.assertFalse(dm.map_canvas.pen_mode)
+                self.assertTrue(dm.map_canvas.ruler_mode)
+                dm.toggle_fow_quick_tool()
+                self.assertFalse(dm.map_canvas.ruler_mode)
+                dm.door_mode_var.set(True)
+                dm._on_dm_checktool_toggled("door")
+                self.assertTrue(dm.door_mode_var.get())
+                dm._deactivate_all_map_tools(except_tool=None)
+                self.assertFalse(dm.door_mode_var.get())
+
+                # C) Prepara mappa quadra e party/nemico nascosto
+                gs = dm.server.game_state
+                gs.current_map = {
+                    "name": "Arena",
+                    "grid_type": "square",
+                    "hex_size": 40,
+                    "hexes": [[q, r] for q in range(6) for r in range(6)],
+                    "fow_enabled": True,
+                    "fow_revealed": [[0, 0]],
+                    "fow_draft": [[0, 0]],
+                    "difficult_terrain": {},
+                    "room_pins": [],
+                    "doors": [],
+                    "teleports": {},
+                }
+                hero = Player("Eroe", conn=object())
+                hero.position = [0, 0]
+                hero.is_party_member = True
+                secret_orc = Player("OrcoSegreto")
+                secret_orc.position = [5, 5]
+                secret_orc.is_hidden = True
+                gs.players = [hero, secret_orc]
+                dm.player_listbox.delete(0, tk.END)
+                dm.player_listbox.insert(0, "Eroe")
+                dm.player_listbox.selection_set(0)
+
+                # D) Click singolo su esagono vuoto in "move" NON teletrasporta; mossa esplicita sì
+                with patch("server.dm_gui.broadcast"):
+                    dm.on_hex_clicked(Hex(3, 3))
+                self.assertEqual(hero.position, [0, 0], "Click vuoto in Move non deve teletrasportare accidentalmente")
+                with patch("server.dm_gui.broadcast"):
+                    dm.move_selected_token_to_hex("Eroe", Hex(3, 3))
+                self.assertEqual(hero.position, [3, 3])
+
+                # E) FoW square drag-paint usa raggio quadrato (3x3 = 9 celle) su mappa quadra
+                dm.fow_mode_var.set("Cancella Nebbia")
+                dm.fow_brush_radius_var.set(1)
+                dm._on_hex_drag_paint(Hex(2, 2))
+                draft_set = {tuple(x) for x in gs.current_map["fow_draft"]}
+                self.assertEqual(len(draft_set), 10)  # [0,0] iniziale + 3x3 attorno a [2,2]
+                self.assertIn((3, 3), draft_set)
+
+                # F) Terrain drag-paint fa 1 solo broadcast su release
+                dm.active_terrain_brush = "fango"
+                dm.terrain_paint_mode = True
+                dm._on_hex_drag_paint(Hex(1, 1))
+                dm._on_hex_drag_paint(Hex(1, 2))
+                self.assertEqual(gs.current_map["difficult_terrain"].get("1,1"), "fango")
+                self.assertEqual(gs.current_map["difficult_terrain"].get("1,2"), "fango")
+                with patch("server.network.broadcast") as mock_bcast:
+                    dm._on_hex_drag_paint_end()
+                    self.assertEqual(mock_bcast.call_count, 1)
+
+                # G) Vista Giocatore disattiva is_dm sulla canvas e usa fallback party valido
+                dm.player_listbox.selection_clear(0, tk.END)
+                dm.dm_player_view_var.set(True)
+                dm.redraw_map_and_players()
+                self.assertFalse(dm.map_canvas.is_dm)
+                self.assertEqual(dm.map_canvas.player_name, "Eroe")
+                dm.dm_player_view_var.set(False)
+                dm.redraw_map_and_players()
+                self.assertTrue(dm.map_canvas.is_dm)
+            finally:
+                for inst in (cli,):
+                    if inst is not None:
+                        try:
+                            inst.destroy_cleanup()
+                        except Exception:
+                            pass
+                if dm is not None:
+                    try:
+                        dm.server.stop()
+                    except Exception:
+                        pass
+                    try:
+                        if getattr(dm, "voice_client", None):
+                            dm.voice_client.stop()
+                    except Exception:
+                        pass
+                for w in (dm_top, cli_top):
+                    if w.winfo_exists():
+                        w.destroy()
+                self.root.update_idletasks()
+
+    def test_runtime_map_manager_and_live_flow_raw_image_and_npc_dedup(self):
+        """Verifica create_map/resize/delete, deduplicazione #2 e dim-based grid fallback in Live Flow."""
+        from PIL import Image
+        from common.campaign_script import FlowNode
+
+        gs = GameState(queue.Queue())
+        m1 = gs.create_map("Taverna", cols=6, rows=6, grid_type="square")
+        self.assertEqual(m1["name"], "Taverna")
+        self.assertEqual(len(m1["hexes"]), 36)
+
+        m2 = gs.create_map("Cripta", cols=8, rows=8, grid_type="hex")
+        self.assertEqual(gs.active_map_id, "Cripta")
+
+        hero = Player("Valen", conn=object())
+        hero.position = [7, 7]
+        gs.players = [hero]
+        m2["walls"] = [[7, 7], [1, 1]]
+        m2["difficult_terrain"] = {"7,7": "rovi", "2,2": "fango"}
+        with patch("common.network_utils.broadcast"):
+            self.assertTrue(gs.resize_current_map(cols=4, rows=4))
+        self.assertEqual(len(gs.current_map["hexes"]), 16)
+        self.assertEqual(gs.current_map["walls"], [[1, 1]])
+        self.assertEqual(gs.current_map["difficult_terrain"], {"2,2": "fango"})
+        self.assertLess(hero.position[0], 4)
+        self.assertLess(hero.position[1], 4)
+
+        with patch("common.network_utils.broadcast"):
+            self.assertTrue(gs.delete_map("Cripta"))
+        self.assertEqual(gs.active_map_id, "Taverna")
+        self.assertFalse(gs.delete_map("Taverna"))  # Ultima mappa protetta
+
+        # Deduplicazione nomi
+        lupo = Player("Lupo")
+        gs.players.append(lupo)
+        self.assertEqual(GameState.allocate_unique_entity_name(gs, "Goblin", prefer_unnumbered=True), "Goblin")
+        self.assertEqual(GameState.allocate_unique_entity_name(gs, "Lupo", prefer_unnumbered=True), "Lupo #2")
+
+        # Live Flow: raw-image grid fallback da dimensioni PNG + SRD encounter deduplication
+        from common.session_chronicle import SessionLedger
+        from server.dm_live_flow import DMLiveFlowDialog
+
+        with tempfile.TemporaryDirectory() as tmpd:
+            raw_png = os.path.join(tmpd, "dungeon_raw.png")
+            Image.new("RGB", (450, 270), color="black").save(raw_png)  # 450/90=5 cols, 270/90=3 rows
+
+            flow_host = tk.Toplevel(self.root)
+            flow_host.withdraw()
+            fake_dm = MagicMock()
+            fake_dm.master = flow_host
+            fake_dm.map_canvas = None
+            fake_dm.server.game_state = gs
+            gs.active_campaign = None
+            ctrl = DMLiveFlowDialog(fake_dm, gs, SessionLedger("Test"))
+            ctrl.withdraw()
+            try:
+                with patch("server.network.broadcast"), patch("server.dm_live_flow.messagebox"):
+                    ctrl.activate_scene_on_vtt(FlowNode(id="s1", node_type="scene", title="Sala", data={"map_file": raw_png}))
+                coords = {(h[0], h[1]) for h in gs.current_map.get("hexes", [])}
+                self.assertEqual(coords, {(q, r) for q in range(5) for r in range(3)})
+
+                enc_node = FlowNode(
+                    id="e1",
+                    node_type="encounter",
+                    title="Imboscata",
+                    data={"monsters": [{"name": "Orco", "count": 2}, {"name": "Lupo", "count": 1}]},
+                )
+                with patch("server.network.broadcast"), patch("server.dm_live_flow.messagebox"):
+                    ctrl.activate_encounter_on_vtt(enc_node)
+                names = [p.name for p in gs.players]
+                self.assertIn("Orco #1", names)
+                self.assertIn("Orco #2", names)
+                self.assertIn("Lupo #2", names)
+            finally:
+                if ctrl.winfo_exists():
+                    ctrl.destroy()
+                if flow_host.winfo_exists():
+                    flow_host.destroy()
+
+
 if __name__ == "__main__":
     unittest.main()

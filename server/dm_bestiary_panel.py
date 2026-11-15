@@ -313,12 +313,10 @@ class DMBestiaryPanel(ttk.Frame):
             dex_val = attrs.get("DES", 10)
             initiative = (dex_val - 10) // 2
 
-            base_name = name
-            idx = 1
-            new_name = base_name
-            while self.dm_gui.server.game_state.find_player(new_name):
-                idx += 1
-                new_name = f"{base_name} {idx}"
+            from common.game_state import GameState
+            new_name = GameState.allocate_unique_entity_name(
+                self.dm_gui.server.game_state, name, prefer_unnumbered=True
+            )
 
             npc = self._build_npc_player(new_name, mdata, hp, ac, initiative, speed_val, speed_disp, speed_unit, attrs, pos)
             with self.dm_gui.server.game_state.lock:
@@ -410,13 +408,11 @@ class DMBestiaryPanel(ttk.Frame):
                 dex = attrs.get("DES", 10)
                 initiative = (dex - 10) // 2
 
-                base_name = name
+                from common.game_state import GameState
                 with self.dm_gui.server.game_state.lock:
-                    idx = 1
-                    new_name = base_name
-                    while self.dm_gui.server.game_state.find_player(new_name):
-                        idx += 1
-                        new_name = f"{base_name} {idx}"
+                    new_name = GameState.allocate_unique_entity_name(
+                        self.dm_gui.server.game_state, name, prefer_unnumbered=True
+                    )
                     npc = self._build_npc_player(new_name, data, hit_points, ac_value, initiative, speed_val, speed_disp, speed_unit, attrs, pos)
                     self.dm_gui.server.game_state.add_player(npc)
                 self.dm_gui.server.game_state._trigger_gui_update()
@@ -437,13 +433,11 @@ class DMBestiaryPanel(ttk.Frame):
                     dex = attrs.get("DES", 10)
                     initiative = (dex - 10) // 2
 
-                    base_name = name
+                    from common.game_state import GameState
                     with self.dm_gui.server.game_state.lock:
-                        idx = 1
-                        new_name = base_name
-                        while self.dm_gui.server.game_state.find_player(new_name):
-                            idx += 1
-                            new_name = f"{base_name} {idx}"
+                        new_name = GameState.allocate_unique_entity_name(
+                            self.dm_gui.server.game_state, name, prefer_unnumbered=True
+                        )
                         npc = self._build_npc_player(new_name, mdata, hit_points, ac_value, initiative, speed_val, speed_disp, speed_unit, attrs, pos)
                         self.dm_gui.server.game_state.add_player(npc)
                     self.dm_gui.server.game_state._trigger_gui_update()

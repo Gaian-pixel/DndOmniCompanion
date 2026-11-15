@@ -622,6 +622,9 @@ class ClientNetworkHandlersMixin:
 
     def toggle_whiteboard_pen(self):
         if not hasattr(self, "map_canvas") or not self.map_canvas: return
+        will_activate = not getattr(self.map_canvas, "pen_mode", False)
+        if will_activate and hasattr(self, "_deactivate_all_map_tools"):
+            self._deactivate_all_map_tools(except_tool="pen")
         is_active = self.map_canvas.toggle_pen_mode()
         if hasattr(self, "pen_btn"):
             self.pen_btn.config(style="ToolActive.TButton" if is_active else "Tool.TButton")

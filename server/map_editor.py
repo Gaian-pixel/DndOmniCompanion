@@ -2,6 +2,8 @@
 import tkinter as tk
 from common.messagebox import messagebox
 from tkinter import simpledialog, filedialog, ttk, colorchooser
+import base64
+from io import BytesIO
 import json
 import math
 import os
@@ -108,7 +110,17 @@ class MapEditorWindow(tk.Toplevel):
 
         self.pois = {}
         self.difficult_terrain = {}
+        self.walls = set()
+        self._extra_walls = []
+        self.half_cover = set()
+        self.three_quarters_cover = set()
+        self.doors = {}
+        self._extra_doors = []
+        self.lights = {}
+        self.spawn_point = None
         self.add_terrain_mode = False
+        self.editor_tool = "cells"
+        self._drag_painted_hexes = set()
         self._preserved_map_metadata = {}
         
         self.grid_hexes = set()
@@ -165,17 +177,6 @@ class MapEditorWindow(tk.Toplevel):
         grid_type_combo.pack(side=tk.LEFT, padx=5)
         grid_type_combo.bind("<<ComboboxSelected>>", self.on_grid_type_selected)
 
-        self.add_poi_button = ttk.Button(toolbar, text="Aggiungi POI", command=self.toggle_add_poi_mode, style="Success.TButton")
-        self.add_poi_button.pack(side=tk.LEFT, padx=5)
-        
-        terrain_frame = ttk.Frame(toolbar)
-        terrain_frame.pack(side=tk.LEFT, padx=5)
-        self.add_terrain_button = ttk.Button(terrain_frame, text="🌾 Terreno Difficile", command=self.toggle_add_terrain_mode, style="Secondary.TButton")
-        self.add_terrain_button.pack(side=tk.LEFT, padx=2)
-        self.terrain_type_var = tk.StringVar(value="Fango")
-        self.terrain_type_combo = ttk.Combobox(terrain_frame, textvariable=self.terrain_type_var, values=["Fango", "Ghiaccio", "Rovi", "Macerie", "Palude"], state="readonly", width=8)
-        self.terrain_type_combo.pack(side=tk.LEFT, padx=2)
-
         # Controlli Zoom & Reset
         zoom_frame = ttk.Frame(toolbar)
         zoom_frame.pack(side=tk.LEFT, padx=5)
@@ -184,7 +185,35 @@ class MapEditorWindow(tk.Toplevel):
         ttk.Button(zoom_frame, text="100%", width=5, command=self.reset_view).pack(side=tk.LEFT, padx=1)
         ttk.Button(zoom_frame, text="⛶ Adatta", command=self.fit_to_window).pack(side=tk.LEFT, padx=1)
 
-        ttk.Button(toolbar, text="Salva Mappa", command=self.save_map, style="Primary.TButton").pack(side=tk.LEFT, padx=5)
+        ttk.Button(toolbar, text="Salva Mappa", command=self.save_map, style="Primary.TButton").pack(side=tk.RIGHT, padx=5)
+
+        layers_bar = ttk.Frame(main_frame)
+        layers_bar.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(layers_bar, text="Strati & Pennelli:").pack(side=tk.LEFT, padx=(0, 6))
+
+        self.cells_tool_button = ttk.Button(layers_bar, text="⬜ Celle (+/-)", command=lambda: self.set_editor_tool("cells"), style="Primary.TButton")
+        self.cells_tool_button.pack(side=tk.LEFT, padx=2)
+        self.add_poi_button = ttk.Button(layers_bar, text="📌 POI", command=self.toggle_add_poi_mode, style="Success.TButton")
+        self.add_poi_button.pack(side=tk.LEFT, padx=2)
+        
+        self.add_terrain_button = ttk.Button(layers_bar, text="🌾 Terreno Difficile", command=self.toggle_add_terrain_mode, style="Secondary.TButton")
+        self.add_terrain_button.pack(side=tk.LEFT, padx=2)
+        self.terrain_type_var = tk.StringVar(value="Fango")
+        self.terrain_type_combo = ttk.Combobox(layers_bar, textvariable=self.terrain_type_var, values=["Fango", "Ghiaccio", "Rovi", "Macerie", "Palude"], state="readonly", width=8)
+        self.terrain_type_combo.pack(side=tk.LEFT, padx=2)
+
+        self.wall_tool_button = ttk.Button(layers_bar, text="🧱 Muri", command=lambda: self.set_editor_tool("wall"), style="Secondary.TButton")
+        self.wall_tool_button.pack(side=tk.LEFT, padx=2)
+        self.half_cover_button = ttk.Button(layers_bar, text="🛡️ Copertura 1/2", command=lambda: self.set_editor_tool("half_cover"), style="Secondary.TButton")
+        self.half_cover_button.pack(side=tk.LEFT, padx=2)
+        self.tq_cover_button = ttk.Button(layers_bar, text="🛡️ Copertura 3/4", command=lambda: self.set_editor_tool("three_quarters_cover"), style="Secondary.TButton")
+        self.tq_cover_button.pack(side=tk.LEFT, padx=2)
+        self.door_tool_button = ttk.Button(layers_bar, text="🚪 Porte", command=lambda: self.set_editor_tool("door"), style="Secondary.TButton")
+        self.door_tool_button.pack(side=tk.LEFT, padx=2)
+        self.light_tool_button = ttk.Button(layers_bar, text="💡 Luci", command=lambda: self.set_editor_tool("light"), style="Secondary.TButton")
+        self.light_tool_button.pack(side=tk.LEFT, padx=2)
+        self.spawn_tool_button = ttk.Button(layers_bar, text="🚩 Spawn", command=lambda: self.set_editor_tool("spawn"), style="Secondary.TButton")
+        self.spawn_tool_button.pack(side=tk.LEFT, padx=2)
 
         self.canvas = tk.Canvas(main_frame, bg="#2b2b2b", highlightthickness=0)
         self.canvas.pack(fill=tk.BOTH, expand=True)
@@ -206,6 +235,7 @@ class MapEditorWindow(tk.Toplevel):
         self.canvas.bind("<Alt-ButtonPress-1>", self._pan_start)
         self.canvas.bind("<Alt-B1-Motion>", self._pan_move)
         self.canvas.bind("<B1-Motion>", self._on_canvas_b1_motion)
+        self.canvas.bind("<ButtonRelease-1>", self._on_canvas_b1_release)
         self.canvas.bind("<KeyPress-space>", self._on_space_press)
         self.canvas.bind("<KeyRelease-space>", self._on_space_release)
         self.bind("<KeyPress-space>", self._on_space_press)
@@ -373,6 +403,28 @@ class MapEditorWindow(tk.Toplevel):
     def _on_canvas_b1_motion(self, event):
         if getattr(self, "_space_held", False):
             self._pan_move(event)
+            return
+        tool = getattr(self, "editor_tool", None)
+        if not tool:
+            if getattr(self, "add_terrain_mode", False):
+                tool = "terrain"
+        if tool in ("terrain", "wall", "half_cover", "three_quarters_cover") and self.hex_layout:
+            wx, wy = self.screen_to_world(event.x, event.y)
+            target_hex = self.hex_layout.pixel_to_hex((wx, wy))
+            painted = getattr(self, "_drag_painted_hexes", None)
+            if not isinstance(painted, set):
+                self._drag_painted_hexes = set()
+                painted = self._drag_painted_hexes
+            if target_hex not in painted:
+                painted.add(target_hex)
+                if tool == "terrain":
+                    self._toggle_terrain_at(wx, wy, silent=True)
+                elif tool in ("wall", "half_cover", "three_quarters_cover"):
+                    self._toggle_layer_flag_at(wx, wy, tool, silent=True)
+
+    def _on_canvas_b1_release(self, event=None):
+        if isinstance(getattr(self, "_drag_painted_hexes", None), set):
+            self._drag_painted_hexes.clear()
 
     def redraw(self, high_res=False):
         """Ridisegna l'intera scena (sfondo e griglia) garantendo perfetto allineamento."""
@@ -401,15 +453,57 @@ class MapEditorWindow(tk.Toplevel):
             self.bg_canvas_id = None
             self.base_image_tk = None
 
-        # 2. Griglia
+        # 2. Griglia e strati tattici
         self.canvas.delete("hex")
         self.canvas.delete("preview")
+        self.canvas.delete("layer_overlay")
         self.hex_to_canvas_id.clear()
         self.preview_hex_id = None
         
         if self.hex_layout:
             for h in self.grid_hexes:
                 self._draw_single_hex(h)
+            self._draw_editor_layer_badges()
+
+    def _draw_editor_layer_badges(self):
+        if not self.hex_layout:
+            return
+        walls = self.walls if isinstance(getattr(self, "walls", None), set) else set()
+        half_c = self.half_cover if isinstance(getattr(self, "half_cover", None), set) else set()
+        tq_c = self.three_quarters_cover if isinstance(getattr(self, "three_quarters_cover", None), set) else set()
+        doors = self.doors if isinstance(getattr(self, "doors", None), dict) else {}
+        lights = self.lights if isinstance(getattr(self, "lights", None), dict) else {}
+        spawn = getattr(self, "spawn_point", None)
+
+        def _center_screen(h):
+            px, py = self.hex_layout.hex_to_pixel(h)
+            return px * self.zoom_level + self.pan_offset_x, py * self.zoom_level + self.pan_offset_y
+
+        r_badge = max(5, 9 * self.zoom_level)
+        for h in walls:
+            sx, sy = _center_screen(h)
+            self.canvas.create_text(sx, sy, text="🧱", font=("Segoe UI Emoji", max(8, int(11 * self.zoom_level))), fill="#E2E8F0", tags="layer_overlay")
+        for h in half_c:
+            sx, sy = _center_screen(h)
+            self.canvas.create_text(sx, sy, text="½", font=("Segoe UI", max(8, int(10 * self.zoom_level)), "bold"), fill="#38BDF8", tags="layer_overlay")
+        for h in tq_c:
+            sx, sy = _center_screen(h)
+            self.canvas.create_text(sx, sy, text="¾", font=("Segoe UI", max(8, int(10 * self.zoom_level)), "bold"), fill="#60A5FA", tags="layer_overlay")
+        for h, d_info in doors.items():
+            sx, sy = _center_screen(h)
+            st = d_info.get("state", "closed")
+            col = "#22C55E" if st == "open" else ("#EF4444" if st == "locked" else ("#A855F7" if st == "secret" else "#F59E0B"))
+            self.canvas.create_oval(sx - r_badge, sy - r_badge, sx + r_badge, sy + r_badge, fill=col, outline="#111827", width=1.5, tags="layer_overlay")
+            self.canvas.create_text(sx, sy, text="🚪", font=("Segoe UI Emoji", max(7, int(9 * self.zoom_level))), tags="layer_overlay")
+        for h, l_info in lights.items():
+            sx, sy = _center_screen(h)
+            l_col = l_info.get("color", "#FFD700")
+            self.canvas.create_oval(sx - r_badge * 1.3, sy - r_badge * 1.3, sx + r_badge * 1.3, sy + r_badge * 1.3, fill="", outline=l_col, width=2, dash=(3, 2), tags="layer_overlay")
+            self.canvas.create_text(sx, sy, text="💡", font=("Segoe UI Emoji", max(8, int(10 * self.zoom_level))), tags="layer_overlay")
+        if isinstance(spawn, (list, tuple)) and len(spawn) >= 2:
+            sx, sy = _center_screen(Hex(int(spawn[0]), int(spawn[1])))
+            self.canvas.create_oval(sx - r_badge * 1.2, sy - r_badge * 1.2, sx + r_badge * 1.2, sy + r_badge * 1.2, fill="#16A34A", outline="#BBF7D0", width=2, tags="layer_overlay")
+            self.canvas.create_text(sx, sy, text="🚩", font=("Segoe UI Emoji", max(8, int(10 * self.zoom_level))), tags="layer_overlay")
 
     def _draw_single_hex(self, h: Hex, is_preview=False):
         if not self.hex_layout:
@@ -428,9 +522,16 @@ class MapEditorWindow(tk.Toplevel):
             (cx * self.zoom_level + self.pan_offset_x, cy * self.zoom_level + self.pan_offset_y)
             for cx, cy in corners
         ]
+        walls = self.walls if isinstance(getattr(self, "walls", None), set) else set()
+        half_c = self.half_cover if isinstance(getattr(self, "half_cover", None), set) else set()
+        tq_c = self.three_quarters_cover if isinstance(getattr(self, "three_quarters_cover", None), set) else set()
+        doors = self.doors if isinstance(getattr(self, "doors", None), dict) else {}
+
         t_style = self.get_terrain_style(h)
         if is_preview:
             style = {"fill": "", "outline": "red", "width": 2}
+        elif h in walls:
+            style = {"fill": "#0F172A", "stipple": "gray75", "outline": "#64748B", "width": 2}
         elif t_style:
             style = {"fill": t_style["fill"], "stipple": t_style["stipple"], "outline": self.hex_border_color, "width": 1}
         elif h in self.pois:
@@ -438,6 +539,14 @@ class MapEditorWindow(tk.Toplevel):
             normal_fill = "gray50" if not self.base_image_original else ""
             normal_stipple = "gray25" if not self.base_image_original else ""
             style = {"fill": normal_fill, "stipple": normal_stipple, "outline": self.POI_COLOR, "width": 2}
+        elif h in tq_c:
+            style = {"fill": "#1E3A8A", "stipple": "gray25", "outline": "#60A5FA", "width": 2}
+        elif h in half_c:
+            style = {"fill": "#0369A1", "stipple": "gray12", "outline": "#38BDF8", "width": 1.5}
+        elif h in doors:
+            normal_fill = "gray50" if not self.base_image_original else ""
+            normal_stipple = "gray25" if not self.base_image_original else ""
+            style = {"fill": normal_fill, "stipple": normal_stipple, "outline": "#F59E0B", "width": 2}
         else:
             style = {"fill": "gray50", "stipple": "gray25", "outline": self.hex_border_color, "width": 1}
         
@@ -540,6 +649,50 @@ class MapEditorWindow(tk.Toplevel):
                 h = Hex(pos[0], pos[1])
                 self.grid_hexes.add(h)
 
+            def _parse_hex_entry(entry):
+                if isinstance(entry, (list, tuple)) and len(entry) >= 2 and isinstance(entry[0], int) and isinstance(entry[1], int):
+                    return Hex(entry[0], entry[1])
+                if isinstance(entry, str) and "," in entry:
+                    p = entry.split(",", 1)
+                    try:
+                        return Hex(int(p[0].strip()), int(p[1].strip()))
+                    except (ValueError, TypeError):
+                        return None
+                return None
+
+            for w in data.get("walls", []) or []:
+                wh = _parse_hex_entry(w)
+                if wh is not None:
+                    self.walls.add(wh)
+                else:
+                    self._extra_walls.append(copy.deepcopy(w))
+
+            for c in data.get("half_cover", []) or []:
+                ch = _parse_hex_entry(c)
+                if ch is not None:
+                    self.half_cover.add(ch)
+
+            for c in data.get("three_quarters_cover", []) or []:
+                ch = _parse_hex_entry(c)
+                if ch is not None:
+                    self.three_quarters_cover.add(ch)
+
+            for d in data.get("doors", []) or []:
+                if isinstance(d, dict) and "q" in d and "r" in d:
+                    dh = Hex(int(d["q"]), int(d["r"]))
+                    self.doors[dh] = copy.deepcopy(d)
+                else:
+                    self._extra_doors.append(copy.deepcopy(d))
+
+            for l_item in data.get("lights", []) or []:
+                if isinstance(l_item, dict) and "q" in l_item and "r" in l_item:
+                    lh = Hex(int(l_item["q"]), int(l_item["r"]))
+                    self.lights[lh] = copy.deepcopy(l_item)
+
+            sp = data.get("spawn_point")
+            if isinstance(sp, (list, tuple)) and len(sp) >= 2:
+                self.spawn_point = [int(sp[0]), int(sp[1])]
+
             base_img = data.get("base_image_path", "")
             if base_img and os.path.exists(base_img):
                 self.base_image_path = base_img
@@ -550,6 +703,16 @@ class MapEditorWindow(tk.Toplevel):
                     self.base_image_path = alt_path
                     self.base_image_original = Image.open(alt_path)
 
+            if self.base_image_original is None:
+                from common.network_utils import resolve_map_image_data
+                b64_img = resolve_map_image_data(data, extra_dirs=[os.path.dirname(file_path), maps_dir])
+                if isinstance(b64_img, str) and b64_img:
+                    img_obj = Image.open(BytesIO(base64.b64decode(b64_img)))
+                    img_obj.load()
+                    self.base_image_original = img_obj
+                    if base_img:
+                        self.base_image_path = base_img
+
             self.zoom_level = 1.0
             self.pan_offset_x = 0.0
             self.pan_offset_y = 0.0
@@ -559,7 +722,7 @@ class MapEditorWindow(tk.Toplevel):
             messagebox.showerror("Errore di Caricamento", f"Impossibile caricare la mappa: {e}", parent=self)
 
     def save_map(self):
-        """Salva i dati della mappa (celle, POI, terreni difficili, immagine, scala) in formato JSON."""
+        """Salva i dati della mappa (celle, POI, terreni difficili, strati tattici, immagine, scala) in formato JSON."""
         if not self.hex_layout:
             messagebox.showerror("Errore", "Non puoi salvare una mappa senza una scala.", parent=self)
             return
@@ -575,6 +738,11 @@ class MapEditorWindow(tk.Toplevel):
         }
         scale_type = self.MAP_SCALE_TYPES.get(self.map_scale_var.get(), "combat")
         diff_terrain_to_save = {f"{h.q},{h.r}": t_type for h, t_type in self.difficult_terrain.items()}
+        walls_to_save = [[h.q, h.r] for h in sorted(self.walls, key=lambda x: (x.q, x.r))] + copy.deepcopy(getattr(self, "_extra_walls", []) or [])
+        half_cover_to_save = [[h.q, h.r] for h in sorted(self.half_cover, key=lambda x: (x.q, x.r))]
+        tq_cover_to_save = [[h.q, h.r] for h in sorted(self.three_quarters_cover, key=lambda x: (x.q, x.r))]
+        doors_to_save = [copy.deepcopy(d) for _, d in sorted(self.doors.items(), key=lambda kv: (kv[0].q, kv[0].r))] + copy.deepcopy(getattr(self, "_extra_doors", []) or [])
+        lights_to_save = [copy.deepcopy(l) for _, l in sorted(self.lights.items(), key=lambda kv: (kv[0].q, kv[0].r))]
         
         hex_size = getattr(self, "current_hex_size", 60)
         grid_type = self.grid_type_var.get() if hasattr(self, "grid_type_var") else "hex"
@@ -588,8 +756,20 @@ class MapEditorWindow(tk.Toplevel):
             "hex_border_color": self.hex_border_color,
             "hexes": [[h.q, h.r] for h in self.grid_hexes],
             "pois": pois_to_save,
-            "difficult_terrain": diff_terrain_to_save
+            "difficult_terrain": diff_terrain_to_save,
+            "walls": walls_to_save,
+            "half_cover": half_cover_to_save,
+            "three_quarters_cover": tq_cover_to_save,
+            "doors": doors_to_save,
+            "lights": lights_to_save,
         })
+        if self.spawn_point is not None:
+            map_data["spawn_point"] = list(self.spawn_point)
+        if not map_data.get("bg_image_data") and self.base_image_original is not None:
+            if not self.base_image_path or not os.path.exists(self.base_image_path):
+                buf = BytesIO()
+                self.base_image_original.save(buf, format="PNG")
+                map_data["bg_image_data"] = base64.b64encode(buf.getvalue()).decode("utf-8")
         self._preserved_map_metadata = copy.deepcopy(map_data)
         try:
             with open(file_path, 'w', encoding="utf-8") as f:
@@ -620,14 +800,25 @@ class MapEditorWindow(tk.Toplevel):
 
         target_hex = self.hex_layout.pixel_to_hex((wx, wy))
         if target_hex in self.grid_hexes:
-            if target_hex in self.pois:
-                del self.pois[target_hex]
-            if target_hex in self.difficult_terrain:
-                del self.difficult_terrain[target_hex]
+            self.pois.pop(target_hex, None)
+            self.difficult_terrain.pop(target_hex, None)
+            self.walls.discard(target_hex)
+            self.half_cover.discard(target_hex)
+            self.three_quarters_cover.discard(target_hex)
+            self.doors.pop(target_hex, None)
+            self.lights.pop(target_hex, None)
+            if isinstance(self.spawn_point, (list, tuple)) and len(self.spawn_point) >= 2:
+                if self.spawn_point[0] == target_hex.q and self.spawn_point[1] == target_hex.r:
+                    self.spawn_point = None
             canvas_id = self.hex_to_canvas_id.pop(target_hex, None)
             if canvas_id:
                 self.canvas.delete(canvas_id)
             self.grid_hexes.remove(target_hex)
+            self._draw_editor_layer_badges_refresh()
+
+    def _draw_editor_layer_badges_refresh(self):
+        self.canvas.delete("layer_overlay")
+        self._draw_editor_layer_badges()
 
     def _add_poi_at(self, wx, wy):
         """Aggiunge o modifica un POI nella cella selezionata."""
@@ -651,13 +842,14 @@ class MapEditorWindow(tk.Toplevel):
             self.canvas.addtag_withtag("poi", hex_id)
         self.toggle_add_poi_mode()
 
-    def _toggle_terrain_at(self, wx, wy):
+    def _toggle_terrain_at(self, wx, wy, silent=False):
         """Imposta o rimuove terreno difficile nella cella selezionata."""
         if not self.hex_layout:
             return
         target_hex = self.hex_layout.pixel_to_hex((wx, wy))
         if target_hex not in self.grid_hexes:
-            messagebox.showwarning("Azione non valida", "Puoi impostare terreno difficile solo su esagoni esistenti.", parent=self)
+            if not silent:
+                messagebox.showwarning("Azione non valida", "Puoi impostare terreno difficile solo su esagoni esistenti.", parent=self)
             return
 
         t_type = self.terrain_type_var.get().lower()
@@ -665,7 +857,9 @@ class MapEditorWindow(tk.Toplevel):
             del self.difficult_terrain[target_hex]
             hex_id = self.hex_to_canvas_id.get(target_hex)
             if hex_id:
-                self.canvas.itemconfig(hex_id, fill="gray50", stipple="gray25")
+                empty_fill = "gray50" if not self.base_image_original else ""
+                empty_stipple = "gray25" if not self.base_image_original else ""
+                self.canvas.itemconfig(hex_id, fill=empty_fill, stipple=empty_stipple)
         else:
             self.difficult_terrain[target_hex] = t_type
             t_style = self.get_terrain_style(target_hex)
@@ -673,15 +867,144 @@ class MapEditorWindow(tk.Toplevel):
             if hex_id and t_style:
                 self.canvas.itemconfig(hex_id, fill=t_style["fill"], stipple=t_style["stipple"])
 
+    def _refresh_single_hex(self, target_hex):
+        old_id = self.hex_to_canvas_id.pop(target_hex, None)
+        if old_id:
+            self.canvas.delete(old_id)
+        self._draw_single_hex(target_hex)
+        self._draw_editor_layer_badges_refresh()
+
+    def _toggle_layer_flag_at(self, wx, wy, layer_name, silent=False):
+        """Attiva o disattiva uno strato tattico (muro o copertura) su una cella."""
+        if not self.hex_layout:
+            return
+        target_hex = self.hex_layout.pixel_to_hex((wx, wy))
+        if target_hex not in self.grid_hexes:
+            if not silent:
+                messagebox.showwarning("Azione non valida", "Puoi modificare gli strati tattici solo su celle esistenti.", parent=self)
+            return
+
+        layer_map = {
+            "wall": self.walls,
+            "half_cover": self.half_cover,
+            "three_quarters_cover": self.three_quarters_cover,
+        }
+        target_set = layer_map.get(layer_name)
+        if target_set is None:
+            return
+        if target_hex in target_set:
+            target_set.remove(target_hex)
+        else:
+            for other_name, other_set in layer_map.items():
+                if other_name != layer_name:
+                    other_set.discard(target_hex)
+            target_set.add(target_hex)
+        self._refresh_single_hex(target_hex)
+
+    def _toggle_door_at(self, wx, wy):
+        """Cicla stato porta su una cella: closed -> open -> locked -> secret -> rimossa."""
+        if not self.hex_layout:
+            return
+        target_hex = self.hex_layout.pixel_to_hex((wx, wy))
+        if target_hex not in self.grid_hexes:
+            messagebox.showwarning("Azione non valida", "Puoi inserire porte solo su celle esistenti.", parent=self)
+            return
+
+        states = ["closed", "open", "locked", "secret"]
+        existing = self.doors.get(target_hex)
+        if existing is None:
+            self.doors[target_hex] = {"q": target_hex.q, "r": target_hex.r, "state": "closed", "dc": 15}
+        else:
+            cur_state = existing.get("state", "closed")
+            if cur_state in states and states.index(cur_state) + 1 < len(states):
+                existing["state"] = states[states.index(cur_state) + 1]
+            else:
+                self.doors.pop(target_hex, None)
+        self._refresh_single_hex(target_hex)
+
+    def _toggle_light_at(self, wx, wy):
+        """Cicla una sorgente luminosa sulla cella: Torcia (4/4) -> Lanterna (6/6) -> rimossa."""
+        if not self.hex_layout:
+            return
+        target_hex = self.hex_layout.pixel_to_hex((wx, wy))
+        if target_hex not in self.grid_hexes:
+            messagebox.showwarning("Azione non valida", "Puoi inserire luci solo su celle esistenti.", parent=self)
+            return
+
+        existing = self.lights.get(target_hex)
+        if existing is None:
+            self.lights[target_hex] = {"q": target_hex.q, "r": target_hex.r, "bright": 4, "dim": 4, "color": "#FFD700", "label": "Torcia"}
+        elif existing.get("bright", 4) <= 4:
+            self.lights[target_hex] = {"q": target_hex.q, "r": target_hex.r, "bright": 6, "dim": 6, "color": "#F59E0B", "label": "Lanterna"}
+        else:
+            self.lights.pop(target_hex, None)
+        self._refresh_single_hex(target_hex)
+
+    def _set_spawn_at(self, wx, wy):
+        """Imposta o rimuove il punto di spawn del party sulla cella cliccata."""
+        if not self.hex_layout:
+            return
+        target_hex = self.hex_layout.pixel_to_hex((wx, wy))
+        if target_hex not in self.grid_hexes:
+            messagebox.showwarning("Azione non valida", "Puoi impostare lo spawn solo su celle esistenti.", parent=self)
+            return
+
+        if isinstance(self.spawn_point, (list, tuple)) and len(self.spawn_point) >= 2 and self.spawn_point[0] == target_hex.q and self.spawn_point[1] == target_hex.r:
+            self.spawn_point = None
+        else:
+            self.spawn_point = [target_hex.q, target_hex.r]
+        self._draw_editor_layer_badges_refresh()
+
+    def set_editor_tool(self, tool_name):
+        """Seleziona in modo mutuamente esclusivo il pennello attivo nell'editor mappe."""
+        if getattr(self, "editor_tool", "cells") == tool_name and tool_name != "cells":
+            tool_name = "cells"
+        self.editor_tool = tool_name
+        self.add_poi_mode = (tool_name == "poi")
+        self.add_terrain_mode = (tool_name == "terrain")
+        button_map = {
+            "cells": ("cells_tool_button", "Secondary.TButton"),
+            "poi": ("add_poi_button", "Success.TButton"),
+            "terrain": ("add_terrain_button", "Secondary.TButton"),
+            "wall": ("wall_tool_button", "Secondary.TButton"),
+            "half_cover": ("half_cover_button", "Secondary.TButton"),
+            "three_quarters_cover": ("tq_cover_button", "Secondary.TButton"),
+            "door": ("door_tool_button", "Secondary.TButton"),
+            "light": ("light_tool_button", "Secondary.TButton"),
+            "spawn": ("spawn_tool_button", "Secondary.TButton"),
+        }
+        for key, (attr_name, default_style) in button_map.items():
+            btn = getattr(self, attr_name, None)
+            if btn is not None and hasattr(btn, "config"):
+                btn.config(style="Primary.TButton" if key == tool_name else default_style)
+        if hasattr(self, "config"):
+            try:
+                self.config(cursor="crosshair" if tool_name != "cells" else "")
+            except Exception:
+                pass
+
     def on_canvas_left_click(self, event):
         if getattr(self, "_space_held", False):
             self._pan_start(event)
             return
         wx, wy = self.screen_to_world(event.x, event.y)
-        if self.add_poi_mode:
+        tool = getattr(self, "editor_tool", "cells")
+        if self.add_poi_mode or tool == "poi":
             self._add_poi_at(wx, wy)
-        elif getattr(self, "add_terrain_mode", False):
+        elif getattr(self, "add_terrain_mode", False) or tool == "terrain":
+            if self.hex_layout:
+                self._drag_painted_hexes = {self.hex_layout.pixel_to_hex((wx, wy))}
             self._toggle_terrain_at(wx, wy)
+        elif tool in ("wall", "half_cover", "three_quarters_cover"):
+            if self.hex_layout:
+                self._drag_painted_hexes = {self.hex_layout.pixel_to_hex((wx, wy))}
+            self._toggle_layer_flag_at(wx, wy, tool)
+        elif tool == "door":
+            self._toggle_door_at(wx, wy)
+        elif tool == "light":
+            self._toggle_light_at(wx, wy)
+        elif tool == "spawn":
+            self._set_spawn_at(wx, wy)
         else:
             self._delete_hex_at(wx, wy)
 
@@ -691,7 +1014,8 @@ class MapEditorWindow(tk.Toplevel):
 
     def on_canvas_motion(self, event):
         self.handle_poi_hover(event)
-        if self.hex_layout and not self.add_poi_mode and not getattr(self, "add_terrain_mode", False):
+        tool = getattr(self, "editor_tool", "cells")
+        if self.hex_layout and tool == "cells" and not self.add_poi_mode and not getattr(self, "add_terrain_mode", False):
             if self.preview_hex_id:
                 self.canvas.delete(self.preview_hex_id)
                 self.preview_hex_id = None
@@ -725,22 +1049,10 @@ class MapEditorWindow(tk.Toplevel):
             self.tooltip.hide()
 
     def toggle_add_poi_mode(self):
-        self.add_poi_mode = not self.add_poi_mode
-        if self.add_poi_mode and getattr(self, "add_terrain_mode", False):
-            self.toggle_add_terrain_mode()
-        style_name = "Primary.TButton" if self.add_poi_mode else "Success.TButton"
-        cursor = "crosshair" if self.add_poi_mode else ""
-        self.add_poi_button.config(style=style_name)
-        self.config(cursor=cursor)
+        self.set_editor_tool("cells" if getattr(self, "add_poi_mode", False) else "poi")
 
     def toggle_add_terrain_mode(self):
-        self.add_terrain_mode = not getattr(self, "add_terrain_mode", False)
-        if self.add_terrain_mode and getattr(self, "add_poi_mode", False):
-            self.toggle_add_poi_mode()
-        style_name = "Primary.TButton" if self.add_terrain_mode else "Secondary.TButton"
-        cursor = "crosshair" if self.add_terrain_mode else ""
-        self.add_terrain_button.config(style=style_name)
-        self.config(cursor=cursor)
+        self.set_editor_tool("cells" if getattr(self, "add_terrain_mode", False) else "terrain")
 
     def on_map_scale_selected(self, event=None):
         selected_scale_name = self.map_scale_var.get()
@@ -762,23 +1074,59 @@ class MapEditorWindow(tk.Toplevel):
                 
         messagebox.showinfo("Griglia Impostata", f"Scala '{selected_scale_name}' applicata. Usa il tasto destro per aggiungere celle manualmente.", parent=self)
 
+    def _remap_hex_coord(self, h, old_layout, new_layout):
+        if old_layout is None or new_layout is None:
+            return h
+        px, py = old_layout.hex_to_pixel(h)
+        return new_layout.pixel_to_hex((px, py))
+
     def on_grid_type_selected(self, event=None):
-        """Passaggio pulito e istantaneo tra tipi di griglia senza popup bloccanti né freeze da grab."""
+        """Passaggio non distruttivo tra tipi di griglia rimappando gli strati tramite centri pixel."""
         new_grid_type = self.grid_type_var.get()
         old_grid_type = getattr(self, "current_grid_type", "hex")
         if old_grid_type == new_grid_type:
             return
-            
+
+        old_layout = self.hex_layout
         self.current_grid_type = new_grid_type
         if hasattr(self, "current_hex_size") and self.current_hex_size:
-            self.hex_layout = self._create_layout(self.current_hex_size, new_grid_type)
+            new_layout = self._create_layout(self.current_hex_size, new_grid_type)
+            self.hex_layout = new_layout
+            if old_layout is not None and new_layout is not None:
+                self.pois = {self._remap_hex_coord(h, old_layout, new_layout): v for h, v in self.pois.items()}
+                self.difficult_terrain = {self._remap_hex_coord(h, old_layout, new_layout): v for h, v in self.difficult_terrain.items()}
+                self.walls = {self._remap_hex_coord(h, old_layout, new_layout) for h in self.walls}
+                self.half_cover = {self._remap_hex_coord(h, old_layout, new_layout) for h in self.half_cover}
+                self.three_quarters_cover = {self._remap_hex_coord(h, old_layout, new_layout) for h in self.three_quarters_cover}
+
+                remapped_doors = {}
+                for h, d in self.doors.items():
+                    nh = self._remap_hex_coord(h, old_layout, new_layout)
+                    dc = dict(d)
+                    dc["q"], dc["r"] = nh.q, nh.r
+                    remapped_doors[nh] = dc
+                self.doors = remapped_doors
+
+                remapped_lights = {}
+                for h, l_info in self.lights.items():
+                    nh = self._remap_hex_coord(h, old_layout, new_layout)
+                    lc = dict(l_info)
+                    lc["q"], lc["r"] = nh.q, nh.r
+                    remapped_lights[nh] = lc
+                self.lights = remapped_lights
+
+                if isinstance(self.spawn_point, (list, tuple)) and len(self.spawn_point) >= 2:
+                    ns = self._remap_hex_coord(Hex(int(self.spawn_point[0]), int(self.spawn_point[1])), old_layout, new_layout)
+                    self.spawn_point = [ns.q, ns.r]
+
             if self.base_image_original:
-                self.generate_auto_grid(silent=True)
+                self.generate_auto_grid(silent=True, preserve_layers=True)
             else:
-                self._clear_grid()
+                if old_layout is not None and new_layout is not None:
+                    self.grid_hexes = {self._remap_hex_coord(h, old_layout, new_layout) for h in self.grid_hexes}
                 self.redraw(high_res=True)
 
-    def generate_auto_grid(self, silent=False):
+    def generate_auto_grid(self, silent=False, preserve_layers=False):
         """Genera automaticamente le celle su tutta l'estensione dell'immagine caricata combaciando perfettamente col perimetro."""
         if not self.base_image_original or not self.hex_layout:
             return
@@ -802,7 +1150,7 @@ class MapEditorWindow(tk.Toplevel):
             if not messagebox.askyesno("Attenzione", f"Generare circa {est_count} celle potrebbe richiedere qualche secondo. Continuare?", parent=self):
                 return
 
-        self._clear_grid()
+        self._clear_grid(preserve_layers=preserve_layers)
         
         if grid_type == "square":
             cell_size = self.hex_layout.size
@@ -831,11 +1179,21 @@ class MapEditorWindow(tk.Toplevel):
         if not silent:
             messagebox.showinfo("Griglia Generata", f"Generate {len(self.grid_hexes)} celle con successo.", parent=self)
 
-    def _clear_grid(self):
+    def _clear_grid(self, preserve_layers=False):
         self.canvas.delete("hex")
         self.canvas.delete("preview")
+        self.canvas.delete("layer_overlay")
         self.grid_hexes.clear()
         self.hex_to_canvas_id.clear()
-        self.pois.clear()
-        self.difficult_terrain.clear()
         self.preview_hex_id = None
+        if not preserve_layers:
+            self.pois.clear()
+            self.difficult_terrain.clear()
+            self.walls.clear()
+            self._extra_walls.clear()
+            self.half_cover.clear()
+            self.three_quarters_cover.clear()
+            self.doors.clear()
+            self._extra_doors.clear()
+            self.lights.clear()
+            self.spawn_point = None

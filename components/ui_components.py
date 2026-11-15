@@ -104,6 +104,8 @@ class HexMapCanvas(tk.Canvas):
         self._is_panning = False
         self._rendered_pan_x, self._rendered_pan_y = 0, 0
         self._pan_redraw_timer = None
+        self._zoom_polish_timer = None
+        self._zooming_active = False
         self._configure_timer = None
         self._last_win_w, self._last_win_h = 0, 0
         self._map_hexes_set = None
@@ -112,12 +114,18 @@ class HexMapCanvas(tk.Canvas):
         
         self.hex_layout = None
         self.map_background_original = None
+        self._bg_preview_img = None
+        self._bg_preview_scale = 1.0
+        self._bg_cache_key = None
+        self._bg_cache_crop = None
         self.map_background_tk = None
         self._last_b64 = None
         self._last_zoom = None
         self.dragging_token_name = None
         self._drag_blocked_reason = None
         self._drag_blocked_shown = False
+        self._drag_paint_active = False
+        self._last_drag_paint_hex = None
         self.on_token_drop_callback = None
         self.can_move_token_callback = None
         self.on_token_select_callback = None
@@ -125,12 +133,19 @@ class HexMapCanvas(tk.Canvas):
         self.interaction_override_mode = False
         
         self.on_hex_click_callback = None
+        self.on_hex_drag_callback = None
+        self.on_hex_drag_end_callback = None
+        self.on_tool_mode_changed_callback = None
         self.on_ping_callback = None
         
         self._ruler_start_hex = None
         self._ruler_line_id = None
         self._ruler_text_id = None
         self._ruler_text_bg_id = None
+        self._rclick_press_pos = None
+        self._rclick_start_hex = None
+        self._rclick_token_name = None
+        self._rclick_dragged = False
         self.ruler_mode = False
         self.pan_mode = False
         self._space_held = False
@@ -208,14 +223,14 @@ class HexMapCanvas(tk.Canvas):
         def _on_canvas_destroyed(e=None):
             if e and getattr(e, "widget", None) != self:
                 return
-            if getattr(self, "_configure_timer", None) is not None:
-                try: self.after_cancel(self._configure_timer)
-                except Exception: pass
-                self._configure_timer = None
-            if getattr(self, "_pan_redraw_timer", None) is not None:
-                try: self.after_cancel(self._pan_redraw_timer)
-                except Exception: pass
-                self._pan_redraw_timer = None
+            for timer_attr in ("_configure_timer", "_pan_redraw_timer", "_zoom_polish_timer"):
+                t_id = getattr(self, timer_attr, None)
+                if t_id is not None:
+                    try:
+                        self.after_cancel(t_id)
+                    except Exception:
+                        pass
+                    setattr(self, timer_attr, None)
             try:
                 self.hide_token_tooltip()
             except Exception:
@@ -264,11 +279,45 @@ class HexMapCanvas(tk.Canvas):
             self.delete("temp_draw")
             del self._current_drawing
 
+    def _notify_tool_mode_changed(self, active_tool=None):
+        cb = getattr(self, "on_tool_mode_changed_callback", None)
+        if callable(cb):
+            try:
+                cb(active_tool)
+            except Exception:
+                pass
+
+    def _clear_exclusive_canvas_modes(self, keep=None):
+        if keep != "pan" and getattr(self, "pan_mode", False):
+            self.pan_mode = False
+        if keep != "ruler" and getattr(self, "ruler_mode", False):
+            self.ruler_mode = False
+            self.clear_ruler()
+        if keep != "pen" and getattr(self, "pen_mode", False):
+            self.pen_mode = False
+            if hasattr(self, "_current_drawing"):
+                del self._current_drawing
+            self.delete("temp_draw")
+
     def toggle_pen_mode(self, enabled=None):
         if enabled is None:
             self.pen_mode = not getattr(self, "pen_mode", False)
         else:
             self.pen_mode = bool(enabled)
+        if self.pen_mode:
+            self._clear_exclusive_canvas_modes(keep="pen")
+            try:
+                self.config(cursor="pencil")
+            except Exception:
+                pass
+            self._notify_tool_mode_changed("pen")
+        else:
+            try:
+                self.config(cursor="")
+            except Exception:
+                pass
+            if enabled is None:
+                self._notify_tool_mode_changed(None)
         return self.pen_mode
 
     def clear_drawings(self):
@@ -288,6 +337,12 @@ class HexMapCanvas(tk.Canvas):
         self._configure_timer = None
         self.redraw()
 
+    def _finish_zoom_polish(self):
+        self._zoom_polish_timer = None
+        if getattr(self, "_zooming_active", False):
+            self._zooming_active = False
+            self.redraw()
+
     def _zoom(self, event):
         factor = 1.15 if (event.num == 4 or getattr(event, "delta", 0) > 0) else 0.85
         new_zoom = max(0.05, min(10.0, self.zoom_level * factor))
@@ -303,6 +358,16 @@ class HexMapCanvas(tk.Canvas):
         self.zoom_level = new_zoom
         self.pan_offset_x = event.x - world_x * self.zoom_level
         self.pan_offset_y = event.y - world_y * self.zoom_level
+        if getattr(self, "map_background_original", None):
+            orig_w, orig_h = self.map_background_original.size
+            if (orig_w * orig_h > 4000000) or (orig_w * new_zoom * orig_h * new_zoom > 4000000):
+                self._zooming_active = True
+                if getattr(self, "_zoom_polish_timer", None) is not None:
+                    try:
+                        self.after_cancel(self._zoom_polish_timer)
+                    except Exception:
+                        pass
+                self._zoom_polish_timer = safe_after(self, 120, self._finish_zoom_polish)
         self.redraw()
 
     def zoom_in(self, center_x=None, center_y=None):
@@ -389,20 +454,19 @@ class HexMapCanvas(tk.Canvas):
             self.pan_mode = bool(enabled)
 
         if self.pan_mode:
-            if getattr(self, "ruler_mode", False):
-                self.ruler_mode = False
-                self.clear_ruler()
-            if getattr(self, "pen_mode", False):
-                self.pen_mode = False
+            self._clear_exclusive_canvas_modes(keep="pan")
             try:
                 self.config(cursor="fleur")
             except Exception:
                 pass
+            self._notify_tool_mode_changed("pan")
         else:
             try:
                 self.config(cursor="tcross" if getattr(self, "ruler_mode", False) else "")
             except Exception:
                 pass
+            if enabled is None:
+                self._notify_tool_mode_changed(None)
         self.redraw()
         return self.pan_mode
 
@@ -471,12 +535,16 @@ class HexMapCanvas(tk.Canvas):
             changed = True
         if getattr(self, "pen_mode", False):
             self.pen_mode = False
+            if hasattr(self, "_current_drawing"):
+                del self._current_drawing
+            self.delete("temp_draw")
             changed = True
         if changed:
             try:
                 self.config(cursor="")
             except Exception:
                 pass
+            self._notify_tool_mode_changed("escape")
             self.redraw()
         return "break"
 
@@ -486,21 +554,26 @@ class HexMapCanvas(tk.Canvas):
         self.pan_by(dx, dy)
         return "break"
 
-    def toggle_ruler_mode(self):
-        self.ruler_mode = not getattr(self, "ruler_mode", False)
+    def toggle_ruler_mode(self, enabled=None):
+        if enabled is None:
+            self.ruler_mode = not getattr(self, "ruler_mode", False)
+        else:
+            self.ruler_mode = bool(enabled)
         if not self.ruler_mode:
             self.clear_ruler()
             try:
                 self.config(cursor="fleur" if getattr(self, "pan_mode", False) else "")
             except Exception:
                 pass
+            if enabled is None:
+                self._notify_tool_mode_changed(None)
         else:
-            if getattr(self, "pan_mode", False):
-                self.pan_mode = False
+            self._clear_exclusive_canvas_modes(keep="ruler")
             try:
                 self.config(cursor="tcross")
             except Exception:
                 pass
+            self._notify_tool_mode_changed("ruler")
         self.redraw()
         return self.ruler_mode
 
@@ -590,12 +663,111 @@ class HexMapCanvas(tk.Canvas):
                 self._ruler_current_hex = None
             return
 
+        self._handle_post_hex_click_selection(event, clicked_hex)
+
+    _TOKEN_SIZE_MAP = {
+        "tiny": 0.5, "minuscola": 0.5,
+        "small": 0.8, "piccola": 0.8,
+        "medium": 1.0, "media": 1.0,
+        "large": 1.8, "grande": 1.8,
+        "huge": 2.6, "enorme": 2.6,
+        "gargantuan": 3.5, "mastodontica": 3.5,
+    }
+
+    def _is_token_visible_to_viewer(self, name, pdata, is_dm=None, fow_active=False, visible=None):
+        if is_dm is None:
+            is_dm = self._effective_is_dm()
+        if not is_dm and isinstance(pdata, dict):
+            if pdata.get("layer", "token") == "gm" or pdata.get("is_hidden", False) or pdata.get("in_pocket_dimension"):
+                return False
+            if fow_active and name != self.player_name and not pdata.get("is_party_member", False) and not pdata.get("is_companion", False):
+                pos = pdata.get("position", [0, 0]) or [0, 0]
+                t_hex = Hex(pos[0], pos[1])
+                if visible is None:
+                    visible = getattr(self, "visible_hexes", set())
+                if (t_hex.q, t_hex.r) not in visible and t_hex not in visible:
+                    return False
+        return True
+
+    def _token_screen_geometry(self, pdata):
+        """Restituisce (sx, sy, tok_y, radius, size_mult, elev) coerente col rendering token."""
+        if isinstance(pdata, dict):
+            pos = pdata.get("position") or [0, 0]
+            raw_size = pdata.get("size", 1)
+            elev = pdata.get("elevation", 0) or 0
+        else:
+            pos = pdata or [0, 0]
+            raw_size = 1
+            elev = 0
+        if isinstance(raw_size, str):
+            size_mult = self._TOKEN_SIZE_MAP.get(raw_size.lower(), 1.0)
+        elif isinstance(raw_size, (int, float)):
+            size_mult = float(raw_size)
+        else:
+            size_mult = 1.0
+        cx, cy = self.hex_layout.hex_to_pixel(Hex(pos[0], pos[1]))
+        sx = cx * self.zoom_level + self.pan_offset_x
+        sy = cy * self.zoom_level + self.pan_offset_y
+        radius = max(6.0, min(120.0, 12 * self.zoom_level * size_mult))
+        elev_dy = min(60, int((elev / 5.0) * 8 * self.zoom_level)) if elev != 0 else 0
+        tok_y = sy - elev_dy
+        return sx, sy, tok_y, radius, size_mult, elev
+
+    def _find_token_at_screen_pos(self, screen_x, screen_y, fallback_hex=None):
+        """Trova il token cliccato/puntato rispettando taglia multi-hex, elevazione tok_y e FoW."""
+        if not getattr(self, "players_data", None) or not getattr(self, "hex_layout", None):
+            return None
+        is_dm = self._effective_is_dm()
+        fow_active = getattr(self, "fow_enabled", False) or (
+            isinstance(getattr(self, "map_data", None), dict) and self.map_data.get("fow_enabled", False)
+        )
+        visible = getattr(self, "visible_hexes", set()) if fow_active else set()
+
+        best_name = None
+        best_dist = float("inf")
+        items = list(self.players_data.items())
+        # Ordine inverso al disegno cosi' il token in primo piano vince a parita' di distanza
+        for name, pdata in reversed(items):
+            if not self._is_token_visible_to_viewer(name, pdata, is_dm=is_dm, fow_active=fow_active, visible=visible):
+                continue
+            sx, sy, tok_y, radius, size_mult, elev = self._token_screen_geometry(pdata)
+            hit_r = max(radius + 4.0, 12.0)
+            dist = math.hypot(screen_x - sx, screen_y - tok_y)
+            if dist <= hit_r and dist < best_dist:
+                best_dist = dist
+                best_name = name
+        if best_name is not None:
+            return best_name
+
+        if fallback_hex is None and getattr(self, "zoom_level", 1.0) > 0:
+            wx = (screen_x - self.pan_offset_x) / self.zoom_level
+            wy = (screen_y - self.pan_offset_y) / self.zoom_level
+            fallback_hex = self.hex_layout.pixel_to_hex((wx, wy))
+
+        if fallback_hex is not None:
+            grid_type = self.map_data.get("grid_type", "hex") if isinstance(getattr(self, "map_data", None), dict) else "hex"
+            for name, pdata in reversed(items):
+                if not self._is_token_visible_to_viewer(name, pdata, is_dm=is_dm, fow_active=fow_active, visible=visible):
+                    continue
+                pos = (pdata.get("position") or [0, 0]) if isinstance(pdata, dict) else (pdata or [0, 0])
+                t_hex = Hex(pos[0], pos[1])
+                if t_hex == fallback_hex:
+                    return name
+                raw_size = pdata.get("size", 1) if isinstance(pdata, dict) else 1
+                size_mult = self._TOKEN_SIZE_MAP.get(raw_size.lower(), 1.0) if isinstance(raw_size, str) else (float(raw_size) if isinstance(raw_size, (int, float)) else 1.0)
+                if size_mult >= 2.2 and grid_distance(t_hex, fallback_hex, grid_type=grid_type) <= 1:
+                    return name
+        return None
+
+    def _handle_post_hex_click_selection(self, event, clicked_hex):
         if not self.on_hex_click_callback: return
         
         self.dragging_token_name = None
         self._drag_start_hex = None
         self._drag_blocked_reason = None
         self._drag_blocked_shown = False
+        self._drag_paint_active = False
+        self._last_drag_paint_hex = None
 
         priority_click = bool(
             getattr(self, "interaction_override_mode", False)
@@ -603,21 +775,8 @@ class HexMapCanvas(tk.Canvas):
         )
 
         clicked_token = None
-        if not priority_click and getattr(self, 'players_data', None):
-            is_dm = self._effective_is_dm()
-            fow_active = getattr(self, 'fow_enabled', False) or (isinstance(getattr(self, 'map_data', None), dict) and self.map_data.get('fow_enabled', False))
-            visible = getattr(self, 'visible_hexes', set()) if fow_active else set()
-            for name, pdata in self.players_data.items():
-                pos = pdata.get('position', [0, 0]) if isinstance(pdata, dict) else pdata
-                if Hex(*pos) == clicked_hex:
-                    if not is_dm and isinstance(pdata, dict):
-                        if pdata.get("layer", "token") == "gm" or pdata.get("is_hidden", False) or pdata.get("in_pocket_dimension"):
-                            continue
-                        if fow_active and name != self.player_name and not pdata.get("is_party_member", False) and not pdata.get("is_companion", False):
-                            if (clicked_hex.q, clicked_hex.r) not in visible and clicked_hex not in visible:
-                                continue
-                    clicked_token = name
-                    break
+        if not priority_click:
+            clicked_token = self._find_token_at_screen_pos(event.x, event.y, fallback_hex=clicked_hex)
         
         if clicked_token:
             # Ctrl+Click su token: Multi-selezione per DM / tavolo
@@ -672,6 +831,9 @@ class HexMapCanvas(tk.Canvas):
             self._last_clicked_hex = clicked_hex
             return
 
+        if priority_click and callable(getattr(self, "on_hex_drag_callback", None)):
+            self._drag_paint_active = True
+            self._last_drag_paint_hex = clicked_hex
         self._last_clicked_hex = clicked_hex
         self.on_hex_click_callback(clicked_hex)
 
@@ -684,6 +846,14 @@ class HexMapCanvas(tk.Canvas):
             return
         if getattr(self, "ruler_mode", False) and self._ruler_start_hex:
             self._on_ruler_drag(event)
+            return
+        if getattr(self, "_drag_paint_active", False) and callable(getattr(self, "on_hex_drag_callback", None)) and self.hex_layout:
+            world_x = (event.x - self.pan_offset_x) / self.zoom_level
+            world_y = (event.y - self.pan_offset_y) / self.zoom_level
+            curr_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
+            if curr_hex != getattr(self, "_last_drag_paint_hex", None):
+                self._last_drag_paint_hex = curr_hex
+                self.on_hex_drag_callback(curr_hex)
             return
         if getattr(self, "_drag_blocked_reason", None):
             if not getattr(self, "_drag_blocked_shown", False):
@@ -756,6 +926,16 @@ class HexMapCanvas(tk.Canvas):
             return
 
     def _on_canvas_release(self, event):
+        if getattr(self, "_drag_paint_active", False):
+            self._drag_paint_active = False
+            self._last_drag_paint_hex = None
+            cb_end = getattr(self, "on_hex_drag_end_callback", None)
+            if callable(cb_end):
+                try:
+                    cb_end()
+                except Exception:
+                    pass
+            return
         if getattr(self, "pan_mode", False) or getattr(self, "_space_held", False) or getattr(self, "_is_panning", False):
             self._on_pan_release(event)
             return
@@ -787,23 +967,17 @@ class HexMapCanvas(tk.Canvas):
         world_x = (event.x - self.pan_offset_x) / self.zoom_level
         world_y = (event.y - self.pan_offset_y) / self.zoom_level
         clicked_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
-        
-        token_name = None
-        if getattr(self, 'players_data', None):
-            for name, pdata in self.players_data.items():
-                pos = pdata.get('position', [0, 0]) if isinstance(pdata, dict) else pdata
-                if hasattr(clicked_hex, "q"):
-                    # Hex object
-                    from common.hex_utils import Hex
-                    if Hex(*pos) == clicked_hex:
-                        token_name = name
-                        break
-                        
-        if getattr(self, 'on_hex_right_click_callback', None):
-            self.on_hex_right_click_callback(event, clicked_hex, token_name)
-            return
 
-        self._ruler_start_hex = clicked_hex
+        token_name = self._find_token_at_screen_pos(event.x, event.y, fallback_hex=clicked_hex)
+        self._rclick_press_pos = (event.x, event.y)
+        self._rclick_start_hex = clicked_hex
+        self._rclick_token_name = token_name
+        self._rclick_dragged = False
+
+        if getattr(self, "ruler_mode", False) or not getattr(self, 'on_hex_right_click_callback', None):
+            self._ruler_start_hex = clicked_hex
+            self._ruler_current_hex = clicked_hex
+            self._draw_ruler_between(clicked_hex, clicked_hex)
 
     def _on_mouse_motion(self, event):
         if getattr(self, "ruler_mode", False) and self._ruler_start_hex:
@@ -818,22 +992,7 @@ class HexMapCanvas(tk.Canvas):
             self._last_coord_hud_hex = hovered_hex
             self._update_coord_hud(hovered_hex)
         
-        token_name = None
-        if getattr(self, 'players_data', None):
-            is_dm = self._effective_is_dm()
-            fow_active = getattr(self, 'fow_enabled', False) or (isinstance(getattr(self, 'map_data', None), dict) and self.map_data.get('fow_enabled', False))
-            visible = getattr(self, 'visible_hexes', set()) if fow_active else set()
-            for name, pdata in self.players_data.items():
-                pos = pdata.get('position', [0, 0]) if isinstance(pdata, dict) else pdata
-                if Hex(*pos) == hovered_hex:
-                    if not is_dm and isinstance(pdata, dict):
-                        if pdata.get("layer", "token") == "gm" or pdata.get("is_hidden", False) or pdata.get("in_pocket_dimension"):
-                            continue
-                        if fow_active and name != self.player_name and not pdata.get("is_party_member", False) and not pdata.get("is_companion", False):
-                            if (hovered_hex.q, hovered_hex.r) not in visible and hovered_hex not in visible:
-                                continue
-                    token_name = name
-                    break
+        token_name = self._find_token_at_screen_pos(event.x, event.y, fallback_hex=hovered_hex)
                     
         if token_name != getattr(self, '_hovered_token', None):
             self._hovered_token = token_name
@@ -927,10 +1086,23 @@ class HexMapCanvas(tk.Canvas):
                         tk.Label(card, text="  |  ".join(act_summaries), bg="#181B22", fg="#FBBF24", font=("Segoe UI", 8), anchor="w").pack(anchor="w", pady=(2, 0))
 
     def _on_ruler_drag(self, event):
-        if not self.hex_layout or not self._ruler_start_hex: return
+        if not self.hex_layout:
+            return
+        if not self._ruler_start_hex and getattr(self, "_rclick_start_hex", None) and getattr(self, "_rclick_press_pos", None):
+            px0, py0 = self._rclick_press_pos
+            if math.hypot(event.x - px0, event.y - py0) < 6:
+                return
+            self._rclick_dragged = True
+            self._ruler_start_hex = self._rclick_start_hex
+        if not self._ruler_start_hex:
+            return
         world_x = (event.x - self.pan_offset_x) / self.zoom_level
         world_y = (event.y - self.pan_offset_y) / self.zoom_level
         current_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
+        if getattr(self, "_rclick_press_pos", None):
+            px0, py0 = self._rclick_press_pos
+            if math.hypot(event.x - px0, event.y - py0) >= 6 or current_hex != self._ruler_start_hex:
+                self._rclick_dragged = True
         self._ruler_current_hex = current_hex
         self._draw_ruler_between(self._ruler_start_hex, current_hex)
 
@@ -1008,6 +1180,14 @@ class HexMapCanvas(tk.Canvas):
             self.tag_lower(self._ruler_text_bg_id, self._ruler_text_id)
 
     def _on_ruler_end(self, event):
+        was_dragged = bool(getattr(self, "_rclick_dragged", False))
+        start_hex = getattr(self, "_rclick_start_hex", None)
+        tok_name = getattr(self, "_rclick_token_name", None)
+        self._rclick_press_pos = None
+        self._rclick_start_hex = None
+        self._rclick_token_name = None
+        self._rclick_dragged = False
+
         self.delete("ruler_overlay")
         if self._ruler_line_id:
             self.delete(self._ruler_line_id)
@@ -1020,6 +1200,15 @@ class HexMapCanvas(tk.Canvas):
             self._ruler_text_bg_id = None
         self._ruler_start_hex = None
         self._ruler_current_hex = None
+
+        if not was_dragged and not getattr(self, "ruler_mode", False) and callable(getattr(self, "on_hex_right_click_callback", None)):
+            if start_hex is None and getattr(self, "hex_layout", None):
+                world_x = (event.x - self.pan_offset_x) / self.zoom_level
+                world_y = (event.y - self.pan_offset_y) / self.zoom_level
+                start_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
+                tok_name = self._find_token_at_screen_pos(event.x, event.y, fallback_hex=start_hex)
+            if start_hex is not None:
+                self.on_hex_right_click_callback(event, start_hex, tok_name)
 
     def _on_wall_toggle(self, event):
         if not self.hex_layout or not getattr(self, 'on_wall_toggle_callback', None): return
@@ -1418,7 +1607,7 @@ class HexMapCanvas(tk.Canvas):
         world_y1 = (scr_y1 - self.pan_offset_y) / self.zoom_level
         world_y2 = (scr_y2 - self.pan_offset_y) / self.zoom_level
 
-        # Gestione immagine di sfondo con caching e crop del viewport se grande
+        # Gestione immagine di sfondo con caching, mipmap >4MP e crop del viewport
         image_data_b64 = self.map_data.get("bg_image_data")
         if image_data_b64:
             if getattr(self, '_last_b64', None) != image_data_b64:
@@ -1428,46 +1617,115 @@ class HexMapCanvas(tk.Canvas):
                     self._last_b64 = image_data_b64
                     self._last_zoom = None
                     self.map_background_tk = None
+                    self._bg_cache_key = None
+                    self._bg_cache_crop = None
+                    self._bg_preview_img = None
+                    self._bg_preview_scale = 1.0
+                    ow, oh = self.map_background_original.size
+                    if ow * oh > 4000000:
+                        pscale = min(1.0, 2048.0 / max(ow, oh))
+                        if pscale < 0.95:
+                            pw, ph = max(1, int(ow * pscale)), max(1, int(oh * pscale))
+                            self._bg_preview_img = self.map_background_original.resize((pw, ph), Image.Resampling.BILINEAR)
+                            self._bg_preview_scale = pw / max(1, ow)
                 except Exception as e:
                     self.map_background_original = None
+                    self._bg_preview_img = None
+                    self._bg_preview_scale = 1.0
                     print(f"Errore decodifica immagine: {e}")
         else:
             self.map_background_original = None
+            self._bg_preview_img = None
+            self._bg_preview_scale = 1.0
+            self._bg_cache_key = None
+            self._bg_cache_crop = None
             self._last_b64 = None
 
         if getattr(self, 'map_background_original', None):
             orig_w, orig_h = self.map_background_original.size
-            full_w = int(orig_w * self.zoom_level)
-            full_h = int(orig_h * self.zoom_level)
+            full_w = max(1, int(orig_w * self.zoom_level))
+            full_h = max(1, int(orig_h * self.zoom_level))
+            fast_mode = bool(getattr(self, "_zooming_active", False) or getattr(self, "_is_panning", False))
+            resample = Image.Resampling.NEAREST if fast_mode else Image.Resampling.BILINEAR
+            use_preview = (
+                getattr(self, "_bg_preview_img", None) is not None
+                and self.zoom_level <= getattr(self, "_bg_preview_scale", 1.0) * 1.05
+            )
+            zoom_sig = round(self.zoom_level, 5)
             
-            # Crop dinamico solo se l'immagine a schermo supera 4M pixel (per evitare OutOfMemory su zoom estremi)
+            # Crop dinamico se l'immagine a schermo supera 4M pixel (con riuso della fetta cachata durante il pan)
             if full_w * full_h > 4000000:
-                crop_x1 = max(0, int((scr_x1 - self.pan_offset_x) / self.zoom_level))
-                crop_y1 = max(0, int((scr_y1 - self.pan_offset_y) / self.zoom_level))
-                crop_x2 = min(orig_w, int((scr_x2 - self.pan_offset_x) / self.zoom_level))
-                crop_y2 = min(orig_h, int((scr_y2 - self.pan_offset_y) / self.zoom_level))
-                if crop_x2 > crop_x1 and crop_y2 > crop_y1:
-                    target_w = max(1, int((crop_x2 - crop_x1) * self.zoom_level))
-                    target_h = max(1, int((crop_y2 - crop_y1) * self.zoom_level))
-                    try:
-                        cropped = self.map_background_original.crop((crop_x1, crop_y1, crop_x2, crop_y2))
-                        resized_img = cropped.resize((target_w, target_h), Image.Resampling.BILINEAR)
-                        self.map_background_tk = ImageTk.PhotoImage(resized_img)
-                        dest_x = crop_x1 * self.zoom_level + self.pan_offset_x
-                        dest_y = crop_y1 * self.zoom_level + self.pan_offset_y
-                        self.create_image(dest_x, dest_y, image=self.map_background_tk, anchor="nw")
-                    except Exception as e:
-                        print("Errore rendering sfondo:", e)
+                vis_wx1 = max(0, int((0 - self.pan_offset_x) / self.zoom_level))
+                vis_wy1 = max(0, int((0 - self.pan_offset_y) / self.zoom_level))
+                vis_wx2 = min(orig_w, int(math.ceil((cw - self.pan_offset_x) / self.zoom_level)))
+                vis_wy2 = min(orig_h, int(math.ceil((ch - self.pan_offset_y) / self.zoom_level)))
+                cached_crop = getattr(self, "_bg_cache_crop", None)
+                cached_key = getattr(self, "_bg_cache_key", None)
+                cache_covers_view = (
+                    getattr(self, "map_background_tk", None) is not None
+                    and isinstance(cached_crop, tuple) and len(cached_crop) == 4
+                    and cached_key is not None
+                    and cached_key[0] == "crop"
+                    and cached_key[1] == id(self.map_background_original)
+                    and cached_key[2] == zoom_sig
+                    and (cached_key[3] or fast_mode)
+                    and cached_crop[0] <= vis_wx1 and cached_crop[1] <= vis_wy1
+                    and cached_crop[2] >= vis_wx2 and cached_crop[3] >= vis_wy2
+                )
+                if cache_covers_view:
+                    dest_x = cached_crop[0] * self.zoom_level + self.pan_offset_x
+                    dest_y = cached_crop[1] * self.zoom_level + self.pan_offset_y
+                    self.create_image(dest_x, dest_y, image=self.map_background_tk, anchor="nw", tags="bg_image")
+                else:
+                    crop_x1 = max(0, int((scr_x1 - self.pan_offset_x) / self.zoom_level))
+                    crop_y1 = max(0, int((scr_y1 - self.pan_offset_y) / self.zoom_level))
+                    crop_x2 = min(orig_w, int(math.ceil((scr_x2 - self.pan_offset_x) / self.zoom_level)))
+                    crop_y2 = min(orig_h, int(math.ceil((scr_y2 - self.pan_offset_y) / self.zoom_level)))
+                    if crop_x2 > crop_x1 and crop_y2 > crop_y1:
+                        target_w = max(1, int((crop_x2 - crop_x1) * self.zoom_level))
+                        target_h = max(1, int((crop_y2 - crop_y1) * self.zoom_level))
+                        try:
+                            if use_preview:
+                                ps = self._bg_preview_scale
+                                pw_img, ph_img = self._bg_preview_img.size
+                                px1 = max(0, min(pw_img - 1, int(crop_x1 * ps)))
+                                py1 = max(0, min(ph_img - 1, int(crop_y1 * ps)))
+                                px2 = max(px1 + 1, min(pw_img, int(math.ceil(crop_x2 * ps))))
+                                py2 = max(py1 + 1, min(ph_img, int(math.ceil(crop_y2 * ps))))
+                                cropped = self._bg_preview_img.crop((px1, py1, px2, py2))
+                            else:
+                                cropped = self.map_background_original.crop((crop_x1, crop_y1, crop_x2, crop_y2))
+                            resized_img = cropped.resize((target_w, target_h), resample)
+                            self.map_background_tk = ImageTk.PhotoImage(resized_img)
+                            self._bg_cache_key = ("crop", id(self.map_background_original), zoom_sig, not fast_mode)
+                            self._bg_cache_crop = (crop_x1, crop_y1, crop_x2, crop_y2)
+                            dest_x = crop_x1 * self.zoom_level + self.pan_offset_x
+                            dest_y = crop_y1 * self.zoom_level + self.pan_offset_y
+                            self.create_image(dest_x, dest_y, image=self.map_background_tk, anchor="nw", tags="bg_image")
+                        except Exception as e:
+                            print("Errore rendering sfondo:", e)
             else:
-                if self._last_zoom != self.zoom_level or getattr(self, "map_background_tk", None) is None:
+                cached_key = getattr(self, "_bg_cache_key", None)
+                need_rebuild = (
+                    self._last_zoom != self.zoom_level
+                    or getattr(self, "map_background_tk", None) is None
+                    or not cached_key
+                    or cached_key[0] != "full"
+                    or cached_key[1] != id(self.map_background_original)
+                    or (not cached_key[3] and not fast_mode)
+                )
+                if need_rebuild:
                     try:
-                        resized_img = self.map_background_original.resize((full_w, full_h), Image.Resampling.BILINEAR)
+                        src_img = self._bg_preview_img if use_preview else self.map_background_original
+                        resized_img = src_img.resize((full_w, full_h), resample)
                         self.map_background_tk = ImageTk.PhotoImage(resized_img)
                         self._last_zoom = self.zoom_level
+                        self._bg_cache_key = ("full", id(self.map_background_original), zoom_sig, not fast_mode)
+                        self._bg_cache_crop = None
                     except Exception as e:
                         print("Errore resizing sfondo:", e)
                 if getattr(self, "map_background_tk", None):
-                    self.create_image(self.pan_offset_x, self.pan_offset_y, image=self.map_background_tk, anchor="nw")
+                    self.create_image(self.pan_offset_x, self.pan_offset_y, image=self.map_background_tk, anchor="nw", tags="bg_image")
 
         # Sets per lookup rapido O(1)
         pois_data = {(int(k.split(',')[0]), int(k.split(',')[1])): v for k, v in self.map_data.get("pois", {}).items()}
@@ -1870,14 +2128,7 @@ class HexMapCanvas(tk.Canvas):
                 self.create_text(sx, sy, text="[S]\nSpawn", font=("Arial", max(8, int(10*self.zoom_level)), "bold"), fill="#00FF00", justify="center")
 
         # Tokens (Players e PNG)
-        TOKEN_SIZE_MAP = {
-            "tiny": 0.5, "minuscola": 0.5,
-            "small": 0.8, "piccola": 0.8,
-            "medium": 1.0, "media": 1.0,
-            "large": 1.8, "grande": 1.8,
-            "huge": 2.6, "enorme": 2.6,
-            "gargantuan": 3.5, "mastodontica": 3.5
-        }
+        TOKEN_SIZE_MAP = self._TOKEN_SIZE_MAP
         for name, pdata in self.players_data.items():
             if isinstance(pdata, dict):
                 pos = pdata.get('position') or [0, 0]

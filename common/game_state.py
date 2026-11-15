@@ -1240,8 +1240,22 @@ class GameState:
         """Invia un messaggio di log da visualizzare nel pannello chat del DM."""
         self.gui_queue.put({"type": "LOG_MESSAGE", "payload": message})
 
-    def load_map(self, map_data):
-        """Carica i dati della mappa e aggiorna lo stato."""
+    @staticmethod
+    def allocate_unique_entity_name(game_state, base_name: str, prefer_unnumbered: bool = True) -> str:
+        """Restituisce un nome entita' univoco con suffisso '#2', '#3', ... se il nome base esiste gia'."""
+        base = str(base_name or "Mostro").strip() or "Mostro"
+        if prefer_unnumbered:
+            if not game_state.find_player(base):
+                return base
+            idx = 2
+        else:
+            idx = 1
+        while game_state.find_player(f"{base} #{idx}"):
+            idx += 1
+        return f"{base} #{idx}"
+
+    def load_map(self, map_data, map_id=None):
+        """Carica i dati della mappa, la registra in self.maps e aggiorna lo stato."""
         with self.lock:
             if "fow_enabled" not in map_data:
                 map_data["fow_enabled"] = False
@@ -1256,10 +1270,124 @@ class GameState:
                 indoor_keywords = ("dungeon", "sotterraneo", "caverna", "cave", "crypt", "cripta", "indoor", "interno", "taverna", "tavern", "catacombe")
                 map_data["outdoor"] = not any(kw in map_name for kw in indoor_keywords)
                 
+            resolved_id = str(map_id or map_data.get("id") or map_data.get("name") or getattr(self, "active_map_id", None) or "default")
+            if not map_data.get("name"):
+                map_data["name"] = resolved_id
+            if not hasattr(self, "maps") or not isinstance(self.maps, dict):
+                self.maps = {}
+            self.maps[resolved_id] = map_data
+            self.active_map_id = resolved_id
             self.current_map = map_data
             # Posiziona i token attorno allo spawn point evitando muri e sovrapposizioni
             self._place_tokens_around_spawn(map_data, self.players)
         self._trigger_gui_update()
+
+    def create_map(self, map_name: str, cols: int = 20, rows: int = 15, grid_type: str = "hex",
+                   hex_size: int = 35, map_scale_type: str = "combat", outdoor: bool = True,
+                   activate: bool = True) -> dict:
+        """Crea una nuova mappa vuota con griglia configurabile e la registra nella sessione."""
+        cols = max(1, min(120, int(cols or 20)))
+        rows = max(1, min(120, int(rows or 15)))
+        map_id = str(map_name or "Nuova Mappa").strip() or "Nuova Mappa"
+        g_type = grid_type if grid_type in ("hex", "square", "none") else "hex"
+        new_map = {
+            "name": map_id,
+            "grid_type": g_type,
+            "hex_size": max(15, int(hex_size or 35)),
+            "map_scale_type": map_scale_type or "combat",
+            "outdoor": bool(outdoor),
+            "hex_border_color": "#475569",
+            "hexes": [[q, r] for q in range(cols) for r in range(rows)],
+            "pois": {},
+            "walls": [],
+            "doors": [],
+            "traps": [],
+            "loots": [],
+            "lights": [],
+            "difficult_terrain": {},
+            "half_cover": [],
+            "three_quarters_cover": [],
+            "room_pins": [],
+            "teleports": {},
+            "spawn_point": [0, 0],
+            "fow_enabled": False,
+            "fow_revealed": [],
+            "fow_draft": [],
+        }
+        with self.lock:
+            if not hasattr(self, "maps") or not isinstance(self.maps, dict):
+                self.maps = {}
+            candidate = map_id
+            idx = 2
+            while candidate in self.maps:
+                candidate = f"{map_id} #{idx}"
+                idx += 1
+            new_map["name"] = candidate
+            self.maps[candidate] = new_map
+        if activate:
+            self.switch_map(candidate)
+        else:
+            self._trigger_gui_update()
+        return new_map
+
+    def resize_current_map(self, cols: int, rows: int, min_q: int = 0, min_r: int = 0) -> bool:
+        """Ridimensiona la griglia della mappa corrente mantenendo entita' ed elementi nei nuovi limiti."""
+        cols = max(1, min(120, int(cols)))
+        rows = max(1, min(120, int(rows)))
+        min_q = int(min_q)
+        min_r = int(min_r)
+        max_q = min_q + cols - 1
+        max_r = min_r + rows - 1
+        with self.lock:
+            cur = self.current_map
+            if not isinstance(cur, dict):
+                return False
+            valid = {(q, r) for q in range(min_q, max_q + 1) for r in range(min_r, max_r + 1)}
+            cur["hexes"] = [[q, r] for q in range(min_q, max_q + 1) for r in range(min_r, max_r + 1)]
+            cur["walls"] = [
+                w for w in (cur.get("walls") or [])
+                if not (isinstance(w, (list, tuple)) and len(w) >= 2 and isinstance(w[0], int) and isinstance(w[1], int))
+                or (w[0], w[1]) in valid
+            ]
+            for cov_key in ("half_cover", "three_quarters_cover"):
+                if isinstance(cur.get(cov_key), list):
+                    cur[cov_key] = [c for c in cur[cov_key] if isinstance(c, (list, tuple)) and len(c) >= 2 and (c[0], c[1]) in valid]
+            if isinstance(cur.get("difficult_terrain"), dict):
+                cur["difficult_terrain"] = {
+                    k: v for k, v in cur["difficult_terrain"].items()
+                    if "," not in str(k) or tuple(int(x) for x in str(k).split(",")[:2]) in valid
+                }
+            if isinstance(cur.get("pois"), dict):
+                cur["pois"] = {
+                    k: v for k, v in cur["pois"].items()
+                    if "," not in str(k) or tuple(int(x) for x in str(k).split(",")[:2]) in valid
+                }
+            if isinstance(cur.get("fow_revealed"), list):
+                cur["fow_revealed"] = [h for h in cur["fow_revealed"] if len(h) >= 2 and (h[0], h[1]) in valid]
+            cur["fow_draft"] = list(cur.get("fow_revealed", []))
+            self._place_tokens_around_spawn(cur, self.players)
+            cur_copy = dict(cur)
+        self._trigger_gui_update()
+        from common.protocol import make_map_data_update_broadcast, make_game_state
+        from common.network_utils import broadcast
+        broadcast(self, make_map_data_update_broadcast(cur_copy))
+        broadcast(self, make_game_state(self.get_state_dict(is_dm=False)))
+        return True
+
+    def delete_map(self, map_name: str) -> bool:
+        """Elimina una mappa dalla sessione; se attiva passa a un'altra mappa disponibile."""
+        next_map_to_switch = None
+        with self.lock:
+            if not hasattr(self, "maps") or map_name not in self.maps or len(self.maps) <= 1:
+                return False
+            del self.maps[map_name]
+            if getattr(self, "active_map_id", None) == map_name:
+                next_map_to_switch = next(iter(self.maps.keys()))
+        if next_map_to_switch:
+            self.switch_map(next_map_to_switch)
+        else:
+            self._trigger_gui_update()
+        return True
 
     @staticmethod
     def _extract_valid_cells_and_obstacles(map_data: dict):

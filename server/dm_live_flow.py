@@ -419,16 +419,30 @@ class DMLiveFlowDialog(tk.Toplevel):
                         with open(bg_resolved, "rb") as img_f:
                             map_data["bg_image_data"] = base64.b64encode(img_f.read()).decode("utf-8")
             else:
+                import math
+                from io import BytesIO
+                from PIL import Image
                 with open(resolved_path, "rb") as img_f:
-                    b64_img = base64.b64encode(img_f.read()).decode("utf-8")
+                    raw_img_bytes = img_f.read()
+                b64_img = base64.b64encode(raw_img_bytes).decode("utf-8")
+                hex_size = 60
+                cols, rows = 20, 15
+                try:
+                    with Image.open(BytesIO(raw_img_bytes)) as pil_im:
+                        img_w, img_h = pil_im.size
+                    cell_px = hex_size * 1.5
+                    cols = max(1, int(math.ceil(img_w / cell_px)))
+                    rows = max(1, int(math.ceil(img_h / cell_px)))
+                except Exception:
+                    cols, rows = 20, 15
                 map_data = {
                     "name": node.title,
                     "base_image_path": resolved_path,
                     "bg_image_data": b64_img,
-                    "hex_size": 60,
+                    "hex_size": hex_size,
                     "grid_type": "square",
                     "map_scale_type": "combat",
-                    "hexes": [[q, r] for q in range(20) for r in range(15)],
+                    "hexes": [[q, r] for q in range(cols) for r in range(rows)],
                     "pois": {},
                     "difficult_terrain": {},
                 }
@@ -484,13 +498,11 @@ class DMLiveFlowDialog(tk.Toplevel):
                 m_base_name = m.get("name", "Mostro")
                 qty = int(m.get("qty", m.get("quantity", m.get("count", 1))) or 1)
                 sheet_src = m.get("sheet") if isinstance(m.get("sheet"), dict) else {}
+                from common.game_state import GameState
                 for i in range(max(1, qty)):
-                    cand_name = f"{m_base_name} {i+1}" if qty > 1 else m_base_name
-                    suffix = 1
-                    base_cand = cand_name
-                    while gs.find_player(cand_name):
-                        suffix += 1
-                        cand_name = f"{base_cand} ({suffix})"
+                    cand_name = GameState.allocate_unique_entity_name(
+                        gs, m_base_name, prefer_unnumbered=(qty <= 1)
+                    )
                     npc = Player(name=cand_name)
                     hp_val = int(m.get("hp", m.get("hit_points", sheet_src.get("hp_max", sheet_src.get("hp", 15)))) or 15)
                     npc.hp = max(1, hp_val)

@@ -251,6 +251,7 @@ class DM_GUI(DMCampaignSessionMixin):
         file_menu.add_command(label=_t("menu_campaign_journal", default="📓 Diario di Gruppo PG..."), command=self.open_campaign_journal_dialog)
         file_menu.add_separator()
         file_menu.add_command(label=_t("menu_load_map"), command=self.load_map_from_file)
+        file_menu.add_command(label=_t("menu_manage_maps", default="🗺️ Gestione & Cambio Mappe..."), command=self.open_map_manager_dialog)
         file_menu.add_separator()
         file_menu.add_command(label=_t("menu_save_session"), command=self.save_session)
         file_menu.add_command(label=_t("menu_load_session"), command=self.load_session)
@@ -543,17 +544,26 @@ class DM_GUI(DMCampaignSessionMixin):
         
         # Gruppo 2: Elementi Interattivi Mappa & Ambiente
         self.teleport_mode_var = tk.BooleanVar(value=False)
-        btn_teleport = ttk.Checkbutton(left_toolbar, text="🌀", width=3, style="Toolbutton", variable=self.teleport_mode_var)
+        btn_teleport = ttk.Checkbutton(
+            left_toolbar, text="🌀", width=3, style="Toolbutton", variable=self.teleport_mode_var,
+            command=lambda: self._on_dm_checktool_toggled("teleport")
+        )
         btn_teleport.pack(pady=2)
         ToolTip(btn_teleport, "Teletrasporto / Transizione Mappa (Click su esagono per impostare teleport)")
 
         self.door_mode_var = tk.BooleanVar(value=False)
-        self.btn_door = ttk.Checkbutton(left_toolbar, text="🚪", width=3, style="Toolbutton", variable=self.door_mode_var)
+        self.btn_door = ttk.Checkbutton(
+            left_toolbar, text="🚪", width=3, style="Toolbutton", variable=self.door_mode_var,
+            command=lambda: self._on_dm_checktool_toggled("door")
+        )
         self.btn_door.pack(pady=2)
         ToolTip(self.btn_door, "Porte Interattive 5e (Click per aggiungere o gestire porte: aperta, chiusa, serrata, segreta)")
 
         self.room_pin_mode_var = tk.BooleanVar(value=False)
-        self.btn_room_pin = ttk.Checkbutton(left_toolbar, text="📌", width=3, style="Toolbutton", variable=self.room_pin_mode_var)
+        self.btn_room_pin = ttk.Checkbutton(
+            left_toolbar, text="📌", width=3, style="Toolbutton", variable=self.room_pin_mode_var,
+            command=lambda: self._on_dm_checktool_toggled("room_pin")
+        )
         self.btn_room_pin.pack(pady=2)
         ToolTip(self.btn_room_pin, "Spille Stanza DM (Note segrete e testo da leggere al gruppo)")
 
@@ -649,6 +659,15 @@ class DM_GUI(DMCampaignSessionMixin):
         self.top_status_env_lbl.pack(side=tk.LEFT, padx=2)
         self.top_status_env_lbl.bind("<Button-1>", lambda e: self.toggle_map_outdoor())
         ToolTip(self.top_status_env_lbl, lambda: _t("map_env_tooltip"))
+
+        self.top_status_map_lbl = tk.Label(
+            pills_frame, text="🗺️ Mappe", font=FONT_SMALL,
+            bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR, padx=6, pady=2,
+            highlightbackground=BORDER_COLOR, highlightthickness=1, cursor="hand2"
+        )
+        self.top_status_map_lbl.pack(side=tk.LEFT, padx=2)
+        self.top_status_map_lbl.bind("<Button-1>", lambda e: self.open_map_manager_dialog())
+        ToolTip(self.top_status_map_lbl, "Gestisci, crea, ridimensiona o cambia mappa di sessione")
         
         self.top_status_automation_lbl = tk.Label(
             pills_frame, text="⚡ Full Auto", font=FONT_SMALL,
@@ -673,6 +692,7 @@ class DM_GUI(DMCampaignSessionMixin):
         self.map_tool_combo = ttk.Combobox(fow_toolbar, textvariable=self.fow_mode_var, state="readonly", width=15)
         self.map_tool_combo['values'] = (_t("fow_mode_move"), _t("fow_mode_erase"), _t("fow_mode_draw"))
         self.map_tool_combo.pack(side=tk.LEFT, padx=3)
+        self.map_tool_combo.bind("<<ComboboxSelected>>", self._on_fow_mode_selected)
 
         self.fow_brush_radius_var = tk.IntVar(value=0)
         self.lbl_fow_brush = tk.Label(fow_toolbar, text=_t("fow_brush_radius"), font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
@@ -704,6 +724,9 @@ class DM_GUI(DMCampaignSessionMixin):
         self.map_canvas.set_on_hex_right_click_callback(self.on_hex_right_clicked)
         self.map_canvas.is_hex_click_priority_callback = self._is_dm_hex_click_priority
         self.map_canvas.on_token_select_callback = self.on_map_token_selected
+        self.map_canvas.on_hex_drag_callback = self._on_hex_drag_paint
+        self.map_canvas.on_hex_drag_end_callback = self._on_hex_drag_paint_end
+        self.map_canvas.on_tool_mode_changed_callback = self._on_canvas_tool_mode_changed
 
         # --- VTT FLOATING HUD BAR (Allineata al Client Giocatore) ---
         self.vtt_hud_bar = tk.Frame(self.map_viewport_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_GOLD, highlightthickness=1, padx=4, pady=3)
@@ -1120,8 +1143,97 @@ class DM_GUI(DMCampaignSessionMixin):
                 self.btn_hud_toggle_sidebar.configure(text="▶", style="HudGold.TButton")
         return self.sidebar_collapsed
 
+    def _deactivate_all_map_tools(self, except_tool=None):
+        """Disattiva tutti gli strumenti mappa mutualmente esclusivi eccetto quello attivo."""
+        if except_tool != "pan" and getattr(self, "map_canvas", None) and getattr(self.map_canvas, "pan_mode", False):
+            self.map_canvas.toggle_pan_mode(False)
+        if hasattr(self, "btn_pan") and self.btn_pan and except_tool != "pan":
+            self.btn_pan.configure(style="Hud.TButton")
+
+        if except_tool != "ruler" and getattr(self, "map_canvas", None) and getattr(self.map_canvas, "ruler_mode", False):
+            self.map_canvas.toggle_ruler_mode(False)
+        if hasattr(self, "btn_ruler") and self.btn_ruler and except_tool != "ruler":
+            self.btn_ruler.configure(style="Hud.TButton")
+
+        if except_tool != "pen" and getattr(self, "map_canvas", None) and getattr(self.map_canvas, "pen_mode", False):
+            self.map_canvas.toggle_pen_mode(False)
+        if hasattr(self, "btn_pen") and self.btn_pen and except_tool != "pen":
+            self.btn_pen.configure(style="Tool.TButton")
+
+        if except_tool != "terrain" and getattr(self, "terrain_paint_mode", False):
+            self.terrain_paint_mode = False
+            if hasattr(self, "btn_terrain"):
+                self.btn_terrain.config(style="Tool.TButton")
+
+        if except_tool != "door" and getattr(self, "door_mode_var", None) and self.door_mode_var.get():
+            self.door_mode_var.set(False)
+        if except_tool != "room_pin" and getattr(self, "room_pin_mode_var", None) and self.room_pin_mode_var.get():
+            self.room_pin_mode_var.set(False)
+        if except_tool != "teleport" and getattr(self, "teleport_mode_var", None) and self.teleport_mode_var.get():
+            self.teleport_mode_var.set(False)
+
+        if except_tool != "aoe" and getattr(self, "aoe_mode", False):
+            self.aoe_mode = False
+            self._aoe_pending_origin = None
+
+        if except_tool != "fow" and getattr(self, "fow_mode_var", None):
+            move_lbl = _t("fow_mode_move")
+            if self.fow_mode_var.get() != move_lbl:
+                self.fow_mode_var.set(move_lbl)
+
+        if except_tool not in ("pan", "ruler", "pen") and getattr(self, "map_canvas", None):
+            try:
+                cur = "crosshair" if except_tool in ("terrain", "door", "room_pin", "teleport", "aoe") else ("dotbox" if except_tool == "fow" else "")
+                self.map_canvas.config(cursor=cur)
+            except Exception:
+                pass
+
+    def _on_canvas_tool_mode_changed(self, active_tool):
+        if active_tool == "escape":
+            self._deactivate_all_map_tools(except_tool=None)
+            return
+        if active_tool in ("pan", "ruler", "pen"):
+            self._deactivate_all_map_tools(except_tool=active_tool)
+        if hasattr(self, "btn_pan") and self.btn_pan:
+            self.btn_pan.configure(style="HudActive.TButton" if getattr(self.map_canvas, "pan_mode", False) else "Hud.TButton")
+        if hasattr(self, "btn_ruler") and self.btn_ruler:
+            self.btn_ruler.configure(style="HudActive.TButton" if getattr(self.map_canvas, "ruler_mode", False) else "Hud.TButton")
+        if hasattr(self, "btn_pen") and self.btn_pen:
+            self.btn_pen.configure(style="Accent.TButton" if getattr(self.map_canvas, "pen_mode", False) else "Tool.TButton")
+
+    def _on_dm_checktool_toggled(self, tool_name):
+        var_map = {
+            "teleport": getattr(self, "teleport_mode_var", None),
+            "door": getattr(self, "door_mode_var", None),
+            "room_pin": getattr(self, "room_pin_mode_var", None),
+        }
+        v = var_map.get(tool_name)
+        if v is not None and v.get():
+            self._deactivate_all_map_tools(except_tool=tool_name)
+        elif getattr(self, "map_canvas", None):
+            try:
+                self.map_canvas.config(cursor="")
+            except Exception:
+                pass
+
+    def _on_fow_mode_selected(self, event=None):
+        if not getattr(self, "fow_mode_var", None):
+            return
+        mode_str = self.fow_mode_var.get()
+        is_brush = mode_str in ("Cancella Nebbia", "Erase Fog", _t("fow_mode_erase"), "Disegna Nebbia", "Draw Fog", _t("fow_mode_draw"))
+        if is_brush:
+            self._deactivate_all_map_tools(except_tool="fow")
+        elif getattr(self, "map_canvas", None):
+            try:
+                self.map_canvas.config(cursor="")
+            except Exception:
+                pass
+
     def toggle_pan_mode(self):
         if self.map_canvas and hasattr(self.map_canvas, "toggle_pan_mode"):
+            will_activate = not getattr(self.map_canvas, "pan_mode", False)
+            if will_activate:
+                self._deactivate_all_map_tools(except_tool="pan")
             is_active = self.map_canvas.toggle_pan_mode()
             if hasattr(self, "btn_pan") and self.btn_pan:
                 self.btn_pan.configure(style="HudActive.TButton" if is_active else "Hud.TButton")
@@ -1373,12 +1485,9 @@ class DM_GUI(DMCampaignSessionMixin):
             messagebox.showerror("Errore", f"Impossibile aprire il compendio: {e}")
 
     def on_monster_spawned(self, item_data, category):
+        from common.game_state import GameState
         base_name = item_data.get("name", "Mostro")
-        idx = 1
-        new_name = f"{base_name} {idx}"
-        while self.server.game_state.find_player(new_name):
-            idx += 1
-            new_name = f"{base_name} {idx}"
+        new_name = GameState.allocate_unique_entity_name(self.server.game_state, base_name, prefer_unnumbered=True)
 
         # SRD stats extraction
         hp = item_data.get("hit_points", item_data.get("hp", 10))
@@ -1847,6 +1956,13 @@ class DM_GUI(DMCampaignSessionMixin):
         else:
             # Menu contestuale della mappa (hex vuoto)
             map_menu = tk.Menu(self.master, tearoff=0)
+            selected_name = self.get_player_name_from_listbox()
+            if selected_name:
+                map_menu.add_command(
+                    label=f"📍 Muovi qui '{selected_name}'",
+                    command=lambda n=selected_name, h=clicked_hex: self.move_selected_token_to_hex(n, h)
+                )
+                map_menu.add_separator()
             map_menu.add_command(label="Imposta Punto di Spawn", command=lambda: self.set_spawn_point(clicked_hex))
             
             cur_map = getattr(self.server.game_state, "current_map", None)
@@ -1894,39 +2010,59 @@ class DM_GUI(DMCampaignSessionMixin):
         from server.network import broadcast
         broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
 
-    def set_difficult_terrain_at(self, clicked_hex, terrain_type="fango"):
+    def move_selected_token_to_hex(self, target_name, clicked_hex):
+        """Sposta esplicitamente un token sull'esagono selezionato dal menu contestuale."""
+        if not target_name or not getattr(self.server.game_state, "current_map", None):
+            return
+        from common.protocol import make_player_move
+        from server.network import broadcast
+        if self.server.game_state.move_player(target_name, [clicked_hex.q, clicked_hex.r]):
+            broadcast(self.server.game_state, make_player_move(target_name, [clicked_hex.q, clicked_hex.r]))
+            self.redraw_map_and_players()
+            self.log_to_chat(f"[VTT] Token '{target_name}' spostato in [{clicked_hex.q}, {clicked_hex.r}].")
+
+    def set_difficult_terrain_at(self, clicked_hex, terrain_type="fango", broadcast_now=True):
         """Imposta un tipo di terreno difficile al volo su un esagono e sincronizza tutti i client."""
-        if not getattr(self.server.game_state, "current_map", None): return
+        if not getattr(self.server.game_state, "current_map", None): return False
         cur_map = self.server.game_state.current_map
         diff_terrain = cur_map.setdefault("difficult_terrain", {})
         pos_key = f"{clicked_hex.q},{clicked_hex.r}"
+        if isinstance(diff_terrain, dict) and diff_terrain.get(pos_key) == terrain_type:
+            return False
         diff_terrain[pos_key] = terrain_type
 
-        from common.protocol import make_map_data_update_broadcast
-        from server.network import broadcast
-        broadcast(self.server.game_state, make_map_data_update_broadcast(cur_map))
-        self.server.game_state._trigger_gui_update()
-        self.log_to_chat(f"[TERRENO] Applicato terreno difficile ({terrain_type.capitalize()}) a [{clicked_hex.q}, {clicked_hex.r}].")
-        self.redraw_map_and_players()
+        if broadcast_now:
+            from common.protocol import make_map_data_update_broadcast
+            from server.network import broadcast
+            broadcast(self.server.game_state, make_map_data_update_broadcast(cur_map))
+            self.server.game_state._trigger_gui_update()
+            self.log_to_chat(f"[TERRENO] Applicato terreno difficile ({terrain_type.capitalize()}) a [{clicked_hex.q}, {clicked_hex.r}].")
+            self.redraw_map_and_players()
+        return True
 
-    def remove_difficult_terrain_at(self, clicked_hex):
+    def remove_difficult_terrain_at(self, clicked_hex, broadcast_now=True):
         """Rimuove il terreno difficile da un esagono al volo e sincronizza i client."""
-        if not getattr(self.server.game_state, "current_map", None): return
+        if not getattr(self.server.game_state, "current_map", None): return False
         cur_map = self.server.game_state.current_map
         diff_terrain = cur_map.get("difficult_terrain", {})
         pos_key = f"{clicked_hex.q},{clicked_hex.r}"
-        if pos_key in diff_terrain:
+        changed = False
+        if isinstance(diff_terrain, dict) and pos_key in diff_terrain:
             del diff_terrain[pos_key]
+            changed = True
         pos_tup = [clicked_hex.q, clicked_hex.r]
         if isinstance(diff_terrain, list) and pos_tup in diff_terrain:
             diff_terrain.remove(pos_tup)
+            changed = True
 
-        from common.protocol import make_map_data_update_broadcast
-        from server.network import broadcast
-        broadcast(self.server.game_state, make_map_data_update_broadcast(cur_map))
-        self.server.game_state._trigger_gui_update()
-        self.log_to_chat(f"[TERRENO] Rimosso terreno difficile a [{clicked_hex.q}, {clicked_hex.r}].")
-        self.redraw_map_and_players()
+        if broadcast_now:
+            from common.protocol import make_map_data_update_broadcast
+            from server.network import broadcast
+            broadcast(self.server.game_state, make_map_data_update_broadcast(cur_map))
+            self.server.game_state._trigger_gui_update()
+            self.log_to_chat(f"[TERRENO] Rimosso terreno difficile a [{clicked_hex.q}, {clicked_hex.r}].")
+            self.redraw_map_and_players()
+        return changed
 
     def toggle_terrain_paint_tool(self):
         """Attiva o disattiva la modalità pennello per dipingere terreni difficili al volo sulla mappa."""
@@ -1946,10 +2082,11 @@ class DM_GUI(DMCampaignSessionMixin):
             ("clear", "🗑️ Cancella Terreno (Gomma)")
         ]
         def pick_brush(t):
+            self._deactivate_all_map_tools(except_tool="terrain")
             self.active_terrain_brush = t
             self.terrain_paint_mode = True
             self.btn_terrain.config(style="Primary.TButton")
-            self.log_to_chat(f"[SISTEMA] Pennello terreno difficile attivo: {t.capitalize()}. Clicca sulle caselle della mappa per applicare.")
+            self.log_to_chat(f"[SISTEMA] Pennello terreno difficile attivo: {t.capitalize()}. Clicca o trascina sulle caselle della mappa per applicare.")
 
         for code, label in types:
             menu.add_command(label=label, command=lambda c=code: pick_brush(c))
@@ -2215,37 +2352,83 @@ class DM_GUI(DMCampaignSessionMixin):
             return
         
         map_hexes = {Hex(q, r) for q, r in self.server.game_state.current_map.get("hexes", [])}
-        if clicked_hex not in map_hexes: return
+        if map_hexes and clicked_hex not in map_hexes: return
         
         if mode in ("reveal", "hide"):
-            drafted = {Hex(h[0], h[1]) for h in self.server.game_state.current_map.get("fow_draft", self.server.game_state.current_map.get("fow_revealed", []))}
-            changed = False
-            brush_rad = self.fow_brush_radius_var.get() if hasattr(self, 'fow_brush_radius_var') else 0
-            if brush_rad > 0:
-                target_hexes = get_sphere_hexes(clicked_hex, brush_rad)
-            else:
-                target_hexes = [clicked_hex]
-                
-            for h in target_hexes:
-                if h in map_hexes:
-                    if mode == "reveal" and h not in drafted:
-                        drafted.add(h)
-                        changed = True
-                    elif mode == "hide" and h in drafted:
-                        drafted.remove(h)
-                        changed = True
-                
+            self._paint_fow_at(clicked_hex, mode, map_hexes=map_hexes, redraw_now=True)
+            return
+        # In modalità "move", un click singolo su cella vuota non teletrasporta più accidentalmente il token selezionato:
+        # usare Drag & Drop sul canvas oppure Tasto Destro -> "📍 Muovi qui '<nome>'".
+        return
+
+    def _paint_fow_at(self, clicked_hex, mode, map_hexes=None, redraw_now=True):
+        """Applica il pennello Nebbia di Guerra (reveal/hide) rispettando grid_type della mappa."""
+        cur_map = getattr(self.server.game_state, "current_map", None)
+        if not isinstance(cur_map, dict) or mode not in ("reveal", "hide"):
+            return False
+        if map_hexes is None:
+            map_hexes = {Hex(q, r) for q, r in cur_map.get("hexes", [])}
+        if map_hexes and clicked_hex not in map_hexes:
+            return False
+
+        grid_type = cur_map.get("grid_type", "hex")
+        drafted = {Hex(h[0], h[1]) for h in cur_map.get("fow_draft", cur_map.get("fow_revealed", []))}
+        changed = False
+        brush_rad = self.fow_brush_radius_var.get() if hasattr(self, "fow_brush_radius_var") else 0
+        if brush_rad > 0:
+            target_hexes = get_sphere_hexes(clicked_hex, brush_rad, grid_type=grid_type)
+        else:
+            target_hexes = [clicked_hex]
+
+        for h in target_hexes:
+            if not map_hexes or h in map_hexes:
+                if mode == "reveal" and h not in drafted:
+                    drafted.add(h)
+                    changed = True
+                elif mode == "hide" and h in drafted:
+                    drafted.remove(h)
+                    changed = True
+
+        if changed:
+            cur_map["fow_draft"] = [[h.q, h.r] for h in drafted]
+            if redraw_now:
+                self.redraw_map_and_players()
+        return changed
+
+    def _on_hex_drag_paint(self, dragged_hex):
+        """Dipinge Nebbia di Guerra o Terreno Difficile in continuo durante il trascinamento (<B1-Motion>)."""
+        cur_map = getattr(self.server.game_state, "current_map", None)
+        if not isinstance(cur_map, dict):
+            return
+        if getattr(self, "terrain_paint_mode", False):
+            brush = getattr(self, "active_terrain_brush", "fango")
+            changed = (
+                self.remove_difficult_terrain_at(dragged_hex, broadcast_now=False)
+                if brush == "clear"
+                else self.set_difficult_terrain_at(dragged_hex, brush, broadcast_now=False)
+            )
             if changed:
-                self.server.game_state.current_map["fow_draft"] = [[h.q, h.r] for h in drafted]
+                self._drag_paint_terrain_dirty = True
                 self.redraw_map_and_players()
             return
 
-        selected_name = self.get_player_name_from_listbox()
-        if not selected_name: return
+        mode_str = self.fow_mode_var.get() if hasattr(self, "fow_mode_var") else ""
+        if mode_str in ("Cancella Nebbia", "Erase Fog", _t("fow_mode_erase")):
+            self._paint_fow_at(dragged_hex, "reveal", redraw_now=True)
+        elif mode_str in ("Disegna Nebbia", "Draw Fog", _t("fow_mode_draw")):
+            self._paint_fow_at(dragged_hex, "hide", redraw_now=True)
 
-        if self.server.game_state.move_player(selected_name, [clicked_hex.q, clicked_hex.r]):
-            broadcast(self.server.game_state, make_player_move(selected_name, [clicked_hex.q, clicked_hex.r]))
-            self.redraw_map_and_players()
+    def _on_hex_drag_paint_end(self):
+        """Finalizza e sincronizza in rete eventuali modifiche dipinte durante il trascinamento."""
+        if getattr(self, "_drag_paint_terrain_dirty", False):
+            self._drag_paint_terrain_dirty = False
+            cur_map = getattr(self.server.game_state, "current_map", None)
+            if isinstance(cur_map, dict):
+                from common.protocol import make_map_data_update_broadcast
+                from server.network import broadcast
+                broadcast(self.server.game_state, make_map_data_update_broadcast(cur_map))
+                self.server.game_state._trigger_gui_update()
+                self.redraw_map_and_players()
     
     def redraw_map_and_players(self):
         map_data = self.server.game_state.current_map
@@ -2280,12 +2463,23 @@ class DM_GUI(DMCampaignSessionMixin):
             }
         turn_player = self.server.game_state.get_current_turn_player()
         turn_name = turn_player.name if turn_player else ""
+        is_player_view = bool(getattr(self, "dm_player_view_var", None) and self.dm_player_view_var.get())
         view_name = ""
-        if getattr(self, "dm_player_view_var", None) and self.dm_player_view_var.get():
-            view_name = "DM_TEST"
+        if is_player_view:
             sel_pname = self.get_player_name_from_listbox()
             if sel_pname and sel_pname in players_data:
                 view_name = sel_pname
+            else:
+                party_fallback = next(
+                    (
+                        pname for pname, pdata in players_data.items()
+                        if pdata.get("is_party_member") or pdata.get("is_companion")
+                    ),
+                    None,
+                )
+                view_name = party_fallback or (next(iter(players_data), "") if players_data else "__PLAYER_VIEW__")
+        if hasattr(self, "map_canvas") and self.map_canvas is not None:
+            self.map_canvas.is_dm = not is_player_view
         
         time_hour = getattr(self.server.game_state, "time_hour", 12)
         time_minute = getattr(self.server.game_state, "time_minute", 0)
@@ -2499,6 +2693,9 @@ class DM_GUI(DMCampaignSessionMixin):
 
     def toggle_whiteboard_pen(self):
         if not self.map_canvas: return
+        will_activate = not getattr(self.map_canvas, "pen_mode", False)
+        if will_activate:
+            self._deactivate_all_map_tools(except_tool="pen")
         is_active = self.map_canvas.toggle_pen_mode()
         if hasattr(self, "btn_pen"):
             self.btn_pen.config(style="Accent.TButton" if is_active else "Tool.TButton")
@@ -3817,8 +4014,10 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
                 next_mode = modes[0]
         self.fow_mode_var.set(next_mode)
         is_fow_brush = next_mode != _t("fow_mode_move")
-        if self.map_canvas:
-            self.map_canvas.config(cursor="dotbox" if is_fow_brush else "")
+        if is_fow_brush:
+            self._deactivate_all_map_tools(except_tool="fow")
+        elif self.map_canvas:
+            self.map_canvas.config(cursor="")
         self.show_toast(
             f"Modalità Nebbia: {next_mode} (Nebbia {'Attiva' if self.fow_enabled_var.get() else 'Disattivata'})",
             title="☁️ Nebbia di Guerra",
@@ -3862,6 +4061,9 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         self.log_to_chat(msg, tab_name="Sistema", sender="DM", color="#EB459E")
 
     def toggle_ruler_mode(self):
+        will_activate = not getattr(self.map_canvas, "ruler_mode", False)
+        if will_activate:
+            self._deactivate_all_map_tools(except_tool="ruler")
         active = self.map_canvas.toggle_ruler_mode()
         style = "HudActive.TButton" if active else "Hud.TButton"
         if hasattr(self, 'btn_ruler') and self.btn_ruler:
@@ -3932,6 +4134,7 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         def submit():
             try: sz = int(size_entry.get())
             except (ValueError, TypeError): sz = 3
+            self._deactivate_all_map_tools(except_tool="aoe")
             self.aoe_mode = True
             dc = 10
             if req_save_var.get():

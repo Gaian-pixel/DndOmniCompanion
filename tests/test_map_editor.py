@@ -326,6 +326,173 @@ class TestMapEditor(unittest.TestCase):
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
+    def test_tactical_layers_authoring_drag_paint_and_tool_exclusion(self):
+        self.editor.base_image_original = Image.new("RGB", (500, 500), color="gray")
+        self.editor.current_hex_size = 35
+        self.editor.hex_layout = self.editor._create_layout(35, "hex")
+        self.editor.generate_auto_grid(silent=True)
+
+        class _Evt:
+            def __init__(self, x, y):
+                self.x = x
+                self.y = y
+
+        def _hex_screen_evt(h):
+            wx, wy = self.editor.hex_layout.hex_to_pixel(h)
+            sx, sy = self.editor.world_to_screen(wx, wy)
+            return _Evt(sx, sy)
+
+        hexes_sorted = sorted(self.editor.grid_hexes, key=lambda h: (h.q, h.r))
+        h1, h2, h3, h4, h5 = hexes_sorted[1], hexes_sorted[2], hexes_sorted[3], hexes_sorted[4], hexes_sorted[5]
+
+        # Mutual exclusion tra tool editor
+        self.editor.toggle_add_poi_mode()
+        self.assertEqual(self.editor.editor_tool, "poi")
+        self.assertTrue(self.editor.add_poi_mode)
+        self.editor.set_editor_tool("wall")
+        self.assertEqual(self.editor.editor_tool, "wall")
+        self.assertFalse(self.editor.add_poi_mode)
+        self.assertFalse(self.editor.add_terrain_mode)
+
+        # Drag-paint muri: click su h1 + motion su h2 + motion su h1 non annulla h1 nello stesso tratto
+        self.editor.on_canvas_left_click(_hex_screen_evt(h1))
+        self.editor._on_canvas_b1_motion(_hex_screen_evt(h2))
+        self.editor._on_canvas_b1_motion(_hex_screen_evt(h1))
+        self.editor._on_canvas_b1_release()
+        self.assertIn(h1, self.editor.walls)
+        self.assertIn(h2, self.editor.walls)
+
+        # Copertura 1/2 rimpiazza muro sulla stessa cella; 3/4 su h3
+        self.editor.set_editor_tool("half_cover")
+        self.editor.on_canvas_left_click(_hex_screen_evt(h1))
+        self.assertIn(h1, self.editor.half_cover)
+        self.assertNotIn(h1, self.editor.walls)
+        self.editor.set_editor_tool("three_quarters_cover")
+        self.editor.on_canvas_left_click(_hex_screen_evt(h3))
+        self.assertIn(h3, self.editor.three_quarters_cover)
+
+        # Ciclo stato porte su h4: closed -> open -> locked -> secret -> rimossa
+        self.editor.set_editor_tool("door")
+        ev4 = _hex_screen_evt(h4)
+        for exp_state in ("closed", "open", "locked", "secret"):
+            self.editor.on_canvas_left_click(ev4)
+            self.assertEqual(self.editor.doors[h4]["state"], exp_state)
+        self.editor.on_canvas_left_click(ev4)
+        self.assertNotIn(h4, self.editor.doors)
+        self.editor.on_canvas_left_click(ev4)
+        self.assertIn(h4, self.editor.doors)
+
+        # Ciclo luci su h5: Torcia (4) -> Lanterna (6) -> rimossa
+        self.editor.set_editor_tool("light")
+        ev5 = _hex_screen_evt(h5)
+        self.editor.on_canvas_left_click(ev5)
+        self.assertEqual(self.editor.lights[h5]["bright"], 4)
+        self.editor.on_canvas_left_click(ev5)
+        self.assertEqual(self.editor.lights[h5]["bright"], 6)
+        self.editor.on_canvas_left_click(ev5)
+        self.assertNotIn(h5, self.editor.lights)
+
+        # Spawn point toggle su h5
+        self.editor.set_editor_tool("spawn")
+        self.editor.on_canvas_left_click(ev5)
+        self.assertEqual(self.editor.spawn_point, [h5.q, h5.r])
+        self.editor.on_canvas_left_click(ev5)
+        self.assertIsNone(self.editor.spawn_point)
+
+        # Toggle tool attivo su se stesso torna a "cells"
+        self.editor.set_editor_tool("spawn")
+        self.assertEqual(self.editor.editor_tool, "cells")
+
+    def test_non_destructive_grid_type_switch_preserves_layers(self):
+        self.editor.base_image_original = Image.new("RGB", (400, 400), color="navy")
+        self.editor.current_hex_size = 35
+        self.editor.current_grid_type = "hex"
+        self.editor.grid_type_var.set("hex")
+        self.editor.hex_layout = self.editor._create_layout(35, "hex")
+        self.editor.generate_auto_grid(silent=True)
+
+        self.editor.pois[Hex(2, 2)] = {"title": "Altare", "caption": "Antico"}
+        self.editor.difficult_terrain[Hex(2, 3)] = "fango"
+        self.editor.walls.add(Hex(3, 2))
+        self.editor.half_cover.add(Hex(1, 2))
+        self.editor.three_quarters_cover.add(Hex(1, 3))
+        self.editor.doors[Hex(2, 1)] = {"q": 2, "r": 1, "state": "closed"}
+        self.editor.lights[Hex(1, 1)] = {"q": 1, "r": 1, "bright": 4, "dim": 4}
+        self.editor.spawn_point = [2, 2]
+
+        self.editor.grid_type_var.set("square")
+        self.editor.on_grid_type_selected()
+
+        self.assertEqual(self.editor.current_grid_type, "square")
+        self.assertIsInstance(self.editor.hex_layout, SquareLayout)
+        self.assertEqual(len(self.editor.pois), 1)
+        self.assertEqual(next(iter(self.editor.pois.values()))["title"], "Altare")
+        self.assertEqual(len(self.editor.difficult_terrain), 1)
+        self.assertEqual(len(self.editor.walls), 1)
+        self.assertEqual(len(self.editor.half_cover), 1)
+        self.assertEqual(len(self.editor.three_quarters_cover), 1)
+        self.assertEqual(len(self.editor.doors), 1)
+        self.assertEqual(len(self.editor.lights), 1)
+        self.assertIsNotNone(self.editor.spawn_point)
+
+    def test_load_and_save_tactical_layers_and_embedded_bg_fallback(self):
+        import base64
+        from io import BytesIO
+
+        buf = BytesIO()
+        Image.new("RGB", (64, 48), color="purple").save(buf, format="PNG")
+        emb_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+
+        with tempfile.TemporaryDirectory() as tmpd:
+            src_path = os.path.join(tmpd, "src_map.json")
+            out_path = os.path.join(tmpd, "saved_map.json")
+            payload = {
+                "base_image_path": "Z:/missing_host_path/dungeon.png",
+                "bg_image_data": emb_b64,
+                "hex_size": 60,
+                "grid_type": "square",
+                "hexes": [[q, r] for q in range(3) for r in range(3)],
+                "walls": [[1, 1], ["0,0", "1,0"]],
+                "half_cover": [[2, 1]],
+                "three_quarters_cover": [[2, 2]],
+                "doors": [{"q": 1, "r": 0, "state": "secret"}, {"edge": ["0,0", "0,1"], "state": "locked", "dc": 16}],
+                "lights": [{"q": 0, "r": 2, "bright": 4, "dim": 4}],
+                "spawn_point": [0, 0],
+            }
+            with open(src_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f)
+
+            with patch("tkinter.filedialog.askopenfilename", return_value=src_path), \
+                 patch("tkinter.messagebox.showinfo"):
+                self.editor.load_map_file()
+
+            self.assertIsNotNone(self.editor.base_image_original)
+            self.assertEqual(self.editor.base_image_original.size, (64, 48))
+            self.assertIn(Hex(1, 1), self.editor.walls)
+            self.assertEqual(self.editor._extra_walls, [["0,0", "1,0"]])
+            self.assertIn(Hex(2, 1), self.editor.half_cover)
+            self.assertIn(Hex(2, 2), self.editor.three_quarters_cover)
+            self.assertEqual(self.editor.doors[Hex(1, 0)]["state"], "secret")
+            self.assertEqual(len(self.editor._extra_doors), 1)
+            self.assertIn(Hex(0, 2), self.editor.lights)
+            self.assertEqual(self.editor.spawn_point, [0, 0])
+
+            with patch("tkinter.filedialog.asksaveasfilename", return_value=out_path), \
+                 patch("tkinter.messagebox.showinfo"):
+                self.editor.save_map()
+
+            with open(out_path, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+            self.assertIn([1, 1], saved["walls"])
+            self.assertIn(["0,0", "1,0"], saved["walls"])
+            self.assertEqual(saved["half_cover"], [[2, 1]])
+            self.assertEqual(saved["three_quarters_cover"], [[2, 2]])
+            self.assertTrue(any(d.get("q") == 1 and d.get("r") == 0 and d.get("state") == "secret" for d in saved["doors"]))
+            self.assertTrue(any(d.get("edge") == ["0,0", "0,1"] for d in saved["doors"]))
+            self.assertEqual(saved["lights"], [{"q": 0, "r": 2, "bright": 4, "dim": 4}])
+            self.assertEqual(saved["spawn_point"], [0, 0])
+            self.assertTrue(saved.get("bg_image_data"))
+
 
 if __name__ == "__main__":
     unittest.main()
