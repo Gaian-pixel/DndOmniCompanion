@@ -852,6 +852,14 @@ class MapEditorWindow(tk.Toplevel):
                             self.teleports[Hex(int(tp_parts[0].strip()), int(tp_parts[1].strip()))] = str(dest_map)
                         except (ValueError, TypeError):
                             pass
+            elif isinstance(raw_teleports, list):
+                for tp_item in raw_teleports:
+                    if isinstance(tp_item, dict) and "q" in tp_item and "r" in tp_item:
+                        dest_val = tp_item.get("target_map") or tp_item.get("dest_map") or tp_item.get("dest") or tp_item.get("map") or ""
+                        try:
+                            self.teleports[Hex(int(tp_item["q"]), int(tp_item["r"]))] = str(dest_val)
+                        except (ValueError, TypeError):
+                            pass
 
             for pin_item in data.get("room_pins", []) or []:
                 if isinstance(pin_item, dict) and "q" in pin_item and "r" in pin_item:

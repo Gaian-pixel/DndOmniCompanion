@@ -1,8 +1,8 @@
 # D&D OmniCompanion — Autonomous Development Session Handoff
 
 > **Branch:** `dev/v0.6.0-autonomous` (`main` untouched at `3b28c99`, no remote pushes or tags)  
-> **Latest Phase:** Phase 5 Core VTT Completion, Gameplay Features & Product Reliability (`TASK-025` through `TASK-031`)  
-> **Status:** All roadmap items (`TASK-001` through `TASK-031`) are **COMPLETED**, verified, and committed locally on `dev/v0.6.0-autonomous`.
+> **Latest Phase:** Phase 5B Core VTT Completion, Advanced Gameplay & Product Validation (`TASK-032` through `TASK-037`)  
+> **Status:** All roadmap items (`TASK-001` through `TASK-037`) are **COMPLETED**, verified, and committed locally on `dev/v0.6.0-autonomous`.
 
 ---
 
@@ -133,9 +133,31 @@
 31. **`5688125` — `TASK-030` (Phase 5): Multiplayer Reliability, HUD/DM UX (`[UX-H09]`/`[UX-H10]`/`[UX-M08]`/`[UX-H12]`/`[UX-L03]`), Secrecy & Tabletop Mode**
    - Implemented `ClientNetwork.connect_async` & `PING`/`PONG` keepalive, cross-IP PIN reconnect with `known_asset_hashes` deduplication & avatar cache restore, reconnect-window resource clamping, `[UX-H09]` HUD connection pill & `[UX-H10]` scrollable `controls_canvas`, `[UX-M08]` bounded `npc_actions_canvas`, `[UX-H12]` Quest/Faction editor fixes, `DMLiveFlowDialog.share_lore` handout broadcast, `.bak` atomic campaign backups, `DM SECRET:`/`dm_note` secrecy, `[UX-L03]` Markdown/`Ctrl+S` Player Journal, debounced `ManualsDialog`, and Tabletop mode (`roll_all_npcs_initiative` skipping PCs, real time rests, interactive `DMPlayerSheetViewer`, read-only `open_player_display_window`, `sync_local_party_characters_to_manager` writeback) (`tests/test_task030_multiplayer_ux_secrecy_tabletop.py`, `659/659` passing).
 
-32. **Current Commit (`TASK-031` — Phase 5): Phase 5 E2E Workflows A–D, CI Bug Fix & Bilingual Documentation Sync**
+32. **`3952f8e` — `TASK-031` (Phase 5): Phase 5 E2E Workflows A–D, CI Bug Fix & Bilingual Documentation Sync**
    - Fixed latent `NameError` in `server/rules/combat.py` (`_apply_hp_change(..., same_hit_secondary=False)`) surfaced by `pyflakes`.
    - Added `TestPhase5EndToEndWorkflows` (`4` E2E tests covering Workflows A–D in `tests/test_gameplay_integration_e2e.py`, module total `21/21 OK` in `7.407s`), verified full isolated suite (`663/663 OK` across `67` modules in `62.953s`), `py_compile` (`178` files), `pyflakes` (`CRIT=0`), and live Tkinter probe (`errors=0`), and synchronized all bilingual docs.
+
+33. **`80d88cd` — `TASK-032` (Phase 5B): Battlemap Player Display FoW, Marquee Group Move & Map Editor Undo/Layers**
+   - Implemented second-screen Player Display (`is_dm=False`, `player_name=""`) party/companion union FoW/LoS + revealed lights (`_compute_player_visible_hexes`, `_compute_token_vision_hexes`).
+   - Added `HexMapCanvas` content-signature `_map_hexes_set` invalidation (`_map_hexes_sig`), `Shift+Drag` marquee selection & `on_tokens_group_drop_callback` wired in DM & Client, 50-step Map Editor Undo/Redo (`Ctrl+Z`/`Ctrl+Y`), Trap/Loot/Teleport/Room-Pin layer tools/badges, `resize_grid`, and gridless auto-grid generation (`tests.test_map_editor` + `tests.test_battlemap_fow_los`: `31/31 OK`).
+
+34. **`73ce9b7` — `TASK-033` (Phase 5B): D&D 5e 2014 Engine Polish**
+   - Enforced single-concentration cleanup, `concentration_caster`, and non-permanent `+2 AC` cleanup in `Shield of Faith` (`get_spell_ac_bonus` across combat/multi-ray/multiattack); passed `grid_type` consistently to combat LoS/cover (`hex_linedraw`, `get_cover_between`) and allowed Barbarian Lv 20 Primal Champion up to `24` FOR/COS on server validation.
+   - Added 3D AoE vertical extent checks (`_is_target_within_aoe_elevation`), `detected=False` cleanup on `reset_trap_at`, explicit `requires_attunement` compendium flag, and client-server ranged ammo sync (`41/41 OK` across targeted suites).
+
+35. **`f8e9421` — `TASK-034` (Phase 5B): Feat Prerequisites, Half-Feat Automation & Multiclass Mixed Hit Dice Pools**
+   - Added `check_feat_prerequisites` validation + UI badge blocking illegal feat picks in `LevelUpDialog`, `apply_half_feat_bonus` + Half-Feat selector (`+1` ability, retroactive CON HP, *Resiliente* save proficiency), and per-die `hit_dice_pools` (`d12`/`d10`/`d8`/`d6`) synced across `VitalsPanel`, `ClientGUI`, `make_short_rest_request(die_counts=...)`, and Long Rest `half total` (min `1`) recovery (`118/118 OK` across targeted suites).
+
+36. **`89e225e` — `TASK-035` (Phase 5B): Static Grid (`hexes_hash`) Cache, LoS Memoization & Non-Blocking Broadcast**
+   - Added `compute_hexes_hash` (`hx_<sha256[:16]>`) + shared `_deduplicate_map_payload` and client `_resolve_cached_map_assets` rehydration, chunked `select`-guarded `_send_message_impl` + parallel `_dispatch_native_broadcast()`, `HexMapCanvas._compute_player_visible_hexes` memoization, single-die scalar `hit_dice_current` regression fix (`common/character_schema.py`), and deterministic RNG mock in `test_gameplay_integration_e2e.py` (`92/92 OK` targeted run).
+
+37. **`9f6eeb1` — `TASK-036` (Phase 5B): Disabled Contrast, 3D Dice Banner i18n & Security/Manuals Test Coverage**
+   - Added accessible disabled button colors (`#1A1D24`/`#9CA3AF`, etc.) via `_map_btn` in `common/theme.py` and symmetric IT/EN `_t(...)` keys (`dice_banner_*`) for all 6 3D dice banner strings in `components/dice_3d_canvas.py`.
+   - Added `TestTask036UxSecurityAndManualsTests` in `tests/test_audit_fixes.py` covering `journal.py`/`character.py` DM privilege rejection, `audio_library.py`/URL/chunk security bounds, and `ManualsDialog` PDF/manuals folder actions (`46/46 OK` targeted run).
+
+38. **Current Commit (`TASK-037` — Phase 5B): Realistic Gameplay Acceptance Scenarios A–E, Legacy Teleport Compatibility, Live Multi-Res UI Audit & Final Sync**
+   - Added `tests/test_phase5b_scenarios_e2e.py` (`TestPhase5BRealisticScenariosE2E`, `5/5 OK` in `2.683s`) proving end-to-end Scenarios A–E across tactical combat/3D AoE/ammo/boss LR, dungeon exploration/MapEditor/FoW/Player Display, multiclass Lv 1–5 progression/prereqs/Half-Feats/mixed rests, hybrid tabletop mode/writeback, and real loopback TCP auth/cache/stalled-socket isolation/reconnect clamping.
+   - Fixed legacy list-format `teleports` migration in `MapEditorWindow.load_map_file()` (`server/map_editor.py`) caught by full-suite validation (`tests/test_audit_v17_phase1.py`), verified all post-edit checks (`682/682 OK` across `68` modules in `77.296s`, `179` compiled files, `pyflakes CRIT=0`, live multi-res Tk probe `errors=0`), and synchronized all EN/IT documentation.
 
 ---
 
@@ -143,12 +165,12 @@
 
 | Check | Command / Scope | Observed Result |
 |---|---|---|
-| **Full Headless Unit Test Suite** | `$env:DND_MOCK_AUDIO="1";` with isolated temp `TEMP`/`TMP`/`APPDATA`/`LOCALAPPDATA` & `DND_SETTINGS_PATH`/`DND_CHARACTERS_PATH`, `python -m unittest discover -s tests -q` | **PASSED**: `Ran 663 tests in 62.953s — OK` (`0` failures, `0` errors, `0` skipped across `67` `unittest` modules, including `TestPhase5EndToEndWorkflows` Workflows A–D & real loopback TCP E2E tests) |
-| **Static Bytecode Compile** | `py_compile.compile(...)` across `common`, `server`, `client`, `components`, `tests`, `main.py`, `build_release.py` | **PASSED**: `PY_COMPILE_OK count=178` |
-| **Static Analysis (`pyflakes` Critical Check)** | CI check (`undefined name` / star-import / syntax error across `common`, `server`, `client`, `components`, `main.py`) | **PASSED**: `PYFLAKES_LINES=357 CRIT=0` (`0` undefined names, `0` star imports) |
-| **Live Isolated Tkinter Probe** | `main.start_app()`, `DM_GUI` (`1280x800`), `ClientGUI` (`1366x768`), `CharacterSheetUI` (`1024x720`, `1366x768`, `1920x1080`) | **PASSED**: `LIVE_TK_PROBE_PASS errors=0` (`CharacterSheetUI` notebook width `633px` at `1024x720` `medium` mode) |
-| **Tracked Data Isolation** | `git status --short client_data campaigns` after test runs | **CLEAN**: empty diff (no mutation of tracked files in `client_data/` or `campaigns/`) |
-| **Roadmapped Tasks** | `docs/DEVELOPMENT_ROADMAP.md` (`TASK-001`..`TASK-031`) | **31 / 31 `COMPLETED`** |
+| **Full Headless Unit Test Suite** | `$env:DND_MOCK_AUDIO="1";` with isolated temp `TEMP`/`TMP`/`APPDATA`/`LOCALAPPDATA` & `DND_SETTINGS_PATH`/`DND_CHARACTERS_PATH`, `python -m unittest discover -s tests -q` | **PASSED**: `Ran 682 tests in 77.296s — OK` (`0` failures, `0` errors, `0` skipped across `68` `unittest` modules, including `TestPhase5BRealisticScenariosE2E` Scenarios A–E, `TestPhase5EndToEndWorkflows`, `TestTask036UxSecurityAndManualsTests`, and real loopback TCP E2E tests) |
+| **Static Bytecode Compile** | `py_compile.compile(...)` across `common`, `server`, `client`, `components`, `tests`, `main.py`, `build_release.py` | **PASSED**: `PY_COMPILE_OK count=179` |
+| **Static Analysis (`pyflakes` Critical Check)** | CI check (`undefined name` / star-import / syntax error across `common`, `server`, `client`, `components`, `main.py`) | **PASSED**: `PYFLAKES_LINES=357 PYFLAKES_CRIT=0` (`0` undefined names, `0` star imports) |
+| **Live Isolated Tkinter Probe** | `main.start_app()`, `LoginDialog` (`lock=True`/`False`), `DM_GUI` (`1024x720`, `1280x800`, `1366x768`), `ClientGUI` (`1024x720`, `1366x768`, `1920x1080`), `CharacterSheetFrame` (`1024x720`, `1366x768`, `1920x1080`), `MapEditorWindow` (`1280x800`) | **PASSED**: `LIVE_TK_PROBE_PASS=True errors=0` (`CharacterSheetFrame`: `1024x720` `nb_w=633` `medium`, `1366x768` `nb_w=576` `wide4`, `1920x1080` `nb_w=1090` `wide4`; `DM_GUI` `nb_w=587`; `ClientGUI` `right_panel_w=370`) |
+| **Tracked Data Isolation** | `git status --short client_data campaigns manuals` after test runs | **CLEAN**: empty diff (no mutation of tracked files in `client_data/`, `campaigns/`, or `manuals/`) |
+| **Roadmapped Tasks** | `docs/DEVELOPMENT_ROADMAP.md` (`TASK-001`..`TASK-037`) | **37 / 37 `COMPLETED`** |
 
 ---
 
@@ -163,7 +185,7 @@
 
 ## 4. Next Steps (For Future Sessions)
 
-All roadmap items through Phase 5 (`TASK-001`–`TASK-031`) are complete on `dev/v0.6.0-autonomous`:
+All roadmap items through Phase 5B (`TASK-001`–`TASK-037`) are complete on `dev/v0.6.0-autonomous`:
 1. Review diffs across `main..dev/v0.6.0-autonomous` and run interactive standalone GUI checks (`tests/test_ui_smoke.py`, `tests/test_e2e_gui.py`) if desired in a desktop session.
 2. Merge `dev/v0.6.0-autonomous` into `main` and publish any release/tag **only** upon explicit human authorization.
 3. Optional next architecture wave: incrementally modularize `ClientGUI.setup_gui` (`client/client.py`) and `DM_GUI` initialization/context menus (`server/dm_gui.py`) into focused mixin/builder modules without altering public mock targets.

@@ -156,7 +156,8 @@ class TestAuditV17Phase1(unittest.TestCase):
                 self.assertEqual(saved["traps"][0]["name"], "Dardi")
                 self.assertEqual(saved["loots"][0]["item"], "Spada")
                 self.assertEqual(saved["lights"][0]["bright"], 4)
-                self.assertEqual(saved["teleports"][0]["target_map"], "exit.json")
+                # Canonical runtime teleport mapping ("q,r" -> target_map) migrated cleanly from list input
+                self.assertEqual(saved["teleports"].get("5,5"), "exit.json")
                 self.assertEqual(saved["room_pins"][0]["title"], "Sala 1")
             finally:
                 editor.destroy()
