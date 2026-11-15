@@ -348,7 +348,7 @@ def normalize_character_dict(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
     sync_hit_dice_pools(
         clean,
-        allow_scalar_override=not (isinstance(data.get("hit_dice_pools"), dict) and bool(data.get("hit_dice_pools"))),
+        allow_scalar_override=not (isinstance(data.get("hit_dice_pools"), dict) and len(data.get("hit_dice_pools")) > 1),
     )
 
     if not isinstance(clean.get("portent_dice"), list):

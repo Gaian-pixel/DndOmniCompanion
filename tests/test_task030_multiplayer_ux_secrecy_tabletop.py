@@ -655,5 +655,169 @@ class TestTask030TabletopAndUXM08(unittest.TestCase):
                         pass
 
 
+class TestTask035PerformanceAndNonBlockingNet(unittest.TestCase):
+    def test_116k_hexes_hash_dedup_rehydration_and_cache_invalidation(self):
+        import json
+        import queue
+        from common.network_utils import broadcast, compute_hexes_hash
+        from common.protocol import make_game_state
+        from server.network import GameState, Player
+        from client.client import ClientGUI
+
+        big_hexes = [{"q": i % 340, "r": i // 340, "t": "stone"} for i in range(116280)]
+        expected_hash = compute_hexes_hash(big_hexes)
+        self.assertTrue(expected_hash.startswith("hx_"))
+
+        gs = GameState(queue.Queue())
+        p1 = Player("P1", conn=object())
+        gs.players = [p1]
+        gs.current_map = {"name": "Megadungeon", "hexes": big_hexes, "fow_revealed": []}
+
+        delivered = []
+        with patch("common.network_utils.send_message", side_effect=lambda c, m: delivered.append(m)):
+            broadcast(gs, make_game_state(gs.get_state_dict(is_dm=False)))
+            pkt1 = delivered[-1]
+            self.assertEqual(pkt1["data"]["map"]["hexes_hash"], expected_hash)
+            self.assertEqual(len(pkt1["data"]["map"]["hexes"]), 116280)
+            full_wire_bytes = len(json.dumps(pkt1).encode("utf-8"))
+
+            c_stub = MagicMock()
+            c_stub._asset_cache = {}
+            c_stub._MAX_ASSET_CACHE_ENTRIES = 32
+            c_stub.local_map_data = None
+            ClientGUI._resolve_cached_map_assets(c_stub, pkt1["data"]["map"])
+            self.assertIn(expected_hash, c_stub._asset_cache)
+
+            # Second broadcast after non-grid state change: hexes omitted on wire & restored from client cache
+            gs.current_map["fow_revealed"] = [[0, 0]]
+            broadcast(gs, make_game_state(gs.get_state_dict(is_dm=False)))
+            pkt2 = delivered[-1]
+            self.assertIsNone(pkt2["data"]["map"]["hexes"])
+            self.assertTrue(pkt2["data"]["map"].get("hexes_cached"))
+            dedup_wire_bytes = len(json.dumps(pkt2).encode("utf-8"))
+            self.assertLess(dedup_wire_bytes, full_wire_bytes * 0.05)
+
+            ClientGUI._resolve_cached_map_assets(c_stub, pkt2["data"]["map"])
+            self.assertEqual(len(pkt2["data"]["map"]["hexes"]), 116280)
+            c_stub.local_map_data = pkt2["data"]["map"]
+
+            # In-place mutation of hexes invalidates hash and sends full mutated grid
+            gs.current_map["hexes"] = [{"q": 0, "r": 0, "t": "lava"}]
+            broadcast(gs, make_game_state(gs.get_state_dict(is_dm=False)))
+            pkt3 = delivered[-1]
+            self.assertNotEqual(pkt3["data"]["map"]["hexes_hash"], expected_hash)
+            self.assertEqual(pkt3["data"]["map"]["hexes"], [{"q": 0, "r": 0, "t": "lava"}])
+
+            # Clearing hexes to empty list must NOT resurrect old cached grid
+            gs.current_map["hexes"] = []
+            broadcast(gs, make_game_state(gs.get_state_dict(is_dm=False)))
+            pkt4 = delivered[-1]
+            ClientGUI._resolve_cached_map_assets(c_stub, pkt4["data"]["map"])
+            self.assertEqual(pkt4["data"]["map"]["hexes"], [])
+
+    def test_fow_visibility_memoization_skips_recompute_until_vision_inputs_change(self):
+        from components.ui_components import HexMapCanvas, Hex
+
+        root = _make_root()
+        try:
+            canvas = HexMapCanvas(root)
+            canvas.player_name = "Hero"
+            canvas.players_data = {
+                "Hero": {"name": "Hero", "position": [0, 0], "vision_radius": 6, "light_radius": 0, "conditions": []}
+            }
+            canvas.map_data = {"lights": [{"q": 10, "r": 10, "radius": 4}]}
+            fow_rev = {(0, 0), (1, 0)}
+            walls = {Hex(2, 0)}
+
+            with patch("components.ui_components.get_visible_hexes", side_effect=lambda h, r, w, grid_type="hex": [h, Hex(h.q + 1, h.r)]) as mock_vis:
+                res1 = canvas._compute_player_visible_hexes(False, fow_rev, walls, "hex")
+                self.assertEqual(mock_vis.call_count, 1)
+                # Repeating computation (pan/zoom/redraw) or revealing empty floor away from lights -> cache hit!
+                res2 = canvas._compute_player_visible_hexes(False, fow_rev | {(5, 5)}, walls, "hex")
+                self.assertEqual(res1, res2)
+                self.assertEqual(mock_vis.call_count, 1)
+
+                # Moving token invalidates cache
+                canvas.players_data["Hero"]["position"] = [1, 0]
+                res3 = canvas._compute_player_visible_hexes(False, fow_rev | {(5, 5)}, walls, "hex")
+                self.assertEqual(mock_vis.call_count, 2)
+                self.assertNotEqual(res3, res1)
+
+                # Revealing static light invalidates cache and computes light FoV
+                canvas._compute_player_visible_hexes(False, fow_rev | {(10, 10)}, walls, "hex")
+                self.assertEqual(mock_vis.call_count, 4)
+        finally:
+            try:
+                if root.winfo_exists():
+                    root.destroy()
+            except tk.TclError:
+                pass
+
+    def test_broadcast_non_blocking_isolates_stalled_socket_from_healthy_client(self):
+        import queue
+        import socket
+        from common.network_utils import broadcast, receive_message, _send_message_impl
+        from common.protocol import make_chat_broadcast
+        from server.network import GameState, Player
+
+        slow_srv, slow_cli = socket.socketpair()
+        ok_srv, ok_cli = socket.socketpair()
+        try:
+            slow_srv.settimeout(30.0)
+            ok_srv.settimeout(5.0)
+            ok_cli.settimeout(2.0)
+            try:
+                slow_srv.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+                slow_cli.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 4096)
+            except OSError:
+                pass
+
+            # Saturate slow_srv send buffer so its TCP peer cannot drain
+            slow_srv.setblocking(False)
+            try:
+                while True:
+                    slow_srv.send(b"X" * 4096)
+            except OSError:
+                pass
+            slow_srv.setblocking(True)
+            slow_srv.settimeout(30.0)
+
+            gs = GameState(queue.Queue())
+            gs.players = [Player("AAA_Slow", conn=slow_srv), Player("ZZZ_Healthy", conn=ok_srv)]
+
+            t0 = time.monotonic()
+            broadcast(gs, make_chat_broadcast("DM", "NonBlockingCheck"))
+            elapsed = time.monotonic() - t0
+            self.assertLess(elapsed, 1.5)
+
+            pkt = receive_message(ok_cli)
+            self.assertIsNotNone(pkt)
+            self.assertEqual(pkt["type"], "CHAT_BROADCAST")
+            self.assertEqual(pkt["data"]["text"], "NonBlockingCheck")
+
+            # Verify chunked partial .send() handling
+            class _PartialChunkSock:
+                def __init__(self):
+                    self.sent = bytearray()
+                def fileno(self):
+                    return 999
+                def send(self, data):
+                    step = min(len(data), 10000)
+                    self.sent.extend(data[:step])
+                    return step
+
+            p_sock = _PartialChunkSock()
+            with patch("common.network_utils.select.select", return_value=([], [p_sock], [])):
+                ok = _send_message_impl(p_sock, {"type": "BIG", "data": "A" * 150000}, write_timeout=1.0)
+            self.assertTrue(ok)
+            self.assertGreater(len(p_sock.sent), 150000)
+        finally:
+            for s in (slow_srv, slow_cli, ok_srv, ok_cli):
+                try:
+                    s.close()
+                except Exception:
+                    pass
+
+
 if __name__ == "__main__":
     unittest.main()

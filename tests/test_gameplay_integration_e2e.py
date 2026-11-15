@@ -342,7 +342,8 @@ class TestCombatActionEconomyAndAbilitiesIntegration(unittest.TestCase):
         self.gs.next_turn()
         self.gs.next_turn()
         self.assertFalse(rogue.sneak_attack_used_this_turn)
-        handle_attack_request({"target_name": "Goblin", "weapon_name": "Stocco", "hit_bonus": 15, "damage_formula": "1d8+4"}, rogue, self.gs)
+        with patch("common.dice.random.randint", return_value=4):
+            handle_attack_request({"target_name": "Goblin", "weapon_name": "Stocco", "hit_bonus": 15, "damage_formula": "1d8+4"}, rogue, self.gs)
         self.assertTrue(rogue.sneak_attack_used_this_turn)
 
     def test_barbarian_rage_heavy_armor_concentration_drop_and_zero_hp_termination(self):

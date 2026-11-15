@@ -44,8 +44,16 @@ class ClientNetworkHandlersMixin:
                 pass
         return cache
 
-    def _store_asset_in_cache(self, asset_hash: str, b64_data: str):
-        if not asset_hash or not isinstance(b64_data, str) or not b64_data:
+    def _store_asset_in_cache(self, asset_hash: str, asset_data):
+        if not asset_hash:
+            return
+        if isinstance(asset_data, str):
+            if not asset_data:
+                return
+        elif isinstance(asset_data, (list, dict)):
+            if len(asset_data) == 0:
+                return
+        else:
             return
         cache = ClientNetworkHandlersMixin._get_asset_cache(self)
         raw_cap = getattr(self, "_MAX_ASSET_CACHE_ENTRIES", 32)
@@ -58,34 +66,54 @@ class ClientNetworkHandlersMixin:
                 if oldest_key is None:
                     break
                 cache.pop(oldest_key, None)
-        cache[asset_hash] = b64_data
+        cache[asset_hash] = asset_data
 
     def _resolve_cached_map_assets(self, map_data):
         if not isinstance(map_data, dict):
             return map_data
-        from common.network_utils import compute_asset_hash
+        from common.network_utils import compute_asset_hash, compute_hexes_hash
         cache = ClientNetworkHandlersMixin._get_asset_cache(self)
-        bg_data = map_data.get("bg_image_data")
-        bg_hash = map_data.get("bg_image_hash")
-        if isinstance(bg_data, str) and bg_data:
-            eff_hash = compute_asset_hash(bg_data)
-            ClientNetworkHandlersMixin._store_asset_in_cache(self, eff_hash, bg_data)
-            map_data["bg_image_hash"] = eff_hash
-            map_data.pop("bg_image_cached", None)
-        elif isinstance(bg_hash, str) and bg_hash:
-            if bg_hash in cache:
-                cached_b64 = cache.pop(bg_hash)
-                cache[bg_hash] = cached_b64
-                map_data["bg_image_data"] = cached_b64
-                map_data.pop("bg_image_cached", None)
-            else:
-                local_map = getattr(self, "local_map_data", None)
-                if isinstance(local_map, dict) and local_map.get("bg_image_hash") == bg_hash:
-                    fallback_b64 = local_map.get("bg_image_data")
-                    if isinstance(fallback_b64, str) and fallback_b64:
-                        ClientNetworkHandlersMixin._store_asset_in_cache(self, bg_hash, fallback_b64)
-                        map_data["bg_image_data"] = fallback_b64
-                        map_data.pop("bg_image_cached", None)
+        local_map = getattr(self, "local_map_data", None)
+
+        asset_specs = (
+            (
+                "bg_image_data",
+                "bg_image_hash",
+                "bg_image_cached",
+                compute_asset_hash,
+                lambda v: isinstance(v, str) and bool(v),
+                lambda v, flag: True,
+            ),
+            (
+                "hexes",
+                "hexes_hash",
+                "hexes_cached",
+                compute_hexes_hash,
+                lambda v: isinstance(v, (list, dict)) and len(v) > 0,
+                lambda v, flag: v is None or bool(flag),
+            ),
+        )
+        for data_key, hash_key, flag_key, hash_fn, is_raw_fn, can_rehydrate_fn in asset_specs:
+            raw_val = map_data.get(data_key)
+            hash_val = map_data.get(hash_key)
+            cached_flag = map_data.get(flag_key)
+            if is_raw_fn(raw_val):
+                eff_hash = hash_fn(raw_val)
+                ClientNetworkHandlersMixin._store_asset_in_cache(self, eff_hash, raw_val)
+                map_data[hash_key] = eff_hash
+                map_data.pop(flag_key, None)
+            elif can_rehydrate_fn(raw_val, cached_flag) and isinstance(hash_val, str) and hash_val:
+                if hash_val in cache:
+                    cached_val = cache.pop(hash_val)
+                    cache[hash_val] = cached_val
+                    map_data[data_key] = cached_val
+                    map_data.pop(flag_key, None)
+                elif isinstance(local_map, dict) and local_map.get(hash_key) == hash_val:
+                    fallback_val = local_map.get(data_key)
+                    if is_raw_fn(fallback_val):
+                        ClientNetworkHandlersMixin._store_asset_in_cache(self, hash_val, fallback_val)
+                        map_data[data_key] = fallback_val
+                        map_data.pop(flag_key, None)
         return map_data
 
     def _resolve_cached_handout_assets(self, handouts_or_data):

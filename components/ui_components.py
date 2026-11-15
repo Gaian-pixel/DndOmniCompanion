@@ -1734,15 +1734,81 @@ class HexMapCanvas(tk.Canvas):
         """Restituisce tutte le celle attualmente illuminate/visibili al client o alla Player Display condivisa."""
         if is_dm:
             return set()
+
+        walls_sig = frozenset((h.q, h.r) for h in walls_hex_set)
+        player_name = self.player_name or ""
+        viewer_sig = None
+        ally_lights_sig = ()
+
+        if player_name and player_name in self.players_data:
+            pdata = self.players_data[player_name]
+            pos = tuple(pdata.get("position") or (0, 0)) if isinstance(pdata, dict) else (0, 0)
+            blinded = self._is_token_blinded(pdata)
+            if blinded:
+                senses_sig = (
+                    self._parse_sense_hexes(pdata, "vista cieca", "blindsight", default_ft=60),
+                    self._parse_sense_hexes(pdata, "visione del vero", "truesight", default_ft=120),
+                )
+            else:
+                senses_sig = (
+                    pdata.get("vision_radius", 6) if isinstance(pdata, dict) else 6,
+                    pdata.get("light_radius", 0) if isinstance(pdata, dict) else 0,
+                )
+            viewer_sig = ("single", pos, blinded, senses_sig)
+            if not blinded:
+                allies = []
+                for other_name, other_pdata in self.players_data.items():
+                    if other_name != player_name and isinstance(other_pdata, dict) and (
+                        other_pdata.get("is_party_member", False) or other_pdata.get("is_companion", False)
+                    ):
+                        o_light = other_pdata.get("light_radius", 0) or 0
+                        if o_light > 0:
+                            o_pos = other_pdata.get("position", [0, 0])
+                            allies.append((other_name, (o_pos[0], o_pos[1]), o_light))
+                ally_lights_sig = tuple(sorted(allies))
+        elif not player_name:
+            party_sig = []
+            for p_key, pdata in self.players_data.items():
+                if isinstance(pdata, dict) and (pdata.get("is_party_member", False) or pdata.get("is_companion", False)):
+                    pos = tuple(pdata.get("position") or (0, 0))
+                    blinded = self._is_token_blinded(pdata)
+                    if blinded:
+                        senses_sig = (
+                            self._parse_sense_hexes(pdata, "vista cieca", "blindsight", default_ft=60),
+                            self._parse_sense_hexes(pdata, "visione del vero", "truesight", default_ft=120),
+                        )
+                    else:
+                        senses_sig = (pdata.get("vision_radius", 6), pdata.get("light_radius", 0))
+                    party_sig.append((p_key, pos, blinded, senses_sig))
+            viewer_sig = ("party", tuple(sorted(party_sig)))
+        else:
+            viewer_sig = ("none",)
+
+        lights_sig_items = []
+        for l in (self.map_data.get("lights", []) or []):
+            if not isinstance(l, dict):
+                continue
+            lq, lr = l.get("q"), l.get("r")
+            if lq is None or lr is None:
+                continue
+            l_rad = int(l.get("radius", 4) or 4)
+            if l_rad > 0:
+                lights_sig_items.append((lq, lr, l_rad, (lq, lr) in fow_revealed))
+        cache_key = (grid_type, player_name, walls_sig, viewer_sig, ally_lights_sig, tuple(lights_sig_items))
+
+        cached = getattr(self, "_fow_visible_cache", None)
+        if cached is not None and cached[0] == cache_key:
+            return set(cached[1])
+
         visible_now = set()
         can_see_lights = False
-        if self.player_name and self.player_name in self.players_data:
-            pdata = self.players_data[self.player_name]
+        if player_name and player_name in self.players_data:
+            pdata = self.players_data[player_name]
             visible_now.update(self._compute_token_vision_hexes(pdata, walls_hex_set, grid_type))
             can_see_lights = not self._is_token_blinded(pdata)
             if can_see_lights:
                 for other_name, other_pdata in self.players_data.items():
-                    if other_name != self.player_name and isinstance(other_pdata, dict) and (
+                    if other_name != player_name and isinstance(other_pdata, dict) and (
                         other_pdata.get("is_party_member", False) or other_pdata.get("is_companion", False)
                     ):
                         o_light = other_pdata.get("light_radius", 0) or 0
@@ -1751,7 +1817,7 @@ class HexMapCanvas(tk.Canvas):
                             visible_now.update(
                                 {(h.q, h.r) for h in get_visible_hexes(Hex(o_pos[0], o_pos[1]), o_light, walls_hex_set, grid_type=grid_type)}
                             )
-        elif not self.player_name:
+        elif not player_name:
             for pdata in self.players_data.values():
                 if isinstance(pdata, dict) and (pdata.get("is_party_member", False) or pdata.get("is_companion", False)):
                     visible_now.update(self._compute_token_vision_hexes(pdata, walls_hex_set, grid_type))
@@ -1770,6 +1836,7 @@ class HexMapCanvas(tk.Canvas):
                     visible_now.update(
                         {(h.q, h.r) for h in get_visible_hexes(Hex(lq, lr), l_rad, walls_hex_set, grid_type=grid_type)}
                     )
+        self._fow_visible_cache = (cache_key, frozenset(visible_now))
         return visible_now
 
     def redraw(self):

@@ -17,6 +17,17 @@ def compute_asset_hash(b64_data: str) -> str:
     return hashlib.sha256(b64_data.encode("utf-8")).hexdigest()[:16]
 
 
+def compute_hexes_hash(hexes_data) -> str:
+    """Calcola un digest breve deterministico per la lista/mappa statica delle celle (hexes)."""
+    if not isinstance(hexes_data, (list, dict)) or len(hexes_data) == 0:
+        return ""
+    try:
+        raw = json.dumps(hexes_data, separators=(",", ":"))
+    except TypeError:
+        raw = json.dumps(hexes_data, separators=(",", ":"), sort_keys=True, default=str)
+    return "hx_" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
 def is_dm_actor(player) -> bool:
     """Ritorna True se il mittente è il DM (player is None o role=='DM')."""
     return player is None or getattr(player, "role", "") == "DM"
@@ -60,8 +71,8 @@ def _recv_exact(sock, n):
         buf.extend(chunk)
     return bytes(buf)
 
-def _send_message_impl(sock, message_data, pre_encoded=None) -> bool:
-    """Codifica (o riusa buffer pre-serializzato) e invia un messaggio TCP in modo robusto."""
+def _send_message_impl(sock, message_data, pre_encoded=None, write_timeout: float = 2.0, lock_timeout=None) -> bool:
+    """Codifica (o riusa buffer pre-serializzato) e invia un messaggio TCP in modo non bloccante per chunk."""
     if sock is None:
         return False
     try:
@@ -72,20 +83,46 @@ def _send_message_impl(sock, message_data, pre_encoded=None) -> bool:
             message_bytes = message_json.encode('utf-8')
             header = struct.pack('!I', len(message_bytes))
             payload = header + message_bytes
-        with _get_send_lock(sock):
-            # Attesa scrivibilità non invasiva: evita di mutare sock.settimeout() sul thread condiviso con receive_message()
-            if hasattr(sock, "fileno"):
+        lock = _get_send_lock(sock)
+        if lock_timeout is not None:
+            if not lock.acquire(timeout=float(lock_timeout)):
+                return False
+        else:
+            lock.acquire()
+        try:
+            can_chunk_select = False
+            if hasattr(sock, "fileno") and hasattr(sock, "send"):
                 try:
                     fd = sock.fileno()
-                    if isinstance(fd, int) and fd >= 0:
-                        _, writable, _ = select.select([], [sock], [], 2.0)
-                        if not writable:
-                            raise socket.timeout("Timeout attesa scrittura socket")
-                except socket.timeout:
-                    raise
+                    can_chunk_select = isinstance(fd, int) and fd >= 0
                 except (ValueError, TypeError, OSError):
-                    pass
-            sock.sendall(payload)
+                    can_chunk_select = False
+
+            if can_chunk_select:
+                chunk_size = 65536
+                total = len(payload)
+                offset = 0
+                import time as _time
+                deadline = _time.monotonic() + max(0.05, float(write_timeout))
+                while offset < total:
+                    remaining = deadline - _time.monotonic()
+                    if remaining <= 0:
+                        raise socket.timeout("Timeout attesa scrittura socket")
+                    _, writable, _ = select.select([], [sock], [], remaining)
+                    if not writable:
+                        raise socket.timeout("Timeout attesa scrittura socket")
+                    chunk = payload[offset:offset + chunk_size]
+                    try:
+                        sent = sock.send(chunk)
+                    except BlockingIOError:
+                        continue
+                    if not sent:
+                        raise ConnectionResetError("Socket chiusa durante l'invio")
+                    offset += sent
+            else:
+                sock.sendall(payload)
+        finally:
+            lock.release()
         return True
     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, socket.timeout):
         # Errori normali di disconnessione client o timeout invio
@@ -337,6 +374,12 @@ def sanitize_map_for_players(map_data: dict) -> dict:
 
     if isinstance(clean.get("bg_image_data"), str) and clean["bg_image_data"]:
         clean["bg_image_hash"] = compute_asset_hash(clean["bg_image_data"])
+    hexes_obj = clean.get("hexes")
+    if isinstance(hexes_obj, (list, dict)) and len(hexes_obj) > 0:
+        clean["hexes_hash"] = compute_hexes_hash(hexes_obj)
+    else:
+        clean.pop("hexes_hash", None)
+        clean.pop("hexes_cached", None)
 
     return clean
 
@@ -379,18 +422,32 @@ def _track_and_check_sent_hash(sent_hashes, asset_hash: str) -> bool:
     return False
 
 
-def _deduplicate_map_payload(map_dict: dict, sent_hashes) -> dict:
+def _deduplicate_map_payload(map_dict: dict, sent_hashes, trust_hashes: bool = False) -> dict:
     if not isinstance(map_dict, dict):
         return map_dict
-    bg_data = map_dict.get("bg_image_data")
-    if not isinstance(bg_data, str) or not bg_data:
+
+    asset_specs = (
+        ("bg_image_data", "bg_image_hash", "bg_image_cached", compute_asset_hash, lambda v: isinstance(v, str) and bool(v), lambda h: bool(h)),
+        ("hexes", "hexes_hash", "hexes_cached", compute_hexes_hash, lambda v: isinstance(v, (list, dict)) and len(v) > 0, lambda h: h.startswith("hx_")),
+    )
+    active_specs = [spec for spec in asset_specs if spec[4](map_dict.get(spec[0]))]
+    if not active_specs:
         return map_dict
-    bg_hash = compute_asset_hash(bg_data)
+
     map_copy = dict(map_dict)
-    map_copy["bg_image_hash"] = bg_hash
-    if _track_and_check_sent_hash(sent_hashes, bg_hash):
-        map_copy["bg_image_data"] = None
-        map_copy["bg_image_cached"] = True
+    for data_key, hash_key, flag_key, hash_fn, _is_raw, is_valid_hash in active_specs:
+        raw_val = map_dict.get(data_key)
+        existing_hash = map_dict.get(hash_key)
+        if trust_hashes and isinstance(existing_hash, str) and is_valid_hash(existing_hash):
+            digest = existing_hash
+        else:
+            digest = hash_fn(raw_val)
+        map_copy[hash_key] = digest
+        if _track_and_check_sent_hash(sent_hashes, digest):
+            map_copy[data_key] = None
+            map_copy[flag_key] = True
+        else:
+            map_copy.pop(flag_key, None)
     return map_copy
 
 
@@ -439,8 +496,8 @@ def _deduplicate_player_dict(player_dict: dict, sent_hashes) -> dict:
     return p_copy
 
 
-def prepare_per_player_state_payload(message_data: dict, player) -> dict:
-    """Deduplica blob immagine (mappa, handout e avatar) gia inviati al singolo client tramite hash contenuto."""
+def prepare_per_player_state_payload(message_data: dict, player, _trust_map_hashes: bool = False) -> dict:
+    """Deduplica blob immagine (mappa, handout e avatar) e griglia statica (hexes) gia inviati al singolo client."""
     if not isinstance(message_data, dict):
         return message_data
     msg_type = message_data.get("type")
@@ -470,7 +527,9 @@ def prepare_per_player_state_payload(message_data: dict, player) -> dict:
 
     data_copy = dict(data)
     if "map" in data_copy and isinstance(data_copy["map"], dict):
-        data_copy["map"] = _deduplicate_map_payload(data_copy["map"], sent_hashes)
+        data_copy["map"] = _deduplicate_map_payload(data_copy["map"], sent_hashes, trust_hashes=_trust_map_hashes)
+    elif msg_type == "MAP_DATA_UPDATE" and ("bg_image_data" in data_copy or "hexes" in data_copy):
+        data_copy = _deduplicate_map_payload(data_copy, sent_hashes, trust_hashes=_trust_map_hashes)
 
     if msg_type == "GAME_STATE" and isinstance(data_copy.get("handouts"), list):
         data_copy["handouts"] = [
@@ -483,6 +542,40 @@ def prepare_per_player_state_payload(message_data: dict, player) -> dict:
         ]
 
     return {"type": msg_type, "data": data_copy}
+
+def _dispatch_native_broadcast(
+    tasks_by_conn: dict,
+    flush_timeout: float = 0.35,
+    write_timeout: float = 0.5,
+    lock_timeout: float = 0.25,
+):
+    """Invia in parallelo i frame nativi per socket isolando eventuali client lenti o bloccati."""
+    import threading as _threading
+    import time as _time
+
+    def _worker(sock, items):
+        for msg_obj, pre_buf in items:
+            ok = _send_message_impl(
+                sock,
+                msg_obj,
+                pre_encoded=pre_buf,
+                write_timeout=write_timeout,
+                lock_timeout=lock_timeout,
+            )
+            if ok is False:
+                break
+
+    threads = []
+    for sock, items in tasks_by_conn.values():
+        t = _threading.Thread(target=_worker, args=(sock, items), daemon=True)
+        t.start()
+        threads.append(t)
+
+    deadline = _time.monotonic() + float(flush_timeout)
+    for t in threads:
+        remaining = deadline - _time.monotonic()
+        t.join(timeout=max(0.0, remaining))
+
 
 def broadcast(game_state, message_data, exclude_player=None):
     """ La funzione broadcast invia messaggi filtrando le informazioni riservate del GM layer, dimension pocket e FoW ai giocatori. """
@@ -573,7 +666,16 @@ def broadcast(game_state, message_data, exclude_player=None):
             except Exception:
                 shared_pre_encoded = None
 
+    base_msg = (
+        player_filtered_game_state
+        or player_filtered_map_data
+        or player_filtered_fow
+        or player_filtered_combat
+        or message_data
+    )
+    trust_hashes = (player_filtered_game_state is not None or player_filtered_map_data is not None)
     failed_conns = set()
+    tasks_by_conn = {}
     for p in game_state.get_all_players():
         if exclude_player and p.name == exclude_player.name:
             continue
@@ -602,18 +704,20 @@ def broadcast(game_state, message_data, exclude_player=None):
                 continue
 
         if shared_pre_encoded is not None:
-            ok = _send_message_impl(conn, shared_payload, pre_encoded=shared_pre_encoded)
+            entry = (shared_payload, shared_pre_encoded)
         else:
-            if player_filtered_game_state is not None:
-                payload = prepare_per_player_state_payload(player_filtered_game_state, p)
-            elif player_filtered_map_data is not None:
-                payload = prepare_per_player_state_payload(player_filtered_map_data, p)
-            elif player_filtered_fow is not None:
-                payload = prepare_per_player_state_payload(player_filtered_fow, p)
-            elif player_filtered_combat is not None:
-                payload = prepare_per_player_state_payload(player_filtered_combat, p)
-            else:
-                payload = prepare_per_player_state_payload(message_data, p)
-            ok = send_message(conn, payload)
-        if ok is False:
-            failed_conns.add(id(conn))
+            payload = prepare_per_player_state_payload(base_msg, p, _trust_map_hashes=trust_hashes)
+            entry = (payload, None)
+
+        if not send_is_native:
+            ok = send_message(conn, entry[0])
+            if ok is False:
+                failed_conns.add(id(conn))
+        else:
+            cid = id(conn)
+            if cid not in tasks_by_conn:
+                tasks_by_conn[cid] = (conn, [])
+            tasks_by_conn[cid][1].append(entry)
+
+    if send_is_native and tasks_by_conn:
+        _dispatch_native_broadcast(tasks_by_conn)
