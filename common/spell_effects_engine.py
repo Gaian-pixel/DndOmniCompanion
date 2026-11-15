@@ -403,6 +403,46 @@ def _sync_player(entity: Any) -> None:
             fs["hp_current"] = entity.hp
         if hasattr(entity, "max_hp"):
             fs["hp_max"] = entity.max_hp
+        if hasattr(entity, "concentrating_on"):
+            fs["concentrating_on"] = getattr(entity, "concentrating_on", None)
+
+
+def get_spell_ac_bonus(entity: Any) -> int:
+    """Restituisce il bonus temporaneo di CA fornito da incantesimi attivi (es. Scudo della Fede +2)."""
+    if not entity:
+        return 0
+    for fx in (getattr(entity, "active_effects", None) or []):
+        if not isinstance(fx, dict):
+            continue
+        fid = str(fx.get("id", "")).lower()
+        fname = str(fx.get("name", "")).lower()
+        if fid == "shield_of_faith" or "scudo della fede" in fname or "shield of faith" in fname:
+            return 2
+    for cond in (getattr(entity, "conditions", None) or []):
+        low = str(cond).lower()
+        if "scudo della fede" in low or "shield of faith" in low:
+            return 2
+    return 0
+
+
+def _start_concentration(actor: Any, spell_name: str, game_state: Any = None) -> None:
+    """Termina qualsiasi concentrazione precedente dell'incantatore prima di attivarne una nuova."""
+    if not actor:
+        return
+    try:
+        from server.rules.combat import drop_concentration
+        drop_concentration(actor, game_state, notify=False, reason=f"Nuovo incantesimo: {spell_name}")
+    except ImportError:
+        actor.concentrating_on = None
+        actor.concentrating_spell = None
+        conds = getattr(actor, "conditions", None)
+        if isinstance(conds, list) and "Concentrazione" in conds:
+            conds.remove("Concentrazione")
+    actor.concentrating_on = spell_name
+    conds = getattr(actor, "conditions", None)
+    if isinstance(conds, list) and "Concentrazione" not in conds:
+        conds.append("Concentrazione")
+    _sync_player(actor)
 
 
 def cast_iconic_spell(
@@ -439,11 +479,28 @@ def cast_iconic_spell(
         return f"🛡️ [ARMATURA MAGICA] {tgt.name} avvolto da forza protettiva (CA base 13+DES = {new_ac}, durata 8 ore)."
 
     if key == "shield_of_faith":
-        tgt.ac = int(getattr(tgt, "ac", 10) or 10) + 2
+        _start_concentration(actor, "Scudo della Fede", game_state)
+        if hasattr(tgt, "remove_effect"):
+            tgt.remove_effect("shield_of_faith")
+        eff_dict = {
+            "id": "shield_of_faith",
+            "name": "Scudo della Fede (+2 CA)",
+            "duration_rounds": 100 * dur_mult,
+            "source": actor.name,
+            "concentration": True,
+            "concentration_caster": actor.name,
+        }
         if hasattr(tgt, "add_effect"):
-            tgt.add_effect({"id": "shield_of_faith", "name": "Scudo della Fede (+2 CA)", "duration_rounds": 100 * dur_mult, "source": actor.name})
-        actor.concentrating_on = "Scudo della Fede"
-        return f"✨ [SCUDO DELLA FEDE] {tgt.name} ottiene +2 alla CA (ora {tgt.ac}) finché {actor.name} mantiene Concentrazione!"
+            tgt.add_effect(eff_dict)
+        else:
+            fx_list = getattr(tgt, "active_effects", None)
+            if not isinstance(fx_list, list):
+                tgt.active_effects = []
+            tgt.active_effects.append(eff_dict)
+        _sync_player(tgt)
+        base_ac = int((getattr(tgt, "full_sheet", None) or {}).get("ac", getattr(tgt, "ac", 10)) or 10)
+        eff_ac = base_ac + get_spell_ac_bonus(tgt)
+        return f"✨ [SCUDO DELLA FEDE] {tgt.name} ottiene +2 alla CA (effettiva {eff_ac}) finché {actor.name} mantiene Concentrazione!"
 
     if key == "aid":
         bonus_hp = 5 * max(1, lvl - 1) if lvl >= 2 else 5
@@ -551,7 +608,7 @@ def cast_iconic_spell(
         atk_b = mod_w + pb
         atk_r = roll_dice(f"1d20{'+' if atk_b >= 0 else ''}{atk_b}")
         is_c = (atk_r.get("natural_roll") == 20)
-        tgt_ac = getattr(tgt, "ac", 12)
+        tgt_ac = int(getattr(tgt, "ac", 12) or 12) + get_spell_ac_bonus(tgt)
         actor.spiritual_weapon_level = lvl
         actor.bonus_action_used_this_turn = True
         if is_c or (atk_r.get("natural_roll") != 1 and atk_r["total"] >= tgt_ac):

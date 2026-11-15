@@ -1233,7 +1233,6 @@ def advance_combat_turn(game_state, ending_player=None):
         
         # 1. Fine Turno per prev_p
         if prev_p:
-            prev_p.has_reacted_in_round = False
             prev_p.has_acted_in_combat = True
             prev_p.savage_attacker_used_this_turn = False
             prev_p.colossus_slayer_used_this_turn = False
@@ -2152,24 +2151,37 @@ def handle_attack_request(data, player, game_state):
                 ammo_name = "Dardi"
                 ammo_kws = ("dardi", "dardo", "dart")
 
+            p_sheet_am = getattr(player, "full_sheet", None)
+            matched_ammo_slots = []
+            if isinstance(p_sheet_am, dict) and isinstance(p_sheet_am.get("inventory_grid"), list):
+                matched_ammo_slots = [
+                    it for it in p_sheet_am["inventory_grid"]
+                    if isinstance(it, dict) and it.get("name") and any(ak in str(it["name"]).lower() for ak in ammo_kws)
+                ]
             if not data.get("ammo_already_decremented"):
-                p_sheet_am = getattr(player, "full_sheet", None)
-                if isinstance(p_sheet_am, dict) and isinstance(p_sheet_am.get("inventory_grid"), list):
-                    matched_ammo_slots = [
-                        it for it in p_sheet_am["inventory_grid"]
-                        if isinstance(it, dict) and it.get("name") and any(ak in str(it["name"]).lower() for ak in ammo_kws)
-                    ]
-                    if matched_ammo_slots:
-                        avail_slot = next((it for it in matched_ammo_slots if int(it.get("qty", 0) or 0) > 0), None)
-                        if avail_slot is None:
-                            player.attacks_made_this_turn = _prev_attacks_made
-                            player.has_acted_this_turn = _prev_has_acted
-                            player.bonus_action_used_this_turn = _prev_ba_used
-                            player.has_reacted_this_turn = _prev_reacted_used
-                            if getattr(player, "conn", None):
-                                send_message(player.conn, make_error_reply(f"Munizioni esaurite ({ammo_name})! Impossibile attaccare con {weapon_name}."))
-                            return
-                        avail_slot["qty"] = max(0, int(avail_slot.get("qty", 1) or 1) - 1)
+                if matched_ammo_slots:
+                    avail_slot = next((it for it in matched_ammo_slots if int(it.get("qty", 0) or 0) > 0), None)
+                    if avail_slot is None:
+                        player.attacks_made_this_turn = _prev_attacks_made
+                        player.has_acted_this_turn = _prev_has_acted
+                        player.bonus_action_used_this_turn = _prev_ba_used
+                        player.has_reacted_this_turn = _prev_reacted_used
+                        if getattr(player, "conn", None):
+                            send_message(player.conn, make_error_reply(f"Munizioni esaurite ({ammo_name})! Impossibile attaccare con {weapon_name}."))
+                        return
+                    avail_slot["qty"] = max(0, int(avail_slot.get("qty", 1) or 1) - 1)
+            elif "ammo_remaining" in data and matched_ammo_slots:
+                try:
+                    cli_rem = max(0, int(data["ammo_remaining"]))
+                    hint_name = str(data.get("ammo_item_name", "") or "").strip().lower()
+                    target_slot = None
+                    if hint_name:
+                        target_slot = next((it for it in matched_ammo_slots if str(it.get("name", "")).strip().lower() == hint_name), None)
+                    if target_slot is None:
+                        target_slot = next((it for it in matched_ammo_slots if int(it.get("qty", 0) or 0) > 0), matched_ammo_slots[0])
+                    target_slot["qty"] = max(0, min(int(target_slot.get("qty", cli_rem) or 0), cli_rem))
+                except (ValueError, TypeError):
+                    pass
 
             if not hasattr(player, "expended_ammo") or not isinstance(player.expended_ammo, dict):
                 player.expended_ammo = {}
@@ -2252,6 +2264,11 @@ def handle_attack_request(data, player, game_state):
             target_ac += 2
             haste_ac = True
 
+        sof_ac = False
+        if has_effect_or_condition(target_player, "Scudo della Fede", "Shield of Faith"):
+            target_ac += 2
+            sof_ac = True
+
         slow_ac = False
         if has_effect_or_condition(target_player, "Lentezza", "Slow"):
             target_ac -= 2
@@ -2261,11 +2278,12 @@ def handle_attack_request(data, player, game_state):
         blocked_by_wall = False
         cover_bonus = 0
         cover_name = None
+        atk_grid_type = game_state.current_map.get("grid_type", "hex") if getattr(game_state, "current_map", None) else "hex"
         
         if hasattr(player, "position") and player.position and hasattr(target_player, "position") and target_player.position:
             p_hex = Hex(player.position[0], player.position[1])
             t_hex = Hex(target_player.position[0], target_player.position[1])
-            line = hex_linedraw(p_hex, t_hex)
+            line = hex_linedraw(p_hex, t_hex, grid_type=atk_grid_type)
             
             if getattr(game_state, "current_map", None):
                 from server.rules.movement import get_effective_map_walls
@@ -2284,7 +2302,7 @@ def handle_attack_request(data, player, game_state):
                         and getattr(p, "hp", 1) > 0 and "Morto" not in getattr(p, "conditions", [])
                         and getattr(p, "layer", "token") != "gm"
                     ]
-                    cover_bonus, cover_name = get_cover_between(p_hex, t_hex, half_cover, three_quarters, other_creatures)
+                    cover_bonus, cover_name = get_cover_between(p_hex, t_hex, half_cover, three_quarters, other_creatures, grid_type=atk_grid_type)
 
         from server.rules.reaction_magic import get_entity_attack_flags
         is_mag_att, is_silv_att, is_adam_att = get_entity_attack_flags(player, weapon_name, data)
@@ -2345,6 +2363,8 @@ def handle_attack_request(data, player, game_state):
             log_msg += " (Difesa Attacchi Multipli +4 CA)"
         if haste_ac:
             log_msg += " (Velocità +2 CA)"
+        if sof_ac:
+            log_msg += " (Scudo della Fede +2 CA)"
         if slow_ac:
             log_msg += " (Lentezza -2 CA)"
         if cover_name and cover_bonus > 0:

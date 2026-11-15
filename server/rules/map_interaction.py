@@ -17,6 +17,34 @@ from common.protocol import (
 )
 from common.item_modifiers import get_effective_attribute_from_dict, get_effective_save_bonus_from_dict
 import math
+def _is_target_within_aoe_elevation(aoe_data: dict, origin: Hex, pos_hex: Hex, target_player, grid_type: str = "hex") -> bool:
+    """Verifica che la quota (elevation in ft) del bersaglio rientri nel volume 3D dell'AoE."""
+    aoe_elev = float(aoe_data.get("elevation", 0) or 0)
+    raw_p_elev = getattr(target_player, "elevation", None)
+    if raw_p_elev is None and isinstance(getattr(target_player, "full_sheet", None), dict):
+        raw_p_elev = target_player.full_sheet.get("elevation", 0)
+    p_elev = float(raw_p_elev or 0)
+    dz = p_elev - aoe_elev
+
+    size_cells = max(1, int(aoe_data.get("size", 3) or 3))
+    size_ft = size_cells * 5.0
+    aoe_type = str(aoe_data.get("type", "sfera") or "sfera").lower()
+    horiz_ft = grid_distance(origin, pos_hex, grid_type=grid_type) * 5.0
+
+    if aoe_type in ("sfera", "sphere"):
+        return math.hypot(horiz_ft, dz) <= size_ft + 1e-6
+    if aoe_type in ("cubo", "cube"):
+        return abs(dz) <= size_ft + 1e-6
+    if aoe_type in ("cilindro", "cylinder"):
+        height_ft = float(aoe_data.get("height_ft", max(size_ft * 2.0, 40.0)) or 40.0)
+        return -5.0 <= dz <= height_ft + 1e-6
+    if aoe_type in ("cono", "cone"):
+        return abs(dz) <= min(size_ft * 0.5 + 2.5, max(5.0, horiz_ft * 0.5 + 2.5))
+    if aoe_type in ("linea", "line"):
+        return abs(dz) <= 5.0
+    return abs(dz) <= size_ft + 1e-6
+
+
 def handle_create_aoe_request(data, player, game_state):
     aoe_data = data.get("aoe_data")
     if not aoe_data:
@@ -25,6 +53,8 @@ def handle_create_aoe_request(data, player, game_state):
     aoe_data["caster"] = player.name
     # Regola D&D 5e: Gestione Concentrazione per AoE
     if aoe_data.get("concentration", False):
+        from server.rules.combat import drop_concentration
+        drop_concentration(player, game_state, notify=False, reason="Nuova AoE a concentrazione")
         conds = getattr(player, "conditions", [])
         if "Concentrazione" not in conds:
             conds.append("Concentrazione")
@@ -68,7 +98,7 @@ def handle_create_aoe_request(data, player, game_state):
     for p in getattr(game_state, "players", []):
         if getattr(p, "hp", 0) > 0 and getattr(p, "position", None):
             pos_hex = Hex(p.position[0], p.position[1])
-            if pos_hex in hexes:
+            if pos_hex in hexes and _is_target_within_aoe_elevation(aoe_data, origin, pos_hex, p, grid_type=grid_type):
                 # Regola D&D 5e RAW (PHB p. 204): Muri solidi e porte chiuse bloccano la linea d'effetto dell'area (Copertura Totale)
                 if pos_hex == origin or has_line_of_sight(origin, pos_hex, walls, doors, grid_type=grid_type):
                     affected_players.append(p)
@@ -551,7 +581,7 @@ def handle_resolve_aoe_request(data, player, game_state):
     for p in getattr(game_state, "players", []):
         if getattr(p, "hp", 0) > 0 and getattr(p, "position", None):
             pos_hex = Hex(p.position[0], p.position[1])
-            if pos_hex in hexes:
+            if pos_hex in hexes and _is_target_within_aoe_elevation(aoe_data, origin, pos_hex, p, grid_type=grid_type):
                 if pos_hex == origin or has_line_of_sight(origin, pos_hex, walls, doors, grid_type=grid_type):
                     affected_players.append(p)
 

@@ -1038,6 +1038,7 @@ def reset_trap_at(dm_gui, clicked_hex):
         if t.get("q") == clicked_hex.q and t.get("r") == clicked_hex.r:
             t["triggered"] = False
             t["hidden"] = True
+            t["detected"] = False
     dm_gui.redraw_map_and_players()
     from common.protocol import make_map_data_update_broadcast
     broadcast(dm_gui.server.game_state, make_map_data_update_broadcast(cur_map))

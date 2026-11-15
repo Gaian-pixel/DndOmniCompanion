@@ -284,9 +284,11 @@ def handle_update_full_sheet_request(data, player, game_state):
                     srv_cls_map[_canon_cls_key(existing_sheet.get("char_class"))] = server_lvl
 
                 asi_earned = False
+                new_barb_lvl = srv_cls_map.get("barbarian", 0)
                 if isinstance(cli_cls_raw, dict) and cli_cls_raw and client_lvl > server_lvl:
                     sanitized_cls = {}
                     total_cli_cls = 0
+                    new_barb_lvl = 0
                     for ck, cv in cli_cls_raw.items():
                         try:
                             new_cv = max(0, int(cv or 0))
@@ -300,23 +302,32 @@ def handle_update_full_sheet_request(data, player, game_state):
                             new_cv = old_cv + 1
                         sanitized_cls[ck] = new_cv
                         total_cli_cls += new_cv
+                        if canon_k == "barbarian":
+                            new_barb_lvl += new_cv
                         if new_cv > old_cv and new_cv in _asi_set_for_cls(canon_k):
                             asi_earned = True
                     if total_cli_cls > client_lvl and isinstance(srv_cls_raw, dict) and srv_cls_raw:
                         char_data["classes"] = copy.deepcopy(srv_cls_raw)
                         asi_earned = False
+                        new_barb_lvl = srv_cls_map.get("barbarian", 0)
                     else:
                         char_data["classes"] = sanitized_cls
                 elif client_lvl > server_lvl:
                     single_cls = char_data.get("char_class") or existing_sheet.get("char_class") or ""
                     asi_earned = client_lvl in _asi_set_for_cls(single_cls)
+                    if _canon_cls_key(single_cls) == "barbarian":
+                        new_barb_lvl = client_lvl
                 elif isinstance(srv_cls_raw, dict) and srv_cls_raw:
                     char_data["classes"] = copy.deepcopy(srv_cls_raw)
+
+                srv_barb_lvl = srv_cls_map.get("barbarian", 0)
+                is_barb_20 = (new_barb_lvl >= 20)
+                primal_champion_gained = (client_lvl > server_lvl and srv_barb_lvl < 20 and new_barb_lvl >= 20)
 
                 server_attrs = existing_sheet.get("attributes", {})
                 client_attrs = char_data.get("attributes", {})
                 if isinstance(server_attrs, dict) and isinstance(client_attrs, dict):
-                    if client_lvl <= server_lvl or not asi_earned:
+                    if client_lvl <= server_lvl or (not asi_earned and not primal_champion_gained):
                         for a_k, a_val in server_attrs.items():
                             if a_k in client_attrs:
                                 try:
@@ -325,8 +336,9 @@ def handle_update_full_sheet_request(data, player, game_state):
                                 except (ValueError, TypeError):
                                     client_attrs[a_k] = a_val
                     else:
-                        # Consenti fino a +2 punti ASI totali al livello milestone di classe (max 20)
-                        remaining_asi = 2
+                        # Campione Primordiale (Barbaro Lv 20, PHB p. 49): +4 FOR e +4 COS fino a 24;
+                        # ASI di classe: fino a +2 punti totali (max 20, o 24 FOR/COS per Barbaro Lv 20)
+                        remaining_asi = 2 if asi_earned else 0
                         for a_k, a_val in server_attrs.items():
                             if a_k in client_attrs:
                                 try:
@@ -336,9 +348,14 @@ def handle_update_full_sheet_request(data, player, game_state):
                                     client_attrs[a_k] = a_val
                                     continue
                                 if c_v > s_v:
-                                    allowed_gain = min(remaining_asi, max(0, min(20, c_v) - s_v))
-                                    client_attrs[a_k] = s_v + allowed_gain
-                                    remaining_asi -= allowed_gain
+                                    key_up = str(a_k).upper()
+                                    attr_cap = 24 if (is_barb_20 and key_up in ("FOR", "COS", "STR", "CON")) else 20
+                                    primal_budget = 4 if (primal_champion_gained and key_up in ("FOR", "COS", "STR", "CON")) else 0
+                                    want_gain = max(0, min(attr_cap, c_v) - s_v)
+                                    primal_used = min(primal_budget, want_gain)
+                                    asi_used = min(remaining_asi, max(0, want_gain - primal_used))
+                                    client_attrs[a_k] = s_v + primal_used + asi_used
+                                    remaining_asi -= asi_used
                     char_data["attributes"] = client_attrs
 
                 # Gestione HP: immutabile a parità di livello, aumento validato D&D 5e al level-up

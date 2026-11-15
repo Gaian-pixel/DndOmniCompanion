@@ -849,8 +849,9 @@ def execute_monster_multiattack(
 
     results: List[Dict[str, Any]] = []
     total_dmg = 0
-    lines: List[str] = [f"⚔️ **[MULTIATTACCO - {monster.name}]**" + (f" vs {target.name} (CA {getattr(target, 'ac', 10)})" if target else "")]
-    target_ac = int(getattr(target, "ac", 10) or 10) if target else None
+    from common.spell_effects_engine import get_spell_ac_bonus
+    target_ac = (int(getattr(target, "ac", 10) or 10) + get_spell_ac_bonus(target)) if target else None
+    lines: List[str] = [f"⚔️ **[MULTIATTACCO - {monster.name}]**" + (f" vs {target.name} (CA {target_ac})" if target else "")]
 
     for act, count in seq:
         nm, atk_b, dmg_d, desc = _extract_action_attack_and_damage(act)

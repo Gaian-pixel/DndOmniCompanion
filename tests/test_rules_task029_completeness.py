@@ -510,6 +510,125 @@ class TestTask029RulesCompleteness(unittest.TestCase):
         command_handlers["DEATH_SAVE_REQUEST"](make_death_save_request(manual_roll=2, actor_name="DyingMonk")["data"], dying_monk, self.gs)
         self.assertEqual(dying_monk.death_saves["successes"], 1)
 
+    def test_task033_shield_of_faith_3d_aoe_square_los_ammo_primal_and_attunement(self):
+        from common.spell_effects_engine import cast_iconic_spell, get_spell_ac_bonus
+        from server.rules.combat import drop_concentration, recover_expended_ammunition
+        from server.rules.map_interaction import handle_create_aoe_request
+        from server.rules.character import handle_update_full_sheet_request
+        from client.character_sheet_ui import CharacterSheetUI
+        from client.character_manager import Character
+        import tkinter as tk
+
+        # 1. Shield of Faith: single concentration cleanup + dynamic +2 CA (not permanent mutation)
+        cleric = _make_player("Chierico", pos=(0, 0), sheet={"char_class": "Chierico", "level": 3, "attributes": {"SAG": 16}})
+        cleric.concentrating_on = "Benedizione"
+        self.gs.active_aoes = [{"id": "old_aoe", "caster": "Chierico", "concentration": True, "origin": [0, 0], "type": "sfera", "size": 1}]
+        ally = _make_player("Paladino", hp=40, max_hp=40, ac=16, pos=(1, 0), sheet={"ac": 16})
+        bandit = _make_player("Bandito", hp=30, max_hp=30, ac=12, pos=(2, 0), is_party=False)
+        self.gs.players = [cleric, ally, bandit]
+
+        cast_iconic_spell(cleric, ally, "Scudo della Fede", 1, self.gs)
+        self.assertEqual(self.gs.active_aoes, [])
+        self.assertEqual(cleric.concentrating_on, "Scudo della Fede")
+        self.assertIn("Concentrazione", cleric.conditions)
+        self.assertEqual(ally.ac, 16)
+        self.assertEqual(get_spell_ac_bonus(ally), 2)
+
+        with patch("server.rules.combat.random.randint", return_value=17):
+            handle_attack_request({"target_name": "Paladino", "weapon_name": "Spada", "hit_bonus": 0, "damage_formula": "1d6"}, bandit, self.gs)
+        self.assertEqual(ally.hp, 40)  # 17 < 16 + 2 -> MISS!
+
+        drop_concentration(cleric, self.gs)
+        self.assertIsNone(ally.get_effect("shield_of_faith"))
+        self.assertEqual(get_spell_ac_bonus(ally), 0)
+        self.assertNotIn("Concentrazione", cleric.conditions)
+
+        bandit.has_acted_this_turn = False
+        with patch("server.rules.combat.random.randint", return_value=17):
+            handle_attack_request({"target_name": "Paladino", "weapon_name": "Spada", "hit_bonus": 0, "damage_formula": "1d6"}, bandit, self.gs)
+        self.assertLess(ally.hp, 40)  # 17 >= 16 -> HIT!
+
+        # 2. 3D AoE elevation bounds
+        ground_hero = _make_player("Pedone", hp=40, max_hp=40, pos=(0, 0))
+        ground_hero.elevation = 10
+        flying_dragon = _make_player("DragoVolante", hp=80, max_hp=80, pos=(0, 0), is_party=False)
+        flying_dragon.elevation = 35
+        self.gs.players = [cleric, ground_hero, flying_dragon]
+        self.gs.current_map = {"grid_type": "hex", "walls": [], "doors": []}
+        with patch("server.rules.map_interaction.broadcast"), patch("server.rules.combat.broadcast"), \
+             patch("common.dice.roll_dice", return_value={"total": 5, "rolls": [5], "raw_total": 5}):
+            handle_create_aoe_request({
+                "aoe_data": {"origin": [0, 0], "type": "sfera", "size": 4, "elevation": 0, "dmg": "12", "stat": "DES", "dc": 30, "req_save": True}
+            }, cleric, self.gs)
+        self.assertLess(ground_hero.hp, 40)
+        self.assertEqual(flying_dragon.hp, 80)
+
+        # 3. Square-grid LoS wall parity in handle_attack_request
+        sq_atk = _make_player("Tiratore", hp=30, max_hp=30, pos=(0, 0))
+        sq_tgt = _make_player("Orco", hp=30, max_hp=30, ac=10, pos=(2, 2), is_party=False)
+        self.gs.players = [sq_atk, sq_tgt]
+        self.gs.current_map = {"grid_type": "square", "walls": [[1, 1]], "doors": []}
+        with patch("server.rules.combat.random.randint", return_value=15):
+            handle_attack_request({"target_name": "Orco", "weapon_name": "Arco", "hit_bonus": 5, "damage_formula": "1d8"}, sq_atk, self.gs)
+        self.assertEqual(sq_tgt.hp, 30)  # Blocked by diagonal square wall at (1,1)!
+
+        # 4. Client-decremented ammo sync prevents inflation on recovery
+        archer = _make_player("Arc", pos=(0, 0), sheet={"inventory_grid": [{"name": "Frecce", "qty": 2}]})
+        self.gs.players = [archer, sq_tgt]
+        self.gs.current_map = {"grid_type": "square", "walls": [], "doors": []}
+        with patch("server.rules.combat.random.randint", return_value=15):
+            handle_attack_request({"target_name": "Orco", "weapon_name": "Arco", "hit_bonus": 5, "damage_formula": "1d4", "is_ranged": True, "ammo_already_decremented": True, "ammo_remaining": 1, "ammo_item_name": "Frecce"}, archer, self.gs)
+        archer.has_acted_this_turn = False
+        with patch("server.rules.combat.random.randint", return_value=15):
+            handle_attack_request({"target_name": "Orco", "weapon_name": "Arco", "hit_bonus": 5, "damage_formula": "1d4", "is_ranged": True, "ammo_already_decremented": True, "ammo_remaining": 0, "ammo_item_name": "Frecce"}, archer, self.gs)
+        self.assertEqual(archer.full_sheet["inventory_grid"][0]["qty"], 0)
+        recover_expended_ammunition(archer, self.gs)
+        self.assertEqual(archer.full_sheet["inventory_grid"][0]["qty"], 1)  # Never inflates above 2
+
+        # 5. Barbarian Level 20 Primal Champion (+4 FOR / +4 COS up to 24) accepted by server
+        barb = _make_player(
+            "Grog",
+            hp=200,
+            max_hp=200,
+            sheet={"char_class": "Barbaro", "level": 19, "hp_current": 200, "hp_max": 200, "attributes": {"FOR": 20, "DES": 14, "COS": 18, "INT": 8, "SAG": 10, "CAR": 10}},
+        )
+        self.gs.players = [barb]
+        with patch("random.randint", return_value=12):
+            handle_update_full_sheet_request({
+                "character": {
+                    "char_class": "Barbaro",
+                    "level": 20,
+                    "hp_max": 260,
+                    "hp_current": 260,
+                    "attributes": {"FOR": 24, "DES": 14, "COS": 22, "INT": 8, "SAG": 10, "CAR": 10},
+                }
+            }, barb, self.gs)
+        self.assertEqual(barb.full_sheet["attributes"]["FOR"], 24)
+        self.assertEqual(barb.full_sheet["attributes"]["COS"], 22)
+
+        # 6. Compendium item import sets requires_attunement explicitly
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            sent_items = []
+            c_obj = Character("Tester")
+            sheet_ui = CharacterSheetUI(
+                root,
+                character=c_obj,
+                manager=None,
+                is_connected=True,
+                request_item_callback=lambda entry, idx: sent_items.append(entry),
+            )
+            sheet_ui.withdraw()
+            with patch("client.character_sheet_ui.messagebox.showinfo"):
+                sheet_ui.import_from_compendium_to_slot({"name": "Elmo dell'Acquaticità", "weight": 2.0, "requires_attunement": False}, "Oggetti Meravigliosi", 0)
+                sheet_ui.import_from_compendium_to_slot({"name": "Anello di Protezione", "weight": 0.1, "requires_attunement": "requires attunement"}, "Anelli", 1)
+            self.assertIs(sent_items[0]["requires_attunement"], False)
+            self.assertIs(sent_items[1]["requires_attunement"], True)
+            sheet_ui.destroy()
+        finally:
+            root.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()

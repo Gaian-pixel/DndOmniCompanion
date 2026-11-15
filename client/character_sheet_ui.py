@@ -5123,12 +5123,26 @@ class CharacterSheetFrame(ttk.Frame):
             
         cat_lower = str(category).lower()
         default_c = "equipped" if any(k in cat_lower for k in ["arma", "armatura", "scudo", "weapon", "armor", "shield"]) else "backpack"
+        raw_req_att = item_data.get("requires_attunement")
+        if isinstance(raw_req_att, bool):
+            req_att = raw_req_att
+        elif isinstance(raw_req_att, str):
+            req_str = raw_req_att.strip().lower()
+            req_att = bool(req_str) and req_str not in ("false", "no", "none", "0")
+        else:
+            desc_low = str(desc).lower()
+            req_att = (
+                "requires attunement" in desc_low
+                or "richiede sintonia" in desc_low
+                or "richiede sintonizzazione" in desc_low
+            )
         entry = {
             "name": item_data.get("name"),
             "type": category,
             "qty": 1,
             "weight": weight,
             "attuned": False,
+            "requires_attunement": req_att,
             "desc": desc,
             "container": default_c
         }
@@ -5640,8 +5654,10 @@ class CharacterSheetFrame(ttk.Frame):
                 except Exception:
                     _w_prof = True
             extra_attack_args = {"weapon_proficient": _w_prof, "archery_applied": True}
-            if _ammo_decremented_locally:
+            if _ammo_decremented_locally and ammo_item is not None:
                 extra_attack_args["ammo_already_decremented"] = True
+                extra_attack_args["ammo_remaining"] = max(0, int(ammo_item.get("qty", 0) or 0))
+                extra_attack_args["ammo_item_name"] = str(ammo_item.get("name", ""))
             if is_bonus_action:
                 extra_attack_args["is_bonus_action"] = True
             if hasattr(self, "adv_dis_var"):

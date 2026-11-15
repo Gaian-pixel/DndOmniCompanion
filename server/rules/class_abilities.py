@@ -1200,10 +1200,14 @@ def handle_cast_special_spell_request(data, player, game_state):
         if bool(data.get("concentration", False)):
             from common.feats_and_classes import parse_spell_duration_rounds
             dur_r = parse_spell_duration_rounds(str(data.get("duration", "") or ""))
+            prior_conc = getattr(actor, "concentrating_on", None) or getattr(actor, "concentrating_spell", None)
+            _had_prior_conc_to_drop = bool(prior_conc and str(prior_conc).strip().lower() != str(spell_name).strip().lower())
             actor.concentrating_on = spell_name
             actor.concentration_rounds_remaining = dur_r if (dur_r and dur_r > 0) else None
             if m_key == "extended" and getattr(actor, "concentration_rounds_remaining", None):
                 actor.concentration_rounds_remaining = min(14400, actor.concentration_rounds_remaining * 2)
+            if isinstance(getattr(actor, "conditions", None), list) and "Concentrazione" not in actor.conditions:
+                actor.conditions.append("Concentrazione")
 
         # Abiuratore Lv 2+: incantesimo di Abiurazione di 1°+ liv. ricarica Interdizione Arcana
         _sch_l = str(data.get("school", "") or "").lower()
@@ -1211,6 +1215,7 @@ def handle_cast_special_spell_request(data, player, game_state):
             from common.feats_and_classes import recharge_arcane_ward_hp
             gained_ward = recharge_arcane_ward_hp(actor, cast_level)
 
+    _had_prior_conc_to_drop = False
     if lock is not None:
         with lock:
             _validate_and_commit_cast()
@@ -1220,6 +1225,18 @@ def handle_cast_special_spell_request(data, player, game_state):
     if reject_err:
         _reject_cast(reject_err)
         return
+
+    if bool(data.get("concentration", False)) and _had_prior_conc_to_drop:
+        from server.rules.combat import drop_concentration
+        new_dur_rem = getattr(actor, "concentration_rounds_remaining", None)
+        drop_concentration(actor, game_state, notify=False, reason=f"Nuovo incantesimo: {spell_name}")
+        actor.concentrating_on = spell_name
+        actor.concentration_rounds_remaining = new_dur_rem
+        if isinstance(getattr(actor, "conditions", None), list) and "Concentrazione" not in actor.conditions:
+            actor.conditions.append("Concentrazione")
+        if isinstance(getattr(actor, "full_sheet", None), dict):
+            actor.full_sheet["concentrating_on"] = spell_name
+            actor.full_sheet["conditions"] = list(getattr(actor, "conditions", []))
 
     if is_ritual:
         broadcast(game_state, make_chat_broadcast("Sistema", f"🕯️ [RITUALE +10 min] {actor.name} officia il lancio rituale di '{spell_name}'."))
@@ -1297,7 +1314,8 @@ def handle_cast_special_spell_request(data, player, game_state):
         tot_lvl = entity_get_total_level(actor)
         num_rays = (1 if tot_lvl < 5 else (2 if tot_lvl < 11 else (3 if tot_lvl < 17 else 4))) if is_eb else (3 + max(0, cast_level - 2))
         spell_atk = int(data.get("hit_bonus") or (entity_get_attr_mod(actor, "CAR" if is_eb else "INT") + ((tot_lvl - 1) // 4 + 2)))
-        target_ac = getattr(target, "ac", 12) if target else 12
+        from common.spell_effects_engine import get_spell_ac_bonus
+        target_ac = (int(getattr(target, "ac", 12) or 12) + get_spell_ac_bonus(target)) if target else 12
         dmg_type = "Forza" if is_eb else "Fuoco"
         agonizing = is_eb and entity_has_keyword(actor, "deflagrazione agonizzante", "agonizing blast")
         repelling = is_eb and entity_has_keyword(actor, "deflagrazione respingente", "repelling blast")
