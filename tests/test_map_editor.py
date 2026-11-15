@@ -493,6 +493,69 @@ class TestMapEditor(unittest.TestCase):
             self.assertEqual(saved["spawn_point"], [0, 0])
             self.assertTrue(saved.get("bg_image_data"))
 
+    def test_undo_redo_and_resize_grid_preserve_and_prune(self):
+        self.editor.grid_type_var.set("square")
+        self.editor.current_grid_type = "square"
+        self.editor.current_hex_size = 20
+        self.editor.hex_layout = self.editor._create_layout(20, "square")
+        self.editor.resize_grid(5, 4, push_undo=False)
+        self.assertEqual(len(self.editor.grid_hexes), 20)
+
+        px_in, py_in = self.editor.hex_layout.hex_to_pixel(Hex(1, 1))
+        px_out, py_out = self.editor.hex_layout.hex_to_pixel(Hex(4, 3))
+        self.editor._toggle_layer_flag_at(px_in, py_in, "wall", silent=True)
+        self.editor._drag_undo_pushed = False
+        self.editor._toggle_layer_flag_at(px_out, py_out, "wall", silent=True)
+        self.editor._drag_undo_pushed = False
+        self.assertEqual(len(self.editor.walls), 2)
+
+        # Resize smaller: keeps (1,1), prunes (4,3), push_undo=True makes it undoable
+        self.editor.resize_grid(3, 3, push_undo=True)
+        self.assertEqual(len(self.editor.grid_hexes), 9)
+        self.assertEqual(self.editor.walls, {Hex(1, 1)})
+
+        self.assertTrue(self.editor.undo())
+        self.assertEqual(len(self.editor.grid_hexes), 20)
+        self.assertEqual(self.editor.walls, {Hex(1, 1), Hex(4, 3)})
+
+        self.assertTrue(self.editor.redo())
+        self.assertEqual(len(self.editor.grid_hexes), 9)
+        self.assertEqual(self.editor.walls, {Hex(1, 1)})
+
+    def test_gridless_auto_grid_and_new_layers_roundtrip(self):
+        self.editor.base_image_original = Image.new("RGB", (180, 90), color="black")
+        self.editor.current_hex_size = 30  # SquareLayout size = 45px -> 4 cols x 2 rows = 8
+        self.editor.current_grid_type = "none"
+        self.editor.grid_type_var.set("none")
+        self.editor.hex_layout = self.editor._create_layout(30, "none")
+        self.editor.generate_auto_grid(silent=True)
+        self.assertEqual(self.editor.grid_hexes, {Hex(q, r) for q in range(4) for r in range(2)})
+
+        px0, py0 = self.editor.hex_layout.hex_to_pixel(Hex(0, 0))
+        px1, py1 = self.editor.hex_layout.hex_to_pixel(Hex(1, 0))
+        px2, py2 = self.editor.hex_layout.hex_to_pixel(Hex(2, 1))
+        px3, py3 = self.editor.hex_layout.hex_to_pixel(Hex(3, 1))
+        self.editor._toggle_trap_at(px0, py0, silent=True, name="Fossa Segreta", dc=15, damage="2d6")
+        self.editor._toggle_loot_at(px1, py1, silent=True, item_name="Pozione di Guarigione", gold=40)
+        self.editor._toggle_teleport_at(px2, py2, silent=True, dest_map="cripta.json")
+        self.editor._toggle_room_pin_at(px3, py3, silent=True, title="Ingresso", read_aloud="Aria gelida.")
+
+        with tempfile.TemporaryDirectory() as tmpd:
+            out_path = os.path.join(tmpd, "layers_map.json")
+            with patch("tkinter.filedialog.asksaveasfilename", return_value=out_path), \
+                 patch("tkinter.messagebox.showinfo"):
+                self.editor.save_map()
+            self.editor._clear_grid(preserve_layers=False)
+            self.assertEqual(len(self.editor.traps), 0)
+            with patch("tkinter.filedialog.askopenfilename", return_value=out_path), \
+                 patch("tkinter.messagebox.showinfo"):
+                self.editor.load_map_file()
+
+        self.assertEqual(self.editor.traps[Hex(0, 0)]["name"], "Fossa Segreta")
+        self.assertEqual(self.editor.loots[Hex(1, 0)]["gold"], 40)
+        self.assertEqual(self.editor.teleports[Hex(2, 1)], "cripta.json")
+        self.assertEqual(self.editor.room_pins[Hex(3, 1)]["title"], "Ingresso")
+
 
 if __name__ == "__main__":
     unittest.main()

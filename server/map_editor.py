@@ -117,10 +117,17 @@ class MapEditorWindow(tk.Toplevel):
         self.doors = {}
         self._extra_doors = []
         self.lights = {}
+        self.traps = {}
+        self.loots = {}
+        self.teleports = {}
+        self.room_pins = {}
         self.spawn_point = None
         self.add_terrain_mode = False
         self.editor_tool = "cells"
         self._drag_painted_hexes = set()
+        self._drag_undo_pushed = False
+        self._undo_stack = []
+        self._redo_stack = []
         self._preserved_map_metadata = {}
         
         self.grid_hexes = set()
@@ -185,10 +192,18 @@ class MapEditorWindow(tk.Toplevel):
         ttk.Button(zoom_frame, text="100%", width=5, command=self.reset_view).pack(side=tk.LEFT, padx=1)
         ttk.Button(zoom_frame, text="⛶ Adatta", command=self.fit_to_window).pack(side=tk.LEFT, padx=1)
 
+        history_frame = ttk.Frame(toolbar)
+        history_frame.pack(side=tk.LEFT, padx=5)
+        self.undo_button = ttk.Button(history_frame, text="↩️ Annulla", command=self.undo, style="Secondary.TButton")
+        self.undo_button.pack(side=tk.LEFT, padx=1)
+        self.redo_button = ttk.Button(history_frame, text="↪️ Ripeti", command=self.redo, style="Secondary.TButton")
+        self.redo_button.pack(side=tk.LEFT, padx=1)
+        ttk.Button(history_frame, text="📐 Ridimensiona", command=self.open_resize_grid_dialog, style="Secondary.TButton").pack(side=tk.LEFT, padx=(6, 1))
+
         ttk.Button(toolbar, text="Salva Mappa", command=self.save_map, style="Primary.TButton").pack(side=tk.RIGHT, padx=5)
 
         layers_bar = ttk.Frame(main_frame)
-        layers_bar.pack(fill=tk.X, pady=(0, 5))
+        layers_bar.pack(fill=tk.X, pady=(0, 3))
         ttk.Label(layers_bar, text="Strati & Pennelli:").pack(side=tk.LEFT, padx=(0, 6))
 
         self.cells_tool_button = ttk.Button(layers_bar, text="⬜ Celle (+/-)", command=lambda: self.set_editor_tool("cells"), style="Primary.TButton")
@@ -215,6 +230,18 @@ class MapEditorWindow(tk.Toplevel):
         self.spawn_tool_button = ttk.Button(layers_bar, text="🚩 Spawn", command=lambda: self.set_editor_tool("spawn"), style="Secondary.TButton")
         self.spawn_tool_button.pack(side=tk.LEFT, padx=2)
 
+        layers_bar_extra = ttk.Frame(main_frame)
+        layers_bar_extra.pack(fill=tk.X, pady=(0, 5))
+        ttk.Label(layers_bar_extra, text="Oggetti & Note:").pack(side=tk.LEFT, padx=(0, 6))
+        self.trap_tool_button = ttk.Button(layers_bar_extra, text="💣 Trappole", command=lambda: self.set_editor_tool("trap"), style="Secondary.TButton")
+        self.trap_tool_button.pack(side=tk.LEFT, padx=2)
+        self.loot_tool_button = ttk.Button(layers_bar_extra, text="💎 Tesori", command=lambda: self.set_editor_tool("loot"), style="Secondary.TButton")
+        self.loot_tool_button.pack(side=tk.LEFT, padx=2)
+        self.teleport_tool_button = ttk.Button(layers_bar_extra, text="🌀 Portali", command=lambda: self.set_editor_tool("teleport"), style="Secondary.TButton")
+        self.teleport_tool_button.pack(side=tk.LEFT, padx=2)
+        self.room_pin_tool_button = ttk.Button(layers_bar_extra, text="🏷️ Stanze", command=lambda: self.set_editor_tool("room_pin"), style="Secondary.TButton")
+        self.room_pin_tool_button.pack(side=tk.LEFT, padx=2)
+
         self.canvas = tk.Canvas(main_frame, bg="#2b2b2b", highlightthickness=0)
         self.canvas.pack(fill=tk.BOTH, expand=True)
 
@@ -230,6 +257,11 @@ class MapEditorWindow(tk.Toplevel):
         self.bind("<KP_Add>", lambda e: self.zoom_in(e.x, e.y))
         self.bind("<minus>", lambda e: self.zoom_out(e.x, e.y))
         self.bind("<KP_Subtract>", lambda e: self.zoom_out(e.x, e.y))
+        self.bind("<Control-z>", self._on_ctrl_undo)
+        self.bind("<Control-Z>", self._on_ctrl_undo)
+        self.bind("<Control-y>", self._on_ctrl_redo)
+        self.bind("<Control-Y>", self._on_ctrl_redo)
+        self.bind("<Control-Shift-Z>", self._on_ctrl_redo)
         self.canvas.bind("<ButtonPress-2>", self._pan_start)
         self.canvas.bind("<B2-Motion>", self._pan_move)
         self.canvas.bind("<Alt-ButtonPress-1>", self._pan_start)
@@ -425,6 +457,101 @@ class MapEditorWindow(tk.Toplevel):
     def _on_canvas_b1_release(self, event=None):
         if isinstance(getattr(self, "_drag_painted_hexes", None), set):
             self._drag_painted_hexes.clear()
+        self._drag_undo_pushed = False
+
+    def _is_focus_in_text_input(self):
+        focus = self.focus_get()
+        if not focus:
+            return False
+        try:
+            return focus.winfo_class() in ("Entry", "Text", "TEntry", "Combobox", "TCombobox", "Spinbox", "TSpinbox")
+        except Exception:
+            return False
+
+    def _on_ctrl_undo(self, event=None):
+        if self._is_focus_in_text_input():
+            return
+        self.undo()
+        return "break"
+
+    def _on_ctrl_redo(self, event=None):
+        if self._is_focus_in_text_input():
+            return
+        self.redo()
+        return "break"
+
+    def _capture_snapshot(self):
+        import copy
+        return {
+            "grid_hexes": {(h.q, h.r) for h in self.grid_hexes},
+            "pois": { (h.q, h.r): copy.deepcopy({k: v for k, v in p.items() if k != "image_tk"} if isinstance(p, dict) else p) for h, p in self.pois.items() },
+            "difficult_terrain": { (h.q, h.r): v for h, v in self.difficult_terrain.items() },
+            "walls": { (h.q, h.r) for h in self.walls },
+            "_extra_walls": copy.deepcopy(getattr(self, "_extra_walls", []) or []),
+            "half_cover": { (h.q, h.r) for h in self.half_cover },
+            "three_quarters_cover": { (h.q, h.r) for h in self.three_quarters_cover },
+            "doors": { (h.q, h.r): copy.deepcopy(v) for h, v in self.doors.items() },
+            "_extra_doors": copy.deepcopy(getattr(self, "_extra_doors", []) or []),
+            "lights": { (h.q, h.r): copy.deepcopy(v) for h, v in self.lights.items() },
+            "traps": { (h.q, h.r): copy.deepcopy(v) for h, v in self.traps.items() },
+            "loots": { (h.q, h.r): copy.deepcopy(v) for h, v in self.loots.items() },
+            "teleports": { (h.q, h.r): v for h, v in self.teleports.items() },
+            "room_pins": { (h.q, h.r): copy.deepcopy(v) for h, v in self.room_pins.items() },
+            "spawn_point": list(self.spawn_point) if self.spawn_point is not None else None,
+            "current_hex_size": getattr(self, "current_hex_size", 35),
+            "current_grid_type": getattr(self, "current_grid_type", "hex"),
+        }
+
+    def _restore_snapshot(self, snap):
+        import copy
+        self.current_hex_size = snap.get("current_hex_size", self.current_hex_size)
+        self.current_grid_type = snap.get("current_grid_type", self.current_grid_type)
+        if hasattr(self, "grid_type_var"):
+            self.grid_type_var.set(self.current_grid_type)
+        self.hex_layout = self._create_layout(self.current_hex_size, self.current_grid_type)
+        self.grid_hexes = {Hex(q, r) for q, r in snap.get("grid_hexes", ())}
+        self.pois = {Hex(k[0], k[1]): copy.deepcopy(v) for k, v in snap.get("pois", {}).items()}
+        self.difficult_terrain = {Hex(k[0], k[1]): v for k, v in snap.get("difficult_terrain", {}).items()}
+        self.walls = {Hex(q, r) for q, r in snap.get("walls", ())}
+        self._extra_walls = copy.deepcopy(snap.get("_extra_walls", []))
+        self.half_cover = {Hex(q, r) for q, r in snap.get("half_cover", ())}
+        self.three_quarters_cover = {Hex(q, r) for q, r in snap.get("three_quarters_cover", ())}
+        self.doors = {Hex(k[0], k[1]): copy.deepcopy(v) for k, v in snap.get("doors", {}).items()}
+        self._extra_doors = copy.deepcopy(snap.get("_extra_doors", []))
+        self.lights = {Hex(k[0], k[1]): copy.deepcopy(v) for k, v in snap.get("lights", {}).items()}
+        self.traps = {Hex(k[0], k[1]): copy.deepcopy(v) for k, v in snap.get("traps", {}).items()}
+        self.loots = {Hex(k[0], k[1]): copy.deepcopy(v) for k, v in snap.get("loots", {}).items()}
+        self.teleports = {Hex(k[0], k[1]): v for k, v in snap.get("teleports", {}).items()}
+        self.room_pins = {Hex(k[0], k[1]): copy.deepcopy(v) for k, v in snap.get("room_pins", {}).items()}
+        sp = snap.get("spawn_point")
+        self.spawn_point = list(sp) if isinstance(sp, (list, tuple)) and len(sp) >= 2 else None
+        self.redraw(high_res=True)
+
+    def _push_undo_state(self):
+        self._undo_stack.append(self._capture_snapshot())
+        if len(self._undo_stack) > 50:
+            self._undo_stack.pop(0)
+        self._redo_stack.clear()
+
+    def undo(self):
+        """Annulla l'ultima modifica della mappa ripristinando lo snapshot precedente."""
+        if not self._undo_stack:
+            return False
+        self._redo_stack.append(self._capture_snapshot())
+        if len(self._redo_stack) > 50:
+            self._redo_stack.pop(0)
+        self._restore_snapshot(self._undo_stack.pop())
+        return True
+
+    def redo(self):
+        """Ripete una modifica annullata in precedenza."""
+        if not self._redo_stack:
+            return False
+        self._undo_stack.append(self._capture_snapshot())
+        if len(self._undo_stack) > 50:
+            self._undo_stack.pop(0)
+        self._restore_snapshot(self._redo_stack.pop())
+        return True
 
     def redraw(self, high_res=False):
         """Ridisegna l'intera scena (sfondo e griglia) garantendo perfetto allineamento."""
@@ -504,6 +631,23 @@ class MapEditorWindow(tk.Toplevel):
             sx, sy = _center_screen(Hex(int(spawn[0]), int(spawn[1])))
             self.canvas.create_oval(sx - r_badge * 1.2, sy - r_badge * 1.2, sx + r_badge * 1.2, sy + r_badge * 1.2, fill="#16A34A", outline="#BBF7D0", width=2, tags="layer_overlay")
             self.canvas.create_text(sx, sy, text="🚩", font=("Segoe UI Emoji", max(8, int(10 * self.zoom_level))), tags="layer_overlay")
+        for h, t_info in (getattr(self, "traps", None) or {}).items():
+            sx, sy = _center_screen(h)
+            t_col = "#EF4444" if t_info.get("triggered") else "#F97316"
+            self.canvas.create_oval(sx - r_badge, sy - r_badge, sx + r_badge, sy + r_badge, fill="#431407", outline=t_col, width=1.8, tags="layer_overlay")
+            self.canvas.create_text(sx, sy, text="💣", font=("Segoe UI Emoji", max(7, int(9 * self.zoom_level))), tags="layer_overlay")
+        for h in (getattr(self, "loots", None) or {}):
+            sx, sy = _center_screen(h)
+            self.canvas.create_rectangle(sx - r_badge, sy - r_badge, sx + r_badge, sy + r_badge, fill="#713F12", outline="#FACC15", width=1.8, tags="layer_overlay")
+            self.canvas.create_text(sx, sy, text="💎", font=("Segoe UI Emoji", max(7, int(9 * self.zoom_level))), tags="layer_overlay")
+        for h in (getattr(self, "teleports", None) or {}):
+            sx, sy = _center_screen(h)
+            self.canvas.create_oval(sx - r_badge * 1.1, sy - r_badge * 1.1, sx + r_badge * 1.1, sy + r_badge * 1.1, fill="#0C4A6E", outline="#38BDF8", width=2, tags="layer_overlay")
+            self.canvas.create_text(sx, sy, text="🌀", font=("Segoe UI Emoji", max(7, int(9 * self.zoom_level))), tags="layer_overlay")
+        for h, pin_info in (getattr(self, "room_pins", None) or {}).items():
+            sx, sy = _center_screen(h)
+            self.canvas.create_oval(sx - r_badge, sy - r_badge, sx + r_badge, sy + r_badge, fill="#1E1B4B", outline="#A78BFA", width=1.8, tags="layer_overlay")
+            self.canvas.create_text(sx, sy, text="🏷️", font=("Segoe UI Emoji", max(7, int(9 * self.zoom_level))), tags="layer_overlay")
 
     def _draw_single_hex(self, h: Hex, is_preview=False):
         if not self.hex_layout:
@@ -689,6 +833,34 @@ class MapEditorWindow(tk.Toplevel):
                     lh = Hex(int(l_item["q"]), int(l_item["r"]))
                     self.lights[lh] = copy.deepcopy(l_item)
 
+            for tr_item in data.get("traps", []) or []:
+                if isinstance(tr_item, dict) and "q" in tr_item and "r" in tr_item:
+                    th = Hex(int(tr_item["q"]), int(tr_item["r"]))
+                    self.traps[th] = copy.deepcopy(tr_item)
+
+            for lt_item in data.get("loots", []) or []:
+                if isinstance(lt_item, dict) and "q" in lt_item and "r" in lt_item:
+                    lth = Hex(int(lt_item["q"]), int(lt_item["r"]))
+                    self.loots[lth] = copy.deepcopy(lt_item)
+
+            raw_teleports = data.get("teleports", {}) or {}
+            if isinstance(raw_teleports, dict):
+                for tk_coord, dest_map in raw_teleports.items():
+                    if isinstance(tk_coord, str) and "," in tk_coord:
+                        tp_parts = tk_coord.split(",", 1)
+                        try:
+                            self.teleports[Hex(int(tp_parts[0].strip()), int(tp_parts[1].strip()))] = str(dest_map)
+                        except (ValueError, TypeError):
+                            pass
+
+            for pin_item in data.get("room_pins", []) or []:
+                if isinstance(pin_item, dict) and "q" in pin_item and "r" in pin_item:
+                    ph = Hex(int(pin_item["q"]), int(pin_item["r"]))
+                    self.room_pins[ph] = copy.deepcopy(pin_item)
+
+            self._undo_stack.clear()
+            self._redo_stack.clear()
+
             sp = data.get("spawn_point")
             if isinstance(sp, (list, tuple)) and len(sp) >= 2:
                 self.spawn_point = [int(sp[0]), int(sp[1])]
@@ -743,6 +915,10 @@ class MapEditorWindow(tk.Toplevel):
         tq_cover_to_save = [[h.q, h.r] for h in sorted(self.three_quarters_cover, key=lambda x: (x.q, x.r))]
         doors_to_save = [copy.deepcopy(d) for _, d in sorted(self.doors.items(), key=lambda kv: (kv[0].q, kv[0].r))] + copy.deepcopy(getattr(self, "_extra_doors", []) or [])
         lights_to_save = [copy.deepcopy(l) for _, l in sorted(self.lights.items(), key=lambda kv: (kv[0].q, kv[0].r))]
+        traps_to_save = [copy.deepcopy(t) for _, t in sorted(self.traps.items(), key=lambda kv: (kv[0].q, kv[0].r))]
+        loots_to_save = [copy.deepcopy(l) for _, l in sorted(self.loots.items(), key=lambda kv: (kv[0].q, kv[0].r))]
+        teleports_to_save = {f"{h.q},{h.r}": dest for h, dest in sorted(self.teleports.items(), key=lambda kv: (kv[0].q, kv[0].r))}
+        room_pins_to_save = [copy.deepcopy(p) for _, p in sorted(self.room_pins.items(), key=lambda kv: (kv[0].q, kv[0].r))]
         
         hex_size = getattr(self, "current_hex_size", 60)
         grid_type = self.grid_type_var.get() if hasattr(self, "grid_type_var") else "hex"
@@ -762,6 +938,10 @@ class MapEditorWindow(tk.Toplevel):
             "three_quarters_cover": tq_cover_to_save,
             "doors": doors_to_save,
             "lights": lights_to_save,
+            "traps": traps_to_save,
+            "loots": loots_to_save,
+            "teleports": teleports_to_save,
+            "room_pins": room_pins_to_save,
         })
         if self.spawn_point is not None:
             map_data["spawn_point"] = list(self.spawn_point)
@@ -790,6 +970,7 @@ class MapEditorWindow(tk.Toplevel):
 
         target_hex = self.hex_layout.pixel_to_hex((wx, wy))
         if target_hex not in self.grid_hexes:
+            self._push_undo_state()
             self.grid_hexes.add(target_hex)
             self._draw_single_hex(target_hex)
 
@@ -800,6 +981,7 @@ class MapEditorWindow(tk.Toplevel):
 
         target_hex = self.hex_layout.pixel_to_hex((wx, wy))
         if target_hex in self.grid_hexes:
+            self._push_undo_state()
             self.pois.pop(target_hex, None)
             self.difficult_terrain.pop(target_hex, None)
             self.walls.discard(target_hex)
@@ -807,6 +989,10 @@ class MapEditorWindow(tk.Toplevel):
             self.three_quarters_cover.discard(target_hex)
             self.doors.pop(target_hex, None)
             self.lights.pop(target_hex, None)
+            self.traps.pop(target_hex, None)
+            self.loots.pop(target_hex, None)
+            self.teleports.pop(target_hex, None)
+            self.room_pins.pop(target_hex, None)
             if isinstance(self.spawn_point, (list, tuple)) and len(self.spawn_point) >= 2:
                 if self.spawn_point[0] == target_hex.q and self.spawn_point[1] == target_hex.r:
                     self.spawn_point = None
@@ -833,6 +1019,7 @@ class MapEditorWindow(tk.Toplevel):
         if not title:
             return
         caption = simpledialog.askstring("Nuovo POI", "Inserisci la didascalia:", parent=self)
+        self._push_undo_state()
         self.pois[target_hex] = {"title": title, "caption": caption or ""}
         hex_id = self.hex_to_canvas_id.get(target_hex)
         if hex_id:
@@ -852,6 +1039,9 @@ class MapEditorWindow(tk.Toplevel):
                 messagebox.showwarning("Azione non valida", "Puoi impostare terreno difficile solo su esagoni esistenti.", parent=self)
             return
 
+        if not getattr(self, "_drag_undo_pushed", False):
+            self._push_undo_state()
+            self._drag_undo_pushed = True
         t_type = self.terrain_type_var.get().lower()
         if target_hex in self.difficult_terrain and self.difficult_terrain[target_hex] == t_type:
             del self.difficult_terrain[target_hex]
@@ -892,6 +1082,9 @@ class MapEditorWindow(tk.Toplevel):
         target_set = layer_map.get(layer_name)
         if target_set is None:
             return
+        if not getattr(self, "_drag_undo_pushed", False):
+            self._push_undo_state()
+            self._drag_undo_pushed = True
         if target_hex in target_set:
             target_set.remove(target_hex)
         else:
@@ -910,6 +1103,7 @@ class MapEditorWindow(tk.Toplevel):
             messagebox.showwarning("Azione non valida", "Puoi inserire porte solo su celle esistenti.", parent=self)
             return
 
+        self._push_undo_state()
         states = ["closed", "open", "locked", "secret"]
         existing = self.doors.get(target_hex)
         if existing is None:
@@ -931,6 +1125,7 @@ class MapEditorWindow(tk.Toplevel):
             messagebox.showwarning("Azione non valida", "Puoi inserire luci solo su celle esistenti.", parent=self)
             return
 
+        self._push_undo_state()
         existing = self.lights.get(target_hex)
         if existing is None:
             self.lights[target_hex] = {"q": target_hex.q, "r": target_hex.r, "bright": 4, "dim": 4, "color": "#FFD700", "label": "Torcia"}
@@ -949,11 +1144,142 @@ class MapEditorWindow(tk.Toplevel):
             messagebox.showwarning("Azione non valida", "Puoi impostare lo spawn solo su celle esistenti.", parent=self)
             return
 
+        self._push_undo_state()
         if isinstance(self.spawn_point, (list, tuple)) and len(self.spawn_point) >= 2 and self.spawn_point[0] == target_hex.q and self.spawn_point[1] == target_hex.r:
             self.spawn_point = None
         else:
             self.spawn_point = [target_hex.q, target_hex.r]
         self._draw_editor_layer_badges_refresh()
+
+    def _toggle_trap_at(self, wx, wy, silent=False, name="Trappola a Trabocchetto", dc=13, damage="2d10", damage_type="Perforante"):
+        """Aggiunge o rimuove una trappola sulla cella selezionata."""
+        if not self.hex_layout:
+            return
+        target_hex = self.hex_layout.pixel_to_hex((wx, wy))
+        if target_hex not in self.grid_hexes:
+            if not silent:
+                messagebox.showwarning("Azione non valida", "Puoi posizionare trappole solo su celle esistenti.", parent=self)
+            return
+        if target_hex in self.traps:
+            self._push_undo_state()
+            self.traps.pop(target_hex, None)
+            self._refresh_single_hex(target_hex)
+            return
+        if not silent:
+            entered = simpledialog.askstring("Nuova Trappola", "Nome della trappola:", initialvalue=name, parent=self)
+            if not entered:
+                return
+            name = entered.strip()
+            entered_dc = simpledialog.askinteger("Nuova Trappola", "CD Percezione / Salvezza:", initialvalue=dc, minvalue=5, maxvalue=30, parent=self)
+            if entered_dc is not None:
+                dc = entered_dc
+            entered_dmg = simpledialog.askstring("Nuova Trappola", "Dadi danno (es. 2d10):", initialvalue=damage, parent=self)
+            if entered_dmg:
+                damage = entered_dmg.strip()
+        self._push_undo_state()
+        self.traps[target_hex] = {
+            "q": target_hex.q,
+            "r": target_hex.r,
+            "name": name,
+            "dc": int(dc),
+            "damage": str(damage),
+            "damage_type": damage_type,
+            "hidden": True,
+            "triggered": False,
+            "secret": True,
+        }
+        self._refresh_single_hex(target_hex)
+
+    def _toggle_loot_at(self, wx, wy, silent=False, item_name="Forziere del Tesoro", gold=25):
+        """Aggiunge o rimuove un tesoro/bottino sulla cella selezionata."""
+        if not self.hex_layout:
+            return
+        target_hex = self.hex_layout.pixel_to_hex((wx, wy))
+        if target_hex not in self.grid_hexes:
+            if not silent:
+                messagebox.showwarning("Azione non valida", "Puoi posizionare tesori solo su celle esistenti.", parent=self)
+            return
+        if target_hex in self.loots:
+            self._push_undo_state()
+            self.loots.pop(target_hex, None)
+            self._refresh_single_hex(target_hex)
+            return
+        if not silent:
+            entered = simpledialog.askstring("Nuovo Tesoro", "Nome oggetto o contenitore:", initialvalue=item_name, parent=self)
+            if not entered:
+                return
+            item_name = entered.strip()
+            entered_gp = simpledialog.askinteger("Nuovo Tesoro", "Monete d'oro (MO):", initialvalue=gold, minvalue=0, maxvalue=100000, parent=self)
+            if entered_gp is not None:
+                gold = entered_gp
+        self._push_undo_state()
+        self.loots[target_hex] = {
+            "q": target_hex.q,
+            "r": target_hex.r,
+            "item": item_name,
+            "items": [{"name": item_name, "qty": 1}],
+            "gold": int(gold),
+            "hidden": False,
+        }
+        self._refresh_single_hex(target_hex)
+
+    def _toggle_teleport_at(self, wx, wy, silent=False, dest_map="taverna.json"):
+        """Aggiunge o rimuove un portale di teletrasporto mappa sulla cella selezionata."""
+        if not self.hex_layout:
+            return
+        target_hex = self.hex_layout.pixel_to_hex((wx, wy))
+        if target_hex not in self.grid_hexes:
+            if not silent:
+                messagebox.showwarning("Azione non valida", "Puoi posizionare portali solo su celle esistenti.", parent=self)
+            return
+        if target_hex in self.teleports:
+            self._push_undo_state()
+            self.teleports.pop(target_hex, None)
+            self._refresh_single_hex(target_hex)
+            return
+        if not silent:
+            entered = simpledialog.askstring("Nuovo Portale", "Nome file mappa di destinazione (in maps/):", initialvalue=dest_map, parent=self)
+            if not entered:
+                return
+            dest_map = os.path.basename(entered.strip())
+        if not dest_map:
+            return
+        self._push_undo_state()
+        self.teleports[target_hex] = dest_map
+        self._refresh_single_hex(target_hex)
+
+    def _toggle_room_pin_at(self, wx, wy, silent=False, title="Stanza", read_aloud=""):
+        """Aggiunge o rimuove una spilla descrittiva di stanza sulla cella selezionata."""
+        if not self.hex_layout:
+            return
+        target_hex = self.hex_layout.pixel_to_hex((wx, wy))
+        if target_hex not in self.grid_hexes:
+            if not silent:
+                messagebox.showwarning("Azione non valida", "Puoi inserire spille stanza solo su celle esistenti.", parent=self)
+            return
+        if target_hex in self.room_pins:
+            self._push_undo_state()
+            self.room_pins.pop(target_hex, None)
+            self._refresh_single_hex(target_hex)
+            return
+        if not silent:
+            entered = simpledialog.askstring("Nuova Spilla Stanza", "Titolo stanza:", initialvalue=title, parent=self)
+            if not entered:
+                return
+            title = entered.strip()
+            entered_read = simpledialog.askstring("Nuova Spilla Stanza", "Testo da leggere ad alta voce (opzionale):", initialvalue=read_aloud, parent=self)
+            if entered_read is not None:
+                read_aloud = entered_read.strip()
+        self._push_undo_state()
+        self.room_pins[target_hex] = {
+            "id": f"pin_{target_hex.q}_{target_hex.r}",
+            "q": target_hex.q,
+            "r": target_hex.r,
+            "title": title,
+            "read_aloud": read_aloud,
+            "dm_notes": "",
+        }
+        self._refresh_single_hex(target_hex)
 
     def set_editor_tool(self, tool_name):
         """Seleziona in modo mutuamente esclusivo il pennello attivo nell'editor mappe."""
@@ -972,6 +1298,10 @@ class MapEditorWindow(tk.Toplevel):
             "door": ("door_tool_button", "Secondary.TButton"),
             "light": ("light_tool_button", "Secondary.TButton"),
             "spawn": ("spawn_tool_button", "Secondary.TButton"),
+            "trap": ("trap_tool_button", "Secondary.TButton"),
+            "loot": ("loot_tool_button", "Secondary.TButton"),
+            "teleport": ("teleport_tool_button", "Secondary.TButton"),
+            "room_pin": ("room_pin_tool_button", "Secondary.TButton"),
         }
         for key, (attr_name, default_style) in button_map.items():
             btn = getattr(self, attr_name, None)
@@ -987,6 +1317,7 @@ class MapEditorWindow(tk.Toplevel):
         if getattr(self, "_space_held", False):
             self._pan_start(event)
             return
+        self._drag_undo_pushed = False
         wx, wy = self.screen_to_world(event.x, event.y)
         tool = getattr(self, "editor_tool", "cells")
         if self.add_poi_mode or tool == "poi":
@@ -1005,6 +1336,14 @@ class MapEditorWindow(tk.Toplevel):
             self._toggle_light_at(wx, wy)
         elif tool == "spawn":
             self._set_spawn_at(wx, wy)
+        elif tool == "trap":
+            self._toggle_trap_at(wx, wy)
+        elif tool == "loot":
+            self._toggle_loot_at(wx, wy)
+        elif tool == "teleport":
+            self._toggle_teleport_at(wx, wy)
+        elif tool == "room_pin":
+            self._toggle_room_pin_at(wx, wy)
         else:
             self._delete_hex_at(wx, wy)
 
@@ -1087,6 +1426,7 @@ class MapEditorWindow(tk.Toplevel):
         if old_grid_type == new_grid_type:
             return
 
+        self._push_undo_state()
         old_layout = self.hex_layout
         self.current_grid_type = new_grid_type
         if hasattr(self, "current_hex_size") and self.current_hex_size:
@@ -1115,6 +1455,32 @@ class MapEditorWindow(tk.Toplevel):
                     remapped_lights[nh] = lc
                 self.lights = remapped_lights
 
+                remapped_traps = {}
+                for h, t_info in self.traps.items():
+                    nh = self._remap_hex_coord(h, old_layout, new_layout)
+                    tc = dict(t_info)
+                    tc["q"], tc["r"] = nh.q, nh.r
+                    remapped_traps[nh] = tc
+                self.traps = remapped_traps
+
+                remapped_loots = {}
+                for h, lt_info in self.loots.items():
+                    nh = self._remap_hex_coord(h, old_layout, new_layout)
+                    ltc = dict(lt_info)
+                    ltc["q"], ltc["r"] = nh.q, nh.r
+                    remapped_loots[nh] = ltc
+                self.loots = remapped_loots
+
+                self.teleports = {self._remap_hex_coord(h, old_layout, new_layout): dest for h, dest in self.teleports.items()}
+
+                remapped_pins = {}
+                for h, p_info in self.room_pins.items():
+                    nh = self._remap_hex_coord(h, old_layout, new_layout)
+                    pc = dict(p_info)
+                    pc["q"], pc["r"] = nh.q, nh.r
+                    remapped_pins[nh] = pc
+                self.room_pins = remapped_pins
+
                 if isinstance(self.spawn_point, (list, tuple)) and len(self.spawn_point) >= 2:
                     ns = self._remap_hex_coord(Hex(int(self.spawn_point[0]), int(self.spawn_point[1])), old_layout, new_layout)
                     self.spawn_point = [ns.q, ns.r]
@@ -1126,6 +1492,56 @@ class MapEditorWindow(tk.Toplevel):
                     self.grid_hexes = {self._remap_hex_coord(h, old_layout, new_layout) for h in self.grid_hexes}
                 self.redraw(high_res=True)
 
+    def open_resize_grid_dialog(self):
+        """Chiede nuove dimensioni (colonne x righe) e ridimensiona la griglia."""
+        cols = simpledialog.askinteger("Ridimensiona Griglia", "Numero di colonne (X):", initialvalue=20, minvalue=1, maxvalue=200, parent=self)
+        if not cols:
+            return
+        rows = simpledialog.askinteger("Ridimensiona Griglia", "Numero di righe (Y):", initialvalue=15, minvalue=1, maxvalue=200, parent=self)
+        if not rows:
+            return
+        self.resize_grid(cols, rows)
+
+    def resize_grid(self, cols: int, rows: int, push_undo: bool = True):
+        """Rigenera la griglia alle dimensioni rettangolari indicate mantenendo gli strati interni ai confini."""
+        cols = max(1, int(cols))
+        rows = max(1, int(rows))
+        grid_type = self.grid_type_var.get() if hasattr(self, "grid_type_var") else getattr(self, "current_grid_type", "hex")
+        if not self.hex_layout:
+            self.hex_layout = self._create_layout(getattr(self, "current_hex_size", 35), grid_type)
+        if push_undo:
+            self._push_undo_state()
+        self.canvas.delete("hex")
+        self.canvas.delete("preview")
+        self.canvas.delete("layer_overlay")
+        self.grid_hexes.clear()
+        self.hex_to_canvas_id.clear()
+        self.preview_hex_id = None
+        if grid_type in ("square", "none", "gridless"):
+            for q in range(cols):
+                for r in range(rows):
+                    self.grid_hexes.add(Hex(q, r))
+        else:
+            for row in range(rows):
+                for col in range(cols):
+                    self.grid_hexes.add(Hex(col - (row // 2), row))
+        # Mantieni solo gli elementi di strato ricompresi nella nuova griglia
+        self.pois = {h: v for h, v in self.pois.items() if h in self.grid_hexes}
+        self.difficult_terrain = {h: v for h, v in self.difficult_terrain.items() if h in self.grid_hexes}
+        self.walls = {h for h in self.walls if h in self.grid_hexes}
+        self.half_cover = {h for h in self.half_cover if h in self.grid_hexes}
+        self.three_quarters_cover = {h for h in self.three_quarters_cover if h in self.grid_hexes}
+        self.doors = {h: v for h, v in self.doors.items() if h in self.grid_hexes}
+        self.lights = {h: v for h, v in self.lights.items() if h in self.grid_hexes}
+        self.traps = {h: v for h, v in self.traps.items() if h in self.grid_hexes}
+        self.loots = {h: v for h, v in self.loots.items() if h in self.grid_hexes}
+        self.teleports = {h: v for h, v in self.teleports.items() if h in self.grid_hexes}
+        self.room_pins = {h: v for h, v in self.room_pins.items() if h in self.grid_hexes}
+        if isinstance(self.spawn_point, (list, tuple)) and len(self.spawn_point) >= 2:
+            if Hex(int(self.spawn_point[0]), int(self.spawn_point[1])) not in self.grid_hexes:
+                self.spawn_point = None
+        self.redraw(high_res=True)
+
     def generate_auto_grid(self, silent=False, preserve_layers=False):
         """Genera automaticamente le celle su tutta l'estensione dell'immagine caricata combaciando perfettamente col perimetro."""
         if not self.base_image_original or not self.hex_layout:
@@ -1134,8 +1550,9 @@ class MapEditorWindow(tk.Toplevel):
         height = self.base_image_original.height
         
         grid_type = self.grid_type_var.get() if hasattr(self, "grid_type_var") else "hex"
+        is_rect_grid = grid_type in ("square", "none", "gridless")
         
-        if grid_type == "square":
+        if is_rect_grid:
             cell_size = self.hex_layout.size
             cols = max(1, int(math.ceil(width / cell_size)))
             rows = max(1, int(math.ceil(height / cell_size)))
@@ -1152,7 +1569,7 @@ class MapEditorWindow(tk.Toplevel):
 
         self._clear_grid(preserve_layers=preserve_layers)
         
-        if grid_type == "square":
+        if is_rect_grid:
             cell_size = self.hex_layout.size
             cols = max(1, int(math.ceil(width / cell_size)))
             rows = max(1, int(math.ceil(height / cell_size)))
@@ -1196,4 +1613,8 @@ class MapEditorWindow(tk.Toplevel):
             self.doors.clear()
             self._extra_doors.clear()
             self.lights.clear()
+            self.traps.clear()
+            self.loots.clear()
+            self.teleports.clear()
+            self.room_pins.clear()
             self.spawn_point = None

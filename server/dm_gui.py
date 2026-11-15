@@ -722,6 +722,7 @@ class DM_GUI(DMCampaignSessionMixin):
         self.map_canvas.pack(fill=tk.BOTH, expand=True)
         self.map_canvas.set_on_click_callback(self.on_hex_clicked)
         self.map_canvas.on_token_drop_callback = self.on_token_drop
+        self.map_canvas.on_tokens_group_drop_callback = self.on_tokens_group_drop
         self.map_canvas.set_on_ping_callback(self.on_ping_callback)
         self.map_canvas.set_on_hex_right_click_callback(self.on_hex_right_clicked)
         self.map_canvas.is_hex_click_priority_callback = self._is_dm_hex_click_priority
@@ -2012,6 +2013,16 @@ class DM_GUI(DMCampaignSessionMixin):
         player = self.server.game_state.find_player(token_name)
         if player:
             command_handlers["MOVE_REQUEST"]({"to": [q, r], "is_dm_force": True}, player, self.server.game_state)
+
+    def on_tokens_group_drop(self, moves):
+        """Muove in blocco più token selezionati applicando la forzatura DM."""
+        handler = command_handlers.get("MOVE_REQUEST")
+        if not handler:
+            return
+        for token_name, q, r in (moves or []):
+            player = self.server.game_state.find_player(token_name)
+            if player:
+                handler({"to": [q, r], "is_dm_force": True}, player, self.server.game_state)
 
     def on_hex_right_clicked(self, event, clicked_hex, token_name):
         if token_name:

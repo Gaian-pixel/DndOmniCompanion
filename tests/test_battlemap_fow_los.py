@@ -825,6 +825,80 @@ class TestBattlemapInteractionAndEditorTask028(unittest.TestCase):
                 if flow_host.winfo_exists():
                     flow_host.destroy()
 
+    def test_player_display_shared_vision_and_hexes_cache_invalidation(self):
+        from components.ui_components import HexMapCanvas
+
+        canvas = HexMapCanvas(self.root, width=400, height=300)
+        canvas.is_dm = False
+        try:
+            canvas.update_data(
+                map_data={
+                    "grid_type": "square",
+                    "hex_size": 30,
+                    "hexes": [[q, r] for q in range(12) for r in range(6)],
+                    "walls": [[3, 0], [3, 1], [3, 2]],
+                    "fow_enabled": True,
+                    "fow_revealed": [],
+                },
+                players_data={
+                    "Eroe": {"position": [1, 1], "vision_radius": 3, "is_party_member": True},
+                    "Gufo": {"position": [9, 1], "vision_radius": 1, "is_companion": True},
+                    "Orco": {"position": [11, 5], "vision_radius": 4, "is_party_member": False},
+                },
+                player_name="",
+            )
+            self.assertIn((1, 1), canvas.visible_hexes)
+            self.assertIn((9, 1), canvas.visible_hexes)
+            self.assertNotIn((5, 1), canvas.visible_hexes)  # Bloccato dal muro x=3
+            self.assertNotIn((11, 5), canvas.visible_hexes)  # I mostri non condividono vista
+
+            # Cambio lista hexes di pari lunghezza: cache _map_hexes_set deve invalidarsi
+            canvas.map_data["hexes"] = [[50, 50], [51, 50]]
+            canvas.redraw()
+            self.assertEqual(canvas._map_hexes_set, {(50, 50), (51, 50)})
+        finally:
+            if canvas.winfo_exists():
+                canvas.destroy()
+
+    def test_marquee_selection_and_group_drag_drop_callback(self):
+        from components.ui_components import HexMapCanvas
+        from types import SimpleNamespace
+
+        canvas = HexMapCanvas(self.root, width=500, height=400)
+        canvas.is_dm = True
+        try:
+            dropped_groups = []
+            canvas.on_tokens_group_drop_callback = lambda moves: dropped_groups.append(moves)
+            canvas.update_data(
+                map_data={"grid_type": "square", "hex_size": 30, "hexes": [[q, r] for q in range(10) for r in range(10)]},
+                players_data={
+                    "Guerriero": {"position": [0, 0], "is_party_member": True},
+                    "Chierico": {"position": [1, 0], "is_party_member": True},
+                    "Lontano": {"position": [8, 8], "is_party_member": True},
+                },
+            )
+            c0x, c0y = canvas.hex_layout.hex_to_pixel(Hex(0, 0))
+            c1x, c1y = canvas.hex_layout.hex_to_pixel(Hex(1, 0))
+            sx0 = c0x * canvas.zoom_level + canvas.pan_offset_x - 15
+            sy0 = c0y * canvas.zoom_level + canvas.pan_offset_y - 15
+            sx1 = c1x * canvas.zoom_level + canvas.pan_offset_x + 15
+            sy1 = c1y * canvas.zoom_level + canvas.pan_offset_y + 15
+
+            picked = canvas.select_tokens_in_rect(sx0, sy0, sx1, sy1)
+            self.assertEqual(set(picked), {"Guerriero", "Chierico"})
+            self.assertEqual(canvas.selected_tokens, {"Guerriero", "Chierico"})
+
+            # Drag da (0,0) verso centro di (0,2): offset relativo (+0, +2)
+            canvas.dragging_token_name = "Guerriero"
+            canvas._drag_start_hex = Hex(0, 0)
+            tx, ty = canvas.hex_layout.hex_to_pixel(Hex(0, 2))
+            canvas._on_canvas_release(SimpleNamespace(x=tx * canvas.zoom_level + canvas.pan_offset_x, y=ty * canvas.zoom_level + canvas.pan_offset_y, state=0))
+            self.assertEqual(len(dropped_groups), 1)
+            self.assertEqual(dict((n, (q, r)) for n, q, r in dropped_groups[0]), {"Guerriero": (0, 2), "Chierico": (1, 2)})
+        finally:
+            if canvas.winfo_exists():
+                canvas.destroy()
+
 
 if __name__ == "__main__":
     unittest.main()

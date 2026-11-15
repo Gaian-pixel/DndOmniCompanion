@@ -109,8 +109,14 @@ class HexMapCanvas(tk.Canvas):
         self._configure_timer = None
         self._last_win_w, self._last_win_h = 0, 0
         self._map_hexes_set = None
+        self._map_hexes_sig = None
         self._last_coord_hud_hex = None
         self._srd_lookup_cache = {}
+        self.on_tokens_group_drop_callback = None
+        self._marquee_start = None
+        self._marquee_curr = None
+        self._marquee_active = False
+        self._marquee_shift_hex = None
         
         self.hex_layout = None
         self.map_background_original = None
@@ -759,6 +765,63 @@ class HexMapCanvas(tk.Canvas):
                     return name
         return None
 
+    def select_tokens_in_rect(self, x1, y1, x2, y2, additive=False):
+        """Seleziona tutti i token visibili/controllabili compresi nel rettangolo marquee."""
+        if not getattr(self, "players_data", None) or not getattr(self, "hex_layout", None):
+            return set()
+        min_x, max_x = min(x1, x2), max(x1, x2)
+        min_y, max_y = min(y1, y2), max(y1, y2)
+        is_dm = self._effective_is_dm()
+        fow_active = getattr(self, "fow_enabled", False) or (
+            isinstance(getattr(self, "map_data", None), dict) and self.map_data.get("fow_enabled", False)
+        )
+        visible = getattr(self, "visible_hexes", set()) if fow_active else set()
+        can_move_cb = getattr(self, "can_move_token_callback", None)
+
+        if not hasattr(self, "selected_tokens") or not additive:
+            self.selected_tokens = set()
+
+        for name, pdata in self.players_data.items():
+            if not self._is_token_visible_to_viewer(name, pdata, is_dm=is_dm, fow_active=fow_active, visible=visible):
+                continue
+            if not is_dm and callable(can_move_cb):
+                try:
+                    res = can_move_cb(name)
+                    allowed = bool(res[0]) if isinstance(res, tuple) else bool(res)
+                    if not allowed:
+                        continue
+                except Exception:
+                    pass
+            sx, sy, tok_y, radius, _, _ = self._token_screen_geometry(pdata)
+            if (min_x - radius) <= sx <= (max_x + radius) and (min_y - radius) <= tok_y <= (max_y + radius):
+                self.selected_tokens.add(name)
+
+        self.redraw()
+        return set(self.selected_tokens)
+
+    def _get_movable_group_tokens(self):
+        """Restituisce i nomi dei token nel gruppo selezionato quando il drag include >1 token."""
+        sel = getattr(self, "selected_tokens", None) or set()
+        drag_name = getattr(self, "dragging_token_name", None)
+        if not drag_name or drag_name not in sel or len(sel) <= 1:
+            return []
+        can_move_cb = getattr(self, "can_move_token_callback", None)
+        is_dm = self._effective_is_dm()
+        out = []
+        for name in sorted(sel):
+            if name not in (getattr(self, "players_data", None) or {}):
+                continue
+            if not is_dm and callable(can_move_cb):
+                try:
+                    res = can_move_cb(name)
+                    allowed = bool(res[0]) if isinstance(res, tuple) else bool(res)
+                    if not allowed:
+                        continue
+                except Exception:
+                    pass
+            out.append(name)
+        return out if len(out) > 1 else []
+
     def _handle_post_hex_click_selection(self, event, clicked_hex):
         if not self.on_hex_click_callback: return
         
@@ -768,6 +831,10 @@ class HexMapCanvas(tk.Canvas):
         self._drag_blocked_shown = False
         self._drag_paint_active = False
         self._last_drag_paint_hex = None
+        self._marquee_start = None
+        self._marquee_curr = None
+        self._marquee_active = False
+        self._marquee_shift_hex = None
 
         priority_click = bool(
             getattr(self, "interaction_override_mode", False)
@@ -831,6 +898,16 @@ class HexMapCanvas(tk.Canvas):
             self._last_clicked_hex = clicked_hex
             return
 
+        # Shift+Drag su cella vuota: avvia selezione rettangolare (marquee)
+        shift_held = bool(getattr(event, "state", 0) & 0x0001)
+        if not priority_click and shift_held:
+            self._marquee_start = (event.x, event.y)
+            self._marquee_curr = (event.x, event.y)
+            self._marquee_active = False
+            self._marquee_shift_hex = clicked_hex
+            self._last_clicked_hex = clicked_hex
+            return
+
         if priority_click and callable(getattr(self, "on_hex_drag_callback", None)):
             self._drag_paint_active = True
             self._last_drag_paint_hex = clicked_hex
@@ -846,6 +923,21 @@ class HexMapCanvas(tk.Canvas):
             return
         if getattr(self, "ruler_mode", False) and self._ruler_start_hex:
             self._on_ruler_drag(event)
+            return
+        if getattr(self, "_marquee_start", None):
+            sx0, sy0 = self._marquee_start
+            self._marquee_curr = (event.x, event.y)
+            if not getattr(self, "_marquee_active", False) and math.hypot(event.x - sx0, event.y - sy0) > 5:
+                self._marquee_active = True
+            if getattr(self, "_marquee_active", False):
+                self.delete("selection_marquee")
+                x1, x2 = min(sx0, event.x), max(sx0, event.x)
+                y1, y2 = min(sy0, event.y), max(sy0, event.y)
+                self.create_rectangle(
+                    x1, y1, x2, y2,
+                    outline="#FBBF24", fill="#FBBF24", stipple="gray12",
+                    width=2, dash=(4, 2), tags="selection_marquee",
+                )
             return
         if getattr(self, "_drag_paint_active", False) and callable(getattr(self, "on_hex_drag_callback", None)) and self.hex_layout:
             world_x = (event.x - self.pan_offset_x) / self.zoom_level
@@ -906,16 +998,40 @@ class HexMapCanvas(tk.Canvas):
             # 1. Traccia scia di movimento tratteggiata (Ghost Path)
             self.create_line(start_sx, start_sy, target_sx, target_sy, fill=path_color, width=3, dash=(6, 4), tags='ghost_path')
             
-            # 2. Ghost Token di destinazione
+            # 2. Ghost Token di destinazione (singolo o gruppo selezionato)
             scaled_r = max(10, int(13 * self.zoom_level))
             self.create_oval(target_sx - scaled_r, target_sy - scaled_r, target_sx + scaled_r, target_sy + scaled_r,
                              fill="#111827", outline=path_color, width=2, dash=(3, 2), tags='ghost_path')
             self.create_text(target_sx, target_sy, text=self.dragging_token_name[:2].upper(),
                              fill=path_color, font=("Segoe UI", max(7, int(9 * self.zoom_level)), "bold"), tags='ghost_path')
+
+            group_tokens = self._get_movable_group_tokens()
+            if group_tokens:
+                dq = curr_hex.q - self._drag_start_hex.q
+                dr = curr_hex.r - self._drag_start_hex.r
+                for g_name in group_tokens:
+                    if g_name == self.dragging_token_name:
+                        continue
+                    g_data = self.players_data.get(g_name)
+                    g_pos = (g_data.get("position") or [0, 0]) if isinstance(g_data, dict) else (g_data or [0, 0])
+                    g_dst = Hex(int(g_pos[0]) + dq, int(g_pos[1]) + dr)
+                    g_wx, g_wy = self.hex_layout.hex_to_pixel(g_dst)
+                    g_sx = g_wx * self.zoom_level + self.pan_offset_x
+                    g_sy = g_wy * self.zoom_level + self.pan_offset_y
+                    self.create_oval(
+                        g_sx - scaled_r * 0.85, g_sy - scaled_r * 0.85,
+                        g_sx + scaled_r * 0.85, g_sy + scaled_r * 0.85,
+                        fill="#111827", outline="#FBBF24", width=1.8, dash=(3, 2), tags='ghost_path'
+                    )
+                    self.create_text(
+                        g_sx, g_sy, text=g_name[:2].upper(),
+                        fill="#FBBF24", font=("Segoe UI", max(7, int(8 * self.zoom_level)), "bold"), tags='ghost_path'
+                    )
             
             # 3. Floating Pill Badge con distanza live nella scala della mappa e unità scelta
             dash_alert = f" • [⚠️ {_t('action_dash')}]" if is_over else ""
-            badge_text = f"👣 {dist_str} ({dist_hex} hex){dash_alert}"
+            group_note = f" • +{len(group_tokens) - 1} gruppo" if group_tokens else ""
+            badge_text = f"👣 {dist_str} ({dist_hex} hex){group_note}{dash_alert}"
             badge_y = target_sy - scaled_r - 16
             bw = len(badge_text) * 3.6 + 12
             bx1, bx2 = target_sx - bw, target_sx + bw
@@ -926,6 +1042,21 @@ class HexMapCanvas(tk.Canvas):
             return
 
     def _on_canvas_release(self, event):
+        if getattr(self, "_marquee_start", None) is not None:
+            sx0, sy0 = self._marquee_start
+            was_active = bool(getattr(self, "_marquee_active", False))
+            shift_hex = getattr(self, "_marquee_shift_hex", None)
+            self._marquee_start = None
+            self._marquee_curr = None
+            self._marquee_active = False
+            self._marquee_shift_hex = None
+            self.delete("selection_marquee")
+            if was_active:
+                self.select_tokens_in_rect(sx0, sy0, event.x, event.y, additive=bool(getattr(event, "state", 0) & 0x0004))
+                return
+            if shift_hex is not None and callable(getattr(self, "on_hex_click_callback", None)):
+                self.on_hex_click_callback(shift_hex)
+                return
         if getattr(self, "_drag_paint_active", False):
             self._drag_paint_active = False
             self._last_drag_paint_hex = None
@@ -945,11 +1076,26 @@ class HexMapCanvas(tk.Canvas):
         self.delete('ghost_token')
         self.delete('ghost_path')
         if getattr(self, 'dragging_token_name', None):
-            if self.hex_layout and self.on_token_drop_callback:
+            if self.hex_layout and (self.on_token_drop_callback or self.on_tokens_group_drop_callback):
                 world_x = (event.x - self.pan_offset_x) / self.zoom_level
                 world_y = (event.y - self.pan_offset_y) / self.zoom_level
                 drop_hex = self.hex_layout.pixel_to_hex((world_x, world_y))
-                self.on_token_drop_callback(self.dragging_token_name, drop_hex.q, drop_hex.r)
+                group_tokens = self._get_movable_group_tokens()
+                if group_tokens and self._drag_start_hex is not None and drop_hex != self._drag_start_hex:
+                    dq = drop_hex.q - self._drag_start_hex.q
+                    dr = drop_hex.r - self._drag_start_hex.r
+                    moves = []
+                    for g_name in group_tokens:
+                        g_data = self.players_data.get(g_name)
+                        g_pos = (g_data.get("position") or [0, 0]) if isinstance(g_data, dict) else (g_data or [0, 0])
+                        moves.append((g_name, int(g_pos[0]) + dq, int(g_pos[1]) + dr))
+                    if callable(getattr(self, "on_tokens_group_drop_callback", None)):
+                        self.on_tokens_group_drop_callback(moves)
+                    elif callable(self.on_token_drop_callback):
+                        for t_nm, nq, nr in moves:
+                            self.on_token_drop_callback(t_nm, nq, nr)
+                elif self.on_token_drop_callback:
+                    self.on_token_drop_callback(self.dragging_token_name, drop_hex.q, drop_hex.r)
             self.dragging_token_name = None
         self._drag_start_hex = None
         self._drag_blocked_reason = None
@@ -1336,6 +1482,7 @@ class HexMapCanvas(tk.Canvas):
         """Salva i dati necessari per il ridisegno."""
         if getattr(self, 'map_data', None) is not map_data:
             self._map_hexes_set = None
+            self._map_hexes_sig = None
         self.map_data = map_data
         self.players_data = players_data
         self.player_name = player_name
@@ -1559,6 +1706,72 @@ class HexMapCanvas(tk.Canvas):
                         mx, my = (csx + osx) / 2, (csy + osy) / 2
                         self.create_text(mx, my, text="🌀", fill="#A7F3D0", font=("Segoe UI Emoji", 9), tags="concentration_tether")
 
+    @staticmethod
+    def _is_token_blinded(pdata) -> bool:
+        conds = pdata.get("conditions", []) if isinstance(pdata, dict) else []
+        return is_condition_active(conds, "Accecato") or is_condition_active(conds, "Blinded")
+
+    def _compute_token_vision_hexes(self, pdata, walls_hex_set, grid_type):
+        """Calcola il set di celle (q, r) visibili da un singolo token."""
+        pos = pdata.get("position") if isinstance(pdata, dict) else pdata
+        if pos is None:
+            pos = [0, 0]
+        if self._is_token_blinded(pdata):
+            blind_r = max(
+                self._parse_sense_hexes(pdata, "vista cieca", "blindsight", default_ft=60),
+                self._parse_sense_hexes(pdata, "visione del vero", "truesight", default_ft=120),
+            )
+            if blind_r > 0:
+                return {(h.q, h.r) for h in get_visible_hexes(Hex(pos[0], pos[1]), blind_r, walls_hex_set, grid_type=grid_type)}
+            return {(pos[0], pos[1])}
+        vision_rad = max(
+            pdata.get("vision_radius", 6) if isinstance(pdata, dict) else 6,
+            pdata.get("light_radius", 0) if isinstance(pdata, dict) else 0,
+        )
+        return {(h.q, h.r) for h in get_visible_hexes(Hex(pos[0], pos[1]), vision_rad, walls_hex_set, grid_type=grid_type)}
+
+    def _compute_player_visible_hexes(self, is_dm, fow_revealed, walls_hex_set, grid_type):
+        """Restituisce tutte le celle attualmente illuminate/visibili al client o alla Player Display condivisa."""
+        if is_dm:
+            return set()
+        visible_now = set()
+        can_see_lights = False
+        if self.player_name and self.player_name in self.players_data:
+            pdata = self.players_data[self.player_name]
+            visible_now.update(self._compute_token_vision_hexes(pdata, walls_hex_set, grid_type))
+            can_see_lights = not self._is_token_blinded(pdata)
+            if can_see_lights:
+                for other_name, other_pdata in self.players_data.items():
+                    if other_name != self.player_name and isinstance(other_pdata, dict) and (
+                        other_pdata.get("is_party_member", False) or other_pdata.get("is_companion", False)
+                    ):
+                        o_light = other_pdata.get("light_radius", 0) or 0
+                        if o_light > 0:
+                            o_pos = other_pdata.get("position", [0, 0])
+                            visible_now.update(
+                                {(h.q, h.r) for h in get_visible_hexes(Hex(o_pos[0], o_pos[1]), o_light, walls_hex_set, grid_type=grid_type)}
+                            )
+        elif not self.player_name:
+            for pdata in self.players_data.values():
+                if isinstance(pdata, dict) and (pdata.get("is_party_member", False) or pdata.get("is_companion", False)):
+                    visible_now.update(self._compute_token_vision_hexes(pdata, walls_hex_set, grid_type))
+                    if not self._is_token_blinded(pdata):
+                        can_see_lights = True
+
+        if can_see_lights:
+            for l in (self.map_data.get("lights", []) or []):
+                if not isinstance(l, dict):
+                    continue
+                lq, lr = l.get("q"), l.get("r")
+                if lq is None or lr is None:
+                    continue
+                l_rad = int(l.get("radius", 4) or 4)
+                if l_rad > 0 and ((lq, lr) in visible_now or (lq, lr) in fow_revealed):
+                    visible_now.update(
+                        {(h.q, h.r) for h in get_visible_hexes(Hex(lq, lr), l_rad, walls_hex_set, grid_type=grid_type)}
+                    )
+        return visible_now
+
     def redraw(self):
         if not hasattr(self, '_avatar_cache'):
             self._avatar_cache = {}
@@ -1746,44 +1959,7 @@ class HexMapCanvas(tk.Canvas):
                 walls_hex_set.add(Hex(dq, dr))
 
 
-        visible_now = set()
-        if not is_dm and self.player_name in self.players_data:
-            pdata = self.players_data[self.player_name]
-            pos = pdata.get('position') if isinstance(pdata, dict) else pdata
-            if pos is None: pos = [0, 0]
-            conds = pdata.get("conditions", []) if isinstance(pdata, dict) else []
-            is_blind = is_condition_active(conds, "Accecato") or is_condition_active(conds, "Blinded")
-            if is_blind:
-                blind_r = max(
-                    self._parse_sense_hexes(pdata, "vista cieca", "blindsight", default_ft=60),
-                    self._parse_sense_hexes(pdata, "visione del vero", "truesight", default_ft=120),
-                )
-                if blind_r > 0:
-                    visible_now = {(h.q, h.r) for h in get_visible_hexes(Hex(pos[0], pos[1]), blind_r, walls_hex_set, grid_type=grid_type)}
-                else:
-                    visible_now = {(pos[0], pos[1])}
-            else:
-                vision_rad = max(pdata.get('vision_radius', 6) if isinstance(pdata, dict) else 6, pdata.get('light_radius', 0) if isinstance(pdata, dict) else 0)
-                visible_now = {(h.q, h.r) for h in get_visible_hexes(Hex(pos[0], pos[1]), vision_rad, walls_hex_set, grid_type=grid_type)}
-
-                # Condividi visione/luce con altri membri del party e compagni con sorgenti di luce attive
-                for other_name, other_pdata in self.players_data.items():
-                    if other_name != self.player_name and isinstance(other_pdata, dict) and (other_pdata.get('is_party_member', False) or other_pdata.get('is_companion', False)):
-                        o_light = other_pdata.get('light_radius', 0) or 0
-                        if o_light > 0:
-                            o_pos = other_pdata.get('position', [0, 0])
-                            visible_now.update({(h.q, h.r) for h in get_visible_hexes(Hex(o_pos[0], o_pos[1]), o_light, walls_hex_set, grid_type=grid_type)})
-
-                # Sorgenti di luce statiche posizionate sulla mappa (es. bracieri, torce a muro in stanze visibili/svelate)
-                for l in (self.map_data.get("lights", []) or []):
-                    if not isinstance(l, dict):
-                        continue
-                    lq, lr = l.get("q"), l.get("r")
-                    if lq is None or lr is None:
-                        continue
-                    l_rad = int(l.get("radius", 4) or 4)
-                    if l_rad > 0 and ((lq, lr) in visible_now or (lq, lr) in fow_revealed):
-                        visible_now.update({(h.q, h.r) for h in get_visible_hexes(Hex(lq, lr), l_rad, walls_hex_set, grid_type=grid_type)})
+        visible_now = self._compute_player_visible_hexes(is_dm, fow_revealed, walls_hex_set, grid_type)
 
         self.visible_hexes = visible_now
 
@@ -1824,8 +2000,15 @@ class HexMapCanvas(tk.Canvas):
 
         # Cache e calcolo celle visibili nel viewport
         raw_hexes = self.map_data.get("hexes", [])
-        if self._map_hexes_set is None or len(self._map_hexes_set) != len(raw_hexes):
+        hexes_sig = (
+            id(raw_hexes),
+            len(raw_hexes),
+            tuple(raw_hexes[0]) if raw_hexes else None,
+            tuple(raw_hexes[-1]) if raw_hexes else None,
+        )
+        if self._map_hexes_set is None or getattr(self, "_map_hexes_sig", None) != hexes_sig:
             self._map_hexes_set = {tuple(h) for h in raw_hexes}
+            self._map_hexes_sig = hexes_sig
 
         is_square = grid_type in ("square", "none", "gridless")
         line_w = max(1, int(1/self.zoom_level)) if self.zoom_level < 1 else 1

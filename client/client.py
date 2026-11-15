@@ -537,6 +537,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
         self._is_connecting = False
         self.map_canvas.set_on_click_callback(self.on_hex_click)
         self.map_canvas.on_token_drop_callback = self.on_token_drop
+        self.map_canvas.on_tokens_group_drop_callback = self.on_tokens_group_drop
         self.map_canvas.can_move_token_callback = self._can_player_move_token
         self.map_canvas.is_hex_click_priority_callback = self._is_player_hex_click_priority
         self.map_canvas.set_on_ping_callback(self.on_ping_callback)
@@ -3143,6 +3144,11 @@ class ClientGUI(ClientNetworkHandlersMixin):
         if token_name != self.name:
             payload["entity_name"] = token_name
         self.network.send({"type": "MOVE_REQUEST", "data": payload})
+
+    def on_tokens_group_drop(self, moves):
+        """Muove in gruppo tutti i token selezionati e controllabili dal client."""
+        for token_name, q, r in (moves or []):
+            self.on_token_drop(token_name, q, r)
 
     def on_hex_right_clicked(self, event, clicked_hex, token_name):
         import tkinter as tk
