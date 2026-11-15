@@ -2338,11 +2338,27 @@ class ClientGUI(ClientNetworkHandlersMixin):
     def roll_death_save(self):
         char = self.active_character
         if not char: return None
+        if getattr(self, "is_connected", False) and getattr(self, "network", None):
+            from common.protocol import make_death_save_request
+            self.network.send(make_death_save_request(actor_name=char.name))
+            return None
+
         if not hasattr(char, "death_saves") or not isinstance(char.death_saves, dict):
             char.death_saves = {"successes": 0, "failures": 0}
             
         import random
+        from common.dnd5e_tables import entity_has_keyword
+        from common.item_modifiers import compute_death_save_flat_bonus
         roll = random.randint(1, 20)
+        lucky_note = ""
+        c_race = str(getattr(char, "race", "") or "").lower()
+        if roll == 1 and ("halfling" in c_race or entity_has_keyword(char, "fortunato", "lucky")):
+            roll = random.randint(1, 20)
+            lucky_note = f" [🍀 Fortunato: 1 -> {roll}]"
+        flat_bonus, bonus_notes = compute_death_save_flat_bonus(char)
+        total_roll = roll + flat_bonus
+        bonus_str = f" + {flat_bonus} ({', '.join(bonus_notes)}) = {total_roll}" if flat_bonus else ""
+
         succ = char.death_saves.get("successes", 0)
         fail = char.death_saves.get("failures", 0)
         conds = getattr(char, "conditions", [])
@@ -2351,19 +2367,20 @@ class ClientGUI(ClientNetworkHandlersMixin):
         if roll == 1:
             fail += 2
             flavor = "💥 FALLIMENTO CRITICO (2 fallimenti)!"
-        elif roll <= 9:
-            fail += 1
-            flavor = "❌ Fallimento."
-        elif roll <= 19:
-            succ += 1
-            flavor = "✅ Successo."
         elif roll == 20:
             char.hp_current = 1
             succ = 0
             fail = 0
-            if "Incosciente" in conds:
-                conds.remove("Incosciente")
+            for _uc in ("Incosciente", "Unconscious", "Morente", "Dying", "Stabilizzato", "Stable"):
+                if _uc in conds:
+                    conds.remove(_uc)
             flavor = "🌟 CRITICO NATURALE (20)! Ti risvegli con 1 HP!"
+        elif total_roll <= 9:
+            fail += 1
+            flavor = "❌ Fallimento."
+        else:
+            succ += 1
+            flavor = "✅ Successo."
             
         if roll != 20:
             succ = min(3, succ)
@@ -2387,11 +2404,11 @@ class ClientGUI(ClientNetworkHandlersMixin):
             char.hp_current, char.hp_max, char.initiative, char.conditions
         ))
         
-        ds_msg = f"🎲 [TS MORTE] {char.name} tira 1d20: {roll}. {flavor} (Successi: {succ}/3 | Fallimenti: {fail}/3)"
+        ds_msg = f"🎲 [TS MORTE] {char.name} tira 1d20: {roll}{lucky_note}{bonus_str}. {flavor} (Successi: {succ}/3 | Fallimenti: {fail}/3)"
         self.send_chat_message(ds_msg)
-        self.show_toast(f"Tiro Morte: {roll}\n{flavor}", title="Tiro Salvezza Morte", toast_type="danger" if fail > succ else "success")
+        self.show_toast(f"Tiro Morte: {total_roll}\n{flavor}", title="Tiro Salvezza Morte", toast_type="danger" if fail > succ else "success")
         self.update_hero_summary_card()
-        return roll
+        return total_roll
 
     def perform_dash(self):
         if not self.is_connected:
@@ -4447,6 +4464,8 @@ class ClientGUI(ClientNetworkHandlersMixin):
             if 'elevation' in data and data.get('elevation') is not None:
                 self.players_data[name]['elevation'] = data.get('elevation')
                 visual_changed = True
+            if isinstance(data.get('death_saves'), dict):
+                self.players_data[name]['death_saves'] = dict(data['death_saves'])
             
         if name == self.name and self.active_character:
             if data.get('hp') is not None:
@@ -4460,6 +4479,11 @@ class ClientGUI(ClientNetworkHandlersMixin):
                 self.active_character.conditions = data.get('conditions')
             if 'active_effects' in data and data.get('active_effects') is not None:
                 self.active_character.active_effects = data.get('active_effects')
+            if isinstance(data.get('death_saves'), dict):
+                self.active_character.death_saves = {
+                    'successes': int(data['death_saves'].get('successes', 0) or 0),
+                    'failures': int(data['death_saves'].get('failures', 0) or 0),
+                }
             self.schedule_save_characters(delay_ms=1000)
             self.update_hero_summary_card()
             self.update_action_economy_ui()
@@ -4467,6 +4491,8 @@ class ClientGUI(ClientNetworkHandlersMixin):
             if getattr(self, 'stats_window', None) and self.stats_window.winfo_exists():
                 if hasattr(self.stats_window, "sync_resources_from_character"):
                     self.stats_window.sync_resources_from_character()
+                if hasattr(self.stats_window, "update_death_saves_ui"):
+                    self.stats_window.update_death_saves_ui()
                 self.stats_window.update_dynamic_stats()
             
         self.update_player_listbox()

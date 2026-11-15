@@ -220,8 +220,26 @@ class VitalsPanel:
 
     @staticmethod
     def roll_death_save(sheet):
-        """Effettua un tiro salvezza su morte conforme a D&D 5e RAW."""
-        roll = random.randint(1, 20)
+        """Effettua un tiro salvezza su morte conforme a D&D 5e RAW (server-autorevole quando connesso)."""
+        if getattr(sheet, "is_connected", False) and getattr(sheet, "network", None):
+            from common.protocol import make_death_save_request
+            sheet.network.send(make_death_save_request(actor_name=getattr(sheet.character, "name", None)))
+            return
+
+        from common.dnd5e_tables import entity_has_keyword
+        from common.item_modifiers import compute_death_save_flat_bonus
+        raw_d20 = random.randint(1, 20)
+        lucky_note = ""
+        c_race = str(getattr(sheet.character, "race", "") or "").lower()
+        if raw_d20 == 1 and ("halfling" in c_race or entity_has_keyword(sheet.character, "fortunato", "lucky")):
+            reroll_d20 = random.randint(1, 20)
+            lucky_note = f" [🍀 Fortunato Halfling: 1 -> {reroll_d20}]"
+            raw_d20 = reroll_d20
+
+        flat_bonus, bonus_notes = compute_death_save_flat_bonus(sheet.character)
+        total_roll = raw_d20 + flat_bonus
+        bonus_str = f" + {flat_bonus} ({', '.join(bonus_notes)}) = {total_roll}" if flat_bonus else ""
+
         if not hasattr(sheet.character, "death_saves"):
             sheet.character.death_saves = {"successes": 0, "failures": 0}
             
@@ -230,25 +248,26 @@ class VitalsPanel:
         conds = getattr(sheet.character, "conditions", [])
         
         flavor = ""
-        if roll == 1:
+        if raw_d20 == 1:
             fail += 2
             flavor = "💀 FALLIMENTO CRITICO (1 Naturale)! (2 fallimenti)"
-        elif roll <= 9:
-            fail += 1
-            flavor = "❌ Fallimento."
-        elif roll <= 19:
-            succ += 1
-            flavor = "✅ Successo."
-        elif roll == 20:
+        elif raw_d20 == 20:
             sheet.character.hp_current = 1
             sheet.hp_cur_var.set(1)
             succ = 0
             fail = 0
-            if "Incosciente" in conds:
-                conds.remove("Incosciente")
+            for _uc in ("Incosciente", "Unconscious", "Morente", "Dying", "Stabilizzato", "Stable"):
+                if _uc in conds:
+                    conds.remove(_uc)
             flavor = "🌟 SUCCESSO CRITICO (20 Naturale)! Ti risvegli con 1 HP."
+        elif total_roll <= 9:
+            fail += 1
+            flavor = "❌ Fallimento."
+        else:
+            succ += 1
+            flavor = "✅ Successo."
 
-        if roll != 20:
+        if raw_d20 != 20:
             succ = min(3, succ)
             fail = min(3, fail)
             if fail >= 3:
@@ -271,8 +290,8 @@ class VitalsPanel:
             except Exception: pass
 
         if sheet.roll_callback:
-            chat_msg = f"[TS MORTE] {sheet.character.name} ottiene {roll}. {flavor} (Successi: {succ}/3, Fallimenti: {fail}/3)"
-            sheet.roll_callback(f"1d20={roll}", chat_msg)
+            chat_msg = f"[TS MORTE] {sheet.character.name} ottiene {raw_d20}{lucky_note}{bonus_str}. {flavor} (Successi: {succ}/3, Fallimenti: {fail}/3)"
+            sheet.roll_callback(f"1d20={total_roll}", chat_msg)
         else:
-            messagebox.showinfo("Tiro Salvezza Morte", f"Hai tirato: {roll}\n{flavor}\n\nSuccessi: {succ}/3\nFallimenti: {fail}/3", parent=sheet)
+            messagebox.showinfo("Tiro Salvezza Morte", f"Hai tirato: {raw_d20}{lucky_note}{bonus_str}\n{flavor}\n\nSuccessi: {succ}/3\nFallimenti: {fail}/3", parent=sheet)
 

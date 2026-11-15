@@ -117,6 +117,39 @@ def entity_has_keyword(entity: Any, *keywords: str) -> bool:
     return any(str(k).lower() in haystack for k in keywords if k)
 
 
+def entity_has_elemental_adept(entity: Any, damage_type: str = "") -> bool:
+    """Talento Adepto Elementale (Elemental Adept, PHB p. 166): verifica corrispondenza sull'elemento."""
+    if not entity:
+        return False
+    blobs = get_entity_text_blobs(entity)
+    hay = f"{blobs['features']} {blobs['feats']} {blobs['traits']}"
+    if "adepto elementale" not in hay and "elemental adept" not in hay:
+        return False
+    dt = str(damage_type or "").lower().strip()
+    if not dt:
+        return True
+    elem_aliases = {
+        "fuoco": ("fuoco", "fire"),
+        "freddo": ("freddo", "cold"),
+        "fulmine": ("fulmine", "lightning"),
+        "acido": ("acido", "acid"),
+        "tuono": ("tuono", "thunder"),
+    }
+    matched_elem = None
+    for al_tuple in elem_aliases.values():
+        if any(a in dt for a in al_tuple):
+            matched_elem = al_tuple
+            break
+    if matched_elem is None:
+        return False
+    adept_snippets = re.findall(r"(?:adepto elementale|elemental adept)[^\n.;]{0,60}", hay)
+    adept_text = " ".join(adept_snippets) if adept_snippets else hay
+    spec_in_adept = [a for pair in elem_aliases.values() for a in pair if a in adept_text]
+    if not spec_in_adept:
+        return True
+    return any(a in adept_text for a in matched_elem)
+
+
 def entity_get_class_level(entity: Any, *class_aliases: str) -> int:
     """Restituisce il livello nella classe specificata (supportando multiclasse e alias IT/EN)."""
     if not entity or not class_aliases:

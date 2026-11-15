@@ -410,6 +410,33 @@ def entity_has_prepared_spell(entity, *keywords) -> bool:
     return any(k in txt for k in keywords)
 
 
+def compute_spell_ability_check_modifier(player) -> tuple:
+    """
+    Calcola il modificatore alla prova d'incantatore (Dissolvi Magie / Controincantesimo):
+    - Miglior modificatore mentale (INT / SAG / CAR).
+    - Mago Abiuratore Lv 10+ (Abiurazione Migliorata, PHB p. 115): +Bonus Competenza.
+    - Altrimenti Bardo Lv 2+ (Tuttofare / Jack of All Trades, PHB p. 54): +(PB // 2) (non cumulabile con competenza piena).
+    """
+    from common.dnd5e_tables import entity_has_keyword
+    sheet = getattr(player, "full_sheet", None)
+    s_dict = sheet if isinstance(sheet, dict) else player
+    best_mod = max(
+        (get_effective_attribute_from_dict(s_dict, s) - 10) // 2
+        for s in ("INT", "SAG", "CAR")
+    )
+    tot_lvl = max(1, entity_get_total_level(player))
+    pb = 2 + (tot_lvl - 1) // 4
+    wiz_lvl = entity_get_class_level(player, "mago", "wizard")
+    subclass_txt = str((sheet or {}).get("subclass", getattr(player, "subclass", "")) if isinstance(sheet, dict) else getattr(player, "subclass", "")).lower()
+    if (wiz_lvl >= 10 and any(k in subclass_txt for k in ("abiur", "abjur"))) or entity_has_keyword(player, "abiurazione migliorata", "improved abjuration"):
+        return best_mod + pb, f"+{pb} Abiurazione Migliorata"
+    bard_lvl = entity_get_class_level(player, "bardo", "bard")
+    if bard_lvl >= 2 or entity_has_keyword(player, "tuttofare", "jack of all trades"):
+        half_pb = pb // 2
+        return best_mod + half_pb, f"+{half_pb} Tuttofare"
+    return best_mod, ""
+
+
 def entity_has_available_slot(entity, min_level: int = 1) -> bool:
     sheet = getattr(entity, "full_sheet", None)
     if not isinstance(sheet, dict):
@@ -435,7 +462,13 @@ def maybe_prompt_defense_reactions(target_player, attacker, attack_details: dict
     """
     if not target_player or not game_state:
         return
-    if getattr(target_player, "has_reacted_this_turn", False) or getattr(target_player, "surprised", False) or is_incapacitated(target_player) or _has_no_reactions_effect(target_player):
+    was_incap_before = bool(attack_details.get("was_incapacitated", False))
+    old_hp_before = int(attack_details.get("old_hp", getattr(target_player, "hp", 0)) or 0)
+    is_dead_perm = any(is_condition_active(getattr(target_player, "conditions", []), dc) for dc in ("Morto", "Dead", "Pietrificato", "Petrified"))
+    can_rescue_lethal = (not was_incap_before) and old_hp_before > 0 and not is_dead_perm
+    if getattr(target_player, "has_reacted_this_turn", False) or getattr(target_player, "surprised", False) or _has_no_reactions_effect(target_player):
+        return
+    if is_incapacitated(target_player) and not can_rescue_lethal:
         return
     auto_react = True
     if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
@@ -678,17 +711,7 @@ def handle_dispel_magic_request(data, player, game_state):
         if slot_failed:
             pass
         else:
-            best_mod = max(
-                (get_effective_attribute_from_dict(sheet if isinstance(sheet, dict) else player, s) - 10) // 2
-                for s in ("INT", "SAG", "CAR")
-            )
-            if entity_get_class_level(player, "bardo", "bard") >= 2:
-                tot_lvl = entity_get_total_level(player)
-                pb = 2 + (tot_lvl - 1) // 4
-                best_mod += pb // 2  # Jack of All Trades applies to Dispel Magic ability check!
-            if entity_get_class_level(player, "mago", "wizard") >= 10 and "abiur" in str((sheet or {}).get("subclass", "")).lower():
-                tot_lvl = entity_get_total_level(player)
-                best_mod += 2 + (tot_lvl - 1) // 4  # Improved Abjuration!
+            best_mod, _mod_note = compute_spell_ability_check_modifier(player)
 
             dispelled = []
             resisted = []

@@ -855,6 +855,14 @@ def consume_spell_or_pact_slot(sheet_or_char: Any, min_level: int, prefer_pact: 
     """Consuma uno slot Incantesimo o Magia del Patto di livello >= min_level (PHB p. 164)."""
     lvl_req = max(1, min(9, int(min_level or 1)))
     is_dict = isinstance(sheet_or_char, dict)
+    if (
+        not is_dict
+        and getattr(sheet_or_char, "spell_slots", None) is None
+        and getattr(sheet_or_char, "pact_slots", None) is None
+        and isinstance(getattr(sheet_or_char, "full_sheet", None), dict)
+    ):
+        sheet_or_char = sheet_or_char.full_sheet
+        is_dict = True
     pact = sheet_or_char.get("pact_slots") if is_dict else getattr(sheet_or_char, "pact_slots", None)
     slots = sheet_or_char.get("spell_slots") if is_dict else getattr(sheet_or_char, "spell_slots", None)
 

@@ -200,13 +200,14 @@ def make_update_stats_request(hp, max_hp, initiative, conditions=None, temp_hp=N
     if name is not None: d["name"] = name
     return {"type": "UPDATE_STATS_REQUEST", "data": d}
 
-def make_player_stats_update(player_name, hp, max_hp, initiative, conditions=None, temp_hp=0, light_radius=None, light_color=None, active_effects=None, elevation=None):
+def make_player_stats_update(player_name, hp, max_hp, initiative, conditions=None, temp_hp=0, light_radius=None, light_color=None, active_effects=None, elevation=None, death_saves=None):
     if conditions is None: conditions = []
     d = {"name": player_name, "hp": hp, "max_hp": max_hp, "initiative": initiative, "conditions": conditions, "temp_hp": temp_hp}
     if light_radius is not None: d["light_radius"] = light_radius
     if light_color is not None: d["light_color"] = light_color
     if active_effects is not None: d["active_effects"] = active_effects
     if elevation is not None: d["elevation"] = int(elevation)
+    if death_saves is not None: d["death_saves"] = death_saves
     return {"type": "PLAYER_STATS_UPDATE", "data": d}
 
 
@@ -745,6 +746,16 @@ def make_stand_up_request() -> ProtocolMessage:
 
 def make_buy_item_request(shop_name: str, item_name: str) -> ProtocolMessage:
     return {"type": "BUY_ITEM_REQUEST", "data": {"shop_name": shop_name, "item_name": item_name}}
+
+
+def make_death_save_request(manual_roll: Optional[int] = None, actor_name: Optional[str] = None) -> ProtocolMessage:
+    payload: Dict[str, Any] = {}
+    if manual_roll is not None:
+        payload["manual_roll"] = int(manual_roll)
+    if actor_name:
+        payload["actor_name"] = actor_name
+    return {"type": "DEATH_SAVE_REQUEST", "data": payload}
+
 
 
 

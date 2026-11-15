@@ -177,7 +177,7 @@ def get_implicit_racial_resistances(entity: Any) -> Set[str]:
         res.update({"fuoco", "fire"})
 
     if "aasimar" in race or entity_has_keyword(entity, "resistenza celestiale", "celestial resistance"):
-        res.update({"necrotico", "necrotic", "radiante", "radiant"})
+        res.update({"necrotico", "necrotic", "radioso", "radiante", "radiant"})
 
     if any(k in race for k in ("triton", "goliath")):
         if "goliath" in race or entity_has_keyword(entity, "nato tra i monti", "mountain born"):

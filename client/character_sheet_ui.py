@@ -2143,7 +2143,10 @@ class CharacterSheetFrame(ttk.Frame):
                 return
             self._safe_save_characters()
             refresh_sp_ui()
-            if self.roll_callback:
+            if getattr(self, "is_connected", False) and getattr(self, "network", None):
+                from common.protocol import make_class_feature_request
+                self.network.send(make_class_feature_request("font_of_magic", mode="to_points", slot_level=s))
+            elif self.roll_callback:
                 self.roll_callback("0d0", f"✨ {self.character.name}: {msg}")
             messagebox.showinfo("Conversione Eseguita", msg, parent=win)
         ttk.Button(r1, text="Converti Slot ➔ Punti", command=do_s2p, style="Primary.TButton").pack(side=tk.LEFT)
@@ -2165,7 +2168,10 @@ class CharacterSheetFrame(ttk.Frame):
                 return
             self._safe_save_characters()
             refresh_sp_ui()
-            if self.roll_callback:
+            if getattr(self, "is_connected", False) and getattr(self, "network", None):
+                from common.protocol import make_class_feature_request
+                self.network.send(make_class_feature_request("font_of_magic", mode="to_slot", slot_level=s))
+            elif self.roll_callback:
                 self.roll_callback("0d0", f"✨ {self.character.name}: {msg}")
             messagebox.showinfo("Slot Creato", msg, parent=win)
         ttk.Button(r2, text="Punti ➔ Crea Slot", command=do_p2s, style="Success.TButton").pack(side=tk.LEFT)
@@ -2186,6 +2192,10 @@ class CharacterSheetFrame(ttk.Frame):
         cb_meta = ttk.Combobox(sec3, textvariable=meta_var, values=list(meta_options.keys()), state="readonly")
         cb_meta.pack(fill=tk.X, pady=(2, 6))
         def do_meta():
+            from common.dnd5e_tables import entity_get_class_level, entity_has_keyword
+            if entity_get_class_level(self.character, "stregone", "sorcerer") < 3 and not entity_has_keyword(self.character, "adepto metamagico", "metamagic adept"):
+                messagebox.showwarning("Livello Insufficiente", "La Metamagia si sblocca al 3° livello da Stregone (PHB p. 101).", parent=win)
+                return
             meta_name, meta_cost = meta_options.get(meta_var.get(), ("Metamagia", 1))
             ok, msg = self.character.use_metamagic(meta_name, meta_cost)
             if not ok:
@@ -2193,7 +2203,10 @@ class CharacterSheetFrame(ttk.Frame):
                 return
             self._safe_save_characters()
             refresh_sp_ui()
-            if self.roll_callback:
+            if getattr(self, "is_connected", False) and getattr(self, "network", None):
+                from common.protocol import make_class_feature_request
+                self.network.send(make_class_feature_request("font_of_magic", mode="set_metamagic", metamagic=meta_name, cost=meta_cost))
+            elif self.roll_callback:
                 self.roll_callback("0d0", f"⚡ {self.character.name} attiva {meta_name}! (-{meta_cost} PE, rimasti: {self.character.sorcery_points_current})")
             messagebox.showinfo("Metamagia Attivata", msg, parent=win)
         ttk.Button(sec3, text="Spendi PE per Metamagia", command=do_meta, style="Gold.TButton").pack(fill=tk.X)
@@ -5601,6 +5614,7 @@ class CharacterSheetFrame(ttk.Frame):
         if getattr(self, "attack_callback", None):
             w_name = weapon.get("name", "Arma")
             d_type = weapon.get("damage_type", "Tagliente")
+            _ammo_decremented_locally = False
             if hasattr(self, "character") and hasattr(self.character, "find_ammunition"):
                 ammo_item, _ = self.character.find_ammunition(w_name, include_empty=True)
                 if ammo_item:
@@ -5613,6 +5627,7 @@ class CharacterSheetFrame(ttk.Frame):
                         messagebox.showwarning("Munizioni Esaurite", f"⚠️ Non hai più {a_name} nello zaino per attaccare con {w_name}!", parent=self)
                         return
                     ammo_item["qty"] = a_qty - 1
+                    _ammo_decremented_locally = True
                     self._safe_save_characters()
                     self.refresh_inventory_grid()
                     self.recalculate_and_refresh_derived_stats()
@@ -5625,6 +5640,8 @@ class CharacterSheetFrame(ttk.Frame):
                 except Exception:
                     _w_prof = True
             extra_attack_args = {"weapon_proficient": _w_prof, "archery_applied": True}
+            if _ammo_decremented_locally:
+                extra_attack_args["ammo_already_decremented"] = True
             if is_bonus_action:
                 extra_attack_args["is_bonus_action"] = True
             if hasattr(self, "adv_dis_var"):

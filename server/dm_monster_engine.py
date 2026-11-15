@@ -287,6 +287,14 @@ def trigger_lair_actions_if_crossed(game_state: Any, prev_init: Optional[int], n
     elif prev_init is not None and next_init is not None and prev_init >= 20 and next_init < 20:
         crossed = True
     elif round_advanced and getattr(game_state, "turn_index", 0) == 0:
+        # Attiva subito a fine/inizio giro solo se nessun combattente ha iniziativa < 20
+        has_below_20 = any(
+            getattr(p, "in_combat", True) and int(getattr(p, "initiative", 0) or 0) < 20
+            for p in getattr(game_state, "players", [])
+        )
+        if not has_below_20:
+            crossed = True
+    elif prev_init is None and next_init is not None and next_init < 20:
         crossed = True
 
     if not crossed:
@@ -537,7 +545,10 @@ def handle_resolve_legendary_resistance_request(data: dict, player: Any, game_st
 
             if dmg_to_apply > 0 and auto_aoe:
                 from server.rules.combat import apply_damage
-                fd, note, temp_abs, _ = apply_damage(target, dmg_to_apply, dmg_type, game_state)
+                fd, note, temp_abs, _ = apply_damage(
+                    target, dmg_to_apply, dmg_type, game_state,
+                    ignore_resistance=bool(deferred.get("ignore_resistance", False)),
+                )
                 msg += f" Subisce {fd} danni ({dmg_type}){note}! HP: {target.hp}/{target.max_hp}"
                 if temp_abs > 0:
                     msg += f" [{temp_abs} Temp]"
@@ -865,23 +876,31 @@ def execute_monster_multiattack(
 
             applied = 0
             eff_notes: List[str] = []
+            dl = desc.lower()
+            _dmg_type_map = (
+                ("necrotic", "Necrotico"), ("necrot", "Necrotico"),
+                ("piercing", "Perforante"), ("perforan", "Perforante"),
+                ("bludgeoning", "Contundente"), ("contundent", "Contundente"),
+                ("slashing", "Tagliente"), ("taglient", "Tagliente"),
+                ("fire", "Fuoco"), ("fuoco", "Fuoco"),
+                ("cold", "Freddo"), ("freddo", "Freddo"),
+                ("lightning", "Fulmine"), ("fulmin", "Fulmine"),
+                ("radiant", "Radioso"), ("radios", "Radioso"),
+                ("thunder", "Tuono"), ("tuon", "Tuono"),
+                ("force", "Forza"), ("forza", "Forza"),
+                ("psychic", "Psichico"), ("psichic", "Psichico"),
+                ("acid", "Acido"), ("acido", "Acido"),
+                ("poison", "Veleno"), ("veleno", "Veleno"),
+            )
+            d_type = "Tagliente"
+            for kw, cname in _dmg_type_map:
+                if kw in dl:
+                    d_type = cname
+                    break
             if target and hit and dmg_tot > 0 and game_state is not None:
                 from server.rules.combat import apply_damage
-                d_type = "Tagliente"
-                dl = desc.lower()
-                if "necrotic" in dl or "necrot" in dl:
-                    d_type = "Necrotico"
-                elif "piercing" in dl or "perforan" in dl:
-                    d_type = "Perforante"
-                elif "bludgeoning" in dl or "contundent" in dl:
-                    d_type = "Contundente"
-                elif "fire" in dl or "fuoco" in dl:
-                    d_type = "Fuoco"
-                elif "acid" in dl or "acido" in dl:
-                    d_type = "Acido"
-                elif "poison" in dl or "veleno" in dl:
-                    d_type = "Veleno"
-                applied, _, _, dmg_hp = apply_damage(target, dmg_tot, damage_type=d_type, game_state=game_state, is_crit=is_crit, attacker=monster)
+                is_mag_m = any(mk in dl or mk in nm.lower() for mk in ("magic", "magico", "spell attack", "incantesim", "flame", "fiamma", "radiant", "necrotic", "psychic", "force"))
+                applied, _, _, dmg_hp = apply_damage(target, dmg_tot, damage_type=d_type, game_state=game_state, is_crit=is_crit, is_magical=is_mag_m, attacker=monster)
                 eff_notes = apply_monster_special_hit_effects(monster, target, nm, desc, dmg_hp or applied, game_state=game_state)
                 total_dmg += applied
             elif not target:
@@ -894,7 +913,7 @@ def execute_monster_multiattack(
             if eff_notes:
                 row_txt += " " + " ".join(eff_notes)
             lines.append(row_txt)
-            results.append({"action": nm, "attack_total": atk_tot, "nat": nat, "is_crit": is_crit, "hit": hit, "damage": applied if target else dmg_tot})
+            results.append({"action": nm, "attack_total": atk_tot, "nat": nat, "is_crit": is_crit, "hit": hit, "damage": applied if target else dmg_tot, "damage_type": d_type})
 
     summary = "\n".join(lines)
     if game_state:
@@ -960,6 +979,19 @@ def roll_beholder_eye_rays(
                     total_dmg += final_dmg
                 else:
                     final_dmg = eff_raw
+                    if final_dmg > 0:
+                        tgt.hp = max(0, int(getattr(tgt, "hp", 0)) - final_dmg)
+                if ray_num in (9, 10) and int(getattr(tgt, "hp", 1) or 0) <= 0:
+                    tgt.hp = 0
+                    if not hasattr(tgt, "conditions") or not isinstance(tgt.conditions, list):
+                        tgt.conditions = []
+                    tgt.conditions = [c for c in tgt.conditions if str(c).strip().lower() not in ("incosciente", "unconscious", "stabilizzato", "stable", "morente", "dying")]
+                    if "Morto" not in tgt.conditions:
+                        tgt.conditions.append("Morto")
+                    if isinstance(getattr(tgt, "full_sheet", None), dict):
+                        tgt.full_sheet["hp_current"] = 0
+                        tgt.full_sheet["conditions"] = list(tgt.conditions)
+                line_extra = " [💀 POLVERIZZATO!]" if (ray_num == 9 and getattr(tgt, "hp", 1) <= 0) else (" [💀 MORTE ISTANTANEA!]" if (ray_num == 10 and getattr(tgt, "hp", 1) <= 0) else "")
             elif not saved:
                 cond_map = {1: "Affascinato", 2: "Paralizzato", 3: "Spaventato", 4: "Rallentato", 6: "Trattenuto", 7: "Incosciente"}
                 cond = cond_map.get(ray_num)
@@ -970,7 +1002,7 @@ def roll_beholder_eye_rays(
                         tgt.conditions.append(cond)
             line = f"• d10={ray_num} **{name_it}** ({name_en}) vs {tgt.name}: TS {save_stat} {s_roll} vs CD {dc} -> {'Superato' if saved else 'FALLITO'}"
             if dmg_dice:
-                line += f" ({final_dmg} danni {dmg_type})"
+                line += f" ({final_dmg} danni {dmg_type})" + (line_extra if ray_num in (5, 9, 10) else "")
             elif not saved:
                 line += f" [{note}]"
         else:

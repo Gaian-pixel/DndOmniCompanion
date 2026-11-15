@@ -289,6 +289,8 @@ class Character:
         return recovered
 
     def long_rest(self):
+        if self.is_in_wild_shape():
+            self.revert_wild_shape()
         self.hp_current = self.hp_max
         self.temp_hp = 0
         from common.feats_and_classes import evaluate_armor_sleep, init_or_get_arcane_ward_hp
@@ -334,8 +336,6 @@ class Character:
         else:
             self.spell_points_current = getattr(self, "spell_points_max", 0)
         self.superiority_dice_current = self.superiority_dice_max
-        if self.is_in_wild_shape():
-            self.revert_wild_shape()
         if self.has_lucky_feat():
             self.lucky_points = 3
         sub_low = str(getattr(self, "subclass", "")).lower()
@@ -407,32 +407,8 @@ class Character:
 
     def has_elemental_adept(self, damage_type: str = "") -> bool:
         """Talento Adepto Elementale (Elemental Adept, PHB p. 166)."""
-        txt = self._get_all_features_text()
-        if "adepto elementale" not in txt and "elemental adept" not in txt:
-            return False
-        dt = str(damage_type or "").lower()
-        if not dt:
-            return True
-        elem_aliases = {
-            "fuoco": ("fuoco", "fire"),
-            "freddo": ("freddo", "cold"),
-            "fulmine": ("fulmine", "lightning"),
-            "acido": ("acido", "acid"),
-            "tuono": ("tuono", "thunder"),
-        }
-        matched_elem = None
-        for _, al_tuple in elem_aliases.items():
-            if any(a in dt for a in al_tuple):
-                matched_elem = al_tuple
-                break
-        if matched_elem is None:
-            return False
-        # Se ha specificato un elemento (es. Adepto Elementale (Fuoco)), verifica corrispondenza;
-        # se non ha specificato alcun elemento nel testo, vale sull'elemento dell'incantesimo
-        any_spec = any(a in txt for pair in elem_aliases.values() for a in pair if ("adepto" in txt or "adept" in txt))
-        if not any_spec:
-            return True
-        return any(a in txt for a in matched_elem)
+        from common.dnd5e_tables import entity_has_elemental_adept
+        return entity_has_elemental_adept(self, damage_type)
 
     def spend_spell_points(self, spell_level: int) -> tuple:
         """Spende Punti Incantesimo (DMG p. 288) per lanciare un incantesimo di livello 1-9."""

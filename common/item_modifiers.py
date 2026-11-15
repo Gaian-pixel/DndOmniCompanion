@@ -686,6 +686,31 @@ def get_effective_save_bonus_from_dict(character_or_dict: Any, stat_name: str, m
     return mod + mods.get("bonus_saves", 0)
 
 
+def compute_death_save_flat_bonus(character_or_dict: Any) -> Tuple[int, List[str]]:
+    """
+    Calcola i bonus permanenti/di classe ai Tiri Salvezza contro la Morte (D&D 5e PHB p. 197):
+    - Oggetti con bonus globale ai TS (Anello/Mantello Protezione, Pietra Buona Fortuna, ecc.)
+    - Monaco Lv 14+ Anima di Diamante (PHB p. 79): competenza in tutti i TS (+Bonus Competenza).
+    """
+    mods = calculate_character_item_modifiers(character_or_dict)
+    bonus = 0
+    notes: List[str] = []
+    item_bonus = int(mods.get("bonus_saves", 0) or 0)
+    if item_bonus:
+        bonus += item_bonus
+        notes.append(f"{item_bonus:+d} Oggetti")
+    try:
+        monk_lvl = entity_get_class_level(character_or_dict, "monaco", "monk")
+        if monk_lvl >= 14 or entity_has_keyword(character_or_dict, "anima di diamante", "diamond soul"):
+            tot_lvl = max(1, entity_get_total_level(character_or_dict))
+            pb = ((tot_lvl - 1) // 4) + 2
+            bonus += pb
+            notes.append(f"+{pb} Anima di Diamante")
+    except Exception:
+        pass
+    return bonus, notes
+
+
 def is_item_cursed(item_dict: Any) -> bool:
     """Ritorna True se un oggetto è maledetto e la maledizione non è stata rimossa (DMG p. 138)."""
     if not item_dict or not isinstance(item_dict, dict):
@@ -754,7 +779,7 @@ def _has_fighting_style_defense(features_str: str) -> bool:
     return bool(re.search(r"\b(?:difesa|defense)\b", cleaned))
 
 
-def compute_effective_ac(character_or_dict: Any) -> int:
+def compute_effective_ac(character_or_dict: Any, mods: Optional[Dict[str, Any]] = None) -> int:
     """
     Calcola la Classe Armatura (CA) finale totale di un personaggio considerando:
     - Armatura indossata (base + modificatore destrezza + bonus magico dell'armatura)
@@ -766,7 +791,8 @@ def compute_effective_ac(character_or_dict: Any) -> int:
     def _get(attr, default=None):
         return _get_char_field(character_or_dict, attr, default)
 
-    mods = calculate_character_item_modifiers(character_or_dict)
+    if mods is None:
+        mods = calculate_character_item_modifiers(character_or_dict)
 
     # Modificatori di caratteristica effettivi (considerando set_stats e bonus_stats)
     def _effective_mod(stat_name: str) -> int:

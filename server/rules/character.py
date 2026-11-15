@@ -527,8 +527,17 @@ def handle_update_full_sheet_request(data, player, game_state):
                     item_mods.get("bonus_ac", 0) != 0 or
                     item_mods.get("special_ac_base") is not None
                 )
+                prev_had_def_items = False
+                if isinstance(existing_sheet, dict):
+                    prev_mods = calculate_character_item_modifiers(existing_sheet)
+                    prev_had_def_items = (
+                        prev_mods.get("equipped_armor") is not None or
+                        prev_mods.get("has_shield", False) or
+                        prev_mods.get("bonus_ac", 0) != 0 or
+                        prev_mods.get("special_ac_base") is not None
+                    )
                 calc_ac = compute_effective_ac(char_data, item_mods)
-                if has_def_items or stripped_unapproved_item:
+                if has_def_items or stripped_unapproved_item or (prev_had_def_items and not has_def_items):
                     char_data["ac"] = calc_ac
                 elif had_existing_sheet and not is_dm and prev_server_ac is not None:
                     client_ac = int(char_data.get("ac", prev_server_ac) or prev_server_ac)

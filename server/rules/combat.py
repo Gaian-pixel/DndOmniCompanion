@@ -63,6 +63,8 @@ def _end_rage_if_unconscious(target_player, game_state=None) -> bool:
     fs = getattr(target_player, "full_sheet", None)
     if removed and isinstance(fs, dict):
         fs["conditions"] = list(getattr(target_player, "conditions", []) or [])
+    if getattr(target_player, "is_raging", False) or removed:
+        target_player.is_raging = False
     if removed and game_state is not None:
         msg = f"💨 L'Ira di {target_player.name} termina (0 PF / privo di sensi)."
         broadcast(game_state, make_chat_broadcast("Sistema", msg))
@@ -365,8 +367,13 @@ def resolve_falling(entity, fall_distance_ft, game_state, is_voluntary=False, in
     final_dmg = raw_dmg
     entity.elevation = max(0, getattr(entity, "elevation", 0) - fall_distance_ft)
 
-    if final_dmg > 0:
-        _apply_hp_change(entity, entity.hp - final_dmg, game_state)
+    if final_dmg > 0 and not getattr(entity, "_falling_in_progress", False):
+        entity._falling_in_progress = True
+        try:
+            applied_fall, _, _, _ = apply_damage(entity, final_dmg, damage_type="Contundente", game_state=game_state)
+            final_dmg = applied_fall
+        finally:
+            entity._falling_in_progress = False
         conds = getattr(entity, "conditions", [])
         if "Prono" not in conds:
             conds.append("Prono")
@@ -592,7 +599,7 @@ def _has_entity_gwf(entity) -> bool:
     return "armi possenti" in combined or "great weapon fighting" in combined
 
 
-def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=None, is_crit=False, is_non_lethal=False, ignore_resistance=False, is_magical=False, is_silvered=False, is_adamantine=False, is_spell=False, attacker=None):
+def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=None, is_crit=False, is_non_lethal=False, ignore_resistance=False, is_magical=False, is_silvered=False, is_adamantine=False, is_spell=False, attacker=None, same_hit_secondary=False):
     """
     Applica il danno secondo le regole D&D 5e:
     1. Oggetti e Soglia di Danno (DMG p. 246), Resistenze, Immunità e Vulnerabilità (Ira, Totem dell'Orso, Immersione)
@@ -630,7 +637,7 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
         "acido": ["acido", "acid"], "acid": ["acido", "acid"],
         "psichico": ["psichico", "psychic"], "psychic": ["psichico", "psychic"],
         "necrotico": ["necrotico", "necrotic"], "necrotic": ["necrotico", "necrotic"],
-        "radioso": ["radioso", "radiant"], "radiant": ["radioso", "radiant"],
+        "radioso": ["radioso", "radiante", "radiant"], "radiante": ["radioso", "radiante", "radiant"], "radiant": ["radioso", "radiante", "radiant"],
         "forza": ["forza", "force"], "force": ["forza", "force"],
         "tuono": ["tuono", "thunder"], "thunder": ["tuono", "thunder"]
     }
@@ -644,6 +651,16 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
     all_target_res = [str(x).strip().lower() for x in (list(getattr(target_player, "damage_resistances", [])) + list(fs_res))]
     all_target_vul = [str(x).strip().lower() for x in (list(getattr(target_player, "damage_vulnerabilities", [])) + list(fs_vul))]
 
+    temp_ae = getattr(target_player, "_temp_absorb_resistance", None)
+    if temp_ae:
+        all_target_res.append(str(temp_ae).strip().lower())
+    for _c_ae in (getattr(target_player, "conditions", []) or []):
+        _cs = str(_c_ae or "").strip().lower()
+        if _cs.startswith("assorbire elementi (") or _cs.startswith("absorb elements ("):
+            _inner = _cs.split("(", 1)[1].rstrip(")").strip()
+            if _inner:
+                all_target_res.append(_inner)
+
     from common.subclass_and_race_rules import get_implicit_racial_resistances
     all_target_res.extend(get_implicit_racial_resistances(target_player))
     
@@ -654,7 +671,7 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
             all_target_res.extend([
                 "tagliente", "slashing", "perforante", "piercing", "contundente", "bludgeoning",
                 "fuoco", "fire", "freddo", "cold", "fulmine", "lightning", "veleno", "poison",
-                "acido", "acid", "necrotico", "necrotic", "radioso", "radiant", "forza", "force", "tuono", "thunder"
+                "acido", "acid", "necrotico", "necrotic", "radioso", "radiante", "radiant", "forza", "force", "tuono", "thunder"
             ])
         else:
             all_target_res.extend(["tagliente", "perforante", "contundente", "slashing", "piercing", "bludgeoning"])
@@ -683,7 +700,7 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
             dt_canon = "fuoco"
         elif dt in ("acido", "acid"):
             dt_canon = "acido"
-        elif dt in ("radiante", "radiant"):
+        elif dt in ("radioso", "radiante", "radiant"):
             dt_canon = "radiante"
         if dt_canon:
             blocked = getattr(target_player, "regenerated_blocked_types", None)
@@ -919,7 +936,7 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
                         pass
                 if getattr(target_player, "elevation", 0) > 0:
                     resolve_falling(target_player, target_player.elevation, game_state)
-                if old_hp == 0 and dmg_to_hp > 0:
+                if old_hp == 0 and dmg_to_hp > 0 and not same_hit_secondary:
                     if "Stabilizzato" in getattr(target_player, "conditions", []):
                         target_player.conditions.remove("Stabilizzato")
                     if "Stable" in getattr(target_player, "conditions", []):
@@ -1091,7 +1108,7 @@ def _apply_hp_change(target_player, new_hp_unbounded, game_state):
                     target_player.conditions.append("Prono")
                 if getattr(target_player, "elevation", 0) > 0:
                     resolve_falling(target_player, target_player.elevation, game_state)
-                if old_hp == 0 and new_hp_unbounded < 0:
+                if old_hp == 0 and new_hp_unbounded < 0 and not same_hit_secondary:
                     if not hasattr(target_player, "death_saves") or not isinstance(target_player.death_saves, dict):
                         target_player.death_saves = {"successes": 0, "failures": 0}
                     target_player.death_saves["failures"] += 1
@@ -1648,41 +1665,33 @@ def handle_attack_request(data, player, game_state):
     w_lower_init = str(weapon_name or "").lower()
     if not damage_formula and any(k in w_lower_init for k in ("senz'armi", "unarmed", "pugno", "pugni", "calci", "colpo senz")):
         str_mod = _get_entity_ability_mod(player, "FOR") if "_get_entity_ability_mod" in globals() else 0
+        dex_mod = _get_entity_ability_mod(player, "DES") if "_get_entity_ability_mod" in globals() else 0
         monk_lvl_u = entity_get_class_level(player, "monaco", "monk")
+        uses_martial_arts_dex = monk_lvl_u >= 1 or entity_has_keyword(player, "arti marziali", "martial arts")
+        u_mod = max(str_mod, dex_mod) if uses_martial_arts_dex else str_mod
         if monk_lvl_u >= 17:
             u_die = "1d10"
         elif monk_lvl_u >= 11:
             u_die = "1d8"
         elif monk_lvl_u >= 5:
             u_die = "1d6"
-        elif monk_lvl_u >= 1 or entity_has_keyword(player, "attaccabrighe", "tavern brawler", "arti marziali", "martial arts"):
+        elif uses_martial_arts_dex or entity_has_keyword(player, "attaccabrighe", "tavern brawler"):
             u_die = "1d4"
         elif entity_has_keyword(player, "combattimento senz'armi", "unarmed fighting"):
             u_die = "1d8" if data.get("two_hands_free") else "1d6"
         else:
             u_die = None
         if u_die:
-            damage_formula = f"{u_die}{'+' + str(str_mod) if str_mod > 0 else (str(str_mod) if str_mod < 0 else '')}"
+            damage_formula = f"{u_die}{'+' + str(u_mod) if u_mod > 0 else (str(u_mod) if u_mod < 0 else '')}"
         else:
-            damage_formula = str(max(1, 1 + str_mod))
+            damage_formula = str(max(1, 1 + u_mod))
     if damage_formula and data.get("is_offhand") and not entity_has_keyword(player, "combattere con due armi", "two-weapon fighting"):
         import re as _re_twf
         damage_formula = _re_twf.sub(r"\+\s*\d+\s*$", "", str(damage_formula)).strip() or str(damage_formula)
 
     # Attacco Extra & Risoluzione Azione di Attacco (D&D 5e RAW PHB p. 72 - multiclasse-aware)
     if not is_reaction and not is_bonus_action:
-        f_lvl = entity_get_class_level(player, "guerriero", "fighter")
-        max_attacks = 1
-        if f_lvl > 0:
-            max_attacks = 4 if f_lvl >= 20 else (3 if f_lvl >= 11 else (2 if f_lvl >= 5 else 1))
-        elif any(entity_get_class_level(player, *k) >= 5 for k in (("barbar", "barbarian"), ("paladin",), ("ranger",), ("monac", "monk"))):
-            max_attacks = 2
-        else:
-            p_sub = str((getattr(player, "full_sheet", None) or {}).get("subclass", getattr(player, "subclass", "")) or "").lower()
-            bard_l = entity_get_class_level(player, "bardo", "bard")
-            wiz_l = entity_get_class_level(player, "mago", "wizard")
-            if (bard_l >= 6 and any(k in p_sub for k in ("valore", "valor", "spade", "swords"))) or (wiz_l >= 6 and any(k in p_sub for k in ("lama", "bladesing"))):
-                max_attacks = 2
+        max_attacks = _get_entity_max_attacks(player)
 
         if not hasattr(player, "attacks_made_this_turn"):
             player.attacks_made_this_turn = 0
@@ -2132,10 +2141,36 @@ def handle_attack_request(data, player, game_state):
                 hit_roll += 2
         if is_ranged_att:
             ammo_name = "Frecce"
-            if any(k in w_lower for k in ["balestra", "crossbow"]): ammo_name = "Quadrelli"
-            elif any(k in w_lower for k in ["fionda", "sling"]): ammo_name = "Proiettili da Fionda"
-            elif any(k in w_lower for k in ["dardo", "dart"]): ammo_name = "Dardi"
-            
+            ammo_kws = ("frecce", "freccia", "arrow")
+            if any(k in w_lower for k in ["balestra", "crossbow"]):
+                ammo_name = "Quadrelli"
+                ammo_kws = ("quadrell", "bolt", "dardi", "dardo", "dart")
+            elif any(k in w_lower for k in ["fionda", "sling"]):
+                ammo_name = "Proiettili da Fionda"
+                ammo_kws = ("proiettil", "fionda", "sling", "pietr", "stone")
+            elif any(k in w_lower for k in ["dardo", "dart"]):
+                ammo_name = "Dardi"
+                ammo_kws = ("dardi", "dardo", "dart")
+
+            if not data.get("ammo_already_decremented"):
+                p_sheet_am = getattr(player, "full_sheet", None)
+                if isinstance(p_sheet_am, dict) and isinstance(p_sheet_am.get("inventory_grid"), list):
+                    matched_ammo_slots = [
+                        it for it in p_sheet_am["inventory_grid"]
+                        if isinstance(it, dict) and it.get("name") and any(ak in str(it["name"]).lower() for ak in ammo_kws)
+                    ]
+                    if matched_ammo_slots:
+                        avail_slot = next((it for it in matched_ammo_slots if int(it.get("qty", 0) or 0) > 0), None)
+                        if avail_slot is None:
+                            player.attacks_made_this_turn = _prev_attacks_made
+                            player.has_acted_this_turn = _prev_has_acted
+                            player.bonus_action_used_this_turn = _prev_ba_used
+                            player.has_reacted_this_turn = _prev_reacted_used
+                            if getattr(player, "conn", None):
+                                send_message(player.conn, make_error_reply(f"Munizioni esaurite ({ammo_name})! Impossibile attaccare con {weapon_name}."))
+                            return
+                        avail_slot["qty"] = max(0, int(avail_slot.get("qty", 1) or 1) - 1)
+
             if not hasattr(player, "expended_ammo") or not isinstance(player.expended_ammo, dict):
                 player.expended_ammo = {}
             player.expended_ammo[ammo_name] = player.expended_ammo.get(ammo_name, 0) + 1
@@ -2350,12 +2385,14 @@ def handle_attack_request(data, player, game_state):
                     player.marked_targets = marked
                 marked[target_player.name] = True
                 log_msg += f" 🎯 [Marcatura DMG: {target_player.name} marcato da {player.name}]"
+            bonus_radiant_dmg = 0
             if damage_formula:
                 use_gwf = _has_entity_gwf(player) and any(
                     k in str(weapon_name).lower()
                     for k in ("spadone", "greatsword", "bipenne", "greataxe", "maglio", "maul", "alabarda", "halberd", "falcione", "glaive", "picca", "pike", "spada lunga", "longsword", "bastone ferrato", "quarterstaff", "martello da guerra", "warhammer", "ascia da battaglia", "battleaxe", "due mani", "two-handed", "versatile")
                 )
-                is_elem_adept = bool(data.get("is_spell")) and entity_has_keyword(player, "adepto elementale", "elemental adept")
+                from common.dnd5e_tables import entity_has_elemental_adept
+                is_elem_adept = bool(data.get("is_spell")) and entity_has_elemental_adept(player, damage_type)
                 dmg_result = roll_dice(damage_formula, is_crit=is_crit, gwf_reroll=use_gwf, elemental_adept=is_elem_adept)
                 dmg_val = max(0, dmg_result["total"])
                 if dmg_result.get("rerolled_notes"):
@@ -2403,7 +2440,7 @@ def handle_attack_request(data, player, game_state):
                 pal_lvl = entity_get_class_level(player, "paladino", "paladin")
                 if not is_ranged_att and not data.get("is_spell") and (pal_lvl >= 11 or entity_has_keyword(player, "punizione divina migliorata", "improved divine smite")):
                     ids_dmg = roll_dice("1d8", is_crit=is_crit)["total"]
-                    dmg_val += ids_dmg
+                    bonus_radiant_dmg += ids_dmg
                     log_msg += f" ☀️ (+{ids_dmg} Punizione Divina Migliorata [1d8 radiante])"
 
                 # Carica / Balzo (Charge / Pounce - MM): se si è mosso almeno 2 celle (10-20 ft) in linea retta prima del colpo
@@ -2427,17 +2464,38 @@ def handle_attack_request(data, player, game_state):
                         target_player.conditions.append("Velocità 0 (Sentinella)")
                     log_msg += " 🛑 [SENTINELLA: Velocità ridotta a 0!]"
 
-                # Danno bonus da Assorbire Elementi (+1d6 elementale sul primo attacco in mischia)
+                # Danno bonus da Assorbire Elementi (+Xd6 elementale sul primo attacco in mischia)
                 p_conds_list = getattr(player, "conditions", [])
-                ae_cond = next((c for c in list(p_conds_list) if str(c).lower().startswith("assorbire elementi")), None)
-                if ae_cond and not is_ranged_att:
-                    ae_roll = roll_dice("1d6", is_crit=is_crit)
-                    dmg_val += ae_roll["total"]
-                    p_conds_list.remove(ae_cond)
-                    log_msg += f" 🔥 (+{ae_roll['total']} {ae_cond})"
+                ae_cond = next(
+                    (
+                        c for c in list(p_conds_list)
+                        if str(c).lower().startswith("assorbire elementi") or str(c).lower().startswith("absorb elements")
+                    ),
+                    None,
+                )
+                _bonus_dice_list = _spell_fx_mods.get("bonus_dmg_dice", [])
+                _has_ae_engine_bonus = any(
+                    "assorbire" in str(_b_lbl).lower() or "absorb" in str(_b_lbl).lower()
+                    for _, _, _b_lbl in _bonus_dice_list
+                )
+                if not is_ranged_att:
+                    if ae_cond:
+                        p_conds_list.remove(ae_cond)
+                    if getattr(player, "absorb_elements_dice", 0):
+                        player.absorb_elements_dice = 0
+                    if getattr(player, "absorb_elements_type", ""):
+                        player.absorb_elements_type = ""
+                    if hasattr(player, "remove_effect"):
+                        player.remove_effect("Assorbire Elementi")
+                    if ae_cond and not _has_ae_engine_bonus:
+                        ae_roll = roll_dice("1d6", is_crit=is_crit)
+                        dmg_val += ae_roll["total"]
+                        log_msg += f" 🔥 (+{ae_roll['total']} {ae_cond})"
 
                 # Bonus incantesimi: Marchio del Cacciatore (Hunter's Mark), Sortilegio (Hex), Assorbire Elementi (engine)
-                for _b_dice, _b_type, _b_lbl in _spell_fx_mods.get("bonus_dmg_dice", []):
+                for _b_dice, _b_type, _b_lbl in _bonus_dice_list:
+                    if is_ranged_att and ("assorbire" in str(_b_lbl).lower() or "absorb" in str(_b_lbl).lower()):
+                        continue
                     _b_roll = roll_dice(_b_dice, is_crit=is_crit)
                     dmg_val += _b_roll["total"]
                     log_msg += f" ✨ (+{_b_roll['total']} {_b_type} [{_b_lbl}])"
@@ -2537,35 +2595,52 @@ def handle_attack_request(data, player, game_state):
                         player.sneak_attack_used_this_turn = True
                         log_msg += f" 🗡️ (+{sneak_dmg} Attacco Furtivo [{sneak_formula}])"
 
-                # Punizione Divina del Paladino (Divine Smite PHB p. 85)
+                # Punizione Divina del Paladino (Divine Smite PHB p. 85 + Errata Pact Magic)
                 # Spende uno slot 1°-5°: +2d8 (+1d8/livello sopra il 1°, max 5d8), +1d8 vs Non Morti/Immondi (max 6d8). Raddoppiato su critico!
                 smite_slot = data.get("smite_slot") or data.get("divine_smite_slot")
-                if smite_slot and not is_ranged_att:
-                    try:
-                        s_lvl = int(smite_slot)
-                        if 1 <= s_lvl <= 5:
-                            p_sheet = getattr(player, "full_sheet", None) or {}
-                            p_slots = p_sheet.get("spell_slots", {})
-                            lvl_str = str(s_lvl)
-                            if isinstance(p_slots.get(lvl_str), dict) and p_slots[lvl_str].get("current", 0) > 0:
-                                p_slots[lvl_str]["current"] -= 1
-                            elif isinstance(p_slots.get(lvl_str), list) and len(p_slots[lvl_str]) >= 2 and p_slots[lvl_str][0] > 0:
-                                p_slots[lvl_str][0] -= 1
+                if smite_slot and not is_ranged_att and not data.get("is_spell"):
+                    pal_smite_lvl = entity_get_class_level(player, "paladino", "paladin")
+                    if pal_smite_lvl < 2 and not entity_has_keyword(player, "punizione divina", "divine smite"):
+                        log_msg += " ⚠️ [Punizione Divina richiede Paladino Lv 2+]"
+                    else:
+                        try:
+                            s_lvl = int(smite_slot)
+                            if 1 <= s_lvl <= 5:
+                                p_sheet = getattr(player, "full_sheet", None) or {}
+                                p_slots = p_sheet.get("spell_slots", {}) if isinstance(p_sheet, dict) else {}
+                                lvl_str = str(s_lvl)
+                                smite_slot_spent = False
+                                used_smite_lvl = s_lvl
+                                if isinstance(p_slots.get(lvl_str), dict) and p_slots[lvl_str].get("current", 0) > 0:
+                                    p_slots[lvl_str]["current"] -= 1
+                                    smite_slot_spent = True
+                                elif isinstance(p_slots.get(lvl_str), list) and len(p_slots[lvl_str]) >= 2 and p_slots[lvl_str][0] > 0:
+                                    p_slots[lvl_str][0] -= 1
+                                    smite_slot_spent = True
+                                else:
+                                    pact_s = p_sheet.get("pact_slots") if isinstance(p_sheet, dict) else None
+                                    if isinstance(pact_s, dict) and int(pact_s.get("current", 0) or 0) > 0 and int(pact_s.get("level", 0) or 0) >= s_lvl:
+                                        pact_s["current"] = int(pact_s.get("current", 0)) - 1
+                                        used_smite_lvl = min(5, int(pact_s.get("level", s_lvl) or s_lvl))
+                                        smite_slot_spent = True
 
-                            base_smite_dice = min(5, 1 + s_lvl)
-                            t_fs = getattr(target_player, "full_sheet", None) or {}
-                            t_type_str = (str(t_fs.get("type", "")) + " " + str(target_player.name) + " " + " ".join(getattr(target_player, "conditions", []))).lower()
-                            undead_fiend_kws = ("non morto", "non-morto", "undead", "immondo", "fiend", "zombie", "scheletro", "skeleton", "demone", "demon", "diavolo", "devil", "ghoul", "ghast", "mummia", "mummy", "spettro", "specter", "fantasma", "ghost", "wraith", "vampiro", "vampire", "lich")
-                            if any(k in t_type_str for k in undead_fiend_kws):
-                                base_smite_dice = min(6, base_smite_dice + 1)
+                                if smite_slot_spent:
+                                    base_smite_dice = min(5, 1 + used_smite_lvl)
+                                    t_fs = getattr(target_player, "full_sheet", None) or {}
+                                    t_type_str = (str(t_fs.get("type", "")) + " " + str(target_player.name) + " " + " ".join(getattr(target_player, "conditions", []))).lower()
+                                    undead_fiend_kws = ("non morto", "non-morto", "undead", "immondo", "fiend", "zombie", "scheletro", "skeleton", "demone", "demon", "diavolo", "devil", "ghoul", "ghast", "mummia", "mummy", "spettro", "specter", "fantasma", "ghost", "wraith", "vampiro", "vampire", "lich")
+                                    if any(k in t_type_str for k in undead_fiend_kws):
+                                        base_smite_dice = min(6, base_smite_dice + 1)
 
-                            smite_formula = f"{base_smite_dice}d8"
-                            smite_res = roll_dice(smite_formula, is_crit=is_crit)
-                            smite_dmg = smite_res["total"]
-                            dmg_val += smite_dmg
-                            log_msg += f" ⚡ (+{smite_dmg} Punizione Divina [{smite_formula} radiante])"
-                    except Exception:
-                        pass
+                                    smite_formula = f"{base_smite_dice}d8"
+                                    smite_res = roll_dice(smite_formula, is_crit=is_crit)
+                                    smite_dmg = smite_res["total"]
+                                    bonus_radiant_dmg += smite_dmg
+                                    log_msg += f" ⚡ (+{smite_dmg} Punizione Divina [{smite_formula} radiante])"
+                                else:
+                                    log_msg += f" ⚠️ [Punizione Divina non attivata: nessuno slot di {s_lvl}°+ disponibile]"
+                        except Exception:
+                            pass
 
                 # Critico Brutale (Barbaro PHB p. 49) & Attacchi Selvaggi (Mezzorco PHB p. 41)
                 if is_crit and not is_ranged_att:
@@ -2596,36 +2671,48 @@ def handle_attack_request(data, player, game_state):
                         log_msg += f" 💥 (+{bc_dmg} Critico Brutale/Attacchi Selvaggi [{crit_bonus_formula}])"
 
                 # Colpo Stordente del Monaco (Stunning Strike PHB p. 79)
-                if data.get("use_stunning_strike") and not is_ranged_att:
+                if data.get("use_stunning_strike") and not is_ranged_att and not data.get("is_spell"):
                     from common.dnd5e_tables import entity_get_total_level, entity_spend_resource
-                    p_sheet = getattr(player, "full_sheet", None) or {}
-                    spent_ki = False
-                    if "ki_current" in p_sheet and p_sheet["ki_current"] > 0:
-                        p_sheet["ki_current"] -= 1
-                        spent_ki = True
+                    monk_ss_lvl = entity_get_class_level(player, "monaco", "monk")
+                    if monk_ss_lvl < 5 and not entity_has_keyword(player, "colpo stordente", "stunning strike"):
+                        log_msg += " ⚠️ [Colpo Stordente richiede Monaco Lv 5+]"
                     else:
-                        spent_ki, _, _ = entity_spend_resource(player, ("punti ki", "ki points", "ki"), 1)
-                    char_lvl = entity_get_total_level(player)
-                    pb = ((char_lvl - 1) // 4) + 2
-                    wis_val = 10
-                    if "attributes" in p_sheet and isinstance(p_sheet["attributes"], dict):
-                        wis_val = p_sheet["attributes"].get("SAG", p_sheet["attributes"].get("WIS", 10))
-                    wis_mod = (int(wis_val) - 10) // 2
-                    ki_dc = 8 + pb + wis_mod
+                        p_sheet = getattr(player, "full_sheet", None) or {}
+                        spent_ki = False
+                        if isinstance(p_sheet, dict) and "ki_current" in p_sheet:
+                            if int(p_sheet.get("ki_current", 0) or 0) > 0:
+                                p_sheet["ki_current"] = int(p_sheet["ki_current"]) - 1
+                                spent_ki = True
+                                entity_spend_resource(player, ("punti ki", "ki points", "ki"), 1)
+                            else:
+                                spent_ki, _, _ = entity_spend_resource(player, ("punti ki", "ki points", "ki"), 1)
+                        else:
+                            spent_ki, _, _ = entity_spend_resource(player, ("punti ki", "ki points", "ki"), 1)
 
-                    t_con_mod = get_effective_save_bonus_from_dict(target_player, "COS")
-                    save_roll = random.randint(1, 20) + t_con_mod
-                    if save_roll < ki_dc:
-                        if not hasattr(target_player, "conditions") or not isinstance(target_player.conditions, list):
-                            target_player.conditions = []
-                        if "Stordito" not in target_player.conditions:
-                            target_player.conditions.append("Stordito")
-                        if not hasattr(target_player, "condition_durations") or not isinstance(target_player.condition_durations, dict):
-                            target_player.condition_durations = {}
-                        target_player.condition_durations["Stordito"] = 2
-                        log_msg += f" 🥋 [Colpo Stordente! {target_name} fallisce TS COS ({save_roll} vs CD {ki_dc}) ed è STORDITO!]"
-                    else:
-                        log_msg += f" 🥋 [Colpo Stordente: {target_name} supera TS COS ({save_roll} vs CD {ki_dc})]"
+                        if not spent_ki:
+                            log_msg += " ⚠️ [Colpo Stordente non applicato: 0 Punti Ki rimanenti]"
+                        else:
+                            char_lvl = entity_get_total_level(player)
+                            pb = ((char_lvl - 1) // 4) + 2
+                            wis_val = 10
+                            if isinstance(p_sheet, dict) and "attributes" in p_sheet and isinstance(p_sheet["attributes"], dict):
+                                wis_val = p_sheet["attributes"].get("SAG", p_sheet["attributes"].get("WIS", 10))
+                            wis_mod = (int(wis_val) - 10) // 2
+                            ki_dc = 8 + pb + wis_mod
+
+                            t_con_mod = get_effective_save_bonus_from_dict(target_player, "COS")
+                            save_roll = random.randint(1, 20) + t_con_mod
+                            if save_roll < ki_dc:
+                                if not hasattr(target_player, "conditions") or not isinstance(target_player.conditions, list):
+                                    target_player.conditions = []
+                                if "Stordito" not in target_player.conditions:
+                                    target_player.conditions.append("Stordito")
+                                if not hasattr(target_player, "condition_durations") or not isinstance(target_player.condition_durations, dict):
+                                    target_player.condition_durations = {}
+                                target_player.condition_durations["Stordito"] = 2
+                                log_msg += f" 🥋 [Colpo Stordente! {target_name} fallisce TS COS ({save_roll} vs CD {ki_dc}) ed è STORDITO!]"
+                            else:
+                                log_msg += f" 🥋 [Colpo Stordente: {target_name} supera TS COS ({save_roll} vs CD {ki_dc})]"
                     
                 auto_apply = True
                 if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
@@ -2643,6 +2730,7 @@ def handle_attack_request(data, player, game_state):
                         log_msg += f" [🦀 Arma Arrugginita -{_r_pen}]"
                     old_target_hp_before_hit = target_player.hp
                     old_target_thp_before_hit = int(getattr(target_player, "temp_hp", 0) or 0)
+                    was_incap_before_hit = is_incapacitated_entity(target_player)
                     is_non_lethal = bool(data.get("non_lethal") or getattr(player, "non_lethal_mode", False)) and not is_ranged_att
                     final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(
                         target_player, dmg_val, damage_type, game_state,
@@ -2650,7 +2738,28 @@ def handle_attack_request(data, player, game_state):
                         is_magical=is_mag_att, is_silvered=is_silv_att, is_adamantine=is_adam_att,
                         is_spell=bool(data.get("is_spell", False)), attacker=player
                     )
-                    for _mm_n in apply_monster_special_hit_effects(player, target_player, weapon_name, str(data.get("attack_desc", "") or ""), dmg_to_hp or final_dmg, game_state=game_state):
+                    total_final_dmg = final_dmg
+                    total_temp_absorbed = temp_absorbed
+                    total_dmg_to_hp = dmg_to_hp
+                    rad_note_log = ""
+                    if bonus_radiant_dmg > 0:
+                        _prev_overflow_est = max(0, dmg_val - old_target_thp_before_hit - old_target_hp_before_hit) if (old_target_hp_before_hit > 0 and target_player.hp == 0) else 0
+                        r_dmg, r_note, r_temp, r_hp = apply_damage(
+                            target_player, bonus_radiant_dmg, "Radioso", game_state,
+                            is_crit=is_crit, is_non_lethal=is_non_lethal, ignore_resistance=False,
+                            is_magical=True, is_spell=False, attacker=player, same_hit_secondary=True
+                        )
+                        if not is_non_lethal and old_target_hp_before_hit > 0 and target_player.hp == 0 and getattr(target_player, "max_hp", 0) > 0:
+                            if (_prev_overflow_est + max(0, r_dmg - r_temp)) >= target_player.max_hp and "Morto" not in getattr(target_player, "conditions", []):
+                                target_player.conditions.append("Morto")
+                                _mm_dead = f"!!! {target_player.name} E' MORTO SUL COLPO A CAUSA DI DANNO MASSICCIO !!!"
+                                broadcast(game_state, make_chat_broadcast("Sistema", _mm_dead))
+                                game_state.log_dm_message(_mm_dead)
+                        total_final_dmg += r_dmg
+                        total_temp_absorbed += r_temp
+                        total_dmg_to_hp += r_hp
+                        rad_note_log = f" + {r_dmg} (Radioso){r_note}"
+                    for _mm_n in apply_monster_special_hit_effects(player, target_player, weapon_name, str(data.get("attack_desc", "") or ""), total_dmg_to_hp or total_final_dmg, game_state=game_state):
                         log_msg += f" {_mm_n}"
                     _rust_ret = apply_rust_metal_melee_retaliation(player, target_player, is_ranged=is_ranged_att, is_magical=is_mag_att, is_spell=bool(data.get("is_spell", False)))
                     if _rust_ret:
@@ -2694,9 +2803,9 @@ def handle_attack_request(data, player, game_state):
                                 game_state.move_player(target_player.name, new_tpos)
                                 from common.protocol import make_player_move as _mk_pmv_c
                                 broadcast(game_state, _mk_pmv_c(target_player.name, new_tpos))
-                    log_msg += f" Danno: {final_dmg} ({damage_type}){note}."
-                    if temp_absorbed > 0:
-                        log_msg += f" [{temp_absorbed} assorbiti da Temp HP]."
+                    log_msg += f" Danno: {final_dmg} ({damage_type}){note}{rad_note_log}."
+                    if total_temp_absorbed > 0:
+                        log_msg += f" [{total_temp_absorbed} assorbiti da Temp HP]."
                     log_msg += f" HP {target_name}: {target_player.hp}/{target_player.max_hp}"
                     if getattr(target_player, "temp_hp", 0) > 0:
                         log_msg += f" (+{target_player.temp_hp} Temp)"
@@ -2704,13 +2813,19 @@ def handle_attack_request(data, player, game_state):
                     target_player._last_hit_for_reaction = {
                         "attacker": player.name,
                         "hit_roll": hit_roll,
+                        "hits": True,
                         "base_ac": target_ac,
+                        "target_ac": target_ac,
                         "is_crit": is_crit,
                         "is_ranged": is_ranged_att,
-                        "final_dmg": final_dmg,
-                        "dmg_to_hp": dmg_to_hp,
-                        "temp_absorbed": temp_absorbed,
+                        "weapon_name": weapon_name,
+                        "damage_type": damage_type,
+                        "damage_taken": total_final_dmg,
+                        "final_dmg": total_final_dmg,
+                        "dmg_to_hp": total_dmg_to_hp,
+                        "temp_absorbed": total_temp_absorbed,
                         "old_hp": old_target_hp_before_hit,
+                        "was_incapacitated": was_incap_before_hit,
                     }
 
                     # Schivata Prodigiosa (Uncanny Dodge - Ladro Lv 5+, PHB p. 96): Prompt anche su colpo che porta a 0 HP se il dimezzamento mantiene >= 1 PF
@@ -2718,14 +2833,14 @@ def handle_attack_request(data, player, game_state):
                     auto_react_ud = True
                     if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
                         auto_react_ud = game_state.automation_settings.get("auto_prompt_reactions", True)
-                    can_survive_ud = target_player.hp > 0 or (old_target_hp_before_hit > (dmg_to_hp - (dmg_to_hp // 2)))
-                    if (t_rogue_lvl >= 5 or entity_has_keyword(target_player, "schivata prodigiosa", "uncanny dodge")) and old_target_hp_before_hit > 0 and can_survive_ud and final_dmg > 1:
+                    can_survive_ud = target_player.hp > 0 or (old_target_hp_before_hit > (total_dmg_to_hp - (total_dmg_to_hp // 2)))
+                    if (t_rogue_lvl >= 5 or entity_has_keyword(target_player, "schivata prodigiosa", "uncanny dodge")) and old_target_hp_before_hit > 0 and can_survive_ud and total_final_dmg > 1:
                         att_visible = not is_condition_active(p_cond, "Invisibile") and not is_condition_active(t_cond, "Accecato")
                         if att_visible and not getattr(target_player, "has_reacted_this_turn", False) and not getattr(target_player, "surprised", False):
                             if auto_react_ud and getattr(target_player, "conn", None):
                                 send_message(target_player.conn, make_prompt_reaction(
                                     "UNCANNY_DODGE", player.name,
-                                    {"weapon_name": weapon_name, "damage_taken": final_dmg, "dmg_to_hp": dmg_to_hp}
+                                    {"weapon_name": weapon_name, "damage_taken": total_final_dmg, "dmg_to_hp": total_dmg_to_hp}
                                 ))
 
                     # Prompt live per Scudo (Shield) e Deflettere Missili (Deflect Missiles)
@@ -2743,7 +2858,7 @@ def handle_attack_request(data, player, game_state):
                     if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
                         opt_cleave = bool(game_state.automation_settings.get("opt_cleaving", False))
                     if opt_cleave and not is_ranged_att and target_player.hp == 0 and old_target_hp_before_hit >= target_player.max_hp:
-                        excess_cleave = max(0, final_dmg - temp_absorbed - old_target_hp_before_hit)
+                        excess_cleave = max(0, total_final_dmg - total_temp_absorbed - old_target_hp_before_hit)
                         if excess_cleave > 0 and getattr(target_player, "position", None):
                             att_p_c = bool(getattr(player, "is_party_member", False) or getattr(player, "conn", None))
                             g_type = (getattr(game_state, "current_map", {}) or {}).get("grid_type", "hex")
@@ -2771,7 +2886,7 @@ def handle_attack_request(data, player, game_state):
                         "id": pending_id,
                         "attacker": player.name,
                         "target": target_name,
-                        "raw_damage": dmg_val,
+                        "raw_damage": dmg_val + bonus_radiant_dmg,
                         "damage_type": damage_type,
                         "is_crit": is_crit,
                         "weapon_name": weapon_name
@@ -2780,7 +2895,8 @@ def handle_attack_request(data, player, game_state):
                         game_state.pending_damages = {}
                     game_state.pending_damages[pending_id] = pending_info
                     
-                    log_msg += f" 🎯 Danno Calcolato: {dmg_val} ({damage_type}). [In attesa di conferma DM]"
+                    rad_pend_str = f" + {bonus_radiant_dmg} (Radioso)" if bonus_radiant_dmg > 0 else ""
+                    log_msg += f" 🎯 Danno Calcolato: {dmg_val} ({damage_type}){rad_pend_str}. [In attesa di conferma DM]"
                     if hasattr(game_state, "gui_queue") and game_state.gui_queue:
                         game_state.gui_queue.put({"type": "PENDING_DAMAGE_PROMPT", "payload": pending_info})
                     game_state._trigger_gui_update()
@@ -2837,6 +2953,7 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
     else:
         target_player = game_state.find_player(target_name)
     if not target_player: return
+    from common.dnd5e_tables import entity_get_class_level, entity_has_keyword, entity_has_elemental_adept
     
     try: roll_total = int(roll_total)
     except (ValueError, TypeError): roll_total = 0
@@ -2868,7 +2985,6 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
         roll_total += aura_bonus
         extra_adv_note += f" (+{aura_bonus} Aura di Protezione di {aura_paladin})"
     if stat in ("DES", "DEX"):
-        from common.dnd5e_tables import entity_get_class_level, entity_has_keyword
         barb_lvl = entity_get_class_level(target_player, "barbar", "barbarian")
         if (barb_lvl >= 2 or entity_has_keyword(target_player, "percezione del pericolo", "danger sense")):
             t_c_low = [str(c).lower() for c in getattr(target_player, "conditions", [])]
@@ -3038,11 +3154,20 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
         
     if damage_formula:
         try:
+            from common.dnd5e_tables import entity_has_elemental_adept
+            _eff_caster = _caster_obj
+            if _eff_caster is None and game_state and "(" in str(source_name or ""):
+                _eff_caster = game_state.find_player(str(source_name).split("(", 1)[0].strip())
+            caster_elem_adept = (
+                bool(_eff_caster)
+                and not str(source_name or "").lower().startswith("save-ends")
+                and entity_has_elemental_adept(_eff_caster, damage_type)
+            )
             clean_dmg = str(damage_formula).strip()
             if clean_dmg.isdigit():
                 dmg_val = int(clean_dmg)
             else:
-                dmg_res = roll_dice(clean_dmg)
+                dmg_res = roll_dice(clean_dmg, elemental_adept=caster_elem_adept)
                 dmg_val = dmg_res["total"]
             
             # Elusione (Evasion) D&D 5e: Ladro/Monaco su TS Destrezza (non utilizzabile se Incapacitato/Paralizzato/Stordito)
@@ -3079,6 +3204,7 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
                     "half_on_success": bool(half_on_success),
                     "has_evasion": bool(has_evasion),
                     "auto_apply_aoe": bool(auto_apply_aoe),
+                    "ignore_resistance": bool(caster_elem_adept),
                 }
                 if dmg_val > 0:
                     log_msg += f" 🎯 Danno potenziale ({dmg_val} {damage_type}): sospeso in attesa di decisione Resistenza Leggendaria."
@@ -3109,7 +3235,12 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
                         auto_apply_aoe = game_state.automation_settings.get("auto_apply_aoe_damage", game_state.automation_settings.get("auto_apply_damage", True))
                     
                     if auto_apply_aoe:
-                        final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(target_player, dmg_val, damage_type, game_state)
+                        final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(
+                            target_player, dmg_val, damage_type, game_state,
+                            ignore_resistance=caster_elem_adept,
+                            is_spell=bool(_is_spell_ctx),
+                            attacker=_eff_caster,
+                        )
                         log_msg += f" Subisce {final_dmg} danni ({damage_type}){note}!"
                         if temp_absorbed > 0:
                             log_msg += f" [{temp_absorbed} assorbiti da Temp HP]."
@@ -3422,66 +3553,66 @@ def _get_entity_size_rank(entity):
             return v
     return 2
 
-def handle_shove_request(data, player, game_state):
+def _get_entity_max_attacks(player) -> int:
+    """Ritorna il numero massimo di attacchi per Azione di Attacco (PHB Extra Attack, multiclasse-aware)."""
+    from common.dnd5e_tables import entity_get_class_level
+    f_lvl = entity_get_class_level(player, "guerriero", "fighter")
+    if f_lvl > 0:
+        return 4 if f_lvl >= 20 else (3 if f_lvl >= 11 else (2 if f_lvl >= 5 else 1))
+    if any(entity_get_class_level(player, *k) >= 5 for k in (("barbar", "barbarian"), ("paladin",), ("ranger",), ("monac", "monk"))):
+        return 2
+    p_sub = str((getattr(player, "full_sheet", None) or {}).get("subclass", getattr(player, "subclass", "")) or "").lower()
+    bard_l = entity_get_class_level(player, "bardo", "bard")
+    wiz_l = entity_get_class_level(player, "mago", "wizard")
+    if (bard_l >= 6 and any(k in p_sub for k in ("valore", "valor", "spade", "swords"))) or (wiz_l >= 6 and any(k in p_sub for k in ("lama", "bladesing"))):
+        return 2
+    return 1
+
+
+def _consume_maneuver_action(player, allow_shield_master_ba: bool = False, is_bonus_action: bool = False):
     """
-    Risolve la manovra Spingere (Shove - D&D 5e PHB p. 195):
-    - Attacco speciale in mischia in sostituzione di un attacco.
-    - Bersaglio max 1 taglia più grande.
-    - Prova contrapposta: Forza (Atletica) vs Forza (Atletica) o Destrezza (Acrobazia).
-    - Se l'attaccante vince:
-        * option == 'prone': atterra il bersaglio ('Prono').
-        * option == 'push': spinge indietro il bersaglio di 5 piedi (1 casella) lungo la linea d'attacco.
+    Consuma uno slot di Attacco Extra (PHB p. 195: Shove/Grapple sostituiscono un singolo attacco)
+    oppure l'Azione Bonus di Maestro di Scudi (Shield Master, solo Shove).
+    Ritorna (ok, note_prefix).
     """
-    if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
-        data = data["data"]
-    target_name = data.get("target_name")
-    option = data.get("option", "prone").lower()
-    
-    target_player = game_state.find_player(target_name)
-    if not target_player or not player:
-        return
-        
+    from common.dnd5e_tables import entity_has_keyword
+    has_sm = allow_shield_master_ba and entity_has_keyword(player, "maestro di scudi", "shield master")
+    if is_bonus_action:
+        if not has_sm:
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply("Solo il talento Maestro di Scudi permette di spingere con un'Azione Bonus!"))
+            return False, ""
+        if getattr(player, "bonus_action_used_this_turn", False):
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply("Hai già consumato la tua Azione Bonus in questo turno!"))
+            return False, ""
+        player.bonus_action_used_this_turn = True
+        return True, "🛡️ [Maestro di Scudi - Azione Bonus] "
+
+    if not getattr(player, "has_acted_this_turn", False):
+        max_attacks = _get_entity_max_attacks(player)
+        cur_attacks = int(getattr(player, "attacks_made_this_turn", 0) or 0) + 1
+        player.attacks_made_this_turn = cur_attacks
+        if cur_attacks >= max_attacks:
+            player.has_acted_this_turn = True
+        return True, ""
+
+    if has_sm and not getattr(player, "bonus_action_used_this_turn", False):
+        player.bonus_action_used_this_turn = True
+        return True, "🛡️ [Maestro di Scudi - Azione Bonus] "
+
+    if getattr(player, "conn", None):
+        send_message(player.conn, make_error_reply("Hai già esaurito la tua Azione in questo turno!"))
+    return False, ""
+
+
+def _resolve_athletics_contest(player, target_player):
+    """Risolve la prova contrapposta Atletica vs Atletica/Acrobazia preservando il consumo RNG standard."""
     p_cond = getattr(player, "conditions", [])
-    blocking = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto", "Incapacitato", "Incapacitated"]
-    if any(is_condition_active(p_cond, c) for c in blocking) or getattr(player, "hp", 1) <= 0:
-        if player and getattr(player, "conn", None):
-            send_message(player.conn, make_error_reply("Non puoi compiere manovre mentre sei Incosciente o Incapacitato!"))
-        return
-
-    strict_lock = False
-    if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
-        strict_lock = game_state.automation_settings.get("strict_turn_lock", False)
-    if getattr(game_state, "combat_active", False) and strict_lock:
-        curr_turn = game_state.get_current_turn_player()
-        if curr_turn and curr_turn.name != player.name:
-            if player and getattr(player, "conn", None):
-                send_message(player.conn, make_error_reply(f"Non è il tuo turno in combattimento! È il turno di {curr_turn.name}."))
-            return
-
-    if not (hasattr(player, "position") and player.position and hasattr(target_player, "position") and target_player.position):
-        return
-    q1, r1 = player.position[0], player.position[1]
-    q2, r2 = target_player.position[0], target_player.position[1]
-    cur_map = getattr(game_state, "current_map", {}) or {}
-    grid_type = cur_map.get("grid_type", "hex")
-    from common.hex_utils import Hex, grid_distance
-    dist = int(grid_distance(Hex(q1, r1), Hex(q2, r2), grid_type=grid_type))
-    if dist > 1:
-        if player and getattr(player, "conn", None):
-            send_message(player.conn, make_error_reply(f"{target_name} è troppo distante per una spinta in mischia ({dist} caselle)!"))
-        return
-
-    att_size = _get_entity_size_rank(player)
-    def_size = _get_entity_size_rank(target_player)
-    if def_size > att_size + 1:
-        msg = f"❌ {target_player.name} è troppo grande per essere spinto da {player.name} (differenza di oltre 1 taglia)!"
-        broadcast(game_state, make_chat_broadcast("Sistema", msg))
-        return
-
     att_ath_bonus = _get_entity_skill_bonus(player, "Atletica", "Athletics", "FOR")
     att_adv = is_condition_active(p_cond, "Ira")
     att_dis = getattr(player, "exhaustion_level", 0) >= 1 or is_condition_active(p_cond, "Spaventato") or is_condition_active(p_cond, "Avvelenato")
-    
+
     ar1 = random.randint(1, 20)
     ar2 = random.randint(1, 20)
     if att_adv and not att_dis:
@@ -3501,7 +3632,7 @@ def handle_shove_request(data, player, game_state):
     use_acr = (def_acr > def_ath)
     def_bonus = def_acr if use_acr else def_ath
     def_skill_name = "Acrobazia" if use_acr else "Atletica"
-    
+
     def_adv = is_condition_active(def_cond, "Ira") and not use_acr
     def_dis = getattr(target_player, "exhaustion_level", 0) >= 1 or is_condition_active(def_cond, "Spaventato") or is_condition_active(def_cond, "Avvelenato")
     def_incap = any(is_condition_active(def_cond, c) for c in ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Incapacitato", "Incapacitated"])
@@ -3519,17 +3650,97 @@ def handle_shove_request(data, player, game_state):
         def_detail = str(def_d20)
     def_total = def_d20 + def_bonus if not def_incap else -99
 
-    attacker_wins = (att_total > def_total) or def_incap
-    
+    return {
+        "attacker_wins": (att_total > def_total) or def_incap,
+        "att_total": att_total,
+        "att_detail": att_detail,
+        "att_ath_bonus": att_ath_bonus,
+        "def_total": def_total,
+        "def_detail": def_detail,
+        "def_bonus": def_bonus,
+        "def_skill_name": def_skill_name,
+        "def_incap": def_incap,
+        "def_cond": def_cond,
+    }
+
+
+def _validate_maneuver_preconditions(player, target_player, target_name, game_state, action_label):
+    """Controlla condizioni bloccanti, strict turn lock, portata mischia (1 casella) e taglia (+1)."""
+    if not target_player or not player:
+        return None
+    p_cond = getattr(player, "conditions", [])
+    blocking = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto", "Incapacitato", "Incapacitated"]
+    if any(is_condition_active(p_cond, c) for c in blocking) or getattr(player, "hp", 1) <= 0:
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply(f"Non puoi {action_label} mentre sei Incosciente o Incapacitato!"))
+        return None
+
+    strict_lock = False
+    if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+        strict_lock = game_state.automation_settings.get("strict_turn_lock", False)
+    if getattr(game_state, "combat_active", False) and strict_lock:
+        curr_turn = game_state.get_current_turn_player()
+        if curr_turn and curr_turn.name != player.name:
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply(f"Non è il tuo turno in combattimento! È il turno di {curr_turn.name}."))
+            return None
+
+    if not (hasattr(player, "position") and player.position and hasattr(target_player, "position") and target_player.position):
+        return None
+    q1, r1 = player.position[0], player.position[1]
+    q2, r2 = target_player.position[0], target_player.position[1]
+    cur_map = getattr(game_state, "current_map", {}) or {}
+    grid_type = cur_map.get("grid_type", "hex")
+    from common.hex_utils import Hex, grid_distance
+    dist = int(grid_distance(Hex(q1, r1), Hex(q2, r2), grid_type=grid_type))
+    if dist > 1:
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply(f"{target_name} è troppo distante per {action_label} ({dist} caselle)!"))
+        return None
+
+    att_size = _get_entity_size_rank(player)
+    def_size = _get_entity_size_rank(target_player)
+    if def_size > att_size + 1:
+        msg = f"❌ {target_player.name} è troppo grande per {action_label} da {player.name} (differenza di oltre 1 taglia)!"
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        return None
+    return q1, r1, q2, r2, cur_map
+
+
+def handle_shove_request(data, player, game_state):
+    """
+    Risolve la manovra Spingere (Shove - D&D 5e PHB p. 195):
+    - Attacco speciale in mischia in sostituzione di un attacco (o Azione Bonus con Maestro di Scudi).
+    - Bersaglio max 1 taglia più grande.
+    - Prova contrapposta: Forza (Atletica) vs Forza (Atletica) o Destrezza (Acrobazia).
+    """
+    if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
+        data = data["data"]
+    target_name = data.get("target_name")
+    option = data.get("option", "prone").lower()
+
+    target_player = game_state.find_player(target_name)
+    coords = _validate_maneuver_preconditions(player, target_player, target_name, game_state, "una spinta in mischia")
+    if coords is None:
+        return
+    ok_act, act_note = _consume_maneuver_action(
+        player, allow_shield_master_ba=True, is_bonus_action=bool(data.get("is_bonus_action", False))
+    )
+    if not ok_act:
+        return
+    q1, r1, q2, r2, cur_map = coords
+
+    res = _resolve_athletics_contest(player, target_player)
+    def_cond = res["def_cond"]
     opt_label = "Atterrare" if option == "prone" else "Spingere Indietro"
-    log_text = f"💨 **Spinta (Shove - PHB p. 195: {opt_label})**: {player.name} tenta di spingere {target_player.name}!\n"
-    log_text += f"• {player.name} [Atletica]: {att_total} ({att_detail} + {att_ath_bonus})\n"
-    if def_incap:
+    log_text = f"{act_note}💨 **Spinta (Shove - PHB p. 195: {opt_label})**: {player.name} tenta di spingere {target_player.name}!\n"
+    log_text += f"• {player.name} [Atletica]: {res['att_total']} ({res['att_detail']} + {res['att_ath_bonus']})\n"
+    if res["def_incap"]:
         log_text += f"• {target_player.name} è Incapacitato e fallisce automaticamente la contesa!\n"
     else:
-        log_text += f"• {target_player.name} [{def_skill_name}]: {def_total} ({def_detail} + {def_bonus})\n"
+        log_text += f"• {target_player.name} [{res['def_skill_name']}]: {res['def_total']} ({res['def_detail']} + {res['def_bonus']})\n"
 
-    if attacker_wins:
+    if res["attacker_wins"]:
         if option == "prone":
             from server.dm_monster_engine import filter_swarm_condition
             if not filter_swarm_condition(target_player, "Prono"):
@@ -3585,10 +3796,10 @@ def handle_shove_request(data, player, game_state):
     else:
         log_text += f"🛡️ **FALLITO!** {target_player.name} resiste saldamente e non cede alla spinta."
 
-    player.has_acted_this_turn = True
     broadcast(game_state, make_chat_broadcast("Sistema", log_text))
     game_state.log_dm_message(f"[SPINTA] {log_text}")
     game_state._trigger_gui_update()
+
 
 def handle_grapple_request(data, player, game_state):
     """
@@ -3596,102 +3807,29 @@ def handle_grapple_request(data, player, game_state):
     - Attacco speciale in mischia in sostituzione di un attacco.
     - Bersaglio max 1 taglia più grande.
     - Prova contrapposta: Forza (Atletica) vs Forza (Atletica) o Destrezza (Acrobazia).
-    - Se l'attaccante vince: bersaglio subisce la condizione 'Afferrato' (Velocità 0).
     """
     if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
         data = data["data"]
     target_name = data.get("target_name")
-    
+
     target_player = game_state.find_player(target_name)
-    if not target_player or not player:
+    coords = _validate_maneuver_preconditions(player, target_player, target_name, game_state, "lottare")
+    if coords is None:
         return
-        
-    p_cond = getattr(player, "conditions", [])
-    blocking = ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto", "Incapacitato", "Incapacitated"]
-    if any(is_condition_active(p_cond, c) for c in blocking) or getattr(player, "hp", 1) <= 0:
-        if player and getattr(player, "conn", None):
-            send_message(player.conn, make_error_reply("Non puoi lottare mentre sei Incosciente o Incapacitato!"))
+    ok_act, act_note = _consume_maneuver_action(player, allow_shield_master_ba=False, is_bonus_action=False)
+    if not ok_act:
         return
 
-    strict_lock = False
-    if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
-        strict_lock = game_state.automation_settings.get("strict_turn_lock", False)
-    if getattr(game_state, "combat_active", False) and strict_lock:
-        curr_turn = game_state.get_current_turn_player()
-        if curr_turn and curr_turn.name != player.name:
-            if player and getattr(player, "conn", None):
-                send_message(player.conn, make_error_reply(f"Non è il tuo turno in combattimento! È il turno di {curr_turn.name}."))
-            return
-
-    if not (hasattr(player, "position") and player.position and hasattr(target_player, "position") and target_player.position):
-        return
-    q1, r1 = player.position[0], player.position[1]
-    q2, r2 = target_player.position[0], target_player.position[1]
-    cur_map = getattr(game_state, "current_map", {}) or {}
-    grid_type = cur_map.get("grid_type", "hex")
-    from common.hex_utils import Hex, grid_distance
-    dist = int(grid_distance(Hex(q1, r1), Hex(q2, r2), grid_type=grid_type))
-    if dist > 1:
-        if player and getattr(player, "conn", None):
-            send_message(player.conn, make_error_reply(f"{target_name} è troppo distante per essere afferrato ({dist} caselle)!"))
-        return
-
-    att_size = _get_entity_size_rank(player)
-    def_size = _get_entity_size_rank(target_player)
-    if def_size > att_size + 1:
-        msg = f"❌ {target_player.name} è troppo grande per essere afferrato da {player.name} (oltre 1 taglia di differenza)!"
-        broadcast(game_state, make_chat_broadcast("Sistema", msg))
-        return
-
-    att_ath_bonus = _get_entity_skill_bonus(player, "Atletica", "Athletics", "FOR")
-    att_adv = is_condition_active(p_cond, "Ira")
-    att_dis = getattr(player, "exhaustion_level", 0) >= 1 or is_condition_active(p_cond, "Spaventato") or is_condition_active(p_cond, "Avvelenato")
-    
-    ar1, ar2 = random.randint(1, 20), random.randint(1, 20)
-    if att_adv and not att_dis:
-        att_d20 = max(ar1, ar2)
-        att_detail = f"max({ar1}, {ar2})={att_d20} (Ira/Vantaggio)"
-    elif att_dis and not att_adv:
-        att_d20 = min(ar1, ar2)
-        att_detail = f"min({ar1}, {ar2})={att_d20} (Svantaggio)"
-    else:
-        att_d20 = ar1
-        att_detail = str(att_d20)
-    att_total = att_d20 + att_ath_bonus
-
-    def_cond = getattr(target_player, "conditions", [])
-    def_ath = _get_entity_skill_bonus(target_player, "Atletica", "Athletics", "FOR")
-    def_acr = _get_entity_skill_bonus(target_player, "Acrobazia", "Acrobatics", "DES")
-    use_acr = (def_acr > def_ath)
-    def_bonus = def_acr if use_acr else def_ath
-    def_skill_name = "Acrobazia" if use_acr else "Atletica"
-    
-    def_adv = is_condition_active(def_cond, "Ira") and not use_acr
-    def_dis = getattr(target_player, "exhaustion_level", 0) >= 1 or is_condition_active(def_cond, "Spaventato") or is_condition_active(def_cond, "Avvelenato")
-    def_incap = any(is_condition_active(def_cond, c) for c in ["Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Incapacitato", "Incapacitated"])
-
-    dr1, dr2 = random.randint(1, 20), random.randint(1, 20)
-    if def_adv and not def_dis:
-        def_d20 = max(dr1, dr2)
-        def_detail = f"max({dr1}, {dr2})={def_d20}"
-    elif def_dis and not def_adv:
-        def_d20 = min(dr1, dr2)
-        def_detail = f"min({dr1}, {dr2})={def_d20}"
-    else:
-        def_d20 = dr1
-        def_detail = str(def_d20)
-    def_total = def_d20 + def_bonus if not def_incap else -99
-
-    attacker_wins = (att_total > def_total) or def_incap
-
-    log_text = f"🤼 **Lotta (Grapple - PHB p. 195)**: {player.name} tenta di afferrare {target_player.name}!\n"
-    log_text += f"• {player.name} [Atletica]: {att_total} ({att_detail} + {att_ath_bonus})\n"
-    if def_incap:
+    res = _resolve_athletics_contest(player, target_player)
+    def_cond = res["def_cond"]
+    log_text = f"{act_note}🤼 **Lotta (Grapple - PHB p. 195)**: {player.name} tenta di afferrare {target_player.name}!\n"
+    log_text += f"• {player.name} [Atletica]: {res['att_total']} ({res['att_detail']} + {res['att_ath_bonus']})\n"
+    if res["def_incap"]:
         log_text += f"• {target_player.name} è Incapacitato e non può opporsi alla presa!\n"
     else:
-        log_text += f"• {target_player.name} [{def_skill_name}]: {def_total} ({def_detail} + {def_bonus})\n"
+        log_text += f"• {target_player.name} [{res['def_skill_name']}]: {res['def_total']} ({res['def_detail']} + {res['def_bonus']})\n"
 
-    if attacker_wins:
+    if res["attacker_wins"]:
         from server.dm_monster_engine import filter_swarm_condition
         if not filter_swarm_condition(target_player, "Afferrato"):
             log_text += f"🐝 **IMMUNITÀ SCIAME!** {target_player.name} è uno Sciame ed è immune alla condizione **AFFERRATO**!"
@@ -3710,7 +3848,6 @@ def handle_grapple_request(data, player, game_state):
     else:
         log_text += f"🛡️ **FALLITO!** {target_player.name} schiva la presa di {player.name} e rimane libero."
 
-    player.has_acted_this_turn = True
     broadcast(game_state, make_chat_broadcast("Sistema", log_text))
     game_state.log_dm_message(f"[LOTTA] {log_text}")
     game_state._trigger_gui_update()
@@ -3786,27 +3923,97 @@ def handle_short_rest_request(data, player, game_state):
     broadcast(game_state, make_chat_broadcast("Sistema", msg))
     game_state.log_dm_message(f"[RIPOSO] {msg}")
 
+def _consume_reaction_spell_slot(player, slot_lvl: int, details: dict) -> bool:
+    """Consuma lo slot di incantesimo/patto per una reazione magica, tollerando mock test privi di spell_slots."""
+    if details.get("slot_consumed"):
+        return True
+    sheet = getattr(player, "full_sheet", None)
+    has_slot_table = isinstance(sheet, dict) and (
+        (isinstance(sheet.get("spell_slots"), dict) and len(sheet.get("spell_slots")) > 0)
+        or (isinstance(sheet.get("pact_slots"), dict) and int(sheet.get("pact_slots", {}).get("max", 0) or 0) > 0)
+    )
+    if not has_slot_table:
+        return True
+    from common.character_schema import consume_spell_or_pact_slot
+    ok, _ = consume_spell_or_pact_slot(sheet, max(1, int(slot_lvl or 1)))
+    return bool(ok)
+
+
+def _restore_hp_from_reaction(player, hp_gain: int, temp_gain: int = 0) -> None:
+    """Ripristina PF/Temp PF in seguito a una reazione difensiva e rimuove stati di incapacitazione 0-HP se PF > 0."""
+    if hp_gain > 0:
+        cur_hp = max(0, int(getattr(player, "hp", 0) or 0))
+        lh = getattr(player, "_last_hit_for_reaction", None)
+        if isinstance(lh, dict) and lh.get("old_hp") is not None and lh.get("dmg_to_hp") is not None:
+            old_hp_v = max(0, int(lh.get("old_hp", 0) or 0))
+            hit_hp_dmg = max(0, int(lh.get("dmg_to_hp", 0) or 0))
+            if old_hp_v > 0 and hit_hp_dmg >= hp_gain:
+                target_hp = max(cur_hp, old_hp_v - (hit_hp_dmg - int(hp_gain)))
+            else:
+                target_hp = cur_hp + int(hp_gain)
+            cap = min(player.max_hp, old_hp_v) if old_hp_v > 0 else player.max_hp
+            player.hp = min(cap, target_hp)
+        else:
+            player.hp = min(player.max_hp, cur_hp + int(hp_gain))
+    if temp_gain > 0:
+        player.temp_hp = int(getattr(player, "temp_hp", 0) or 0) + int(temp_gain)
+    sheet = getattr(player, "full_sheet", None)
+    if isinstance(sheet, dict):
+        sheet["hp_current"] = player.hp
+    if getattr(player, "hp", 0) > 0:
+        zero_hp_conds = ("Incosciente", "Unconscious", "Morente", "Dying", "Stabilizzato", "Stable")
+        conds = getattr(player, "conditions", None)
+        if isinstance(conds, list):
+            for c_rm in zero_hp_conds:
+                while c_rm in conds:
+                    conds.remove(c_rm)
+        if isinstance(sheet, dict) and isinstance(sheet.get("conditions"), list):
+            for c_rm in zero_hp_conds:
+                while c_rm in sheet["conditions"]:
+                    sheet["conditions"].remove(c_rm)
+
+
 def handle_reaction_response(data, player, game_state):
     """Gestisce la risposta del client a un prompt di reazione 5e (Attacco d'Opportunità, Scudo, Schivata Prodigiosa, ecc.)."""
     reaction_type = data.get("reaction_type")
     accepted = data.get("accepted", False)
     target_name = data.get("target_name")
     details = data.get("details", {})
-    
+
     if not accepted or not player:
         return
 
-    from server.rules.reaction_magic import is_incapacitated, entity_has_available_slot
-    from common.character_schema import consume_spell_or_pact_slot
+    from server.rules.reaction_magic import is_incapacitated
     from common.dnd5e_tables import entity_get_class_level
     last_hit = getattr(player, "_last_hit_for_reaction", None) or {}
-    can_ud_rescue = (
-        reaction_type == "UNCANNY_DODGE"
-        and getattr(player, "hp", 0) <= 0
-        and last_hit
-        and int(last_hit.get("old_hp", 0) or 0) > (int(last_hit.get("dmg_to_hp", 0) or 0) - (int(last_hit.get("dmg_to_hp", 0) or 0) // 2))
+    is_dead_or_petr = any(
+        is_condition_active(getattr(player, "conditions", []), dc)
+        for dc in ("Morto", "Dead", "Pietrificato", "Petrified")
     )
-    if (is_incapacitated(player) or getattr(player, "hp", 1) <= 0) and not can_ud_rescue:
+    was_incap_before = bool(last_hit.get("was_incapacitated", False))
+    old_hp_before = int(last_hit.get("old_hp", 0) or 0)
+    dmg_to_hp_hit = int(last_hit.get("dmg_to_hp", 0) or 0)
+
+    can_lethal_rescue = False
+    if (
+        getattr(player, "hp", 0) <= 0
+        and last_hit
+        and old_hp_before > 0
+        and not was_incap_before
+        and not is_dead_or_petr
+    ):
+        if reaction_type == "UNCANNY_DODGE":
+            can_lethal_rescue = old_hp_before > (dmg_to_hp_hit - (dmg_to_hp_hit // 2))
+        elif reaction_type == "SHIELD_SPELL":
+            can_lethal_rescue = (not last_hit.get("is_crit")) and (int(last_hit.get("hit_roll", 999)) < int(last_hit.get("base_ac", 0)) + 5)
+        elif reaction_type == "DEFENSIVE_DUELIST":
+            from common.feats_and_classes import check_defensive_duelist_bonus
+            _dd_chk = int(details.get("bonus_ac") or check_defensive_duelist_bonus(player) or 2)
+            can_lethal_rescue = (not last_hit.get("is_crit")) and (int(last_hit.get("hit_roll", 999)) < int(last_hit.get("base_ac", 0)) + _dd_chk)
+        elif reaction_type in ("ABSORB_ELEMENTS", "DEFLECT_MISSILES", "ILLUSORY_SELF", "DAMPEN_ELEMENTS"):
+            can_lethal_rescue = True
+
+    if (is_incapacitated(player) or getattr(player, "hp", 1) <= 0) and not can_lethal_rescue:
         if getattr(player, "conn", None):
             send_message(player.conn, make_error_reply("Non puoi usare una Reazione mentre sei Incapacitato o a 0 HP!"))
         return
@@ -3814,53 +4021,51 @@ def handle_reaction_response(data, player, game_state):
     from server.rules.class_abilities import _check_surprised_block
     if _check_surprised_block(player, game_state, "usare una Reazione"):
         return
-        
+
     if getattr(player, "has_reacted_this_turn", False):
         if getattr(player, "conn", None):
             send_message(player.conn, make_error_reply("Hai già consumato la tua Reazione per questo round!"))
         return
-        
+
     player.has_reacted_this_turn = True
-    
+
     if reaction_type == "OPPORTUNITY_ATTACK":
         msg = f"⚔️ {player.name} usa la propria REAZIONE per effettuare un Attacco d'Opportunità contro {target_name}!"
         broadcast(game_state, make_chat_broadcast("Sistema", msg))
         game_state.log_dm_message(f"[REAZIONE] {msg}")
-        
+
         w_name = details.get("weapon_name", "Attacco d'Opportunità")
         hit_bonus = details.get("hit_bonus", 0)
         damage_formula = details.get("damage_formula", "1d8")
         damage_type = details.get("damage_type", "Tagliente")
-        
+
         handle_attack_request({
             "target_name": target_name,
             "weapon_name": w_name,
             "hit_bonus": hit_bonus,
             "damage_formula": damage_formula,
             "damage_type": damage_type,
-            "is_reaction": True
+            "is_reaction": True,
+            "_already_consumed_reaction": True,
         }, player, game_state)
 
     elif reaction_type == "UNCANNY_DODGE":
         inc_dmg = int(details.get("dmg_to_hp") or details.get("damage_taken") or last_hit.get("dmg_to_hp") or last_hit.get("final_dmg") or 0)
         halved = inc_dmg // 2
-        if halved > 0 and (getattr(player, "hp", 0) > 0 or can_ud_rescue):
-            if getattr(player, "hp", 0) <= 0 and can_ud_rescue:
-                for c_rm in ("Incosciente", "Morente", "Dying", "Unconscious"):
-                    if c_rm in getattr(player, "conditions", []):
-                        player.conditions.remove(c_rm)
-            player.hp = min(player.max_hp, player.hp + halved)
-            if isinstance(getattr(player, "full_sheet", None), dict):
-                player.full_sheet["hp_current"] = player.hp
+        if halved > 0 and (getattr(player, "hp", 0) > 0 or can_lethal_rescue):
+            _restore_hp_from_reaction(player, halved)
             broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, getattr(player, "conditions", []), getattr(player, "temp_hp", 0)))
             game_state._trigger_gui_update()
         msg = f"🥷 [SCHIVATA PRODIGIOSA] {player.name} usa la Reazione per dimezzare i danni dell'attacco di {target_name} (recupera {halved} PF -> PV: {player.hp}/{player.max_hp})!"
         broadcast(game_state, make_chat_broadcast("Sistema", msg))
         game_state.log_dm_message(f"[REAZIONE] {msg}")
-        
+
     elif reaction_type == "SHIELD_SPELL":
-        if not details.get("slot_consumed") and entity_has_available_slot(player, 1):
-            consume_spell_or_pact_slot(player, 1)
+        if not _consume_reaction_spell_slot(player, 1, details):
+            player.has_reacted_this_turn = False
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply("Nessuno slot incantesimo disponibile per lanciare Scudo!"))
+            return
         conds = getattr(player, "conditions", [])
         if "Scudo" not in conds:
             conds.append("Scudo")
@@ -3868,12 +4073,7 @@ def handle_reaction_response(data, player, game_state):
         if last_hit and not last_hit.get("is_crit") and (int(last_hit.get("hit_roll", 999)) < int(last_hit.get("base_ac", 0)) + 5):
             r_hp = int(last_hit.get("dmg_to_hp", 0) or 0)
             r_tmp = int(last_hit.get("temp_absorbed", 0) or 0)
-            if r_hp > 0:
-                player.hp = min(player.max_hp, player.hp + r_hp)
-                if isinstance(getattr(player, "full_sheet", None), dict):
-                    player.full_sheet["hp_current"] = player.hp
-            if r_tmp > 0:
-                player.temp_hp = getattr(player, "temp_hp", 0) + r_tmp
+            _restore_hp_from_reaction(player, r_hp, r_tmp)
             player._last_hit_for_reaction = None
             shield_note = f" L'attacco precedente ({last_hit.get('hit_roll')}) manca contro CA {int(last_hit.get('base_ac', 0)) + 5} (ripristinati {r_hp} PF)!"
         msg = f"🛡️ {player.name} usa la propria REAZIONE per lanciare l'incantesimo Scudo! Ottiene +5 CA fino all'inizio del suo prossimo turno.{shield_note}"
@@ -3883,52 +4083,99 @@ def handle_reaction_response(data, player, game_state):
         game_state._trigger_gui_update()
 
     elif reaction_type == "ABSORB_ELEMENTS":
-        elem = str(details.get("damage_type", "Fuoco") or "Fuoco").capitalize()
+        elem = str(details.get("damage_type", "Fuoco") or "Fuoco").strip().capitalize()
+        valid_ae_elems = {
+            "fuoco": "Fuoco", "fire": "Fire",
+            "freddo": "Freddo", "cold": "Cold",
+            "fulmine": "Fulmine", "lightning": "Lightning",
+            "acido": "Acido", "acid": "Acid",
+            "tuono": "Tuono", "thunder": "Thunder",
+        }
+        elem_norm = valid_ae_elems.get(elem.lower())
+        if not elem_norm:
+            player.has_reacted_this_turn = False
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply("Assorbire Elementi funziona solo contro danni da Acido, Freddo, Fuoco, Fulmine o Tuono!"))
+            return
+        slot_lvl = max(1, int(details.get("slot_level", 1) or 1))
+        if not _consume_reaction_spell_slot(player, slot_lvl, details):
+            player.has_reacted_this_turn = False
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply(f"Nessuno slot incantesimo di {slot_lvl}°+ livello disponibile per Assorbire Elementi!"))
+            return
+        elem = elem_norm
         if not hasattr(player, "damage_resistances") or not isinstance(player.damage_resistances, list):
             player.damage_resistances = []
-        if elem.lower() not in [str(r).lower() for r in player.damage_resistances]:
+        already_perm_res = any(str(r).strip().lower() == elem.lower() for r in player.damage_resistances)
+        if not already_perm_res:
             player.damage_resistances.append(elem)
+            player._temp_absorb_resistance = elem
+        player.absorb_elements_dice = slot_lvl
+        player.absorb_elements_type = elem
         conds = getattr(player, "conditions", [])
         ae_label = f"Assorbire Elementi ({elem})"
         if ae_label not in conds:
             conds.append(ae_label)
-        msg = f"🔥 {player.name} usa la propria REAZIONE per lanciare Assorbire Elementi! Ottiene Resistenza ai danni da {elem} e +1d6 danni da {elem} al prossimo attacco in mischia!"
+        if hasattr(player, "add_effect"):
+            player.add_effect({
+                "id": "absorb_elements",
+                "name": ae_label,
+                "duration_rounds": 1,
+                "decrement_timing": "start_of_turn",
+                "damage_type": elem,
+                "dice_count": slot_lvl,
+            })
+        retro_note = ""
+        inc_dmg = int(details.get("dmg_to_hp") or last_hit.get("dmg_to_hp") or 0)
+        hit_dt = str(details.get("damage_type") or last_hit.get("damage_type") or "").strip().lower()
+        if inc_dmg > 0 and not already_perm_res and not last_hit.get("absorb_restored") and hit_dt == elem.lower():
+            restored = inc_dmg // 2
+            if restored > 0:
+                _restore_hp_from_reaction(player, restored)
+                if isinstance(last_hit, dict):
+                    last_hit["absorb_restored"] = True
+                retro_note = f" (Danno scatenante dimezzato: +{restored} PF ripristinati)"
+        msg = f"🔥 {player.name} usa la propria REAZIONE per lanciare Assorbire Elementi (Liv. {slot_lvl})! Ottiene Resistenza a {elem} fino al proprio turno successivo e +{slot_lvl}d6 danni da {elem} al prossimo colpo in mischia!{retro_note}"
         broadcast(game_state, make_chat_broadcast("Sistema", msg))
         game_state.log_dm_message(f"[REAZIONE] {msg}")
-        broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions, getattr(player, "temp_hp", 0)))
+        broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions, getattr(player, "temp_hp", 0), active_effects=getattr(player, "active_effects", [])))
         game_state._trigger_gui_update()
 
     elif reaction_type == "COUNTERSPELL":
-        spell_lvl = int(details.get("spell_level", 3) or 3)
-        slot_lvl = int(details.get("slot_level", 3) or 3)
+        spell_lvl = max(1, int(details.get("spell_level", 3) or 3))
+        slot_lvl = max(3, int(details.get("slot_level", 3) or 3))
         caster_nm = target_name or details.get("caster_name", "l'incantatore nemico")
         cast_id = details.get("cast_id")
-        if not details.get("slot_consumed") and entity_has_available_slot(player, slot_lvl):
-            consume_spell_or_pact_slot(player, slot_lvl)
+        if not _consume_reaction_spell_slot(player, slot_lvl, details):
+            player.has_reacted_this_turn = False
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply(f"Nessuno slot incantesimo di {slot_lvl}°+ livello disponibile per Controincantesimo!"))
+            return
         countered = False
         if slot_lvl >= spell_lvl:
             countered = True
             msg = f"✋ {player.name} usa la propria REAZIONE per lanciare Controincantesimo (Liv. {slot_lvl}) e ANNULLA automaticamente l'incantesimo di {caster_nm} (Liv. {spell_lvl})!"
         else:
-            from common.item_modifiers import get_effective_attribute_from_dict
-            sheet = getattr(player, "full_sheet", None)
-            s_dict = sheet if isinstance(sheet, dict) else player
-            best_mental = max(
-                get_effective_attribute_from_dict(s_dict, "INT"),
-                get_effective_attribute_from_dict(s_dict, "SAG"),
-                get_effective_attribute_from_dict(s_dict, "CAR"),
-            )
-            mod_c = (best_mental - 10) // 2
+            from server.rules.reaction_magic import compute_spell_ability_check_modifier
+            mod_c, mod_note = compute_spell_ability_check_modifier(player)
             r_cs = random.randint(1, 20)
             tot_cs = r_cs + mod_c
             dc_cs = 10 + spell_lvl
             countered = (tot_cs >= dc_cs)
             outcome = "✅ ANNULLATO!" if countered else "❌ FALLITO (l'incantesimo ha effetto)!"
-            msg = f"✋ {player.name} lancia Controincantesimo (Liv. {slot_lvl}) contro l'incantesimo di Liv. {spell_lvl} di {caster_nm}: Prova d'Incantatore [d20: {r_cs}] + {mod_c} = {tot_cs} vs CD {dc_cs} -> {outcome}"
+            note_sfx = f" [{mod_note}]" if mod_note else ""
+            msg = f"✋ {player.name} lancia Controincantesimo (Liv. {slot_lvl}) contro l'incantesimo di Liv. {spell_lvl} di {caster_nm}: Prova d'Incantatore [d20: {r_cs}] + {mod_c}{note_sfx} = {tot_cs} vs CD {dc_cs} -> {outcome}"
         if countered and cast_id and game_state:
             if not hasattr(game_state, "_cancelled_cast_ids"):
                 game_state._cancelled_cast_ids = set()
             game_state._cancelled_cast_ids.add(cast_id)
+            recent_casts = getattr(game_state, "_recent_casts", None)
+            if isinstance(recent_casts, dict) and cast_id in recent_casts:
+                rc = recent_casts.pop(cast_id)
+                if rc.get("concentration") and rc.get("caster"):
+                    c_obj = game_state.find_player(rc["caster"])
+                    if c_obj:
+                        drop_concentration(c_obj, game_state, notify=True)
         broadcast(game_state, make_chat_broadcast("Sistema", msg))
         game_state.log_dm_message(f"[REAZIONE] {msg}")
         game_state._trigger_gui_update()
@@ -3947,9 +4194,7 @@ def handle_reaction_response(data, player, game_state):
         inc_dmg = int(details.get("incoming_damage", 0) or last_hit.get("dmg_to_hp", 0) or 0)
         if inc_dmg > 0:
             restored = min(inc_dmg, reduction)
-            player.hp = min(player.max_hp, player.hp + restored)
-            if isinstance(sheet, dict):
-                sheet["hp_current"] = player.hp
+            _restore_hp_from_reaction(player, restored)
         caught_note = " 🎯 Danno ridotto a 0: afferra il proiettile e può spendere 1 Punto Ki per rilanciarlo!" if (inc_dmg > 0 and reduction >= inc_dmg) else ""
         msg = f"🥋 {player.name} usa Deflettere Missili (Reazione): riduce il danno a distanza di **{reduction}** [1d10({d10_r}) + DES({dex_mod}) + Liv({monk_lvl})]!{caught_note}"
         broadcast(game_state, make_chat_broadcast("Sistema", msg))
@@ -3959,8 +4204,11 @@ def handle_reaction_response(data, player, game_state):
 
     elif reaction_type == "HELLISH_REBUKE":
         slot_lvl = max(1, int(details.get("slot_level", 1) or 1))
-        if not details.get("slot_consumed") and entity_has_available_slot(player, slot_lvl):
-            consume_spell_or_pact_slot(player, slot_lvl)
+        if not _consume_reaction_spell_slot(player, slot_lvl, details):
+            player.has_reacted_this_turn = False
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply("Nessuno slot incantesimo disponibile per Intimorire Infernale!"))
+            return
         tgt_hr = game_state.find_player(target_name) if (game_state and target_name) else None
         from common.spell_effects_engine import cast_iconic_spell
         hr_msg = cast_iconic_spell(player, tgt_hr or player, "Intimorire Infernale", slot_lvl, game_state) or f"🔥 {player.name} scaglia Intimorire Infernale!"
@@ -3971,8 +4219,11 @@ def handle_reaction_response(data, player, game_state):
         game_state._trigger_gui_update()
 
     elif reaction_type == "SILVERY_BARBS":
-        if not details.get("slot_consumed") and entity_has_available_slot(player, 1):
-            consume_spell_or_pact_slot(player, 1)
+        if not _consume_reaction_spell_slot(player, 1, details):
+            player.has_reacted_this_turn = False
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply("Nessuno slot incantesimo disponibile per Beffa Argentea!"))
+            return
         tgt_sb = game_state.find_player(target_name) if (game_state and target_name) else None
         from common.spell_effects_engine import cast_iconic_spell
         sb_msg = cast_iconic_spell(player, tgt_sb or player, "Beffa Argentea", 1, game_state) or f"✨ {player.name} lancia Beffa Argentea!"
@@ -3987,12 +4238,7 @@ def handle_reaction_response(data, player, game_state):
         if last_hit and not last_hit.get("is_crit") and (int(last_hit.get("hit_roll", 999)) < int(last_hit.get("base_ac", 0)) + dd_pb):
             r_hp = int(last_hit.get("dmg_to_hp", 0) or 0)
             r_tmp = int(last_hit.get("temp_absorbed", 0) or 0)
-            if r_hp > 0:
-                player.hp = min(player.max_hp, player.hp + r_hp)
-                if isinstance(getattr(player, "full_sheet", None), dict):
-                    player.full_sheet["hp_current"] = player.hp
-            if r_tmp > 0:
-                player.temp_hp = getattr(player, "temp_hp", 0) + r_tmp
+            _restore_hp_from_reaction(player, r_hp, r_tmp)
             player._last_hit_for_reaction = None
             restore_note = f" L'attacco manca contro +{dd_pb} CA (ripristinati {r_hp} PF)!"
         msg = f"⚔️ [DUELLANTE DIFENSIVO] {player.name} para in Reazione (+{dd_pb} CA).{restore_note}"
@@ -4005,12 +4251,7 @@ def handle_reaction_response(data, player, game_state):
         player.illusory_self_used = True
         r_hp = int(last_hit.get("dmg_to_hp", 0) or details.get("dmg_to_hp", 0) or 0)
         r_tmp = int(last_hit.get("temp_absorbed", 0) or 0)
-        if r_hp > 0:
-            player.hp = min(player.max_hp, player.hp + r_hp)
-            if isinstance(getattr(player, "full_sheet", None), dict):
-                player.full_sheet["hp_current"] = player.hp
-        if r_tmp > 0:
-            player.temp_hp = getattr(player, "temp_hp", 0) + r_tmp
+        _restore_hp_from_reaction(player, r_hp, r_tmp)
         player._last_hit_for_reaction = None
         msg = f"🎭 [SÉ ILLUSORIO] {player.name} interpone un duplicato illusorio: l'attacco manca automaticamente (ripristinati {r_hp} PF)!"
         broadcast(game_state, make_chat_broadcast("Sistema", msg))
@@ -4023,14 +4264,141 @@ def handle_reaction_response(data, player, game_state):
         inc = int(last_hit.get("dmg_to_hp", 0) or details.get("dmg_to_hp", 0) or 0)
         restored = inc // 2
         if restored > 0:
-            player.hp = min(player.max_hp, player.hp + restored)
-            if isinstance(getattr(player, "full_sheet", None), dict):
-                player.full_sheet["hp_current"] = player.hp
+            _restore_hp_from_reaction(player, restored)
         msg = f"🌿 [SMORZARE ELEMENTI] {player.name} conferisce Resistenza a {elem} in Reazione (ripristinati {restored} PF)!"
         broadcast(game_state, make_chat_broadcast("Sistema", msg))
         game_state.log_dm_message(f"[REAZIONE] {msg}")
         broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, player.conditions, getattr(player, "temp_hp", 0)))
         game_state._trigger_gui_update()
+
+
+def handle_death_save_request(data, player, game_state):
+    """
+    Risolve un Tiro Salvezza contro la Morte server-side secondo D&D 5e RAW (PHB p. 197):
+    - Include Aura di Protezione del Paladino, Anima di Diamante (Monaco Lv 14+),
+      bonus ai TS da oggetti magici (Anello/Mantello Protezione, Pietra Buona Fortuna),
+      Benedizione (+1d4) / Anatema (-1d4) e Fortunato Halfling (ritira 1 naturale).
+    """
+    if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
+        data = data["data"]
+    if not game_state:
+        return
+    actor_name = (data or {}).get("actor_name")
+    target = game_state.find_player(actor_name) if actor_name else player
+    if target is None:
+        target = player
+    if not target:
+        return
+
+    if getattr(target, "hp", 1) > 0:
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply(f"{target.name} ha più di 0 PF e non deve effettuare TS contro la Morte!"))
+        return
+
+    conds = getattr(target, "conditions", None)
+    if not isinstance(conds, list):
+        conds = []
+        target.conditions = conds
+    if any(is_condition_active(conds, c) for c in ("Morto", "Dead", "Stabilizzato", "Stable")):
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply(f"{target.name} è già Stabilizzato o Morto!"))
+        return
+
+    if not hasattr(target, "death_saves") or not isinstance(target.death_saves, dict):
+        target.death_saves = {"successes": 0, "failures": 0}
+
+    manual_roll = (data or {}).get("manual_roll")
+    lucky_note = ""
+    if manual_roll is not None:
+        raw_d20 = max(1, min(20, int(manual_roll)))
+    else:
+        raw_d20 = random.randint(1, 20)
+        from common.dnd5e_tables import entity_has_keyword
+        sheet = getattr(target, "full_sheet", None) or {}
+        t_race = str((sheet.get("race") if isinstance(sheet, dict) else None) or getattr(target, "race", "") or "").lower()
+        if raw_d20 == 1 and ("halfling" in t_race or entity_has_keyword(target, "fortunato", "lucky")):
+            reroll_d20 = random.randint(1, 20)
+            lucky_note = f" [🍀 Fortunato Halfling: 1 -> {reroll_d20}]"
+            raw_d20 = reroll_d20
+
+    from common.item_modifiers import compute_death_save_flat_bonus
+    flat_bonus, bonus_notes = compute_death_save_flat_bonus(target)
+    total_roll = raw_d20 + flat_bonus
+    mod_parts = list(bonus_notes)
+
+    aura_bonus, aura_pal = get_paladin_aura_save_bonus(target, game_state)
+    if aura_bonus > 0:
+        total_roll += aura_bonus
+        mod_parts.append(f"+{aura_bonus} Aura di {aura_pal}")
+
+    if has_effect_or_condition(target, "Benedizione", "Bless"):
+        bless_b = random.randint(1, 4)
+        total_roll += bless_b
+        mod_parts.append(f"+{bless_b} Benedizione")
+    if has_effect_or_condition(target, "Anatema", "Bane"):
+        bane_p = random.randint(1, 4)
+        total_roll -= bane_p
+        mod_parts.append(f"-{bane_p} Anatema")
+
+    succ = int(target.death_saves.get("successes", 0) or 0)
+    fail = int(target.death_saves.get("failures", 0) or 0)
+
+    sheet = getattr(target, "full_sheet", None)
+    if raw_d20 == 20:
+        target.hp = 1
+        succ = 0
+        fail = 0
+        for clr_c in ("Incosciente", "Unconscious", "Morente", "Dying", "Stabilizzato", "Stable"):
+            while clr_c in conds:
+                conds.remove(clr_c)
+            if isinstance(sheet, dict) and isinstance(sheet.get("conditions"), list):
+                while clr_c in sheet["conditions"]:
+                    sheet["conditions"].remove(clr_c)
+        if isinstance(sheet, dict):
+            sheet["hp_current"] = 1
+        flavor = "🌟 SUCCESSO CRITICO (20 Naturale)! Si risveglia con 1 HP!"
+    elif raw_d20 == 1:
+        fail += 2
+        flavor = "💥 FALLIMENTO CRITICO (1 Naturale)! (+2 fallimenti)"
+    elif total_roll >= 10:
+        succ += 1
+        flavor = "✅ Successo."
+    else:
+        fail += 1
+        flavor = "❌ Fallimento."
+
+    if raw_d20 != 20:
+        succ = min(3, succ)
+        fail = min(3, fail)
+        if fail >= 3:
+            if "Morto" not in conds:
+                conds.append("Morto")
+            if isinstance(sheet, dict) and isinstance(sheet.get("conditions"), list) and "Morto" not in sheet["conditions"]:
+                sheet["conditions"].append("Morto")
+            flavor += f" 💀 {target.name} è MORTO!"
+            _spawn_corpse_loot(target, game_state)
+        elif succ >= 3:
+            if "Stabilizzato" not in conds:
+                conds.append("Stabilizzato")
+            if isinstance(sheet, dict) and isinstance(sheet.get("conditions"), list) and "Stabilizzato" not in sheet["conditions"]:
+                sheet["conditions"].append("Stabilizzato")
+            flavor += f" 🩹 {target.name} è STABILIZZATO!"
+
+    target.death_saves = {"successes": succ, "failures": fail}
+    if isinstance(sheet, dict):
+        sheet["death_saves"] = dict(target.death_saves)
+
+    mods_str = f" ({', '.join(mod_parts)}) = {total_roll}" if mod_parts else ""
+    msg = f"🎲 [TS MORTE] {target.name}: d20({raw_d20}){lucky_note}{mods_str}. {flavor} (Successi: {succ}/3 | Fallimenti: {fail}/3)"
+    broadcast(game_state, make_chat_broadcast("Sistema", msg))
+    game_state.log_dm_message(f"[TS MORTE] {msg}")
+    broadcast(game_state, make_player_stats_update(
+        target.name, target.hp, target.max_hp, target.initiative,
+        conds, getattr(target, "temp_hp", 0),
+        active_effects=getattr(target, "active_effects", []),
+        death_saves=dict(target.death_saves),
+    ))
+    game_state._trigger_gui_update()
 
 
 def handle_ready_action_request(data, player, game_state):

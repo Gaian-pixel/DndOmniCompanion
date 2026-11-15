@@ -254,7 +254,7 @@ class SpellsPanel:
             "individuazione del magico", "detect magic",
             "individuazione del veleno", "detect poison and disease",
             "identificare", "identify",
-            "passo velato", "floating disk", "disco fluttuante",
+            "floating disk", "disco fluttuante",
             "servitore inosservato", "unseen servant",
             "trova famiglio", "find familiar",
             "augurio", "augury",

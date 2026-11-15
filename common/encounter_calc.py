@@ -126,7 +126,7 @@ def calculate_encounter_difficulty(party_levels: list[int], monster_xps: list) -
                 parsed_xps.append(10)
             else:
                 cr_str = str(int(m)) if isinstance(m, int) or (isinstance(m, float) and m.is_integer()) else str(m)
-                if cr_str in CR_TO_XP and m <= 30 and m not in (10, 25):
+                if cr_str in CR_TO_XP and m <= 30:
                     parsed_xps.append(CR_TO_XP[cr_str])
                 else:
                     parsed_xps.append(int(m))

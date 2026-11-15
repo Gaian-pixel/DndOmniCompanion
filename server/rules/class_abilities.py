@@ -1228,8 +1228,21 @@ def handle_cast_special_spell_request(data, player, game_state):
         broadcast(game_state, make_chat_broadcast("Sistema", f"🛡️ [INTERDIZIONE ARCANA] {actor.name} ricarica +{gained_ward} PF alla propria Interdizione Arcana!"))
 
     if base_lvl >= 1 and not is_subtle:
+        import uuid as _uuid_cs
+        cast_id = str(data.get("cast_id") or f"cast_{_uuid_cs.uuid4().hex[:8]}")
+        if cast_id in getattr(game_state, "_cancelled_cast_ids", ()):
+            broadcast(game_state, make_chat_broadcast("Sistema", f"✋ [CONTROINCANTESIMO] '{spell_name}' di {actor.name} è stato annullato!"))
+            return
         from server.rules.reaction_magic import maybe_prompt_counterspell_reactions
-        maybe_prompt_counterspell_reactions(actor, spell_name, cast_level, game_state)
+        maybe_prompt_counterspell_reactions(actor, spell_name, cast_level, game_state, cast_id=cast_id)
+        if cast_id in getattr(game_state, "_cancelled_cast_ids", ()):
+            broadcast(game_state, make_chat_broadcast("Sistema", f"✋ [CONTROINCANTESIMO] '{spell_name}' di {actor.name} è stato annullato!"))
+            return
+        recent_casts = getattr(game_state, "_recent_casts", None)
+        if not isinstance(recent_casts, dict):
+            recent_casts = {}
+            game_state._recent_casts = recent_casts
+        recent_casts[cast_id] = {"caster": actor.name, "spell_name": spell_name, "concentration": bool(data.get("concentration", False))}
 
     if base_lvl >= 1 and not already_consumed_slot:
         fd20 = data.get("forced_wild_d20") if _allow_forced_roll(player) else None
@@ -2216,6 +2229,7 @@ def handle_class_feature_request(data, player, game_state):
             )
             if getattr(game_state, "combat_active", False):
                 actor.bonus_action_used_this_turn = True
+            actor.is_raging = True
             if not hasattr(actor, "conditions") or actor.conditions is None:
                 actor.conditions = []
             if "Ira" not in actor.conditions:
@@ -2358,6 +2372,14 @@ def handle_class_feature_request(data, player, game_state):
         old_hp = actor.hp
         actor.hp = min(actor.max_hp, actor.hp + heal_r["total"])
         actor.bonus_action_used_this_turn = True
+        fs_ws = getattr(actor, "full_sheet", None)
+        if isinstance(fs_ws, dict):
+            fs_ws["hp_current"] = actor.hp
+            if isinstance(fs_ws.get("wild_shape"), dict):
+                fs_ws["wild_shape"]["beast_hp"] = actor.hp
+        ws_obj = getattr(actor, "wild_shape", None)
+        if isinstance(ws_obj, dict):
+            ws_obj["beast_hp"] = actor.hp
         msg = f"🐾 [FORMA SELVATICA DA COMBATTIMENTO] {actor.name} spende {s_desc} (Azione Bonus) e si cura di {actor.hp - old_hp} PF ({heal_r['total']} tirato)!"
         broadcast(game_state, make_chat_broadcast("Sistema", msg))
         broadcast(game_state, make_player_stats_update(actor.name, actor.hp, actor.max_hp, actor.initiative, actor.conditions, getattr(actor, "temp_hp", 0)))
@@ -2415,15 +2437,26 @@ def handle_class_feature_request(data, player, game_state):
     # 6. Sorcerer Font of Magic / Metamagic state
     if feat in ("font_of_magic", "fonte_di_magia", "metamagic", "metamagia"):
         sorc_l = entity_get_class_level(actor, "stregone", "sorcerer")
-        if sorc_l < 2:
+        has_mm_adept = entity_has_keyword(actor, "adepto metamagico", "metamagic adept")
+        if sorc_l < 2 and not has_mm_adept:
             if getattr(actor, "conn", None):
                 send_message(actor.conn, make_error_reply("Fonte di Magia richiede Stregone Lv 2+."))
             return
         mode = str(data.get("mode", "to_slot")).lower()
         slot_l = max(1, min(5, int(data.get("slot_level", 1) or 1)))
         slot_costs = {1: 2, 2: 3, 3: 5, 4: 6, 5: 7}
+        if mode in ("to_points", "to_slot") and getattr(game_state, "combat_active", False) and getattr(actor, "bonus_action_used_this_turn", False):
+            if getattr(actor, "conn", None):
+                send_message(actor.conn, make_error_reply("Fonte di Magia richiede un'Azione Bonus (già consumata in questo turno)!"))
+            return
+        if mode in ("to_points", "to_slot") and sorc_l < 2:
+            if getattr(actor, "conn", None):
+                send_message(actor.conn, make_error_reply("Convertire slot/punti richiede Stregone Lv 2+."))
+            return
         if entity_find_resource(actor, "punti stregoneria", "sorcery points") is None:
-            fs.setdefault("custom_resources", []).append({"name": "Punti Stregoneria", "current": sorc_l, "max": sorc_l, "reset_on": "long"})
+            sp_init_cur = int(fs.get("sorcery_points_current", sorc_l or (2 if has_mm_adept else 0)) or 0)
+            sp_init_max = int(fs.get("sorcery_points_max", sorc_l or (2 if has_mm_adept else 0)) or 0)
+            fs.setdefault("custom_resources", []).append({"name": "Punti Stregoneria", "current": sp_init_cur, "max": max(sp_init_cur, sp_init_max), "reset_on": "long"})
         slots = fs.setdefault("spell_slots", {})
         if mode == "to_points":
             from common.character_schema import consume_spell_or_pact_slot
@@ -2435,8 +2468,15 @@ def handle_class_feature_request(data, player, game_state):
             res_sp = entity_find_resource(actor, "punti stregoneria", "sorcery points")
             if res_sp:
                 res_sp["current"] = min(int(res_sp.get("max", sorc_l)), int(res_sp.get("current", 0)) + slot_l)
+                fs["sorcery_points_current"] = res_sp["current"]
+            if getattr(game_state, "combat_active", False):
+                actor.bonus_action_used_this_turn = True
             msg = f"✨ [FONTE DI MAGIA] {actor.name} converte {s_desc} in +{slot_l} Punti Stregoneria!"
         elif mode == "set_metamagic":
+            if sorc_l < 3 and not has_mm_adept:
+                if getattr(actor, "conn", None):
+                    send_message(actor.conn, make_error_reply("Metamagia si sblocca al 3° livello da Stregone (PHB p. 101)."))
+                return
             meta_name = str(data.get("metamagic", "quickened") or "quickened").lower()
             meta_cost = max(1, int(data.get("cost", 1) or 1))
             ok_m, new_c, mx = entity_spend_resource(actor, ("punti stregoneria", "sorcery points"), meta_cost)
@@ -2444,6 +2484,7 @@ def handle_class_feature_request(data, player, game_state):
                 if getattr(actor, "conn", None):
                     send_message(actor.conn, make_error_reply("Punti Stregoneria insufficienti."))
                 return
+            fs["sorcery_points_current"] = new_c
             actor.active_metamagic = meta_name
             msg = f"🔮 [METAMAGIA - {meta_name.upper()}] {actor.name} attiva {meta_name} ({new_c}/{mx} PS rimasti)."
         else:
@@ -2458,9 +2499,14 @@ def handle_class_feature_request(data, player, game_state):
                 if getattr(actor, "conn", None):
                     send_message(actor.conn, make_error_reply(f"Servono {cost_sp} Punti Stregoneria per creare uno slot {slot_l}°."))
                 return
+            fs["sorcery_points_current"] = new_c
             sl_entry = slots.setdefault(str(slot_l), {"max": 0, "current": 0})
             if isinstance(sl_entry, dict):
                 sl_entry["current"] = int(sl_entry.get("current", 0)) + 1
+            elif isinstance(sl_entry, list) and len(sl_entry) >= 2:
+                sl_entry[0] = int(sl_entry[0]) + 1
+            if getattr(game_state, "combat_active", False):
+                actor.bonus_action_used_this_turn = True
             msg = f"✨ [FONTE DI MAGIA] {actor.name} spende {cost_sp} Punti Stregoneria e crea 1 Slot di {slot_l}° livello ({new_c}/{mx} PS rimasti)!"
         broadcast(game_state, make_chat_broadcast("Sistema", msg))
         broadcast(game_state, make_game_state(game_state.get_state_dict()))

@@ -567,8 +567,16 @@ def handle_resolve_aoe_request(data, player, game_state):
     caster_obj = game_state.find_player(caster_name)
     aoe_spell_lvl = int(aoe_data.get("spell_level") or data.get("spell_level") or (1 if aoe_data.get("spell_name") else 0) or 0)
     if caster_obj and aoe_spell_lvl >= 1:
+        import uuid as _uuid_aoe_cs
+        aoe_cast_id = str(data.get("cast_id") or aoe_data.get("cast_id") or f"cast_{_uuid_aoe_cs.uuid4().hex[:8]}")
+        if aoe_cast_id in getattr(game_state, "_cancelled_cast_ids", ()):
+            broadcast(game_state, make_chat_broadcast("Sistema", f"✋ [CONTROINCANTESIMO] '{aoe_data.get('spell_name', 'Incantesimo ad Area')}' di {caster_name} è stato annullato!"))
+            return
         from server.rules.reaction_magic import maybe_prompt_counterspell_reactions
-        maybe_prompt_counterspell_reactions(caster_obj, aoe_data.get("spell_name", "Incantesimo ad Area"), aoe_spell_lvl, game_state)
+        maybe_prompt_counterspell_reactions(caster_obj, aoe_data.get("spell_name", "Incantesimo ad Area"), aoe_spell_lvl, game_state, cast_id=aoe_cast_id)
+        if aoe_cast_id in getattr(game_state, "_cancelled_cast_ids", ()):
+            broadcast(game_state, make_chat_broadcast("Sistema", f"✋ [CONTROINCANTESIMO] '{aoe_data.get('spell_name', 'Incantesimo ad Area')}' di {caster_name} è stato annullato!"))
+            return
 
     from common.protocol import make_prompt_save
     resolved_dmg = damage_formula

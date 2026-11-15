@@ -954,7 +954,21 @@ class GameState:
                 if had_readied:
                     active._expired_readied_action_this_turn = True
                 if hasattr(active, "conditions") and active.conditions:
-                    active.conditions = [c for c in active.conditions if c not in start_of_turn_conds and c not in ("Scudo", "Shield", "Azione Preparata")]
+                    active.conditions = [
+                        c for c in active.conditions
+                        if c not in start_of_turn_conds
+                        and c not in ("Scudo", "Shield", "Azione Preparata")
+                        and not str(c).lower().startswith("assorbire elementi")
+                        and not str(c).lower().startswith("absorb elements")
+                    ]
+                if getattr(active, "_temp_absorb_resistance", None):
+                    rem_r = str(active._temp_absorb_resistance).lower()
+                    if hasattr(active, "damage_resistances") and isinstance(active.damage_resistances, list):
+                        active.damage_resistances = [r for r in active.damage_resistances if str(r).lower() != rem_r]
+                    active._temp_absorb_resistance = None
+                if getattr(active, "absorb_elements_dice", 0) and not any(isinstance(fx, dict) and fx.get("id") == "absorb_elements" for fx in getattr(active, "active_effects", [])):
+                    active.absorb_elements_dice = 0
+                    active.absorb_elements_type = None
                 # Scadenza Azione di Aiuto all'inizio del turno successivo dell'aiutante (PHB p. 192)
                 for h_tgt_name in list(getattr(active, "helped_targets_this_turn", []) or []):
                     h_tgt = self.find_player(h_tgt_name)
@@ -1061,16 +1075,19 @@ class GameState:
                                 msg = f"⚠️ [RIGENERAZIONE] La rigenerazione di {active.name} è inibita dai danni subiti o dal tratto specifico!"
                                 pending_broadcasts.append(make_chat_broadcast("Sistema", msg))
 
-                    # 3. Danno Continuo (es. In Fiamme, Veleno Attivo)
-                    for eff in getattr(active, "active_effects", []):
+                    # 3. Danno Continuo (es. In Fiamme, Veleno Attivo) -> delegato ad apply_damage (Resistenze/TempHP/Concentrazione/Morte)
+                    for eff in list(getattr(active, "active_effects", [])):
                         if isinstance(eff, dict) and eff.get("periodic_damage"):
                             p_dmg = int(eff.get("periodic_damage", 0))
                             p_type = eff.get("damage_type", "Fuoco")
-                            if p_dmg > 0 and active.hp > 0:
-                                active.hp = max(0, active.hp - p_dmg)
-                                msg = f"🔥 [DANNO CONTINUO] {active.name} subisce {p_dmg} danni da {p_type} ({eff.get('name', 'Effetto')}) all'inizio del turno! (PV: {active.hp}/{active.max_hp})"
+                            is_dead = any(str(c).strip().lower() in ("morto", "dead") for c in getattr(active, "conditions", []))
+                            if p_dmg > 0 and not is_dead and (active.hp > 0 or not getattr(active, "is_monster", False)):
+                                from server.rules.combat import apply_damage as _apply_periodic_dmg
+                                final_p, note_p, tmp_p, _ = _apply_periodic_dmg(active, p_dmg, damage_type=p_type, game_state=self)
+                                tmp_txt = f" [{tmp_p} assorbiti da Temp HP]" if tmp_p > 0 else ""
+                                msg = f"🔥 [DANNO CONTINUO] {active.name} subisce {final_p} danni da {p_type}{note_p}{tmp_txt} ({eff.get('name', 'Effetto')}) all'inizio del turno! (PV: {active.hp}/{active.max_hp})"
                                 pending_broadcasts.append(make_chat_broadcast("Sistema", msg))
-                                pending_broadcasts.append(make_player_stats_update(active.name, active.hp, active.max_hp, active.initiative, active.conditions, getattr(active, "temp_hp", 0)))
+                                pending_broadcasts.append(make_player_stats_update(active.name, active.hp, active.max_hp, active.initiative, active.conditions, getattr(active, "temp_hp", 0), active_effects=getattr(active, "active_effects", [])))
 
                     # 4. Inghiottito / Engulfed (MM: es. Gelatina Ocra/Cubo Gelatinoso/Verme Purpureo/Rospo Gigante -> danno acido a inizio turno)
                     swallower_name = getattr(active, "swallowed_by", None)
