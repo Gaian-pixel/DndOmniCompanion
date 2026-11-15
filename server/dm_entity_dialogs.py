@@ -780,7 +780,8 @@ def open_light_source_dialog(dm_gui):
             dm_gui.server.game_state._trigger_gui_update()
             from common.protocol import make_player_stats_update
             broadcast(dm_gui.server.game_state, make_player_stats_update(
-                player.name, player.hp, player.max_hp, player.initiative, player.conditions, getattr(player, "temp_hp", 0)
+                player.name, player.hp, player.max_hp, player.initiative, player.conditions, getattr(player, "temp_hp", 0),
+                light_radius=player.light_radius, light_color=player.light_color,
             ))
             dm_gui.redraw_map_and_players()
             dm_gui.log_to_chat(f"[LUCE] Luce per {player.name} impostata a {r} hex ({c}).")

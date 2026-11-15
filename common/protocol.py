@@ -309,10 +309,12 @@ def make_handout_broadcast(title, image_b64=None, content=None):
 def make_toggle_wall_request(q, r):
     return {"type": "TOGGLE_WALL_REQUEST", "data": {"q": q, "r": r}}
 
-def make_fow_update_broadcast(fow_revealed, fow_draft, fow_enabled=None):
+def make_fow_update_broadcast(fow_revealed, fow_draft, fow_enabled=None, players=None):
     data = {"fow_revealed": fow_revealed, "fow_draft": fow_draft}
     if fow_enabled is not None:
         data["fow_enabled"] = fow_enabled
+    if players is not None:
+        data["players"] = players
     return {"type": "FOW_UPDATE_BROADCAST", "data": data}
 
 def make_map_data_update_broadcast(map_data):

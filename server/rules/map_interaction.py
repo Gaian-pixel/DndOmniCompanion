@@ -1,6 +1,6 @@
 import re
 import random
-from common.hex_utils import Hex, hex_distance, get_sphere_hexes, hex_linedraw, get_cone_hexes, get_line_hexes
+from common.hex_utils import Hex, hex_distance, grid_distance, get_sphere_hexes, get_cube_hexes, hex_linedraw, get_cone_hexes, get_line_hexes, has_line_of_sight
 from common.network_utils import send_message, broadcast
 from common.protocol import (
     make_chat_broadcast,
@@ -43,32 +43,34 @@ def handle_create_aoe_request(data, player, game_state):
     if not aoe_data.get("req_save"):
         return
         
+    cur_map = getattr(game_state, "current_map", None) or {}
+    grid_type = cur_map.get("grid_type", "hex")
     origin = Hex(*aoe_data["origin"])
     aoe_type = aoe_data.get("type", "sfera")
     size = aoe_data.get("size", 3)
     
-    if aoe_type in ["sfera", "cubo"]:
-        hexes = get_sphere_hexes(origin, size)
+    if aoe_type == "sfera":
+        hexes = get_sphere_hexes(origin, size, grid_type=grid_type)
+    elif aoe_type == "cubo":
+        hexes = get_cube_hexes(origin, size, grid_type=grid_type)
     elif aoe_type == "cono":
         target = Hex(*aoe_data.get("target", aoe_data["origin"]))
-        hexes = get_cone_hexes(origin, target, size)
+        hexes = get_cone_hexes(origin, target, size, grid_type=grid_type)
     elif aoe_type == "linea":
         target = Hex(*aoe_data.get("target", aoe_data["origin"]))
-        hexes = get_line_hexes(origin, target, size)
+        hexes = get_line_hexes(origin, target, size, grid_type=grid_type)
     else:
         hexes = []
         
-    cur_map = getattr(game_state, "current_map", None) or {}
     walls = cur_map.get("walls", [])
     doors = cur_map.get("doors", [])
-    from common.hex_utils import has_line_of_sight
     affected_players = []
     for p in getattr(game_state, "players", []):
         if getattr(p, "hp", 0) > 0 and getattr(p, "position", None):
             pos_hex = Hex(p.position[0], p.position[1])
             if pos_hex in hexes:
                 # Regola D&D 5e RAW (PHB p. 204): Muri solidi e porte chiuse bloccano la linea d'effetto dell'area (Copertura Totale)
-                if pos_hex == origin or has_line_of_sight(origin, pos_hex, walls, doors):
+                if pos_hex == origin or has_line_of_sight(origin, pos_hex, walls, doors, grid_type=grid_type):
                     affected_players.append(p)
                 
     if not affected_players:
@@ -232,11 +234,13 @@ def handle_toggle_door_request(data, player, game_state):
             game_state._trigger_gui_update()
         return
 
-    # Se non è DM, controlla distanza (deve essere adiacente: <= 1)
+    # Se non è DM, controlla distanza (deve essere adiacente)
     if not is_dm and hasattr(player, "position") and player.position:
         pq, pr = player.position[0], player.position[1]
-        dist = max(abs(pq - q), abs(pq + pr - q - r), abs(pr - r))
-        if dist > 1:
+        cur_m = getattr(game_state, "current_map", None) or {}
+        g_type = cur_m.get("grid_type", "hex")
+        dist = grid_distance(Hex(pq, pr), Hex(q, r), grid_type=g_type)
+        if dist > 1.5:
             if player.conn:
                 send_message(player.conn, make_error_reply("Sei troppo lontano per interagire con questa porta (devi essere adiacente)!"))
             return
@@ -515,18 +519,22 @@ def handle_resolve_aoe_request(data, player, game_state):
         aoe_index = 0
     aoe_data = game_state.active_aoes[aoe_index]
     
+    cur_map = getattr(game_state, "current_map", None) or {}
+    grid_type = cur_map.get("grid_type", "hex")
     origin = Hex(*aoe_data["origin"])
     aoe_type = aoe_data.get("type", "sfera")
     size = aoe_data.get("size", 3)
     
-    if aoe_type in ["sfera", "cubo"]:
-        hexes = get_sphere_hexes(origin, size)
+    if aoe_type == "sfera":
+        hexes = get_sphere_hexes(origin, size, grid_type=grid_type)
+    elif aoe_type == "cubo":
+        hexes = get_cube_hexes(origin, size, grid_type=grid_type)
     elif aoe_type == "cono":
         target = Hex(*aoe_data.get("target", aoe_data["origin"]))
-        hexes = get_cone_hexes(origin, target, size)
+        hexes = get_cone_hexes(origin, target, size, grid_type=grid_type)
     elif aoe_type == "linea":
         target = Hex(*aoe_data.get("target", aoe_data["origin"]))
-        hexes = get_line_hexes(origin, target, size)
+        hexes = get_line_hexes(origin, target, size, grid_type=grid_type)
     else:
         hexes = []
 
@@ -537,12 +545,15 @@ def handle_resolve_aoe_request(data, player, game_state):
     damage_type = data.get("damage_type") or aoe_data.get("damage_type", "Fuoco")
     caster_name = aoe_data.get("caster", player.name if player else "Incantatore")
 
+    walls = cur_map.get("walls", [])
+    doors = cur_map.get("doors", [])
     affected_players = []
     for p in getattr(game_state, "players", []):
         if getattr(p, "hp", 0) > 0 and getattr(p, "position", None):
             pos_hex = Hex(p.position[0], p.position[1])
             if pos_hex in hexes:
-                affected_players.append(p)
+                if pos_hex == origin or has_line_of_sight(origin, pos_hex, walls, doors, grid_type=grid_type):
+                    affected_players.append(p)
 
     if not affected_players:
         msg = f"⚡ Nessuna creatura si trova nell'area dell'incantesimo ({aoe_type.capitalize()} a {origin.q},{origin.r})."

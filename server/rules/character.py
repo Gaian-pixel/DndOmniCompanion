@@ -67,6 +67,8 @@ def handle_update_stats_request(data, player, game_state):
                 stats_payload = make_player_stats_update(
                     target.name, target.hp, target.max_hp, target.initiative,
                     list(getattr(target, "conditions", []) or []), getattr(target, "temp_hp", 0),
+                    light_radius=getattr(target, "light_radius", 0),
+                    light_color=getattr(target, "light_color", "#FFA500"),
                     elevation=getattr(target, "elevation", 0),
                 )
             else:
@@ -114,7 +116,10 @@ def handle_update_stats_request(data, player, game_state):
                 pending_fow_map = bool(auto_explore_fow(target, game_state))
                 stats_payload = make_player_stats_update(
                     target.name, target.hp, target.max_hp, target.initiative,
-                    list(target.conditions), target.temp_hp, elevation=getattr(target, "elevation", 0)
+                    list(target.conditions), target.temp_hp,
+                    light_radius=getattr(target, "light_radius", 0),
+                    light_color=getattr(target, "light_color", "#FFA500"),
+                    elevation=getattr(target, "elevation", 0),
                 )
         if pending_fow_map:
             broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
@@ -578,6 +583,23 @@ def handle_update_full_sheet_request(data, player, game_state):
             player.damage_resistances = char_data.get("damage_resistances", getattr(player, "damage_resistances", []))
             player.damage_immunities = char_data.get("damage_immunities", getattr(player, "damage_immunities", []))
             player.damage_vulnerabilities = char_data.get("damage_vulnerabilities", getattr(player, "damage_vulnerabilities", []))
+            if char_data.get("light_radius") is not None:
+                try:
+                    player.light_radius = max(0, int(char_data["light_radius"]))
+                except (TypeError, ValueError):
+                    pass
+            if char_data.get("light_color"):
+                player.light_color = str(char_data["light_color"])
+            if callable(getattr(player, "check_has_darkvision", None)) and player.check_has_darkvision() is True:
+                player.has_darkvision = True
+                try:
+                    raw_v = getattr(player, "vision_radius", 6)
+                    cur_v = int(raw_v) if isinstance(raw_v, (int, float)) else 6
+                except (TypeError, ValueError):
+                    cur_v = 6
+                player.vision_radius = max(12, cur_v)
+            from server.rules.movement import auto_explore_fow
+            auto_explore_fow(player, game_state)
 
         if granted_campaign_starter and getattr(player, "conn", None):
             from common.protocol import make_campaign_starter_granted, make_chat_broadcast

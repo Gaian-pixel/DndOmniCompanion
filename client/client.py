@@ -482,6 +482,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
         map_outer_frame = self.map_outer_frame
         
         self.map_canvas = HexMapCanvas(self.map_outer_frame, bg=BG_COLOR)
+        self.map_canvas.is_dm = False
         self.map_canvas.pack(fill=tk.BOTH, expand=True)
 
         # --- VTT FLOATING HUD BAR (Foundry VTT / BG3 Style) ---
@@ -4368,6 +4369,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
 
     def handle_player_stats_update(self, data):
         name = data.get('name')
+        visual_changed = False
         if name in self.players_data:
             self.players_data[name]['hp'] = data.get('hp')
             self.players_data[name]['max_hp'] = data.get('max_hp')
@@ -4379,6 +4381,15 @@ class ClientGUI(ClientNetworkHandlersMixin):
                 self.players_data[name]['active_effects'] = data.get('active_effects')
             if 'condition_durations' in data:
                 self.players_data[name]['condition_durations'] = data.get('condition_durations')
+            if 'light_radius' in data and data.get('light_radius') is not None:
+                self.players_data[name]['light_radius'] = data.get('light_radius')
+                visual_changed = True
+            if 'light_color' in data and data.get('light_color') is not None:
+                self.players_data[name]['light_color'] = data.get('light_color')
+                visual_changed = True
+            if 'elevation' in data and data.get('elevation') is not None:
+                self.players_data[name]['elevation'] = data.get('elevation')
+                visual_changed = True
             
         if name == self.name and self.active_character:
             if data.get('hp') is not None:
@@ -4402,6 +4413,8 @@ class ClientGUI(ClientNetworkHandlersMixin):
                 self.stats_window.update_dynamic_stats()
             
         self.update_player_listbox()
+        if visual_changed and hasattr(self, 'redraw_map_and_players'):
+            self.redraw_map_and_players()
 
     def set_controls_state(self, state):
         for btn in ['entry', 'roll_button', 'player_listbox', 'action_button', 'aoe_button', 'travel_button', 'calendar_button', 'combat_btn', 'end_turn_btn', 'btn_act_tracker', 'btn_bonus_tracker', 'btn_react_tracker', 'btn_dash', 'btn_disengage', 'btn_dodge', 'btn_help', 'btn_stand_up', 'btn_shop', 'btn_downtime', 'btn_special_powers', 'btn_short_rest', 'btn_long_rest', 'btn_second_wind', 'btn_action_surge', 'btn_rage']:

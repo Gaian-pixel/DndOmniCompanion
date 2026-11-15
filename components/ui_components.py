@@ -7,10 +7,10 @@ from io import BytesIO
 from PIL import Image, ImageTk, ImageDraw
 from common.hex_utils import (
     Hex, HexLayout, SquareLayout, hex_distance, grid_distance,
-    get_sphere_hexes, get_cone_hexes, get_line_hexes, get_visible_hexes,
+    get_sphere_hexes, get_cube_hexes, get_cone_hexes, get_line_hexes, get_visible_hexes,
     hex_linedraw, get_cover_between
 )
-from common.i18n import _t, format_distance_hexes, get_map_scale_info
+from common.i18n import _t, format_distance_hexes, get_map_scale_info, is_condition_active
 from common.ui_lifecycle import safe_after
 
 class HexMapCanvas(tk.Canvas):
@@ -61,7 +61,38 @@ class HexMapCanvas(tk.Canvas):
         "Ira": ("#C92A2A", "🔥"),
         "Rage": ("#C92A2A", "🔥")
     }
-    
+
+    def _effective_is_dm(self) -> bool:
+        """Determina il privilegio DM sul canvas senza esporre la vista DM ai client disconnessi."""
+        if getattr(self, "is_dm", None) is not None:
+            return bool(self.is_dm)
+        return not bool(getattr(self, "player_name", None))
+
+    @staticmethod
+    def _parse_sense_hexes(pdata: dict, *keywords, default_ft: int = 60) -> int:
+        if not isinstance(pdata, dict):
+            return 0
+        sheet = pdata.get("full_sheet") if isinstance(pdata.get("full_sheet"), dict) else {}
+        chunks = [
+            str(pdata.get("senses", "") or ""),
+            str(sheet.get("senses", "") or ""),
+            str(pdata.get("features", "") or ""),
+            str(sheet.get("features", "") or ""),
+            " ".join(str(c) for c in (pdata.get("conditions") or [])),
+            " ".join(str(t) for t in (sheet.get("traits") or []) if isinstance(sheet.get("traits"), list)),
+        ]
+        raw_txt = " ".join(chunks).lower()
+        if not any(k in raw_txt for k in keywords):
+            return 0
+        for kw in keywords:
+            m = re.search(rf"{re.escape(kw)}[^\d]{{0,18}}(\d+)\s*(?:ft|p|piedi|m\b)?", raw_txt)
+            if m:
+                val = int(m.group(1))
+                if "m" in m.group(0) and "ft" not in m.group(0):
+                    return max(1, int(round(val / 1.5)))
+                return max(1, val // 5)
+        return max(1, default_ft // 5)
+
     def __init__(self, parent, **kwargs):
         bg_color = kwargs.pop('bg', "#1e1e1e")
         super().__init__(parent, bg=bg_color, highlightthickness=0, **kwargs)
@@ -110,6 +141,7 @@ class HexMapCanvas(tk.Canvas):
         self.fow_enabled = False
         self.visible_hexes = set()
         self.player_name = None
+        self.is_dm = None
         self.turn_player_name = ""
         self.players_data = {}
         self.aoes_data = []
@@ -572,7 +604,7 @@ class HexMapCanvas(tk.Canvas):
 
         clicked_token = None
         if not priority_click and getattr(self, 'players_data', None):
-            is_dm = not bool(getattr(self, "player_name", None))
+            is_dm = self._effective_is_dm()
             fow_active = getattr(self, 'fow_enabled', False) or (isinstance(getattr(self, 'map_data', None), dict) and self.map_data.get('fow_enabled', False))
             visible = getattr(self, 'visible_hexes', set()) if fow_active else set()
             for name, pdata in self.players_data.items():
@@ -678,9 +710,10 @@ class HexMapCanvas(tk.Canvas):
             target_sx = target_wx * self.zoom_level + self.pan_offset_x
             target_sy = target_wy * self.zoom_level + self.pan_offset_y
             
-            dist_hex = self._drag_start_hex.distance(curr_hex)
-            from common.i18n import speed_to_hexes, format_distance_hexes, get_map_scale_info
             active_map_data = getattr(self, "map_data", None)
+            grid_type = active_map_data.get("grid_type", "hex") if isinstance(active_map_data, dict) else "hex"
+            dist_hex = self._drag_start_hex.distance(curr_hex, grid_type=grid_type)
+            from common.i18n import speed_to_hexes, format_distance_hexes, get_map_scale_info
             scale_info = get_map_scale_info(active_map_data)
             dist_str = format_distance_hexes(dist_hex, map_data=active_map_data, include_travel_time=True)
             
@@ -787,7 +820,7 @@ class HexMapCanvas(tk.Canvas):
         
         token_name = None
         if getattr(self, 'players_data', None):
-            is_dm = not bool(getattr(self, "player_name", None))
+            is_dm = self._effective_is_dm()
             fow_active = getattr(self, 'fow_enabled', False) or (isinstance(getattr(self, 'map_data', None), dict) and self.map_data.get('fow_enabled', False))
             visible = getattr(self, 'visible_hexes', set()) if fow_active else set()
             for name, pdata in self.players_data.items():
@@ -906,8 +939,9 @@ class HexMapCanvas(tk.Canvas):
             return
 
         active_map_data = getattr(self, "map_data", None)
+        grid_type = active_map_data.get("grid_type", "hex") if isinstance(active_map_data, dict) else "hex"
         scale_info = get_map_scale_info(active_map_data)
-        dist_hexes = hex_distance(start_hex, end_hex)
+        dist_hexes = int(round(grid_distance(start_hex, end_hex, grid_type=grid_type)))
         dist_str = format_distance_hexes(dist_hexes, map_data=active_map_data, include_travel_time=True)
 
         per_hex = scale_info["per_hex"]
@@ -924,7 +958,7 @@ class HexMapCanvas(tk.Canvas):
 
         # Evidenzia gli esagoni attraversati dal righello in base alla scala della mappa
         try:
-            path_hexes = hex_linedraw(start_hex, end_hex)
+            path_hexes = hex_linedraw(start_hex, end_hex, grid_type=grid_type)
             if len(path_hexes) <= 60:
                 for ph in path_hexes:
                     corners = self.hex_layout.hex_corners(ph)
@@ -1189,6 +1223,9 @@ class HexMapCanvas(tk.Canvas):
 
             walls = cur_map.get("walls", [])
             wall_set = set((w[0], w[1]) for w in walls if isinstance(w, (list, tuple)) and len(w) >= 2)
+            for d in cur_map.get("doors", []):
+                if d.get("state", "closed") in ("closed", "locked", "secret"):
+                    wall_set.add((d.get("q", 0), d.get("r", 0)))
             line = hex_linedraw(o_hex, t_hex, grid_type=grid_type)
             for step in line[1:-1]:
                 if (step.q, step.r) in wall_set:
@@ -1206,7 +1243,7 @@ class HexMapCanvas(tk.Canvas):
                     for p_k, p_data in self.players_data.items()
                     if p_k != my_name and p_k != target_name and isinstance(p_data, dict)
                 ]
-                cover_bonus, cover_name = get_cover_between(o_hex, t_hex, half_cover, three_quarters, other_creatures)
+                cover_bonus, cover_name = get_cover_between(o_hex, t_hex, half_cover, three_quarters, other_creatures, grid_type=grid_type)
                 if cover_bonus >= 5:
                     line_color = "#F59E0B"
                     cover_label = "3/4 Copertura (+5 CA)"
@@ -1265,7 +1302,7 @@ class HexMapCanvas(tk.Canvas):
         if not getattr(self, "players_data", None) or not getattr(self, "hex_layout", None):
             return
 
-        is_dm = not bool(getattr(self, "player_name", None))
+        is_dm = self._effective_is_dm()
         fow_active = getattr(self, 'fow_enabled', False) or (isinstance(getattr(self, 'map_data', None), dict) and self.map_data.get('fow_enabled', False))
         visible = getattr(self, 'visible_hexes', set()) if fow_active else set()
 
@@ -1438,12 +1475,12 @@ class HexMapCanvas(tk.Canvas):
         
         fow_enabled = bool(self.map_data.get("fow_enabled", False))
         self.fow_enabled = fow_enabled
-        is_dm = not bool(self.player_name)
+        is_dm = self._effective_is_dm()
         draft_key = "fow_draft" if ("fow_draft" in self.map_data and is_dm) else "fow_revealed"
         fow_revealed = {tuple(h) for h in self.map_data.get(draft_key, [])}
         walls_data = self.map_data.get("walls", [])
-        walls_set = {tuple(w) for w in walls_data}
-        walls_hex_set = {Hex(w[0], w[1]) for w in walls_data}
+        walls_set = {tuple(w) for w in walls_data if isinstance(w, (list, tuple)) and len(w) >= 2}
+        walls_hex_set = {Hex(w[0], w[1]) for w in walls_data if isinstance(w, (list, tuple)) and len(w) >= 2}
         for d in self.map_data.get("doors", []):
             if d.get("state", "closed") in ("closed", "locked", "secret"):
                 dq, dr = d.get("q", 0), d.get("r", 0)
@@ -1456,16 +1493,39 @@ class HexMapCanvas(tk.Canvas):
             pdata = self.players_data[self.player_name]
             pos = pdata.get('position') if isinstance(pdata, dict) else pdata
             if pos is None: pos = [0, 0]
-            vision_rad = max(pdata.get('vision_radius', 6) if isinstance(pdata, dict) else 6, pdata.get('light_radius', 0) if isinstance(pdata, dict) else 0)
-            visible_now = {(h.q, h.r) for h in get_visible_hexes(Hex(pos[0], pos[1]), vision_rad, walls_hex_set, grid_type=grid_type)}
+            conds = pdata.get("conditions", []) if isinstance(pdata, dict) else []
+            is_blind = is_condition_active(conds, "Accecato") or is_condition_active(conds, "Blinded")
+            if is_blind:
+                blind_r = max(
+                    self._parse_sense_hexes(pdata, "vista cieca", "blindsight", default_ft=60),
+                    self._parse_sense_hexes(pdata, "visione del vero", "truesight", default_ft=120),
+                )
+                if blind_r > 0:
+                    visible_now = {(h.q, h.r) for h in get_visible_hexes(Hex(pos[0], pos[1]), blind_r, walls_hex_set, grid_type=grid_type)}
+                else:
+                    visible_now = {(pos[0], pos[1])}
+            else:
+                vision_rad = max(pdata.get('vision_radius', 6) if isinstance(pdata, dict) else 6, pdata.get('light_radius', 0) if isinstance(pdata, dict) else 0)
+                visible_now = {(h.q, h.r) for h in get_visible_hexes(Hex(pos[0], pos[1]), vision_rad, walls_hex_set, grid_type=grid_type)}
 
-            # Condividi visione/luce con altri membri del party che hanno sorgenti di luce attive
-            for other_name, other_pdata in self.players_data.items():
-                if other_name != self.player_name and isinstance(other_pdata, dict) and other_pdata.get('is_party_member', False):
-                    o_light = other_pdata.get('light_radius', 0)
-                    if o_light > 0:
-                        o_pos = other_pdata.get('position', [0, 0])
-                        visible_now.update({(h.q, h.r) for h in get_visible_hexes(Hex(o_pos[0], o_pos[1]), o_light, walls_hex_set, grid_type=grid_type)})
+                # Condividi visione/luce con altri membri del party e compagni con sorgenti di luce attive
+                for other_name, other_pdata in self.players_data.items():
+                    if other_name != self.player_name and isinstance(other_pdata, dict) and (other_pdata.get('is_party_member', False) or other_pdata.get('is_companion', False)):
+                        o_light = other_pdata.get('light_radius', 0) or 0
+                        if o_light > 0:
+                            o_pos = other_pdata.get('position', [0, 0])
+                            visible_now.update({(h.q, h.r) for h in get_visible_hexes(Hex(o_pos[0], o_pos[1]), o_light, walls_hex_set, grid_type=grid_type)})
+
+                # Sorgenti di luce statiche posizionate sulla mappa (es. bracieri, torce a muro in stanze visibili/svelate)
+                for l in (self.map_data.get("lights", []) or []):
+                    if not isinstance(l, dict):
+                        continue
+                    lq, lr = l.get("q"), l.get("r")
+                    if lq is None or lr is None:
+                        continue
+                    l_rad = int(l.get("radius", 4) or 4)
+                    if l_rad > 0 and ((lq, lr) in visible_now or (lq, lr) in fow_revealed):
+                        visible_now.update({(h.q, h.r) for h in get_visible_hexes(Hex(lq, lr), l_rad, walls_hex_set, grid_type=grid_type)})
 
         self.visible_hexes = visible_now
 
@@ -1647,12 +1707,14 @@ class HexMapCanvas(tk.Canvas):
                 origin = Hex(*aoe["origin"])
                 color = aoe.get("color", "red")
                 aoe_type = aoe.get("type", "sfera")
-                if aoe_type in ("sfera", "cubo"):
-                    aoe_hexes = get_sphere_hexes(origin, aoe["size"])
+                if aoe_type == "sfera":
+                    aoe_hexes = get_sphere_hexes(origin, aoe["size"], grid_type=grid_type)
+                elif aoe_type == "cubo":
+                    aoe_hexes = get_cube_hexes(origin, aoe["size"], grid_type=grid_type)
                 elif aoe_type == "cono":
-                    aoe_hexes = get_cone_hexes(origin, Hex(*aoe.get("target", aoe["origin"])), aoe["size"])
+                    aoe_hexes = get_cone_hexes(origin, Hex(*aoe.get("target", aoe["origin"])), aoe["size"], grid_type=grid_type)
                 elif aoe_type == "linea":
-                    aoe_hexes = get_line_hexes(origin, Hex(*aoe.get("target", aoe["origin"])), aoe.get("size", 3))
+                    aoe_hexes = get_line_hexes(origin, Hex(*aoe.get("target", aoe["origin"])), aoe.get("size", 3), grid_type=grid_type)
                 else:
                     aoe_hexes = []
 
@@ -1858,8 +1920,9 @@ class HexMapCanvas(tk.Canvas):
                 size_mult = 1.0
 
             is_me = (name == self.player_name)
+            is_party = isinstance(pdata, dict) and (pdata.get("is_party_member", False) or pdata.get("is_companion", False))
             q, r = pos[0], pos[1]
-            if fow_enabled and not is_dm and (q, r) not in visible_now and not is_me:
+            if fow_enabled and not is_dm and (q, r) not in visible_now and not is_me and not is_party:
                 continue
 
             cx, cy = self.hex_layout.hex_to_pixel(Hex(q, r))
@@ -2083,7 +2146,7 @@ class HexMapCanvas(tk.Canvas):
         # 4. Horizontal Initiative Carousel Ribbon (Foundry VTT / D&D Beyond modern style)
         self._initiative_ribbon_bboxes = []
         if getattr(self, "combat_active", False) and getattr(self, "combat_order", None):
-            is_dm = not bool(getattr(self, "player_name", None))
+            is_dm = self._effective_is_dm()
             fow_active = getattr(self, 'fow_enabled', False) or (isinstance(getattr(self, 'map_data', None), dict) and self.map_data.get('fow_enabled', False))
             visible = getattr(self, 'visible_hexes', set()) if fow_active else set()
             order = []

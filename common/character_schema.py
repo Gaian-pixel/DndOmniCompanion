@@ -1061,3 +1061,64 @@ def restore_entity_rest_resources(entity_or_sheet: Any, rest_type: str = "short"
     return restored
 
 
+def compute_carried_weight_from_sheet(sheet: dict, backpack_dropped: bool = False) -> float:
+    """Calcola il peso totale trasportato (lbs) da una scheda personaggio 5e.
+    Regole 5e RAW:
+    - 50 monete = 1 lb.
+    - container == "equipped": grava sempre sul PG.
+    - container == "backpack": grava solo se backpack_dropped == False.
+    - container in ("bag_of_holding", "haversack", "mount"): non grava sul PG.
+    """
+    if not isinstance(sheet, dict):
+        return 0.0
+
+    total = 0.0
+    currency = sheet.get("currency")
+    has_currency_coins = False
+    if isinstance(currency, dict):
+        coin_count = 0
+        for v in currency.values():
+            try:
+                val = max(0, int(v))
+                coin_count += val
+            except (ValueError, TypeError):
+                pass
+        has_currency_coins = coin_count > 0
+        total += round(coin_count / 50.0, 2)
+
+    dropped = bool(backpack_dropped or sheet.get("backpack_dropped", False))
+    for item in (sheet.get("inventory_grid") or []):
+        if not item or not isinstance(item, dict):
+            continue
+        if item.get("_coins_synced") and has_currency_coins:
+            continue
+        try:
+            w = float(item.get("weight", 0.0) or 0.0)
+            if w <= 0.0 and item.get("name"):
+                from common.starter_equipment import lookup_standard_weight
+                w = lookup_standard_weight(item.get("name", ""))
+            qty = int(item.get("qty", 1) or 1)
+            item_weight = w * qty
+        except (ValueError, TypeError):
+            continue
+
+        c = item.get("container")
+        if not c:
+            itype = str(item.get("type", "")).strip().lower()
+            c = "equipped" if itype in ("arma", "armatura", "scudo", "weapon", "armor", "shield") else "backpack"
+
+        if c == "equipped":
+            total += item_weight
+        elif c == "backpack":
+            if not dropped:
+                total += item_weight
+        elif c in ("bag_of_holding", "haversack", "mount"):
+            pass
+        else:
+            if not dropped:
+                total += item_weight
+
+    return round(total, 2)
+
+
+

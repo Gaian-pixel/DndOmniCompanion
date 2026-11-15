@@ -1113,55 +1113,17 @@ class Character:
     def get_carried_weight(self) -> float:
         """
         Calcola il peso totale trasportato sul corpo dal personaggio (in lbs).
-        Regole 5e RAW:
-        - 50 monete = 1 lb (trasportate nella borsa alla cintura, PHB p. 143).
-        - Oggetti con container "equipped" (addosso) gravano sempre sul PG.
-        - Oggetti con container "backpack" (nello zaino) gravano solo se lo zaino è indossato (backpack_dropped == False).
-        - Oggetti in spazi extradimensionali (bag_of_holding, haversack) o su cavalcatura (mount) non gravano sul PG.
+        Delega alla funzione condivisa in common.character_schema.compute_carried_weight_from_sheet.
         """
-        total = 0.0
-        if hasattr(self, "currency") and isinstance(self.currency, dict):
-            coin_count = 0
-            for v in self.currency.values():
-                try:
-                    coin_count += max(0, int(v))
-                except (ValueError, TypeError):
-                    pass
-            total += round(coin_count / 50.0, 2)
-            
-        backpack_dropped = getattr(self, "backpack_dropped", False)
-        for item in getattr(self, "inventory_grid", []):
-            if not item or not isinstance(item, dict):
-                continue
-            if item.get("_coins_synced") and hasattr(self, "currency") and isinstance(self.currency, dict) and sum(max(0, int(v)) for v in self.currency.values() if isinstance(v, (int, float, str)) and str(v).isdigit()) > 0:
-                continue
-            try:
-                w = float(item.get("weight", 0.0) or 0.0)
-                if w <= 0.0 and item.get("name"):
-                    from common.starter_equipment import lookup_standard_weight
-                    w = lookup_standard_weight(item.get("name", ""))
-                qty = int(item.get("qty", 1) or 1)
-                item_weight = w * qty
-            except (ValueError, TypeError):
-                continue
-            
-            c = item.get("container")
-            if not c:
-                itype = str(item.get("type", "")).strip().lower()
-                c = "equipped" if itype in ("arma", "armatura", "scudo", "weapon", "armor", "shield") else "backpack"
-            
-            if c == "equipped":
-                total += item_weight
-            elif c == "backpack":
-                if not backpack_dropped:
-                    total += item_weight
-            elif c in ("bag_of_holding", "haversack", "mount"):
-                pass
-            else:
-                if not backpack_dropped:
-                    total += item_weight
-                    
-        return round(total, 2)
+        from common.character_schema import compute_carried_weight_from_sheet
+        sheet_data = {
+            "currency": getattr(self, "currency", {}),
+            "inventory_grid": getattr(self, "inventory_grid", []),
+        }
+        return compute_carried_weight_from_sheet(
+            sheet_data,
+            backpack_dropped=getattr(self, "backpack_dropped", False),
+        )
 
     def find_ammunition(self, weapon_name: str, include_empty: bool = False):
         """Trova le munizioni corrispondenti a un'arma (es. frecce per archi, dardi per balestre)."""

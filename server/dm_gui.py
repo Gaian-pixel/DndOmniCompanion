@@ -696,6 +696,7 @@ class DM_GUI(DMCampaignSessionMixin):
         self.map_viewport_frame.pack(fill=tk.BOTH, expand=True)
 
         self.map_canvas = HexMapCanvas(self.map_viewport_frame, bg="#121316")
+        self.map_canvas.is_dm = True
         self.map_canvas.pack(fill=tk.BOTH, expand=True)
         self.map_canvas.set_on_click_callback(self.on_hex_clicked)
         self.map_canvas.on_token_drop_callback = self.on_token_drop
@@ -1677,11 +1678,14 @@ class DM_GUI(DMCampaignSessionMixin):
 
     def toggle_fow(self):
         if not self.server.game_state.current_map: return
-        self.server.game_state.current_map["fow_enabled"] = self.fow_enabled_var.get()
+        cur_map = self.server.game_state.current_map
+        cur_map["fow_enabled"] = self.fow_enabled_var.get()
         self.redraw_map_and_players()
-        self._broadcast_fow_update()
-        from common.protocol import make_map_data_update_broadcast
-        broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
+        from common.protocol import make_fow_update_broadcast, make_map_data_update_broadcast
+        broadcast(self.server.game_state, make_fow_update_broadcast(
+            cur_map.get("fow_revealed", []), [], fow_enabled=cur_map["fow_enabled"]
+        ))
+        broadcast(self.server.game_state, make_map_data_update_broadcast(cur_map))
         
     def reveal_all_fow(self):
         if not self.server.game_state.current_map: return

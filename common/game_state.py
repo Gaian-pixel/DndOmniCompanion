@@ -1257,11 +1257,82 @@ class GameState:
                 map_data["outdoor"] = not any(kw in map_name for kw in indoor_keywords)
                 
             self.current_map = map_data
-            # Resetta la posizione dei giocatori quando carichi una nuova mappa
-            spawn_pt = map_data.get("spawn_point", [0, 0])
-            for p in self.players:
-                p.position = list(spawn_pt)
+            # Posiziona i token attorno allo spawn point evitando muri e sovrapposizioni
+            self._place_tokens_around_spawn(map_data, self.players)
         self._trigger_gui_update()
+
+    @staticmethod
+    def _extract_valid_cells_and_obstacles(map_data: dict):
+        valid_cells = set()
+        raw_hexes = map_data.get("hexes")
+        if isinstance(raw_hexes, dict):
+            for k in raw_hexes.keys():
+                try:
+                    parts = str(k).split(",")
+                    if len(parts) >= 2:
+                        valid_cells.add((int(parts[0]), int(parts[1])))
+                except (ValueError, TypeError):
+                    pass
+        elif isinstance(raw_hexes, list):
+            for h in raw_hexes:
+                if isinstance(h, (list, tuple)) and len(h) >= 2:
+                    try:
+                        valid_cells.add((int(h[0]), int(h[1])))
+                    except (ValueError, TypeError):
+                        pass
+                elif isinstance(h, dict) and "q" in h and "r" in h:
+                    try:
+                        valid_cells.add((int(h["q"]), int(h["r"])))
+                    except (ValueError, TypeError):
+                        pass
+
+        wall_set = set()
+        for w in (map_data.get("walls") or []):
+            if isinstance(w, (list, tuple)) and len(w) >= 2:
+                try:
+                    wall_set.add((int(w[0]), int(w[1])))
+                except (ValueError, TypeError):
+                    pass
+        return valid_cells, wall_set
+
+    def _find_free_cell_near(self, start_q: int, start_r: int, map_data: dict, occupied: set[tuple[int, int]]) -> list[int]:
+        valid_cells, wall_set = self._extract_valid_cells_and_obstacles(map_data)
+        grid_type = map_data.get("grid_type", "hex")
+        if grid_type in ("square", "none", "gridless"):
+            dirs = [(1, 0), (0, 1), (-1, 0), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)]
+        else:
+            dirs = [(1, 0), (0, 1), (-1, 1), (-1, 0), (0, -1), (1, -1)]
+
+        from collections import deque
+        q = deque([(start_q, start_r)])
+        visited = {(start_q, start_r)}
+        enforce_bounds = len(valid_cells) > 0
+        fallback_candidate = None
+        while q and len(visited) <= 450:
+            cq, cr = q.popleft()
+            if (cq, cr) not in wall_set and (cq, cr) not in occupied:
+                if not enforce_bounds or (cq, cr) in valid_cells:
+                    return [cq, cr]
+                if fallback_candidate is None:
+                    fallback_candidate = [cq, cr]
+            for dq, dr in dirs:
+                nq, nr = cq + dq, cr + dr
+                if (nq, nr) not in visited:
+                    visited.add((nq, nr))
+                    q.append((nq, nr))
+        return fallback_candidate if fallback_candidate is not None else [start_q, start_r]
+
+    def _place_tokens_around_spawn(self, map_data: dict, players_list):
+        spawn_raw = map_data.get("spawn_point", [0, 0])
+        try:
+            sq, sr = int(spawn_raw[0]), int(spawn_raw[1])
+        except (TypeError, ValueError, IndexError):
+            sq, sr = 0, 0
+        occupied = set()
+        for p in players_list:
+            pos = self._find_free_cell_near(sq, sr, map_data, occupied)
+            p.position = pos
+            occupied.add((pos[0], pos[1]))
 
 
     def add_player(self, player):
@@ -1339,12 +1410,12 @@ class GameState:
             players_data = []
             for p in self.players:
                 if not is_dm:
-                    if getattr(p, "layer", "token") == "gm" or getattr(p, "is_hidden", False):
+                    if getattr(p, "layer", "token") == "gm" or getattr(p, "is_hidden", False) or getattr(p, "in_pocket_dimension", False):
                         continue
-                    is_party = getattr(p, "is_party_member", False) or getattr(p, "is_companion", False)
+                    is_party = getattr(p, "is_party_member", False) or getattr(p, "is_companion", False) or getattr(p, "conn", None) is not None
                     if fow_enabled and not is_party:
                         pos = getattr(p, "position", None)
-                        if pos and (pos[0], pos[1]) not in revealed_set:
+                        if not pos or (pos[0], pos[1]) not in revealed_set:
                             continue
 
                 p_dict = p.to_dict()
@@ -1360,8 +1431,13 @@ class GameState:
 
             curr_turn = self.get_current_turn_player()
             turn_name = curr_turn.name if curr_turn else None
-            if not is_dm and curr_turn and (getattr(curr_turn, "layer", "token") == "gm" or getattr(curr_turn, "is_hidden", False)):
-                turn_name = "Sconosciuto"
+            if not is_dm and curr_turn:
+                curr_in_pocket = getattr(curr_turn, "in_pocket_dimension", False)
+                curr_party = getattr(curr_turn, "is_party_member", False) or getattr(curr_turn, "is_companion", False) or getattr(curr_turn, "conn", None) is not None
+                curr_pos = getattr(curr_turn, "position", None)
+                curr_unrevealed = fow_enabled and not curr_party and (not curr_pos or (curr_pos[0], curr_pos[1]) not in revealed_set)
+                if getattr(curr_turn, "layer", "token") == "gm" or getattr(curr_turn, "is_hidden", False) or curr_in_pocket or curr_unrevealed:
+                    turn_name = "Sconosciuto"
 
             from common.network_utils import sanitize_map_for_players
             export_map = self.current_map if is_dm else (sanitize_map_for_players(self.current_map) if self.current_map else None)
@@ -1572,12 +1648,37 @@ class GameState:
                     m_name = str(self.current_map.get("name", "") or map_name).lower()
                     indoor_keywords = ("dungeon", "sotterraneo", "caverna", "cave", "crypt", "cripta", "indoor", "interno", "taverna", "tavern", "catacombe")
                     self.current_map["outdoor"] = not any(kw in m_name for kw in indoor_keywords)
+                self.current_map.setdefault("fow_revealed", [])
+                self.current_map["fow_draft"] = list(self.current_map.get("fow_revealed", []))
+                # Pulisce AoE e disegni effimeri della mappa precedente
+                self.active_aoes = []
+                self.drawn_lines = []
+                # Riposiziona eventuali token fuori mappa o intrappolati dentro muri della nuova mappa
+                valid_cells, wall_set = self._extract_valid_cells_and_obstacles(self.current_map)
+                spawn_raw = self.current_map.get("spawn_point", [0, 0])
+                try:
+                    sq, sr = int(spawn_raw[0]), int(spawn_raw[1])
+                except (TypeError, ValueError, IndexError):
+                    sq, sr = 0, 0
+                occupied = set()
+                for p in self.players:
+                    pos = getattr(p, "position", None)
+                    pos_t = (int(pos[0]), int(pos[1])) if isinstance(pos, (list, tuple)) and len(pos) >= 2 else None
+                    out_of_bounds = bool(valid_cells) and (pos_t is None or pos_t not in valid_cells)
+                    in_wall = pos_t is None or pos_t in wall_set
+                    if out_of_bounds or in_wall or pos_t in occupied:
+                        new_pos = self._find_free_cell_near(sq, sr, self.current_map, occupied)
+                        p.position = new_pos
+                        occupied.add((new_pos[0], new_pos[1]))
+                    else:
+                        occupied.add(pos_t)
                 cur_m = dict(self.current_map)
             else:
                 return
         self._trigger_gui_update()
         
-        from common.protocol import make_map_data_update_broadcast, make_chat_broadcast
+        from common.protocol import make_map_data_update_broadcast, make_chat_broadcast, make_game_state
         from common.network_utils import broadcast
         broadcast(self, make_map_data_update_broadcast(cur_m))
+        broadcast(self, make_game_state(self.get_state_dict(is_dm=False)))
         broadcast(self, make_chat_broadcast("Sistema", f"Il DM ha cambiato la mappa in: {map_name}"))

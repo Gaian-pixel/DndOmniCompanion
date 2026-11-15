@@ -210,10 +210,9 @@ class DMCampaignSessionMixin:
         if not file_path: return
         try:
             with open(file_path, 'r', encoding='utf-8') as f: map_data=json.load(f)
-            if 'base_image_path' in map_data and map_data['base_image_path']:
-                with open(map_data['base_image_path'], "rb") as image_file:
-                    encoded_string=base64.b64encode(image_file.read()).decode('utf-8')
-                    map_data['bg_image_data']=encoded_string
+            from common.network_utils import resolve_map_image_data
+            camp_folder = os.path.dirname(file_path)
+            resolve_map_image_data(map_data, extra_dirs=[camp_folder])
             
             self.server.game_state.load_map(map_data)
             self.fow_enabled_var.set(self.server.game_state.current_map.get("fow_enabled", False))

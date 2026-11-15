@@ -141,8 +141,14 @@ def distance_3d_feet(a: Hex, b: Hex, z_a: float = 0, z_b: float = 0, grid_type: 
     return grid_distance_3d(a, b, z_a, z_b, grid_type=grid_type, feet_per_cell=feet_per_cell, diagonal_rule=diagonal_rule) * feet_per_cell
 
 def get_sphere_hexes(origin: Hex, radius: int, grid_type: str = "hex") -> list[Hex]:
+    radius = max(0, int(radius))
     results = []
-    if grid_type in ("square", "none", "gridless"):
+    if grid_type in ("none", "gridless"):
+        for dq in range(-radius, radius + 1):
+            for dr in range(-radius, radius + 1):
+                if math.hypot(dq, dr) <= radius + 1e-6:
+                    results.append(Hex(origin.q + dq, origin.r + dr))
+    elif grid_type == "square":
         for dq in range(-radius, radius + 1):
             for dr in range(-radius, radius + 1):
                 results.append(Hex(origin.q + dq, origin.r + dr))
@@ -152,7 +158,45 @@ def get_sphere_hexes(origin: Hex, radius: int, grid_type: str = "hex") -> list[H
                 results.append(Hex(origin.q + dq, origin.r + dr))
     return results
 
+def get_cube_hexes(origin: Hex, size: int, grid_type: str = "hex") -> list[Hex]:
+    """Restituisce le celle coperte da un cubo AoE centrato su origin."""
+    size = max(0, int(size))
+    results = []
+    if grid_type in ("square", "none", "gridless"):
+        for dq in range(-size, size + 1):
+            for dr in range(-size, size + 1):
+                results.append(Hex(origin.q + dq, origin.r + dr))
+    else:
+        layout = HexLayout(1.0, (0.0, 0.0))
+        ox, oy = layout.hex_to_pixel(origin)
+        half_w = size * 1.5 + 1e-6
+        half_h = size * math.sqrt(3) + 1e-6
+        bound = size * 2 + 1
+        for dq in range(-bound, bound + 1):
+            for dr in range(-bound, bound + 1):
+                h = Hex(origin.q + dq, origin.r + dr)
+                px, py = layout.hex_to_pixel(h)
+                if abs(px - ox) <= half_w and abs(py - oy) <= half_h:
+                    results.append(h)
+    return results
+
 def hex_linedraw(a: Hex, b: Hex, grid_type: str = "hex") -> list[Hex]:
+    if grid_type in ("square", "none", "gridless"):
+        dx = abs(b.q - a.q)
+        dy = abs(b.r - a.r)
+        steps = max(int(dx), int(dy), int(math.ceil(grid_distance(a, b, grid_type))))
+        if steps == 0:
+            return [a]
+        results = []
+        a_q, a_r = a.q + 1e-6, a.r + 1e-6
+        b_q, b_r = b.q + 1e-6, b.r + 1e-6
+        for i in range(steps + 1):
+            t = i / steps
+            h = Hex(int(round(a_q + (b_q - a_q) * t)), int(round(a_r + (b_r - a_r) * t)))
+            if not results or results[-1] != h:
+                results.append(h)
+        return results
+
     dist = int(grid_distance(a, b, grid_type))
     if dist == 0:
         return [a]
@@ -164,13 +208,27 @@ def hex_linedraw(a: Hex, b: Hex, grid_type: str = "hex") -> list[Hex]:
         t = i / dist
         q_frac = a_q + (b_q - a_q) * t
         r_frac = a_r + (b_r - a_r) * t
-        if grid_type in ("square", "none", "gridless"):
-            results.append(Hex(int(round(q_frac)), int(round(r_frac))))
-        else:
-            results.append(hex_round(q_frac, r_frac))
+        results.append(hex_round(q_frac, r_frac))
     return results
 
-def get_line_hexes(start_hex: Hex, target_hex: Hex, length_in_hexes: int = None) -> list[Hex]:
+def get_line_hexes(start_hex: Hex, target_hex: Hex, length_in_hexes: int = None, grid_type: str = "hex") -> list[Hex]:
+    if grid_type in ("square", "none", "gridless"):
+        dx = target_hex.q - start_hex.q
+        dy = target_hex.r - start_hex.r
+        cheb = max(abs(dx), abs(dy))
+        euclid = math.hypot(dx, dy)
+        step = euclid if grid_type in ("none", "gridless") else cheb
+        if step == 0:
+            return [start_hex]
+        if length_in_hexes is None:
+            length_in_hexes = int(math.ceil(step)) + 1
+        results = []
+        a_q, a_r = start_hex.q + 1e-6, start_hex.r + 1e-6
+        u_q, u_r = dx / step, dy / step
+        for i in range(length_in_hexes):
+            results.append(Hex(int(round(a_q + u_q * i)), int(round(a_r + u_r * i))))
+        return results
+
     dist = hex_distance(start_hex, target_hex)
     if dist == 0:
         return [start_hex]
@@ -186,14 +244,14 @@ def get_line_hexes(start_hex: Hex, target_hex: Hex, length_in_hexes: int = None)
         results.append(hex_round(q_frac, r_frac))
     return results
 
-def get_cone_hexes(start_hex: Hex, target_hex: Hex, length_in_hexes: int) -> list[Hex]:
-    if hex_distance(start_hex, target_hex) == 0:
+def get_cone_hexes(start_hex: Hex, target_hex: Hex, length_in_hexes: int, grid_type: str = "hex") -> list[Hex]:
+    if grid_distance(start_hex, target_hex, grid_type=grid_type) == 0:
         return [start_hex]
-    
-    layout = HexLayout(1.0, (0.0, 0.0))
+
+    layout = SquareLayout(1.0, (0.0, 0.0)) if grid_type in ("square", "none", "gridless") else HexLayout(1.0, (0.0, 0.0))
     start_px = layout.hex_to_pixel(start_hex)
     target_px = layout.hex_to_pixel(target_hex)
-    
+
     dir_x = target_px[0] - start_px[0]
     dir_y = target_px[1] - start_px[1]
     dir_len = math.hypot(dir_x, dir_y)
@@ -201,9 +259,9 @@ def get_cone_hexes(start_hex: Hex, target_hex: Hex, length_in_hexes: int) -> lis
         return [start_hex]
     dir_x /= dir_len
     dir_y /= dir_len
-    
+
     results = []
-    for h in get_sphere_hexes(start_hex, length_in_hexes):
+    for h in get_sphere_hexes(start_hex, length_in_hexes, grid_type=grid_type):
         if h.q == start_hex.q and h.r == start_hex.r:
             results.append(h)
             continue
@@ -214,42 +272,53 @@ def get_cone_hexes(start_hex: Hex, target_hex: Hex, length_in_hexes: int) -> lis
         if v_len == 0:
             results.append(h)
             continue
-        
+
         cos_angle = (v_x * dir_x + v_y * dir_y) / v_len
         if cos_angle >= math.cos(math.radians(30)) - 1e-5:
             results.append(h)
-            
+
     return results
 
-def has_line_of_sight(origin: Hex, target: Hex, walls) -> bool:
-    """Verifica se c'è linea di vista diretta tra origin e target su griglia esagonale.
-    Se un esagono intermedio è un muro, la linea di vista è ostruita."""
+def _opaque_cell_set(walls, doors=None) -> set[tuple[int, int]]:
+    wall_set = set()
+    if walls:
+        for w in walls:
+            if isinstance(w, Hex):
+                wall_set.add((w.q, w.r))
+            elif isinstance(w, (list, tuple)) and len(w) >= 2:
+                wall_set.add((w[0], w[1]))
+    if doors:
+        for d in doors:
+            if isinstance(d, dict):
+                state = d.get("state", "closed")
+                is_open = (state == "open") and not (d.get("is_secret") and not d.get("discovered", False))
+                if not is_open and "q" in d and "r" in d:
+                    wall_set.add((d["q"], d["r"]))
+            elif isinstance(d, Hex):
+                wall_set.add((d.q, d.r))
+            elif isinstance(d, (list, tuple)) and len(d) >= 2:
+                wall_set.add((d[0], d[1]))
+    return wall_set
+
+def has_line_of_sight(origin: Hex, target: Hex, walls, doors=None, grid_type: str = "hex") -> bool:
+    """Verifica se c'è linea di vista diretta tra origin e target.
+    Se una cella intermedia è un muro o una porta chiusa/bloccata/segreta non scoperta, la LoS è ostruita."""
     if origin == target:
         return True
-    wall_set = set()
-    for w in walls:
-        if isinstance(w, Hex):
-            wall_set.add((w.q, w.r))
-        elif isinstance(w, (list, tuple)) and len(w) >= 2:
-            wall_set.add((w[0], w[1]))
-            
-    line = hex_linedraw(origin, target)
+    wall_set = _opaque_cell_set(walls, doors)
+
+    line = hex_linedraw(origin, target, grid_type=grid_type)
     for p in line:
         if p != origin and p != target and (p.q, p.r) in wall_set:
             return False
     return True
 
-def get_visible_hexes(origin: Hex, radius: int, walls, grid_type: str = "hex") -> list[Hex]:
-    """Restituisce tutti gli esagoni o celle entro il raggio privi di ostruzioni visive da muri."""
+def get_visible_hexes(origin: Hex, radius: int, walls, grid_type: str = "hex", doors=None) -> list[Hex]:
+    """Restituisce tutti gli esagoni o celle entro il raggio privi di ostruzioni visive da muri o porte chiuse."""
     visible = set()
     visible.add(origin)
-    wall_set = set()
-    for w in walls:
-        if isinstance(w, Hex):
-            wall_set.add((w.q, w.r))
-        elif isinstance(w, (list, tuple)) and len(w) >= 2:
-            wall_set.add((w[0], w[1]))
-            
+    wall_set = _opaque_cell_set(walls, doors)
+
     sphere = get_sphere_hexes(origin, radius, grid_type=grid_type)
     for h in sphere:
         if h == origin:
@@ -264,7 +333,7 @@ def get_visible_hexes(origin: Hex, radius: int, walls, grid_type: str = "hex") -
             visible.add(h)
     return list(visible)
 
-def get_cover_between(origin: Hex, target: Hex, half_cover=None, three_quarters=None, intermediate_creatures=None) -> tuple[int, str]:
+def get_cover_between(origin: Hex, target: Hex, half_cover=None, three_quarters=None, intermediate_creatures=None, grid_type: str = "hex") -> tuple[int, str]:
     """
     Calcola la Copertura D&D 5e tra origin e target.
     Regole 5e:
@@ -275,8 +344,8 @@ def get_cover_between(origin: Hex, target: Hex, half_cover=None, three_quarters=
     """
     if origin == target:
         return (0, "")
-        
-    line = hex_linedraw(origin, target)
+
+    line = hex_linedraw(origin, target, grid_type=grid_type)
     intermediate = [p for p in line if p != origin and p != target]
     if not intermediate:
         return (0, "")

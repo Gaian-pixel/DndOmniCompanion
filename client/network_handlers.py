@@ -718,9 +718,25 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         if not hasattr(self, 'local_map_data') or self.local_map_data is None:
             self.local_map_data = {}
         self.local_map_data["fow_revealed"] = data.get("fow_revealed", [])
-        self.local_map_data["fow_draft"] = data.get("fow_draft", [])
+        self.local_map_data.pop("fow_draft", None)
         if "fow_enabled" in data:
             self.local_map_data["fow_enabled"] = bool(data.get("fow_enabled"))
+        if isinstance(data.get("players"), list):
+            prev_map = getattr(self, "players_data", None) if isinstance(getattr(self, "players_data", None), dict) else {}
+            new_pdata = {}
+            for p in data["players"]:
+                if isinstance(p, dict) and p.get("name"):
+                    pname = p["name"]
+                    prev = prev_map.get(pname)
+                    if isinstance(prev, dict):
+                        p = dict(p)
+                        for keep_k in ("full_sheet", "avatar_b64"):
+                            if keep_k in prev and not p.get(keep_k):
+                                p[keep_k] = prev[keep_k]
+                    new_pdata[pname] = p
+            self.players_data = new_pdata
+            if hasattr(self, "update_player_listbox"):
+                self.update_player_listbox()
         self.redraw_map_and_players()
 
     def handle_request_initiative(self, data):

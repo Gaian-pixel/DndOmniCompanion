@@ -269,6 +269,24 @@ class Server:
                     elif self.game_state.current_map and "spawn_point" in self.game_state.current_map:
                         player.position = self.game_state.current_map["spawn_point"]
 
+                    if join_data.get("has_darkvision") is not None:
+                        player.has_darkvision = bool(join_data.get("has_darkvision"))
+                    if join_data.get("vision_radius") is not None:
+                        try:
+                            player.vision_radius = max(1, int(join_data["vision_radius"]))
+                        except (TypeError, ValueError):
+                            pass
+                    if join_data.get("light_radius") is not None:
+                        try:
+                            player.light_radius = max(0, int(join_data["light_radius"]))
+                        except (TypeError, ValueError):
+                            pass
+                    if join_data.get("light_color"):
+                        player.light_color = str(join_data["light_color"])
+                    if getattr(player, "has_darkvision", False) or (hasattr(player, "check_has_darkvision") and player.check_has_darkvision()):
+                        player.has_darkvision = True
+                        player.vision_radius = max(12, int(getattr(player, "vision_radius", 6) or 6))
+
                     self.game_state.add_player(player)
 
             if player_action == "reject":
@@ -301,7 +319,7 @@ class Server:
                 send_message(conn, init_gs)
                 broadcast(self.game_state, make_player_joined(player.to_dict()), exclude_player=player)
                 if self.game_state.current_map and self.game_state.current_map.get("fow_enabled", False):
-                    broadcast(self.game_state, make_fow_update_broadcast(self.game_state.current_map.get("fow_revealed", []), self.game_state.current_map.get("fow_draft", []), fow_enabled=True))
+                    broadcast(self.game_state, make_fow_update_broadcast(self.game_state.current_map.get("fow_revealed", []), [], fow_enabled=True))
 
             current_music = getattr(self.game_state, "current_music", None)
             if player and current_music:

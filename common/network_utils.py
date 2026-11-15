@@ -1,4 +1,6 @@
 # network_utils.py
+import os
+import base64
 import socket
 import select
 import struct
@@ -101,36 +103,169 @@ def receive_message(sock):
     except (ConnectionError, struct.error, json.JSONDecodeError, BrokenPipeError, ConnectionResetError, OSError, ValueError):
         return None
 
+def resolve_map_image_data(map_data: dict, extra_dirs=None):
+    """Risolve in sicurezza bg_image_data da embedded base64 o da base_image_path (con fallback relativi).
+    Non solleva FileNotFoundError se l'immagine embedded e' gia' presente o il percorso originale appartiene a un altro host.
+    """
+    if not isinstance(map_data, dict):
+        return None
+    existing = map_data.get("bg_image_data")
+    if isinstance(existing, str) and existing:
+        map_data["bg_image_hash"] = compute_asset_hash(existing)
+        return existing
+
+    base_path = map_data.get("base_image_path")
+    if not base_path or not isinstance(base_path, str):
+        return None
+
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    search_dirs = []
+    if extra_dirs:
+        for d in extra_dirs:
+            if d and d not in search_dirs:
+                search_dirs.append(d)
+    for d in (os.path.join(repo_root, "maps"), repo_root):
+        if d not in search_dirs:
+            search_dirs.append(d)
+
+    candidates = [base_path]
+    basename = os.path.basename(base_path)
+    for d in search_dirs:
+        if not os.path.isabs(base_path):
+            candidates.append(os.path.join(d, base_path))
+        if basename:
+            candidates.append(os.path.join(d, basename))
+            candidates.append(os.path.join(d, "assets", basename))
+
+    for cand in candidates:
+        if cand and os.path.isfile(cand):
+            try:
+                with open(cand, "rb") as image_file:
+                    encoded = base64.b64encode(image_file.read()).decode("utf-8")
+                map_data["bg_image_data"] = encoded
+                map_data["bg_image_hash"] = compute_asset_hash(encoded)
+                return encoded
+            except OSError:
+                continue
+    return None
+
+
+def _extract_rev_set(map_data) -> set[tuple[int, int]]:
+    rev_set = set()
+    if not isinstance(map_data, dict):
+        return rev_set
+    for h in map_data.get("fow_revealed", []) or []:
+        if isinstance(h, (list, tuple)) and len(h) >= 2:
+            rev_set.add((h[0], h[1]))
+    return rev_set
+
+
+def is_entity_visible_to_players(
+    entity,
+    cur_map,
+    game_state=None,
+    rev_set=None,
+    recipient_name=None,
+    allow_self_hidden: bool = False,
+) -> bool:
+    """Restituisce True solo se un'entita' (Player o dict) deve essere visibile ai giocatori."""
+    if entity is None:
+        return False
+
+    if isinstance(entity, dict):
+        name = entity.get("name")
+        layer = entity.get("layer", "token")
+        is_hidden = bool(entity.get("is_hidden", False))
+        in_pocket = bool(entity.get("in_pocket_dimension", False))
+        pos = entity.get("position")
+        is_party_flag = bool(entity.get("is_party_member", False) or entity.get("is_companion", False))
+        has_conn = entity.get("conn") is not None
+    else:
+        name = getattr(entity, "name", None)
+        layer = getattr(entity, "layer", "token")
+        is_hidden = bool(getattr(entity, "is_hidden", False))
+        in_pocket = bool(getattr(entity, "in_pocket_dimension", False))
+        pos = getattr(entity, "position", None)
+        is_party_flag = bool(getattr(entity, "is_party_member", False) or getattr(entity, "is_companion", False))
+        has_conn = getattr(entity, "conn", None) is not None
+
+    if layer == "gm" or in_pocket:
+        return False
+    if is_hidden and not (allow_self_hidden and recipient_name and name == recipient_name):
+        return False
+
+    fow_enabled = bool(cur_map.get("fow_enabled", False)) if isinstance(cur_map, dict) else False
+    if fow_enabled:
+        if not has_conn and game_state is not None and name:
+            src = game_state.find_player(name)
+            if src is not None:
+                is_party_flag = is_party_flag or bool(
+                    getattr(src, "is_party_member", False)
+                    or getattr(src, "is_companion", False)
+                    or getattr(src, "conn", None) is not None
+                )
+        is_self = bool(recipient_name and name == recipient_name)
+        is_party = is_party_flag or has_conn or is_self
+        if not is_party:
+            if rev_set is None:
+                rev_set = _extract_rev_set(cur_map)
+            if not isinstance(pos, (list, tuple)) or len(pos) < 2:
+                return False
+            if (pos[0], pos[1]) not in rev_set:
+                return False
+    return True
+
+
 def sanitize_map_for_players(map_data: dict) -> dict:
-    """Filtra elementi segreti della mappa (trappole nascoste, porte segrete, note del Master, POI segreti) per i giocatori."""
+    """Filtra elementi segreti della mappa (trappole nascoste, porte segrete, note del Master, POI segreti, teleports/spawn/fow_draft) per i giocatori."""
     if not isinstance(map_data, dict):
         return map_data
     clean = dict(map_data)
 
-    # 1. Trappole: mostra solo quelle rilevate o innescate (o esplicitamente non nascoste)
+    # 1. Trappole: mostra solo quelle rilevate o innescate (o esplicitamente visibili e non segrete)
     if "traps" in clean and isinstance(clean["traps"], list):
-        clean["traps"] = [
-            t for t in clean["traps"]
-            if (t.get("triggered", False) or t.get("detected", False) or not t.get("hidden", True))
-            and not t.get("secret", False)
-        ]
+        clean_traps = []
+        for t in clean["traps"]:
+            if not isinstance(t, dict):
+                continue
+            is_triggered_or_detected = bool(t.get("triggered", False) or t.get("detected", False))
+            is_explicitly_visible = (not t.get("hidden", True)) and (not t.get("secret", False))
+            if is_triggered_or_detected or is_explicitly_visible:
+                t_copy = dict(t)
+                t_copy.pop("dm_notes", None)
+                t_copy.pop("secret", None)
+                clean_traps.append(t_copy)
+        clean["traps"] = clean_traps
 
     # 2. Porte: le porte segrete non scoperte vengono rimosse dall'array 'doors'
-    #    e il loro bordo viene aggiunto a 'walls' per bloccare movimento e LoS senza svelare l'icona
+    #    e la loro cella (q,r) o edge viene aggiunta a 'walls' per bloccare movimento e LoS senza svelare l'icona
     if "doors" in clean and isinstance(clean["doors"], list):
         clean_doors = []
+        existing_walls = clean.get("walls", [])
+        wall_keys = set()
+        for w in existing_walls:
+            if isinstance(w, (list, tuple)) and len(w) >= 2:
+                wall_keys.add((w[0], w[1]))
+            else:
+                wall_keys.add(w)
         secret_walls_to_add = []
         for d in clean["doors"]:
             is_secret = (d.get("is_secret") or d.get("state") == "secret") and not d.get("discovered", False)
             if is_secret:
                 edge = d.get("edge")
-                if edge and edge not in clean.get("walls", []):
+                if edge and edge not in wall_keys:
                     secret_walls_to_add.append(edge)
+                    wall_keys.add(edge)
+                if "q" in d and "r" in d:
+                    cell_key = (d["q"], d["r"])
+                    if cell_key not in wall_keys:
+                        secret_walls_to_add.append([d["q"], d["r"]])
+                        wall_keys.add(cell_key)
             else:
                 clean_doors.append(d)
         clean["doors"] = clean_doors
         if secret_walls_to_add:
-            clean["walls"] = list(clean.get("walls", [])) + secret_walls_to_add
+            clean["walls"] = list(existing_walls) + secret_walls_to_add
 
     # 3. Room Pins: escludi pin segreti o dm_only, e rimuovi dm_notes e secret
     if "room_pins" in clean and isinstance(clean["room_pins"], list):
@@ -162,20 +297,22 @@ def sanitize_map_for_players(map_data: dict) -> dict:
                 clean_pois[k] = pdata
         clean["pois"] = clean_pois
 
-    # 5. Bottini (Loots): escludi loots non scoperti o nascosti dalla FoW
+    # 5. Bottini (Loots): escludi loots nascosti o in celle non ancora rivelate dalla FoW
     if "loots" in clean and isinstance(clean["loots"], list):
         fow_enabled = bool(clean.get("fow_enabled", False))
         if fow_enabled:
-            rev_set = set()
-            for h in clean.get("fow_revealed", []):
-                if isinstance(h, (list, tuple)) and len(h) >= 2:
-                    rev_set.add((h[0], h[1]))
+            rev_set = _extract_rev_set(clean)
             clean["loots"] = [
                 l for l in clean["loots"]
-                if not l.get("hidden", False) and (not rev_set or (l.get("q"), l.get("r")) in rev_set)
+                if not l.get("hidden", False) and (l.get("q"), l.get("r")) in rev_set
             ]
         else:
             clean["loots"] = [l for l in clean["loots"] if not l.get("hidden", False)]
+
+    # 6. Rimuovi informazioni riservate al DM (portali/teleports, punto di spawn e bozza FoW non pubblicata)
+    clean.pop("teleports", None)
+    clean.pop("spawn_point", None)
+    clean.pop("fow_draft", None)
 
     if isinstance(clean.get("bg_image_data"), str) and clean["bg_image_data"]:
         clean["bg_image_hash"] = compute_asset_hash(clean["bg_image_data"])
@@ -288,20 +425,29 @@ def prepare_per_player_state_payload(message_data: dict, player) -> dict:
     return {"type": msg_type, "data": data_copy}
 
 def broadcast(game_state, message_data, exclude_player=None):
-    """ La funzione broadcast invia messaggi filtrando le informazioni riservate del GM layer ai giocatori. """
+    """ La funzione broadcast invia messaggi filtrando le informazioni riservate del GM layer, dimension pocket e FoW ai giocatori. """
     msg_type = message_data.get("type") if isinstance(message_data, dict) else None
-    
+    cur_map = getattr(game_state, "current_map", None)
+
     # Pre-filter for GAME_STATE
     player_filtered_game_state = None
     if msg_type == "GAME_STATE" and isinstance(message_data.get("data"), dict):
         base_data = message_data["data"]
         raw_players = base_data.get("players", [])
+        raw_map = base_data.get("map") or cur_map
+        rev_set = _extract_rev_set(raw_map)
         filtered_players = [
             pl for pl in raw_players
-            if pl.get("layer", "token") != "gm" and not pl.get("is_hidden", False)
+            if is_entity_visible_to_players(pl, raw_map, game_state=game_state, rev_set=rev_set)
         ]
         copy_data = dict(base_data)
         copy_data["players"] = filtered_players
+        visible_names = {pl.get("name") for pl in filtered_players if isinstance(pl, dict)}
+        t_name = copy_data.get("turn_player_name")
+        if t_name and t_name not in visible_names:
+            t_obj = game_state.find_player(t_name) if hasattr(game_state, "find_player") else None
+            if t_obj is None or not is_entity_visible_to_players(t_obj, raw_map, game_state=game_state, rev_set=rev_set):
+                copy_data["turn_player_name"] = "Sconosciuto"
         if "map" in copy_data:
             copy_data["map"] = sanitize_map_for_players(copy_data["map"])
         player_filtered_game_state = {"type": "GAME_STATE", "data": copy_data}
@@ -313,31 +459,73 @@ def broadcast(game_state, message_data, exclude_player=None):
         clean_map = sanitize_map_for_players(raw_map)
         player_filtered_map_data = {"type": "MAP_DATA_UPDATE", "data": {"map": clean_map}}
 
+    # Pre-filter for FOW_UPDATE_BROADCAST: scrub fow_draft and attach only visible players
+    player_filtered_fow = None
+    if msg_type == "FOW_UPDATE_BROADCAST" and isinstance(message_data.get("data"), dict):
+        fow_data = dict(message_data["data"])
+        fow_data["fow_draft"] = []
+        temp_map = dict(cur_map) if isinstance(cur_map, dict) else {}
+        if "fow_revealed" in fow_data:
+            temp_map["fow_revealed"] = fow_data["fow_revealed"]
+        if "fow_enabled" in fow_data:
+            temp_map["fow_enabled"] = fow_data["fow_enabled"]
+        rev_set = _extract_rev_set(temp_map)
+        if fow_data.get("players") is None:
+            fow_data["players"] = [
+                pl.to_dict() for pl in game_state.get_all_players()
+                if is_entity_visible_to_players(pl, temp_map, game_state=game_state, rev_set=rev_set)
+            ]
+        else:
+            fow_data["players"] = [
+                pl for pl in fow_data["players"]
+                if is_entity_visible_to_players(pl, temp_map, game_state=game_state, rev_set=rev_set)
+            ]
+        player_filtered_fow = {"type": "FOW_UPDATE_BROADCAST", "data": fow_data}
+
+    # Pre-filter for COMBAT_STATE_UPDATE: hide secret/unrevealed turn owner names
+    player_filtered_combat = None
+    if msg_type == "COMBAT_STATE_UPDATE" and isinstance(message_data.get("data"), dict):
+        cdata = dict(message_data["data"])
+        t_name = cdata.get("turn_player_name")
+        if t_name and hasattr(game_state, "find_player"):
+            t_obj = game_state.find_player(t_name)
+            if t_obj is not None and not is_entity_visible_to_players(t_obj, cur_map, game_state=game_state):
+                cdata["turn_player_name"] = "Sconosciuto"
+        player_filtered_combat = {"type": "COMBAT_STATE_UPDATE", "data": cdata}
+
     for p in game_state.get_all_players():
         if exclude_player and p.name == exclude_player.name:
             continue
         if not getattr(p, "conn", None):
             continue
 
-        # Non inviare aggiornamenti o stats di entità sul GM layer o nascoste ai client regolari
+        # Non inviare aggiornamenti o stats di entità sul GM layer, in pocket dimension, nascoste o fuori FoW ai client regolari
         if msg_type == "PLAYER_JOINED" and isinstance(message_data.get("data"), dict):
             p_join = message_data["data"]
-            if p_join.get("layer", "token") == "gm" or (p_join.get("is_hidden", False) and p_join.get("name") != p.name):
+            if not is_entity_visible_to_players(p_join, cur_map, game_state=game_state, recipient_name=p.name, allow_self_hidden=True):
                 continue
         elif msg_type == "PLAYER_MOVE" and isinstance(message_data.get("data"), dict):
-            mv_name = message_data["data"].get("name")
+            mv_data = message_data["data"]
+            mv_name = mv_data.get("name")
             target_p = game_state.find_player(mv_name)
-            if target_p and (getattr(target_p, "layer", "token") == "gm" or (getattr(target_p, "is_hidden", False) and mv_name != p.name)):
+            entity_ref = target_p if target_p is not None else mv_data
+            if not is_entity_visible_to_players(entity_ref, cur_map, game_state=game_state, recipient_name=p.name, allow_self_hidden=True):
                 continue
         elif msg_type == "PLAYER_STATS_UPDATE" and isinstance(message_data.get("data"), dict):
-            stat_name = message_data["data"].get("name")
+            stat_data = message_data["data"]
+            stat_name = stat_data.get("name")
             target_p = game_state.find_player(stat_name)
-            if target_p and (getattr(target_p, "layer", "token") == "gm" or (getattr(target_p, "is_hidden", False) and stat_name != p.name)):
+            entity_ref = target_p if target_p is not None else stat_data
+            if not is_entity_visible_to_players(entity_ref, cur_map, game_state=game_state, recipient_name=p.name, allow_self_hidden=True):
                 continue
 
         if player_filtered_game_state is not None:
             send_message(p.conn, prepare_per_player_state_payload(player_filtered_game_state, p))
         elif player_filtered_map_data is not None:
             send_message(p.conn, prepare_per_player_state_payload(player_filtered_map_data, p))
+        elif player_filtered_fow is not None:
+            send_message(p.conn, prepare_per_player_state_payload(player_filtered_fow, p))
+        elif player_filtered_combat is not None:
+            send_message(p.conn, prepare_per_player_state_payload(player_filtered_combat, p))
         else:
             send_message(p.conn, prepare_per_player_state_payload(message_data, p))

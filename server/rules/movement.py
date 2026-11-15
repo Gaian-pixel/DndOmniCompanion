@@ -18,12 +18,18 @@ def get_effective_map_walls(current_map):
 
 def auto_explore_fow(player, game_state):
     """Calcola la visibilità (LoS + Luce dinamica) del giocatore e aggiorna la FoW della mappa."""
-    if not getattr(game_state, "current_map", None) or not game_state.current_map.get("fow_enabled", False):
+    cur_map = getattr(game_state, "current_map", None)
+    if not isinstance(cur_map, dict) or not cur_map.get("fow_enabled", False):
         return False
     pos = getattr(player, "position", None)
-    if not pos:
+    if not isinstance(pos, (list, tuple)) or len(pos) < 2:
         return False
-    conds = getattr(player, "conditions", []) or []
+    try:
+        h = Hex(int(pos[0]), int(pos[1]))
+    except (TypeError, ValueError):
+        return False
+    raw_conds = getattr(player, "conditions", [])
+    conds = raw_conds if isinstance(raw_conds, list) else []
     from server.rules.reaction_magic import _parse_sense_range_hexes
     if is_condition_active(conds, "Accecato") or is_condition_active(conds, "Blinded"):
         blind_r = _parse_sense_range_hexes(player, "vista cieca", "blindsight", "visione del vero", "truesight")
@@ -31,26 +37,38 @@ def auto_explore_fow(player, game_state):
             return False
         effective_rad = blind_r
     else:
-        vision_rad = getattr(player, 'vision_radius', 6)
-        light_rad = getattr(player, 'light_radius', 0)
+        try:
+            raw_vis = getattr(player, 'vision_radius', 6)
+            vision_rad = int(raw_vis) if isinstance(raw_vis, (int, float)) else 6
+        except (TypeError, ValueError):
+            vision_rad = 6
+        try:
+            raw_light = getattr(player, 'light_radius', 0)
+            light_rad = int(raw_light) if isinstance(raw_light, (int, float)) else 0
+        except (TypeError, ValueError):
+            light_rad = 0
         effective_rad = max(vision_rad, light_rad)
 
-    h = Hex(pos[0], pos[1])
-    grid_type = game_state.current_map.get("grid_type", "hex")
-    walls = get_effective_map_walls(game_state.current_map)
+    grid_type = cur_map.get("grid_type", "hex")
+    walls = get_effective_map_walls(cur_map)
     visible_hexes = get_visible_hexes(h, effective_rad, walls, grid_type=grid_type)
     
-    for other_p in getattr(game_state, "players", []):
-        if other_p.name != player.name and getattr(other_p, 'is_party_member', False) and getattr(other_p, 'light_radius', 0) > 0:
+    for other_p in (getattr(game_state, "players", None) or []):
+        if other_p.name != player.name and getattr(other_p, 'is_party_member', False) is True:
+            raw_olight = getattr(other_p, 'light_radius', 0)
+            o_light = int(raw_olight) if isinstance(raw_olight, (int, float)) else 0
             o_pos = getattr(other_p, 'position', None)
-            if o_pos:
-                o_hex = Hex(o_pos[0], o_pos[1])
-                o_light_hexes = get_visible_hexes(o_hex, other_p.light_radius, walls, grid_type=grid_type)
-                visible_hexes.extend(o_light_hexes)
+            if o_light > 0 and isinstance(o_pos, (list, tuple)) and len(o_pos) >= 2:
+                try:
+                    o_hex = Hex(int(o_pos[0]), int(o_pos[1]))
+                    o_light_hexes = get_visible_hexes(o_hex, o_light, walls, grid_type=grid_type)
+                    visible_hexes.extend(o_light_hexes)
+                except (TypeError, ValueError):
+                    pass
 
     changed = False
-    fow_rev = game_state.current_map.setdefault("fow_revealed", [])
-    fow_draft = game_state.current_map.setdefault("fow_draft", [])
+    fow_rev = cur_map.setdefault("fow_revealed", [])
+    fow_draft = cur_map.setdefault("fow_draft", [])
     
     for rh in visible_hexes:
         pos_entry = [rh.q, rh.r]
@@ -81,7 +99,7 @@ def _evaluate_creature_space_traversal(player, step_hex, is_final_step: bool, ga
     from common.subclass_and_race_rules import has_halfling_nimbleness
     halfling_nimb = has_halfling_nimbleness(player)
     overrun_tgt = str(getattr(player, "overrun_tumble_through_target", "") or "")
-    incaps = ("incosciente", "unconscious", "paralizzato", "paralyzed", "pietrificato", "petrified", "stordito", "stunned", "morto", "dead")
+    incaps = ("incosciente", "unconscious", "paralizzato", "paralyzed", "pietrificato", "petrified", "stordito", "stunned", "morto", "dead", "incapacitato", "incapacitated")
 
     extra_cost = 0
     for other in getattr(game_state, "players", []):
@@ -183,18 +201,18 @@ def handle_move_request(data, player, game_state):
                     send_message(player.conn, make_error_reply(fear_msg))
                 return
                 
-        walls_list_pos = get_effective_map_walls(game_state.current_map) if getattr(game_state, "current_map", None) else []
+        cur_m_mv = getattr(game_state, "current_map", None)
+        grid_type_mv = cur_m_mv.get("grid_type", "hex") if isinstance(cur_m_mv, dict) else "hex"
+        walls_list_pos = get_effective_map_walls(cur_m_mv) if cur_m_mv else []
         from server.dm_monster_engine import is_incorporeal_entity, has_spider_climb
         is_incorporeal = is_incorporeal_entity(player)
         from_pos = getattr(player, "position", None)
+        move_path = (
+            hex_linedraw(Hex(from_pos[0], from_pos[1]), Hex(to_pos[0], to_pos[1]), grid_type=grid_type_mv)
+            if from_pos and len(from_pos) >= 2 else None
+        )
         if not is_dm and walls_list_pos and not is_incorporeal:
-            if from_pos:
-                p_start = Hex(from_pos[0], from_pos[1])
-                p_end = Hex(to_pos[0], to_pos[1])
-                move_path = hex_linedraw(p_start, p_end)
-                steps_to_check = move_path[1:]
-            else:
-                steps_to_check = [Hex(to_pos[0], to_pos[1])]
+            steps_to_check = move_path[1:] if move_path else [Hex(to_pos[0], to_pos[1])]
 
             for step in steps_to_check:
                 if [step.q, step.r] in walls_list_pos:
@@ -221,7 +239,7 @@ def handle_move_request(data, player, game_state):
         else:
             strict_lock = getattr(game_state, "strict_turn_lock", False)
 
-        if in_combat and not is_dm and strict_lock:
+        if in_combat and not is_dm and strict_lock and not bool(data.get("is_forced", False)):
             curr_turn = game_state.get_current_turn_player()
             allowed_turn_names = {player.name}
             if getattr(player, "name", None) != caller_name and (
@@ -234,7 +252,7 @@ def handle_move_request(data, player, game_state):
                     send_message(err_conn, make_error_reply(f"Non è il tuo turno in combattimento! È il turno di {curr_turn.name}."))
                 return
 
-        if in_combat and hasattr(player, "position") and player.position and len(player.position) >= 2:
+        if in_combat and not bool(data.get("is_forced", False)) and hasattr(player, "position") and player.position and len(player.position) >= 2:
             q1, r1 = player.position[0], player.position[1]
             q2, r2 = to_pos[0], to_pos[1]
             speed = getattr(player, "speed", 30)
@@ -257,12 +275,8 @@ def handle_move_request(data, player, game_state):
             if sheet and isinstance(sheet.get("attributes"), dict):
                 try:
                     str_val = get_effective_attribute_from_dict(player, "FOR")
-                    inv_grid = sheet.get("inventory_grid", [])
-                    tot_w = sum(float(it.get("weight", 0.0) or 0.0) * int(it.get("qty", 1) or 1) for it in inv_grid if it and isinstance(it, dict))
-                    curr = sheet.get("currency", {})
-                    if isinstance(curr, dict):
-                        coin_count = sum(int(v or 0) for v in curr.values() if str(v).isdigit())
-                        tot_w += coin_count * 0.02
+                    from common.character_schema import compute_carried_weight_from_sheet
+                    tot_w = compute_carried_weight_from_sheet(sheet, backpack_dropped=getattr(player, "backpack_dropped", False))
                     from common.subclass_and_race_rules import get_powerful_build_multiplier
                     pb_mult = get_powerful_build_multiplier(player)
                     if tot_w > (str_val * 15 * pb_mult):
@@ -309,7 +323,7 @@ def handle_move_request(data, player, game_state):
 
             p_start = Hex(q1, r1)
             p_end = Hex(q2, r2)
-            move_path = hex_linedraw(p_start, p_end)
+            move_path = hex_linedraw(p_start, p_end, grid_type=grid_type_mv)
             
             cost_prone = 2 if is_condition_active(conds, "Prono") else 1
             is_squeezing_mv = bool(getattr(player, "is_squeezing", False)) or is_condition_active(conds, "Spremere") or is_condition_active(conds, "Squeezing")
@@ -415,7 +429,8 @@ def handle_move_request(data, player, game_state):
         # Rilevamento Attacco d'Opportunità (Opportunity Attack - D&D 5e RAW PHB p. 195, Volo Radente MM, Sentinella & Maestro d'Armi Astate PHB)
         from_pos = list(player.position) if hasattr(player, "position") and player.position else None
         is_teleport = bool(data.get("is_teleport", False))
-        if in_combat and from_pos and from_pos != to_pos and not is_teleport:
+        is_forced = bool(data.get("is_forced", False))
+        if in_combat and from_pos and from_pos != to_pos and not is_teleport and not is_forced:
             disengaged = is_condition_active(conds, "Disimpegno")
             from common.dnd5e_tables import entity_has_keyword as _ehk_oa
             has_flyby = _ehk_oa(player, "volo radente", "flyby")
@@ -572,6 +587,7 @@ def handle_move_request(data, player, game_state):
                 if t_coord in path_coords and not trap.get("triggered", False):
                     trap["triggered"] = True
                     trap["hidden"] = False
+                    trap["secret"] = False
                     trap_name = trap.get("name", "Trappola a Trabocchetto")
                     trap_dc = trap.get("dc", 13)
                     trap_dmg = trap.get("damage", "2d10")
@@ -613,9 +629,8 @@ def handle_move_request(data, player, game_state):
                     try:
                         with open(map_path, "r", encoding="utf-8") as f:
                             new_map_data = json.load(f)
-                        if 'base_image_path' in new_map_data and new_map_data['base_image_path']:
-                            with open(new_map_data['base_image_path'], "rb") as img_f:
-                                new_map_data['bg_image_data'] = base64.b64encode(img_f.read()).decode('utf-8')
+                        from common.network_utils import resolve_map_image_data
+                        resolve_map_image_data(new_map_data, extra_dirs=[os.path.dirname(map_path), camp_folder_abs])
                         
                         game_state.load_map(new_map_data)
                         
