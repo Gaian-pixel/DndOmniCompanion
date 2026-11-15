@@ -220,11 +220,18 @@ def normalize_character_dict(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     clean["currency"] = norm_currency
     clean["gp"] = norm_currency["MO"]
 
-    # 7. Dadi Vita
-    if not clean.get("hit_dice_type"):
-        clean["hit_dice_type"] = "d8"
-    clean["hit_dice_total"] = int(clean.get("hit_dice_total") or lvl)
-    clean["hit_dice_current"] = int(clean.get("hit_dice_current") if clean.get("hit_dice_current") is not None else lvl)
+    if "hit_dice_type" in clean and clean.get("hit_dice_type"):
+        clean["hit_dice_type"] = str(clean["hit_dice_type"])
+    else:
+        clean["hit_dice_type"] = ""
+    try:
+        clean["hit_dice_total"] = max(1, int(clean.get("hit_dice_total") or lvl))
+    except (ValueError, TypeError):
+        clean["hit_dice_total"] = lvl
+    try:
+        clean["hit_dice_current"] = max(0, int(clean.get("hit_dice_current") if clean.get("hit_dice_current") is not None else clean["hit_dice_total"]))
+    except (ValueError, TypeError):
+        clean["hit_dice_current"] = clean["hit_dice_total"]
 
     # 8. Inventario a Griglia (minimo 25 slot)
     grid = clean.get("inventory_grid")
@@ -338,6 +345,11 @@ def normalize_character_dict(data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             clean["classes"] = {primary_cls: clean["level"]}
         else:
             clean["classes"] = {}
+
+    sync_hit_dice_pools(
+        clean,
+        allow_scalar_override=not (isinstance(data.get("hit_dice_pools"), dict) and bool(data.get("hit_dice_pools"))),
+    )
 
     if not isinstance(clean.get("portent_dice"), list):
         clean["portent_dice"] = []
@@ -1127,6 +1139,247 @@ def compute_carried_weight_from_sheet(sheet: dict, backpack_dropped: bool = Fals
                 total += item_weight
 
     return round(total, 2)
+
+
+CLASS_HIT_DICE_STR_MAP: Dict[str, str] = {
+    "barbaro": "d12", "barbarian": "d12",
+    "guerriero": "d10", "fighter": "d10",
+    "paladino": "d10", "paladin": "d10",
+    "ranger": "d10",
+    "bardo": "d8", "bard": "d8",
+    "chierico": "d8", "cleric": "d8",
+    "druido": "d8", "druid": "d8",
+    "monaco": "d8", "monk": "d8",
+    "ladro": "d8", "rogue": "d8",
+    "warlock": "d8",
+    "artefice": "d8", "artificer": "d8",
+    "mago": "d6", "wizard": "d6",
+    "stregone": "d6", "sorcerer": "d6",
+}
+
+
+def get_class_hit_die_str(class_name: str, default: str = "d8") -> str:
+    """Restituisce il tipo di Dado Vita ('d12', 'd10', 'd8', 'd6') associato a una classe 5e."""
+    low = str(class_name or "").strip().lower()
+    if low in CLASS_HIT_DICE_STR_MAP:
+        return CLASS_HIT_DICE_STR_MAP[low]
+    for key, die_s in CLASS_HIT_DICE_STR_MAP.items():
+        if key in low:
+            return die_s
+    return default
+
+
+def _die_sort_key(die_str: str) -> int:
+    s = str(die_str or "d8").lower().replace("d", "").strip()
+    return int(s) if s.isdigit() else 8
+
+
+def _get_hd_attr(obj: Any, key: str, default: Any = None) -> Any:
+    return obj.get(key, default) if isinstance(obj, dict) else getattr(obj, key, default)
+
+
+def _set_hd_attr(obj: Any, key: str, value: Any) -> None:
+    if isinstance(obj, dict):
+        obj[key] = value
+    else:
+        setattr(obj, key, value)
+
+
+def sync_hit_dice_pools(target: Any, allow_scalar_override: bool = True) -> Dict[str, Dict[str, int]]:
+    """Sincronizza hit_dice_pools ({'d10': {'total': N, 'current': C}, ...}) con classes/level/hit_dice_*."""
+    if target is None or not (isinstance(target, dict) or hasattr(target, "__dict__")):
+        return {}
+
+    classes = _get_hd_attr(target, "classes", None)
+    lvl = max(1, int(_get_hd_attr(target, "level", 1) or 1))
+    raw_type = str(_get_hd_attr(target, "hit_dice_type", "") or "").strip().lower()
+    if not raw_type.startswith("d") or not raw_type[1:].isdigit():
+        raw_type = ""
+    raw_total = _get_hd_attr(target, "hit_dice_total", None)
+    raw_cur = _get_hd_attr(target, "hit_dice_current", None)
+    raw_pools = _get_hd_attr(target, "hit_dice_pools", None)
+
+    # Calcola i totali attesi per taglia dado dalle classi (PHB p. 163)
+    expected: Dict[str, int] = {}
+    primary_die = raw_type or "d8"
+    if isinstance(classes, dict) and classes:
+        cls_sum = 0
+        first_die = None
+        for c_name, c_lvl in classes.items():
+            try:
+                lv = max(1, int(c_lvl or 1))
+            except (ValueError, TypeError):
+                lv = 1
+            d_str = get_class_hit_die_str(str(c_name))
+            if first_die is None:
+                first_die = d_str
+            expected[d_str] = expected.get(d_str, 0) + lv
+            cls_sum += lv
+        if first_die:
+            primary_die = first_die
+        # Se un test ha sovrascritto esplicitamente hit_dice_total > sum(classes), rispettalo senza interferire col level-up
+        if allow_scalar_override and len(expected) == 1 and raw_total is not None:
+            try:
+                rt = int(raw_total)
+                if rt > cls_sum:
+                    only_d = raw_type or next(iter(expected.keys()))
+                    expected = {only_d: rt}
+                    primary_die = only_d
+            except (ValueError, TypeError):
+                pass
+    else:
+        c_cls = str(_get_hd_attr(target, "char_class", "") or "").strip()
+        inferred = get_class_hit_die_str(c_cls, raw_type or "d8") if c_cls else (raw_type or "d8")
+        primary_die = raw_type or inferred
+        tot_fallback = max(1, int(raw_total or lvl))
+        expected = {primary_die: tot_fallback}
+
+    exp_sum = sum(expected.values())
+    old_clean: Dict[str, Dict[str, int]] = {}
+    if isinstance(raw_pools, dict):
+        for k, v in raw_pools.items():
+            dk = str(k).lower().strip()
+            if not dk.startswith("d"):
+                dk = f"d{dk}" if dk.isdigit() else ""
+            if not dk or not isinstance(v, dict):
+                continue
+            try:
+                ot = max(0, int(v.get("total", 0) or 0))
+                oc = max(0, min(ot, int(v.get("current", ot) if v.get("current") is not None else ot)))
+                old_clean[dk] = {"total": ot, "current": oc}
+            except (ValueError, TypeError):
+                pass
+
+    pools: Dict[str, Dict[str, int]] = {}
+    ordered_dice = sorted(expected.keys(), key=_die_sort_key, reverse=True)
+    if old_clean and set(old_clean.keys()).issubset(set(ordered_dice)):
+        old_sum = sum(v["total"] for v in old_clean.values())
+        if all(old_clean.get(d, {}).get("total") == expected[d] for d in ordered_dice):
+            for d in ordered_dice:
+                pools[d] = {"total": expected[d], "current": old_clean[d]["current"]}
+        elif old_sum <= exp_sum:
+            # Progressione di livello: preserva gli spenti precedenti e aggiungi solo i nuovi dadi
+            for d in ordered_dice:
+                et = expected[d]
+                prev_e = old_clean.get(d, {"total": 0, "current": 0})
+                delta = max(0, et - prev_e["total"])
+                nc = max(0, min(et, prev_e["current"] + delta))
+                pools[d] = {"total": et, "current": nc}
+        else:
+            old_clean = {}
+
+    if not pools:
+        rem_cur = exp_sum if raw_cur is None else max(0, min(exp_sum, int(raw_cur)))
+        # Distribuisci partendo dal dado primario poi decrescente
+        dist_order = [primary_die] + [d for d in ordered_dice if d != primary_die] if primary_die in expected else ordered_dice
+        for d in dist_order:
+            et = expected[d]
+            take = min(et, rem_cur)
+            rem_cur -= take
+            pools[d] = {"total": et, "current": take}
+        pools = {d: pools[d] for d in ordered_dice}
+
+    if allow_scalar_override and raw_cur is not None:
+        try:
+            target_cur = max(0, min(exp_sum, int(raw_cur)))
+        except (ValueError, TypeError):
+            target_cur = sum(v["current"] for v in pools.values())
+        cur_sum = sum(v["current"] for v in pools.values())
+        if target_cur < cur_sum:
+            to_remove = cur_sum - target_cur
+            for d in reversed(ordered_dice):
+                drop = min(pools[d]["current"], to_remove)
+                pools[d]["current"] -= drop
+                to_remove -= drop
+                if to_remove <= 0:
+                    break
+        elif target_cur > cur_sum:
+            to_add = target_cur - cur_sum
+            for d in ordered_dice:
+                room = pools[d]["total"] - pools[d]["current"]
+                add = min(room, to_add)
+                pools[d]["current"] += add
+                to_add -= add
+                if to_add <= 0:
+                    break
+
+    total_cur = sum(v["current"] for v in pools.values())
+    _set_hd_attr(target, "hit_dice_pools", pools)
+    _set_hd_attr(target, "hit_dice_total", exp_sum)
+    _set_hd_attr(target, "hit_dice_current", total_cur)
+    _set_hd_attr(target, "hit_dice_type", primary_die)
+    return pools
+
+
+def spend_hit_dice_from_pools(
+    target: Any,
+    hd_spent: int = 1,
+    die_counts: Optional[Dict[str, int]] = None,
+) -> Dict[str, int]:
+    """Consuma Dadi Vita da hit_dice_pools (per tipo specifico o pool disponibili) e aggiorna i totali."""
+    pools = sync_hit_dice_pools(target, allow_scalar_override=True)
+    spent_map: Dict[str, int] = {}
+    if isinstance(die_counts, dict) and die_counts:
+        for raw_d, raw_n in die_counts.items():
+            dk = str(raw_d).lower().strip()
+            if not dk.startswith("d"):
+                dk = f"d{dk}" if dk.isdigit() else ""
+            try:
+                need = max(0, int(raw_n or 0))
+            except (ValueError, TypeError):
+                need = 0
+            if dk in pools and need > 0 and pools[dk]["current"] > 0:
+                take = min(pools[dk]["current"], need)
+                pools[dk]["current"] -= take
+                spent_map[dk] = spent_map.get(dk, 0) + take
+    remaining = max(0, int(hd_spent or 0) - sum(spent_map.values()))
+    if remaining > 0:
+        for dk in sorted(pools.keys(), key=_die_sort_key, reverse=True):
+            if pools[dk]["current"] > 0:
+                take = min(pools[dk]["current"], remaining)
+                pools[dk]["current"] -= take
+                spent_map[dk] = spent_map.get(dk, 0) + take
+                remaining -= take
+                if remaining <= 0:
+                    break
+    _set_hd_attr(target, "hit_dice_pools", pools)
+    _set_hd_attr(target, "hit_dice_total", sum(v["total"] for v in pools.values()))
+    _set_hd_attr(target, "hit_dice_current", sum(v["current"] for v in pools.values()))
+    return spent_map
+
+
+def recover_hit_dice_pools(target: Any, fraction: float = 0.5) -> int:
+    """Recupera fino a max(1, total * fraction) Dadi Vita nei pool (PHB p. 186) e aggiorna hit_dice_current."""
+    pools = sync_hit_dice_pools(target, allow_scalar_override=True)
+    total = sum(v["total"] for v in pools.values())
+    if total <= 0:
+        return 0
+    budget = max(1, int(total * fraction)) if fraction < 0.5 else max(1, total // 2)
+    recovered = 0
+    for dk in sorted(pools.keys(), key=_die_sort_key, reverse=True):
+        missing = pools[dk]["total"] - pools[dk]["current"]
+        if missing > 0:
+            add = min(missing, budget - recovered)
+            pools[dk]["current"] += add
+            recovered += add
+            if recovered >= budget:
+                break
+    _set_hd_attr(target, "hit_dice_pools", pools)
+    _set_hd_attr(target, "hit_dice_total", total)
+    _set_hd_attr(target, "hit_dice_current", sum(v["current"] for v in pools.values()))
+    return recovered
+
+
+def format_hit_dice_summary(target: Any) -> str:
+    """Formatta in modo compatto i Dadi Vita singoli o multiclasse (es. '3/5 (2/3 d10 + 1/2 d6)')."""
+    pools = sync_hit_dice_pools(target, allow_scalar_override=True)
+    cur = sum(v["current"] for v in pools.values())
+    tot = sum(v["total"] for v in pools.values())
+    if len(pools) <= 1:
+        only_d = next(iter(pools.keys()), str(_get_hd_attr(target, "hit_dice_type", "d8") or "d8"))
+        return f"{cur}/{tot} ({only_d})"
+    breakdown = " + ".join(f"{v['current']}/{v['total']} {k}" for k, v in pools.items())
+    return f"{cur}/{tot} ({breakdown})"
 
 
 

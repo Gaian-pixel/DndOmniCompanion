@@ -2952,35 +2952,41 @@ class ClientGUI(ClientNetworkHandlersMixin):
             self.show_toast("Nessun personaggio attivo selezionato.", toast_type="warning")
             return
         char = self.active_character
+        from common.character_schema import sync_hit_dice_pools, format_hit_dice_summary
+        hd_pools = sync_hit_dice_pools(char, allow_scalar_override=True)
         hd_cur = getattr(char, "hit_dice_current", 0)
-        hd_tot = getattr(char, "hit_dice_total", 1) or 1
-        hd_type = getattr(char, "hit_dice_type", "d8")
         
         win = tk.Toplevel(self.master)
         win.transient(self.master)
         win.grab_set()
         win.title("Riposo Breve (1 Ora)")
-        win.minsize(320, 240)
+        win.minsize(340, 260)
         from common.theme import apply_modern_window_style
         apply_modern_window_style(win)
         
         ttk.Label(win, text="☕ Riposo Breve (1 Ora)", font=("Georgia", 13, "bold"), foreground="#D4AF37").pack(pady=(12, 4))
         ttk.Label(win, text=f"HP Attuali: {char.hp_current} / {char.hp_max}").pack(pady=2)
-        ttk.Label(win, text=f"Dadi Vita Disponibili: {hd_cur} / {hd_tot} ({hd_type})").pack(pady=2)
+        ttk.Label(win, text=f"Dadi Vita Disponibili: {format_hit_dice_summary(char)}").pack(pady=2)
         
         con_mod = char.get_modifier("COS") if hasattr(char, "get_modifier") else (int(char.attributes.get("COS", 10)) - 10) // 2
         sign = f"+{con_mod}" if con_mod >= 0 else str(con_mod)
         ttk.Label(win, text=f"Bonus Costituzione per dado: {sign}", font=FONT_SMALL).pack(pady=2)
         
+        die_choice_var = tk.StringVar(value="Auto")
+
         def _execute_short_rest(n_dice):
-            recovered = char.short_rest(n_dice)
+            die_counts = None
+            sel_d = die_choice_var.get()
+            if n_dice > 0 and sel_d and sel_d != "Auto" and sel_d in hd_pools:
+                die_counts = {sel_d: min(n_dice, int(hd_pools[sel_d].get("current", 0) or 0))}
+            recovered = char.short_rest(n_dice, die_counts=die_counts)
             self.character_manager.save_characters()
             self.update_hero_summary_card()
             self.update_action_economy_ui()
             if self.is_connected:
                 from common.protocol import make_update_stats_request, make_short_rest_request
                 self.network.send(make_update_stats_request(char.hp_current, char.hp_max, char.initiative, getattr(char, "conditions", []), getattr(char, "temp_hp", 0)))
-                self.network.send(make_short_rest_request(n_dice, recovered))
+                self.network.send(make_short_rest_request(n_dice, recovered, die_counts=die_counts))
             win.destroy()
             if n_dice == 0:
                 self.show_toast(
@@ -3008,6 +3014,13 @@ class ClientGUI(ClientNetworkHandlersMixin):
             ttk.Button(btn_row, text="☕ Riposa senza spendere Dadi Vita (0 DV)", command=lambda: _execute_short_rest(0), style='Primary.TButton').pack(side=tk.LEFT, padx=4)
             ttk.Button(btn_row, text="Chiudi", command=win.destroy).pack(side=tk.LEFT, padx=4)
             return
+
+        if len(hd_pools) > 1:
+            pool_frame = ttk.Frame(win)
+            pool_frame.pack(pady=(4, 0))
+            ttk.Label(pool_frame, text="Preferenza Dado: ").pack(side=tk.LEFT)
+            avail = ["Auto"] + [dk for dk, pv in hd_pools.items() if pv.get("current", 0) > 0]
+            ttk.Combobox(pool_frame, textvariable=die_choice_var, values=avail, width=10, state="readonly").pack(side=tk.LEFT)
 
         spend_frame = ttk.Frame(win)
         spend_frame.pack(pady=10)

@@ -51,12 +51,24 @@ class VitalsPanel:
         else:
             cos_mod = (int(sheet.character.attributes.get("COS", 10)) - 10) // 2
         cos_str = f"+{cos_mod}" if cos_mod >= 0 else str(cos_mod)
+        from common.character_schema import sync_hit_dice_pools, format_hit_dice_summary
+        hd_pools = sync_hit_dice_pools(sheet.character, allow_scalar_override=True)
         lbl_hd = tk.Label(
             st_frame,
-            text=f"🎲 Dadi Vita: {sheet.character.hit_dice_current} / {sheet.character.hit_dice_total} ({sheet.character.hit_dice_type})  |  COS: {cos_str}",
+            text=f"🎲 Dadi Vita: {format_hit_dice_summary(sheet.character)}  |  COS: {cos_str}",
             font=FONT_SMALL, bg=SURFACE_COLOR, fg=ACCENT_GOLD
         )
         lbl_hd.pack(anchor="w")
+
+        hd_die_var = tk.StringVar(value=next((dk for dk, pv in hd_pools.items() if pv.get("current", 0) > 0), next(iter(hd_pools.keys()), "d8")))
+        hd_die_combo = None
+        if len(hd_pools) > 1:
+            pool_row = tk.Frame(st_frame, bg=SURFACE_COLOR)
+            pool_row.pack(fill=tk.X, pady=(6, 0))
+            tk.Label(pool_row, text="Tipo Dado da spendere:", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(side=tk.LEFT, padx=(0, 6))
+            avail_dice = [dk for dk, pv in hd_pools.items() if pv.get("current", 0) > 0] or list(hd_pools.keys())
+            hd_die_combo = ttk.Combobox(pool_row, textvariable=hd_die_var, values=avail_dice, width=8, state="readonly")
+            hd_die_combo.pack(side=tk.LEFT)
 
         tk.Label(container, text=_t("sheet_short_rest_log"), font=FONT_BOLD, bg=BG_COLOR, fg=TEXT_COLOR).pack(anchor="w", pady=(4, 2))
         log_box = tk.Text(container, height=8, bg=SURFACE_COLOR, fg=TEXT_COLOR, font=("Consolas", 9), relief=tk.FLAT, padx=8, pady=6)
@@ -72,7 +84,13 @@ class VitalsPanel:
             c = ACCENT_GREEN if r > 0.5 else ("#F59E0B" if r > 0.25 else ACCENT_RED)
             bar_fill.config(bg=c)
             bar_fill.place(x=0, y=0, relwidth=r, relheight=1.0)
-            lbl_hd.config(text=f"🎲 Dadi Vita: {sheet.character.hit_dice_current} / {sheet.character.hit_dice_total} ({sheet.character.hit_dice_type})  |  COS: {cos_str}")
+            cur_pools = sync_hit_dice_pools(sheet.character, allow_scalar_override=True)
+            lbl_hd.config(text=f"🎲 Dadi Vita: {format_hit_dice_summary(sheet.character)}  |  COS: {cos_str}")
+            if hd_die_combo is not None:
+                rem_dice = [dk for dk, pv in cur_pools.items() if pv.get("current", 0) > 0]
+                hd_die_combo["values"] = rem_dice or list(cur_pools.keys())
+                if hd_die_var.get() not in rem_dice and rem_dice:
+                    hd_die_var.set(rem_dice[0])
             sheet.hp_cur_var.set(sheet.character.hp_current)
             if sheet.character.hit_dice_current <= 0 or sheet.character.hp_current >= sheet.character.hp_max:
                 btn_roll_one.config(state=tk.DISABLED)
@@ -84,6 +102,15 @@ class VitalsPanel:
             log_box.see(tk.END)
             log_box.config(state=tk.DISABLED)
 
+        def _spend_chosen_die():
+            cur_pools = getattr(sheet.character, "hit_dice_pools", None) or {}
+            if len(cur_pools) > 1:
+                chosen = hd_die_var.get()
+                if cur_pools.get(chosen, {}).get("current", 0) <= 0:
+                    chosen = next((dk for dk, pv in cur_pools.items() if pv.get("current", 0) > 0), chosen)
+                return sheet.character.spend_hit_die_single(die_type=chosen)
+            return sheet.character.spend_hit_die_single()
+
         def roll_one():
             if sheet.character.hit_dice_current <= 0:
                 messagebox.showinfo("Dadi Esauriti", "Non hai più Dadi Vita da spendere.", parent=win)
@@ -91,7 +118,7 @@ class VitalsPanel:
             if sheet.character.hp_current >= sheet.character.hp_max:
                 messagebox.showinfo("PF al Massimo", "I tuoi Punti Ferita sono già al massimo!", parent=win)
                 return
-            res = sheet.character.spend_hit_die_single()
+            res = _spend_chosen_die()
             if res.get("success"):
                 spent_dice.append(res)
                 log_msg(f"• Tiro {len(spent_dice)}: {res['die']} ({res['roll']}) {cos_str} COS = +{res['healed']} PF (PF: {res['hp_current']}/{res['hp_max']})")
@@ -99,10 +126,12 @@ class VitalsPanel:
 
         def roll_all():
             while sheet.character.hit_dice_current > 0 and sheet.character.hp_current < sheet.character.hp_max:
-                res = sheet.character.spend_hit_die_single()
+                res = _spend_chosen_die()
                 if res.get("success"):
                     spent_dice.append(res)
                     log_msg(f"• Tiro {len(spent_dice)}: {res['die']} ({res['roll']}) {cos_str} COS = +{res['healed']} PF (PF: {res['hp_current']}/{res['hp_max']})")
+                else:
+                    break
             update_dialog_ui()
 
         def finish_rest():
@@ -141,10 +170,15 @@ class VitalsPanel:
                                     v.set(slot["current"])
             
             tot_healed = sum(d.get("healed", 0) for d in spent_dice)
+            die_counts = {}
+            for d_entry in spent_dice:
+                dk = d_entry.get("die_type") or str(d_entry.get("die", "")).replace("1", "", 1)
+                if dk:
+                    die_counts[dk] = die_counts.get(dk, 0) + 1
             if getattr(sheet, "is_connected", False) and getattr(sheet, "network", None) and hasattr(sheet.network, "send"):
                 try:
                     from common.protocol import make_short_rest_request
-                    sheet.network.send(make_short_rest_request(len(spent_dice), tot_healed))
+                    sheet.network.send(make_short_rest_request(len(spent_dice), tot_healed, die_counts=die_counts or None))
                 except Exception:
                     pass
 

@@ -272,8 +272,11 @@ def make_trigger_readied_action_request(target_name=None):
         "data": {"target_name": target_name}
     }
 
-def make_short_rest_request(hd_spent=1, hp_recovered=0):
-    return {"type": "SHORT_REST_REQUEST", "data": {"hd_spent": hd_spent, "hp_recovered": hp_recovered}}
+def make_short_rest_request(hd_spent=1, hp_recovered=0, die_counts=None):
+    payload = {"hd_spent": hd_spent, "hp_recovered": hp_recovered}
+    if isinstance(die_counts, dict) and die_counts:
+        payload["die_counts"] = dict(die_counts)
+    return {"type": "SHORT_REST_REQUEST", "data": payload}
 
 def make_opportunity_alert(target_name, message=None):
     return {"type": "OPPORTUNITY_ALERT", "data": {"target_name": target_name, "message": message}}

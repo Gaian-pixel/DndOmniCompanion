@@ -314,6 +314,121 @@ class TestLevelUpProgression(unittest.TestCase):
         dlg.apply()
         self.assertEqual(c.hp_max, 23)
 
+    def test_task034_feat_prerequisites_half_feats_resilient_and_mixed_hit_dice_server_rest(self):
+        import copy
+        import queue
+        from unittest.mock import patch
+        from common.game_state import GameState, Player
+        from common.protocol import make_short_rest_request, make_update_full_sheet_request
+        from server.rules.character import handle_update_full_sheet_request, _apply_player_long_rest
+        from server.rules.combat import handle_short_rest_request
+
+        # 1. Prerequisite blocking: Human non-caster Fighter (DES=10) cannot take War Caster or Elven Accuracy
+        fgt = Character(name="Torin", char_class="Guerriero", race="Umano", level=3)
+        fgt.classes = {"Guerriero": 3}
+        fgt.attributes = {"FOR": 16, "DES": 10, "COS": 13, "INT": 10, "SAG": 10, "CAR": 10}
+        fgt.saving_throw_proficiencies = ["FOR"]
+        fgt.hp_max = 28
+        fgt.hp_current = 28
+        fgt.starting_kit_applied = True
+
+        dlg = LevelUpDialog(self.root, fgt, lambda: None)
+        dlg.withdraw()
+        dlg.asi_choice_var.set("feat")
+        with patch("client.progression_ui.messagebox.showwarning") as mock_warn:
+            dlg.asi_feat_choice.set("Incantatore da Guerra (War Caster)")
+            dlg._on_feat_selected()
+            dlg.apply()
+            self.assertEqual(fgt.level, 3)  # Blocked before mutation!
+            mock_warn.assert_called_once()
+
+            mock_warn.reset_mock()
+            dlg.asi_feat_choice.set("Precisione Elfica (Elven Accuracy)")
+            dlg._on_feat_selected()
+            dlg.apply()
+            self.assertEqual(fgt.level, 3)
+            mock_warn.assert_called_once()
+
+        # Non-heavy-armor Wizard cannot take Heavy Armor Master
+        wiz = Character(name="Aldric", char_class="Mago", race="Umano", level=3)
+        wiz.classes = {"Mago": 3}
+        wiz.attributes = {"FOR": 14, "DES": 12, "COS": 12, "INT": 16, "SAG": 10, "CAR": 10}
+        wiz.starting_kit_applied = True
+        dlg_w = LevelUpDialog(self.root, wiz, lambda: None)
+        dlg_w.withdraw()
+        dlg_w.asi_choice_var.set("feat")
+        with patch("client.progression_ui.messagebox.showwarning") as mock_warn_w:
+            dlg_w.asi_feat_choice.set("Maestro delle Armature Pesanti (Heavy Armor Master)")
+            dlg_w._on_feat_selected()
+            dlg_w.apply()
+            self.assertEqual(wiz.level, 3)
+            mock_warn_w.assert_called_once()
+        dlg_w.destroy()
+
+        # 2. Half-Feat Resiliente (+1 COS + COS Save Proficiency + Retroactive HP)
+        dlg.asi_feat_choice.set("Resiliente (Resilient)")
+        dlg._on_feat_selected()
+        cos_opt = [v for v in dlg.asi_feat_stat_choice["values"] if str(v).startswith("COS")][0]
+        dlg.asi_feat_stat_choice.set(cos_opt)
+        dlg.hp_choice.set("media")
+        dlg.apply()
+
+        self.assertEqual(fgt.level, 4)
+        self.assertEqual(fgt.attributes["COS"], 14)
+        self.assertIn("COS", fgt.saving_throw_proficiencies)
+        self.assertIn("Resiliente (Resilient)", fgt.feats)
+        self.assertEqual(fgt.hp_max, 39)  # 28 + 6(avg d10) + 1(old COS) + 4(retro +1 COS mod for 4 lvls)
+        self.assertEqual(fgt.hit_dice_pools, {"d10": {"total": 4, "current": 4}})
+
+        # 3. Server authority accepts Resilient half-feat & handles mixed hit_dice_pools on rests
+        gs = GameState(queue.Queue())
+        p = Player("Torin")
+        p.hp = 28
+        p.max_hp = 28
+        p.full_sheet = {
+            "name": "Torin",
+            "char_class": "Guerriero",
+            "classes": {"Guerriero": 3},
+            "level": 3,
+            "hp_current": 28,
+            "hp_max": 28,
+            "attributes": {"FOR": 16, "DES": 10, "COS": 13, "INT": 10, "SAG": 10, "CAR": 10},
+            "saving_throw_proficiencies": ["FOR"],
+            "inventory_grid": [None] * 25,
+            "starting_kit_applied": True,
+            "campaign_starter_received": True,
+        }
+        gs.players = [p]
+        lvl4_sheet = copy.deepcopy(fgt.to_dict())
+        handle_update_full_sheet_request(make_update_full_sheet_request(lvl4_sheet)["data"], p, gs)
+        self.assertEqual(p.full_sheet["attributes"]["COS"], 14)
+        self.assertIn("COS", p.full_sheet["saving_throw_proficiencies"])
+
+        # Add Wizard level -> mixed pools d10:4 + d6:1
+        lvl5_sheet = copy.deepcopy(p.full_sheet)
+        lvl5_sheet["classes"] = {"Guerriero": 4, "Mago": 1}
+        lvl5_sheet["level"] = 5
+        lvl5_sheet["hp_max"] = 45
+        lvl5_sheet["hp_current"] = 30
+        lvl5_sheet["hit_dice_pools"] = {"d10": {"total": 4, "current": 2}, "d6": {"total": 1, "current": 1}}
+        lvl5_sheet["hit_dice_total"] = 5
+        lvl5_sheet["hit_dice_current"] = 3
+        p.full_sheet["hit_dice_pools"] = {"d10": {"total": 4, "current": 2}, "d6": {"total": 0, "current": 0}}
+        p.full_sheet["hit_dice_current"] = 2
+        handle_update_full_sheet_request(make_update_full_sheet_request(lvl5_sheet)["data"], p, gs)
+
+        # Spend specifically 1d6 on short rest
+        with patch("server.rules.combat.broadcast"):
+            handle_short_rest_request(make_short_rest_request(1, 5, die_counts={"d6": 1})["data"], p, gs)
+        self.assertEqual(p.full_sheet["hit_dice_pools"]["d6"]["current"], 0)
+        self.assertEqual(p.full_sheet["hit_dice_pools"]["d10"]["current"], 2)
+        self.assertEqual(p.full_sheet["hit_dice_current"], 2)
+
+        # Long rest recovers max(1, 5 // 2) = 2 dice in pools
+        _apply_player_long_rest(p, gs)
+        self.assertEqual(p.full_sheet["hit_dice_current"], 4)
+        self.assertEqual(sum(v["current"] for v in p.full_sheet["hit_dice_pools"].values()), 4)
+
 
 if __name__ == "__main__":
     unittest.main()

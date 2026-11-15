@@ -1532,11 +1532,9 @@ class CharacterSheetFrame(ttk.Frame):
                 text=f"🛡️ +{temp_hp} {_t('sheet_temp_hp')}" if temp_hp > 0 else ""
             )
 
-        hd_cur = int(getattr(char, "hit_dice_current", 0) or 0)
-        hd_tot = int(getattr(char, "hit_dice_total", getattr(char, "level", 1)) or 1)
-        hd_typ = str(getattr(char, "hit_dice_type", "d8") or "d8")
+        from common.character_schema import format_hit_dice_summary
         if hasattr(self, "hit_dice_var"):
-            self.hit_dice_var.set(f"🎲 HD: {hd_cur}/{hd_tot} ({hd_typ})")
+            self.hit_dice_var.set(f"🎲 HD: {format_hit_dice_summary(char)}")
 
         exh = int(getattr(char, "exhaustion_level", 0) or 0)
         if hasattr(self, "exhaustion_var"):
@@ -1577,7 +1575,7 @@ class CharacterSheetFrame(ttk.Frame):
         if hasattr(self, "vs_spd_lbl"):
             self.vs_spd_lbl.config(text=f"👟 {spd_v}{spd_u}")
         if hasattr(self, "vs_hd_lbl"):
-            self.vs_hd_lbl.config(text=f"🎲 {hd_cur}/{hd_tot}{hd_typ}")
+            self.vs_hd_lbl.config(text=f"🎲 {format_hit_dice_summary(char)}")
         if hasattr(self, "vs_status_lbl"):
             parts = []
             if exh > 0:

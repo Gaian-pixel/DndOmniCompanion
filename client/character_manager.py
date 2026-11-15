@@ -1,6 +1,12 @@
 import os
 from common.file_utils import atomic_save_json, load_json, get_writable_dir
-from common.character_schema import restore_entity_rest_resources
+from common.character_schema import (
+    restore_entity_rest_resources,
+    sync_hit_dice_pools,
+    spend_hit_dice_from_pools,
+    recover_hit_dice_pools,
+    get_class_hit_die_str,
+)
 
 CHARACTER_FILE = os.path.join(get_writable_dir(), "client_data", "characters.json")
 
@@ -140,6 +146,7 @@ class Character:
         self.hit_dice_total = max(1, self.level)
         self.hit_dice_current = max(1, self.level)
         self.hit_dice_type = "d8"
+        self.hit_dice_pools = {self.hit_dice_type: {"total": self.hit_dice_total, "current": self.hit_dice_current}}
         self.exhaustion_level = 0
         self.damage_resistances = []
         self.damage_immunities = []
@@ -225,27 +232,23 @@ class Character:
         self.relentless_rage_uses = 0
         self._extra_fields = {}
 
-    def short_rest(self, hd_to_spend=1, attune_idx: int = None):
-        """Spende Dadi Vita (XdY + Mod COS) per recuperare HP e ricarica i privilegi da riposo breve (inclusa sintonia DMG p.138)."""
+    def short_rest(self, hd_to_spend=1, attune_idx: int = None, die_counts: dict = None):
+        """Spende Dadi Vita (XdY + Mod COS, con supporto pool multiclasse) per recuperare HP e ricarica privilegi da riposo breve (PHB p.186, DMG p.138)."""
         if attune_idx is not None:
             self.attune_on_short_rest(attune_idx)
-        actual_spend = 0
-        if hd_to_spend > 0 and getattr(self, "hit_dice_current", 0) > 0:
-            actual_spend = min(hd_to_spend, self.hit_dice_current)
-            self.hit_dice_current -= actual_spend
-        
+        spent_map = spend_hit_dice_from_pools(self, hd_to_spend, die_counts=die_counts)
+        actual_spend = sum(spent_map.values())
+
         cos_mod = self.get_modifier("COS")
-            
-        die_str = str(self.hit_dice_type).lower().replace("d", "")
-        sides = int(die_str) if die_str.isdigit() else 8
-        
         recovered = 0
         import random
-        for _ in range(actual_spend):
-            roll = random.randint(1, sides)
-            total = max(1, roll + cos_mod)
-            recovered += total
-            
+        for die_key, n_dice in spent_map.items():
+            d_s = str(die_key).lower().replace("d", "").strip()
+            sides = int(d_s) if d_s.isdigit() else 8
+            for _ in range(max(0, int(n_dice or 0))):
+                roll = random.randint(1, sides)
+                recovered += max(1, roll + cos_mod)
+
         self.hp_current = min(self.hp_max, self.hp_current + recovered)
         if not hasattr(self, "class_resources") or not isinstance(self.class_resources, dict):
             self.class_resources = {}
@@ -296,11 +299,7 @@ class Character:
         from common.feats_and_classes import evaluate_armor_sleep, init_or_get_arcane_ward_hp
         sleep_eval = evaluate_armor_sleep(self)
         _hd_frac = sleep_eval["hd_fraction"]
-        if sleep_eval["penalized"] and self.hit_dice_total > 0:
-            regained = max(1, int(self.hit_dice_total * _hd_frac))
-        else:
-            regained = max(1, self.hit_dice_total // 2) if self.hit_dice_total > 0 else 0
-        self.hit_dice_current = min(self.hit_dice_total, self.hit_dice_current + regained)
+        recover_hit_dice_pools(self, fraction=_hd_frac)
         self.death_saves = {"successes": 0, "failures": 0}
         if not sleep_eval["blocks_exhaustion_recovery"]:
             self.exhaustion_level = max(0, getattr(self, "exhaustion_level", 0) - 1)
@@ -761,11 +760,20 @@ class Character:
         if not ok:
             return False, msg
 
+        pools_before = sync_hit_dice_pools(self, allow_scalar_override=True)
         matched_key = next((k for k in self.classes if k.lower() == t_cls.lower()), t_cls)
-        self.classes[matched_key] = int(self.classes.get(matched_key, 0)) + max(1, int(add_levels))
+        levels_added = max(1, int(add_levels))
+        self.classes[matched_key] = int(self.classes.get(matched_key, 0)) + levels_added
         self.level = min(20, sum(self.classes.values()))
         self.proficiency_bonus = 2 + (self.level - 1) // 4
+        new_die = get_class_hit_die_str(matched_key, getattr(self, "hit_dice_type", "d8") or "d8")
+        entry = pools_before.setdefault(new_die, {"total": 0, "current": 0})
+        entry["total"] += levels_added
+        entry["current"] += levels_added
+        self.hit_dice_pools = pools_before
         self.hit_dice_total = self.level
+        self.hit_dice_current = sum(v.get("current", 0) for v in pools_before.values())
+        sync_hit_dice_pools(self, allow_scalar_override=False)
 
         if len(self.classes) > 1:
             self.char_class = " / ".join(f"{k} {v}" for k, v in self.classes.items())
@@ -1296,30 +1304,48 @@ class Character:
             return 0, "#FFD700"
         return self.active_light.get("total_radius", 0), self.active_light.get("color", "#FFD700")
 
-    def spend_hit_die_single(self) -> dict:
+    def spend_hit_die_single(self, die_type: str = None) -> dict:
         """
         Spende 1 singolo Dado Vita D&D 5e (1dY + Mod COS) secondo le regole RAW del Riposo Breve (PHB p. 186).
-        Restituisce il dettaglio del tiro, cura gli HP e aggiorna il conteggio rimanente.
+        Supporta pool multiclasse per tipo di dado ('d10', 'd6', ...) e aggiorna i totali.
         """
-        if getattr(self, "hit_dice_current", 0) <= 0:
+        pools = sync_hit_dice_pools(self, allow_scalar_override=True)
+        chosen_die = None
+        if die_type:
+            req = str(die_type).lower().strip()
+            if not req.startswith("d") and req.isdigit():
+                req = f"d{req}"
+            if req not in pools or pools[req]["current"] <= 0:
+                return {"success": False, "reason": f"Nessun Dado Vita {req} rimasto"}
+            chosen_die = req
+        else:
+            for dk, pv in pools.items():
+                if pv.get("current", 0) > 0:
+                    chosen_die = dk
+                    break
+        if not chosen_die:
             return {"success": False, "reason": "Nessun Dado Vita rimasto"}
-            
-        self.hit_dice_current -= 1
+
+        pools[chosen_die]["current"] -= 1
+        self.hit_dice_pools = pools
+        self.hit_dice_total = sum(v["total"] for v in pools.values())
+        self.hit_dice_current = sum(v["current"] for v in pools.values())
         cos_mod = self.get_modifier("COS")
-            
-        die_str = str(getattr(self, "hit_dice_type", "d8")).lower().replace("d", "")
+
+        die_str = chosen_die.lower().replace("d", "")
         sides = int(die_str) if die_str.isdigit() else 8
-        
+
         import random
         roll = random.randint(1, sides)
         healed = max(1, roll + cos_mod)
         old_hp = self.hp_current
         self.hp_current = min(self.hp_max, self.hp_current + healed)
         actual_gain = self.hp_current - old_hp
-        
+
         return {
             "success": True,
             "die": f"1d{sides}",
+            "die_type": chosen_die,
             "roll": roll,
             "con_mod": cos_mod,
             "healed": healed,
@@ -1327,7 +1353,8 @@ class Character:
             "hp_current": self.hp_current,
             "hp_max": self.hp_max,
             "hit_dice_left": self.hit_dice_current,
-            "hit_dice_total": self.hit_dice_total
+            "hit_dice_total": self.hit_dice_total,
+            "hit_dice_pools": pools,
         }
 
     def sync_weapons_from_inventory(self):

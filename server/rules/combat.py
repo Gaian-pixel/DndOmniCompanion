@@ -3891,8 +3891,9 @@ def handle_short_rest_request(data, player, game_state):
     if not player:
         return
 
-    from common.character_schema import restore_entity_rest_resources
+    from common.character_schema import restore_entity_rest_resources, spend_hit_dice_from_pools
     restored_list = []
+    die_counts = data.get("die_counts") if isinstance(data, dict) else None
     with game_state.lock:
         sheet = getattr(player, "full_sheet", None)
         if sheet:
@@ -3901,7 +3902,7 @@ def handle_short_rest_request(data, player, game_state):
                 if getattr(player, "conn", None):
                     send_message(player.conn, make_error_reply(f"Dadi Vita insufficienti! Ne possiedi {cur_hd}."))
                 return
-            sheet["hit_dice_current"] = max(0, cur_hd - hd_spent)
+            spend_hit_dice_from_pools(sheet, hd_spent, die_counts=die_counts if isinstance(die_counts, dict) else None)
 
         restored_list = restore_entity_rest_resources(player, rest_type="short")
         player.relentless_rage_uses = 0

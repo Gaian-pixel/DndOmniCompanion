@@ -155,6 +155,57 @@ class TestCharacterSchema(unittest.TestCase):
         self.assertEqual(war.pact_slots, {"max": 2, "current": 1, "level": 1})
         self.assertEqual(war.spell_slots["1"]["max"], 0)
 
+    def test_multiclass_hit_dice_pools_spend_recover_and_format(self):
+        from common.character_schema import format_hit_dice_summary, sync_hit_dice_pools
+
+        mc = Character("Valen", char_class="Guerriero", level=3)
+        mc.classes = {"Guerriero": 3}
+        mc.attributes["FOR"] = 16
+        mc.attributes["COS"] = 14
+        mc.attributes["INT"] = 14
+        mc.hp_max = 32
+        mc.hp_current = 10
+        mc.starting_kit_applied = True
+        sync_hit_dice_pools(mc)
+
+        ok_mc, msg_mc = mc.add_class_level("Mago", 2)
+        self.assertTrue(ok_mc, msg_mc)
+        self.assertEqual(mc.hit_dice_total, 5)
+        self.assertEqual(mc.hit_dice_current, 5)
+        self.assertEqual(mc.hit_dice_pools, {"d10": {"total": 3, "current": 3}, "d6": {"total": 2, "current": 2}})
+        summary = format_hit_dice_summary(mc)
+        self.assertIn("5/5", summary)
+        self.assertIn("3/3 d10", summary)
+        self.assertIn("2/2 d6", summary)
+
+        # Spend two d6 dice specifically
+        res1 = mc.spend_hit_die_single("d6")
+        self.assertTrue(res1["success"])
+        self.assertEqual(res1["die"], "1d6")
+        res2 = mc.spend_hit_die_single("d6")
+        self.assertTrue(res2["success"])
+        self.assertEqual(mc.hit_dice_pools["d6"]["current"], 0)
+        self.assertEqual(mc.hit_dice_pools["d10"]["current"], 3)
+        self.assertEqual(mc.hit_dice_current, 3)
+
+        # Empty d6 pool rejects d6 spend without draining d10
+        res3 = mc.spend_hit_die_single("d6")
+        self.assertFalse(res3["success"])
+        self.assertEqual(mc.hit_dice_pools["d10"]["current"], 3)
+
+        # Spend two d10 dice, then Long Rest recovers 5 // 2 = 2 dice
+        mc.spend_hit_die_single("d10")
+        mc.spend_hit_die_single("d10")
+        self.assertEqual(mc.hit_dice_current, 1)
+        mc.long_rest()
+        self.assertEqual(mc.hit_dice_current, 3)
+        self.assertEqual(sum(p["current"] for p in mc.hit_dice_pools.values()), 3)
+
+        # Serialization roundtrip preserves per-die pools
+        rt = Character.from_dict(mc.to_dict())
+        self.assertEqual(rt.hit_dice_pools, mc.hit_dice_pools)
+        self.assertEqual(rt.hit_dice_current, 3)
+
 
 if __name__ == "__main__":
     unittest.main()

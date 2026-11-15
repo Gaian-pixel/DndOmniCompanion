@@ -707,3 +707,270 @@ def has_paladin_aura_of_courage(target_player: Any, game_state: Any) -> bool:
             if d <= radius:
                 return True
     return False
+
+
+# ==============================================================================
+# 4. PREREQUISITI TALENTI, HALF-FEAT & RESILIENT (PHB p. 165-170 / XGtE / TCE)
+# ==============================================================================
+
+HALF_FEAT_SPECS: Dict[Tuple[str, ...], Dict[str, Any]] = {
+    ("resilient", "resiliente"): {"stats": ("FOR", "DES", "COS", "INT", "SAG", "CAR"), "grants_save_prof": True},
+    ("heavy armor master", "armature pesanti"): {"stats": ("FOR",), "grants_save_prof": False},
+    ("observant", "osservatore"): {"stats": ("INT", "SAG"), "grants_save_prof": False},
+    ("keen mind", "mente acuta"): {"stats": ("INT",), "grants_save_prof": False},
+    ("actor", "attore"): {"stats": ("CAR",), "grants_save_prof": False},
+    ("athlete", "atleta"): {"stats": ("FOR", "DES"), "grants_save_prof": False},
+    ("tavern brawler", "rissaiolo", "attaccabrighe"): {"stats": ("FOR", "COS"), "grants_save_prof": False},
+    ("fey touched", "toccato dalle fate"): {"stats": ("INT", "SAG", "CAR"), "grants_save_prof": False},
+    ("shadow touched", "toccato dall'ombra"): {"stats": ("INT", "SAG", "CAR"), "grants_save_prof": False},
+    ("telekinetic", "telecinetico"): {"stats": ("INT", "SAG", "CAR"), "grants_save_prof": False},
+    ("telepathic", "telepatico"): {"stats": ("INT", "SAG", "CAR"), "grants_save_prof": False},
+    ("chef", "cuoco"): {"stats": ("COS", "SAG"), "grants_save_prof": False},
+    ("crusher", "frantumatore"): {"stats": ("FOR", "COS"), "grants_save_prof": False},
+    ("piercer", "perforatore"): {"stats": ("FOR", "DES"), "grants_save_prof": False},
+    ("slasher", "squartatore"): {"stats": ("FOR", "DES"), "grants_save_prof": False},
+    ("elven accuracy", "precisione elfica"): {"stats": ("DES", "INT", "SAG", "CAR"), "grants_save_prof": False},
+    ("lightly armored", "corazza leggera"): {"stats": ("FOR", "DES"), "grants_save_prof": False},
+    ("moderately armored", "corazza media"): {"stats": ("FOR", "DES"), "grants_save_prof": False},
+    ("heavily armored", "corazza pesante"): {"stats": ("FOR",), "grants_save_prof": False},
+    ("weapon master", "maestro d'armi"): {"stats": ("FOR", "DES"), "grants_save_prof": False},
+}
+
+
+def get_half_feat_spec(feat_name: str) -> Optional[Dict[str, Any]]:
+    """Restituisce la specifica {stats, grants_save_prof} se il talento è un Half-Feat (+1 caratteristica)."""
+    low = str(feat_name or "").strip().lower()
+    if not low:
+        return None
+    for keys, spec in HALF_FEAT_SPECS.items():
+        if any(k in low for k in keys):
+            return dict(spec)
+    return None
+
+
+def get_feat_ability_choices(feat_name: str) -> Tuple[str, ...]:
+    """Restituisce le caratteristiche ammissibili (IT canonical) per un Half-Feat, o () se non applicabile."""
+    spec = get_half_feat_spec(feat_name)
+    return tuple(spec.get("stats", ())) if spec else ()
+
+
+def entity_can_cast_spell(entity: Any, include_pact: bool = True) -> bool:
+    """Verifica se l'entità possiede la capacità di lanciare almeno un incantesimo (Spellcasting / Pact Magic / Innate)."""
+    sheet = _entity_sheet(entity)
+    full_caster_keys = (
+        ("mago", "wizard"),
+        ("stregone", "sorcerer"),
+        ("chierico", "cleric"),
+        ("druido", "druid"),
+        ("bardo", "bard"),
+        ("artefice", "artificer"),
+    )
+    for keys in full_caster_keys:
+        if entity_get_class_level(entity, *keys) >= 1:
+            return True
+    if include_pact and entity_get_class_level(entity, "warlock") >= 1:
+        return True
+    if entity_get_class_level(entity, "paladino", "paladin") >= 2:
+        return True
+    if entity_get_class_level(entity, "ranger") >= 2:
+        return True
+
+    sub_low = str(sheet.get("subclass") or getattr(entity, "subclass", "") or "").lower()
+    subclasses_map = sheet.get("subclasses") if isinstance(sheet.get("subclasses"), dict) else getattr(entity, "subclasses", {}) or {}
+    sub_blob = f"{sub_low} {' '.join(str(v).lower() for v in subclasses_map.values())}" if isinstance(subclasses_map, dict) else sub_low
+    if entity_get_class_level(entity, "guerriero", "fighter") >= 3 and any(k in sub_blob for k in ("cavaliere mistico", "eldritch knight")):
+        return True
+    if entity_get_class_level(entity, "ladro", "rogue") >= 3 and any(k in sub_blob for k in ("mistificatore arcano", "arcane trickster")):
+        return True
+
+    slots = sheet.get("spell_slots") if isinstance(sheet.get("spell_slots"), dict) else getattr(entity, "spell_slots", {})
+    if isinstance(slots, dict):
+        for s_val in slots.values():
+            mx = s_val.get("max", 0) if isinstance(s_val, dict) else (s_val[1] if isinstance(s_val, list) and len(s_val) >= 2 else 0)
+            try:
+                if int(mx or 0) > 0:
+                    return True
+            except (TypeError, ValueError):
+                pass
+
+    if include_pact:
+        pact = sheet.get("pact_slots") if isinstance(sheet.get("pact_slots"), dict) else getattr(entity, "pact_slots", {})
+        if isinstance(pact, dict):
+            try:
+                if int(pact.get("max", 0) or 0) > 0:
+                    return True
+            except (TypeError, ValueError):
+                pass
+
+    spellbook = sheet.get("spellbook") if isinstance(sheet.get("spellbook"), list) else getattr(entity, "spellbook", [])
+    if isinstance(spellbook, list) and len(spellbook) > 0:
+        return True
+
+    if entity_has_keyword(
+        entity,
+        "spellcasting",
+        "pact magic",
+        "magia del patto",
+        "iniziato alla magia",
+        "magic initiate",
+        "toccato dalle fate",
+        "fey touched",
+        "toccato dall'ombra",
+        "shadow touched",
+    ):
+        return True
+    return False
+
+
+def entity_has_martial_weapon_proficiency(entity: Any) -> bool:
+    """Verifica se l'entità ha competenza con almeno un'arma marziale (PHB / TCE Fighting Initiate)."""
+    from common.character_schema import compute_character_proficiencies
+    sheet = _entity_sheet(entity)
+    prof_arg = sheet if isinstance(sheet, dict) and (sheet.get("classes") or sheet.get("char_class") or sheet.get("race")) else {
+        "classes": getattr(entity, "classes", {}) if isinstance(getattr(entity, "classes", None), dict) else {},
+        "char_class": str(getattr(entity, "char_class", "") or ""),
+        "race": str(getattr(entity, "race", "") or ""),
+        "subrace": str(getattr(entity, "subrace", "") or ""),
+        "subclass": str(getattr(entity, "subclass", "") or ""),
+        "feats": getattr(entity, "feats", []) or [],
+        "features": getattr(entity, "features", "") or "",
+    }
+    w_profs = [str(w).lower() for w in compute_character_proficiencies(prof_arg).get("weapons", [])]
+    explicit_list = sheet.get("weapon_proficiencies") if isinstance(sheet.get("weapon_proficiencies"), list) else getattr(entity, "weapon_proficiencies", [])
+    nested_list = (sheet.get("proficiencies") or {}).get("weapons", []) if isinstance(sheet.get("proficiencies"), dict) else []
+    for ew in list(explicit_list or []) + list(nested_list or []):
+        ewl = str(ew).strip().lower()
+        if ewl:
+            w_profs.append(ewl)
+
+    martial_markers = (
+        "marzial", "martial", "tutte", "all",
+        "spada lunga", "longsword", "spada corta", "shortsword", "stocco", "rapier",
+        "scimitarra", "scimitar", "spadone", "greatsword", "ascia da battaglia", "battleaxe",
+        "bipenne", "greataxe", "martello da guerra", "warhammer", "arco lungo", "longbow",
+    )
+    if any(any(m in wp for m in martial_markers) for wp in w_profs):
+        return True
+    sub_low = str(sheet.get("subclass") or getattr(entity, "subclass", "") or "").lower()
+    if any(k in sub_low for k in ("valore", "valor", "spade", "swords", "guerra", "war", "tempesta", "tempest", "lama del patto", "hexblade", "kensei")):
+        return True
+    return False
+
+
+def check_feat_prerequisites(entity: Any, feat_name_or_dict: Any) -> Tuple[bool, str]:
+    """Valida i prerequisiti di un Talento 5e (incantesimi, caratteristiche >= 13, competenze, razza)."""
+    from common.srd_offline import STANDARD_5E_FEATS_CATALOG
+    prereq = ""
+    if isinstance(feat_name_or_dict, dict):
+        prereq = str(feat_name_or_dict.get("prerequisite", "") or "").strip()
+    else:
+        fname = str(feat_name_or_dict or "").strip()
+        for entry in STANDARD_5E_FEATS_CATALOG:
+            if entry.get("name", "").lower() == fname.lower():
+                prereq = str(entry.get("prerequisite", "") or "").strip()
+                break
+
+    low = prereq.lower().strip()
+    if not low or low in ("nessuno", "none", "-", "n/a"):
+        return True, ""
+
+    # 1. Prerequisiti incantesimi / Magia del Patto
+    if any(k in low for k in ("incantesim", "spell", "magia del patto", "pact magic")):
+        if not entity_can_cast_spell(entity, include_pact=True):
+            return False, f"Prerequisito mancante: {prereq}"
+
+    # 2. Prerequisiti punteggio caratteristica
+    if ("intelligenza o saggezza" in low or "intelligence or wisdom" in low) and "13" in low:
+        if _entity_attr_val(entity, "INT", 10) < 13 and _entity_attr_val(entity, "SAG", 10) < 13:
+            return False, f"Richiede INT o SAG >= 13 (attuali: INT {_entity_attr_val(entity, 'INT', 10)}, SAG {_entity_attr_val(entity, 'SAG', 10)})."
+    elif ("destrezza 13" in low or "dexterity 13" in low) and _entity_attr_val(entity, "DES", 10) < 13:
+        return False, f"Richiede DES >= 13 (attuale: {_entity_attr_val(entity, 'DES', 10)})."
+    elif ("forza 13" in low or "strength 13" in low) and _entity_attr_val(entity, "FOR", 10) < 13:
+        return False, f"Richiede FOR >= 13 (attuale: {_entity_attr_val(entity, 'FOR', 10)})."
+    elif ("carisma 13" in low or "charisma 13" in low) and _entity_attr_val(entity, "CAR", 10) < 13:
+        return False, f"Richiede CAR >= 13 (attuale: {_entity_attr_val(entity, 'CAR', 10)})."
+
+    # 3. Prerequisiti competenze armature / armi marziali
+    armor_profs = get_entity_armor_proficiencies(entity)
+    if ("armature pesanti" in low or "heavy armor" in low) and "heavy" not in armor_profs:
+        return False, "Richiede competenza nelle armature pesanti."
+    if ("armature medie" in low or "medium armor" in low) and "medium" not in armor_profs:
+        return False, "Richiede competenza nelle armature medie."
+    if ("armature leggere" in low or "light armor" in low) and "light" not in armor_profs:
+        return False, "Richiede competenza nelle armature leggere."
+    if ("arma marziale" in low or "martial weapon" in low) and not entity_has_martial_weapon_proficiency(entity):
+        return False, "Richiede competenza in almeno un'arma marziale."
+
+    # 4. Prerequisiti razziali
+    sheet = _entity_sheet(entity)
+    race_low = str(sheet.get("race") or getattr(entity, "race", "") or "").lower()
+    if "elfo" in low or "mezzelfo" in low or "elf" in low:
+        if not any(rk in race_low for rk in ("elf", "drow")):
+            return False, "Richiede razza Elfo o Mezzelfo."
+    if "halfling" in low and "halfling" not in race_low:
+        return False, "Richiede razza Halfling."
+
+    return True, ""
+
+
+def apply_half_feat_bonus(character_or_dict: Any, feat_name: str, chosen_stat: Optional[str] = None) -> Dict[str, Any]:
+    """Applica il +1 di un Half-Feat (+ eventuale competenza TS per Resiliente) e calcola PF retroattivi COS."""
+    from common.character_schema import STAT_IT_TO_EN, canonical_stat_name
+    spec = get_half_feat_spec(feat_name)
+    if not spec:
+        return {"applied": False, "stat": None, "old_val": None, "new_val": None, "save_prof_added": None, "retro_hp": 0}
+
+    allowed = list(spec.get("stats", ()))
+    is_dict = isinstance(character_or_dict, dict)
+    attrs = character_or_dict.setdefault("attributes", {}) if is_dict else getattr(character_or_dict, "attributes", None)
+    if not isinstance(attrs, dict):
+        return {"applied": False, "stat": None, "old_val": None, "new_val": None, "save_prof_added": None, "retro_hp": 0}
+
+    stat_it = canonical_stat_name(str(chosen_stat or ""), "it") if chosen_stat else ""
+    if stat_it not in allowed:
+        stat_it = next((s for s in allowed if int(attrs.get(s, 10) or 10) < 20), allowed[0])
+
+    barb_lvl = entity_get_class_level(character_or_dict, "barbar", "barbarian")
+    cap = 24 if (barb_lvl >= 20 and stat_it in ("FOR", "COS")) else 20
+    old_val = int(attrs.get(stat_it, 10) or 10)
+    new_val = min(cap, old_val + 1)
+    attrs[stat_it] = new_val
+    if is_dict and isinstance(character_or_dict.get("stats"), dict):
+        en_k = STAT_IT_TO_EN.get(stat_it, stat_it)
+        character_or_dict["stats"][en_k] = new_val
+
+    lvl = max(1, int((character_or_dict.get("level", 1) if is_dict else getattr(character_or_dict, "level", 1)) or 1))
+    retro_hp = 0
+    if stat_it == "COS":
+        delta_mod = (new_val - 10) // 2 - (old_val - 10) // 2
+        if delta_mod > 0:
+            retro_hp = lvl * delta_mod
+            if is_dict:
+                character_or_dict["hp_max"] = int(character_or_dict.get("hp_max", 10) or 10) + retro_hp
+                character_or_dict["hp_current"] = int(character_or_dict.get("hp_current", 10) or 10) + retro_hp
+            else:
+                character_or_dict.hp_max = int(getattr(character_or_dict, "hp_max", 10) or 10) + retro_hp
+                character_or_dict.hp_current = int(getattr(character_or_dict, "hp_current", 10) or 10) + retro_hp
+
+    save_prof_added = None
+    if spec.get("grants_save_prof"):
+        if is_dict:
+            profs = character_or_dict.setdefault("saving_throw_proficiencies", [])
+        else:
+            profs = getattr(character_or_dict, "saving_throw_proficiencies", None)
+            if not isinstance(profs, list):
+                profs = []
+                setattr(character_or_dict, "saving_throw_proficiencies", profs)
+        existing_canon = {canonical_stat_name(str(p), "it") for p in profs if p}
+        if stat_it not in existing_canon:
+            profs.append(stat_it)
+            save_prof_added = stat_it
+
+    return {
+        "applied": True,
+        "stat": stat_it,
+        "old_val": old_val,
+        "new_val": new_val,
+        "save_prof_added": save_prof_added,
+        "retro_hp": retro_hp,
+    }

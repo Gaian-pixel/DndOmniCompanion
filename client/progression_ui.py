@@ -617,6 +617,17 @@ class LevelUpDialog(tk.Toplevel):
         self.asi_feat_choice.pack(anchor="w", pady=(0, 4))
         self.asi_feat_choice.bind("<<ComboboxSelected>>", lambda e: (self.asi_choice_var.set("feat"), self._on_feat_selected()))
 
+        self.lbl_feat_prereq = tk.Label(f_feat, text="", font=("Segoe UI", 9, "bold"), anchor="w")
+        self.lbl_feat_prereq.pack(fill=tk.X, pady=(0, 4))
+
+        self.feat_stat_frame = ttk.Frame(f_feat)
+        ttk.Label(self.feat_stat_frame, text="Bonus +1 Caratteristica (Half-Feat):").pack(side=tk.LEFT)
+        self.asi_feat_stat_choice = ttk.Combobox(self.feat_stat_frame, values=[], width=20, state="readonly")
+        self.asi_feat_stat_choice.pack(side=tk.LEFT, padx=6)
+        self.asi_feat_stat_choice.bind("<<ComboboxSelected>>", lambda e: self.asi_choice_var.set("feat"))
+        self.lbl_feat_stat_hint = ttk.Label(self.feat_stat_frame, text="", font=("Segoe UI", 8))
+        self.lbl_feat_stat_hint.pack(side=tk.LEFT, padx=4)
+
         self.txt_feat_preview = tk.Text(f_feat, wrap=tk.WORD, height=4, font=("Segoe UI", 9))
         self.txt_feat_preview.pack(fill=tk.BOTH, expand=True)
         self.txt_feat_preview.configure(state="disabled")
@@ -628,16 +639,52 @@ class LevelUpDialog(tk.Toplevel):
     def _on_feat_selected(self, event=None):
         if not hasattr(self, "asi_feat_choice"):
             return
+        from common.feats_and_classes import (
+            check_feat_prerequisites,
+            get_feat_ability_choices,
+            get_half_feat_spec,
+        )
         fname = self.asi_feat_choice.get()
         matched = [f for f in STANDARD_5E_FEATS_CATALOG if f["name"] == fname]
+        f_obj = matched[0] if matched else {"name": fname, "prerequisite": "Nessuno", "desc": "", "source": "D&D 5e"}
+        ok_req, req_msg = check_feat_prerequisites(self.character, f_obj)
+        if hasattr(self, "lbl_feat_prereq"):
+            if ok_req:
+                self.lbl_feat_prereq.config(text="✅ Prerequisiti soddisfatti", fg="#2ECC71")
+            else:
+                self.lbl_feat_prereq.config(text=f"⛔ {req_msg}", fg="#E74C3C")
+
+        if hasattr(self, "feat_stat_frame") and hasattr(self, "asi_feat_stat_choice"):
+            choices = get_feat_ability_choices(fname)
+            spec = get_half_feat_spec(fname)
+            if choices:
+                attrs = getattr(self.character, "attributes", {}) or {}
+                opts = [f"{s} (attuale: {attrs.get(s, 10)})" for s in choices]
+                self.asi_feat_stat_choice["values"] = opts
+                default_idx = next((idx for idx, s in enumerate(choices) if int(attrs.get(s, 10) or 10) < 20), 0)
+                self.asi_feat_stat_choice.set(opts[default_idx])
+                if hasattr(self, "lbl_feat_stat_hint"):
+                    self.lbl_feat_stat_hint.config(
+                        text="(+ Competenza TS)" if spec and spec.get("grants_save_prof") else ""
+                    )
+                if not self.feat_stat_frame.winfo_ismapped():
+                    self.feat_stat_frame.pack(fill=tk.X, pady=(0, 4), before=self.txt_feat_preview)
+            else:
+                self.asi_feat_stat_choice["values"] = []
+                self.asi_feat_stat_choice.set("")
+                if hasattr(self, "lbl_feat_stat_hint"):
+                    self.lbl_feat_stat_hint.config(text="")
+                if self.feat_stat_frame.winfo_ismapped():
+                    self.feat_stat_frame.pack_forget()
+
         if matched and hasattr(self, "txt_feat_preview"):
-            f = matched[0]
             self.txt_feat_preview.configure(state="normal")
             self.txt_feat_preview.delete("1.0", tk.END)
-            prereq = f.get("prerequisite", "Nessuno")
-            desc = f.get("desc", "")
-            src = f.get("source", "D&D 5e")
-            self.txt_feat_preview.insert(tk.END, f"Requisito: {prereq} | Fonte: {src}\n{desc}")
+            prereq = f_obj.get("prerequisite", "Nessuno")
+            desc = f_obj.get("desc", "")
+            src = f_obj.get("source", "D&D 5e")
+            status_hdr = "" if ok_req else f"[NON IDONEO: {req_msg}]\n"
+            self.txt_feat_preview.insert(tk.END, f"{status_hdr}Requisito: {prereq} | Fonte: {src}\n{desc}")
             self.txt_feat_preview.configure(state="disabled")
 
     def _on_multiclass_selected(self, event=None):
@@ -984,6 +1031,14 @@ class LevelUpDialog(tk.Toplevel):
                 if s1_chk == s2_chk:
                     messagebox.showwarning("Selezione Non Valida", _t("prog_asi_dual_error"), parent=self)
                     return
+            elif mode_val == "feat" and hasattr(self, "asi_feat_choice"):
+                from common.feats_and_classes import check_feat_prerequisites
+                fname_chk = self.asi_feat_choice.get()
+                matched_chk = [f for f in STANDARD_5E_FEATS_CATALOG if f["name"] == fname_chk]
+                ok_f, reason_f = check_feat_prerequisites(self.character, matched_chk[0] if matched_chk else fname_chk)
+                if not ok_f:
+                    messagebox.showwarning("Prerequisiti Talento Non Soddisfatti", reason_f, parent=self)
+                    return
 
         # 1. Punti Ferita (con clamping RAW 1..hit_die sul tiro del dado)
         try:
@@ -1040,13 +1095,11 @@ class LevelUpDialog(tk.Toplevel):
                 return
         else:
             self.character.level += 1
+            if hasattr(self.character, "hit_dice_total"):
+                self.character.hit_dice_total = self.character.level
+                self.character.hit_dice_current = getattr(self.character, "hit_dice_current", 0) + 1
         self.character.hp_max += total_hp_inc
         self.character.hp_current += total_hp_inc
-
-        # Incremento Dadi Vita
-        if hasattr(self.character, "hit_dice_total"):
-            self.character.hit_dice_total = self.character.level
-            self.character.hit_dice_current = getattr(self.character, "hit_dice_current", 0) + 1
 
         # 3. Privilegi di Classe & Sottoclasse
         if self.new_features:
@@ -1103,9 +1156,19 @@ class LevelUpDialog(tk.Toplevel):
                         self.character.hp_max += extra_hp
                         self.character.hp_current += extra_hp
             elif mode_val == "feat" and hasattr(self, "asi_feat_choice"):
+                from common.feats_and_classes import apply_half_feat_bonus
                 feat_name = self.asi_feat_choice.get()
                 matched = [f for f in STANDARD_5E_FEATS_CATALOG if f["name"] == feat_name]
                 feat_desc = matched[0].get("desc", "") if matched else ""
+                chosen_hf_stat = None
+                if hasattr(self, "asi_feat_stat_choice") and self.asi_feat_stat_choice.get().strip():
+                    chosen_hf_stat = self.asi_feat_stat_choice.get().split()[0].upper()
+                hf_res = apply_half_feat_bonus(self.character, feat_name, chosen_stat=chosen_hf_stat)
+                if hf_res.get("applied") and hf_res.get("stat"):
+                    note_parts = [f"+1 {hf_res['stat']} -> {hf_res['new_val']}"]
+                    if hf_res.get("save_prof_added"):
+                        note_parts.append(f"+Competenza TS {hf_res['save_prof_added']}")
+                    feat_desc = f"[{' | '.join(note_parts)}]\n{feat_desc}".strip()
                 feat_entry = f"Talento: {feat_name}\n{feat_desc}"
                 if hasattr(self.character, "features") and self.character.features:
                     self.character.features += f"\n\n--- Talento (Livello {self.character.level}) ---\n{feat_entry}"

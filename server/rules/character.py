@@ -402,7 +402,7 @@ def handle_update_full_sheet_request(data, player, game_state):
                 char_data["max_hp"] = char_data["hp_max"]
 
                 if preserve_reconnect:
-                    for dict_k in ("spell_slots", "pact_slots", "class_resources"):
+                    for dict_k in ("spell_slots", "pact_slots", "class_resources", "hit_dice_pools"):
                         if isinstance(existing_sheet.get(dict_k), dict):
                             char_data[dict_k] = copy.deepcopy(existing_sheet[dict_k])
                     if isinstance(existing_sheet.get("custom_resources"), list):
@@ -458,6 +458,21 @@ def handle_update_full_sheet_request(data, player, game_state):
                                 char_data[sc_k] = max(0, min(s_v, c_v))
                             except (ValueError, TypeError):
                                 char_data[sc_k] = existing_sheet[sc_k]
+                    if isinstance(existing_sheet.get("hit_dice_pools"), dict):
+                        from common.character_schema import sync_hit_dice_pools
+                        srv_pools = existing_sheet["hit_dice_pools"]
+                        cli_pools = char_data.get("hit_dice_pools")
+                        if isinstance(cli_pools, dict):
+                            merged_pools = {}
+                            for dk, sv_p in srv_pools.items():
+                                if isinstance(sv_p, dict):
+                                    s_tot = int(sv_p.get("total", 0) or 0)
+                                    s_cur = int(sv_p.get("current", s_tot) or 0)
+                                    c_p = cli_pools.get(dk, {})
+                                    c_cur = int(c_p.get("current", s_cur) or 0) if isinstance(c_p, dict) else s_cur
+                                    merged_pools[dk] = {"total": s_tot, "current": max(0, min(s_cur, c_cur))}
+                            char_data["hit_dice_pools"] = merged_pools
+                        sync_hit_dice_pools(char_data, allow_scalar_override=True)
                     if "spell_points_max" in existing_sheet and existing_sheet["spell_points_max"] is not None:
                         char_data["spell_points_max"] = existing_sheet["spell_points_max"]
                     if "exhaustion_level" in existing_sheet and existing_sheet["exhaustion_level"] is not None:
@@ -998,12 +1013,10 @@ def _apply_player_long_rest(p, game_state):
         p.full_sheet["exhaustion_level"] = p.exhaustion_level
         p.full_sheet["temp_hp"] = 0
         p.full_sheet["conditions"] = list(conds)
-        # D&D 5e RAW: Ripristina metà dei Dadi Vita (minimo 1)
-        lvl = int(p.full_sheet.get("level", 1) or 1)
+        # D&D 5e RAW: Ripristina metà dei Dadi Vita (minimo 1), inclusi pool multiclasse
+        from common.character_schema import recover_hit_dice_pools
         _hd_frac = _sleep_res["hd_fraction"] if "_sleep_res" in locals() else 0.5
-        hd_rec = max(1, int(lvl * _hd_frac)) if _hd_frac < 0.5 else max(1, lvl // 2)
-        cur_hd = int(p.full_sheet.get("hit_dice_current", lvl) or 0)
-        p.full_sheet["hit_dice_current"] = min(lvl, cur_hd + hd_rec)
+        recover_hit_dice_pools(p.full_sheet, fraction=_hd_frac)
         # Talento Fortunato (Lucky, PHB p. 167): ricarica 3 Punti Fortuna
         p.full_sheet["lucky_points"] = 3
         # Mago Abiuratore: ripristina Interdizione Arcana al massimo
