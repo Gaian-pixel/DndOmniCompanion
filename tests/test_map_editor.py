@@ -556,6 +556,55 @@ class TestMapEditor(unittest.TestCase):
         self.assertEqual(self.editor.teleports[Hex(2, 1)], "cripta.json")
         self.assertEqual(self.editor.room_pins[Hex(3, 1)]["title"], "Ingresso")
 
+    def test_task039_load_base_image_clears_stale_bg_and_removed_spawn_stays_deleted(self):
+        with tempfile.TemporaryDirectory() as tmpd:
+            img1 = os.path.join(tmpd, "bg1.png")
+            img2 = os.path.join(tmpd, "bg2.png")
+            map1 = os.path.join(tmpd, "map1.json")
+            map2 = os.path.join(tmpd, "map2.json")
+            Image.new("RGB", (64, 64), color="red").save(img1)
+            Image.new("RGB", (96, 96), color="blue").save(img2)
+
+            initial_payload = {
+                "grid_type": "square",
+                "hex_size": 30,
+                "hexes": [[0, 0], [1, 0]],
+                "spawn_point": [1, 0],
+                "bg_image_data": "STALE_BASE64_BLOB",
+                "bg_image_hash": "stale_hash_123",
+            }
+            with open(map1, "w", encoding="utf-8") as f:
+                json.dump(initial_payload, f)
+
+            with patch("tkinter.filedialog.askopenfilename", return_value=map1), \
+                 patch("server.map_editor.messagebox.showinfo"), \
+                 patch("server.map_editor.messagebox.showerror"), \
+                 patch("server.map_editor.messagebox.showwarning"), \
+                 patch("tkinter.messagebox.showinfo"):
+                self.editor.load_map_file()
+            self.assertEqual(self.editor.spawn_point, [1, 0])
+
+            # Replace base image & clear spawn_point, then save
+            with patch("tkinter.filedialog.askopenfilename", return_value=img2), \
+                 patch("server.map_editor.messagebox.askyesno", return_value=False), \
+                 patch("server.map_editor.messagebox.showinfo"), \
+                 patch("tkinter.messagebox.askyesno", return_value=False):
+                self.editor.load_base_image()
+            self.assertNotIn("bg_image_data", self.editor._preserved_map_metadata)
+            self.assertNotIn("bg_image_hash", self.editor._preserved_map_metadata)
+
+            self.editor.spawn_point = None
+            with patch("tkinter.filedialog.asksaveasfilename", return_value=map2), \
+                 patch("server.map_editor.messagebox.showinfo"), \
+                 patch("server.map_editor.messagebox.showerror"), \
+                 patch("tkinter.messagebox.showinfo"):
+                self.editor.save_map()
+
+            with open(map2, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+            self.assertNotIn("spawn_point", saved)
+            self.assertNotEqual(saved.get("bg_image_data"), "STALE_BASE64_BLOB")
+
 
 if __name__ == "__main__":
     unittest.main()

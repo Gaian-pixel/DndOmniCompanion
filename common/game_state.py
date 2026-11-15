@@ -1300,7 +1300,7 @@ class GameState:
         self._trigger_gui_update()
 
     def create_map(self, map_name: str, cols: int = 20, rows: int = 15, grid_type: str = "hex",
-                   hex_size: int = 35, map_scale_type: str = "combat", outdoor: bool = True,
+                   hex_size: int = 30, map_scale_type: str = "combat", outdoor: bool = True,
                    activate: bool = True) -> dict:
         """Crea una nuova mappa vuota con griglia configurabile e la registra nella sessione."""
         cols = max(1, min(120, int(cols or 20)))
@@ -1310,7 +1310,7 @@ class GameState:
         new_map = {
             "name": map_id,
             "grid_type": g_type,
-            "hex_size": max(15, int(hex_size or 35)),
+            "hex_size": max(15, int(hex_size or 30)),
             "map_scale_type": map_scale_type or "combat",
             "outdoor": bool(outdoor),
             "hex_border_color": "#475569",
@@ -1379,10 +1379,44 @@ class GameState:
                     k: v for k, v in cur["pois"].items()
                     if "," not in str(k) or tuple(int(x) for x in str(k).split(",")[:2]) in valid
                 }
+            for ent_key in ("doors", "lights", "traps", "loots", "room_pins"):
+                if isinstance(cur.get(ent_key), list):
+                    cur[ent_key] = [
+                        e for e in cur[ent_key]
+                        if not isinstance(e, dict)
+                        or not (isinstance(e.get("q"), int) and isinstance(e.get("r"), int))
+                        or (e["q"], e["r"]) in valid
+                    ]
+            if isinstance(cur.get("teleports"), dict):
+                clean_tps = {}
+                for k, v in cur["teleports"].items():
+                    if "," in str(k):
+                        try:
+                            tq, tr = [int(x.strip()) for x in str(k).split(",")[:2]]
+                            if (tq, tr) not in valid:
+                                continue
+                        except (ValueError, TypeError):
+                            pass
+                    clean_tps[k] = v
+                cur["teleports"] = clean_tps
+            sp = cur.get("spawn_point")
+            if isinstance(sp, (list, tuple)) and len(sp) >= 2:
+                try:
+                    cur["spawn_point"] = [max(min_q, min(max_q, int(sp[0]))), max(min_r, min(max_r, int(sp[1])))]
+                except (ValueError, TypeError):
+                    cur["spawn_point"] = [min_q, min_r]
+            else:
+                cur["spawn_point"] = [min_q, min_r]
             if isinstance(cur.get("fow_revealed"), list):
                 cur["fow_revealed"] = [h for h in cur["fow_revealed"] if len(h) >= 2 and (h[0], h[1]) in valid]
             cur["fow_draft"] = list(cur.get("fow_revealed", []))
-            self._place_tokens_around_spawn(cur, self.players)
+            out_of_bounds_players = []
+            for p_ent in self.players:
+                p_pos = getattr(p_ent, "position", None)
+                if not isinstance(p_pos, (list, tuple)) or len(p_pos) < 2 or (p_pos[0], p_pos[1]) not in valid:
+                    out_of_bounds_players.append(p_ent)
+            if out_of_bounds_players:
+                self._place_tokens_around_spawn(cur, out_of_bounds_players)
             cur_copy = dict(cur)
         self._trigger_gui_update()
         from common.protocol import make_map_data_update_broadcast, make_game_state
@@ -1541,6 +1575,44 @@ class GameState:
                 (getattr(p, "owner", None) == player_name and getattr(p, "is_companion", False))
             ]
 
+    @staticmethod
+    def sanitize_player_for_players(p) -> dict:
+        """Restituisce `to_dict()` di un Player rimuovendo segreti e note DM per la vista giocatori."""
+        p_dict = dict(p) if isinstance(p, dict) else p.to_dict()
+        if isinstance(p, dict):
+            is_party = bool(p.get("is_party_member", False) or p.get("is_companion", False))
+        else:
+            is_party = bool(getattr(p, "is_party_member", False) or getattr(p, "is_companion", False))
+        if isinstance(p_dict.get("full_sheet"), dict):
+            p_dict["full_sheet"] = dict(p_dict["full_sheet"])
+            p_dict["full_sheet"].pop("secret", None)
+            p_dict["full_sheet"].pop("dm_notes", None)
+            for txt_k in ("notes", "desc", "description"):
+                raw_txt = p_dict["full_sheet"].get(txt_k)
+                if isinstance(raw_txt, str) and ("SEGRETO DM" in raw_txt.upper() or "DM SECRET" in raw_txt.upper() or "[DM" in raw_txt.upper()):
+                    cleaned = re.sub(
+                        r"(?ims)(?:^|\n)\s*(?:\[?\s*SEGRETO\s+DM[^\n]*\]?.*(?:\n(?!\s*$).*)*|\[?\s*DM\s+SECRET[^\n]*\]?.*(?:\n(?!\s*$).*)*)",
+                        "",
+                        raw_txt,
+                    ).strip()
+                    p_dict["full_sheet"][txt_k] = cleaned
+            if not is_party:
+                for priv_k in ("special_abilities", "legendary_actions_details", "reactions_details", "features", "actions"):
+                    p_dict["full_sheet"].pop(priv_k, None)
+        return p_dict
+
+    def get_player_safe_players_list(self, cur_map_override=None) -> list:
+        """Restituisce l'elenco di token visibili e sanitizzati per i client non-DM."""
+        from common.network_utils import _extract_rev_set, is_entity_visible_to_players
+        cur_map = cur_map_override if cur_map_override is not None else self.current_map
+        rev_set = _extract_rev_set(cur_map) if isinstance(cur_map, dict) else set()
+        players_data = []
+        for p in self.players:
+            if not is_entity_visible_to_players(p, cur_map, game_state=self, rev_set=rev_set):
+                continue
+            players_data.append(self.sanitize_player_for_players(p))
+        return players_data
+
     def get_state_dict(self, is_dm=False):
         """Restituisce una rappresentazione dell'intero stato del gioco come dizionario."""
         with self.lock:
@@ -1552,36 +1624,10 @@ class GameState:
                     if isinstance(h, (list, tuple)) and len(h) >= 2:
                         revealed_set.add((h[0], h[1]))
 
-            players_data = []
-            for p in self.players:
-                if not is_dm:
-                    if getattr(p, "layer", "token") == "gm" or getattr(p, "is_hidden", False) or getattr(p, "in_pocket_dimension", False):
-                        continue
-                    is_party = getattr(p, "is_party_member", False) or getattr(p, "is_companion", False) or getattr(p, "conn", None) is not None
-                    if fow_enabled and not is_party:
-                        pos = getattr(p, "position", None)
-                        if not pos or (pos[0], pos[1]) not in revealed_set:
-                            continue
-
-                p_dict = p.to_dict()
-                if not is_dm and p_dict.get("full_sheet"):
-                    # Rimuovi segreti confidenziali e note DM dai payload inviati ai giocatori
-                    p_dict["full_sheet"] = dict(p_dict["full_sheet"])
-                    p_dict["full_sheet"].pop("secret", None)
-                    p_dict["full_sheet"].pop("dm_notes", None)
-                    for txt_k in ("notes", "desc", "description"):
-                        raw_txt = p_dict["full_sheet"].get(txt_k)
-                        if isinstance(raw_txt, str) and ("SEGRETO DM" in raw_txt.upper() or "DM SECRET" in raw_txt.upper() or "[DM" in raw_txt.upper()):
-                            cleaned = re.sub(
-                                r"(?ims)(?:^|\n)\s*(?:\[?\s*SEGRETO\s+DM[^\n]*\]?.*(?:\n(?!\s*$).*)*|\[?\s*DM\s+SECRET[^\n]*\]?.*(?:\n(?!\s*$).*)*)",
-                                "",
-                                raw_txt,
-                            ).strip()
-                            p_dict["full_sheet"][txt_k] = cleaned
-                    if not getattr(p, "is_party_member", False) and not getattr(p, "is_companion", False):
-                        for priv_k in ["special_abilities", "legendary_actions_details", "reactions_details", "features", "actions"]:
-                            p_dict["full_sheet"].pop(priv_k, None)
-                players_data.append(p_dict)
+            if is_dm:
+                players_data = [p.to_dict() for p in self.players]
+            else:
+                players_data = self.get_player_safe_players_list()
 
             curr_turn = self.get_current_turn_player()
             turn_name = curr_turn.name if curr_turn else None

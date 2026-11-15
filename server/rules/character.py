@@ -113,7 +113,15 @@ def handle_update_stats_request(data, player, game_state):
                     target.full_sheet["temp_hp"] = target.temp_hp
                     target.full_sheet["conditions"] = list(target.conditions)
                 from server.rules.movement import auto_explore_fow
-                pending_fow_map = bool(auto_explore_fow(target, game_state))
+                _is_party_tgt = (not getattr(target, "is_npc", False)) and (
+                    bool(
+                        getattr(target, "is_party_member", False)
+                        or getattr(target, "is_companion", False)
+                        or getattr(target, "conn", None) is not None
+                    )
+                    or (target is player)
+                )
+                pending_fow_map = bool(auto_explore_fow(target, game_state)) if _is_party_tgt else False
                 stats_payload = make_player_stats_update(
                     target.name, target.hp, target.max_hp, target.initiative,
                     list(target.conditions), target.temp_hp,

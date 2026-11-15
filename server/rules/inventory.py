@@ -125,17 +125,48 @@ def handle_give_item_request(data, player, game_state):
     broadcast(game_state, make_game_state(game_state.get_state_dict()))
 
 def handle_take_loot_request(data, player, game_state):
+    from common.network_utils import is_dm_actor
+    from common.hex_utils import Hex, grid_distance, has_line_of_sight
+    from common.i18n import is_condition_active
+
     q = data.get('q')
     r = data.get('r')
     if q is None or r is None or not getattr(game_state, 'current_map', None):
         return
-        
+
+    is_dm = is_dm_actor(player)
+    if not is_dm and player is not None:
+        conds = getattr(player, "conditions", []) or []
+        incap = ("Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto", "Incapacitato")
+        if getattr(player, "hp", 1) <= 0 or any(is_condition_active(conds, c) for c in incap):
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply("Sei incapacitato e non puoi raccogliere il bottino."))
+            return
+        pos = getattr(player, "position", None)
+        if pos and len(pos) >= 2:
+            cur_map = game_state.current_map
+            g_type = cur_map.get("grid_type", "hex") if isinstance(cur_map, dict) else "hex"
+            dist = grid_distance(Hex(pos[0], pos[1]), Hex(q, r), grid_type=g_type)
+            if dist > 1.5:
+                if getattr(player, "conn", None):
+                    send_message(player.conn, make_error_reply("Sei troppo lontano dal forziere per raccoglierlo (devi essere sulla cella o adiacente)!"))
+                return
+            if dist > 0.5 and isinstance(cur_map, dict):
+                walls = cur_map.get("walls", [])
+                doors = cur_map.get("doors", [])
+                if not has_line_of_sight(Hex(pos[0], pos[1]), Hex(q, r), walls, doors, grid_type=g_type):
+                    if getattr(player, "conn", None):
+                        send_message(player.conn, make_error_reply("Un muro o una porta chiusa blocca la visuale sul bottino!"))
+                    return
+
     found = None
     loot_entry = None
     with game_state.lock:
         loots = game_state.current_map.get('loots', [])
         for l in loots:
             if l['q'] == q and l['r'] == r:
+                if not is_dm and l.get("hidden", False):
+                    continue
                 found = l
                 break
                 

@@ -735,6 +735,9 @@ class MapEditorWindow(tk.Toplevel):
             return
         self.base_image_path = file_path
         self.base_image_original = Image.open(file_path)
+        if isinstance(getattr(self, "_preserved_map_metadata", None), dict):
+            self._preserved_map_metadata.pop("bg_image_data", None)
+            self._preserved_map_metadata.pop("bg_image_hash", None)
         
         self.zoom_level = 1.0
         self.pan_offset_x = 0.0
@@ -953,6 +956,8 @@ class MapEditorWindow(tk.Toplevel):
         })
         if self.spawn_point is not None:
             map_data["spawn_point"] = list(self.spawn_point)
+        else:
+            map_data.pop("spawn_point", None)
         if not map_data.get("bg_image_data") and self.base_image_original is not None:
             if not self.base_image_path or not os.path.exists(self.base_image_path):
                 buf = BytesIO()

@@ -899,6 +899,201 @@ class TestBattlemapInteractionAndEditorTask028(unittest.TestCase):
             if canvas.winfo_exists():
                 canvas.destroy()
 
+    def test_task039_fow_broadcast_redacts_secrets_and_transition_syncs_ghosts(self):
+        gs = GameState(queue.Queue())
+        gs.current_map = {
+            "name": "Cripta",
+            "grid_type": "hex",
+            "hex_size": 30,
+            "map_scale_type": "combat",
+            "fow_enabled": True,
+            "fow_revealed": [[0, 0], [1, 0]],
+            "walls": [],
+            "doors": [],
+        }
+        hero = Player("Valen", conn=object())
+        hero.position = [0, 0]
+        hero.is_party_member = True
+        goblin = Player("Goblin", None, None)
+        goblin.position = [1, 0]
+        goblin.is_party_member = False
+        goblin.avatar_b64 = "ZmFrZV9hdmF0YXJfMTIz"
+        goblin.full_sheet = {
+            "dm_notes": "Agguato segreto",
+            "secret": "Chiave nella scarpa",
+            "actions": [{"name": "Scimitarra", "attack_bonus": 4}],
+        }
+        gs.players = [hero, goblin]
+
+        delivered = []
+        with patch("common.network_utils.send_message", side_effect=lambda c, m: delivered.append(m)):
+            broadcast(gs, make_fow_update_broadcast([[0, 0], [1, 0]], [[0, 0], [1, 0], [5, 5]], fow_enabled=True))
+            fow1 = delivered[-1]["data"]
+            self.assertEqual(fow1["fow_draft"], [])
+            g_dict = next(p for p in fow1["players"] if p["name"] == "Goblin")
+            self.assertNotIn("dm_notes", g_dict["full_sheet"])
+            self.assertNotIn("secret", g_dict["full_sheet"])
+            self.assertNotIn("actions", g_dict["full_sheet"])
+            self.assertEqual(g_dict.get("avatar_b64"), "ZmFrZV9hdmF0YXJfMTIz")
+
+            # Second FOW broadcast must deduplicate identical avatar_b64 per recipient
+            broadcast(gs, make_fow_update_broadcast([[0, 0], [1, 0]], [], fow_enabled=True))
+            fow2 = delivered[-1]["data"]
+            g_dict2 = next(p for p in fow2["players"] if p["name"] == "Goblin")
+            self.assertIsNone(g_dict2.get("avatar_b64"))
+            self.assertTrue(g_dict2.get("avatar_cached"))
+            self.assertTrue(g_dict2.get("avatar_hash"))
+
+        # Moving visible enemy out into fog emits PLAYER_LEFT so client clears ghost token;
+        # moving hidden enemy back into light emits PLAYER_JOINED before PLAYER_MOVE.
+        goblin.position = [1, 0]
+        mv_msgs = []
+        with patch("server.rules.movement.broadcast", side_effect=lambda _gs, m: mv_msgs.append(m)), \
+             patch("common.network_utils.send_message"):
+            handle_move_request({"to": [4, 4], "is_dm_force": True}, goblin, gs)
+            self.assertTrue(any(m.get("type") == "PLAYER_LEFT" and m["data"]["name"] == "Goblin" for m in mv_msgs))
+            mv_msgs.clear()
+            handle_move_request({"to": [1, 0], "is_dm_force": True}, goblin, gs)
+            self.assertTrue(any(m.get("type") == "PLAYER_JOINED" and m["data"]["name"] == "Goblin" for m in mv_msgs))
+
+    def test_task039_combat_map_move_square_diagonal_corners_and_teleport_hazards(self):
+        gs = GameState(queue.Queue())
+        gs.create_map("Arena", cols=6, rows=6, grid_type="square")
+        hero = Player("Aria", conn=object())
+        hero.position = [0, 0]
+        hero.hp = 30
+        hero.max_hp = 30
+        hero.is_party_member = True
+        gs.players = [hero]
+
+        with patch("server.rules.movement.broadcast"), patch("server.rules.movement.send_message"):
+            handle_move_request({"to": [1, 0]}, hero, gs)
+            self.assertEqual(hero.position, [1, 0])
+
+            # Two orthogonal walls at (2,0) and (1,1) block square diagonal squeeze (1,0)->(2,1)
+            gs.current_map["walls"] = [[2, 0], [1, 1]]
+            err_msgs = []
+            with patch("server.rules.movement.send_message", side_effect=lambda c, m: err_msgs.append(m)):
+                handle_move_request({"to": [2, 1]}, hero, gs)
+            self.assertEqual(hero.position, [1, 0])
+            self.assertTrue(any(m.get("type") in ("ERROR", "ERROR_REPLY") for m in err_msgs))
+
+            # Teleporting bypasses intermediate wall & diagonal squeeze, skips traps on traversed cells,
+            # and does NOT trigger Spike Growth damage
+            gs.current_map["traps"] = [{"q": 2, "r": 0, "dc": 15, "damage": "2d10", "triggered": False}]
+            gs.active_aoes = [{"spell_key": "spike_growth", "center": [1, 0], "radius_hex": 2}]
+            handle_move_request({"to": [3, 0], "is_teleport": True}, hero, gs)
+            self.assertEqual(hero.position, [3, 0])
+            self.assertEqual(hero.hp, 30)
+            self.assertFalse(gs.current_map["traps"][0]["triggered"])
+
+    def test_task039_authority_loot_secret_door_cover_and_tooltip_secrecy(self):
+        from server.rules.inventory import handle_take_loot_request
+        from server.rules.map_interaction import handle_toggle_cover_request
+
+        gs = GameState(queue.Queue())
+        gs.current_map = {
+            "grid_type": "hex",
+            "hex_size": 30,
+            "walls": [],
+            "doors": [{"q": 1, "r": 0, "state": "secret", "discovered": False, "name": "Passaggio"}],
+            "loots": [{"q": 5, "r": 0, "item": "Forziere", "qty": 1, "contents": {"wallet": {"MO": 50}, "items": []}}],
+        }
+        rogue = Player("Lyra", conn=object())
+        rogue.position = [0, 0]
+        rogue.hp = 20
+        rogue.full_sheet = {"inventory_grid": [None] * 25, "currency": {"MO": 0}, "wallet": {"MO": 0}, "gp": "0"}
+        gs.players = [rogue]
+
+        errs = []
+        with patch("server.rules.inventory.send_message", side_effect=lambda c, m: errs.append(m)), \
+             patch("server.rules.map_interaction.send_message", side_effect=lambda c, m: errs.append(m)), \
+             patch("server.rules.inventory.broadcast"), \
+             patch("server.rules.map_interaction.broadcast"):
+            # Distant loot rejected
+            handle_take_loot_request({"q": 5, "r": 0}, rogue, gs)
+            self.assertEqual(len(gs.current_map["loots"]), 1)
+            self.assertEqual(rogue.full_sheet["currency"]["MO"], 0)
+            # Undiscovered secret door cannot be toggled by player
+            handle_toggle_door_request({"q": 1, "r": 0}, rogue, gs)
+            self.assertEqual(gs.current_map["doors"][0]["state"], "secret")
+            # Invalid cover_type rejected even for DM
+            handle_toggle_cover_request({"q": 1, "r": 1, "cover_type": "hacked_key"}, None, gs)
+            self.assertNotIn("hacked_key", gs.current_map)
+
+        # Hover tooltip hides exact enemy HP/AC/dice when viewer is a non-DM player
+        root = getattr(self, "root", None)
+        created_root = False
+        if root is None:
+            root = tk.Tk()
+            root.withdraw()
+            created_root = True
+        canvas = HexMapCanvas(root, width=320, height=240)
+        try:
+            canvas.is_dm = False
+            canvas.player_name = "Lyra"
+            canvas.update_data(
+                {"hexes": [[0, 0], [1, 0]], "hex_size": 30, "grid_type": "hex"},
+                {
+                    "Goblin": {
+                        "position": [1, 0],
+                        "hp": 3,
+                        "max_hp": 7,
+                        "ac": 15,
+                        "conditions": ["Avvelenato"],
+                        "full_sheet": {"actions": [{"name": "Pugnale", "attack_bonus": 4, "damage_dice": "1d4+2"}]},
+                    }
+                },
+            )
+            class _Ev:
+                x = 50
+                y = 50
+            canvas._update_hover_tooltip(_Ev(), "Goblin")
+            texts = [w.cget("text") for w in canvas.hover_tooltip.winfo_children()[0].winfo_children() if isinstance(w, tk.Label)]
+            joined = "\n".join(texts)
+            self.assertNotIn("3/7", joined)
+            self.assertNotIn("CA: 15", joined)
+            self.assertNotIn("Pugnale", joined)
+            self.assertIn("Gravemente Ferito", joined)
+            self.assertIn("Avvelenato", joined)
+        finally:
+            if getattr(canvas, "hover_tooltip", None):
+                canvas.hover_tooltip.destroy()
+            canvas.destroy()
+            if created_root:
+                root.destroy()
+
+    def test_task039_resize_current_map_prunes_all_entities_and_keeps_inbounds_tokens(self):
+        gs = GameState(queue.Queue())
+        gs.create_map("Dungeon", cols=6, rows=6, grid_type="hex")
+        gs.current_map["doors"] = [{"q": 1, "r": 1, "state": "closed"}, {"q": 5, "r": 5, "state": "open"}]
+        gs.current_map["lights"] = [{"q": 0, "r": 0, "bright": 4}, {"q": 5, "r": 4, "bright": 4}]
+        gs.current_map["traps"] = [{"q": 2, "r": 2}, {"q": 4, "r": 5}]
+        gs.current_map["loots"] = [{"q": 1, "r": 0}, {"q": 5, "r": 1}]
+        gs.current_map["room_pins"] = [{"q": 0, "r": 1, "title": "In"}, {"q": 4, "r": 4, "title": "Out"}]
+        gs.current_map["teleports"] = {"1,1": "in.json", "5,5": "out.json"}
+        gs.current_map["spawn_point"] = [5, 5]
+
+        hero_in = Player("Kael", conn=object())
+        hero_in.position = [2, 1]
+        npc_out = Player("Scout")
+        npc_out.position = [5, 5]
+        gs.players = [hero_in, npc_out]
+
+        with patch("common.network_utils.broadcast"):
+            self.assertTrue(gs.resize_current_map(cols=3, rows=3))
+
+        self.assertEqual(len(gs.current_map["doors"]), 1)
+        self.assertEqual(len(gs.current_map["lights"]), 1)
+        self.assertEqual(len(gs.current_map["traps"]), 1)
+        self.assertEqual(len(gs.current_map["loots"]), 1)
+        self.assertEqual([p["title"] for p in gs.current_map["room_pins"]], ["In"])
+        self.assertEqual(gs.current_map["teleports"], {"1,1": "in.json"})
+        self.assertEqual(gs.current_map["spawn_point"], [2, 2])
+        self.assertEqual(hero_in.position, [2, 1])  # Preserved because still in bounds
+        self.assertLess(npc_out.position[0], 3)
+        self.assertLess(npc_out.position[1], 3)
+
 
 if __name__ == "__main__":
     unittest.main()

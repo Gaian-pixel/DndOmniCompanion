@@ -1,6 +1,6 @@
 import re
 import random
-from common.hex_utils import Hex, hex_distance, grid_distance, get_sphere_hexes, get_cube_hexes, hex_linedraw, get_cone_hexes, get_line_hexes, has_line_of_sight
+from common.hex_utils import Hex, hex_distance, grid_distance, get_sphere_hexes, get_cube_hexes, hex_linedraw, get_cone_hexes, get_line_hexes, has_line_of_sight, get_cover_between
 from common.network_utils import send_message, broadcast
 from common.protocol import (
     make_chat_broadcast,
@@ -46,11 +46,53 @@ def _is_target_within_aoe_elevation(aoe_data: dict, origin: Hex, pos_hex: Hex, t
 
 
 def handle_create_aoe_request(data, player, game_state):
+    from common.network_utils import is_dm_actor
+    from common.i18n import is_condition_active
+
     aoe_data = data.get("aoe_data")
-    if not aoe_data:
+    if not isinstance(aoe_data, dict):
         return
-        
-    aoe_data["caster"] = player.name
+    aoe_data = dict(aoe_data)
+
+    is_dm = is_dm_actor(player)
+    if not is_dm and player is not None:
+        conds = getattr(player, "conditions", []) or []
+        incap = ("Incosciente", "Paralizzato", "Pietrificato", "Stordito", "Morto", "Incapacitato")
+        if getattr(player, "hp", 1) <= 0 or any(is_condition_active(conds, c) for c in incap):
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply("Sei incapacitato e non puoi creare un'area d'effetto."))
+            return
+
+    if "origin" not in aoe_data and "center" in aoe_data:
+        aoe_data["origin"] = list(aoe_data["center"])
+    if "size" not in aoe_data and "radius_hex" in aoe_data:
+        aoe_data["size"] = aoe_data["radius_hex"]
+
+    raw_origin = aoe_data.get("origin")
+    if not isinstance(raw_origin, (list, tuple)) or len(raw_origin) < 2:
+        return
+    try:
+        origin_coords = [int(raw_origin[0]), int(raw_origin[1])]
+        size_val = max(1, min(30, int(aoe_data.get("size", 3) or 3)))
+    except (ValueError, TypeError):
+        return
+    aoe_data["origin"] = origin_coords
+    aoe_data["size"] = size_val
+
+    cur_map = getattr(game_state, "current_map", None) or {}
+    grid_type = cur_map.get("grid_type", "hex")
+    origin = Hex(origin_coords[0], origin_coords[1])
+    if not is_dm and player is not None and getattr(player, "position", None) and len(player.position) >= 2:
+        p_hex = Hex(player.position[0], player.position[1])
+        if p_hex != origin and not aoe_data.get("ignore_los", False):
+            walls = cur_map.get("walls", [])
+            doors = cur_map.get("doors", [])
+            if not has_line_of_sight(p_hex, origin, walls, doors, grid_type=grid_type):
+                if getattr(player, "conn", None):
+                    send_message(player.conn, make_error_reply("Nessuna linea d'effetto verso l'origine dell'AoE (bloccata da muro o porta chiusa)!"))
+                return
+
+    aoe_data["caster"] = player.name if player else "DM"
     # Regola D&D 5e: Gestione Concentrazione per AoE
     if aoe_data.get("concentration", False):
         from server.rules.combat import drop_concentration
@@ -124,14 +166,35 @@ def handle_create_aoe_request(data, player, game_state):
                 resolved_dmg = raw_dmg
 
     damage_type = aoe_data.get("damage_type", "Fuoco")
+    save_stat = str(aoe_data.get("stat", "DES") or "DES")
+    base_dc = int(aoe_data.get("dc", 10) or 10)
+    half_cover = cur_map.get("half_cover", []) if isinstance(cur_map, dict) else []
+    three_quarters = cur_map.get("three_quarters_cover", []) if isinstance(cur_map, dict) else []
+    is_dex_save = save_stat.upper() in ("DES", "DEX")
     for p in affected_players:
+        pos_hex = Hex(p.position[0], p.position[1])
+        cov_bonus = 0
+        cov_name = ""
+        if is_dex_save and pos_hex != origin and (half_cover or three_quarters):
+            other_creatures = [
+                op for op in getattr(game_state, "players", [])
+                if op.name != p.name and getattr(op, "position", None)
+                and getattr(op, "hp", 1) > 0 and "Morto" not in getattr(op, "conditions", [])
+                and getattr(op, "layer", "token") != "gm"
+            ]
+            cov_bonus, cov_name = get_cover_between(origin, pos_hex, half_cover, three_quarters, other_creatures, grid_type=grid_type)
+            if cov_bonus > 0:
+                game_state.log_dm_message(f"[AoE] {p.name} beneficia di {cov_name} (+{cov_bonus} al TS DES).")
+
         if hasattr(p, "conn") and p.conn:
+            eff_dc = max(1, base_dc - cov_bonus) if cov_bonus > 0 else base_dc
+            src_lbl = f"{player.name} [{cov_name} +{cov_bonus} DES]" if (player and cov_bonus > 0) else (player.name if player else "DM")
             send_message(p.conn, make_prompt_save(
-                stat=aoe_data.get("stat", "DES"),
-                dc=aoe_data.get("dc", 10),
+                stat=save_stat,
+                dc=eff_dc,
                 damage_formula=resolved_dmg,
                 half_on_success=aoe_data.get("half", True),
-                source_name=player.name,
+                source_name=src_lbl,
                 damage_type=damage_type
             ))
             game_state.log_dm_message(f"[AoE] Richiesto Tiro Salvezza a {p.name}.")
@@ -140,16 +203,14 @@ def handle_create_aoe_request(data, player, game_state):
             try:
                 from server.rules.combat import _process_save_result
                 from common.dice import roll_dice
-                stat = aoe_data.get("stat", "DES")
-                dc = aoe_data.get("dc", 10)
                 half_on_success = aoe_data.get("half", True)
-                mod = get_effective_save_bonus_from_dict(p, stat)
+                mod = get_effective_save_bonus_from_dict(p, save_stat) + cov_bonus
                 mod_str = f"+{mod}" if mod >= 0 else str(mod)
                 save_result = roll_dice(f"1d20{mod_str}")
                 roll_tot = save_result["total"]
                 is_crit = save_result["rolls"][0] == 20
                 is_fail = save_result["rolls"][0] == 1
-                _process_save_result(p.name, stat, roll_tot, is_crit, is_fail, dc, resolved_dmg, half_on_success, player.name, game_state, damage_type=damage_type, spell_school=str(aoe_data.get("school", "") or ""))
+                _process_save_result(p.name, save_stat, roll_tot, is_crit, is_fail, base_dc, resolved_dmg, half_on_success, player.name if player else "DM", game_state, damage_type=damage_type, spell_school=str(aoe_data.get("school", "") or ""))
             except Exception as e:
                 game_state.log_dm_message(f"[AoE] Errore tiro automatico TS per {p.name}: {e}")
 
@@ -213,7 +274,7 @@ def handle_toggle_cover_request(data, player, game_state):
         return
     q, r = data.get("q"), data.get("r")
     cover_type = data.get("cover_type")
-    if q is None or r is None or not cover_type:
+    if q is None or r is None or cover_type not in ("half_cover", "three_quarters_cover"):
         return
     pkt = _toggle_map_coord_list(game_state, cover_type, q, r)
     if pkt is not None:
@@ -299,6 +360,10 @@ def handle_toggle_door_request(data, player, game_state):
         return
 
     p_name = player.name if player else "Un giocatore"
+    if cur_state == "secret" and not target_door.get("discovered", False):
+        if player and getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply("Non vedi alcun passaggio o meccanismo qui."))
+        return
     if cur_state == "open":
         target_door["state"] = "closed"
         broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))

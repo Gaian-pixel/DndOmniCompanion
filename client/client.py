@@ -3196,7 +3196,27 @@ class ClientGUI(ClientNetworkHandlersMixin):
 
         if self.character_manager and self.character_manager.active_character and token_name == self.character_manager.active_character.name:
             menu.add_command(label=_t("ctx_view_sheet", default="Visualizza Scheda PG"), command=self.open_stats_dialog)
-            
+
+        doors_list = getattr(self, "local_map_data", {}).get("doors", []) if isinstance(getattr(self, "local_map_data", None), dict) else []
+        door_ctx = next((d for d in doors_list if d.get("q") == clicked_hex.q and d.get("r") == clicked_hex.r), None)
+        if door_ctx and (door_ctx.get("state") != "secret" or door_ctx.get("discovered", False)):
+            d_st = door_ctx.get("state", "closed")
+            if d_st == "open":
+                menu.add_command(
+                    label="🚪 Chiudi Porta",
+                    command=lambda q=clicked_hex.q, r=clicked_hex.r: self.network.send(make_toggle_door_request(q, r)) if self.is_connected else None,
+                )
+            elif d_st == "closed":
+                menu.add_command(
+                    label="🚪 Apri Porta",
+                    command=lambda q=clicked_hex.q, r=clicked_hex.r: self.network.send(make_toggle_door_request(q, r)) if self.is_connected else None,
+                )
+            elif d_st == "locked":
+                menu.add_command(
+                    label="🔓 Interagisci con Porta Serrata...",
+                    command=lambda d=door_ctx, hx=clicked_hex: self.open_locked_door_dialog(d, hx),
+                )
+
         def _open_priv():
             self.open_private_chat_from_list(None)
             
@@ -3381,7 +3401,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
             door_found = next((d for d in doors if d.get("q") == clicked_hex.q and d.get("r") == clicked_hex.r), None)
             if door_found:
                 door_st = door_found.get("state", "closed")
-                if door_st == "secret":
+                if door_st in ("secret", "open"):
                     self.request_move(clicked_hex)
                     return
                 elif door_st == "locked":
@@ -4652,6 +4672,11 @@ class ClientGUI(ClientNetworkHandlersMixin):
         if name in self.players_data:
             old_pos = self.players_data[name].get('position')
             self.players_data[name]['position'] = data.get('position')
+        elif isinstance(data.get("token_data"), dict):
+            self.players_data[name] = dict(data["token_data"])
+            self.players_data[name]["position"] = data.get("position")
+            if hasattr(self, "update_player_listbox"):
+                self.update_player_listbox()
         new_pos = data.get('position')
         if name == self.name and self.active_character:
             self.active_character.last_position = new_pos

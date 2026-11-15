@@ -184,15 +184,17 @@ def handle_move_request(data, player, game_state):
             if player.conn:
                 send_message(player.conn, make_error_reply("Coordinate di destinazione non valide."))
             return
-        if not is_dm and getattr(game_state, "current_map", None):
-            hex_size = game_state.current_map.get("hex_size", 60)
-            if hex_size < 40:
+        is_teleport = bool(data.get("is_teleport", False))
+        is_forced = bool(data.get("is_forced", False))
+        if not is_dm and not is_teleport and not is_forced and getattr(game_state, "current_map", None):
+            from common.i18n import get_map_scale_info
+            if get_map_scale_info(game_state.current_map).get("scale_type") in ("exploration", "world"):
                 from common.protocol import make_error_reply
                 if player.conn:
                     send_message(player.conn, make_error_reply("Mappa di esplorazione: movimento libero disabilitato. Usa il Viaggio o aspetta il DM."))
                 return
 
-        if not is_dm and not bool(data.get("is_forced", False)):
+        if not is_dm and not is_forced:
             from server.rules.reaction_magic import check_fear_source_movement_block
             fear_blocked, fear_msg = check_fear_source_movement_block(player, to_pos, game_state)
             if fear_blocked:
@@ -212,25 +214,44 @@ def handle_move_request(data, player, game_state):
             if from_pos and len(from_pos) >= 2 else None
         )
         if not is_dm and walls_list_pos and not is_incorporeal:
-            steps_to_check = move_path[1:] if move_path else [Hex(to_pos[0], to_pos[1])]
+            walls_cell_set = {
+                (w[0], w[1]) for w in walls_list_pos
+                if isinstance(w, (list, tuple)) and len(w) >= 2
+            }
+            if is_teleport:
+                steps_to_check = [Hex(to_pos[0], to_pos[1])]
+            else:
+                steps_to_check = move_path[1:] if move_path else [Hex(to_pos[0], to_pos[1])]
 
+            def _reject_wall_at(bq, br):
+                from common.protocol import make_error_reply
+                door_blocked = None
+                if getattr(game_state, "current_map", None):
+                    for d in game_state.current_map.get("doors", []):
+                        if d.get("q") == bq and d.get("r") == br and d.get("state", "closed") in ("closed", "locked", "secret"):
+                            door_blocked = d
+                            break
+                if getattr(player, "conn", None):
+                    if door_blocked:
+                        d_name = door_blocked.get("name", "Porta")
+                        d_st = "serrata a chiave" if door_blocked.get("state") == "locked" else "chiusa"
+                        send_message(player.conn, make_error_reply(f"Il percorso è bloccato: la {d_name} a [{bq}, {br}] è {d_st}! Cliccaci sopra per aprirla."))
+                    else:
+                        send_message(player.conn, make_error_reply(f"Movimento non consentito: c'è un muro sul percorso a [{bq}, {br}]!"))
+
+            prev_step = Hex(from_pos[0], from_pos[1]) if (from_pos and len(from_pos) >= 2) else None
             for step in steps_to_check:
                 if [step.q, step.r] in walls_list_pos:
-                    from common.protocol import make_error_reply
-                    door_blocked = None
-                    if getattr(game_state, "current_map", None):
-                        for d in game_state.current_map.get("doors", []):
-                            if d.get("q") == step.q and d.get("r") == step.r and d.get("state", "closed") in ("closed", "locked", "secret"):
-                                door_blocked = d
-                                break
-                    if getattr(player, "conn", None):
-                        if door_blocked:
-                            d_name = door_blocked.get("name", "Porta")
-                            d_st = "serrata a chiave" if door_blocked.get("state") == "locked" else "chiusa"
-                            send_message(player.conn, make_error_reply(f"Il percorso è bloccato: la {d_name} a [{step.q}, {step.r}] è {d_st}! Cliccaci sopra per aprirla."))
-                        else:
-                            send_message(player.conn, make_error_reply(f"Movimento non consentito: c'è un muro sul percorso a [{step.q}, {step.r}]!"))
+                    _reject_wall_at(step.q, step.r)
                     return
+                if not is_teleport and grid_type_mv == "square" and prev_step is not None:
+                    if abs(step.q - prev_step.q) == 1 and abs(step.r - prev_step.r) == 1:
+                        c1 = (step.q, prev_step.r)
+                        c2 = (prev_step.q, step.r)
+                        if c1 in walls_cell_set and c2 in walls_cell_set:
+                            _reject_wall_at(c1[0], c1[1])
+                            return
+                prev_step = step
             
         in_combat = getattr(player, "in_combat", False) or getattr(game_state, "combat_active", False)
         strict_lock = False
@@ -252,7 +273,7 @@ def handle_move_request(data, player, game_state):
                     send_message(err_conn, make_error_reply(f"Non è il tuo turno in combattimento! È il turno di {curr_turn.name}."))
                 return
 
-        if in_combat and not bool(data.get("is_forced", False)) and hasattr(player, "position") and player.position and len(player.position) >= 2:
+        if in_combat and not is_forced and not is_teleport and hasattr(player, "position") and player.position and len(player.position) >= 2:
             q1, r1 = player.position[0], player.position[1]
             q2, r2 = to_pos[0], to_pos[1]
             speed = getattr(player, "speed", 30)
@@ -581,7 +602,10 @@ def handle_move_request(data, player, game_state):
         # Gestione Trappole D&D 5e sulla mappa
         if getattr(game_state, "current_map", None):
             traps = game_state.current_map.get("traps", [])
-            path_coords = {(getattr(step, "q", step[0] if isinstance(step, (list, tuple)) else 0), getattr(step, "r", step[1] if isinstance(step, (list, tuple)) else 0)) for step in move_path} if move_path else {(to_pos[0], to_pos[1])}
+            if is_teleport:
+                path_coords = {(to_pos[0], to_pos[1])}
+            else:
+                path_coords = {(getattr(step, "q", step[0] if isinstance(step, (list, tuple)) else 0), getattr(step, "r", step[1] if isinstance(step, (list, tuple)) else 0)) for step in move_path} if move_path else {(to_pos[0], to_pos[1])}
             for trap in traps:
                 t_coord = (trap.get("q"), trap.get("r"))
                 if t_coord in path_coords and not trap.get("triggered", False):
@@ -643,8 +667,8 @@ def handle_move_request(data, player, game_state):
                     except Exception as e:
                         print(f"Errore caricamento mappa teleport {map_file}: {e}")
 
-        # Pericoli movimento da Incantesimi ad Area (es. Crescita di Spine / Spike Growth)
-        if getattr(game_state, "active_aoes", None):
+        # Pericoli movimento da Incantesimi ad Area (es. Crescita di Spine / Spike Growth) - non si applica al teletrasporto
+        if not is_teleport and getattr(game_state, "active_aoes", None):
             from common.spell_effects_engine import apply_spell_movement_hazards
             from common.protocol import make_chat_broadcast, make_player_stats_update
             haz_msgs = apply_spell_movement_hazards(player, locals().get("from_pos"), to_pos, game_state)
@@ -652,12 +676,33 @@ def handle_move_request(data, player, game_state):
                 broadcast(game_state, make_chat_broadcast("Sistema", hm))
                 broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, getattr(player, "conditions", []), getattr(player, "temp_hp", 0)))
 
+        # Sincronizzazione visibilità FoW per token non del party che entrano/escono dalla zona rivelata
+        is_party_ent = bool(
+            getattr(player, "is_party_member", False)
+            or getattr(player, "is_companion", False)
+            or getattr(player, "conn", None) is not None
+        )
+        cur_map_vis = getattr(game_state, "current_map", None)
+        if isinstance(cur_map_vis, dict) and cur_map_vis.get("fow_enabled", False):
+            if not is_party_ent and getattr(player, "layer", "token") != "gm" and not getattr(player, "is_hidden", False) and not getattr(player, "in_pocket_dimension", False):
+                from common.network_utils import _extract_rev_set
+                rev_set_vis = _extract_rev_set(cur_map_vis)
+                was_vis = bool(prev_pos and len(prev_pos) >= 2 and (prev_pos[0], prev_pos[1]) in rev_set_vis)
+                now_vis = (to_pos[0], to_pos[1]) in rev_set_vis
+                if was_vis and not now_vis:
+                    from common.protocol import make_player_left
+                    broadcast(game_state, make_player_left(player.name))
+                elif not was_vis and now_vis and hasattr(game_state, "sanitize_player_for_players"):
+                    from common.protocol import make_player_joined
+                    broadcast(game_state, make_player_joined(game_state.sanitize_player_for_players(player)))
+
         # Auto-explore FoW around the player's new position with true Line of Sight (LoS) and Dynamic Light
+        # Only party members / companions / connected players reveal FoW (monsters/NPCs must not reveal fog!)
         auto_fow = True
         if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
             auto_fow = game_state.automation_settings.get("auto_explore_fow", True)
 
-        if auto_fow and getattr(game_state, "current_map", None) and game_state.current_map.get("fow_enabled", False):
+        if auto_fow and is_party_ent and getattr(game_state, "current_map", None) and game_state.current_map.get("fow_enabled", False):
             changed = auto_explore_fow(player, game_state)
             if changed:
                 game_state._trigger_gui_update()

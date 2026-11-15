@@ -730,6 +730,9 @@ class DM_GUI(DMCampaignSessionMixin):
         self.map_canvas.on_hex_drag_callback = self._on_hex_drag_paint
         self.map_canvas.on_hex_drag_end_callback = self._on_hex_drag_paint_end
         self.map_canvas.on_tool_mode_changed_callback = self._on_canvas_tool_mode_changed
+        self.map_canvas.set_on_wall_toggle_callback(self._on_dm_wall_toggle)
+        self.map_canvas.set_on_cover_toggle_callback(self._on_dm_cover_toggle)
+        self.map_canvas.set_on_draw_callback(self._on_dm_draw)
 
         # --- VTT FLOATING HUD BAR (Allineata al Client Giocatore) ---
         self.vtt_hud_bar = tk.Frame(self.map_viewport_frame, bg=SURFACE_COLOR, highlightbackground=BORDER_GOLD, highlightthickness=1, padx=4, pady=3)
@@ -1239,6 +1242,50 @@ class DM_GUI(DMCampaignSessionMixin):
             self.btn_ruler.configure(style="HudActive.TButton" if getattr(self.map_canvas, "ruler_mode", False) else "Hud.TButton")
         if hasattr(self, "btn_pen") and self.btn_pen:
             self.btn_pen.configure(style="Accent.TButton" if getattr(self.map_canvas, "pen_mode", False) else "Tool.TButton")
+
+    def _on_dm_wall_toggle(self, q, r):
+        gs = getattr(getattr(self, "server", None), "game_state", None)
+        if not gs or not isinstance(getattr(gs, "current_map", None), dict):
+            return
+        from server.rules.map_interaction import handle_toggle_wall_request
+        handle_toggle_wall_request({"q": q, "r": r}, None, gs)
+        self.redraw_map_and_players()
+        if hasattr(self, "_sync_player_display_window"):
+            self._sync_player_display_window()
+
+    def _on_dm_cover_toggle(self, q, r, cover_type):
+        if cover_type not in ("half_cover", "three_quarters_cover"):
+            return
+        gs = getattr(getattr(self, "server", None), "game_state", None)
+        if not gs or not isinstance(getattr(gs, "current_map", None), dict):
+            return
+        with gs.lock:
+            cur_map = gs.current_map
+            if getattr(self.map_canvas, "map_data", None) is not cur_map:
+                lst = cur_map.setdefault(cover_type, [])
+                pos = [q, r]
+                if pos in lst:
+                    lst.remove(pos)
+                else:
+                    lst.append(pos)
+            map_snapshot = dict(cur_map)
+        gs._trigger_gui_update()
+        from common.protocol import make_map_data_update_broadcast
+        from common.network_utils import broadcast
+        broadcast(gs, make_map_data_update_broadcast(map_snapshot))
+        self.redraw_map_and_players()
+        if hasattr(self, "_sync_player_display_window"):
+            self._sync_player_display_window()
+
+    def _on_dm_draw(self, points, color):
+        gs = getattr(getattr(self, "server", None), "game_state", None)
+        if not gs:
+            return
+        from server.rules.map_interaction import handle_draw_request
+        handle_draw_request({"points": points, "color": color}, None, gs)
+        gs._trigger_gui_update()
+        if hasattr(self, "_sync_player_display_window"):
+            self._sync_player_display_window()
 
     def _on_dm_checktool_toggled(self, tool_name):
         var_map = {
@@ -2416,15 +2463,24 @@ class DM_GUI(DMCampaignSessionMixin):
         if getattr(self, "teleport_mode_var", None) and self.teleport_mode_var.get():
             pos_key = f"{clicked_hex.q},{clicked_hex.r}"
             teleports = self.server.game_state.current_map.setdefault("teleports", {})
+            tp_changed = False
             if pos_key in teleports:
                 if messagebox.askyesno("Teletrasporto", "Rimuovere questo teletrasporto?"):
                     del teleports[pos_key]
-                    self.redraw_map_and_players()
+                    tp_changed = True
             else:
                 target_map = simpledialog.askstring("Teletrasporto", "Inserisci il nome del file mappa (es. taverna.json):")
                 if target_map:
                     teleports[pos_key] = target_map
-                    self.redraw_map_and_players()
+                    tp_changed = True
+            if tp_changed:
+                self.server.game_state._trigger_gui_update()
+                self.redraw_map_and_players()
+                if hasattr(self, "_sync_player_display_window"):
+                    self._sync_player_display_window()
+                from common.protocol import make_map_data_update_broadcast
+                from common.network_utils import broadcast
+                broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
             return
             
         mode_str = self.fow_mode_var.get()

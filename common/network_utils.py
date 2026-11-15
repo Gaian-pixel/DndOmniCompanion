@@ -501,7 +501,7 @@ def prepare_per_player_state_payload(message_data: dict, player, _trust_map_hash
     if not isinstance(message_data, dict):
         return message_data
     msg_type = message_data.get("type")
-    if msg_type not in ("GAME_STATE", "MAP_DATA_UPDATE", "HANDOUT_BROADCAST", "PLAYER_JOINED"):
+    if msg_type not in ("GAME_STATE", "MAP_DATA_UPDATE", "HANDOUT_BROADCAST", "PLAYER_JOINED", "FOW_UPDATE_BROADCAST"):
         return message_data
 
     data = message_data.get("data")
@@ -536,7 +536,7 @@ def prepare_per_player_state_payload(message_data: dict, player, _trust_map_hash
             _deduplicate_handout_dict(h, sent_hashes) for h in data_copy["handouts"]
         ]
 
-    if msg_type == "GAME_STATE" and isinstance(data_copy.get("players"), list):
+    if msg_type in ("GAME_STATE", "FOW_UPDATE_BROADCAST") and isinstance(data_copy.get("players"), list):
         data_copy["players"] = [
             _deduplicate_player_dict(pl, sent_hashes) for pl in data_copy["players"]
         ]
@@ -624,13 +624,18 @@ def broadcast(game_state, message_data, exclude_player=None):
             temp_map["fow_enabled"] = fow_data["fow_enabled"]
         rev_set = _extract_rev_set(temp_map)
         if fow_data.get("players") is None:
-            fow_data["players"] = [
-                pl.to_dict() for pl in game_state.get_all_players()
-                if is_entity_visible_to_players(pl, temp_map, game_state=game_state, rev_set=rev_set)
-            ]
+            if hasattr(game_state, "get_player_safe_players_list"):
+                fow_data["players"] = game_state.get_player_safe_players_list(cur_map_override=temp_map)
+            else:
+                from common.game_state import GameState
+                fow_data["players"] = [
+                    GameState.sanitize_player_for_players(pl) for pl in game_state.get_all_players()
+                    if is_entity_visible_to_players(pl, temp_map, game_state=game_state, rev_set=rev_set)
+                ]
         else:
+            from common.game_state import GameState
             fow_data["players"] = [
-                pl for pl in fow_data["players"]
+                GameState.sanitize_player_for_players(pl) for pl in fow_data["players"]
                 if is_entity_visible_to_players(pl, temp_map, game_state=game_state, rev_set=rev_set)
             ]
         player_filtered_fow = {"type": "FOW_UPDATE_BROADCAST", "data": fow_data}
@@ -652,7 +657,7 @@ def broadcast(game_state, message_data, exclude_player=None):
     )
     shared_payload = None
     shared_pre_encoded = None
-    if msg_type not in ("GAME_STATE", "MAP_DATA_UPDATE", "HANDOUT_BROADCAST", "PLAYER_JOINED"):
+    if msg_type not in ("GAME_STATE", "MAP_DATA_UPDATE", "HANDOUT_BROADCAST", "PLAYER_JOINED", "FOW_UPDATE_BROADCAST"):
         if player_filtered_fow is not None:
             shared_payload = player_filtered_fow
         elif player_filtered_combat is not None:

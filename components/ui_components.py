@@ -1172,8 +1172,14 @@ class HexMapCanvas(tk.Canvas):
             tk.Label(card, text=f"⚔️ {token_name}", bg="#181B22", fg="#F59E0B", font=("Segoe UI", 9, "bold"), anchor="w").pack(anchor="w")
 
             if isinstance(pdata, dict):
+                is_dm_viewer = self._effective_is_dm()
+                is_friendly_viewer = (
+                    is_dm_viewer
+                    or (token_name == getattr(self, "player_name", None))
+                    or bool(pdata.get("is_party_member", False) or pdata.get("is_companion", False))
+                )
                 hp = pdata.get('hp', '?')
-                hp_max = pdata.get('hp_max', '?')
+                hp_max = pdata.get('hp_max') if pdata.get('hp_max') is not None else pdata.get('max_hp', '?')
                 temp_hp = pdata.get('temp_hp', 0) or 0
                 from common.srd_offline import normalize_ac_value, normalize_speed_value
                 raw_ac = pdata.get('ac') if pdata.get('ac') is not None else (pdata.get('full_sheet', {}) or {}).get('ac')
@@ -1182,23 +1188,38 @@ class HexMapCanvas(tk.Canvas):
                 conds = pdata.get('conditions', [])
 
                 details = []
-                if 'hp' in pdata:
-                    t_str = f" (+{temp_hp})" if temp_hp > 0 else ""
-                    details.append(f"❤️ HP: {hp}/{hp_max}{t_str}")
-                if ac is not None:
-                    details.append(f"🛡️ CA: {ac}")
-                if raw_spd is not None:
-                    _, speed_disp, _ = normalize_speed_value(raw_spd)
-                    details.append(f"👟 {speed_disp}")
+                if is_friendly_viewer:
+                    if 'hp' in pdata:
+                        t_str = f" (+{temp_hp})" if temp_hp > 0 else ""
+                        details.append(f"❤️ HP: {hp}/{hp_max}{t_str}")
+                    if ac is not None:
+                        details.append(f"🛡️ CA: {ac}")
+                    if raw_spd is not None:
+                        _, speed_disp, _ = normalize_speed_value(raw_spd)
+                        details.append(f"👟 {speed_disp}")
+                else:
+                    if isinstance(hp, (int, float)) and isinstance(hp_max, (int, float)) and hp_max > 0:
+                        ratio = hp / hp_max
+                        if hp <= 0:
+                            hp_tier = "💀 Sconfitto"
+                        elif ratio <= 0.25:
+                            hp_tier = "🩸 In Fin di Vita"
+                        elif ratio <= 0.5:
+                            hp_tier = "🩹 Gravemente Ferito"
+                        elif ratio < 1.0:
+                            hp_tier = "⚔️ Ferito"
+                        else:
+                            hp_tier = "💚 In Salute"
+                        details.append(hp_tier)
                 if details:
                     tk.Label(card, text="  •  ".join(details), bg="#181B22", fg="#ECEFF1", font=("Segoe UI", 8, "bold"), anchor="w").pack(anchor="w", pady=(1, 0))
                 if conds:
                     tk.Label(card, text=f"✨ {', '.join(conds)}", bg="#181B22", fg="#60A5FA", font=("Segoe UI", 8), anchor="w").pack(anchor="w", pady=(1, 0))
 
-                # Azioni e caratteristiche di attacco/danno della creatura
+                # Azioni e caratteristiche di attacco/danno visibili solo al DM o al party/compagni
                 sheet = pdata.get('full_sheet') if isinstance(pdata, dict) else {}
-                actions = sheet.get('actions') if isinstance(sheet, dict) else []
-                if not actions and token_name:
+                actions = sheet.get('actions') if (is_friendly_viewer and isinstance(sheet, dict)) else []
+                if is_friendly_viewer and not actions and token_name:
                     srd_cache = getattr(self, "_srd_lookup_cache", None)
                     if srd_cache is None:
                         srd_cache = {}

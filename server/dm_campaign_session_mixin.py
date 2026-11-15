@@ -225,8 +225,20 @@ class DMCampaignSessionMixin:
                 self.top_status_map_lbl.config(text=f"🗺️ {m_title[:20]}")
             except Exception:
                 pass
+        if hasattr(self, "top_status_grid_lbl"):
+            try:
+                gtype = cur_map.get("grid_type", "hex")
+                g_key = {"hex": "grid_hex", "square": "grid_square", "none": "grid_none"}.get(gtype, "grid_hex")
+                self.top_status_grid_lbl.config(text=f"🌐 {_t('grid_type_menu')}: {_t(g_key)}")
+            except Exception:
+                pass
         if hasattr(self, "redraw_map_and_players"):
             self.redraw_map_and_players()
+        if hasattr(self, "_sync_player_display_window"):
+            try:
+                self._sync_player_display_window()
+            except Exception:
+                pass
         if broadcast_state:
             broadcast(gs, make_game_state(gs.get_state_dict(is_dm=False)))
 
@@ -301,7 +313,7 @@ class DMCampaignSessionMixin:
             if not key:
                 return
             gs.switch_map(key)
-            self._sync_gui_after_map_change(broadcast_state=False)
+            self._sync_gui_after_map_change(broadcast_state=True)
             refresh_list()
             if hasattr(self, "show_toast"):
                 self.show_toast(f"Mappa attiva cambiata in '{key}'", title="🗺️ Mappa Attiva", toast_type="success")
@@ -341,7 +353,7 @@ class DMCampaignSessionMixin:
                     outdoor=bool(outdoor_var.get()),
                     activate=True,
                 )
-                self._sync_gui_after_map_change(broadcast_state=False)
+                self._sync_gui_after_map_change(broadcast_state=True)
                 dlg.destroy()
                 refresh_list()
                 self.log_to_chat(f"[SISTEMA] Creata e attivata mappa '{created.get('name')}'.")
@@ -376,7 +388,7 @@ class DMCampaignSessionMixin:
                 return
             if messagebox.askyesno("Elimina Mappa", f"Eliminare la mappa '{key}' dalla sessione?", parent=win):
                 if gs.delete_map(key):
-                    self._sync_gui_after_map_change(broadcast_state=False)
+                    self._sync_gui_after_map_change(broadcast_state=True)
                     refresh_list()
 
         btn_bar = ttk.Frame(win)
