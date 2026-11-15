@@ -217,6 +217,8 @@ class LevelUpDialog(tk.Toplevel):
         ttk.Button(bottom_bar, text=_t("cancel"), command=self.destroy).pack(side=tk.RIGHT, padx=5)
 
     def _build_tab_health(self):
+        for w in self.tab_health.winfo_children():
+            w.destroy()
         hp_frame = ttk.LabelFrame(self.tab_health, text=_t("prog_tab_hp"), padding=10)
         hp_frame.pack(fill=tk.X, pady=6)
 
@@ -664,9 +666,10 @@ class LevelUpDialog(tk.Toplevel):
         if hasattr(self, "lbl_header_sub"):
             self.lbl_header_sub.config(text=f"Classe Scelta: {self.target_class_it} | Dado Vita: d{self.hit_die}")
 
-        if hasattr(self, "hp_choice") and self.hp_choice.get() == "media":
+        if hasattr(self, "tab_health"):
+            self._build_tab_health()
+        elif hasattr(self, "hp_choice") and self.hp_choice.get() == "media":
             self.hp_add_var.set(self.avg_hp)
-        self._update_hp_preview()
         if hasattr(self, "tab_subclass"):
             self._build_tab_subclass()
         if hasattr(self, "tab_asi"):
@@ -796,7 +799,9 @@ class LevelUpDialog(tk.Toplevel):
             self.lbl_slots_summary.config(text=f"Nessuno slot attivo al Livello {self.new_level}.")
 
         # Nuovo cerchio sbloccato
-        prev_level_data = get_class_level_features_offline(self.character.char_class, self.character.level)
+        cls_for_prev = getattr(self, "target_class_it", self.character.char_class)
+        prev_cls_lvl = max(0, int(getattr(self, "target_class_new_level", self.new_level)) - 1)
+        prev_level_data = get_class_level_features_offline(cls_for_prev, prev_cls_lvl) if prev_cls_lvl >= 1 else {}
         prev_slots = prev_level_data.get("spell_slots", {})
         prev_max_lvl = max([int(k) for k, v in prev_slots.items() if v > 0], default=0)
         if max_slot_lvl > prev_max_lvl and max_slot_lvl > 0:
@@ -1009,7 +1014,13 @@ class LevelUpDialog(tk.Toplevel):
         feats_existing = str(getattr(self.character, "features", "")).lower()
         if "colline" in subrace_str or "hill" in subrace_str or "robustezza nanica" in feats_existing:
             extra_per_lvl += 1
-        if "dracon" in str(getattr(self.character, "subclass", "")).lower():
+        is_sorcerer_lvl = "stregon" in chosen_cls_it.lower() or "sorcerer" in chosen_cls_it.lower()
+        sorc_sub = (
+            (getattr(self.character, "subclasses", {}) or {}).get("Stregone")
+            or (getattr(self.character, "subclasses", {}) or {}).get("Sorcerer")
+            or getattr(self.character, "subclass", "")
+        )
+        if is_sorcerer_lvl and "dracon" in str(sorc_sub).lower():
             extra_per_lvl += 1
         has_tough_already = (
             "talento: robusto" in feats_existing or
@@ -1107,6 +1118,10 @@ class LevelUpDialog(tk.Toplevel):
                     "category": "Talento",
                     "desc": feat_desc
                 })
+                if not hasattr(self.character, "feats") or not isinstance(self.character.feats, list):
+                    self.character.feats = []
+                if feat_name and not any(str(f).strip().lower() == feat_name.strip().lower() for f in self.character.feats):
+                    self.character.feats.append(feat_name)
                 if ("robusto" in feat_name.lower() or "tough" in feat_name.lower()) and not has_tough_already:
                     tough_hp = 2 * self.character.level
                     self.character.hp_max += tough_hp
@@ -1132,32 +1147,42 @@ class LevelUpDialog(tk.Toplevel):
             sc = self.api_data["spellcasting"]
             is_warlock = "warlock" in str(getattr(self.character, "char_class", "")).lower()
             if is_warlock:
-                for i in range(1, 10):
-                    key = f"spell_slots_level_{i}"
-                    if key not in sc and str(i) in self.character.spell_slots:
-                        if isinstance(self.character.spell_slots[str(i)], dict):
-                            self.character.spell_slots[str(i)]["max"] = 0
-                            self.character.spell_slots[str(i)]["current"] = 0
-                        else:
-                            self.character.spell_slots[str(i)] = [0, 0]
-            for i in range(1, 10):
-                key = f"spell_slots_level_{i}"
-                if key in sc:
-                    max_slots = sc[key]
+                # Il Warlock usa esclusivamente Magia del Patto (pact_slots), mai duplicata negli slot base 1-5
+                for i in range(1, 6):
                     if str(i) in self.character.spell_slots:
                         if isinstance(self.character.spell_slots[str(i)], dict):
-                            old_max = int(self.character.spell_slots[str(i)].get("max", 0))
-                            cur = int(self.character.spell_slots[str(i)].get("current", 0))
-                            diff = max(0, max_slots - old_max)
-                            self.character.spell_slots[str(i)]["max"] = max_slots
-                            self.character.spell_slots[str(i)]["current"] = min(max_slots, cur + diff)
+                            self.character.spell_slots[str(i)] = {"max": 0, "current": 0}
                         else:
-                            old_max = int(self.character.spell_slots[str(i)][1]) if len(self.character.spell_slots[str(i)]) >= 2 else 0
-                            cur = int(self.character.spell_slots[str(i)][0]) if len(self.character.spell_slots[str(i)]) >= 1 else 0
-                            diff = max(0, max_slots - old_max)
-                            self.character.spell_slots[str(i)] = [min(max_slots, cur + diff), max_slots]
-                    else:
-                        self.character.spell_slots[str(i)] = {"max": max_slots, "current": max_slots}
+                            self.character.spell_slots[str(i)] = [0, 0]
+                if not hasattr(self.character, "add_class_level"):
+                    from common.character_schema import calculate_pact_magic_slots
+                    old_pact = self.character.pact_slots if isinstance(getattr(self.character, "pact_slots", None), dict) else {}
+                    pact_info = calculate_pact_magic_slots({getattr(self.character, "char_class", "Warlock"): getattr(self.character, "level", 1)})
+                    if pact_info.get("max", 0) > 0:
+                        new_pmx = int(pact_info["max"])
+                        old_pmx = int(old_pact.get("max", 0) or 0)
+                        old_pcur = int(old_pact.get("current", old_pmx) or 0)
+                        pact_info["current"] = min(new_pmx, old_pcur + max(0, new_pmx - old_pmx))
+                        self.character.pact_slots = pact_info
+            else:
+                for i in range(1, 10):
+                    key = f"spell_slots_level_{i}"
+                    if key in sc:
+                        max_slots = sc[key]
+                        if str(i) in self.character.spell_slots:
+                            if isinstance(self.character.spell_slots[str(i)], dict):
+                                old_max = int(self.character.spell_slots[str(i)].get("max", 0))
+                                cur = int(self.character.spell_slots[str(i)].get("current", 0))
+                                diff = max(0, max_slots - old_max)
+                                self.character.spell_slots[str(i)]["max"] = max_slots
+                                self.character.spell_slots[str(i)]["current"] = min(max_slots, cur + diff)
+                            else:
+                                old_max = int(self.character.spell_slots[str(i)][1]) if len(self.character.spell_slots[str(i)]) >= 2 else 0
+                                cur = int(self.character.spell_slots[str(i)][0]) if len(self.character.spell_slots[str(i)]) >= 1 else 0
+                                diff = max(0, max_slots - old_max)
+                                self.character.spell_slots[str(i)] = [min(max_slots, cur + diff), max_slots]
+                        else:
+                            self.character.spell_slots[str(i)] = {"max": max_slots, "current": max_slots}
 
         # 6. Incantesimi Selezionati aggiunti direttamente al Grimorio
         if getattr(self, "selected_spells", None):

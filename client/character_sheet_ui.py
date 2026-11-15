@@ -3373,8 +3373,10 @@ class CharacterSheetFrame(ttk.Frame):
 
             # Verifica Preparazione (PHB p. 201 / Mago Rituali p. 114)
             if lvl > 0 and SpellsPanel.spell_preparation_required(self.character) and spell.get("prepared", True) is False:
+                from common.dnd5e_tables import entity_get_class_level
                 cls_low = str(getattr(self.character, "char_class", "") or "").lower()
-                wizard_ritual_ok = ("mago" in cls_low or "wizard" in cls_low) and is_ritual_cast and is_ritual_capable and caster_can_ritual
+                is_wizard = ("mago" in cls_low or "wizard" in cls_low) or entity_get_class_level(self.character, "mago", "wizard") > 0
+                wizard_ritual_ok = is_wizard and is_ritual_cast and is_ritual_capable and caster_can_ritual
                 if not wizard_ritual_ok:
                     if not messagebox.askyesno("Incantesimo Non Preparato", f"'{spell.get('name', '')}' non è segnato come Preparato oggi (PHB).\nVuoi forzarne il lancio comunque (consenso DM)?", parent=win):
                         return
@@ -3512,8 +3514,10 @@ class CharacterSheetFrame(ttk.Frame):
                 return
 
             if lvl > 0 and SpellsPanel.spell_preparation_required(self.character) and spell.get("prepared", True) is False:
+                from common.dnd5e_tables import entity_get_class_level
                 cls_low = str(getattr(self.character, "char_class", "") or "").lower()
-                wizard_ritual_ok = ("mago" in cls_low or "wizard" in cls_low) and is_ritual_cast and is_ritual_capable and caster_can_ritual
+                is_wizard = ("mago" in cls_low or "wizard" in cls_low) or entity_get_class_level(self.character, "mago", "wizard") > 0
+                wizard_ritual_ok = is_wizard and is_ritual_cast and is_ritual_capable and caster_can_ritual
                 if not wizard_ritual_ok:
                     if not messagebox.askyesno("Incantesimo Non Preparato", f"'{spell.get('name', '')}' non è segnato come Preparato oggi (PHB).\nVuoi forzarne il lancio comunque (consenso DM)?", parent=win):
                         return

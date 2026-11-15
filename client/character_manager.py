@@ -223,6 +223,7 @@ class Character:
         self.spell_points_max = 0
         self.bardic_inspiration_die = None
         self.relentless_rage_uses = 0
+        self._extra_fields = {}
 
     def short_rest(self, hd_to_spend=1, attune_idx: int = None):
         """Spende Dadi Vita (XdY + Mod COS) per recuperare HP e ricarica i privilegi da riposo breve (inclusa sintonia DMG p.138)."""
@@ -795,12 +796,35 @@ class Character:
         else:
             self.char_class = matched_key
 
+        old_slots = self.spell_slots if isinstance(getattr(self, "spell_slots", None), dict) else {}
         mc_slots = calculate_multiclass_spell_slots(self.classes, getattr(self, "subclass", ""))
         if any(v["max"] > 0 for v in mc_slots.values()):
-            self.spell_slots = mc_slots
+            merged_slots = {}
+            for k, new_val in mc_slots.items():
+                new_max = int(new_val.get("max", 0) or 0)
+                old_entry = old_slots.get(str(k), {})
+                if isinstance(old_entry, dict):
+                    old_max = int(old_entry.get("max", 0) or 0)
+                    old_cur = int(old_entry.get("current", old_max) or 0)
+                elif isinstance(old_entry, list) and len(old_entry) >= 2:
+                    old_cur = int(old_entry[0] or 0)
+                    old_max = int(old_entry[1] or 0)
+                else:
+                    old_max, old_cur = 0, 0
+                delta = max(0, new_max - old_max)
+                new_cur = new_max if new_max == 0 else min(new_max, max(0, old_cur) + delta)
+                merged_slots[str(k)] = {"max": new_max, "current": new_cur}
+            self.spell_slots = merged_slots
+        old_pact = self.pact_slots if isinstance(getattr(self, "pact_slots", None), dict) else {}
         pact_info = calculate_pact_magic_slots(self.classes)
         if pact_info.get("max", 0) > 0:
+            new_pmax = int(pact_info.get("max", 0) or 0)
+            old_pmax = int(old_pact.get("max", 0) or 0)
+            old_pcur = int(old_pact.get("current", old_pmax) or 0)
+            pdelta = max(0, new_pmax - old_pmax)
+            pact_info["current"] = min(new_pmax, max(0, old_pcur) + pdelta)
             self.pact_slots = pact_info
+        self.proficiency_bonus = self.get_proficiency_bonus()
 
         profs = compute_character_proficiencies(self)
         self.armor_proficiencies = list(dict.fromkeys(list(getattr(self, "armor_proficiencies", []) or []) + profs["armor"]))
@@ -1445,17 +1469,50 @@ class Character:
     def to_dict(self):
         import copy
         from common.character_schema import normalize_character_dict
-        raw = copy.deepcopy(self.__dict__)
+        raw = {}
+        extra = self.__dict__.get("_extra_fields")
+        if isinstance(extra, dict):
+            for ek, ev in extra.items():
+                if isinstance(ek, str) and ek != "_extra_fields":
+                    raw[ek] = copy.deepcopy(ev)
+        for k, v in self.__dict__.items():
+            if k == "_extra_fields":
+                continue
+            raw[k] = copy.deepcopy(v)
+        raw["proficiency_bonus"] = self.get_proficiency_bonus()
         return normalize_character_dict(raw)
     
     @staticmethod
     def from_dict(data):
+        import copy
         from common.character_schema import normalize_character_dict
         norm_data = normalize_character_dict(data) if isinstance(data, dict) else {}
         c = Character()
+        c._extra_fields = {}
+        _alias_keys = {"armor_class", "character_class", "class_name", "current_hp", "gp", "hp", "max_hp", "stats"}
         for key, value in norm_data.items():
+            if key == "_extra_fields":
+                if isinstance(value, dict):
+                    for ek, ev in value.items():
+                        if isinstance(ek, str) and ek != "_extra_fields" and not hasattr(c, ek) and ek not in _alias_keys:
+                            c._extra_fields[ek] = copy.deepcopy(ev)
+                continue
             if hasattr(c, key):
                 setattr(c, key, value)
+            elif isinstance(key, str) and not key.startswith("_") and key not in _alias_keys:
+                c._extra_fields[key] = copy.deepcopy(value)
+        if isinstance(data, dict):
+            raw_extra = data.get("_extra_fields")
+            if isinstance(raw_extra, dict):
+                for ek, ev in raw_extra.items():
+                    if isinstance(ek, str) and ek != "_extra_fields" and not hasattr(c, ek) and ek not in _alias_keys and ek not in c._extra_fields:
+                        c._extra_fields[ek] = copy.deepcopy(ev)
+            for ek, ev in data.items():
+                if not isinstance(ek, str) or ek == "_extra_fields" or ek.startswith("_") or ek in _alias_keys:
+                    continue
+                if not hasattr(c, ek) and ek not in norm_data and ek not in c._extra_fields:
+                    c._extra_fields[ek] = copy.deepcopy(ev)
+        c.proficiency_bonus = c.get_proficiency_bonus()
         # Assicuriamoci che l'inventario a griglia esista anche se carichiamo un vecchio PG
         if not hasattr(c, "inventory_grid") or not isinstance(c.inventory_grid, list):
             c.inventory_grid = [None] * 25
@@ -1543,11 +1600,19 @@ class Character:
 
         if "speed_unit" not in data or data.get("speed_unit") not in ("ft", "m"):
             try:
-                c.speed_unit = "m" if float(getattr(c, "speed", 30)) <= 18 else "ft"
+                c.speed_unit = "m" if float(getattr(c, "speed", 30)) <= 12 else "ft"
             except (ValueError, TypeError):
                 c.speed_unit = "ft"
             
-        if not getattr(c, "starting_kit_applied", False) and getattr(c, "char_class", None) and getattr(c, "level", 1) == 1:
+        explicit_kit_flag = isinstance(data, dict) and "starting_kit_applied" in data
+        has_explicit_inventory = isinstance(data, dict) and "inventory_grid" in data
+        if (
+            not getattr(c, "starting_kit_applied", False)
+            and not explicit_kit_flag
+            and not has_explicit_inventory
+            and getattr(c, "char_class", None)
+            and getattr(c, "level", 1) == 1
+        ):
             has_real_items = any(it and it.get("name") != "Zaino Base" for it in c.inventory_grid)
             if not has_real_items and len(getattr(c, "spellbook", [])) == 0:
                 from common.starter_equipment import apply_class_and_race_starter_kit

@@ -284,13 +284,18 @@ class CharacterCreationWizardFrame(ttk.Frame):
             self.next_btn.config(text=_t("wizard_btn_next"))
 
     def _save_current_step_data(self):
-        if self.current_step == 2 and hasattr(self, "attr_vars"):
-            for k in ATTRIBUTES:
-                if k in self.attr_vars:
-                    try:
-                        self.char_data["attributes"][k] = int(self.attr_vars[k].get())
-                    except (ValueError, tk.TclError):
-                        pass
+        if self.current_step == 2:
+            if hasattr(self, "gen_method_var"):
+                self.char_data["gen_method"] = self.gen_method_var.get()
+            if hasattr(self, "rolled_pool"):
+                self.char_data["rolled_pool"] = list(self.rolled_pool)
+            if hasattr(self, "attr_vars"):
+                for k in ATTRIBUTES:
+                    if k in self.attr_vars:
+                        try:
+                            self.char_data["attributes"][k] = int(self.attr_vars[k].get())
+                        except (ValueError, tk.TclError):
+                            pass
         elif self.current_step == 3:
             if hasattr(self, "bg_name_var"):
                 self.char_data["background"] = translate_background(self.bg_name_var.get().strip(), "it")
@@ -342,16 +347,19 @@ class CharacterCreationWizardFrame(ttk.Frame):
         if self.current_step == 2:
             if hasattr(self, "attr_vars"):
                 vals = [var.get() for var in self.attr_vars.values()]
-                method = self.gen_method_var.get() if hasattr(self, "gen_method_var") else "Standard Array"
-                if "Point Buy" in method:
+                method = (self.gen_method_var.get() if hasattr(self, "gen_method_var") else "Standard Array").lower()
+                is_en = get_language() == "en"
+                if "point buy" in method:
                     pb_costs = {8: 0, 9: 1, 10: 2, 11: 3, 12: 4, 13: 5, 14: 7, 15: 9}
                     if any(v < 8 or v > 15 for v in vals) or sum(pb_costs.get(v, 99) for v in vals) > 27:
-                        messagebox.showerror(_t("error"), "Con il metodo Point Buy (27 pt) i punteggi base devono essere compresi tra 8 e 15 e non superare 27 punti totali.")
+                        err_pb = "Point Buy (27 pt) scores must be between 8 and 15 and cost at most 27 points total." if is_en else "Con il metodo Point Buy (27 pt) i punteggi base devono essere compresi tra 8 e 15 e non superare 27 punti totali."
+                        messagebox.showerror(_t("error"), err_pb)
                         return
                 elif "4d6" in method:
                     pool = getattr(self, "rolled_pool", None)
                     if any(v < 3 or v > 18 for v in vals) or (pool and sorted(vals, reverse=True) != sorted(pool, reverse=True)):
-                        messagebox.showerror(_t("error"), "Assegna ciascuno dei 6 punteggi generati con i dadi (4d6) a una caratteristica diversa.")
+                        err_4d6 = "Assign each of the 6 rolled 4d6 scores to a different ability." if is_en else "Assegna ciascuno dei 6 punteggi generati con i dadi (4d6) a una caratteristica diversa."
+                        messagebox.showerror(_t("error"), err_4d6)
                         return
                 else:
                     if len(set(vals)) != len(STANDARD_ARRAY) or sorted(vals, reverse=True) != STANDARD_ARRAY:
@@ -1427,14 +1435,27 @@ class CharacterCreationWizardFrame(ttk.Frame):
         parent = parent or self.container
         ttk.Label(parent, text=_t("wizard_step3_title"), style="Title.TLabel").pack(pady=(0, 6))
         
+        is_en = (get_language() == "en")
+        opt_std = "Standard Array"
+        opt_pb = "Point Buy (27 pt)"
+        opt_4d6 = "Roll 4d6 (Drop Lowest)" if is_en else "Tira 4d6 (Scarta il più basso)"
+
         # Selettore Metodo di Generazione 5e
         method_frame = ttk.Frame(parent)
         method_frame.pack(pady=(0, 10))
-        ttk.Label(method_frame, text="Metodo di Generazione:", font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Label(method_frame, text=("Generation Method:" if is_en else "Metodo di Generazione:"), font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT, padx=(0, 6))
         
-        self.gen_method_var = tk.StringVar(value=self.char_data.get("gen_method", "Standard Array"))
+        saved_method = str(self.char_data.get("gen_method", opt_std) or opt_std)
+        if "point buy" in saved_method.lower():
+            init_method = opt_pb
+        elif "4d6" in saved_method.lower():
+            init_method = opt_4d6
+        else:
+            init_method = opt_std
+
+        self.gen_method_var = tk.StringVar(value=init_method)
         gen_method_var = self.gen_method_var
-        method_cb = ttk.Combobox(method_frame, textvariable=gen_method_var, values=["Standard Array", "Point Buy (27 pt)", "Tira 4d6 (Scarta il più basso)"], state="readonly", width=30)
+        method_cb = ttk.Combobox(method_frame, textvariable=gen_method_var, values=[opt_std, opt_pb, opt_4d6], state="readonly", width=30)
         method_cb.pack(side=tk.LEFT)
 
         instruction_lbl = ttk.Label(parent, text=_t("wizard_step3_instruction"), justify=tk.CENTER)
@@ -1442,6 +1463,7 @@ class CharacterCreationWizardFrame(ttk.Frame):
         
         self.attr_vars = {}
         self.old_attr_values = {}
+        self._attr_method_key = "std"
         
         content_frame = ttk.Frame(parent)
         content_frame.pack()
@@ -1455,11 +1477,12 @@ class CharacterCreationWizardFrame(ttk.Frame):
         self._is_swapping = False
         
         def render_standard_array():
+            self._attr_method_key = "std"
             for w in content_frame.winfo_children(): w.destroy()
-            instruction_lbl.config(text="Assegna i 6 valori predefiniti (15, 14, 13, 12, 10, 8) alle caratteristiche.")
+            instruction_lbl.config(text=("Assign the 6 standard scores (15, 14, 13, 12, 10, 8) to your abilities." if is_en else "Assegna i 6 valori predefiniti (15, 14, 13, 12, 10, 8) alle caratteristiche."))
             
             def on_var_change(changed_attr, *args):
-                if self._is_swapping: return
+                if self._attr_method_key != "std" or self._is_swapping: return
                 new_val = self.attr_vars[changed_attr].get()
                 old_val = self.old_attr_values.get(changed_attr)
                 if new_val == old_val: return
@@ -1473,10 +1496,13 @@ class CharacterCreationWizardFrame(ttk.Frame):
                 self.char_data["attributes"][changed_attr] = new_val
                 self._is_swapping = False
 
+            cur_vals = [self.attr_vars[a].get() for a in ATTRIBUTES]
+            valid_std = sorted(cur_vals, reverse=True) == STANDARD_ARRAY
             for i, attr in enumerate(ATTRIBUTES):
                 ttk.Label(content_frame, text=translate_ability(attr), font=("Segoe UI", 10, "bold")).grid(row=i, column=0, sticky="e", padx=8, pady=4)
                 var = self.attr_vars[attr]
-                if var.get() not in STANDARD_ARRAY: var.set(STANDARD_ARRAY[i])
+                if not valid_std or var.get() not in STANDARD_ARRAY:
+                    var.set(STANDARD_ARRAY[i])
                 self.old_attr_values[attr] = var.get()
                 self.char_data["attributes"][attr] = var.get()
                 var.trace_add("write", lambda name, index, mode, a=attr: on_var_change(a))
@@ -1484,7 +1510,9 @@ class CharacterCreationWizardFrame(ttk.Frame):
                 cb.grid(row=i, column=1, padx=8, pady=4)
 
         def render_point_buy():
+            self._attr_method_key = "pb"
             for w in content_frame.winfo_children(): w.destroy()
+            instruction_lbl.config(text=("Spend 27 points to customize scores (8 to 15)." if is_en else "Spendi 27 punti per personalizzare i punteggi (da 8 a 15)."))
             PB_COSTS = {8: 0, 9: 1, 10: 2, 11: 3, 12: 4, 13: 5, 14: 7, 15: 9}
             
             for attr in ATTRIBUTES:
@@ -1494,13 +1522,14 @@ class CharacterCreationWizardFrame(ttk.Frame):
 
             pb_header = ttk.Frame(content_frame)
             pb_header.grid(row=0, column=0, columnspan=4, pady=(0, 8))
-            pts_lbl = ttk.Label(pb_header, text="Punti Rimasti: 27 / 27", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD)
+            pb_prefix = "Points Remaining:" if is_en else "Punti Rimasti:"
+            pts_lbl = ttk.Label(pb_header, text=f"{pb_prefix} 27 / 27", font=("Segoe UI", 10, "bold"), foreground=ACCENT_GOLD)
             pts_lbl.pack()
 
             def update_pb_points():
                 spent = sum(PB_COSTS.get(self.attr_vars[a].get(), 0) for a in ATTRIBUTES)
                 rem = 27 - spent
-                pts_lbl.config(text=f"Punti Rimasti: {rem} / 27", foreground="#EF4444" if rem < 0 else ACCENT_GOLD)
+                pts_lbl.config(text=f"{pb_prefix} {rem} / 27", foreground="#EF4444" if rem < 0 else ACCENT_GOLD)
                 for a in ATTRIBUTES:
                     self.char_data["attributes"][a] = self.attr_vars[a].get()
 
@@ -1526,13 +1555,24 @@ class CharacterCreationWizardFrame(ttk.Frame):
             update_pb_points()
 
         def render_4d6():
+            self._attr_method_key = "4d6"
             for w in content_frame.winfo_children(): w.destroy()
-            instruction_lbl.config(text="Tira 4d6 scartando il dado più basso per generare i punteggi, poi assegnali.")
+            instruction_lbl.config(text=("Roll 4d6 drop lowest to generate 6 scores, then assign them." if is_en else "Tira 4d6 scartando il dado più basso per generare i punteggi, poi assegnali."))
             
-            rolled_pool = list(getattr(self, "rolled_pool", [15, 14, 13, 12, 10, 8]))
-            self.rolled_pool = rolled_pool
-            pool_lbl = ttk.Label(content_frame, text=f"Dadi generati: {rolled_pool}", font=("Segoe UI", 9, "italic"), foreground=ACCENT_GOLD)
+            rolled_pool = list(self.char_data.get("rolled_pool", getattr(self, "rolled_pool", [15, 14, 13, 12, 10, 8])))
+            if len(rolled_pool) != 6:
+                rolled_pool = [15, 14, 13, 12, 10, 8]
+            self.rolled_pool = list(rolled_pool)
+            self.char_data["rolled_pool"] = list(rolled_pool)
+            dice_prefix = "Generated Dice:" if is_en else "Dadi generati:"
+            pool_lbl = ttk.Label(content_frame, text=f"{dice_prefix} {rolled_pool}", font=("Segoe UI", 9, "italic"), foreground=ACCENT_GOLD)
             pool_lbl.grid(row=0, column=0, columnspan=2, pady=(0, 6))
+
+            combos = []
+            def rebind_combos():
+                combo_vals = sorted(list(set(rolled_pool)), reverse=True)
+                for cb in combos:
+                    cb.config(values=combo_vals)
 
             def do_roll_4d6():
                 nonlocal rolled_pool
@@ -1542,37 +1582,49 @@ class CharacterCreationWizardFrame(ttk.Frame):
                     new_pool.append(sum(d4[1:])) # scarta il piu' basso
                 rolled_pool = sorted(new_pool, reverse=True)
                 self.rolled_pool = list(rolled_pool)
-                pool_lbl.config(text=f"Dadi generati: {rolled_pool}")
+                self.char_data["rolled_pool"] = list(rolled_pool)
+                pool_lbl.config(text=f"{dice_prefix} {rolled_pool}")
                 for idx, a in enumerate(ATTRIBUTES):
                     self.attr_vars[a].set(rolled_pool[idx])
                     self.old_attr_values[a] = rolled_pool[idx]
                     self.char_data["attributes"][a] = rolled_pool[idx]
                 rebind_combos()
 
-            btn_roll = ttk.Button(content_frame, text="🎲 Tira 4d6 per tutte le caratteristiche", command=do_roll_4d6, style="Gold.TButton")
+            roll_btn_txt = "🎲 Roll 4d6 for All Abilities" if is_en else "🎲 Tira 4d6 per tutte le caratteristiche"
+            btn_roll = ttk.Button(content_frame, text=roll_btn_txt, command=do_roll_4d6, style="Gold.TButton")
             btn_roll.grid(row=1, column=0, columnspan=2, pady=(0, 8))
 
-            combos = []
-            def rebind_combos():
-                for cb in combos:
-                    cb.config(values=sorted(list(set(rolled_pool)), reverse=True))
+            cur_vals = [self.attr_vars[a].get() for a in ATTRIBUTES]
+            if sorted(cur_vals, reverse=True) != sorted(rolled_pool, reverse=True):
+                for idx, a in enumerate(ATTRIBUTES):
+                    self.attr_vars[a].set(rolled_pool[idx])
+                    self.old_attr_values[a] = rolled_pool[idx]
+                    self.char_data["attributes"][a] = rolled_pool[idx]
+
+            def _sync_4d6_var(a, v):
+                if self._attr_method_key == "4d6":
+                    try:
+                        self.char_data["attributes"][a] = int(v.get())
+                    except (ValueError, tk.TclError):
+                        pass
 
             for i, attr in enumerate(ATTRIBUTES):
                 ttk.Label(content_frame, text=translate_ability(attr), font=("Segoe UI", 10, "bold")).grid(row=i+2, column=0, sticky="e", padx=8, pady=3)
                 var = self.attr_vars[attr]
-                cb = ttk.Combobox(content_frame, textvariable=var, values=rolled_pool, state="readonly", width=6, justify="center")
+                cb = ttk.Combobox(content_frame, textvariable=var, values=sorted(list(set(rolled_pool)), reverse=True), state="readonly", width=6, justify="center")
                 cb.grid(row=i+2, column=1, padx=8, pady=3)
                 combos.append(cb)
-                var.trace_add("write", lambda *args, a=attr, v=var: self.char_data["attributes"].__setitem__(a, v.get()))
+                var.trace_add("write", lambda *args, a=attr, v=var: _sync_4d6_var(a, v))
 
         def _on_method_change(*args):
             m = gen_method_var.get()
-            if "Point Buy" in m: render_point_buy()
-            elif "4d6" in m: render_4d6()
+            self.char_data["gen_method"] = m
+            if "point buy" in m.lower(): render_point_buy()
+            elif "4d6" in m.lower(): render_4d6()
             else: render_standard_array()
 
         gen_method_var.trace_add("write", _on_method_change)
-        render_standard_array()
+        _on_method_change()
 
     # -------------------------------------------------------------------------
     # PASSO 4: BACKGROUND & COMPETENZE
@@ -1653,7 +1705,8 @@ class CharacterCreationWizardFrame(ttk.Frame):
             ttk.Label(hdr_f, text=title, font=("Segoe UI", 9, "bold")).pack(side=tk.LEFT)
             
             def do_roll():
-                bg = BACKGROUNDS.get(self.bg_name_var.get(), BACKGROUNDS["Accolito"])
+                bg_key = translate_background(self.bg_name_var.get(), "it")
+                bg = BACKGROUNDS.get(bg_key, BACKGROUNDS["Accolito"])
                 pool = bg.get(rp_key, [])
                 if pool:
                     var.set(random.choice(pool))
@@ -1709,7 +1762,8 @@ class CharacterCreationWizardFrame(ttk.Frame):
         update_bg_info()
 
     def _roll_all_roleplay_traits(self):
-        bg = BACKGROUNDS.get(self.bg_name_var.get(), BACKGROUNDS["Accolito"])
+        bg_key = translate_background(self.bg_name_var.get(), "it")
+        bg = BACKGROUNDS.get(bg_key, BACKGROUNDS["Accolito"])
         for key, var in [("traits", self.trait_var), ("ideals", self.ideal_var), ("bonds", self.bond_var), ("flaws", self.flaw_var)]:
             pool = bg.get(key, [])
             if pool:
@@ -1993,9 +2047,6 @@ class CharacterCreationWizardFrame(ttk.Frame):
                 if len(t_stats) >= 2 and t_stats[1] in ATTRIBUTES and t_stats[1] != t_stats[0]:
                     effective_bonuses[t_stats[1]] = 1
             c.tasha_origin = True
-            swap_txt = str(self.char_data.get("tasha_prof_swap", "") or "").strip()
-            if swap_txt:
-                c.features = (getattr(c, "features", "") or "") + f"\n[Origine TCE - Scambio Competenze]: {swap_txt}"
 
         for attr in ATTRIBUTES:
             base = self.char_data["attributes"][attr]
@@ -2158,6 +2209,25 @@ class CharacterCreationWizardFrame(ttk.Frame):
             bg_feat_txt = f"\n\nPrivilegio di Background ({c.background_feature_name}):\n{c.background_feature_desc}"
         
         c.features = f"Tratti razziali:\n{race_info['desc']}\n\nTratti classe:\n{class_info['desc']}{bg_feat_txt}"
+        if self.char_data.get("tasha_origin"):
+            swap_txt = str(self.char_data.get("tasha_prof_swap", "") or "").strip()
+            if swap_txt:
+                c.features += f"\n[Origine TCE - Scambio Competenze]: {swap_txt}"
+                # Applica eventuale scambio di competenza abilità esplicito ("Vecchia -> Nuova" o "Old / New")
+                import re as _tce_re
+                m_swap = _tce_re.split(r"\s*(?:->|=>|➔|/|in)\s*", swap_txt, maxsplit=1, flags=_tce_re.IGNORECASE)
+                if len(m_swap) == 2 and hasattr(c, "skills") and isinstance(c.skills, dict):
+                    old_q = translate_skill(m_swap[0].strip(), "it").strip().lower()
+                    new_q = translate_skill(m_swap[1].strip(), "it").strip().lower()
+                    old_key = next((sk for sk in c.skills if sk.lower() == old_q or old_q in sk.lower()), None)
+                    new_key = next((sk for sk in c.skills if sk.lower() == new_q or new_q in sk.lower()), None)
+                    if old_key and new_key and old_key != new_key:
+                        if c.skills.get(old_key, 0) > 0:
+                            c.skills[old_key] = 0
+                        if c.skills.get(new_key, 0) == 0:
+                            c.skills[new_key] = 1
+                    elif new_key and c.skills.get(new_key, 0) == 0:
+                        c.skills[new_key] = 1
 
         # Diario del Personaggio (Note ben formattate pronte nel tab 'Diario')
         notes_lines = []
@@ -2208,11 +2278,17 @@ class CharacterCreationWizardFrame(ttk.Frame):
         except Exception:
             off_data = None
 
+        is_warlock = "warlock" in str(c.char_class or "").lower()
         if off_data and off_data.get("features"):
             c.features += "\n\n--- Privilegi di Livello 1 ---\n" + "\n".join(f"- {ft}" for ft in off_data["features"])
             if off_data.get("spell_slots"):
-                for lvl_str, cnt in off_data["spell_slots"].items():
-                    c.spell_slots[str(lvl_str)] = {"max": cnt, "current": cnt}
+                if is_warlock:
+                    cnt = int(off_data["spell_slots"].get("1", 1) or 1)
+                    c.pact_slots = {"max": cnt, "current": cnt, "level": 1}
+                    c.spell_slots["1"] = {"max": 0, "current": 0}
+                else:
+                    for lvl_str, cnt in off_data["spell_slots"].items():
+                        c.spell_slots[str(lvl_str)] = {"max": cnt, "current": cnt}
             self._on_creation_done(c)
             return
 
@@ -2234,10 +2310,15 @@ class CharacterCreationWizardFrame(ttk.Frame):
                         c.features += "\n\n--- Privilegi di Livello 1 (API) ---\n" + "\n".join(f"- {ft}" for ft in feats)
                     sc = data.get("spellcasting")
                     if sc:
-                        for i in range(1, 10):
-                            key = f"spell_slots_level_{i}"
-                            if key in sc:
-                                c.spell_slots[str(i)] = {"max": sc[key], "current": sc[key]}
+                        if is_warlock:
+                            cnt = int(sc.get("spell_slots_level_1", 1) or 1)
+                            c.pact_slots = {"max": cnt, "current": cnt, "level": 1}
+                            c.spell_slots["1"] = {"max": 0, "current": 0}
+                        else:
+                            for i in range(1, 10):
+                                key = f"spell_slots_level_{i}"
+                                if key in sc:
+                                    c.spell_slots[str(i)] = {"max": sc[key], "current": sc[key]}
             except Exception:
                 pass
             

@@ -140,13 +140,20 @@ class VitalsPanel:
                                 elif hasattr(v, "set"):
                                     v.set(slot["current"])
             
+            tot_healed = sum(d.get("healed", 0) for d in spent_dice)
+            if getattr(sheet, "is_connected", False) and getattr(sheet, "network", None) and hasattr(sheet.network, "send"):
+                try:
+                    from common.protocol import make_short_rest_request
+                    sheet.network.send(make_short_rest_request(len(spent_dice), tot_healed))
+                except Exception:
+                    pass
+
             if sheet.manager:
                 sheet.manager.update_character(sheet.character)
             if hasattr(sheet, "on_save_callback") and sheet.on_save_callback:
                 try: sheet.on_save_callback(sheet.character)
                 except Exception: pass
                 
-            tot_healed = sum(d.get("healed", 0) for d in spent_dice)
             if sheet.roll_callback:
                 chat_msg = f"[RIPOSO BREVE] {sheet.character.name} conclude il riposo breve. Dadi spesi: {len(spent_dice)}. PF recuperati: +{tot_healed} (PF attuali: {sheet.character.hp_current}/{sheet.character.hp_max}, Dadi rimasti: {sheet.character.hit_dice_current}/{sheet.character.hit_dice_total})."
                 sheet.roll_callback("0d0", chat_msg)

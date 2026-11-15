@@ -32,11 +32,24 @@ class SpellsPanel:
     @staticmethod
     def calculate_spell_stats(character):
         """Calcola Competenza (PB), Modificatore Incantatore, CD Salvezza e Bonus Attacco Incantesimi."""
-        char_lvl = max(1, int(getattr(character, "level", 1) or 1))
-        pb = ((char_lvl - 1) // 4) + 2
-        char_class = getattr(character, "char_class", "")
-        subclass = getattr(character, "subclass", "")
+        from common.dnd5e_tables import entity_get_total_level
+        char_lvl = max(1, entity_get_total_level(character))
+        if hasattr(character, "get_proficiency_bonus"):
+            pb = int(character.get_proficiency_bonus())
+        else:
+            pb = ((char_lvl - 1) // 4) + 2
+        char_class = str(getattr(character, "char_class", "") or "")
+        subclass = str(getattr(character, "subclass", "") or "")
+        classes = getattr(character, "classes", None)
         stat = SpellsPanel.get_spellcasting_ability(char_class, subclass)
+        # Se la classe primaria non è incantatrice (es. Guerriero 3 / Chierico 2), controlla le classi multiclasse
+        if stat == "INT" and not any(k in char_class.lower() for k in ("mago", "wizard", "artefice", "artificer")) and not any(k in subclass.lower() for k in ("mistico", "eldritch", "arcane")):
+            if isinstance(classes, dict) and classes:
+                for ck in classes.keys():
+                    cand = SpellsPanel.get_spellcasting_ability(str(ck), subclass)
+                    if cand != "INT" or any(w in str(ck).lower() for w in ("mago", "wizard", "artefice", "artificer")):
+                        stat = cand
+                        break
 
         if hasattr(character, "get_modifier"):
             mod = character.get_modifier(stat)
@@ -300,40 +313,47 @@ class SpellsPanel:
     @staticmethod
     def get_max_prepared_spells(character) -> int:
         """
-        Calcola il numero massimo di incantesimi preparabili giornalmente (D&D 5e RAW PHB p. 201):
+        Calcola il numero massimo di incantesimi preparabili giornalmente (D&D 5e RAW PHB p. 164 / 201):
         - Chierico / Druido: Livello + Mod SAG (minimo 1)
         - Mago: Livello + Mod INT (minimo 1)
-        - Paladino: max(1, Livello // 2 + Mod CAR)
+        - Paladino (Lv 2+): max(1, Livello // 2 + Mod CAR)
         - Artefice: max(1, Livello // 2 + Mod INT)
         - Bardi, Stregoni, Ranger, Warlock: 0 (gestiti con Spells Known fissi).
+        Nel multiclasse somma i limiti di ogni classe preparatrice.
         """
-        c_class = str(getattr(character, "char_class", "")).lower()
+        c_class = str(getattr(character, "char_class", "") or "").lower()
         classes = getattr(character, "classes", {})
         get_mod = getattr(character, "get_modifier", lambda s: 0)
 
-        # Controlla classi singole o multiclasse
-        for ck, cv in classes.items():
-            ck_l = str(ck).lower()
-            lvl = int(cv)
+        def _prep_for_class(cls_name: str, cls_lvl: int) -> int:
+            ck_l = str(cls_name or "").lower()
+            lvl_i = max(0, int(cls_lvl or 0))
+            if lvl_i <= 0:
+                return 0
             if "chierico" in ck_l or "cleric" in ck_l or "druido" in ck_l or "druid" in ck_l:
-                return max(1, lvl + get_mod("SAG"))
+                return max(1, lvl_i + get_mod("SAG"))
             if "mago" in ck_l or "wizard" in ck_l:
-                return max(1, lvl + get_mod("INT"))
+                return max(1, lvl_i + get_mod("INT"))
             if "paladino" in ck_l or "paladin" in ck_l:
-                return max(1, (lvl // 2) + get_mod("CAR"))
+                if lvl_i < 2:
+                    return 0
+                return max(1, (lvl_i // 2) + get_mod("CAR"))
             if "artefice" in ck_l or "artificer" in ck_l:
-                return max(1, (lvl // 2) + get_mod("INT"))
+                return max(1, (lvl_i // 2) + get_mod("INT"))
+            return 0
+
+        if isinstance(classes, dict) and classes:
+            total_prep = 0
+            for ck, cv in classes.items():
+                try:
+                    c_lvl = int(cv or 0)
+                except (ValueError, TypeError):
+                    c_lvl = 0
+                total_prep += _prep_for_class(str(ck), c_lvl)
+            return total_prep
 
         lvl = max(1, int(getattr(character, "level", 1) or 1))
-        if "chierico" in c_class or "cleric" in c_class or "druido" in c_class or "druid" in c_class:
-            return max(1, lvl + get_mod("SAG"))
-        if "mago" in c_class or "wizard" in c_class:
-            return max(1, lvl + get_mod("INT"))
-        if "paladino" in c_class or "paladin" in c_class:
-            return max(1, (lvl // 2) + get_mod("CAR"))
-        if "artefice" in c_class or "artificer" in c_class:
-            return max(1, (lvl // 2) + get_mod("INT"))
-        return 0
+        return _prep_for_class(c_class, lvl)
 
     @staticmethod
     def consume_material_component(character, spell: dict, mat_gp: float) -> str:

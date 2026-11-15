@@ -99,5 +99,62 @@ class TestCharacterSchema(unittest.TestCase):
         self.assertEqual(c2.attributes["DES"], 18)
         self.assertEqual(c2.currency["MO"], 75)
 
+    def test_extra_fields_roundtrip_speed_unit_and_no_unsolicited_kit(self):
+        raw = {
+            "name": "ImportPG",
+            "char_class": "Guerriero",
+            "level": 1,
+            "foundry_uuid": "Actor.xyz999",
+            "_extra_fields": {"custom_lore": "Northern Watch", "tags": ["srd-import"]},
+            "inventory_grid": [None] * 25,
+            "starting_kit_applied": False,
+        }
+        c = Character.from_dict(raw)
+        self.assertEqual(c._extra_fields.get("foundry_uuid"), "Actor.xyz999")
+        self.assertEqual(c._extra_fields.get("custom_lore"), "Northern Watch")
+        # Nessun kit non richiesto quando inventory_grid o starting_kit_applied sono espliciti
+        self.assertEqual([it for it in c.inventory_grid if it is not None], [])
+
+        out = c.to_dict()
+        self.assertEqual(out.get("foundry_uuid"), "Actor.xyz999")
+        self.assertEqual(out.get("custom_lore"), "Northern Watch")
+        self.assertEqual(out.get("tags"), ["srd-import"])
+        c_rt = Character.from_dict(out)
+        self.assertEqual(c_rt.to_dict().get("foundry_uuid"), "Actor.xyz999")
+
+        # Euristica speed_unit: <= 12 -> metri, > 12 (es. 15 ft) -> piedi
+        c_15ft = Character.from_dict({"name": "HalflingSlow", "speed": 15})
+        self.assertEqual(c_15ft.speed_unit, "ft")
+        c_9m = Character.from_dict({"name": "UmanoMetric", "speed": 9})
+        self.assertEqual(c_9m.speed_unit, "m")
+
+    def test_add_class_level_preserves_spent_slots_and_syncs_pb(self):
+        wiz = Character("Gale", char_class="Mago", level=3)
+        wiz.classes = {"Mago": 3}
+        wiz.starting_kit_applied = True
+        wiz.spell_slots["1"] = {"max": 4, "current": 1}
+        wiz.spell_slots["2"] = {"max": 2, "current": 0}
+        wiz.attributes["SAG"] = 14
+        wiz.attributes["INT"] = 16
+
+        wiz.add_class_level("Mago", 1)
+        self.assertEqual(wiz.level, 4)
+        self.assertEqual(wiz.spell_slots["1"], {"max": 4, "current": 1})
+        self.assertEqual(wiz.spell_slots["2"], {"max": 3, "current": 1})
+
+        wiz.add_class_level("Chierico", 1)
+        self.assertEqual(wiz.level, 5)
+        self.assertEqual(wiz.proficiency_bonus, 3)
+        self.assertEqual(wiz.spell_slots["1"]["current"], 1)
+        self.assertEqual(wiz.spell_slots["3"], {"max": 2, "current": 2})
+
+        war = Character("Wyll", char_class="Warlock", level=1)
+        war.classes = {"Warlock": 1}
+        war.pact_slots = {"max": 1, "current": 0, "level": 1}
+        war.add_class_level("Warlock", 1)
+        self.assertEqual(war.pact_slots, {"max": 2, "current": 1, "level": 1})
+        self.assertEqual(war.spell_slots["1"]["max"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -214,14 +214,167 @@ def handle_update_full_sheet_request(data, player, game_state):
             prev_server_ac = int(existing_sheet.get("ac", getattr(player, "ac", 10)) or 10) if had_existing_sheet else None
             stripped_unapproved_item = False
             if had_existing_sheet and not is_dm:
-                if hasattr(player, "hp") and isinstance(player.hp, (int, float)):
-                    char_data["hp_current"] = player.hp
-                elif "hp_current" in existing_sheet:
-                    char_data["hp_current"] = existing_sheet["hp_current"]
-                if hasattr(player, "max_hp") and isinstance(player.max_hp, (int, float)):
-                    char_data["hp_max"] = player.max_hp
-                elif "hp_max" in existing_sheet:
-                    char_data["hp_max"] = existing_sheet["hp_max"]
+                srv_hp_cur = player.hp if hasattr(player, "hp") and isinstance(player.hp, (int, float)) else existing_sheet.get("hp_current", 10)
+                srv_hp_max = player.max_hp if hasattr(player, "max_hp") and isinstance(player.max_hp, (int, float)) else existing_sheet.get("hp_max", 10)
+                try:
+                    srv_hp_cur = int(srv_hp_cur)
+                except (ValueError, TypeError):
+                    srv_hp_cur = 10
+                try:
+                    srv_hp_max = max(1, int(srv_hp_max))
+                except (ValueError, TypeError):
+                    srv_hp_max = 10
+
+                try:
+                    server_lvl = max(1, int(existing_sheet.get("level", 1) or 1))
+                except (ValueError, TypeError):
+                    server_lvl = 1
+                try:
+                    client_lvl = max(1, min(20, int(char_data.get("level", server_lvl) or server_lvl)))
+                except (ValueError, TypeError):
+                    client_lvl = server_lvl
+                if client_lvl > server_lvl + 1:
+                    client_lvl = server_lvl + 1
+                    char_data["level"] = client_lvl
+                char_data["proficiency_bonus"] = 2 + (client_lvl - 1) // 4
+
+                def _canon_cls_key(name):
+                    low = str(name or "").strip().lower()
+                    aliases = {
+                        "guerriero": "fighter", "fighter": "fighter",
+                        "ladro": "rogue", "rogue": "rogue",
+                        "mago": "wizard", "wizard": "wizard",
+                        "chierico": "cleric", "cleric": "cleric",
+                        "druido": "druid", "druid": "druid",
+                        "barbaro": "barbarian", "barbarian": "barbarian",
+                        "bardo": "bard", "bard": "bard",
+                        "paladino": "paladin", "paladin": "paladin",
+                        "ranger": "ranger",
+                        "stregone": "sorcerer", "sorcerer": "sorcerer",
+                        "warlock": "warlock",
+                        "monaco": "monk", "monk": "monk",
+                        "artefice": "artificer", "artificer": "artificer",
+                    }
+                    return aliases.get(low, low)
+
+                def _asi_set_for_cls(name):
+                    ck = _canon_cls_key(name)
+                    if ck == "fighter":
+                        return (4, 6, 8, 12, 14, 16, 19)
+                    if ck == "rogue":
+                        return (4, 8, 10, 12, 16, 19)
+                    return (4, 8, 12, 16, 19)
+
+                # Valida eventuale progressione multiclasse e verifica se una classe ha raggiunto un livello ASI
+                srv_cls_raw = existing_sheet.get("classes")
+                cli_cls_raw = char_data.get("classes")
+                srv_cls_map = {}
+                if isinstance(srv_cls_raw, dict) and srv_cls_raw:
+                    for ck, cv in srv_cls_raw.items():
+                        try:
+                            srv_cls_map[_canon_cls_key(ck)] = int(cv or 0)
+                        except (ValueError, TypeError):
+                            pass
+                elif existing_sheet.get("char_class"):
+                    srv_cls_map[_canon_cls_key(existing_sheet.get("char_class"))] = server_lvl
+
+                asi_earned = False
+                if isinstance(cli_cls_raw, dict) and cli_cls_raw and client_lvl > server_lvl:
+                    sanitized_cls = {}
+                    total_cli_cls = 0
+                    for ck, cv in cli_cls_raw.items():
+                        try:
+                            new_cv = max(0, int(cv or 0))
+                        except (ValueError, TypeError):
+                            new_cv = 0
+                        canon_k = _canon_cls_key(ck)
+                        old_cv = srv_cls_map.get(canon_k, 0)
+                        if new_cv < old_cv:
+                            new_cv = old_cv
+                        if new_cv > old_cv + 1:
+                            new_cv = old_cv + 1
+                        sanitized_cls[ck] = new_cv
+                        total_cli_cls += new_cv
+                        if new_cv > old_cv and new_cv in _asi_set_for_cls(canon_k):
+                            asi_earned = True
+                    if total_cli_cls > client_lvl and isinstance(srv_cls_raw, dict) and srv_cls_raw:
+                        char_data["classes"] = copy.deepcopy(srv_cls_raw)
+                        asi_earned = False
+                    else:
+                        char_data["classes"] = sanitized_cls
+                elif client_lvl > server_lvl:
+                    single_cls = char_data.get("char_class") or existing_sheet.get("char_class") or ""
+                    asi_earned = client_lvl in _asi_set_for_cls(single_cls)
+                elif isinstance(srv_cls_raw, dict) and srv_cls_raw:
+                    char_data["classes"] = copy.deepcopy(srv_cls_raw)
+
+                server_attrs = existing_sheet.get("attributes", {})
+                client_attrs = char_data.get("attributes", {})
+                if isinstance(server_attrs, dict) and isinstance(client_attrs, dict):
+                    if client_lvl <= server_lvl or not asi_earned:
+                        for a_k, a_val in server_attrs.items():
+                            if a_k in client_attrs:
+                                try:
+                                    if int(client_attrs[a_k]) > int(a_val):
+                                        client_attrs[a_k] = a_val
+                                except (ValueError, TypeError):
+                                    client_attrs[a_k] = a_val
+                    else:
+                        # Consenti fino a +2 punti ASI totali al livello milestone di classe (max 20)
+                        remaining_asi = 2
+                        for a_k, a_val in server_attrs.items():
+                            if a_k in client_attrs:
+                                try:
+                                    s_v = int(a_val)
+                                    c_v = int(client_attrs[a_k])
+                                except (ValueError, TypeError):
+                                    client_attrs[a_k] = a_val
+                                    continue
+                                if c_v > s_v:
+                                    allowed_gain = min(remaining_asi, max(0, min(20, c_v) - s_v))
+                                    client_attrs[a_k] = s_v + allowed_gain
+                                    remaining_asi -= allowed_gain
+                    char_data["attributes"] = client_attrs
+
+                # Gestione HP: immutabile a parità di livello, aumento validato D&D 5e al level-up
+                if client_lvl <= server_lvl:
+                    char_data["hp_current"] = srv_hp_cur
+                    char_data["hp_max"] = srv_hp_max
+                else:
+                    try:
+                        old_cos = int(server_attrs.get("COS", 10) or 10)
+                    except (ValueError, TypeError):
+                        old_cos = 10
+                    try:
+                        new_cos = int(char_data.get("attributes", {}).get("COS", old_cos) or old_cos)
+                    except (ValueError, TypeError):
+                        new_cos = old_cos
+                    old_cos_mod = (old_cos - 10) // 2
+                    new_cos_mod = (new_cos - 10) // 2
+                    retro_con = max(0, new_cos_mod - old_cos_mod) * server_lvl
+
+                    def _has_tough(sheet_d):
+                        ft_blob = str(sheet_d.get("features", "") or "").lower()
+                        if "robusto" in ft_blob or "tough" in ft_blob:
+                            return True
+                        for lst_k in ("feats", "features_list"):
+                            for ent in (sheet_d.get(lst_k) or []):
+                                nm = str(ent.get("name", "") if isinstance(ent, dict) else ent).lower()
+                                if "robusto" in nm or "tough" in nm:
+                                    return True
+                        return False
+
+                    retro_tough = (2 * client_lvl) if (_has_tough(char_data) and not _has_tough(existing_sheet)) else 0
+                    max_level_gain = max(1, 12 + new_cos_mod + 4) + retro_con + retro_tough
+                    try:
+                        req_hp_max = int(char_data.get("hp_max", srv_hp_max) or srv_hp_max)
+                    except (ValueError, TypeError):
+                        req_hp_max = srv_hp_max
+                    approved_hp_max = max(srv_hp_max + 1, min(req_hp_max, srv_hp_max + max_level_gain))
+                    hp_delta = max(0, approved_hp_max - srv_hp_max)
+                    char_data["hp_max"] = approved_hp_max
+                    char_data["hp_current"] = min(approved_hp_max, max(0, srv_hp_cur) + hp_delta)
+
                 char_data["hp"] = char_data["hp_current"]
                 char_data["current_hp"] = char_data["hp_current"]
                 char_data["max_hp"] = char_data["hp_max"]
@@ -264,47 +417,6 @@ def handle_update_full_sheet_request(data, player, game_state):
                     char_data["wallet"] = dict(client_currency)
                     char_data["gp"] = str(client_currency.get("MO", 0))
 
-                try:
-                    server_lvl = max(1, int(existing_sheet.get("level", 1) or 1))
-                except (ValueError, TypeError):
-                    server_lvl = 1
-                try:
-                    client_lvl = max(1, min(20, int(char_data.get("level", server_lvl) or server_lvl)))
-                except (ValueError, TypeError):
-                    client_lvl = server_lvl
-                if client_lvl > server_lvl + 1:
-                    client_lvl = server_lvl + 1
-                    char_data["level"] = client_lvl
-
-                server_attrs = existing_sheet.get("attributes", {})
-                client_attrs = char_data.get("attributes", {})
-                if isinstance(server_attrs, dict) and isinstance(client_attrs, dict):
-                    asi_milestones = (4, 6, 8, 10, 12, 14, 16, 19)
-                    if client_lvl <= server_lvl or client_lvl not in asi_milestones:
-                        for a_k, a_val in server_attrs.items():
-                            if a_k in client_attrs:
-                                try:
-                                    if int(client_attrs[a_k]) > int(a_val):
-                                        client_attrs[a_k] = a_val
-                                except (ValueError, TypeError):
-                                    client_attrs[a_k] = a_val
-                    else:
-                        # Consenti fino a +2 punti ASI totali al livello milestone (max 20)
-                        remaining_asi = 2
-                        for a_k, a_val in server_attrs.items():
-                            if a_k in client_attrs:
-                                try:
-                                    s_v = int(a_val)
-                                    c_v = int(client_attrs[a_k])
-                                except (ValueError, TypeError):
-                                    client_attrs[a_k] = a_val
-                                    continue
-                                if c_v > s_v:
-                                    allowed_gain = min(remaining_asi, max(0, min(20, c_v) - s_v))
-                                    client_attrs[a_k] = s_v + allowed_gain
-                                    remaining_asi -= allowed_gain
-                    char_data["attributes"] = client_attrs
-
                 server_inv = existing_sheet.get("inventory_grid", [])
                 client_inv = char_data.get("inventory_grid", [])
                 if isinstance(server_inv, list) and isinstance(client_inv, list):
@@ -315,19 +427,24 @@ def handle_update_full_sheet_request(data, player, game_state):
                         if isinstance(c_it, dict) and c_it.get("name"):
                             ck = str(c_it.get("name", "")).strip().lower()
                             if get_pack_contents(ck):
+                                raw_cq = c_it.get("qty", 1)
                                 try:
-                                    cq = max(1, int(c_it.get("qty", 1) or 1))
+                                    cq = max(0, int(1 if raw_cq is None else raw_cq))
                                 except (ValueError, TypeError):
                                     cq = 1
-                                client_pack_counts[ck] = client_pack_counts.get(ck, 0) + cq
+                                if cq > 0:
+                                    client_pack_counts[ck] = client_pack_counts.get(ck, 0) + cq
 
                     for s_it in server_inv:
                         if isinstance(s_it, dict) and s_it.get("name"):
                             k = str(s_it.get("name", "")).strip().lower()
+                            raw_sq = s_it.get("qty", 1)
                             try:
-                                q = max(1, int(s_it.get("qty", 1) or 1))
+                                q = max(0, int(1 if raw_sq is None else raw_sq))
                             except (ValueError, TypeError):
                                 q = 1
+                            if q <= 0:
+                                continue
                             pack_subs = get_pack_contents(k)
                             if pack_subs:
                                 still_closed = min(q, client_pack_counts.get(k, 0))
@@ -347,14 +464,20 @@ def handle_update_full_sheet_request(data, player, game_state):
                         if isinstance(c_it, dict) and c_it.get("name"):
                             k = str(c_it.get("name", "")).strip().lower()
                             rem_allowed = allowed_counts.get(k, 0)
-                            if rem_allowed <= 0:
+                            raw_qty = c_it.get("qty", 1)
+                            try:
+                                c_q = max(0, int(1 if raw_qty is None else raw_qty))
+                            except (ValueError, TypeError):
+                                c_q = 1
+                            if c_q == 0:
+                                if rem_allowed > 0:
+                                    c_it["qty"] = 0
+                                else:
+                                    client_inv[s_i] = None
+                            elif rem_allowed <= 0:
                                 client_inv[s_i] = None
                                 stripped_unapproved_item = True
                             else:
-                                try:
-                                    c_q = max(1, int(c_it.get("qty", 1) or 1))
-                                except (ValueError, TypeError):
-                                    c_q = 1
                                 actual_q = min(c_q, rem_allowed)
                                 c_it["qty"] = actual_q
                                 allowed_counts[k] = rem_allowed - actual_q
@@ -364,6 +487,10 @@ def handle_update_full_sheet_request(data, player, game_state):
                 if "weapons" in existing_sheet and isinstance(existing_sheet["weapons"], list) and isinstance(char_data.get("weapons"), list):
                     if client_lvl <= server_lvl:
                         allowed_weapons = {str(w.get("name", "")).strip().lower() for w in existing_sheet["weapons"] if isinstance(w, dict)}
+                        if isinstance(char_data.get("inventory_grid"), list):
+                            for inv_it in char_data["inventory_grid"]:
+                                if isinstance(inv_it, dict) and inv_it.get("name") and int(inv_it.get("qty", 1) or 0) > 0:
+                                    allowed_weapons.add(str(inv_it.get("name", "")).strip().lower())
                         char_data["weapons"] = [
                             w for w in char_data["weapons"]
                             if isinstance(w, dict) and str(w.get("name", "")).strip().lower() in allowed_weapons
@@ -402,11 +529,22 @@ def handle_update_full_sheet_request(data, player, game_state):
                     client_ac = int(char_data.get("ac", prev_server_ac) or prev_server_ac)
                     if client_ac > max(prev_server_ac, calc_ac):
                         char_data["ac"] = max(prev_server_ac, calc_ac)
+                elif not is_dm and int(char_data.get("level", 1) or 1) > int((existing_sheet or {}).get("level", 1) or 1):
+                    char_data["ac"] = max(int(char_data.get("ac", calc_ac) or calc_ac), calc_ac)
             except Exception:
                 pass
 
             player.full_sheet = char_data
             player.avatar_b64 = char_data.get("avatar_b64") or getattr(player, "avatar_b64", None)
+            try:
+                player.proficiency_bonus = int(char_data.get("proficiency_bonus", 2) or 2)
+            except (ValueError, TypeError):
+                pass
+            if isinstance(char_data.get("pact_slots"), dict):
+                pact_s = char_data["pact_slots"]
+                player.pact_slots_max = int(pact_s.get("max", 0) or 0)
+                player.pact_slots_current = int(pact_s.get("current", 0) or 0)
+                player.pact_slot_level = int(pact_s.get("level", 0) or 0)
             try:
                 player.hp = int(char_data.get("hp_current", player.hp))
             except (ValueError, TypeError):
