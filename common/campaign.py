@@ -166,8 +166,10 @@ class Campaign:
         if not os.path.exists(manifest_file):
             raise FileNotFoundError(f"Manifest di campagna non trovato: {manifest_file}")
             
-        with open(manifest_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        from common.file_utils import load_json
+        data = load_json(manifest_file, default=None)
+        if not isinstance(data, dict):
+            raise ValueError(f"Manifest di campagna corrotto o non valido: {manifest_file}")
             
         return cls.from_dict(data, folder_path=folder_path)
 
@@ -200,9 +202,8 @@ class Campaign:
                     print(f"[CAMPAIGN] Errore caricamento mappa iniziale {map_path}: {e}")
 
         with game_state.lock:
-            # Starter kit campagna
-            if self.starter_kit:
-                game_state.campaign_starter_kit = [item.copy() for item in self.starter_kit]
+            # Starter kit campagna (reset esplicito se la nuova campagna non ne ha)
+            game_state.campaign_starter_kit = [item.copy() for item in self.starter_kit] if self.starter_kit else []
                 
             # Calendario & Meteo
             if self.start_date:
@@ -213,13 +214,10 @@ class Campaign:
             if self.start_weather:
                 game_state.weather = self.start_weather
                 
-            # Quest, Negozi, Handout & Diario Narrativo Cumulativo
-            if self.quests:
-                game_state.quests = [q.copy() for q in self.quests]
-            if self.shops:
-                game_state.shops = {k: v.copy() for k, v in self.shops.items()}
-            if self.handouts:
-                game_state.handouts = [h.copy() for h in self.handouts]
+            # Quest, Negozi, Handout & Diario Narrativo Cumulativo (reset per evitare residui di campagne precedenti)
+            game_state.quests = [q.copy() for q in self.quests] if self.quests else []
+            game_state.shops = {k: v.copy() for k, v in self.shops.items()} if self.shops else {}
+            game_state.handouts = [h.copy() for h in self.handouts] if self.handouts else []
             if getattr(self, "journal", None) is not None:
                 game_state.campaign_journal = self.journal
                 
@@ -228,6 +226,12 @@ class Campaign:
             
             if initial_map_data:
                 game_state.load_map(initial_map_data)
+            else:
+                game_state.current_map = None
+                game_state.maps = {}
+                game_state.active_map_id = None
+                game_state.active_aoes = []
+                game_state.drawn_lines = []
                         
         game_state._trigger_gui_update()
 

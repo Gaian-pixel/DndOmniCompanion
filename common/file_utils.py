@@ -71,16 +71,34 @@ def atomic_save_json(filepath, data, indent=4, ensure_ascii=False, create_backup
 def load_json(filepath, default=None):
     """
     Carica i dati da un file JSON con encoding UTF-8.
-    Se il file non esiste o è corrotto, restituisce `default`.
+    Se il file primario è corrotto e esiste `<filepath>.bak`, tenta il ripristino dal backup.
+    Se entrambi mancano o sono illeggibili, restituisce `default`.
     """
-    if not os.path.exists(filepath):
-        return default
-    try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError) as e:
-        print(f"[file_utils] Errore caricamento '{filepath}': {e}")
-        return default
+    bak_path = f"{filepath}.bak"
+    if os.path.exists(filepath):
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError, OSError) as e:
+            print(f"[file_utils] Errore caricamento '{filepath}': {e}")
+            if os.path.exists(bak_path):
+                try:
+                    with open(bak_path, "r", encoding="utf-8") as bf:
+                        recovered = json.load(bf)
+                    print(f"[file_utils] Recupero automatico riuscito dal backup '{bak_path}'.")
+                    return recovered
+                except (json.JSONDecodeError, UnicodeDecodeError, ValueError, OSError) as be:
+                    print(f"[file_utils] Errore recupero backup '{bak_path}': {be}")
+            return default
+    if os.path.exists(bak_path):
+        try:
+            with open(bak_path, "r", encoding="utf-8") as bf:
+                recovered = json.load(bf)
+            print(f"[file_utils] File primario assente, ripristinato da backup '{bak_path}'.")
+            return recovered
+        except (json.JSONDecodeError, UnicodeDecodeError, ValueError, OSError) as be:
+            print(f"[file_utils] Errore recupero backup '{bak_path}': {be}")
+    return default
 
 
 # Alias per compatibilità

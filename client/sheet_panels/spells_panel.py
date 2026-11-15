@@ -25,7 +25,7 @@ class SpellsPanel:
             return "SAG"
         if any(k in c for k in ["bardo", "bard", "paladino", "paladin", "stregone", "sorcerer", "warlock"]):
             return "CAR"
-        if any(k in c for k in ["mago", "wizard", "artefice", "artificer"]) or any(k in sub for k in ["mistico", "eldritch", "arcane"]):
+        if any(k in c for k in ["mago", "wizard", "artefice", "artificer"]) or any(k in sub for k in ["mistico", "eldritch", "arcane", "arcano"]):
             return "INT"
         return "INT"
 
@@ -43,7 +43,7 @@ class SpellsPanel:
         classes = getattr(character, "classes", None)
         stat = SpellsPanel.get_spellcasting_ability(char_class, subclass)
         # Se la classe primaria non è incantatrice (es. Guerriero 3 / Chierico 2), controlla le classi multiclasse
-        if stat == "INT" and not any(k in char_class.lower() for k in ("mago", "wizard", "artefice", "artificer")) and not any(k in subclass.lower() for k in ("mistico", "eldritch", "arcane")):
+        if stat == "INT" and not any(k in char_class.lower() for k in ("mago", "wizard", "artefice", "artificer")) and not any(k in subclass.lower() for k in ("mistico", "eldritch", "arcane", "arcano")):
             if isinstance(classes, dict) and classes:
                 for ck in classes.keys():
                     cand = SpellsPanel.get_spellcasting_ability(str(ck), subclass)
@@ -172,7 +172,21 @@ class SpellsPanel:
         sp = sb[idx]
         if int(sp.get("level", 0) or 0) <= 0:
             return
-        sp["prepared"] = not bool(sp.get("prepared", True))
+        cur_prep_flag = bool(sp.get("prepared", True))
+        if not cur_prep_flag:
+            max_prep = SpellsPanel.get_max_prepared_spells(sheet.character)
+            if max_prep > 0 and SpellsPanel.count_prepared_spells(sheet.character) >= max_prep:
+                from common.messagebox import messagebox
+                try:
+                    messagebox.showwarning(
+                        "Limite Incantesimi Preparati",
+                        f"Hai già raggiunto il massimo di {max_prep} incantesimi preparati per oggi (D&D 5e RAW).",
+                        parent=sheet if hasattr(sheet, "winfo_exists") else None,
+                    )
+                except Exception:
+                    pass
+                return
+        sp["prepared"] = not cur_prep_flag
         if hasattr(sheet, "manager") and hasattr(sheet.manager, "update_character"):
             sheet.manager.update_character(sheet.character)
             if hasattr(sheet.manager, "save_characters"):
@@ -416,8 +430,10 @@ class SpellsPanel:
                 return False, [], "La tua classe/talento non consente il Lancio Rituale."
             tags.append("🕯️ Rituale (+10 min, 0 slot)")
 
+        rollback_fns = []
+
         # 2. Consumo risorsa lancio per incantesimi lv 1+ non rituali
-        elif lvl > 0:
+        if lvl > 0 and not is_ritual:
             if use_spell_points and hasattr(character, "spend_spell_points"):
                 # DMG p. 288: max 1 incantesimo per ciascun livello 6-9 con Spell Points per Riposo Lungo
                 used_high = getattr(character, "_spell_points_high_used", None)
@@ -425,12 +441,19 @@ class SpellsPanel:
                     used_high = set(used_high or [])
                 if eff_lvl >= 6 and eff_lvl in used_high:
                     return False, [], f"DMG p. 288: con i Punti Incantesimo puoi lanciare un solo incantesimo di {eff_lvl}° livello per Riposo Lungo."
+                prev_sp_cur = getattr(character, "spell_points_current", 0)
+                had_high = eff_lvl in used_high
                 ok_sp, msg_sp = character.spend_spell_points(eff_lvl)
                 if not ok_sp:
                     return False, [], msg_sp
                 if eff_lvl >= 6:
                     used_high.add(eff_lvl)
                     character._spell_points_high_used = used_high
+                def _undo_sp(_cur=prev_sp_cur, _had_h=had_high, _el=eff_lvl, _uh=used_high):
+                    character.spell_points_current = _cur
+                    if not _had_h:
+                        _uh.discard(_el)
+                rollback_fns.append(_undo_sp)
                 tags.append(f"⚡ {msg_sp}")
             else:
                 pact = getattr(character, "pact_slots", None)
@@ -443,7 +466,9 @@ class SpellsPanel:
                 sl_entry = slots.get(str(eff_lvl), {"max": 0, "current": 0})
                 std_cur = int(sl_entry.get("current", 0)) if isinstance(sl_entry, dict) else (int(sl_entry[0]) if isinstance(sl_entry, list) and sl_entry else 0)
                 if (use_pact and pact_ok) or (std_cur <= 0 and pact_ok):
-                    pact["current"] = int(pact["current"]) - 1
+                    prev_pact_cur = int(pact["current"])
+                    pact["current"] = prev_pact_cur - 1
+                    rollback_fns.append(lambda _p=pact, _prev=prev_pact_cur: _p.__setitem__("current", _prev))
                     eff_lvl = max(lvl, int(pact.get("level", eff_lvl) or eff_lvl))
                     tags.append(f"🟣 Slot Patto Lv {eff_lvl}° ({pact['current']}/{pact.get('max', 0)})")
                 else:
@@ -451,8 +476,10 @@ class SpellsPanel:
                         return False, [], f"SLOT_EXHAUSTED:{eff_lvl}"
                     if isinstance(sl_entry, dict):
                         sl_entry["current"] = std_cur - 1
+                        rollback_fns.append(lambda _e=sl_entry, _prev=std_cur: _e.__setitem__("current", _prev))
                     elif isinstance(sl_entry, list) and sl_entry:
                         sl_entry[0] = std_cur - 1
+                        rollback_fns.append(lambda _e=sl_entry, _prev=std_cur: _e.__setitem__(0, _prev))
                     if eff_lvl > lvl:
                         tags.append(f"⬆️ Potenziato {eff_lvl}°")
 
@@ -467,6 +494,8 @@ class SpellsPanel:
         if m_key:
             ok_m, _rem, msg_m = spend_metamagic_points(character, m_key, eff_lvl)
             if not ok_m:
+                for undo in reversed(rollback_fns):
+                    undo()
                 return False, [], msg_m
             meta_fx = apply_metamagic_to_cast(character, spell, m_key, eff_lvl)
             tags.append(meta_fx["note"])

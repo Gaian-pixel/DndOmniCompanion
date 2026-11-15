@@ -123,8 +123,36 @@ def _handle_ping(data, player, game_state):
         send_message(conn, {"type": "PONG", "data": {}})
 
 
+def _handle_request_asset_resync(data, player, game_state):
+    conn = getattr(player, "conn", None) if player else None
+    if conn is None or game_state is None:
+        return
+    sent_hashes = getattr(player, "_sent_asset_hashes", None)
+    req_hashes = data.get("hashes") if isinstance(data, dict) else None
+    if isinstance(sent_hashes, dict):
+        if isinstance(req_hashes, list) and req_hashes:
+            for h in req_hashes:
+                sent_hashes.pop(h, None)
+        else:
+            sent_hashes.clear()
+    elif isinstance(sent_hashes, set):
+        if isinstance(req_hashes, list) and req_hashes:
+            for h in req_hashes:
+                sent_hashes.discard(h)
+        else:
+            sent_hashes.clear()
+    from common.network_utils import prepare_per_player_state_payload, send_message
+    from common.protocol import make_game_state
+    pkt = prepare_per_player_state_payload(
+        make_game_state(game_state.get_state_dict(is_dm=False)),
+        player,
+    )
+    send_message(conn, pkt)
+
+
 command_handlers = {
     "PING": _handle_ping,
+    "REQUEST_ASSET_RESYNC": _handle_request_asset_resync,
     "DRAW_REQUEST": handle_draw_request,
     "CHAT": handle_chat,
     "WHISPER": handle_whisper,

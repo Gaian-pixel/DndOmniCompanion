@@ -1624,7 +1624,7 @@ class CharacterManager:
 
     def save_characters(self):
         char_file = self._resolve_character_file()
-        atomic_save_json(char_file, [c.to_dict() for c in self.characters], indent=4)
+        atomic_save_json(char_file, [c.to_dict() for c in self.characters], indent=4, create_backup=True)
             
     def add_character(self, character):
         self.characters.append(character)

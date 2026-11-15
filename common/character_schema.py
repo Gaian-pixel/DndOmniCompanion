@@ -1252,8 +1252,10 @@ def sync_hit_dice_pools(target: Any, allow_scalar_override: bool = True) -> Dict
 
     pools: Dict[str, Dict[str, int]] = {}
     ordered_dice = sorted(expected.keys(), key=_die_sort_key, reverse=True)
+    leveled_from_stale_scalar = False
     if old_clean and set(old_clean.keys()).issubset(set(ordered_dice)):
         old_sum = sum(v["total"] for v in old_clean.values())
+        old_cur_sum = sum(v["current"] for v in old_clean.values())
         if all(old_clean.get(d, {}).get("total") == expected[d] for d in ordered_dice):
             for d in ordered_dice:
                 pools[d] = {"total": expected[d], "current": old_clean[d]["current"]}
@@ -1265,6 +1267,12 @@ def sync_hit_dice_pools(target: Any, allow_scalar_override: bool = True) -> Dict
                 delta = max(0, et - prev_e["total"])
                 nc = max(0, min(et, prev_e["current"] + delta))
                 pools[d] = {"total": et, "current": nc}
+            if exp_sum > old_sum and raw_cur is not None:
+                try:
+                    if int(raw_cur) == old_cur_sum:
+                        leveled_from_stale_scalar = True
+                except (ValueError, TypeError):
+                    pass
         else:
             old_clean = {}
 
@@ -1279,7 +1287,7 @@ def sync_hit_dice_pools(target: Any, allow_scalar_override: bool = True) -> Dict
             pools[d] = {"total": et, "current": take}
         pools = {d: pools[d] for d in ordered_dice}
 
-    if allow_scalar_override and raw_cur is not None:
+    if allow_scalar_override and raw_cur is not None and not leveled_from_stale_scalar:
         try:
             target_cur = max(0, min(exp_sum, int(raw_cur)))
         except (ValueError, TypeError):

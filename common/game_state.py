@@ -1756,12 +1756,12 @@ class GameState:
         self._trigger_gui_update()
 
     def save_session(self, filepath):
-        """Salva lo stato corrente in un file JSON in modo atomico."""
+        """Salva lo stato corrente in un file JSON in modo atomico preservando `.bak`."""
         from common.file_utils import atomic_save_json
         import copy
         with self.lock:
             state = copy.deepcopy(self.get_state_dict(is_dm=True))
-        atomic_save_json(filepath, state, indent=4, ensure_ascii=False)
+        atomic_save_json(filepath, state, indent=4, ensure_ascii=False, create_backup=True)
         self.log_dm_message(f"[SISTEMA] Sessione salvata in {filepath}")
 
     def load_session(self, filepath):

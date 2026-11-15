@@ -1823,9 +1823,9 @@ class CharacterSheetFrame(ttk.Frame):
             self.features_text_frame.pack(fill=tk.BOTH, expand=True)
             self._features_view_mode = "text"
             self.btn_view_features.config(text="👁️ Vista Categorie")
-            self.btn_add_feature.pack_forget()
-            self.btn_edit_feature.pack_forget()
-            self.btn_del_feature.pack_forget()
+            self.btn_add_feature.grid_remove()
+            self.btn_edit_feature.grid_remove()
+            self.btn_del_feature.grid_remove()
             if not self.is_connected and "features" in self.text_widgets:
                 self.text_widgets["features"].config(state="disabled")
         else:
@@ -1836,9 +1836,9 @@ class CharacterSheetFrame(ttk.Frame):
             self.features_paned.pack(fill=tk.BOTH, expand=True)
             self._features_view_mode = "structured"
             self.btn_view_features.config(text="👁️ Vista Testo")
-            self.btn_add_feature.pack(side=tk.RIGHT, padx=3)
-            self.btn_edit_feature.pack(side=tk.RIGHT, padx=3)
-            self.btn_del_feature.pack(side=tk.RIGHT, padx=3)
+            self.btn_add_feature.grid()
+            self.btn_edit_feature.grid()
+            self.btn_del_feature.grid()
             self.refresh_features_ui()
 
     def propose_features_approval(self):
@@ -5003,6 +5003,7 @@ class CharacterSheetFrame(ttk.Frame):
                         return
                 item_to_send = dict(item)
                 item_to_send["qty"] = donate_qty
+                item_to_send["_from_slot"] = idx
                 if donate_qty >= item_qty:
                     self.character.inventory_grid[idx] = None
                 else:

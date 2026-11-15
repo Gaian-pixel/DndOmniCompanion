@@ -226,8 +226,14 @@ def make_update_full_sheet_request(character_data):
 def make_receive_item(item_dict):
     return {"type": "RECEIVE_ITEM", "data": {"item": item_dict}}
 
-def make_give_item_request(target_name, item_dict):
-    return {"type": "GIVE_ITEM_REQUEST", "data": {"target_name": target_name, "item": item_dict}}
+def make_give_item_request(target_name, item_dict, slot_idx=None):
+    payload = {"target_name": target_name, "item": item_dict}
+    if slot_idx is not None:
+        payload["slot_idx"] = slot_idx
+    return {"type": "GIVE_ITEM_REQUEST", "data": payload}
+
+def make_request_asset_resync(missing_hashes=None):
+    return {"type": "REQUEST_ASSET_RESYNC", "data": {"hashes": list(missing_hashes or [])}}
 
 def make_create_aoe_request(aoe_data):
     return {"type": "CREATE_AOE_REQUEST", "data": {"aoe_data": aoe_data}}

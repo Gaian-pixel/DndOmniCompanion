@@ -3899,23 +3899,94 @@ def handle_short_rest_request(data, player, game_state):
     if not player:
         return
 
-    from common.character_schema import restore_entity_rest_resources, spend_hit_dice_from_pools
+    from common.character_schema import restore_entity_rest_resources, spend_hit_dice_from_pools, sync_hit_dice_pools
     restored_list = []
-    die_counts = data.get("die_counts") if isinstance(data, dict) else None
+    raw_die_counts = data.get("die_counts") if isinstance(data, dict) else None
+    clean_die_counts = None
+    if raw_die_counts is not None:
+        if not isinstance(raw_die_counts, dict):
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply("Formato die_counts non valido per il Riposo Breve."))
+            return
+        valid_dice = {"d4", "d6", "d8", "d10", "d12"}
+        clean_die_counts = {}
+        for rk, rv in raw_die_counts.items():
+            dk = str(rk).lower().strip()
+            if not dk.startswith("d") and dk.isdigit():
+                dk = f"d{dk}"
+            if dk not in valid_dice:
+                if getattr(player, "conn", None):
+                    send_message(player.conn, make_error_reply(f"Tipo Dado Vita non valido: {rk}"))
+                return
+            try:
+                cnt_i = int(rv)
+            except (ValueError, TypeError):
+                if getattr(player, "conn", None):
+                    send_message(player.conn, make_error_reply(f"Conteggio Dadi Vita non valido per {dk}."))
+                return
+            if cnt_i < 0:
+                if getattr(player, "conn", None):
+                    send_message(player.conn, make_error_reply(f"Conteggio Dadi Vita negativo non ammesso per {dk}."))
+                return
+            if cnt_i > 0:
+                clean_die_counts[dk] = cnt_i
+        if clean_die_counts:
+            hd_spent = max(hd_spent, sum(clean_die_counts.values()))
+
     with game_state.lock:
         sheet = getattr(player, "full_sheet", None)
+        spent_map = {}
         if sheet:
-            cur_hd = int(sheet.get("hit_dice_current", sheet.get("level", 1)) or 0)
+            pools = sync_hit_dice_pools(sheet, allow_scalar_override=True)
+            cur_hd = int(sheet.get("hit_dice_current", sum(v.get("current", 0) for v in pools.values())) or 0)
             if hd_spent > 0 and cur_hd < hd_spent:
                 if getattr(player, "conn", None):
                     send_message(player.conn, make_error_reply(f"Dadi Vita insufficienti! Ne possiedi {cur_hd}."))
                 return
-            spend_hit_dice_from_pools(sheet, hd_spent, die_counts=die_counts if isinstance(die_counts, dict) else None)
+            if clean_die_counts:
+                for dk, need in clean_die_counts.items():
+                    avail = int(pools.get(dk, {}).get("current", 0) or 0)
+                    if avail < need:
+                        if getattr(player, "conn", None):
+                            send_message(player.conn, make_error_reply(f"Dadi Vita {dk} insufficienti ({avail}/{need})."))
+                        return
+            spent_map = spend_hit_dice_from_pools(sheet, hd_spent, die_counts=clean_die_counts)
 
         restored_list = restore_entity_rest_resources(player, rest_type="short")
         player.relentless_rage_uses = 0
         from server.dm_monster_engine import restore_drain_penalties
         restore_drain_penalties(player, rest_type="short")
+
+        # Limita hp_recovered alla capacità teorica massima RAW dei Dadi Vita effettivamente spesi
+        if hd_spent <= 0:
+            hp_rec = 0
+        elif hp_rec > 0:
+            cos_val = 10
+            if isinstance(sheet, dict):
+                attrs = sheet.get("attributes") if isinstance(sheet.get("attributes"), dict) else {}
+                stats = sheet.get("stats") if isinstance(sheet.get("stats"), dict) else {}
+                raw_cos = attrs.get("COS", stats.get("CON", 10))
+                try:
+                    cos_val = int(raw_cos if raw_cos is not None else 10)
+                except (ValueError, TypeError):
+                    cos_val = 10
+            cos_mod = (cos_val - 10) // 2
+            max_hd_cap = 0
+            if spent_map:
+                for dk, cnt in spent_map.items():
+                    die_sides = int(dk[1:]) if dk.startswith("d") and dk[1:].isdigit() else 8
+                    max_hd_cap += cnt * max(1, die_sides + cos_mod)
+            else:
+                max_hd_cap = hd_spent * max(1, 12 + cos_mod)
+            if isinstance(sheet, dict):
+                inv = sheet.get("inventory_grid", []) or []
+                has_periapt = any(
+                    isinstance(it, dict) and any(k in str(it.get("name", "")).lower() for k in ("periapt of wound", "periapto", "closure"))
+                    for it in inv
+                )
+                if has_periapt:
+                    max_hd_cap *= 2
+            hp_rec = min(hp_rec, max_hd_cap)
 
         if hp_rec > 0:
             # Canto di Riposo (Song of Rest - Bardo Lv 2+, PHB p. 54): cura extra se spende almeno 1 Dado Vita e un Bardo è nel party
@@ -3928,9 +3999,21 @@ def handle_short_rest_request(data, player, game_state):
                 if best_bard >= 2:
                     sor_sides = 6 if best_bard < 9 else (8 if best_bard < 13 else (10 if best_bard < 17 else 12))
                     hp_rec += random.randint(1, sor_sides)
-            player.hp = min(player.max_hp, player.hp + hp_rec)
+            old_hp = int(getattr(player, "hp", 0) or 0)
+            player.hp = min(player.max_hp, old_hp + hp_rec)
             if sheet:
                 sheet["hp_current"] = player.hp
+            if old_hp == 0 and player.hp > 0:
+                player.conditions = [
+                    c for c in getattr(player, "conditions", [])
+                    if c not in ("Incosciente", "Stabilizzato", "Unconscious", "Stable")
+                ]
+                player.death_save_successes = 0
+                player.death_save_failures = 0
+                player.death_saves = {"successes": 0, "failures": 0}
+                if isinstance(sheet, dict):
+                    sheet["conditions"] = list(player.conditions)
+                    sheet["death_saves"] = {"successes": 0, "failures": 0}
 
     broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, getattr(player, "conditions", []), getattr(player, "temp_hp", 0)))
     broadcast(game_state, make_game_state(game_state.get_state_dict()))

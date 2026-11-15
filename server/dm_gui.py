@@ -149,6 +149,7 @@ class DM_GUI(DMCampaignSessionMixin):
             
         self._is_closing = False
         self._process_queue_job = None
+        self._autosave_job = None
         self._listbox_player_names = []
         try:
             self.master.bind("<Destroy>", self._on_master_destroyed, add="+")
@@ -161,6 +162,29 @@ class DM_GUI(DMCampaignSessionMixin):
         register_language_listener(self.on_language_changed)
         register_unit_listener(self.on_unit_changed)
         self._process_queue_job = safe_after(self.master, 100, self.process_queue)
+        self._autosave_job = safe_after(self.master, 120000, self._run_periodic_autosave)
+
+    def _resolve_autosave_path(self):
+        env_auto = os.environ.get("DND_AUTOSAVE_PATH")
+        if env_auto:
+            return env_auto
+        env_settings = os.environ.get("DND_SETTINGS_PATH")
+        if env_settings:
+            return os.path.join(os.path.dirname(os.path.abspath(env_settings)), "dm_session_autosave.json")
+        from common.file_utils import get_writable_dir
+        return os.path.join(get_writable_dir(), "client_data", "dm_session_autosave.json")
+
+    def _run_periodic_autosave(self):
+        if getattr(self, "_is_closing", False):
+            return
+        try:
+            gs = getattr(getattr(self, "server", None), "game_state", None)
+            if gs is not None:
+                gs.save_session(self._resolve_autosave_path())
+        except Exception as e:
+            print(f"[AUTOSAVE] Errore salvataggio periodico sessione DM: {e}")
+        if not getattr(self, "_is_closing", False) and hasattr(self, "master"):
+            self._autosave_job = safe_after(self.master, 120000, self._run_periodic_autosave)
 
     def _on_master_destroyed(self, event=None):
         if event and getattr(event, "widget", None) != self.master:
@@ -176,6 +200,7 @@ class DM_GUI(DMCampaignSessionMixin):
         except Exception:
             pass
         self._process_queue_job = None
+        self._autosave_job = None
 
     def get_player_name_from_listbox(self, index=None):
         """Restituisce il nome dell'entità alla riga index (o selezione corrente) senza fragilità di string-splitting."""
@@ -3198,6 +3223,7 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             self._is_closing = True
             cancel_all_after_timers(self.master)
             self._process_queue_job = None
+            self._autosave_job = None
             try:
                 unregister_language_listener(self.on_language_changed)
             except Exception:

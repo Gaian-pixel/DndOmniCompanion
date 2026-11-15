@@ -4432,6 +4432,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
 
     def handle_map_data_update(self, data):
         self.local_map_data = ClientGUI._resolve_cached_map_assets(self, data.get("map"))
+        ClientGUI._maybe_request_asset_resync(self)
         self.redraw_map_and_players()
         
     def handle_combat_state_update(self, data):
@@ -4490,6 +4491,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
         self.local_map_data = ClientGUI._resolve_cached_map_assets(self, data.get("map"))
         if isinstance(data.get("handouts"), list):
             ClientGUI._resolve_cached_handout_assets(self, data["handouts"])
+        ClientGUI._maybe_request_asset_resync(self)
         
         if self.active_character and self.name in self.players_data:
             import copy
@@ -5734,7 +5736,8 @@ class ClientGUI(ClientNetworkHandlersMixin):
 
     def do_trade(self, item, target_name):
         if self.is_connected:
-            self.network.send(make_give_item_request(target_name, item))
+            slot_idx = item.get("_from_slot") if isinstance(item, dict) else None
+            self.network.send(make_give_item_request(target_name, item, slot_idx=slot_idx))
             if self.active_character:
                 from common.protocol import make_update_full_sheet_request
                 self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))

@@ -40,6 +40,11 @@ def handle_give_item_request(data, player, game_state):
 
     recip_sheet = getattr(target_player, "full_sheet", None)
     sender_sheet = getattr(player, "full_sheet", None)
+    raw_from_slot = data.get("slot_idx") if data.get("slot_idx") is not None else item.get("_from_slot")
+    try:
+        from_slot_idx = int(raw_from_slot) if raw_from_slot is not None else None
+    except (ValueError, TypeError):
+        from_slot_idx = None
     err_msg = None
     donated_item = None
     with game_state.lock:
@@ -54,8 +59,14 @@ def handle_give_item_request(data, player, game_state):
                 err_msg = f"Lo zaino di {target_name} è pieno!"
 
         if not err_msg and sender_sheet and isinstance(sender_sheet.get("inventory_grid"), list):
+            s_grid = sender_sheet["inventory_grid"]
             found_in_sender = False
-            for s_idx, slot in enumerate(sender_sheet["inventory_grid"]):
+            candidate_indices = []
+            if from_slot_idx is not None and 0 <= from_slot_idx < len(s_grid):
+                candidate_indices.append(from_slot_idx)
+            candidate_indices.extend(i for i in range(len(s_grid)) if i != from_slot_idx)
+            for s_idx in candidate_indices:
+                slot = s_grid[s_idx]
                 if slot and isinstance(slot, dict) and slot.get("name") == item.get("name"):
                     curr_q = int(slot.get("qty", 1) or 1)
                     if give_qty > curr_q:
@@ -65,7 +76,7 @@ def handle_give_item_request(data, player, game_state):
                     if curr_q > give_qty:
                         slot["qty"] = curr_q - give_qty
                     else:
-                        sender_sheet["inventory_grid"][s_idx] = None
+                        s_grid[s_idx] = None
                     found_in_sender = True
                     break
             if not found_in_sender:
@@ -74,6 +85,8 @@ def handle_give_item_request(data, player, game_state):
         if not err_msg:
             # Inserisci nel primo slot libero o impila nel destinatario
             donated_item = dict(item)
+            donated_item.pop("_from_slot", None)
+            donated_item.pop("_sender", None)
             donated_item["qty"] = give_qty
             donated_item["attuned"] = False
             donated_item["container"] = "backpack"
@@ -95,11 +108,9 @@ def handle_give_item_request(data, player, game_state):
                     err_msg = f"Lo zaino di {target_name} è pieno!"
                 else:
                     try:
-                        from common.item_modifiers import compute_effective_ac, calculate_character_item_modifiers
-                        r_mods = calculate_character_item_modifiers(recip_sheet)
-                        if r_mods.get("equipped_armor") is not None or r_mods.get("has_shield", False) or r_mods.get("bonus_ac", 0) != 0 or r_mods.get("special_ac_base") is not None:
-                            recip_sheet["ac"] = compute_effective_ac(recip_sheet, r_mods)
-                            target_player.ac = recip_sheet["ac"]
+                        from common.item_modifiers import compute_effective_ac
+                        recip_sheet["ac"] = compute_effective_ac(recip_sheet)
+                        target_player.ac = recip_sheet["ac"]
                     except Exception:
                         pass
             if not err_msg and sender_sheet:

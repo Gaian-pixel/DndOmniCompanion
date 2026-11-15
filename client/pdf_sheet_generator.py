@@ -35,6 +35,7 @@ CLASS_SAVE_PROFS = {
     "sorcerer": ["COS", "CAR"], "stregone": ["COS", "CAR"],
     "warlock": ["SAG", "CAR"],
     "wizard": ["INT", "SAG"], "mago": ["INT", "SAG"],
+    "artificer": ["COS", "INT"], "artefice": ["COS", "INT"],
 }
 
 # Mappa per la caratteristica di incantatore primaria della classe
@@ -336,6 +337,14 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
     if data.get("proficiencies"):
         profs = data["proficiencies"] if isinstance(data["proficiencies"], str) else ", ".join(data["proficiencies"])
         prof_langs_text.append(f"Competenze: {profs}")
+    else:
+        combined_profs = []
+        for pk in ("armor_proficiencies", "weapon_proficiencies", "tool_proficiencies"):
+            pv = data.get(pk)
+            if isinstance(pv, list):
+                combined_profs.extend(str(x) for x in pv if x)
+        if combined_profs:
+            prof_langs_text.append(f"Competenze: {', '.join(combined_profs)}")
     if data.get("travel_role") and data["travel_role"] != "Nessuna":
         prof_langs_text.append(f"Ruolo di Viaggio: {data['travel_role']}")
     if not prof_langs_text:
@@ -376,12 +385,21 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
     # 10. Dadi Vita e Tiri Salvezza contro Morte
     hd_tot = data.get("hit_dice_total", level)
     hd_cur = data.get("hit_dice_current", hd_tot)
-    hd_type = str(data.get("hit_dice_type", "d8")).lower()
+    raw_hd_type = str(data.get("hit_dice_type") or "").strip().lower()
+    if not raw_hd_type:
+        from common.character_schema import get_class_hit_die_str
+        raw_hd_type = get_class_hit_die_str(char_class, "d8")
+    hd_pools = data.get("hit_dice_pools")
+    if isinstance(hd_pools, dict) and len(hd_pools) > 1:
+        parts = [f"{v.get('current', 0)}{dk}" for dk, v in hd_pools.items() if isinstance(v, dict) and v.get("total", 0) > 0]
+        hd_disp = "+".join(parts)[:14] if parts else f"{hd_cur} {raw_hd_type}"
+    else:
+        hd_disp = f"{hd_cur} {raw_hd_type}"
 
     can.setFont("Helvetica-Bold", 8)
     can.drawString(245, 462, str(hd_tot))
-    can.setFont("Helvetica-Bold", 11)
-    can.drawCentredString(250, 446, f"{hd_cur} {hd_type}")
+    can.setFont("Helvetica-Bold", 11 if len(hd_disp) <= 7 else 8.5)
+    can.drawCentredString(250, 446, hd_disp)
 
     death_saves = data.get("death_saves", {})
     if isinstance(death_saves, dict):
@@ -554,7 +572,17 @@ def generate_character_pdf(character_data: Any, output_path: str, template_path:
 
     spell_ability = data.get("spellcasting_ability")
     if not spell_ability:
-        spell_ability = CLASS_SPELLCASTING_ABILITY.get(str(char_class).lower(), "INT")
+        from client.sheet_panels.spells_panel import SpellsPanel
+        subclass = str(data.get("subclass", "") or "").strip()
+        spell_ability = SpellsPanel.get_spellcasting_ability(char_class, subclass)
+        if spell_ability == "INT" and not any(k in char_class.lower() for k in ("mago", "wizard", "artefice", "artificer")) and not any(k in subclass.lower() for k in ("mistico", "eldritch", "arcane", "arcano")):
+            classes_map = data.get("classes")
+            if isinstance(classes_map, dict):
+                for ck in classes_map:
+                    cand = SpellsPanel.get_spellcasting_ability(str(ck), subclass)
+                    if cand != "INT" or any(w in str(ck).lower() for w in ("mago", "wizard", "artefice", "artificer")):
+                        spell_ability = cand
+                        break
 
     can.drawCentredString(308, 718, str(spell_ability))
 

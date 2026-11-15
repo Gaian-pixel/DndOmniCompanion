@@ -67,6 +67,71 @@ class ClientNetworkHandlersMixin:
                     break
                 cache.pop(oldest_key, None)
         cache[asset_hash] = asset_data
+        pending = getattr(self, "_missing_asset_hashes_pending", None)
+        if isinstance(pending, set):
+            pending.discard(asset_hash)
+        requested = getattr(self, "_asset_resync_requested_at", None)
+        if isinstance(requested, dict):
+            requested.pop(asset_hash, None)
+
+    def _record_missing_asset_hash(self, asset_hash: str) -> None:
+        if not isinstance(asset_hash, str) or not asset_hash:
+            return
+        pending = getattr(self, "_missing_asset_hashes_pending", None)
+        if not isinstance(pending, set):
+            pending = set()
+            try:
+                self._missing_asset_hashes_pending = pending
+            except Exception:
+                return
+        pending.add(asset_hash)
+
+    def _maybe_request_asset_resync(self) -> None:
+        pending = getattr(self, "_missing_asset_hashes_pending", None)
+        if not isinstance(pending, set) or not pending:
+            return
+        if not getattr(self, "is_connected", False) or not getattr(self, "network", None):
+            return
+        cache = ClientNetworkHandlersMixin._get_asset_cache(self)
+        now = _monotonic_now()
+        requested = getattr(self, "_asset_resync_requested_at", None)
+        if not isinstance(requested, dict):
+            requested = {}
+            try:
+                self._asset_resync_requested_at = requested
+            except Exception:
+                pass
+        to_request = []
+        for h in list(pending):
+            if h in cache:
+                pending.discard(h)
+                requested.pop(h, None)
+                continue
+            last_ts = requested.get(h, 0.0)
+            if (now - last_ts) >= 2.0:
+                to_request.append(h)
+                requested[h] = now
+                pending.discard(h)
+        if to_request:
+            from common.protocol import make_request_asset_resync
+            self.network.send(make_request_asset_resync(to_request))
+
+    def _refresh_active_sheet_ui(self) -> None:
+        for holder in (
+            getattr(self, "stats_sheet_frame", None),
+            getattr(getattr(self, "stats_detached_window", None), "_sheet_frame_internal", None),
+            getattr(getattr(self, "stats_detached_window", None), "sheet_frame", None),
+            getattr(self, "sheet_ui", None),
+            getattr(self, "stats_window", None),
+        ):
+            if holder is None or not hasattr(holder, "load_data"):
+                continue
+            try:
+                if hasattr(holder, "winfo_exists") and not holder.winfo_exists():
+                    continue
+                holder.load_data()
+            except Exception:
+                pass
 
     def _resolve_cached_map_assets(self, map_data):
         if not isinstance(map_data, dict):
@@ -114,6 +179,10 @@ class ClientNetworkHandlersMixin:
                         ClientNetworkHandlersMixin._store_asset_in_cache(self, hash_val, fallback_val)
                         map_data[data_key] = fallback_val
                         map_data.pop(flag_key, None)
+                    else:
+                        ClientNetworkHandlersMixin._record_missing_asset_hash(self, hash_val)
+                else:
+                    ClientNetworkHandlersMixin._record_missing_asset_hash(self, hash_val)
         return map_data
 
     def _resolve_cached_handout_assets(self, handouts_or_data):
@@ -130,11 +199,14 @@ class ClientNetworkHandlersMixin:
                 ClientNetworkHandlersMixin._store_asset_in_cache(self, eff_hash, img_b64)
                 item["image_hash"] = eff_hash
                 item.pop("image_cached", None)
-            elif isinstance(img_hash, str) and img_hash and img_hash in cache:
-                cached_b64 = cache.pop(img_hash)
-                cache[img_hash] = cached_b64
-                item["image_b64"] = cached_b64
-                item.pop("image_cached", None)
+            elif isinstance(img_hash, str) and img_hash:
+                if img_hash in cache:
+                    cached_b64 = cache.pop(img_hash)
+                    cache[img_hash] = cached_b64
+                    item["image_b64"] = cached_b64
+                    item.pop("image_cached", None)
+                else:
+                    ClientNetworkHandlersMixin._record_missing_asset_hash(self, img_hash)
         return handouts_or_data
 
     def _resolve_cached_avatar_assets(self, players_or_player):
@@ -170,6 +242,8 @@ class ClientNetworkHandlersMixin:
                         item["avatar_b64"] = prev_av
                         item.pop("avatar_cached", None)
                         resolved_b64 = prev_av
+                if not resolved_b64 and isinstance(av_hash, str) and av_hash and item.get("avatar_cached"):
+                    ClientNetworkHandlersMixin._record_missing_asset_hash(self, av_hash)
             if resolved_b64 and isinstance(item.get("full_sheet"), dict) and item["full_sheet"].get("avatar_cached"):
                 fs_copy = dict(item["full_sheet"])
                 fs_copy["avatar_b64"] = resolved_b64
@@ -181,6 +255,7 @@ class ClientNetworkHandlersMixin:
     def handle_handout_broadcast(self, data):
         if isinstance(data, dict):
             ClientNetworkHandlersMixin._resolve_cached_handout_assets(self, data)
+            ClientNetworkHandlersMixin._maybe_request_asset_resync(self)
         title = data.get("title", "Documento Condiviso")
         content = data.get("content", "")
         img_b64 = data.get("image_b64")
@@ -885,10 +960,7 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         from common.protocol import make_update_full_sheet_request
         self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
         
-        if getattr(self, "sheet_ui", None) and self.sheet_ui.winfo_exists():
-            self.sheet_ui.load_data()
-        elif getattr(self, "stats_window", None) and self.stats_window.winfo_exists():
-            self.stats_window.load_data()
+        ClientNetworkHandlersMixin._refresh_active_sheet_ui(self)
             
         self.show_toast(f"{sender} ti ha inviato {amount} MO!", title="Loot Ricevuto", toast_type="gold")
         self.log_to_chat(f"Hai ricevuto {amount} MO da {sender}.", "Globale", sender="Sistema", color="#2ECC71")
@@ -897,22 +969,40 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
         item = data.get("item")
         if not self.active_character or not item: return
         
+        item = dict(item)
+        item.pop("_from_slot", None)
         sender = item.pop("_sender", "Il DM")
         
-        # Trova il primo slot libero nella griglia
-        for i in range(len(self.active_character.inventory_grid)):
-            if self.active_character.inventory_grid[i] is None:
-                self.active_character.inventory_grid[i] = item
-                self.character_manager.save_characters()
-                self.show_toast(f"{sender} ti ha assegnato/inviato: {item['name']}", title="Oggetto Ricevuto", toast_type="gold")
-                # Invia l'aggiornamento della scheda al server
-                self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
-                if hasattr(self, "stats_window") and self.stats_window and self.stats_window.winfo_exists():
-                    self.stats_window.load_data()
-                return
+        placed = False
+        grid = self.active_character.inventory_grid
+        # 1. Prova prima uno slot libero
+        for i in range(len(grid)):
+            if grid[i] is None:
+                grid[i] = item
+                placed = True
+                break
+        # 2. Fallback: se pieno, prova ad impilare su uno stack esistente compatibile
+        if not placed:
+            for slot in grid:
+                if isinstance(slot, dict) and slot.get("name") == item.get("name"):
+                    slot["qty"] = int(slot.get("qty", 1) or 1) + int(item.get("qty", 1) or 1)
+                    placed = True
+                    break
+
+        if placed:
+            if hasattr(self.active_character, "recalculate_ac"):
+                try:
+                    self.active_character.recalculate_ac()
+                except Exception:
+                    pass
+            self.character_manager.save_characters()
+            self.show_toast(f"{sender} ti ha assegnato/inviato: {item['name']}", title="Oggetto Ricevuto", toast_type="gold")
+            self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
+            ClientNetworkHandlersMixin._refresh_active_sheet_ui(self)
+            return
         
         self.show_toast(f"{sender} ha provato ad inviarti '{item['name']}' ma non hai spazio nello zaino!", title="Inventario Pieno", toast_type="warning")
-        if sender and sender != self.name:
+        if sender and sender not in (self.name, "Il DM", "DM"):
             # Rimbalza l'oggetto al mittente per evitarne la distruzione
             from common.protocol import make_give_item_request
             self.network.send(make_give_item_request(sender, item))
