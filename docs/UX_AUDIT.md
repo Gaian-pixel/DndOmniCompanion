@@ -134,6 +134,7 @@ All 25 significant interfaces verified in the actual repository:
 | **TASK-024** | Automated UX/Workflow Regression Tests (`TestPhase45UxAuditAndWorkflows`), Live Tkinter Post-Fix Verification, Bilingual Documentation & Roadmap Sync | `tests/test_gameplay_integration_e2e.py`, `docs/*`, `README*.md` | `COMPLETED` |
 | **TASK-025 .. TASK-031** | Phase 5 Responsive Sheet (`[UX-C05]`), Progression/Wizard Authority, Battlemap LoS/FoW & Editor (`[UX-H11]`), 5e Engine Parity, Multiplayer Reconnect/HUD (`[UX-H09]`/`[UX-H10]`)/DM (`[UX-M08]`/`[UX-H12]`)/Secrecy/Tabletop (`[UX-L03]`) & E2E Workflows A–D | `client/`, `server/`, `common/`, `components/`, `tests/`, `docs/*` | `COMPLETED` |
 | **TASK-032 .. TASK-037** | Phase 5B Player Display Union FoW/LoS, `Shift+Drag` Marquee Group Move, Map Editor 50-step Undo/Layers & Legacy Teleport Migration, `Shield of Faith` & 3D AoE Elevation, Feat Prereqs/Half-Feats & Mixed Hit Dice Pools, `hexes_hash` Cache & Non-Blocking Broadcast, Disabled Button Contrast, 3D Dice Banner i18n & Realistic E2E Scenarios A–E | `components/`, `server/map_editor.py`, `common/theme.py`, `common/i18n.py`, `common/network_utils.py`, `common/character_schema.py`, `common/feats_and_classes.py`, `client/`, `tests/`, `docs/*` | `COMPLETED` |
+| **TASK-038** | Phase 5C `LoginDialog` Locked `btn_change_char` Clipping Fix (`pack` order + dynamic `<Configure>` `wraplength` + DPI/small-display `_fit_geometry()` + `login_port_hint` IT/EN) | `client/login_ui.py`, `common/i18n.py`, `tests/test_join_game.py` | `COMPLETED` |
 
 ---
 
@@ -144,7 +145,7 @@ Post-fix multi-resolution geometry probes on the `1920 x 1080` Win32 display (is
 | Interface / Check | Pre-Fix Measurement | Post-Fix Measurement | Observed Result |
 | :--- | :--- | :--- | :--- |
 | `main.start_app()` (Launcher) | — | `780 x 550`, `LAUNCHER_OK=True` | Launches cleanly with zero unhandled Tk errors |
-| `LoginDialog` (Locked `lock_character=True`) | `520 x 370` (`REQ: 490 x 391`, `-21px`) | `520 x 435` (`REQ_H: 425`, `+10px` vertical margin; long multiclass subtitle `req_w=594` vs `w=520`) | Zero vertical clipping (`errors=0`) |
+| `LoginDialog` (Locked `lock_character=True`) | `520 x 370` (`REQ: 490 x 391`, `-21px`); long multiclass subtitle `req=594x425` crushed `"Cambia Eroe..."` to `1x1` | `win=529x435` (`req=513x408`, `btn=86x25`, `wrap=337`); dynamic `<Configure>` wraplength + `side=BOTTOM` CTA packing (`640x480`..`1920x1080` verified) | Zero horizontal/vertical clipping (`errors=0`, `TASK-038`) |
 | `LoginDialog` (Unlocked List) | `520 x 500` (`REQ: 463 x 483`) | `520 x 520` (`REQ: 470 x 517`) | Fits cleanly with PIN eye toggle & `"Cambia Eroe"` unlock |
 | `DM_GUI` (`1024 x 720` / `1280 x 800` / `1366 x 768`) | Unbounded `npc_actions_frame` | `1024x720`, `1280x800`, `1366x768`: `right_notebook nb_w=587`, `npc_actions_canvas=True` | Inline quick bar + bounded scrollable `npc_actions_canvas` across all tested resolutions |
 | `ClientGUI` (`1024 x 720` / `1366 x 768` / `1920 x 1080`) | `CTAB_REQ_H: 694` vs `681` | `1024x720`, `1366x768`, `1920x1080`: `right_panel_w=370`, `controls_canvas=True` | Persistent connection pill (`[UX-H09]`) & scrollable controls sidebar (`[UX-H10]`) without collapse |
