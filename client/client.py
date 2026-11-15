@@ -2779,7 +2779,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
                 return
             if messagebox.askyesno("Innesca Azione Preparata", "L'innesco si è verificato! Vuoi spendere la tua REAZIONE ora per eseguire l'Azione Preparata?", parent=self.master):
                 from common.protocol import make_trigger_readied_action_request
-                t_name = getattr(self.map_canvas, "selected_target_name", None) if hasattr(self, "map_canvas") else None
+                t_name = (getattr(self.map_canvas, "current_target_name", None) or getattr(self.map_canvas, "selected_target_name", None)) if hasattr(self, "map_canvas") else None
                 self.network.send(make_trigger_readied_action_request(t_name))
                 self.reaction_spent = True
                 self.update_action_economy_ui()
@@ -4514,26 +4514,54 @@ class ClientGUI(ClientNetworkHandlersMixin):
             if isinstance(p_dict.get("death_saves"), dict):
                 self.active_character.death_saves = copy.deepcopy(p_dict["death_saves"])
             self._action_surge_used_this_turn = bool(p_dict.get("action_surge_used_this_turn", False))
+            if isinstance(p_dict.get("active_effects"), list):
+                self.active_character.active_effects = copy.deepcopy(p_dict["active_effects"])
             srv_sheet = p_dict.get("full_sheet")
             if isinstance(srv_sheet, dict) and srv_sheet:
-                for dict_key in ("spell_slots", "pact_slots", "class_resources"):
+                for dict_key in ("spell_slots", "pact_slots", "class_resources", "hit_dice_pools"):
                     if isinstance(srv_sheet.get(dict_key), dict):
                         setattr(self.active_character, dict_key, copy.deepcopy(srv_sheet[dict_key]))
-                if isinstance(srv_sheet.get("custom_resources"), list):
-                    self.active_character.custom_resources = copy.deepcopy(srv_sheet["custom_resources"])
+                if isinstance(srv_sheet.get("currency"), dict):
+                    self.active_character.currency = copy.deepcopy(srv_sheet["currency"])
+                elif isinstance(srv_sheet.get("wallet"), dict):
+                    self.active_character.currency = copy.deepcopy(srv_sheet["wallet"])
+                for list_key in ("custom_resources", "inventory_grid", "portent_dice"):
+                    if isinstance(srv_sheet.get(list_key), list):
+                        setattr(self.active_character, list_key, copy.deepcopy(srv_sheet[list_key]))
                 if "has_inspiration" in srv_sheet:
                     self.active_character.has_inspiration = bool(srv_sheet["has_inspiration"])
                 elif "inspiration" in srv_sheet:
                     self.active_character.has_inspiration = bool(srv_sheet["inspiration"])
                 if isinstance(srv_sheet.get("death_saves"), dict) and "death_saves" not in p_dict:
                     self.active_character.death_saves = copy.deepcopy(srv_sheet["death_saves"])
-                for scalar_key in ("spell_points_current", "spell_points_max", "hit_dice_current", "exhaustion_level", "inspiration"):
+                exp_val = srv_sheet.get("exp") if srv_sheet.get("exp") is not None else srv_sheet.get("xp")
+                if exp_val is not None:
+                    try:
+                        self.active_character.exp = int(exp_val)
+                    except (ValueError, TypeError):
+                        pass
+                for scalar_key in (
+                    "spell_points_current", "spell_points_max",
+                    "hit_dice_current", "hit_dice_total",
+                    "exhaustion_level", "inspiration",
+                    "sorcery_points_current", "sorcery_points_max",
+                    "superiority_dice_current", "superiority_dice_max",
+                    "lucky_points", "arcane_recovery_used", "arcane_ward_hp",
+                    "wild_shape_uses", "wild_shape_max",
+                    "bardic_inspiration_current", "lay_on_hands_pool",
+                    "relentless_endurance_used",
+                ):
                     if scalar_key in srv_sheet and srv_sheet[scalar_key] is not None:
                         setattr(self.active_character, scalar_key, srv_sheet[scalar_key])
             # Non sovrascrivere self.active_character.initiative (modificatore permanente sulla scheda)
             # con il totale tirato in combattimento (p_dict["initiative"])!
             self.schedule_save_characters(delay_ms=1000)
             self.update_hero_summary_card()
+            if hasattr(self, "update_action_economy_ui"):
+                try:
+                    self.update_action_economy_ui()
+                except Exception:
+                    pass
             for _sheet_holder in (
                 getattr(self, "stats_sheet_frame", None),
                 getattr(getattr(self, "stats_detached_window", None), "_sheet_frame_internal", None),
@@ -4622,7 +4650,8 @@ class ClientGUI(ClientNetworkHandlersMixin):
                     if "movement_spent_this_turn" in me_p:
                         self.movement_spent_ft = int(me_p.get("movement_spent_this_turn", 0) or 0) * 5
         else:
-            self.end_turn_btn.pack_forget()
+            if hasattr(self, "end_turn_btn"):
+                self.end_turn_btn.pack_forget()
 
         self.update_hero_summary_card()
         self.update_action_economy_ui()
@@ -5869,7 +5898,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
         cmd = parts[0].lower()
         arg1 = parts[1] if len(parts) > 1 else ""
         arg2 = parts[2] if len(parts) > 2 else ""
-        tgt = (getattr(self.map_canvas, "selected_target_name", None) if hasattr(self, "map_canvas") else None) or self.name
+        tgt = ((getattr(self.map_canvas, "current_target_name", None) or getattr(self.map_canvas, "selected_target_name", None)) if hasattr(self, "map_canvas") else None) or self.name
 
         if cmd in ("/nonlethal", "/nonletale"):
             self.network.send(make_toggle_non_lethal_request())
@@ -5977,7 +6006,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
         win.transient(self.master)
         apply_modern_window_style(win)
 
-        tgt = (getattr(self.map_canvas, "selected_target_name", None) if hasattr(self, "map_canvas") else None) or self.name
+        tgt = ((getattr(self.map_canvas, "current_target_name", None) or getattr(self.map_canvas, "selected_target_name", None)) if hasattr(self, "map_canvas") else None) or self.name
         tgt_var = tk.StringVar(value=tgt)
         players_list = list(getattr(self, "players_data", {}).keys()) or [self.name]
 

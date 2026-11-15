@@ -336,6 +336,8 @@ class DMBestiaryPanel(ttk.Frame):
         npc = Player(name, None, None)
         npc.hp = hp
         npc.max_hp = hp
+        npc.ac = ac
+        npc.is_npc = True
         npc.initiative = initiative
         npc.position = pos
         npc.speed = speed_val
@@ -358,6 +360,7 @@ class DMBestiaryPanel(ttk.Frame):
         npc.full_sheet = {
             "name": npc.name,
             "char_class": "Mostro/NPC",
+            "is_npc": True,
             "level": 1,
             "hp_current": npc.hp,
             "hp_max": npc.max_hp,

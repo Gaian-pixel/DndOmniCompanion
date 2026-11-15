@@ -513,6 +513,7 @@ class DMLiveFlowDialog(tk.Toplevel):
                     npc.initiative_bonus = npc.initiative
                     ac_val = normalize_ac_value(m.get("ac", m.get("armor_class", sheet_src.get("ac", 12))))
                     npc.ac = ac_val
+                    npc.is_npc = True
                     speed_val, speed_disp, speed_unit = normalize_speed_value(m.get("speed", sheet_src.get("speed", 30)))
                     npc.speed = speed_val
                     npc.speed_unit = speed_unit
@@ -520,6 +521,7 @@ class DMLiveFlowDialog(tk.Toplevel):
                     npc.full_sheet.update({
                         "name": npc.name,
                         "char_class": "Mostro/NPC",
+                        "is_npc": True,
                         "level": 1,
                         "hp_current": npc.hp,
                         "hp_max": npc.max_hp,

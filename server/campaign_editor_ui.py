@@ -1128,6 +1128,7 @@ class CampaignEditorFrame(tk.Frame):
                 npc.initiative_bonus = npc.initiative
                 ac = normalize_ac_value(m.get("ac", m.get("armor_class", sheet_src.get("ac", sheet_src.get("armor_class", 10)))))
                 npc.ac = ac
+                npc.is_npc = True
                 speed_val, speed_disp, speed_unit = normalize_speed_value(m.get("speed", sheet_src.get("speed", 30)))
                 npc.speed = speed_val
                 npc.speed_unit = speed_unit
@@ -1137,6 +1138,7 @@ class CampaignEditorFrame(tk.Frame):
                 npc.full_sheet.update({
                     "name": npc.name,
                     "char_class": sheet_src.get("char_class", "Mostro/NPC"),
+                    "is_npc": True,
                     "level": sheet_src.get("level", 1),
                     "hp_current": npc.hp,
                     "hp_max": npc.max_hp,
@@ -1707,10 +1709,13 @@ class CampaignEditorFrame(tk.Frame):
         p.hp = npc_data.get("hp", 20)
         p.max_hp = npc_data.get("hp", 20)
         p.is_party_member = (npc_data.get("faction") == "Alleato")
+        p.is_companion = (npc_data.get("faction") == "Alleato")
+        p.is_npc = not p.is_party_member
         attrs = extract_and_normalize_attributes(npc_data.get("attributes"), name)
         dex_val = attrs.get("DES", 10)
         p.initiative = npc_data.get("initiative") if npc_data.get("initiative") is not None else (dex_val - 10) // 2
         ac = normalize_ac_value(npc_data.get("ac", npc_data.get("armor_class", 10)))
+        p.ac = ac
         speed_val, speed_disp, speed_unit = normalize_speed_value(npc_data.get("speed", 30))
         p.speed = speed_val
         p.speed_unit = speed_unit
@@ -1718,6 +1723,7 @@ class CampaignEditorFrame(tk.Frame):
         p.full_sheet = {
             "name": p.name,
             "char_class": npc_data.get("role", "PNG"),
+            "is_npc": p.is_npc,
             "level": 1,
             "hp_current": p.hp,
             "hp_max": p.max_hp,

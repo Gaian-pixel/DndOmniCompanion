@@ -1508,6 +1508,7 @@ class DM_GUI(DMCampaignSessionMixin):
                 
                 ac = normalize_ac_value(m.get("ac", m.get("armor_class", 10)))
                 npc.ac = ac
+                npc.is_npc = True
                 speed_val, speed_disp, speed_unit = normalize_speed_value(m.get("speed", 30))
                 npc.speed = speed_val
                 npc.speed_unit = speed_unit
@@ -1526,6 +1527,7 @@ class DM_GUI(DMCampaignSessionMixin):
                 npc.full_sheet = {
                     "name": npc.name,
                     "char_class": "Mostro/NPC",
+                    "is_npc": True,
                     "level": 1,
                     "hp_current": npc.hp,
                     "hp_max": npc.max_hp,
@@ -1589,6 +1591,8 @@ class DM_GUI(DMCampaignSessionMixin):
         npc = Player(new_name, None, None)
         npc.hp = hp
         npc.max_hp = hp
+        npc.ac = ac
+        npc.is_npc = True
         npc.initiative = initiative
         npc.speed = speed_val
         npc.speed_unit = speed_unit
@@ -1607,6 +1611,7 @@ class DM_GUI(DMCampaignSessionMixin):
         npc.full_sheet = {
             "name": npc.name,
             "char_class": "Mostro/NPC",
+            "is_npc": True,
             "level": 1,
             "hp_current": npc.hp,
             "hp_max": npc.max_hp,
@@ -1653,6 +1658,8 @@ class DM_GUI(DMCampaignSessionMixin):
         npc.initiative = initiative
         
         ac = normalize_ac_value(entity_data.get("ac", entity_data.get("armor_class", 10)))
+        npc.ac = ac
+        npc.is_npc = True
         speed_val, speed_disp, speed_unit = normalize_speed_value(entity_data.get("speed", 30))
         npc.speed = speed_val
         npc.speed_unit = speed_unit
@@ -1672,6 +1679,7 @@ class DM_GUI(DMCampaignSessionMixin):
         npc.full_sheet = {
             "name": npc.name,
             "char_class": "Mostro/NPC",
+            "is_npc": True,
             "level": 1,
             "hp_current": npc.hp,
             "hp_max": npc.max_hp,
@@ -1913,15 +1921,18 @@ class DM_GUI(DMCampaignSessionMixin):
             self.log_to_chat(f"Il party ha completato un Riposo Lungo! (Giorno {gs.time_day})")
             gs.add_calendar_event("Il party ha completato un Riposo Lungo")
             slow_heal = bool((getattr(gs, "automation_settings", {}) or {}).get("opt_slow_natural_healing", False))
-            from common.character_schema import restore_entity_rest_resources
+            from common.character_schema import restore_entity_rest_resources, recover_hit_dice_pools
             for p in gs.players:
                 is_npc_flag = getattr(p, "is_npc", False) or (isinstance(getattr(p, "full_sheet", None), dict) and p.full_sheet.get("is_npc"))
-                if is_npc_flag:
+                is_party_ent = bool(getattr(p, "is_party_member", False) or getattr(p, "is_companion", False) or getattr(p, "conn", None) is not None)
+                if is_npc_flag or not is_party_ent:
                     continue
                 if not slow_heal:
                     p.hp = p.max_hp
                 p.temp_hp = 0
                 p.death_saves = {"successes": 0, "failures": 0}
+                p.death_save_successes = 0
+                p.death_save_failures = 0
                 p.exhaustion_level = max(0, getattr(p, "exhaustion_level", 0) - 1)
                 conds = [c for c in getattr(p, "conditions", []) if not c.startswith("Sfinimento") and c not in ("Incosciente", "Unconscious", "Stabilizzato", "Stabilized")]
                 if p.exhaustion_level > 0:
@@ -1933,12 +1944,8 @@ class DM_GUI(DMCampaignSessionMixin):
                     p.full_sheet["temp_hp"] = 0
                     p.full_sheet["death_saves"] = {"successes": 0, "failures": 0}
                     p.full_sheet["exhaustion_level"] = p.exhaustion_level
-                    p.full_sheet["conditions"] = conds
-                    hd_tot = int(p.full_sheet.get("hit_dice_total", p.full_sheet.get("level", 1)) or 0)
-                    if hd_tot > 0:
-                        hd_cur = int(p.full_sheet.get("hit_dice_current", 0) or 0)
-                        regained = max(1, hd_tot // 2)
-                        p.full_sheet["hit_dice_current"] = min(hd_tot, hd_cur + regained)
+                    p.full_sheet["conditions"] = list(conds)
+                    recover_hit_dice_pools(p.full_sheet, fraction=0.5)
             if hasattr(self, "sync_local_party_characters_to_manager"):
                 self.sync_local_party_characters_to_manager()
             from common.protocol import make_game_state
@@ -1950,7 +1957,8 @@ class DM_GUI(DMCampaignSessionMixin):
             from common.character_schema import restore_entity_rest_resources
             for p in gs.players:
                 is_npc_flag = getattr(p, "is_npc", False) or (isinstance(getattr(p, "full_sheet", None), dict) and p.full_sheet.get("is_npc"))
-                if is_npc_flag:
+                is_party_ent = bool(getattr(p, "is_party_member", False) or getattr(p, "is_companion", False) or getattr(p, "conn", None) is not None)
+                if is_npc_flag or not is_party_ent:
                     continue
                 restore_entity_rest_resources(p, rest_type="short")
                 if p.full_sheet:
@@ -3935,20 +3943,24 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
                 result = roll_dice(formula)
                 total = result['total']
                 
+                from server.rules.combat import apply_damage, _apply_hp_change
+                dmg_note_str = ""
                 with self.server.game_state.lock:
                     if action_type == "damage":
-                        target_player.hp = max(0, target_player.hp - total)
+                        final_dmg, note_mult, temp_abs, _ = apply_damage(target_player, total, "Normale", self.server.game_state)
                         action_text = "infliggendo danni"
+                        if final_dmg != total or temp_abs > 0 or note_mult:
+                            dmg_note_str = f" -> {final_dmg} effettivi ({temp_abs} su Temp HP){note_mult}"
                     elif action_type == "heal":
-                        target_player.hp = min(target_player.max_hp, target_player.hp + total)
+                        _apply_hp_change(target_player, getattr(target_player, "hp", 0) + total, self.server.game_state)
                         action_text = "curando"
-                
-                log_msg = f"DM usa '{reason}' su {target_name} {action_text}: {total} (Tiro: {formula} = {result['rolls']}+{result['modifier']})"
+
+                log_msg = f"DM usa '{reason}' su {target_name} {action_text}: {total} (Tiro: {formula} = {result['rolls']}+{result['modifier']}){dmg_note_str}"
                 self.log_to_chat(f"[COMBAT] {log_msg}")
                 broadcast(self.server.game_state, make_chat_broadcast("Sistema", log_msg))
-                
+
                 self.server.game_state._trigger_gui_update()
-                broadcast(self.server.game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, getattr(target_player, "conditions", [])))
+                broadcast(self.server.game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, getattr(target_player, "conditions", []), getattr(target_player, "temp_hp", 0)))
                 win.destroy()
             except ValueError as e:
                 messagebox.showerror("Errore Dadi", str(e))

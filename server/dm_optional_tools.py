@@ -276,6 +276,16 @@ def handle_spend_hero_point(actor: Any, mode: str, game_state: Any) -> Tuple[boo
     m_low = str(mode or "roll_bonus").lower()
     if m_low in ("death_save", "stabilize", "stabilizza"):
         actor.death_save_failures = 0
+        if not hasattr(actor, "death_saves") or not isinstance(actor.death_saves, dict):
+            actor.death_saves = {"successes": getattr(actor, "death_save_successes", 0), "failures": 0}
+        else:
+            actor.death_saves["failures"] = 0
+        if isinstance(getattr(actor, "full_sheet", None), dict):
+            fs_ds = actor.full_sheet.get("death_saves")
+            if isinstance(fs_ds, dict):
+                fs_ds["failures"] = 0
+            else:
+                actor.full_sheet["death_saves"] = dict(actor.death_saves)
         if getattr(actor, "hp", 0) <= 0:
             actor.hp = 0
             if "Stabilizzato" not in getattr(actor, "conditions", []):

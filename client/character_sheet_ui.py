@@ -5544,8 +5544,7 @@ class CharacterSheetFrame(ttk.Frame):
             try: self.on_save_callback(self.character)
             except Exception: pass
         if self.is_connected and getattr(self, "network", None):
-            from common.protocol import make_update_stats_request, make_update_full_sheet_request, make_chat
-            self.network.send(make_update_stats_request(self.character.hp_current, self.character.hp_max, self.character.initiative, getattr(self.character, "conditions", [])))
+            from common.protocol import make_update_full_sheet_request, make_chat
             self.network.send(make_update_full_sheet_request(self.character.to_dict()))
             self.network.send(make_chat(f"🎉 [PROGRESSIONE] {self.character.name} è salito al Livello {self.character.level}! (PF Max: {self.character.hp_max})"))
 

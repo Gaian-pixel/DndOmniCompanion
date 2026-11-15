@@ -724,12 +724,20 @@ class RandomNPCDialog(tk.Toplevel):
         except ValueError:
             p.hp = 20
             p.max_hp = 20
-            
+        try:
+            ac_val = max(1, int(self.sp_ac.get()))
+        except (ValueError, TypeError, AttributeError):
+            ac_val = 12
+
+        p.ac = ac_val
         p.is_party_member = False
+        p.is_npc = True
         p.full_sheet = {
             "name": p.name,
             "char_class": self.npc_data.get("role", "PNG"),
+            "is_npc": True,
             "level": 1,
+            "ac": ac_val,
             "hp_current": p.hp,
             "hp_max": p.max_hp
         }

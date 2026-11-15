@@ -439,11 +439,15 @@ class CustomNPCDialog(tk.Toplevel):
             npc = Player(name, None, None)
             npc.hp = hp
             npc.max_hp = hp
+            npc.ac = ac
             npc.initiative = init
             npc.speed = speed
             npc.is_party_member = (faction == "Alleato")
+            npc.is_companion = (faction == "Alleato")
+            npc.is_npc = not npc.is_party_member
             npc.avatar_b64 = getattr(self, "avatar_b64", "")
             npc.full_sheet = monster_sheet
+            npc.full_sheet["is_npc"] = npc.is_npc
 
             self.dm_gui.server.game_state.add_player(npc)
             broadcast(self.dm_gui.server.game_state, make_player_joined(npc.to_dict()))

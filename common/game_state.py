@@ -282,8 +282,13 @@ class Player:
             "ac": getattr(self, "ac", 10),
             "concentrating_on": getattr(self, "concentrating_on", None),
             "in_combat": getattr(self, "in_combat", False),
-            "death_save_successes": getattr(self, "death_save_successes", 0),
-            "death_save_failures": getattr(self, "death_save_failures", 0),
+            "death_save_successes": int((getattr(self, "death_saves", None) or {}).get("successes", getattr(self, "death_save_successes", 0)) or 0),
+            "death_save_failures": int((getattr(self, "death_saves", None) or {}).get("failures", getattr(self, "death_save_failures", 0)) or 0),
+            "death_saves": {
+                "successes": int((getattr(self, "death_saves", None) or {}).get("successes", getattr(self, "death_save_successes", 0)) or 0),
+                "failures": int((getattr(self, "death_saves", None) or {}).get("failures", getattr(self, "death_save_failures", 0)) or 0),
+            },
+            "is_npc": bool(getattr(self, "is_npc", False)),
             "combat_initiative": getattr(self, "combat_initiative", None),
             "bonus_action_used_this_turn": getattr(self, "bonus_action_used_this_turn", False),
             "movement_spent_this_turn": getattr(self, "movement_spent_this_turn", 0),
@@ -355,8 +360,13 @@ class Player:
         p.ac = data.get("ac", 10)
         p.concentrating_on = data.get("concentrating_on", None)
         p.in_combat = data.get("in_combat", False)
-        p.death_save_successes = data.get("death_save_successes", 0)
-        p.death_save_failures = data.get("death_save_failures", 0)
+        ds_raw = data.get("death_saves") if isinstance(data.get("death_saves"), dict) else {}
+        ds_succ = int(ds_raw.get("successes", data.get("death_save_successes", 0)) or 0)
+        ds_fail = int(ds_raw.get("failures", data.get("death_save_failures", 0)) or 0)
+        p.death_save_successes = ds_succ
+        p.death_save_failures = ds_fail
+        p.death_saves = {"successes": ds_succ, "failures": ds_fail}
+        p.is_npc = bool(data.get("is_npc", False))
         p.combat_initiative = data.get("combat_initiative", None)
         p.hp = data.get("hp", 10)
         p.max_hp = data.get("max_hp", 10)

@@ -1108,22 +1108,56 @@ class DMCampaignSessionMixin:
             char.death_saves = copy.deepcopy(ds_src) if isinstance(ds_src, dict) else {"successes": 0, "failures": 0}
             char.exhaustion_level = int(getattr(p, "exhaustion_level", sheet.get("exhaustion_level", 0)) or 0)
 
-            for int_field in ("hit_dice_current", "hit_dice_total", "xp", "level"):
+            for int_field in ("hit_dice_current", "hit_dice_total", "level", "lucky_points", "arcane_ward_hp", "wild_shape_uses", "wild_shape_max", "bardic_inspiration_current", "lay_on_hands_pool"):
                 if int_field in sheet and sheet.get(int_field) is not None:
                     try:
                         setattr(char, int_field, int(sheet[int_field]))
                     except (ValueError, TypeError):
                         pass
 
-            for dict_field in ("spell_slots", "pact_slots", "class_resources", "currency"):
+            exp_val = sheet.get("exp") if sheet.get("exp") is not None else sheet.get("xp")
+            if exp_val is not None:
+                try:
+                    char.exp = int(exp_val)
+                except (ValueError, TypeError):
+                    pass
+
+            if "has_inspiration" in sheet:
+                char.has_inspiration = bool(sheet["has_inspiration"])
+                char.inspiration = bool(sheet["has_inspiration"])
+            elif "inspiration" in sheet:
+                char.has_inspiration = bool(sheet["inspiration"])
+                char.inspiration = bool(sheet["inspiration"])
+
+            for bool_field in ("arcane_recovery_used", "relentless_endurance_used"):
+                if bool_field in sheet:
+                    setattr(char, bool_field, bool(sheet[bool_field]))
+
+            for dict_field in ("spell_slots", "pact_slots", "class_resources", "hit_dice_pools", "currency", "attributes", "skills", "classes", "subclasses"):
                 val = sheet.get(dict_field)
                 if isinstance(val, dict):
                     setattr(char, dict_field, copy.deepcopy(val))
+            if not isinstance(sheet.get("classes"), dict) and "level" in sheet and sheet.get("level") is not None:
+                if isinstance(getattr(char, "classes", None), dict) and len(char.classes) == 1:
+                    only_cls = next(iter(char.classes))
+                    char.classes[only_cls] = int(getattr(char, "level", 1) or 1)
+            if not isinstance(sheet.get("currency"), dict) and isinstance(sheet.get("wallet"), dict):
+                char.currency = copy.deepcopy(sheet["wallet"])
 
-            for list_field in ("custom_resources", "spells", "inventory_grid"):
+            for list_field in ("custom_resources", "spells", "inventory_grid", "weapons", "portent_dice", "saving_throw_proficiencies", "armor_proficiencies", "weapon_proficiencies", "tool_proficiencies"):
                 val = sheet.get(list_field)
                 if isinstance(val, list):
                     setattr(char, list_field, copy.deepcopy(val))
+
+            sb_val = sheet.get("spellbook")
+            if isinstance(sb_val, list):
+                char.spellbook = copy.deepcopy(sb_val)
+            elif isinstance(sheet.get("spells"), list) and not getattr(char, "spellbook", None):
+                char.spellbook = copy.deepcopy(sheet["spells"])
+
+            if isinstance(getattr(char, "hit_dice_pools", None), dict) and char.hit_dice_pools:
+                from common.character_schema import sync_hit_dice_pools
+                sync_hit_dice_pools(char, allow_scalar_override=False)
 
             updated += 1
 

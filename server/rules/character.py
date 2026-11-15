@@ -37,6 +37,10 @@ def handle_update_stats_request(data, player, game_state):
             
         hp = int(data.get("hp", target.hp))
         max_hp = int(data.get("max_hp", target.max_hp)) if data.get("max_hp") is not None else target.max_hp
+        if not is_dm and getattr(target, "max_hp", 0) and max_hp != target.max_hp:
+            # Connected non-DM clients cannot mutate max_hp via raw UPDATE_STATS
+            # (prevents max_hp spoofing and pre-UPDATE_FULL_SHEET level-up HP race).
+            max_hp = target.max_hp
         initiative = int(data.get("initiative", target.initiative)) if data.get("initiative") is not None else target.initiative
         conditions = data.get("conditions", getattr(target, "conditions", []))
         if isinstance(conditions, list):
@@ -415,7 +419,7 @@ def handle_update_full_sheet_request(data, player, game_state):
                             char_data[dict_k] = copy.deepcopy(existing_sheet[dict_k])
                     if isinstance(existing_sheet.get("custom_resources"), list):
                         char_data["custom_resources"] = copy.deepcopy(existing_sheet["custom_resources"])
-                    for sc_k in ("spell_points_current", "spell_points_max", "hit_dice_current", "exhaustion_level", "inspiration"):
+                    for sc_k in ("spell_points_current", "spell_points_max", "hit_dice_current", "exhaustion_level", "inspiration", "has_inspiration"):
                         if sc_k in existing_sheet and existing_sheet[sc_k] is not None:
                             char_data[sc_k] = existing_sheet[sc_k]
                     srv_temp = getattr(player, "temp_hp", existing_sheet.get("temp_hp", 0))
@@ -490,8 +494,12 @@ def handle_update_full_sheet_request(data, player, game_state):
                             char_data["exhaustion_level"] = max(s_ex, c_ex)
                         except (ValueError, TypeError):
                             char_data["exhaustion_level"] = existing_sheet["exhaustion_level"]
-                    if "inspiration" in existing_sheet:
-                        char_data["inspiration"] = bool(existing_sheet["inspiration"]) and bool(char_data.get("inspiration", False))
+                    if "inspiration" in existing_sheet or "has_inspiration" in existing_sheet:
+                        srv_insp = bool(existing_sheet.get("has_inspiration", existing_sheet.get("inspiration", False)))
+                        cli_insp = bool(char_data.get("has_inspiration", char_data.get("inspiration", False)))
+                        eff_insp = srv_insp and cli_insp
+                        char_data["inspiration"] = eff_insp
+                        char_data["has_inspiration"] = eff_insp
                     srv_cr = existing_sheet.get("class_resources")
                     cli_cr = char_data.get("class_resources")
                     if isinstance(srv_cr, dict) and isinstance(cli_cr, dict):

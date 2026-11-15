@@ -985,6 +985,10 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
                 target_player.conditions.remove("Stabilizzato")
             if hasattr(target_player, "death_saves") and isinstance(target_player.death_saves, dict):
                 target_player.death_saves = {"successes": 0, "failures": 0}
+            target_player.death_save_successes = 0
+            target_player.death_save_failures = 0
+            if isinstance(getattr(target_player, "full_sheet", None), dict):
+                target_player.full_sheet["death_saves"] = {"successes": 0, "failures": 0}
             
     # Concentrazione 5e (RAW: cade su 0 HP o condizioni invalidanti, o su TS subito per danni)
     incapacitating = ("incapacitato", "incapacitated", "incosciente", "unconscious", "paralizzato", "paralyzed", "stordito", "stunned", "pietrificato", "petrified", "morto", "dead")
@@ -1150,6 +1154,10 @@ def _apply_hp_change(target_player, new_hp_unbounded, game_state, same_hit_secon
                 target_player.conditions.remove("Stabilizzato")
             if hasattr(target_player, "death_saves") and isinstance(target_player.death_saves, dict):
                 target_player.death_saves = {"successes": 0, "failures": 0}
+            target_player.death_save_successes = 0
+            target_player.death_save_failures = 0
+            if isinstance(getattr(target_player, "full_sheet", None), dict):
+                target_player.full_sheet["death_saves"] = {"successes": 0, "failures": 0}
         
         dmg_val = old_hp - new_hp_unbounded
         if dmg_val > 0 and game_state:

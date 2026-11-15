@@ -1475,8 +1475,10 @@ class HexMapCanvas(tk.Canvas):
     def set_target(self, target_name):
         """Imposta il token target corrente per il targeting tattico con mirino."""
         if self.current_target_name == target_name:
+            self.selected_target_name = target_name
             return
         self.current_target_name = target_name
+        self.selected_target_name = target_name
         if getattr(self, "on_target_changed_callback", None):
             try:
                 self.on_target_changed_callback(target_name)
@@ -1487,8 +1489,10 @@ class HexMapCanvas(tk.Canvas):
     def clear_target(self):
         """Rimuove il bersaglio corrente."""
         if self.current_target_name is None:
+            self.selected_target_name = None
             return
         self.current_target_name = None
+        self.selected_target_name = None
         if getattr(self, "on_target_changed_callback", None):
             try:
                 self.on_target_changed_callback(None)
