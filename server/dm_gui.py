@@ -1,9 +1,7 @@
-# dm_server.py
 import sys
 import os
 import html
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-import socket
 import threading
 import queue
 import tkinter as tk
@@ -11,21 +9,17 @@ import base64
 from io import BytesIO
 from common.messagebox import messagebox
 from tkinter import filedialog, ttk, scrolledtext, simpledialog
-from PIL import Image, ImageTk
+from PIL import Image
 
 from common.protocol import (
     make_audio_stop,
     make_audio_track_play,
     make_chat_broadcast,
     make_clear_drawings_broadcast,
-    make_currency_response,
-    make_custom_spell_response,
     make_dice_roll_result,
     make_fow_update_broadcast,
     make_game_state,
     make_handout_broadcast,
-    make_item_approval_response,
-    make_journal_approval_response,
     make_map_data_update_broadcast,
     make_ping_broadcast,
     make_player_joined,
@@ -40,7 +34,7 @@ from common.theme import (
     BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT, BORDER_COLOR, BORDER_GOLD,
     TEXT_COLOR, TEXT_MUTED, TEXT_DARK,
     ACCENT_GOLD, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE,
-    FONT_MAIN, FONT_TITLE, FONT_HEADER, FONT_BOLD, FONT_SMALL
+    FONT_MAIN, FONT_HEADER, FONT_BOLD, FONT_SMALL
 )
 from server.commands import command_handlers
 from common.game_state import GameState, Player
@@ -49,12 +43,12 @@ from server.map_downloader import MapDownloaderDialog
 from .network import Server
 from .dm_campaign_session_mixin import DMCampaignSessionMixin
 from common.hex_utils import Hex, get_sphere_hexes
-from common.network_utils import send_message, receive_message, broadcast
+from common.network_utils import send_message, broadcast
 from components.ui_components import HexMapCanvas, ToolTip, show_toast
 from client.voice_client import VoiceClient
 from common.i18n import (
     _t, get_language, set_language, register_language_listener, unregister_language_listener,
-    translate_weather, translate_period,
+    translate_weather,
     get_distance_unit, set_distance_unit, register_unit_listener, unregister_unit_listener
 )
 from common.ui_lifecycle import safe_after, cancel_all_after_timers
@@ -65,6 +59,16 @@ from server.dm_dialogs import (
     CampaignStarterKitDialog
 )
 from common.audio_player import AudioManager
+
+__all__ = [
+    "DM_GUI",
+    "Server",
+    "AudioManager",
+    "VoiceClient",
+    "messagebox",
+    "broadcast",
+    "GameState",
+]
 from common.srd_offline import (
     extract_and_normalize_attributes,
     format_monster_action_tooltip,
@@ -1295,7 +1299,6 @@ class DM_GUI(DMCampaignSessionMixin):
                     lst.append(pos)
             map_snapshot = dict(cur_map)
         gs._trigger_gui_update()
-        from common.protocol import make_map_data_update_broadcast
         from common.network_utils import broadcast
         broadcast(gs, make_map_data_update_broadcast(map_snapshot))
         self.redraw_map_and_players()
@@ -1598,7 +1601,6 @@ class DM_GUI(DMCampaignSessionMixin):
             messagebox.showerror("Errore", f"Impossibile aprire il compendio: {e}")
 
     def on_monster_spawned(self, item_data, category):
-        from common.game_state import GameState
         base_name = item_data.get("name", "Mostro")
         new_name = GameState.allocate_unique_entity_name(self.server.game_state, base_name, prefer_unnumbered=True)
 
@@ -1766,7 +1768,6 @@ class DM_GUI(DMCampaignSessionMixin):
         if player.in_combat:
             # Entering combat mid-fight
             import random
-            from common.protocol import make_request_initiative, make_player_stats_update
             if player.conn is None:
                 if getattr(player, "initiative_bonus", None) is None:
                     player.initiative_bonus = player.initiative
@@ -1909,7 +1910,6 @@ class DM_GUI(DMCampaignSessionMixin):
         cur_map = self.server.game_state.current_map
         cur_map["fow_enabled"] = self.fow_enabled_var.get()
         self.redraw_map_and_players()
-        from common.protocol import make_fow_update_broadcast, make_map_data_update_broadcast
         broadcast(self.server.game_state, make_fow_update_broadcast(
             cur_map.get("fow_revealed", []), [], fow_enabled=cur_map["fow_enabled"]
         ))
@@ -2082,7 +2082,6 @@ class DM_GUI(DMCampaignSessionMixin):
             if "fow_draft" not in cur_map:
                 cur_map["fow_draft"] = cur_map.get("fow_revealed", []).copy()
             cur_map["fow_revealed"] = cur_map["fow_draft"].copy()
-            from common.protocol import make_fow_update_broadcast
             fow_rev = cur_map["fow_revealed"]
             fow_draft = cur_map["fow_draft"]
             fow_enabled = cur_map.get("fow_enabled", False)
@@ -2174,7 +2173,6 @@ class DM_GUI(DMCampaignSessionMixin):
         if not self.server.game_state.current_map: return
         self.server.game_state.current_map["spawn_point"] = [clicked_hex.q, clicked_hex.r]
         self.log_to_chat(f"[SISTEMA] Punto di spawn impostato a [{clicked_hex.q}, {clicked_hex.r}].")
-        from common.protocol import make_map_data_update_broadcast
         from server.network import broadcast
         broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
 
@@ -2182,7 +2180,6 @@ class DM_GUI(DMCampaignSessionMixin):
         """Sposta esplicitamente un token sull'esagono selezionato dal menu contestuale."""
         if not target_name or not getattr(self.server.game_state, "current_map", None):
             return
-        from common.protocol import make_player_move
         from server.network import broadcast
         if self.server.game_state.move_player(target_name, [clicked_hex.q, clicked_hex.r]):
             broadcast(self.server.game_state, make_player_move(target_name, [clicked_hex.q, clicked_hex.r]))
@@ -2200,7 +2197,6 @@ class DM_GUI(DMCampaignSessionMixin):
         diff_terrain[pos_key] = terrain_type
 
         if broadcast_now:
-            from common.protocol import make_map_data_update_broadcast
             from server.network import broadcast
             broadcast(self.server.game_state, make_map_data_update_broadcast(cur_map))
             self.server.game_state._trigger_gui_update()
@@ -2224,7 +2220,6 @@ class DM_GUI(DMCampaignSessionMixin):
             changed = True
 
         if broadcast_now:
-            from common.protocol import make_map_data_update_broadcast
             from server.network import broadcast
             broadcast(self.server.game_state, make_map_data_update_broadcast(cur_map))
             self.server.game_state._trigger_gui_update()
@@ -2297,7 +2292,6 @@ class DM_GUI(DMCampaignSessionMixin):
         
         def set_state(st):
             door["state"] = st
-            from common.protocol import make_map_data_update_broadcast, make_chat_broadcast, make_fow_update_broadcast
             from server.network import broadcast
             from server.rules.movement import auto_explore_fow
             broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
@@ -2319,7 +2313,6 @@ class DM_GUI(DMCampaignSessionMixin):
             new_dc = simpledialog.askinteger("CD Serratura", "Inserisci CD per scassinare la porta (1-30):", initialvalue=cur_dc, minvalue=1, maxvalue=30)
             if new_dc is not None:
                 door["dc"] = new_dc
-                from common.protocol import make_map_data_update_broadcast
                 from server.network import broadcast
                 broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
                 self.server.game_state._trigger_gui_update()
@@ -2329,7 +2322,6 @@ class DM_GUI(DMCampaignSessionMixin):
             new_name = simpledialog.askstring("Rinomina Porta", "Inserisci il nome della porta (es. Porta di Ferro, Cancello):", initialvalue=cur_name)
             if new_name:
                 door["name"] = new_name
-                from common.protocol import make_map_data_update_broadcast
                 from server.network import broadcast
                 broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
                 self.server.game_state._trigger_gui_update()
@@ -2339,7 +2331,6 @@ class DM_GUI(DMCampaignSessionMixin):
                 doors = self.server.game_state.current_map.get("doors", [])
                 if door in doors:
                     doors.remove(door)
-                from common.protocol import make_map_data_update_broadcast, make_chat_broadcast
                 from server.network import broadcast
                 from server.rules.movement import auto_explore_fow
                 broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
@@ -2354,7 +2345,6 @@ class DM_GUI(DMCampaignSessionMixin):
             new_bdc = simpledialog.askinteger("CD Sfondare", "Inserisci CD per sfondare la porta con Forza (1-30):", initialvalue=cur_bdc, minvalue=1, maxvalue=30)
             if new_bdc is not None:
                 door["break_dc"] = new_bdc
-                from common.protocol import make_map_data_update_broadcast
                 from server.network import broadcast
                 broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
                 self.server.game_state._trigger_gui_update()
@@ -2364,7 +2354,6 @@ class DM_GUI(DMCampaignSessionMixin):
             new_key = simpledialog.askstring("Chiave Richiesta", "Nome dell'oggetto chiave che apre questa porta (es. Chiave di Ferro):", initialvalue=cur_key)
             if new_key is not None:
                 door["key_name"] = new_key.strip()
-                from common.protocol import make_map_data_update_broadcast
                 from server.network import broadcast
                 broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
                 self.server.game_state._trigger_gui_update()
@@ -2478,7 +2467,6 @@ class DM_GUI(DMCampaignSessionMixin):
                 self._show_door_management_menu(target_door, clicked_hex)
             else:
                 doors.append({"q": clicked_hex.q, "r": clicked_hex.r, "state": "closed", "name": "Porta in Legno", "dc": 15, "break_dc": 17, "key_name": ""})
-                from common.protocol import make_map_data_update_broadcast, make_chat_broadcast
                 from server.network import broadcast
                 broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
                 broadcast(self.server.game_state, make_chat_broadcast("Sistema", f"🚪 Il DM ha posizionato una Porta Chiusa a ({clicked_hex.q}, {clicked_hex.r})."))
@@ -2601,7 +2589,6 @@ class DM_GUI(DMCampaignSessionMixin):
             self._drag_paint_terrain_dirty = False
             cur_map = getattr(self.server.game_state, "current_map", None)
             if isinstance(cur_map, dict):
-                from common.protocol import make_map_data_update_broadcast
                 from server.network import broadcast
                 broadcast(self.server.game_state, make_map_data_update_broadcast(cur_map))
                 self.server.game_state._trigger_gui_update()
@@ -2721,7 +2708,6 @@ class DM_GUI(DMCampaignSessionMixin):
         msg = _t("map_env_switched", env=env_label)
         self.log_to_chat(msg, sender="Sistema", color="#10B981" if new_val else "#818CF8")
         
-        from common.protocol import make_map_data_update_broadcast, make_chat_broadcast
         from server.network import broadcast
         broadcast(self.server.game_state, make_map_data_update_broadcast(cur_map))
         broadcast(self.server.game_state, make_chat_broadcast("Sistema", msg))
@@ -2799,7 +2785,6 @@ class DM_GUI(DMCampaignSessionMixin):
 
         self._update_map_scale_pill()
         self.redraw_map_and_players()
-        from common.protocol import make_map_data_update_broadcast
         from server.network import broadcast
         broadcast(self.server.game_state, make_map_data_update_broadcast(cur_map))
         from common.i18n import get_map_scale_info
@@ -2836,7 +2821,6 @@ class DM_GUI(DMCampaignSessionMixin):
         if hasattr(self, "top_status_grid_lbl"):
             self.top_status_grid_lbl.config(text=f"🌐 {_t('grid_type_menu')}: {name_str}")
         self.redraw_map_and_players()
-        from common.protocol import make_map_data_update_broadcast
         from server.network import broadcast
         broadcast(self.server.game_state, make_map_data_update_broadcast(cur_map))
         self.show_toast(f"Tipo griglia impostato a: {name_str}", title=_t("grid_type_menu"), toast_type="info")
@@ -2889,7 +2873,6 @@ class DM_GUI(DMCampaignSessionMixin):
             self.map_canvas.clear_drawings()
         if hasattr(self, "server") and hasattr(self.server, "game_state"):
             self.server.game_state.drawn_lines = []
-            from common.protocol import make_clear_drawings_broadcast
             from server.network import broadcast
             broadcast(self.server.game_state, make_clear_drawings_broadcast())
             self.server.game_state._trigger_gui_update()
@@ -3275,7 +3258,6 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             if not title:
                 title = "Handout Condiviso"
                 
-            from common.protocol import make_handout_broadcast
             from common.network_utils import broadcast
             
             broadcast(self.server.game_state, make_handout_broadcast(title, img_b64))
@@ -4365,7 +4347,6 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         
         if not player: return
         
-        from common.messagebox import messagebox
         from tkinter import simpledialog
         owner = simpledialog.askstring("Imposta Proprietario", f"Chi controlla {player_name}? (Nome esatto del giocatore, vuoto per DM):", parent=self.master, initialvalue=getattr(player, 'owner', '') or '')
         if owner is not None:
@@ -4398,7 +4379,6 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
         if p.full_sheet:
             p.full_sheet["has_inspiration"] = new_val
             
-        from common.protocol import make_chat_broadcast, make_update_inspiration
         if new_val:
             msg = f"🌟 {p.name} ha ricevuto l'Ispirazione dal Dungeon Master!"
         else:
@@ -4582,7 +4562,6 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
                         break
             if combat_track:
                 self._previous_music = getattr(self.server.game_state, "current_music", None)
-                from common.protocol import make_audio_track_play
                 msg = make_audio_track_play(combat_track["id"], combat_track["name"], combat_track["ext"], combat_track["size"], channel="music", loop=True, volume=0.8)
                 self.server.game_state.current_music = msg
                 broadcast(self.server.game_state, msg)
@@ -4596,7 +4575,6 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
 
     def _auto_restore_scene_music(self):
         try:
-            from common.protocol import make_audio_stop
             prev = getattr(self, "_previous_music", None)
             if prev:
                 self.server.game_state.current_music = prev

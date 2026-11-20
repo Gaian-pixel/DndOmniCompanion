@@ -20,8 +20,8 @@ from typing import Optional, Callable, Dict, Any, List, Tuple
 
 from common.messagebox import messagebox
 from common.theme import (
-    apply_modern_window_style, SURFACE_COLOR, SURFACE_COLOR_ALT, BORDER_COLOR, TEXT_COLOR, TEXT_MUTED,
-    FONT_MAIN, FONT_BOLD, FONT_SMALL, FONT_HEADER, BG_COLOR, ACCENT_GOLD
+    apply_modern_window_style, SURFACE_COLOR, SURFACE_COLOR_ALT, TEXT_COLOR, TEXT_MUTED,
+    FONT_BOLD, FONT_SMALL, FONT_HEADER, BG_COLOR, ACCENT_GOLD
 )
 from server.compendium_manager import CompendiumManager
 from components.statblock_view import StatblockCardView

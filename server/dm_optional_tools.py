@@ -22,13 +22,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from common.dice import roll_dice
 from common.dnd5e_tables import (
-    DMG_POISONS,
     entity_get_attr_mod,
     entity_get_effective_attr,
     entity_get_total_level,
     roll_madness,
 )
-from common.item_modifiers import get_effective_attribute_from_dict, get_effective_save_bonus_from_dict
+from common.item_modifiers import get_effective_save_bonus_from_dict
 from common.network_utils import broadcast, send_message
 from common.protocol import make_chat_broadcast, make_error_reply, make_game_state, make_player_stats_update
 

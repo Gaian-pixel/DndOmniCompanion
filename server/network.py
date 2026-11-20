@@ -6,13 +6,6 @@ import socket
 import threading
 import hmac
 import time
-import queue
-import tkinter as tk
-import json
-import base64
-from common.messagebox import messagebox
-from tkinter import filedialog, ttk, scrolledtext, simpledialog
-from PIL import Image, ImageTk
 
 from common.protocol import (
     make_campaign_starter_granted,
@@ -22,14 +15,9 @@ from common.protocol import (
     make_game_state,
     make_player_joined,
 )
-from common.theme import setup_theme, apply_modern_window_style, BG_COLOR, SURFACE_COLOR, TEXT_COLOR, TEXT_MUTED, FONT_MAIN, FONT_TITLE, FONT_BOLD, ACCENT_RED
 from server.commands import command_handlers
 from common.game_state import GameState, Player
-from server.map_editor import MapEditorWindow
-from server.map_downloader import MapDownloaderDialog
-from common.hex_utils import Hex
 from common.network_utils import send_message, receive_message, broadcast, prepare_per_player_state_payload
-from components.ui_components import HexMapCanvas
 from server.voice_server import VoiceServer
 
 def sanitize_client_payload(data, player):

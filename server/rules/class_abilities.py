@@ -4,26 +4,24 @@ Tratti Mostri MM e Regole Opzionali DMG (D&D 5e RAW).
 """
 
 import random
-import math
 import socket
 import time
-import uuid
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from common.protocol import (
     make_chat_broadcast, make_error_reply, make_player_stats_update,
-    make_game_state, make_prompt_save
+    make_game_state
 )
-from common.hex_utils import Hex, hex_distance, grid_distance
+from common.hex_utils import Hex, grid_distance
 from common.network_utils import send_message, broadcast
 from common.i18n import is_condition_active
 from common.dice import roll_dice
-from common.item_modifiers import get_effective_attribute_from_dict, get_effective_save_bonus_from_dict
+from common.item_modifiers import get_effective_save_bonus_from_dict
 from common.dnd5e_tables import (
     entity_has_keyword, entity_get_class_level, entity_get_total_level,
     entity_get_attr_mod, entity_find_resource, entity_spend_resource,
     is_incapacitated_entity,
-    roll_system_shock, roll_lingering_injury, roll_madness,
+    roll_madness,
     DMG_POISONS, DMG_DISEASES, roll_chase_complication, get_max_free_dashes,
     get_breath_hold_rounds, get_suffocation_rounds
 )
@@ -600,7 +598,7 @@ def handle_maneuver_request(data, player, game_state):
             if ts_roll < man_dc:
                 imm, _ = is_immune_to_frightened_by_aura(target, game_state)
                 if imm:
-                    res_txt = f"Immune a Spaventato!"
+                    res_txt = "Immune a Spaventato!"
                 else:
                     if "Spaventato" not in target.conditions:
                         target.conditions.append("Spaventato")
@@ -928,7 +926,6 @@ def handle_mystic_arcanum_request(data, player, game_state):
         return
     slot_lvl = int(data.get("level", 6) or 6)
     spell_name = data.get("spell_name") or f"Arcanum {slot_lvl}° Livello"
-    kw = f"{slot_lvl}°"
     ok, new_cur, mx = entity_spend_resource(actor, (f"arcanum mistico ({slot_lvl}", f"mystic arcanum ({slot_lvl}", f"arcanum {slot_lvl}"), 1)
     if not ok:
         w_lvl = entity_get_class_level(actor, "warlock")
@@ -1200,8 +1197,6 @@ def handle_cast_special_spell_request(data, player, game_state):
         if bool(data.get("concentration", False)):
             from common.feats_and_classes import parse_spell_duration_rounds
             dur_r = parse_spell_duration_rounds(str(data.get("duration", "") or ""))
-            prior_conc = getattr(actor, "concentrating_on", None) or getattr(actor, "concentrating_spell", None)
-            _had_prior_conc_to_drop = bool(prior_conc and str(prior_conc).strip().lower() != str(spell_name).strip().lower())
             actor.concentrating_on = spell_name
             actor.concentration_rounds_remaining = dur_r if (dur_r and dur_r > 0) else None
             if m_key == "extended" and getattr(actor, "concentration_rounds_remaining", None):

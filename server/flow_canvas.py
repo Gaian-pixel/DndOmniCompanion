@@ -6,16 +6,15 @@ Supporta rendering Dark Fantasy, curve di Bezier, porte di connessione,
 drag & drop, pan, zoom, indicatore di posizione del party e breadcrumbs di sessione.
 """
 
-import math
 import tkinter as tk
 from tkinter import ttk
-from typing import Dict, List, Optional, Callable, Tuple, Any
+from typing import List, Optional, Callable, Tuple
 
 from common.theme import (
-    BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT, SURFACE_LIGHT,
+    BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT,
     BORDER_COLOR, BORDER_GOLD, ACCENT_GOLD, ACCENT_GOLD_LIGHT,
-    ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, TEXT_COLOR, TEXT_MUTED, TEXT_DARK,
-    FONT_MAIN, FONT_BOLD, FONT_SMALL, FONT_BADGE
+    TEXT_COLOR, TEXT_MUTED, TEXT_DARK,
+    FONT_MAIN, FONT_BOLD
 )
 from common.campaign_script import FlowGraph, FlowNode, FlowEdge, NODE_TYPES, EDGE_CONDITIONS
 

@@ -11,18 +11,14 @@ from tkinter import simpledialog, scrolledtext, ttk
 
 from common.protocol import (
     make_attack_request,
-    make_audio_track_request,
     make_bardic_inspiration_request,
     make_blind_roll_request,
     make_cast_special_spell_request,
     make_chase_dash_request,
     make_chat,
     make_class_feature_request,
-    make_clear_drawings_request,
     make_create_aoe_request,
     make_cunning_action_request,
-    make_currency_request,
-    make_custom_spell_request,
     make_dash_request,
     make_deliver_touch_spell_request,
     make_disengage_request,
@@ -34,7 +30,6 @@ from common.protocol import (
     make_downtime_request,
     make_end_turn_request,
     make_escape_grapple_request,
-    make_give_gold_request,
     make_give_item_request,
     make_grapple_request,
     make_healer_feat_request,
@@ -43,9 +38,7 @@ from common.protocol import (
     make_identify_spell_request,
     make_indomitable_request,
     make_inspiring_leader_request,
-    make_item_approval_request,
     make_join,
-    make_journal_approval_request,
     make_ki_ability_request,
     make_lay_on_hands_request,
     make_maneuver_request,
@@ -67,7 +60,6 @@ from common.protocol import (
     make_stand_up_request,
     make_start_combat_request,
     make_submerged_breath_request,
-    make_submit_initiative,
     make_summon_companion_request,
     make_targeted_action_request,
     make_toggle_door_request,
@@ -95,9 +87,20 @@ from common.theme import (
     setup_theme, apply_modern_window_style,
     BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT, SURFACE_LIGHT, BORDER_COLOR, BORDER_GOLD,
     TEXT_COLOR, TEXT_MUTED, TEXT_DARK,
-    ACCENT_GOLD, ACCENT_GOLD_LIGHT, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, ACCENT_PURPLE,
+    ACCENT_GOLD, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE,
     FONT_MAIN, FONT_HEADER, FONT_BOLD, FONT_SMALL, FONT_REGULAR
 )
+
+__all__ = [
+    "ClientGUI",
+    "ClientNetwork",
+    "AudioManager",
+    "VoiceClient",
+    "LoginDialog",
+    "CharacterSheetUI",
+    "messagebox",
+    "time",
+]
 from .network import ClientNetwork
 from .network_handlers import ClientNetworkHandlersMixin
 
@@ -479,7 +482,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
         # --- COLONNA 1: MAPPA ---
         self.map_outer_frame = ttk.Frame(main_frame)
         self.map_outer_frame.grid(row=0, column=1, sticky="nsew", padx=2)
-        map_outer_frame = self.map_outer_frame
         
         self.map_canvas = HexMapCanvas(self.map_outer_frame, bg=BG_COLOR)
         self.map_canvas.is_dm = False
@@ -1576,8 +1578,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
             self.show_toast("Seleziona o crea un personaggio prima di gestire i compagni.", title="Attenzione", toast_type="warning")
             return
 
-        from common.companions_data import get_companion_presets, FAMILIAR_FORMS, BEAST_COMPANIONS, SUMMON_TEMPLATES
-        from common.protocol import make_summon_companion_request, make_dismiss_familiar_request, make_deliver_touch_spell_request
+        from common.companions_data import FAMILIAR_FORMS, BEAST_COMPANIONS, SUMMON_TEMPLATES
 
         win = tk.Toplevel(self.master)
         win.transient(self.master)
@@ -1717,7 +1718,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
                             ranger_level=r_lvl,
                             ranger_pb=r_pb
                         ))
-                    self.show_toast(f"Evocazione inviata al server!", title="Evocazione", toast_type="success")
+                    self.show_toast("Evocazione inviata al server!", title="Evocazione", toast_type="success")
                     win.destroy()
 
                 type_btn_labels = {"familiar": "🐾 Evoca Famiglio (PHB p. 240)", "beast": "🐺 Evoca Compagno Animale (Ranger)", "summon": "⚡ Evoca Creatura"}
@@ -1730,7 +1731,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
     def toggle_familiar_shared_senses(self, familiar_data):
         """Attiva o disattiva la condivisione dei sensi con il famiglio (PHB p. 240)."""
         f_name = familiar_data.get("name")
-        f_pos = familiar_data.get("position", [0, 0])
         f_vis = familiar_data.get("vision_radius", 6)
         
         self.familiar_shared_senses = f_name
@@ -1745,7 +1745,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
 
     def open_deliver_touch_spell_dialog(self, familiar_data):
         """Dialogo per erogare un incantesimo a contatto tramite il famiglio (PHB p. 240)."""
-        from common.protocol import make_deliver_touch_spell_request
         f_name = familiar_data.get("name")
         
         targets = [p["name"] for p in getattr(self, "players_data", {}).values() if p["name"] != f_name]
@@ -2523,7 +2522,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
             from common.protocol import make_cunning_action_request
             self.network.send(make_cunning_action_request("dash"))
         else:
-            from common.protocol import make_dash_request
             self.network.send(make_dash_request())
         self.update_action_economy_ui()
         slot_note = " (Azione Scaltra: Azione Bonus spesa)" if used_bonus else ""
@@ -2550,7 +2548,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
             from common.protocol import make_cunning_action_request
             self.network.send(make_cunning_action_request("disengage"))
         else:
-            from common.protocol import make_disengage_request
             self.network.send(make_disengage_request())
         self.update_action_economy_ui()
         slot_note = " (Azione Scaltra: Azione Bonus spesa)" if used_bonus else ""
@@ -2567,7 +2564,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
             self.show_toast("Hai già speso la tua Azione Standard in questo turno!", title="⚠️ Azione Esaurita", toast_type="warning")
             return
         ClientGUI._save_economy_snapshot(self)
-        from common.protocol import make_dodge_request
         self.network.send(make_dodge_request())
         self.action_spent = True
         self.update_action_economy_ui()
@@ -2577,7 +2573,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
         if not getattr(self, "is_connected", False):
             self.show_toast("Non sei connesso al server.", toast_type="warning")
             return
-        from common.protocol import make_stand_up_request
         self.network.send(make_stand_up_request())
         self.show_toast("Richiesta di Alzarsi da Prono inviata (PHB p. 190).", title="⬆️ Stand Up", toast_type="info")
 
@@ -2662,7 +2657,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
             except Exception:
                 val_f = 25.0
             txt = detail_var.get().strip() or "Attività"
-            from common.protocol import make_downtime_request
             self.network.send(make_downtime_request(
                 act_key,
                 days=days_i,
@@ -2716,7 +2710,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
         def _send():
             cmap = dict(choices)
             key = cmap.get(choice_var.get(), "melee")
-            from common.protocol import make_optional_rule_action_request
             self.network.send(make_optional_rule_action_request("declare_speed_factor", speed_action=key, spell_level=int(sp_lvl_var.get() or 1)))
             win.destroy()
 
@@ -2741,7 +2734,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
             f"  • Salto in Alto: {j_stand['high_jump_ft']} ft ({j_stand['high_jump_m']} m)"
         )
         if getattr(self, "is_connected", False) and messagebox.askyesno("🦘 Calcolatore Salto (PHB p. 182)", msg + "\n\nVuoi annunciare il Salto con rincorsa in chat?"):
-            from common.protocol import make_optional_rule_action_request
             self.network.send(make_optional_rule_action_request("jump_check", running_start=True))
         elif not getattr(self, "is_connected", False):
             messagebox.showinfo("🦘 Calcolatore Salto (PHB p. 182)", msg)
@@ -2778,7 +2770,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
                 self.show_toast("Hai già consumato la tua Reazione in questo round!", title="⚠️ Reazione Esaurita", toast_type="warning")
                 return
             if messagebox.askyesno("Innesca Azione Preparata", "L'innesco si è verificato! Vuoi spendere la tua REAZIONE ora per eseguire l'Azione Preparata?", parent=self.master):
-                from common.protocol import make_trigger_readied_action_request
                 t_name = (getattr(self.map_canvas, "current_target_name", None) or getattr(self.map_canvas, "selected_target_name", None)) if hasattr(self, "map_canvas") else None
                 self.network.send(make_trigger_readied_action_request(t_name))
                 self.reaction_spent = True
@@ -2822,7 +2813,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
             a_str = act_var.get().strip()
             if not t_str or not a_str:
                 return
-            from common.protocol import make_ready_action_request
             self.network.send(make_ready_action_request(t_str, a_str, is_spell_var.get()))
             self.action_spent = True
             self.update_action_economy_ui()
@@ -2860,7 +2850,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
         self.update_hero_summary_card()
         self.update_action_economy_ui()
         if self.is_connected:
-            from common.protocol import make_class_feature_request
             self.network.send(make_class_feature_request("second_wind", already_consumed=False, heal_amount=healed))
         self.show_toast(f"Secondo Fiato: recuperati {healed} HP!", title="💨 Secondo Fiato", toast_type="success")
 
@@ -2906,7 +2895,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
         self.character_manager.save_characters()
         self.update_action_economy_ui()
         if self.is_connected:
-            from common.protocol import make_class_feature_request
             self.network.send(make_class_feature_request("action_surge", already_consumed=False))
         self.show_toast(
             f"Azione Furente attivata: Azione Standard ripristinata per questo turno! (Rimasti: {new_as_cur}/{as_max})",
@@ -2943,7 +2931,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
         self.update_hero_summary_card()
         self.update_action_economy_ui()
         if self.is_connected:
-            from common.protocol import make_class_feature_request
             self.network.send(make_class_feature_request("rage", already_consumed=False))
         self.show_toast(f"Ira Barbarica attivata! (Utilizzi rimasti: {cur_rage-1})", title="🩸 Ira Barbarica", toast_type="success")
 
@@ -2984,7 +2971,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
             self.update_hero_summary_card()
             self.update_action_economy_ui()
             if self.is_connected:
-                from common.protocol import make_update_stats_request, make_short_rest_request
                 self.network.send(make_update_stats_request(char.hp_current, char.hp_max, char.initiative, getattr(char, "conditions", []), getattr(char, "temp_hp", 0)))
                 self.network.send(make_short_rest_request(n_dice, recovered, die_counts=die_counts))
             win.destroy()
@@ -3094,7 +3080,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
         if not cmd:
             self.show_toast(f"Lo slot Hotbar #{idx+1} è vuoto. Usa il click destro per configurare una macro!", title="Hotbar", toast_type="info")
             return
-        import re
         clean = cmd.lower()
         if re.match(r"^(\d+)?d\d+", clean) or clean.startswith("/r ") or clean.startswith("/roll "):
             formula = re.sub(r"^/(?:roll|r)\s+", "", cmd).strip()
@@ -3113,7 +3098,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
 
     def on_wall_toggle_callback(self, q, r):
         if not self.is_connected: return
-        from common.protocol import make_toggle_wall_request
         self.network.send(make_toggle_wall_request(q, r))
 
     def on_cover_toggle_callback(self, q, r, cover_type):
@@ -3177,7 +3161,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
                 break
                 
         if token_name and token_name != self.name:
-            from common.protocol import make_grapple_request, make_shove_request
             is_cur_target = (getattr(self.map_canvas, "current_target_name", None) == token_name)
             if is_cur_target:
                 menu.add_command(label=f"❌ Rimuovi Bersaglio ({token_name})", command=lambda: self.map_canvas.clear_target())
@@ -3229,7 +3212,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
 
     def open_elevation_dialog(self, target_name=None):
         import tkinter as tk
-        from common.protocol import make_set_elevation_request
         
         target = target_name or self.name
         cur_pdata = self.players_data.get(target, {}) if isinstance(self.players_data, dict) else {}
@@ -3331,7 +3313,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
                     else:
                         self.show_toast(f"Attenzione: Non avevi slot di Livello {slot_level} disponibili!", title="⚠️ Slot Esauriti", toast_type="warning")
                 
-            from common.protocol import make_create_aoe_request
             ClientGUI._save_economy_snapshot(self)
             self.network.send(make_create_aoe_request(aoe_data))
             self.aoe_mode = False
@@ -3355,7 +3336,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
                 self.map_canvas.set_target(target_name)
                 params = dict(self.attack_params or {})
                 eco_params = dict(params)
-                from common.protocol import make_attack_request
                 w_nm = params.pop("weapon_name", "Attacco")
                 h_bn = params.pop("hit_bonus", 0)
                 d_fm = params.pop("damage_formula", "1d8")
@@ -3377,7 +3357,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
             if target_name:
                 self.help_targeting_mode = False
                 ClientGUI._save_economy_snapshot(self)
-                from common.protocol import make_help_request
                 self.network.send(make_help_request(target_name))
                 self.action_spent = True
                 self.update_action_economy_ui()
@@ -3427,7 +3406,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
     def on_attack_action(self, weapon_name, hit_bonus, damage_formula, damage_type="Tagliente", **kwargs):
         target_name = getattr(self.map_canvas, "current_target_name", None)
         if target_name and target_name in self.players_data:
-            from common.protocol import make_attack_request
             self.network.send(make_attack_request(
                 target_name, weapon_name, hit_bonus, damage_formula, damage_type, **kwargs
             ))
@@ -3462,7 +3440,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
         if not target_name:
             self.show_toast("Seleziona prima un bersaglio sulla mappa (o fai Shift+Click su un token)!", title="🤼 Lotta", toast_type="warning")
             return
-        from common.protocol import make_grapple_request
         ClientGUI._save_economy_snapshot(self)
         self.network.send(make_grapple_request(target_name))
         self.action_spent = True
@@ -3475,7 +3452,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
             self.show_toast("Seleziona prima un bersaglio sulla mappa (o fai Shift+Click su un token)!", title="💨 Spinta", toast_type="warning")
             return
 
-        from common.protocol import make_shove_request
         pop = tk.Toplevel(self.master)
         pop.title("Opzione Spinta")
         pop.geometry("280x130")
@@ -3588,7 +3564,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
         from common.i18n import translate_weather
         weather_disp = translate_weather(weather)
         cur_biome = gs.get("travel_biome", "foresta").capitalize()
-        cur_danger = gs.get("travel_danger", "moderate")
         miles_today = gs.get("travel_miles_today", 0)
 
         tk.Label(env_grid, text=f"⛅ Clima: {weather_disp}", font=("Segoe UI", 9), bg=SURFACE_COLOR_ALT, fg=TEXT_COLOR).grid(row=0, column=0, sticky="w", padx=(0, 15), pady=2)
@@ -3799,7 +3774,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
                         cur_shifts[str(sn)] = my_name
                         self.show_toast(f"Ti sei candidato per il Turno {sn} di guardia notturna!", title="🏕️ Turno Assegnato", toast_type="success")
                     if hasattr(self, "network") and self.network.connected:
-                        from common.protocol import make_set_watch_shifts_request
                         self.network.send(make_set_watch_shifts_request(cur_shifts, gs.get("camp_has_campfire", True)))
                     win.destroy()
                 return _toggle
@@ -3820,7 +3794,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
             self.character_manager.save_characters()
             
             if hasattr(self, "network") and self.network.connected:
-                from common.protocol import make_set_travel_role_request, make_update_full_sheet_request
                 self.network.send(make_set_travel_role_request(chosen_role, chosen_order))
                 self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
 
@@ -4146,7 +4119,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
             except (ValueError, TypeError): dc = 13
             dmg = dmg_entry.get().strip() or "8d6"
             half = half_var.get()
-            from common.protocol import make_resolve_aoe_request
             self.network.send(make_resolve_aoe_request(0, stat, dc, dmg, half))
             self.show_toast("Risoluzione TS e danni inviata al server!", title="⚡ Risolvi AoE", toast_type="info")
             win.destroy()
@@ -4793,12 +4765,10 @@ class ClientGUI(ClientNetworkHandlersMixin):
 
 
     def request_combat(self):
-        from common.protocol import make_start_combat_request
         self.network.send(make_start_combat_request(self.name))
         self.log_to_chat("Hai richiesto l'inizio del combattimento al DM.", "Globale", "grey")
 
     def end_turn(self):
-        from common.protocol import make_end_turn_request
         self.network.send(make_end_turn_request())
         self.end_turn_btn.pack_forget()
         self.reset_turn_resources()
@@ -5140,7 +5110,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
         reaction_type = data.get("reaction_type")
         source_name = data.get("source_name", "Un'entità")
         details = data.get("details", {})
-        from common.protocol import make_reaction_response
 
         if reaction_type == "OPPORTUNITY_ATTACK":
             win = tk.Toplevel(self.master)
@@ -5671,7 +5640,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
             reas = reason_entry.get().strip()
             if blind_var.get():
                 if self.is_connected:
-                    from common.protocol import make_blind_roll_request
                     self.network.send(make_blind_roll_request(form, reas))
                     self.log_to_chat(f"🙈 [Tiro Segreto inviato al DM] Formula: {form} ({reas})", "Globale", sender="Tu", color="#A855F7")
                     self.show_toast(f"Tiro segreto ({form}) inviato al DM!", title="🙈 Tiro Segreto", toast_type="info")
@@ -5805,7 +5773,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
             except Exception:
                 self.stats_detached_window = None
         self.hide_stats_overlay(save=True)
-        from client.character_sheet_ui import CharacterSheetUI
         self.stats_detached_window = CharacterSheetUI(
             self.master,
             character=self.active_character,
@@ -5843,7 +5810,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
             slot_idx = item.get("_from_slot") if isinstance(item, dict) else None
             self.network.send(make_give_item_request(target_name, item, slot_idx=slot_idx))
             if self.active_character:
-                from common.protocol import make_update_full_sheet_request
                 self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
             self.log_to_chat(f"Hai inviato l'oggetto '{item.get('name')}' a {target_name}.", "Globale", sender="Sistema", color="#00B0F4")
 
@@ -5919,7 +5885,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
                     toast_type="danger",
                 )
 
-            from common.protocol import make_save_result
             self.network.send(make_save_result(stat, res["total"], is_crit, is_fail, dc, damage_formula, half_on_success, source_name, damage_type=damage_type))
             win.destroy()
 
@@ -6094,28 +6059,23 @@ class ClientGUI(ClientNetworkHandlersMixin):
             self.network.send(make_submerged_breath_request("toggle_submerged"))
             return True
         if cmd in ("/escape", "/libera", "/liberati"):
-            from common.protocol import make_escape_grapple_request
             self.network.send(make_escape_grapple_request(arg1 or None))
             return True
         if cmd in ("/dispel", "/dissolvi"):
-            from common.protocol import make_dispel_magic_request
             sl_lvl = int(arg2) if arg2.isdigit() else (int(arg1) if arg1.isdigit() else 3)
             t_disp = arg1 if (arg1 and not arg1.isdigit()) else tgt
             self.network.send(make_dispel_magic_request(target_name=t_disp, slot_level=sl_lvl))
             return True
         if cmd in ("/identify", "/identificaincantesimo"):
-            from common.protocol import make_identify_spell_request
             sp_n = " ".join(parts[1:]) if len(parts) > 1 else "Incantesimo Sconosciuto"
             self.network.send(make_identify_spell_request(sp_n))
             return True
         if cmd in ("/downtime", "/ozio"):
-            from common.protocol import make_downtime_request
             act = arg1 or "lavorare"
             days = int(arg2) if arg2.isdigit() else 5
             self.network.send(make_downtime_request(act, days=days))
             return True
         if cmd in ("/feature", "/classe"):
-            from common.protocol import make_class_feature_request
             feat_n = arg1 or "countercharm"
             self.network.send(make_class_feature_request(feat_n, target_name=arg2 or None))
             return True
@@ -6154,7 +6114,6 @@ class ClientGUI(ClientNetworkHandlersMixin):
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-        from common.protocol import make_optional_rule_action_request, make_class_feature_request
         buttons = [
             ("⬆️ Alzati da Prono (Stand Up)", self.perform_stand_up),
             ("📦 Farsi Strada (Squeeze Toggle)", lambda: self.network.send(make_optional_rule_action_request("toggle_squeeze"))),

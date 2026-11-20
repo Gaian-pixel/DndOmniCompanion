@@ -12,12 +12,12 @@ import tkinter as tk
 from tkinter import ttk, scrolledtext, simpledialog, filedialog
 from typing import Optional, Callable, Dict, Any, List
 
-from common.i18n import _t, get_language
+from common.i18n import _t
 from common.theme import (
     apply_modern_window_style, BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT,
-    BORDER_COLOR, BORDER_GOLD, ACCENT_GOLD, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE,
-    TEXT_COLOR, TEXT_MUTED, TEXT_DARK,
-    FONT_TITLE, FONT_HEADER, FONT_MAIN, FONT_BOLD, FONT_SMALL, FONT_BADGE
+    BORDER_COLOR, BORDER_GOLD, ACCENT_GOLD, ACCENT_RED,
+    TEXT_COLOR, TEXT_MUTED,
+    FONT_HEADER, FONT_MAIN, FONT_BOLD, FONT_SMALL, FONT_BADGE
 )
 from common.messagebox import messagebox
 from common.campaign import Campaign, get_available_campaigns, DEFAULT_CAMPAIGNS_DIR, slugify
@@ -200,7 +200,7 @@ class CampaignEncounterDialog(tk.Toplevel):
                 self.refresh_monsters_list()
 
             CustomNPCDialog(master=self, on_save_callback=on_saved)
-        except Exception as e:
+        except Exception:
             name = simpledialog.askstring("Nuovo Mostro", "Nome del mostro/avversario:", parent=self)
             if not name or not name.strip(): return
             hp = simpledialog.askinteger("Punti Ferita", "HP massimi:", initialvalue=15, minvalue=1, parent=self) or 15
@@ -1650,7 +1650,7 @@ class CampaignEditorFrame(tk.Frame):
                 self.refresh_npcs()
 
             CustomNPCDialog(master=self, on_save_callback=on_saved)
-        except Exception as e:
+        except Exception:
             name = simpledialog.askstring("Nuovo PNG", "Nome del PNG:", parent=self)
             if not name or not name.strip(): return
             role = simpledialog.askstring("Ruolo", "Ruolo o mestiere (es. 'Locandiere', 'Capoguardia'):", parent=self) or "Cittadino"
@@ -1675,7 +1675,7 @@ class CampaignEditorFrame(tk.Frame):
                 self.refresh_npcs()
 
             CustomNPCDialog(master=self, initial_data=npc, on_save_callback=on_saved)
-        except Exception as e:
+        except Exception:
             name = simpledialog.askstring("Modifica PNG", "Nome:", initialvalue=npc.get("name"), parent=self)
             if not name: return
             npc["name"] = name.strip()

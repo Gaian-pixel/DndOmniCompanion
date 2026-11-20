@@ -2,11 +2,11 @@ import tkinter as tk
 from tkinter import ttk
 import os
 from common.messagebox import messagebox
-from common.i18n import _t, get_language
+from common.i18n import _t
 from common.file_utils import get_writable_dir, load_json, atomic_save_json
 from common.theme import (
-    TEXT_COLOR, ACCENT_RED, ACCENT_GOLD, SURFACE_COLOR, SURFACE_COLOR_ALT,
-    BORDER_COLOR, BG_COLOR, TEXT_MUTED, FONT_MAIN, FONT_BOLD, FONT_HEADER, FONT_SMALL,
+    TEXT_COLOR, ACCENT_GOLD, SURFACE_COLOR, SURFACE_COLOR_ALT,
+    BORDER_COLOR, TEXT_MUTED, FONT_BOLD, FONT_SMALL,
     apply_modern_window_style
 )
 from .character_creation_wizard import CharacterCreationWizard

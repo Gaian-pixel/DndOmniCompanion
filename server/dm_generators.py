@@ -8,13 +8,13 @@ Generatori di improvvisazione per il Dungeon Master (5e):
 import random
 import tkinter as tk
 from tkinter import ttk, scrolledtext, simpledialog
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 
 from common.theme import (
     apply_modern_window_style, BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT,
-    BORDER_COLOR, ACCENT_GOLD, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE,
-    TEXT_COLOR, TEXT_MUTED, TEXT_DARK,
-    FONT_TITLE, FONT_HEADER, FONT_MAIN, FONT_BOLD, FONT_SMALL
+    BORDER_COLOR, ACCENT_GOLD,
+    TEXT_COLOR, TEXT_MUTED,
+    FONT_HEADER, FONT_MAIN, FONT_BOLD, FONT_SMALL
 )
 from common.messagebox import messagebox
 from common.game_state import Player
@@ -135,7 +135,6 @@ class LootGenerator:
         is_en = (lang == "en")
         pool_gems_50 = cls.GEMS_50_EN if is_en else cls.GEMS_50_IT
         pool_gems_100 = cls.GEMS_100_EN if is_en else cls.GEMS_100_IT
-        pool_gems_500 = cls.GEMS_500_EN if is_en else cls.GEMS_500_IT
         pool_gems_1000 = cls.GEMS_1000_EN if is_en else cls.GEMS_1000_IT
         pool_gems_5000 = cls.GEMS_5000_EN if is_en else cls.GEMS_5000_IT
         pool_art_25 = cls.ART_25_EN if is_en else cls.ART_25_IT

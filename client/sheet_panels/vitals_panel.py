@@ -8,7 +8,7 @@ from tkinter import ttk
 import random
 from common.messagebox import messagebox
 from common.theme import (
-    BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT, BORDER_COLOR,
+    BG_COLOR, SURFACE_COLOR, BORDER_COLOR,
     TEXT_COLOR, TEXT_MUTED, ACCENT_GOLD, ACCENT_RED, ACCENT_GREEN,
     FONT_HEADER, FONT_BOLD, FONT_SMALL, apply_modern_window_style
 )

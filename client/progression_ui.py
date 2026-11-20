@@ -1,20 +1,16 @@
 import tkinter as tk
 from tkinter import ttk
 from common.messagebox import messagebox
-import threading
 import random
 try:
     import requests
 except ImportError:
     requests = None
-import urllib.request
-import json
 
 from common.theme import apply_modern_window_style
-from common.i18n import _t, get_language, translate_ability
+from common.i18n import _t
 from server.compendium_ui import CompendiumDialog
 from common.srd_offline import (
-    OfflineSRD,
     get_class_level_features_offline,
     get_all_spells_offline,
     SPELL_EN_TO_IT,

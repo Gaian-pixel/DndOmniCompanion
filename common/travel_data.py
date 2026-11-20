@@ -865,7 +865,6 @@ def resolve_night_camp_simulation(
 
         if has_event and s_idx == target_shift:
             sentinel_name = p_obj.name if p_obj else "Nessuno"
-            cat = night_enc.get("category", "combat")
             title = night_enc.get("title", "Pericolo")
             s_dc = night_enc.get("stealth_dc", 13)
 

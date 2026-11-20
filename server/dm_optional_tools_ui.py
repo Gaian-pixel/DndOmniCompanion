@@ -1,11 +1,10 @@
 """Interfaccia grafica DM Workbench per tutte le regole opzionali 5e (PHB / DMG / MM / XGtE / TCE)."""
 import tkinter as tk
 from tkinter import ttk, scrolledtext
-from common.messagebox import messagebox
 from common.theme import (
     apply_modern_window_style, BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT,
-    BORDER_COLOR, ACCENT_GOLD, ACCENT_GREEN, ACCENT_BLUE, ACCENT_RED,
-    TEXT_COLOR, TEXT_MUTED, FONT_TITLE, FONT_BOLD, FONT_SMALL
+    BORDER_COLOR, ACCENT_GOLD,
+    TEXT_COLOR, TEXT_MUTED, FONT_TITLE, FONT_SMALL
 )
 
 
@@ -23,7 +22,6 @@ def open_optional_rules_tools_dialog(dm_gui, initial_tab: int = 0):
 
     from server.dm_optional_tools import (
         handle_optional_rule_action_request,
-        calculate_sentient_ego,
         roll_artifact_properties,
         SIEGE_EQUIPMENT_CATALOG,
         BASTION_FACILITIES_CATALOG,
@@ -236,7 +234,7 @@ def open_optional_rules_tools_dialog(dm_gui, initial_tab: int = 0):
     def _gen_dungeon():
         res = RandomDungeonGenerator.generate(rooms_var.get())
         gen_txt.delete("1.0", tk.END)
-        lines = [f"🏛️ DUNGEON CASUALE (DMG Appendice A)", f"Posizione: {res['location']}", f"Creatori: {res['creator']}", f"Scopo: {res['purpose']}", ""]
+        lines = ["🏛️ DUNGEON CASUALE (DMG Appendice A)", f"Posizione: {res['location']}", f"Creatori: {res['creator']}", f"Scopo: {res['purpose']}", ""]
         for r in res["rooms"]:
             lines.append(f"• {r['name']} ({r['dimensions_ft']}) | Porta: {r['door']} | Trappola: {r['hazard']} | Dettaglio: {r['dressing']}")
         gen_txt.insert(tk.END, "\n".join(lines))
@@ -245,7 +243,7 @@ def open_optional_rules_tools_dialog(dm_gui, initial_tab: int = 0):
         res = SettlementGenerator.generate()
         gen_txt.delete("1.0", tk.END)
         lines = [
-            f"🏘️ INSEDIAMENTO CASUALE (DMG p. 112-114)",
+            "🏘️ INSEDIAMENTO CASUALE (DMG p. 112-114)",
             f"Nome: {res['name']} ({res['size']})",
             f"Popolazione: ~{res['population']} abitanti",
             f"Governo: {res['government']}",

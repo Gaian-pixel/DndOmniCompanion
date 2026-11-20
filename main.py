@@ -8,11 +8,10 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from common.theme import (
     setup_theme, apply_modern_window_style, 
-    BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT, BORDER_COLOR,
-    ACCENT_GOLD, ACCENT_RED, TEXT_COLOR, TEXT_MUTED,
-    FONT_TITLE, FONT_HEADER, FONT_MAIN, FONT_BOLD, FONT_SMALL
+    BG_COLOR, SURFACE_COLOR, BORDER_COLOR,
+    ACCENT_GOLD, TEXT_COLOR, TEXT_MUTED, FONT_MAIN
 )
-from common.i18n import _t, get_language, set_language, toggle_language
+from common.i18n import _t, get_language, toggle_language
 
 def start_app():
     root = tk.Tk()
@@ -39,7 +38,7 @@ def start_app():
         root.resizable(True, True)
         root.minsize(950, 650)
         from server.server import DM_GUI
-        app = DM_GUI(root, initial_campaign=campaign)
+        DM_GUI(root, initial_campaign=campaign)
 
     def launch_player(initial_character=None, auto_connect_ip=None, session_password=""):
         for widget in root.winfo_children():
@@ -47,7 +46,7 @@ def start_app():
         root.resizable(True, True)
         root.minsize(950, 650)
         from client.client import ClientGUI
-        app = ClientGUI(
+        ClientGUI(
             root,
             initial_character=initial_character,
             auto_connect_ip=auto_connect_ip,

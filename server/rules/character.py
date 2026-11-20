@@ -744,8 +744,6 @@ def handle_update_full_sheet_request(data, player, game_state):
             auto_explore_fow(player, game_state)
 
         if granted_campaign_starter and getattr(player, "conn", None):
-            from common.protocol import make_campaign_starter_granted, make_chat_broadcast
-            from common.network_utils import send_message
             send_message(player.conn, make_campaign_starter_granted(char_data.get("inventory_grid", []), full_sheet=char_data))
             broadcast(game_state, make_chat_broadcast("Sistema", f"[CAMPAGNA] {player.name} ha ricevuto l'equipaggiamento iniziale della campagna dal Master!"))
         game_state._trigger_gui_update()

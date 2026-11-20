@@ -9,7 +9,7 @@ sincronizzare il diario con i client dei giocatori ed esportare in Markdown, HTM
 import tkinter as tk
 from tkinter import ttk, scrolledtext, filedialog
 from common.messagebox import messagebox
-from typing import Optional, Any
+from typing import Any
 
 from common.theme import (
     apply_modern_window_style,
@@ -19,7 +19,7 @@ from common.theme import (
     FONT_TITLE, FONT_HEADER, FONT_BOLD, FONT_MAIN, FONT_SMALL
 )
 from common.i18n import _t, get_language
-from common.campaign_journal import CampaignJournal, JournalSession, format_game_date
+from common.campaign_journal import CampaignJournal, format_game_date
 from common.network_utils import broadcast
 from common.protocol import make_journal_sync, make_chat_broadcast
 from components.ui_components import show_toast
@@ -371,7 +371,7 @@ class DMJournalDialog(tk.Toplevel):
     def _on_new_session(self):
         self._save_current_ui_into_session()
         num = len(self.journal.sessions) + 1
-        new_sess = self.journal.start_new_session(
+        self.journal.start_new_session(
             title=f"Sessione {num}",
             weather=getattr(self.game_state, "weather", "Sereno"),
             location=getattr(self.game_state.current_map, "get", lambda k, d: d)("name", "Mappa Tattica") if getattr(self.game_state, "current_map", None) else "Faerûn"

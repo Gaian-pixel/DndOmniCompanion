@@ -121,25 +121,52 @@ def main() -> int:
         print(json.dumps({"decision": "continue", "reason": reason}))
         return 0
 
-    # 3. Critical pyflakes check on touched Python files
-    proc_flakes = subprocess.run(
-        [sys.executable, "-X", "utf8", "-m", "pyflakes", *py_changed],
-        cwd=str(repo_root),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    flakes_out = ((proc_flakes.stdout or "") + (proc_flakes.stderr or "")).splitlines()
-    crit_lines = [ln for ln in flakes_out if CRITICAL_PYFLAKES_RE.search(ln)]
-    if crit_lines:
-        reason = (
-            "[STOP QUALITY GATE FAILED] Critical `pyflakes` issues detected:\n"
-            + "\n".join(crit_lines[:25])
-            + "\nFix all undefined names / syntax errors before stopping."
+    # 3. pyflakes check on touched Python files:
+    #    - 0 warnings allowed on production/script files
+    #    - 0 critical errors allowed on tests/ files (preexisting unused imports in old tests may exist)
+    prod_changed = [f for f in py_changed if not f.startswith("tests/")]
+    test_changed = [f for f in py_changed if f.startswith("tests/")]
+
+    if prod_changed:
+        proc_flakes_prod = subprocess.run(
+            [sys.executable, "-X", "utf8", "-m", "pyflakes", *prod_changed],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
         )
-        print(json.dumps({"decision": "continue", "reason": reason}))
-        return 0
+        prod_flk_lines = [
+            ln for ln in ((proc_flakes_prod.stdout or "") + (proc_flakes_prod.stderr or "")).splitlines() if ln.strip()
+        ]
+        if prod_flk_lines or proc_flakes_prod.returncode != 0:
+            reason = (
+                "[STOP QUALITY GATE FAILED] `pyflakes` warnings detected in production/script files:\n"
+                + "\n".join(prod_flk_lines[:25])
+                + "\nFix all `pyflakes` warnings (`PYFLAKES_LINES=0`) before stopping."
+            )
+            print(json.dumps({"decision": "continue", "reason": reason}))
+            return 0
+
+    if test_changed:
+        proc_flakes_test = subprocess.run(
+            [sys.executable, "-X", "utf8", "-m", "pyflakes", *test_changed],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        test_flk_lines = ((proc_flakes_test.stdout or "") + (proc_flakes_test.stderr or "")).splitlines()
+        crit_lines = [ln for ln in test_flk_lines if CRITICAL_PYFLAKES_RE.search(ln)]
+        if crit_lines:
+            reason = (
+                "[STOP QUALITY GATE FAILED] Critical `pyflakes` issues detected in tests:\n"
+                + "\n".join(crit_lines[:25])
+                + "\nFix all undefined names / syntax errors before stopping."
+            )
+            print(json.dumps({"decision": "continue", "reason": reason}))
+            return 0
 
     # 4. Run any modified unittest modules in an isolated temp directory
     test_mods = [

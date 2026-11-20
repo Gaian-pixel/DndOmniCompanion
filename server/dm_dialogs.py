@@ -7,7 +7,7 @@ from contextlib import nullcontext
 import random
 import re
 import tkinter as tk
-from tkinter import ttk, scrolledtext, simpledialog
+from tkinter import ttk, scrolledtext
 from common.messagebox import messagebox
 from common.theme import (
     apply_modern_window_style, BG_COLOR, BORDER_COLOR, TEXT_COLOR, TEXT_MUTED,
@@ -1309,7 +1309,7 @@ class CampaignStarterKitDialog(tk.Toplevel):
         self.grab_set()
         apply_modern_window_style(self)
 
-        from common.starter_equipment import get_campaign_starter_kit, DEFAULT_CAMPAIGN_STARTER_KIT
+        from common.starter_equipment import get_campaign_starter_kit
         if initial_items is not None:
             self.items = [i.copy() for i in initial_items]
         else:

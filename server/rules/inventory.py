@@ -1,5 +1,3 @@
-import re
-import random
 from common.protocol import (
     make_chat_broadcast,
     make_currency_response,
@@ -9,7 +7,6 @@ from common.protocol import (
     make_receive_item,
 )
 from common.network_utils import send_message, broadcast
-import math
 
 def handle_give_item_request(data, player, game_state):
     target_name = data.get("target_name")

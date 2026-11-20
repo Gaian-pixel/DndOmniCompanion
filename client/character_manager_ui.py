@@ -18,7 +18,7 @@ from common.theme import (
     FONT_TITLE, FONT_HEADER, FONT_MAIN, FONT_BOLD, FONT_SMALL
 )
 from common.messagebox import messagebox
-from common.i18n import _t, get_language, register_language_listener, unregister_language_listener, translate_ability
+from common.i18n import _t, get_language, register_language_listener, unregister_language_listener
 from client.character_manager import CharacterManager, Character
 from client.character_creation_wizard import CharacterCreationWizard
 from client.character_sheet_ui import CharacterSheetUI, open_export_character_dialog

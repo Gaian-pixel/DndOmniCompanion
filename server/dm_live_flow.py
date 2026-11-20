@@ -10,19 +10,19 @@ from tkinter import ttk, scrolledtext, simpledialog
 from typing import Optional, Any, Dict
 
 from common.theme import (
-    apply_modern_window_style, BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT, SURFACE_LIGHT,
-    BORDER_COLOR, BORDER_GOLD, ACCENT_GOLD, ACCENT_GOLD_LIGHT,
-    ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE, TEXT_COLOR, TEXT_MUTED, TEXT_DARK,
+    apply_modern_window_style, BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT,
+    BORDER_COLOR, ACCENT_GOLD,
+    ACCENT_RED, ACCENT_GREEN, TEXT_COLOR, TEXT_MUTED,
     FONT_TITLE, FONT_HEADER, FONT_MAIN, FONT_BOLD, FONT_SMALL, FONT_BADGE
 )
 from common.messagebox import messagebox
 from common.campaign_script import (
-    FlowGraph, FlowNode, FlowEdge,
-    sync_flow_graph_to_campaign, sync_hierarchical_campaign_flows,
+    FlowGraph, FlowNode,
+    sync_hierarchical_campaign_flows,
     ensure_hierarchical_campaign_flows, get_scene_subflow_graph, save_scene_subflow,
 )
 from common.session_chronicle import (
-    SessionLedger, ChronicleGenerator, integrate_off_track_events_into_flow, format_harptos_date
+    SessionLedger, ChronicleGenerator, integrate_off_track_events_into_flow
 )
 from server.flow_canvas import FlowCanvas
 

@@ -1,6 +1,6 @@
 import json
 import os
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
 class CompendiumManager:
     def __init__(self):

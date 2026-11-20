@@ -4,12 +4,6 @@ Modulo estratto da CharacterSheetFrame per separazione di responsabilità e test
 """
 
 import tkinter as tk
-from tkinter import ttk
-from common.theme import (
-    SURFACE_COLOR, BORDER_COLOR, TEXT_MUTED,
-    ACCENT_GOLD, ACCENT_BLUE, ACCENT_GREEN,
-    FONT_BOLD, FONT_SMALL
-)
 from common.i18n import _t
 
 

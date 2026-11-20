@@ -148,12 +148,12 @@ def run_pyinstaller():
             tar.add(app_dist_dir, arcname=APP_NAME)
             
         tar_size_mb = os.path.getsize(tar_path) / (1024 * 1024)
-        print(f"\n========================================================")
-        print(f"RELEASE LINUX GENERATA CON SUCCESSO:")
+        print("\n========================================================")
+        print("RELEASE LINUX GENERATA CON SUCCESSO:")
         print(f"  Cartella: {app_dist_dir}")
         print(f"  Binario: {os.path.join(app_dist_dir, APP_NAME)}")
         print(f"  Archivio TAR.GZ: {tar_path} ({tar_size_mb:.2f} MB)")
-        print(f"========================================================")
+        print("========================================================")
     elif IS_MACOS:
         zip_filename = f"{APP_NAME}-{VERSION}-macos.zip"
         zip_path = os.path.join(dist_dir, zip_filename)
@@ -167,12 +167,12 @@ def run_pyinstaller():
                     zf.write(file_full, rel_path)
                     
         zip_size_mb = os.path.getsize(zip_path) / (1024 * 1024)
-        print(f"\n========================================================")
-        print(f"RELEASE MACOS GENERATA CON SUCCESSO:")
+        print("\n========================================================")
+        print("RELEASE MACOS GENERATA CON SUCCESSO:")
         print(f"  Cartella: {app_dist_dir}")
         print(f"  Binario: {os.path.join(app_dist_dir, APP_NAME)}")
         print(f"  Archivio ZIP: {zip_path} ({zip_size_mb:.2f} MB)")
-        print(f"========================================================")
+        print("========================================================")
     else:
         # Genera archivio ZIP per Windows
         zip_filename = f"{APP_NAME}-{VERSION}-win64.zip"
@@ -187,12 +187,12 @@ def run_pyinstaller():
                     zf.write(file_full, rel_path)
                     
         zip_size_mb = os.path.getsize(zip_path) / (1024 * 1024)
-        print(f"\n========================================================")
-        print(f"RELEASE WINDOWS GENERATA CON SUCCESSO:")
+        print("\n========================================================")
+        print("RELEASE WINDOWS GENERATA CON SUCCESSO:")
         print(f"  Cartella: {app_dist_dir}")
         print(f"  Eseguibile: {os.path.join(app_dist_dir, f'{APP_NAME}.exe')}")
         print(f"  Archivio ZIP: {zip_path} ({zip_size_mb:.2f} MB)")
-        print(f"========================================================")
+        print("========================================================")
 
 
 if __name__ == "__main__":

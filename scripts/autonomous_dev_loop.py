@@ -144,20 +144,33 @@ def run_quality_gate(fast: bool = False) -> Tuple[bool, str]:
         return False, f"FAIL: py_compile error:\n{(proc_comp.stdout or '') + (proc_comp.stderr or '')}"
     logs.append(f"2. Static bytecode compile (`py_compile`): OK ({len(py_files)} files)")
 
-    # 3. Critical pyflakes check
+    # 3. Zero-warning pyflakes check
     proc_flk = subprocess.run(
-        [sys.executable, "-X", "utf8", "-m", "pyflakes", "common", "server", "client", "components", "main.py"],
+        [
+            sys.executable,
+            "-X",
+            "utf8",
+            "-m",
+            "pyflakes",
+            "common",
+            "server",
+            "client",
+            "components",
+            "main.py",
+            "build_release.py",
+            "scripts",
+            ".agents/scripts",
+        ],
         cwd=str(REPO_ROOT),
         capture_output=True,
         text=True,
         encoding="utf-8",
         errors="replace",
     )
-    flk_lines = ((proc_flk.stdout or "") + (proc_flk.stderr or "")).splitlines()
-    crit = [ln for ln in flk_lines if CRITICAL_PYFLAKES_RE.search(ln)]
-    if crit:
-        return False, "FAIL: Critical pyflakes issues:\n" + "\n".join(crit)
-    logs.append(f"3. Static analysis (`pyflakes`): CRIT=0 (lines={len(flk_lines)})")
+    flk_lines = [ln for ln in ((proc_flk.stdout or "") + (proc_flk.stderr or "")).splitlines() if ln.strip()]
+    if flk_lines or proc_flk.returncode != 0:
+        return False, "FAIL: pyflakes issues detected:\n" + "\n".join(flk_lines[:40])
+    logs.append("3. Static analysis (pyflakes): OK (PYFLAKES_LINES=0)")
 
     # 4. Isolated unittest execution
     if fast:

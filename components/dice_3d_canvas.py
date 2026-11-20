@@ -775,8 +775,7 @@ class Die3DInstance:
             
             # Interpolazione fluida della posizione verso dest_x, dest_y
             settle_t = min(1.0, (progress - 0.65) / 0.35)
-            smooth_t = settle_t * settle_t * (3.0 - 2.0 * settle_t)
-            
+
             self.x = self.x + (self.dest_x - self.x) * (dt * 8.0)
             self.y = self.y + (self.dest_y - self.y) * (dt * 8.0)
             

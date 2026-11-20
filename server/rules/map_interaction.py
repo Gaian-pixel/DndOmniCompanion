@@ -1,6 +1,5 @@
-import re
 import random
-from common.hex_utils import Hex, hex_distance, grid_distance, get_sphere_hexes, get_cube_hexes, hex_linedraw, get_cone_hexes, get_line_hexes, has_line_of_sight, get_cover_between
+from common.hex_utils import Hex, grid_distance, get_sphere_hexes, get_cube_hexes, get_cone_hexes, get_line_hexes, has_line_of_sight, get_cover_between
 from common.network_utils import send_message, broadcast
 from common.protocol import (
     make_chat_broadcast,
@@ -12,7 +11,6 @@ from common.protocol import (
     make_map_data_update_broadcast,
     make_ping_broadcast,
     make_player_stats_update,
-    make_prompt_save,
     make_quest_list_update,
 )
 from common.item_modifiers import get_effective_attribute_from_dict, get_effective_save_bonus_from_dict
@@ -290,8 +288,7 @@ def handle_draw_request(data, player, game_state):
     broadcast(game_state, {"type": "DRAW_BROADCAST", "data": {"points": points, "color": color}})
 
 def handle_clear_drawings_request(data, player, game_state):
-    from common.network_utils import is_dm_actor, broadcast
-    from common.protocol import make_clear_drawings_broadcast
+    from common.network_utils import is_dm_actor
     if not is_dm_actor(player):
         return
     with game_state.lock:
@@ -786,7 +783,6 @@ def handle_quest_action_request(data, player, game_state):
     if chat_msg:
         broadcast(game_state, make_chat_broadcast("Sistema", chat_msg))
     game_state._trigger_gui_update()
-    from common.protocol import make_quest_list_update
     broadcast(game_state, make_quest_list_update(quests_snapshot))
 
 def handle_handout_share_request(data, player, game_state):
@@ -801,7 +797,6 @@ def handle_handout_share_request(data, player, game_state):
         if not hasattr(game_state, "handouts"):
             game_state.handouts = []
         game_state.handouts.append({"title": title, "content": content, "image_path": image_path, "sender": sender})
-    from common.protocol import make_handout_share_broadcast
     broadcast(game_state, make_handout_share_broadcast(title, content, image_path, sender))
 
 

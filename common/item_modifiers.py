@@ -282,9 +282,6 @@ def calculate_character_item_modifiers(character_or_dict: Any) -> Dict[str, Any]
         return _get_char_field(character_or_dict, attr, default)
 
     inventory = _get("inventory_grid", []) or []
-    char_class = str(_get("char_class", "")).lower()
-    subclass = str(_get("subclass", "")).lower()
-    level = int(_get("level", 1) or 1)
     backpack_dropped = bool(_get("backpack_dropped", False))
 
     # Limite sintonizzazioni (5e RAW: 3 standard, fino a 6 per Artefice in base al livello di classe)
@@ -1043,7 +1040,6 @@ def recharge_item_dict(item_dict: Dict[str, Any]) -> Optional[str]:
 
     rec_formula = str(item_dict.get("recharge_dice") or defaults.get("recharge_dice") or "1d6+1").strip().lower()
     if rec_formula in ("all", "tutte", "max"):
-        gained = c_max - c_cur
         item_dict["charges_current"] = c_max
         return f"✨ **{item_dict.get('name', 'Oggetto')}** recupera tutte le cariche ({c_max}/{c_max})."
 

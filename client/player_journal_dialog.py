@@ -10,14 +10,14 @@ import os
 import json
 import tkinter as tk
 from tkinter import ttk, scrolledtext, filedialog
-from typing import Optional, Any
+from typing import Optional
 
 from common.theme import (
     apply_modern_window_style,
     BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT, BORDER_COLOR,
     TEXT_COLOR, TEXT_MUTED, TEXT_DARK, TEXT_GOLD,
     ACCENT_GOLD, ACCENT_GREEN, ACCENT_BLUE,
-    FONT_TITLE, FONT_HEADER, FONT_BOLD, FONT_MAIN, FONT_SMALL
+    FONT_TITLE, FONT_HEADER, FONT_MAIN, FONT_SMALL
 )
 from common.file_utils import get_writable_dir
 from common.i18n import _t, get_language

@@ -10,7 +10,6 @@ import tkinter as tk
 from tkinter import ttk, filedialog, simpledialog
 from common.messagebox import messagebox
 from common.i18n import _t
-from common.theme import FONT_MAIN, FONT_SMALL, FONT_BOLD, SURFACE_COLOR, SURFACE_COLOR_ALT, BORDER_COLOR, TEXT_COLOR
 from components.ui_components import ToolTip
 from common.protocol import make_audio_track_play, make_audio_stop, make_audio_play_broadcast
 from common.network_utils import broadcast

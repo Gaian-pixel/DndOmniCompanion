@@ -8,7 +8,7 @@ import tkinter as tk
 from tkinter import ttk, simpledialog
 from common.theme import (
     apply_modern_window_style, BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT,
-    BORDER_COLOR, ACCENT_GOLD, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE,
+    BORDER_COLOR, ACCENT_GOLD, ACCENT_GREEN, ACCENT_BLUE,
     TEXT_COLOR, TEXT_MUTED, FONT_TITLE, FONT_BOLD, FONT_SMALL
 )
 from components.ui_components import ToolTip

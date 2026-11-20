@@ -6,7 +6,7 @@ import math
 from io import BytesIO
 from PIL import Image, ImageTk, ImageDraw
 from common.hex_utils import (
-    Hex, HexLayout, SquareLayout, hex_distance, grid_distance,
+    Hex, HexLayout, SquareLayout, grid_distance,
     get_sphere_hexes, get_cube_hexes, get_cone_hexes, get_line_hexes, get_visible_hexes,
     hex_linedraw, get_cover_between
 )

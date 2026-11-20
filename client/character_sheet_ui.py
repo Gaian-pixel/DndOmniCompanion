@@ -4240,8 +4240,8 @@ class CharacterSheetFrame(ttk.Frame):
                     desc = item.get("desc", "")
                     weight = item.get("weight", 0.0)
                     ground_status = "\n⚠️ QUESTO OGGETTO È A TERRA CON LO ZAINO!" if is_on_ground else ""
-                    spend_status = f"\n🏹 Oggetto Spendibile: clicca '[-1]' per consumare 1 unità." if is_spendable else ""
-                    pack_status = f"\n📦 Pacchetto Apribile: clicca '[📦]' per estrarre gli oggetti." if pack_items else ""
+                    spend_status = "\n🏹 Oggetto Spendibile: clicca '[-1]' per consumare 1 unità." if is_spendable else ""
+                    pack_status = "\n📦 Pacchetto Apribile: clicca '[📦]' per estrarre gli oggetti." if pack_items else ""
                     tip_text = f"{name} (x{qty})\nCollocazione: {c_icon} {c_name}\nTipo: {item_type}\nPeso: {weight} lbs{ground_status}{spend_status}{pack_status}\n\n{desc}" if desc else f"{name} (x{qty})\nCollocazione: {c_icon} {c_name}\nTipo: {item_type}\nPeso: {weight} lbs{ground_status}{spend_status}{pack_status}"
                     _set_tooltip(btn, tip_text)
                 else:
@@ -4343,7 +4343,6 @@ class CharacterSheetFrame(ttk.Frame):
                 heal_roll = sum(random.randint(1, 4) for _ in range(2)) + 2
                 pot_tier = "Comune (2d4+2)"
             if heal_roll > 0:
-                old_hp = self.character.hp_current
                 self.character.hp_current = min(self.character.hp_max, self.character.hp_current + heal_roll)
                 if hasattr(self, "hp_cur_var"):
                     self.hp_cur_var.set(self.character.hp_current)
@@ -4467,11 +4466,6 @@ class CharacterSheetFrame(ttk.Frame):
         item = self.character.inventory_grid[slot_idx]
         if not item or not isinstance(item, dict):
             return
-        from client.character_manager import CONTAINERS
-        c_info = CONTAINERS.get(target_container, CONTAINERS.get("backpack", {}))
-        c_name = c_info.get("name_it" if get_language() == "it" else "name_en", target_container)
-        c_icon = c_info.get("icon", "📦")
-        
         old_container = item.get("container", "backpack")
         if old_container == target_container:
             return
@@ -4854,7 +4848,6 @@ class CharacterSheetFrame(ttk.Frame):
         qp_frame = tk.Frame(body, bg=SURFACE_COLOR)
         qp_frame.pack(fill=tk.X, pady=4)
         
-        qp_state = "disabled" if self.is_connected else "normal"
         tk.Label(qp_frame, text="Quantità:", font=FONT_BOLD, fg=TEXT_COLOR, bg=SURFACE_COLOR).pack(side=tk.LEFT, padx=(0, 4))
         initial_qty = max(1, int(item.get("qty", 1) or 1))
         qty_var = tk.IntVar(value=initial_qty)
@@ -5251,9 +5244,9 @@ class CharacterSheetFrame(ttk.Frame):
                         if serialized != initial_val:
                             if messagebox.askyesno(
                                 "Richiesta Approvazione al Master",
-                                f"Hai modificato i Tratti & Privilegi del personaggio.\n\n"
-                                f"Sei in sessione multiplayer: per applicare queste modifiche è richiesta l'approvazione del Dungeon Master.\n\n"
-                                f"Vuoi inviare la richiesta di approvazione al Master ora?",
+                                "Hai modificato i Tratti & Privilegi del personaggio.\n\n"
+                                "Sei in sessione multiplayer: per applicare queste modifiche è richiesta l'approvazione del Dungeon Master.\n\n"
+                                "Vuoi inviare la richiesta di approvazione al Master ora?",
                                 parent=self
                             ):
                                 if self.request_journal_approval_callback:

@@ -10,9 +10,9 @@ import random
 
 from common.messagebox import messagebox
 from common.theme import (
-    apply_modern_window_style, BG_COLOR, SURFACE_COLOR, SURFACE_COLOR_ALT,
-    BORDER_COLOR, ACCENT_GOLD, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE,
-    TEXT_COLOR, TEXT_MUTED, FONT_TITLE, FONT_HEADER, FONT_BOLD, FONT_MAIN, FONT_SMALL
+    apply_modern_window_style, BG_COLOR, SURFACE_COLOR,
+    ACCENT_GOLD,
+    TEXT_COLOR, TEXT_MUTED, FONT_HEADER, FONT_BOLD, FONT_MAIN
 )
 from common.hex_utils import Hex
 from common.network_utils import send_message, broadcast

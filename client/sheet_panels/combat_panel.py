@@ -10,7 +10,7 @@ from common.theme import (
     TEXT_COLOR, TEXT_MUTED, ACCENT_GOLD,
     FONT_BOLD, FONT_SMALL, FONT_MAIN
 )
-from common.i18n import _t, get_language
+from common.i18n import _t
 
 
 class CombatPanel:

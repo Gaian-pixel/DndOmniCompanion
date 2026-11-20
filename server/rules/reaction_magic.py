@@ -12,9 +12,8 @@ reaction_magic.py - Gestione centralizzata di D&D 5e RAW:
 
 import re
 import random
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Optional, Tuple, List
 
-from common.dice import roll_dice
 from common.i18n import is_condition_active
 from common.hex_utils import Hex, hex_linedraw, grid_distance_3d
 from common.network_utils import send_message, broadcast
@@ -23,11 +22,9 @@ from common.protocol import (
     make_error_reply,
     make_player_stats_update,
     make_prompt_reaction,
-    make_map_data_update_broadcast,
     make_game_state,
 )
 from common.dnd5e_tables import (
-    INCAPACITATING_CONDITIONS,
     entity_has_keyword,
     entity_get_class_level,
     entity_get_total_level,

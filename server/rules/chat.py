@@ -1,14 +1,11 @@
-import re
-import random
 from common.protocol import (
     make_chat_broadcast,
     make_dice_roll_result,
     make_error_reply,
     make_game_state,
 )
-from common.hex_utils import Hex, hex_distance, get_sphere_hexes, hex_linedraw
+from common.hex_utils import Hex, get_sphere_hexes, hex_linedraw
 from common.network_utils import send_message, broadcast
-import math
 def handle_chat(data, player, game_state):
     text = data.get("text", "").strip()
     if not text: return
@@ -333,8 +330,6 @@ def handle_chat(data, player, game_state):
     broadcast(game_state, make_chat_broadcast(player.name, text))
 
 def handle_whisper(data, player, game_state):
-    from common.network_utils import send_message, broadcast
-    from common.protocol import make_chat_broadcast, make_error_reply
     to_name = data.get("to")
     text = data.get("text")
     if not to_name or not text:

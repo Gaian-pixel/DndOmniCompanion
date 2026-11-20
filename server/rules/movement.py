@@ -1,6 +1,5 @@
 import os
 import json
-import base64
 import random
 from common.hex_utils import Hex, hex_linedraw, get_visible_hexes, grid_distance_3d
 from common.network_utils import send_message, broadcast

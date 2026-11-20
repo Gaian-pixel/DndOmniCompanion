@@ -11,11 +11,11 @@ from common.theme import (
     BORDER_COLOR, ACCENT_GOLD, ACCENT_RED, ACCENT_GREEN, ACCENT_BLUE,
     TEXT_COLOR, TEXT_MUTED
 )
-from common.i18n import _t, translate_weather
+from common.i18n import translate_weather
 from common.travel_data import (
     BIOMES, DANGER_LEVELS, TRAVEL_PACES,
-    get_biome_presets, get_danger_presets, generate_biome_encounter,
-    calculate_effective_sentinel_pp, resolve_night_camp_simulation
+    generate_biome_encounter,
+    calculate_effective_sentinel_pp
 )
 from common.dice import roll_dice
 from common.protocol import make_chat_broadcast, make_game_state
@@ -486,8 +486,7 @@ def open_travel_panel(dm_gui):
         from server.rules.character import handle_resolve_night_camp_request
         handle_resolve_night_camp_request({"consume_rations": True}, None, gs)
 
-        # Ricarica orario e statistiche
-        time_str_new = f"📅 {gs.time_day} {month_name} {getattr(gs, 'time_year', 1492)} - {gs.time_hour:02d}:00 | ⛅ {translate_weather(getattr(gs, 'weather', 'Sereno'))}"
+        # Ricarica statistiche
         lbl_march_stats.config(text=f"⏱️ Ore Viaggiate Oggi: {gs.travel_hours_today} / 8h  |  🗺️ Miglia Percorse: {gs.travel_miles_today} mi")
         refresh_march_roster()
         messagebox.showinfo("Notte Conclusa", "La notte e il Riposo Lungo sono stati elaborati! Consulta il log in chat.")

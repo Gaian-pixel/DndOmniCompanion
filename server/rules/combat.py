@@ -16,7 +16,7 @@ from common.protocol import (
     make_prompt_reaction,
     make_prompt_save,
 )
-from common.hex_utils import Hex, hex_distance, grid_distance, grid_distance_3d, get_sphere_hexes, hex_linedraw, get_cover_between
+from common.hex_utils import Hex, grid_distance, grid_distance_3d, hex_linedraw, get_cover_between
 from common.network_utils import send_message, broadcast
 from common.dice import roll_dice
 from common.i18n import is_condition_active
@@ -233,7 +233,6 @@ def drop_concentration(player, game_state, notify=True, reason=None):
                 elif p in game_state.players:
                     game_state.players.remove(p)
                 removed_summons.append(p.name)
-                from common.protocol import make_player_left
                 broadcast(game_state, make_player_left(p.name))
 
     if (had_conc or removed_aoes or removed_effects or removed_summons) and game_state:
@@ -323,7 +322,6 @@ def resolve_falling(entity, fall_distance_ft, game_state, is_voluntary=False, in
         elif is_voluntary:
             raw_dmg = raw_dmg // 2
 
-    mitigated = False
     mitigation_note = ""
 
     # 1. Controllo Caduta Morbida (Feather Fall)
@@ -336,7 +334,6 @@ def resolve_falling(entity, fall_distance_ft, game_state, is_voluntary=False, in
 
     if has_feather_fall:
         raw_dmg = 0
-        mitigated = True
         mitigation_note = " (Annullato da Caduta Morbida / Feather Fall)"
     else:
         # 2. Controllo Caduta Lenta del Monaco (Monk 4+ Slow Fall, multiclasse-aware)
@@ -345,7 +342,6 @@ def resolve_falling(entity, fall_distance_ft, game_state, is_voluntary=False, in
         if monk_lvl >= 4:
             reduction = monk_lvl * 5
             raw_dmg = max(0, raw_dmg - reduction)
-            mitigated = True
             mitigation_note = f" (Ridotto di {reduction} da Caduta Lenta del Monaco)"
 
     # TCE p. 170: Impatto su altra creatura (TS DES CD 15 per dividere i danni 50/50)
@@ -1252,16 +1248,13 @@ def advance_combat_turn(game_state, ending_player=None):
                 if hasattr(_cp, "_hit_this_turn_by") and isinstance(_cp._hit_this_turn_by, set):
                     _cp._hit_this_turn_by.clear()
             # Pulizia condizioni temporanee di fine turno
-            changed_temp = False
             for temp_c in ["Scatto", "Disimpegno", "Dash", "Disengage"]:
                 if temp_c in getattr(prev_p, "conditions", []):
                     prev_p.conditions.remove(temp_c)
-                    changed_temp = True
             if getattr(prev_p, "full_sheet", None) and isinstance(prev_p.full_sheet.get("conditions"), list):
                 for temp_c in ["Scatto", "Disimpegno", "Dash", "Disengage"]:
                     if temp_c in prev_p.full_sheet["conditions"]:
                         prev_p.full_sheet["conditions"].remove(temp_c)
-                        changed_temp = True
                         
             # Controlla effetti attivi con Save-Ends a fine turno
             if hasattr(prev_p, "active_effects") and prev_p.active_effects:
@@ -2717,7 +2710,6 @@ def handle_attack_request(data, player, game_state):
                         extra_crit_dice += 1
 
                     if extra_crit_dice > 0:
-                        import re
                         m_die = re.search(r'd(\d+)', str(damage_formula))
                         sides = m_die.group(1) if m_die else "8"
                         crit_bonus_formula = f"{extra_crit_dice}d{sides}"
@@ -3366,7 +3358,7 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
         log_msg += f"{crit_str} SUPERATO!"
         if str(source_name).startswith("Save-Ends:"):
             eff_name = str(source_name).replace("Save-Ends:", "").strip()
-            removed = target_player.remove_effect(eff_name)
+            target_player.remove_effect(eff_name)
             log_msg += f" ✨ {target_name} supera il TS e si libera dall'effetto '{eff_name}'!"
             broadcast(game_state, make_player_stats_update(
                 target_player.name, target_player.hp, target_player.max_hp, target_player.initiative,
@@ -3719,7 +3711,6 @@ def handle_help_request(data, player, game_state):
     if not is_ally_help and getattr(player, "position", None) and getattr(target_player, "position", None):
         cur_map = getattr(game_state, "current_map", {}) or {}
         grid_type = cur_map.get("grid_type", "hex")
-        from common.hex_utils import Hex, grid_distance
         dist_h = int(grid_distance(Hex(player.position[0], player.position[1]), Hex(target_player.position[0], target_player.position[1]), grid_type=grid_type))
         if dist_h > 1:
             if player and getattr(player, "conn", None):
@@ -3937,7 +3928,6 @@ def _validate_maneuver_preconditions(player, target_player, target_name, game_st
     q2, r2 = target_player.position[0], target_player.position[1]
     cur_map = getattr(game_state, "current_map", {}) or {}
     grid_type = cur_map.get("grid_type", "hex")
-    from common.hex_utils import Hex, grid_distance
     dist = int(grid_distance(Hex(q1, r1), Hex(q2, r2), grid_type=grid_type))
     if dist > 1:
         if getattr(player, "conn", None):
@@ -4903,7 +4893,6 @@ def handle_set_automation_mode_request(data, player, game_state):
     msg = f"🎮 Modalità di Gestione Campagna impostata su: '{mode_title}' dal DM."
     game_state.log_dm_message(f"[SISTEMA] {msg}")
     broadcast(game_state, make_chat_broadcast("Sistema", msg))
-    from common.protocol import make_automation_settings_broadcast
     broadcast(game_state, make_automation_settings_broadcast(mode, settings_snap))
     game_state._trigger_gui_update()
 
@@ -5007,7 +4996,6 @@ def handle_summon_companion_request(data, player, game_state):
                 game_state.remove_player(old_f)
             elif old_f in game_state.players:
                 game_state.players.remove(old_f)
-            from common.protocol import make_player_left
             broadcast(game_state, make_player_left(old_f.name))
             
     comp_player = Player.from_dict(comp_dict)
@@ -5015,7 +5003,6 @@ def handle_summon_companion_request(data, player, game_state):
     with game_state.lock:
         game_state.players.append(comp_player)
         
-    from common.protocol import make_player_joined
     broadcast(game_state, make_player_joined(comp_player.to_dict()))
     broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
     game_state._trigger_gui_update()
@@ -5070,7 +5057,6 @@ def handle_dismiss_familiar_request(data, player, game_state):
         msg = f"💀 {comp.name} è stato congedato definitivamente."
         broadcast(game_state, make_chat_broadcast("Sistema", msg))
         game_state.log_dm_message(f"[COMPAGNO] {msg}")
-        from common.protocol import make_player_left
         broadcast(game_state, make_player_left(comp.name))
         game_state._trigger_gui_update()
 

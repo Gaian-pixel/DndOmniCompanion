@@ -3,7 +3,7 @@ import tkinter as tk
 from common.messagebox import messagebox
 from tkinter import ttk
 import random
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 from .character_manager import Character
 from common.theme import (
@@ -16,16 +16,12 @@ from common.theme import (
     TEXT_COLOR,
     TEXT_MUTED,
     BORDER_COLOR,
-    FONT_TITLE,
-    FONT_HEADER,
     FONT_BOLD,
-    FONT_MAIN,
-    FONT_SMALL,
     FONT_BADGE
 )
 from common.i18n import _t, get_language, translate_ability, translate_skill, translate_race, translate_class, translate_alignment, translate_background, register_language_listener, unregister_language_listener
-from common.classes_data import CLASSES, get_class_info, get_class_names, CLASS_CATEGORIES, get_classes_by_category
-from common.races_data import RACES, get_race_info, get_race_names
+from common.classes_data import CLASSES, get_class_info, CLASS_CATEGORIES, get_classes_by_category
+from common.races_data import RACES, get_race_info
 from common.backgrounds_data import (
     BACKGROUNDS,
     PERSONAL_QUESTS,
