@@ -1,0 +1,12 @@
+{
+  "autonomous-stop-quality-gate": {
+    "enabled": true,
+    "Stop": [
+      {
+        "type": "command",
+        "command": "C:\\Users\\gaian\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe -X utf8 scripts/stop_quality_gate.py",
+        "timeout": 60
+      }
+    ]
+  }
+}
