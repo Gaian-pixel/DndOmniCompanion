@@ -309,11 +309,29 @@ def make_force_save_request(targets, stat, dc, damage_formula, half_on_success, 
         "half_on_success": half_on_success, "damage_type": damage_type
     }}
 
-def make_prompt_save(stat, dc, damage_formula, half_on_success, source_name, damage_type="Fuoco"):
-    return {"type": "PROMPT_SAVE", "data": {
-        "stat": stat, "dc": dc, "damage_formula": damage_formula,
-        "half_on_success": half_on_success, "source_name": source_name, "damage_type": damage_type
-    }}
+def make_prompt_save(
+    stat,
+    dc,
+    damage_formula,
+    half_on_success,
+    source_name,
+    damage_type="Fuoco",
+    has_advantage=False,
+    has_disadvantage=False,
+):
+    payload = {
+        "stat": stat,
+        "dc": dc,
+        "damage_formula": damage_formula,
+        "half_on_success": half_on_success,
+        "source_name": source_name,
+        "damage_type": damage_type,
+    }
+    if has_advantage:
+        payload["has_advantage"] = True
+    if has_disadvantage:
+        payload["has_disadvantage"] = True
+    return {"type": "PROMPT_SAVE", "data": payload}
 
 def make_save_result(stat, roll_total, is_crit, is_fail, dc, damage_formula, half_on_success, source_name, damage_type="Fuoco"):
     return {"type": "SAVE_RESULT", "data": {
@@ -415,11 +433,15 @@ def make_blind_roll_request(formula: str, reason: str = ""):
     return {"type": "BLIND_ROLL_REQUEST", "data": {"formula": formula, "reason": reason}}
 
 # --- Reazioni 5e & Risoluzione AoE ---
-def make_prompt_reaction(reaction_type: str, source_name: str, target_name: str, details: dict = None):
+def make_prompt_reaction(reaction_type: str, source_name: str, target_name="", details: dict = None):
+    if isinstance(target_name, dict) and details is None:
+        # Backward-compatibility: tolerate legacy 3-arg calls where `details` was passed positionally
+        details = target_name
+        target_name = ""
     return {"type": "PROMPT_REACTION", "data": {
         "reaction_type": reaction_type,
         "source_name": source_name,
-        "target_name": target_name,
+        "target_name": target_name or "",
         "details": details or {}
     }}
 

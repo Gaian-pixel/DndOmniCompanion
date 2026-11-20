@@ -40,12 +40,14 @@ class ShopDialog(tk.Toplevel):
         list_frame = ttk.Frame(main_frame)
         list_frame.pack(fill=tk.BOTH, expand=True)
         
-        columns = ("name", "price")
+        columns = ("name", "price", "stock")
         self.tree = ttk.Treeview(list_frame, columns=columns, show="headings")
         self.tree.heading("name", text="Oggetto")
         self.tree.heading("price", text="Prezzo (mo)")
-        self.tree.column("name", width=250)
-        self.tree.column("price", width=100, anchor=tk.CENTER)
+        self.tree.heading("stock", text="Disponibilità")
+        self.tree.column("name", width=220)
+        self.tree.column("price", width=95, anchor=tk.CENTER)
+        self.tree.column("stock", width=95, anchor=tk.CENTER)
         
         self.tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
@@ -95,13 +97,26 @@ class ShopDialog(tk.Toplevel):
                         p_val = int(_re.search(r"(\d+)", str(raw_p)).group(1)) if isinstance(raw_p, str) and _re.search(r"(\d+)", str(raw_p)) else int(raw_p)
                     except (ValueError, TypeError):
                         p_val = 10
-                    shop_items.append({"name": raw_it.get("name", "Oggetto"), "price": max(0, p_val)})
+                    shop_items.append({
+                        "name": raw_it.get("name", "Oggetto"),
+                        "price": max(0, p_val),
+                        **({"stock": raw_it["stock"]} if raw_it.get("stock") is not None else {}),
+                    })
                 else:
                     shop_items.append({"name": str(raw_it), "price": 10})
             if isinstance(shop, dict):
                 shop["items"] = shop_items
         for item in shop_items:
-            self.tree.insert("", tk.END, values=(item.get("name"), item.get("price", 0)))
+            raw_stk = item.get("stock")
+            if raw_stk is None:
+                stk_lbl = "Illimitato"
+            else:
+                try:
+                    stk_n = int(raw_stk)
+                    stk_lbl = "Esaurito (0)" if stk_n <= 0 else str(stk_n)
+                except (TypeError, ValueError):
+                    stk_lbl = str(raw_stk)
+            self.tree.insert("", tk.END, values=(item.get("name"), item.get("price", 0), stk_lbl))
 
     def add_shop(self):
         name = simpledialog.askstring("Nuovo Negozio", "Nome della bottega:", parent=self)
@@ -121,9 +136,18 @@ class ShopDialog(tk.Toplevel):
         if not name: return
         price = simpledialog.askinteger("Prezzo", f"Prezzo di {name} (in monete d'oro):", parent=self, minvalue=0)
         if price is None: return
-        
+        stock = simpledialog.askinteger(
+            "Disponibilità (opzionale)",
+            f"Quantità in magazzino per {name} (Annulla = scorta illimitata):",
+            parent=self,
+            minvalue=1,
+        )
+
         shops = self._get_shops()
-        shops[shop_name]["items"].append({"name": name, "price": price})
+        entry = {"name": name, "price": price}
+        if stock is not None:
+            entry["stock"] = int(stock)
+        shops[shop_name]["items"].append(entry)
         self._sync()
         self.on_shop_selected()
 
@@ -145,8 +169,13 @@ class ShopDialog(tk.Toplevel):
         if not shop_name: return
         sel = self.tree.selection()
         if not sel: return
-        item_name = self.tree.item(sel[0], "values")[0]
-        price = self.tree.item(sel[0], "values")[1]
+        vals = self.tree.item(sel[0], "values")
+        item_name = vals[0]
+        price = vals[1]
+        stock_str = vals[2] if len(vals) > 2 else "Illimitato"
+        if str(stock_str).startswith("Esaurito"):
+            messagebox.showwarning("Esaurito", f"'{item_name}' non è più disponibile in bottega.", parent=self)
+            return
         
         if messagebox.askyesno("Conferma Acquisto", f"Vuoi comprare '{item_name}' per {price} mo?", parent=self):
             if self.network:

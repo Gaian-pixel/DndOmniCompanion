@@ -6,7 +6,7 @@
 [![Ruleset: D&D 5e](https://img.shields.io/badge/ruleset-D%26D%205e-red.svg)](https://dnd.wizards.com/)
 [![UI: ttkbootstrap](https://img.shields.io/badge/ui-ttkbootstrap-orange.svg)](https://ttkbootstrap.readthedocs.io/)
 [![Multiplayer: TCP/UDP](https://img.shields.io/badge/networking-TCP%20%2B%20UDP-green.svg)]()
-[![Tests: Passing](https://img.shields.io/badge/tests-682%2F682%20superati-brightgreen.svg)]()
+[![Tests: Passing](https://img.shields.io/badge/tests-714%2F714%20superati-brightgreen.svg)]()
 [![Localization: IT / EN](https://img.shields.io/badge/i18n-Italiano%20%7C%20English-blueviolet.svg)]()
 [![Units: Imperial / Metric](https://img.shields.io/badge/units-ft%2Fmi%20%7C%20m%2Fkm-informational.svg)]()
 [![Version](https://img.shields.io/badge/release-v0.5.0--alpha-gold.svg)](https://github.com/Gaian-pixel/DndOmniCompanion/releases)
@@ -391,10 +391,11 @@ DndOmniCompanion/
 │   ├── USER_GUIDE.md               # Complete User Guide (English)
 │   ├── GUIDA_OPERATIVA.md          # Manuale operativo e architettura (Italiano)
 │   ├── OPERATIONAL_GUIDE.md        # System & Operational Manual (English)
-│   └── UX_AUDIT.md                 # Audit UX Phase 4.5, Phase 5 e Phase 5B, misure live Tkinter & log interventi
-├── tests/                          # Suite di test automatizzati (682 test passati)
+│   └── UX_AUDIT.md                 # Audit UX Phase 4.5, Phase 5, Phase 5B e Phase 5C, misure live Tkinter & log interventi
+├── tests/                          # Suite di test automatizzati (714 test passati)
 │   ├── test_gameplay_integration_e2e.py # Suite E2E Phase 3..5 integrità gameplay, UX, Workflows A-D e socket TCP reali
 │   ├── test_phase5b_scenarios_e2e.py # Suite E2E Phase 5B Scenari realistici di accettazione A-E (UI login/combattimento/riposi/FoW/riconnessione)
+│   ├── test_phase5c_vtt_e2e.py     # Suite E2E Phase 5C prompt reazioni, TS unificati, multiattacco, segretezza e stock negozi
 │   ├── test_phb_dmg_mm_complete.py # Test completi PHB/DMG/MM, talenti, tratti mostri e regole DMG opzionali
 │   ├── test_raw_5e_advanced_features.py # Test Smite, Wild Shape, Fonte di Magia, Recupero Arcano, Reliable Talent, Auto XP
 │   ├── simulate_4player_campaign.py# Simulazione live campagna 4 giocatori + DM (11 fasi)
@@ -414,17 +415,17 @@ DndOmniCompanion/
 
 ## 🧪 Test e Verifica Automatica
 
-Tutti i **682 test automatizzati** su **68 moduli `unittest`** passano al 100% con 0 errori:
+Tutti i **714 test automatizzati** su **71 moduli `unittest`** passano al 100% con 0 errori:
 
 ```powershell
-# 1. Unit Test completi (682 test: regole D&D 5e 2014 PHB/DMG/MM & XGtE/TCE, 30 opzioni DMG selezionabili, oggetti magici, dadi 3D, connessione, combattimento, UI/HUD, E2E TCP & Scenari A-E Phase 3.5-5B)
+# 1. Unit Test completi (714 test: regole D&D 5e 2014 PHB/DMG/MM & XGtE/TCE, 30 opzioni DMG selezionabili, oggetti magici, dadi 3D, connessione, combattimento, UI/HUD, E2E TCP & Scenari A-E Phase 3.5-5C)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 1a. Suite E2E Phase 3..5 Integrità Gameplay, Loopback TCP Multiplayer & Workflows A-D (21 test)
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_gameplay_integration_e2e.py
 
-# 1a2. Suite E2E Phase 5B Scenari Realistici di Accettazione A-E (5 test)
-$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_phase5b_scenarios_e2e.py
+# 1a2. Suite E2E Phase 5B Scenari Realistici A-E e Phase 5C VTT (18 test)
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_phase5b_scenarios_e2e.py tests/test_phase5c_vtt_e2e.py
 
 # 1b. Suite completa PHB/DMG/MM & XGtE/TCE e Regole Opzionali DMG Selezionabili
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_phb_dmg_mm_complete.py tests/test_full_5e_phb_dmg_mm.py

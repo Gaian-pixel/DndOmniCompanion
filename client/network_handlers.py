@@ -343,7 +343,7 @@ class ClientNetworkHandlersMixin:
         self.journal_dialog = PlayerJournalDialog(self.master, journal, character_name=char_name)
 
     def handle_opportunity_alert(self, data):
-        enemy_name = data.get("enemy_name", "Un nemico")
+        enemy_name = data.get("enemy_name") or data.get("target_name") or "Un nemico"
         self.show_toast(f"{enemy_name} si allontana da te!\nPuoi effettuare un Attacco d'Opportunità spendendo la tua Reazione.", title="⚠️ Attacco d'Opportunità!", duration=6000, toast_type="warning", icon="⚔️")
 
     def handle_custom_spell_response(self, data):

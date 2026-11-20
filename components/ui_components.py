@@ -2237,17 +2237,25 @@ class HexMapCanvas(tk.Canvas):
         # Disegna le aree d'effetto (AoE)
         if getattr(self, "aoes_data", None):
             for aoe in self.aoes_data:
-                origin = Hex(*aoe["origin"])
+                if not isinstance(aoe, dict):
+                    continue
+                raw_origin = aoe.get("origin") or aoe.get("center")
+                if not isinstance(raw_origin, (list, tuple)) or len(raw_origin) < 2:
+                    continue
+                origin = Hex(int(raw_origin[0]), int(raw_origin[1]))
                 color = aoe.get("color", "red")
                 aoe_type = aoe.get("type", "sfera")
+                aoe_size = aoe.get("size", aoe.get("radius_hex", 3))
+                raw_target = aoe.get("target") or raw_origin
+                target_hex = Hex(int(raw_target[0]), int(raw_target[1])) if isinstance(raw_target, (list, tuple)) and len(raw_target) >= 2 else origin
                 if aoe_type == "sfera":
-                    aoe_hexes = get_sphere_hexes(origin, aoe["size"], grid_type=grid_type)
+                    aoe_hexes = get_sphere_hexes(origin, aoe_size, grid_type=grid_type)
                 elif aoe_type == "cubo":
-                    aoe_hexes = get_cube_hexes(origin, aoe["size"], grid_type=grid_type)
+                    aoe_hexes = get_cube_hexes(origin, aoe_size, grid_type=grid_type)
                 elif aoe_type == "cono":
-                    aoe_hexes = get_cone_hexes(origin, Hex(*aoe.get("target", aoe["origin"])), aoe["size"], grid_type=grid_type)
+                    aoe_hexes = get_cone_hexes(origin, target_hex, aoe_size, grid_type=grid_type)
                 elif aoe_type == "linea":
-                    aoe_hexes = get_line_hexes(origin, Hex(*aoe.get("target", aoe["origin"])), aoe.get("size", 3), grid_type=grid_type)
+                    aoe_hexes = get_line_hexes(origin, target_hex, aoe_size, grid_type=grid_type)
                 else:
                     aoe_hexes = []
 
@@ -2413,7 +2421,7 @@ class HexMapCanvas(tk.Canvas):
                 aura_radius = pdata.get('aura_radius', 0)
                 aura_color = pdata.get('aura_color', 'yellow')
                 hp = pdata.get('hp', 0)
-                hp_max = pdata.get('hp_max', 0)
+                hp_max = pdata.get('hp_max', pdata.get('max_hp', 0))
             else:
                 pos = pdata or [0, 0]
                 conditions = []
@@ -2723,8 +2731,10 @@ class HexMapCanvas(tk.Canvas):
                     
                     pdata = self.players_data.get(name, {})
                     is_party = pdata.get('is_party_member', False) if isinstance(pdata, dict) else False
-                    hp = pdata.get('hp', 0) if isinstance(pdata, dict) else 0
-                    hp_max = pdata.get('hp_max', 1) if isinstance(pdata, dict) else 1
+                    raw_hp = pdata.get('hp', 0) if isinstance(pdata, dict) else 0
+                    raw_hp_max = pdata.get('hp_max', pdata.get('max_hp', 1)) if isinstance(pdata, dict) else 1
+                    hp = float(raw_hp) if isinstance(raw_hp, (int, float)) else 0.0
+                    hp_max = max(1.0, float(raw_hp_max) if isinstance(raw_hp_max, (int, float)) else 1.0)
                     
                     # Colori card
                     if is_current:
@@ -3622,8 +3632,9 @@ class CommandPaletteDialog(tk.Toplevel):
             rev_set = {(h[0], h[1]) for h in cur_map.get("fow_revealed", []) if isinstance(h, (list, tuple)) and len(h) >= 2}
             my_name = getattr(self.map_canvas, "player_name", None)
 
+            is_dm_view = bool(getattr(self, "is_dm", False) or getattr(self.map_canvas, "is_dm", False))
             for name, data in p_data.items():
-                if not getattr(self, "is_dm", False) and isinstance(data, dict):
+                if not is_dm_view and isinstance(data, dict):
                     if data.get("layer", "token") == "gm" or data.get("is_hidden", False) or data.get("in_pocket_dimension"):
                         continue
                     if fow_enabled and name != my_name and not data.get("is_party_member", False) and not data.get("is_companion", False):
@@ -3634,17 +3645,33 @@ class CommandPaletteDialog(tk.Toplevel):
                 conds = data.get("conditions", []) if isinstance(data, dict) else []
                 pos = data.get("position", [0, 0]) if isinstance(data, dict) else (data or [0, 0])
                 hp = data.get("hp", "?") if isinstance(data, dict) else "?"
-                hp_max = data.get("hp_max", "?") if isinstance(data, dict) else "?"
-                
+                hp_max = data.get("hp_max", data.get("max_hp", "?")) if isinstance(data, dict) else "?"
+
                 cond_str = ", ".join(conds) if conds else "Nessuna"
                 matches_token = (not q) or (q in name.lower()) or any(q in c.lower() for c in conds)
                 if matches_token:
+                    is_ally_or_self = bool(
+                        is_dm_view
+                        or name == my_name
+                        or (isinstance(data, dict) and (data.get("is_party_member") or data.get("is_companion")))
+                    )
+                    if is_ally_or_self:
+                        badge_txt = f"HP {hp}/{hp_max} • Hex [{pos[0]},{pos[1]}]"
+                        sum_txt = f"Nome: {name}\nSalute: {hp}/{hp_max}\nPosizione Hex: {pos}\nCondizioni: {cond_str}"
+                    else:
+                        if isinstance(hp, (int, float)) and isinstance(hp_max, (int, float)) and hp_max > 0:
+                            ratio = hp / hp_max
+                            status_lbl = "A Terra" if hp <= 0 else ("Sanguinante" if ratio <= 0.5 else ("Ferito" if ratio < 1.0 else "Incolume"))
+                        else:
+                            status_lbl = str(data.get("health_status", "Ostile")) if isinstance(data, dict) else "Ostile"
+                        badge_txt = f"Stato: {status_lbl}"
+                        sum_txt = f"Nome: {name}\nStato: {status_lbl}\nCondizioni: {cond_str}"
                     results.append({
                         "type": "TOKEN",
                         "icon": "📍",
                         "title": f"Token: {name}",
-                        "badge": f"HP {hp}/{hp_max} • Hex [{pos[0]},{pos[1]}]",
-                        "summary": f"Nome: {name}\nSalute: {hp}/{hp_max}\nPosizione Hex: {pos}\nCondizioni: {cond_str}",
+                        "badge": badge_txt,
+                        "summary": sum_txt,
                         "payload": name
                     })
 

@@ -202,11 +202,14 @@ class VitalsPanel:
         btn_roll_all = ttk.Button(btn_row, text=_t("sheet_short_rest_spend_all"), command=roll_all)
         btn_roll_all.pack(side=tk.LEFT, padx=(0, 6))
 
+        from common.dnd5e_tables import entity_get_class_level
         char_cls = str(getattr(sheet.character, "char_class", "")).lower()
-        if any(k in char_cls for k in ("mago", "wizard")) and not getattr(sheet.character, "arcane_recovery_used", False):
+        wiz_lvl = entity_get_class_level(sheet.character, "mago", "wizard")
+        is_wiz = (wiz_lvl > 0) or any(k in char_cls for k in ("mago", "wizard"))
+        if is_wiz and not getattr(sheet.character, "arcane_recovery_used", False):
             def do_arcane_rec():
                 import math
-                lvl = int(getattr(sheet.character, "level", 1) or 1)
+                lvl = wiz_lvl if wiz_lvl > 0 else int(getattr(sheet.character, "level", 1) or 1)
                 max_rec = math.ceil(lvl / 2)
                 rec_dict = {}
                 remaining = max_rec
@@ -223,6 +226,18 @@ class VitalsPanel:
                 if rec_dict:
                     ok, msg = sheet.character.arcane_recovery(rec_dict)
                     if ok:
+                        if sheet.manager:
+                            sheet.manager.update_character(sheet.character)
+                        if hasattr(sheet, "load_data"):
+                            try:
+                                sheet.load_data()
+                            except Exception:
+                                pass
+                        if hasattr(sheet, "on_save_callback") and sheet.on_save_callback:
+                            try:
+                                sheet.on_save_callback(sheet.character)
+                            except Exception:
+                                pass
                         log_msg(f"✨ {msg}")
                         btn_arcane.config(state=tk.DISABLED)
                 else:

@@ -445,6 +445,41 @@ def _start_concentration(actor: Any, spell_name: str, game_state: Any = None) ->
     _sync_player(actor)
 
 
+def _roll_spell_effect_save(
+    target: Any,
+    stat: str,
+    dc: int,
+    game_state: Any,
+    caster: Any = None,
+    source_name: str = "",
+    damage_type: str = "",
+    has_disadvantage: bool = False,
+) -> Tuple[bool, int]:
+    """Esegue un Tiro Salvezza per effetti incantesimo sfruttando resolve_saving_throw del server quando disponibile."""
+    if game_state is not None:
+        try:
+            from server.rules.combat import resolve_saving_throw
+            res = resolve_saving_throw(
+                target,
+                stat,
+                dc,
+                game_state=game_state,
+                is_magic=True,
+                source_name=source_name,
+                damage_type=damage_type,
+                has_disadvantage=has_disadvantage,
+                caster=caster,
+            )
+            return bool(res.get("success", False)), int(res.get("total", 0) or 0)
+        except Exception:
+            pass
+    from common.item_modifiers import get_effective_save_bonus_from_dict
+    mod = get_effective_save_bonus_from_dict(target, stat)
+    dis_tok = " dis" if has_disadvantage else ""
+    sr = int(roll_dice(f"1d20{'+' if mod >= 0 else ''}{mod}{dis_tok}")["total"])
+    return (sr >= int(dc or 10)), sr
+
+
 def cast_iconic_spell(
     actor: Any,
     target: Any,
@@ -583,17 +618,13 @@ def cast_iconic_spell(
         actor.reaction_used_this_turn = True
         dice_cnt = lvl + 1
         dmg_r = roll_dice(f"{dice_cnt}d10")
-        from common.item_modifiers import get_effective_save_bonus_from_dict
-        dex_m = get_effective_save_bonus_from_dict(tgt, "DES")
-        r1 = roll_dice(f"1d20{'+' if dex_m >= 0 else ''}{dex_m}")["total"]
-        r2 = roll_dice(f"1d20{'+' if dex_m >= 0 else ''}{dex_m}")["total"] if heightened else r1
-        sr = min(r1, r2) if heightened else r1
-        raw = dmg_r["total"] // 2 if sr >= dc else dmg_r["total"]
+        saved, sr = _roll_spell_effect_save(tgt, "DES", dc, game_state, caster=actor, source_name="Intimorire Infernale", damage_type="Fuoco", has_disadvantage=heightened)
+        raw = dmg_r["total"] // 2 if saved else dmg_r["total"]
         fd = raw
         if game_state is not None:
             from server.rules.combat import apply_damage
             fd, _, _, _ = apply_damage(tgt, raw, damage_type="Fuoco", game_state=game_state, is_spell=True)
-        return f"🔥 [INTIMORIRE INFERNALE Lv.{lvl} - CD {dc} DES] {tgt.name} tira {sr} ({'1/2' if sr >= dc else 'pieno'}): subisce {fd} danni da Fuoco!"
+        return f"🔥 [INTIMORIRE INFERNALE Lv.{lvl} - CD {dc} DES] {tgt.name} tira {sr} ({'1/2' if saved else 'pieno'}): subisce {fd} danni da Fuoco!"
 
     if key == "silvery_barbs":
         actor.reaction_used_this_turn = True
@@ -622,12 +653,8 @@ def cast_iconic_spell(
 
     if key == "hold_person":
         actor.concentrating_on = "Blocca Persone"
-        from common.item_modifiers import get_effective_save_bonus_from_dict
-        wis_m = get_effective_save_bonus_from_dict(tgt, "SAG")
-        r1 = roll_dice(f"1d20{'+' if wis_m >= 0 else ''}{wis_m}")["total"]
-        r2 = roll_dice(f"1d20{'+' if wis_m >= 0 else ''}{wis_m}")["total"] if heightened else r1
-        sr = min(r1, r2) if heightened else r1
-        if sr >= dc:
+        saved, sr = _roll_spell_effect_save(tgt, "SAG", dc, game_state, caster=actor, source_name="Blocca Persone", has_disadvantage=heightened)
+        if saved:
             return f"⚡ [BLOCCA PERSONE - CD {dc} SAG] {tgt.name} resiste con TS {sr}!"
         conds = getattr(tgt, "conditions", None)
         if isinstance(conds, list) and "Paralizzato" not in conds:
@@ -645,12 +672,10 @@ def cast_iconic_spell(
         if game_state is not None:
             from server.rules.combat import apply_damage
             fd, _, _, _ = apply_damage(tgt, fd, damage_type="Fuoco", game_state=game_state, is_spell=True)
-        from common.item_modifiers import get_effective_save_bonus_from_dict
-        con_m = get_effective_save_bonus_from_dict(tgt, "COS")
-        sr = roll_dice(f"1d20{'+' if con_m >= 0 else ''}{con_m}")["total"]
+        saved, sr = _roll_spell_effect_save(tgt, "COS", dc, game_state, caster=actor, source_name="Riscaldare il Metallo", damage_type="Fuoco", has_disadvantage=heightened)
         if hasattr(tgt, "add_effect"):
             tgt.add_effect({"id": "heat_metal", "name": f"Metallo Incandescente ({dice_cnt}d8 Fuoco/turno)", "duration_rounds": 10 * dur_mult, "dot_damage": f"{dice_cnt}d8", "dot_type": "Fuoco", "source": actor.name})
-        drop_txt = "lascia cadere l'oggetto o subisce Svantaggio ai TpC/prove!" if sr < dc else "mantiene la presa nonostante il dolore."
+        drop_txt = "lascia cadere l'oggetto o subisce Svantaggio ai TpC/prove!" if not saved else "mantiene la presa nonostante il dolore."
         return f"🔥 [RISCALDARE IL METALLO Lv.{lvl}] {tgt.name} subisce {fd} danni da Fuoco e (TS COS {sr} vs CD {dc}) {drop_txt}"
 
     if key in ("web", "spike_growth", "hunger_of_hadar", "wall_of_fire"):
@@ -663,12 +688,26 @@ def cast_iconic_spell(
         }[key]
         if game_state is not None and isinstance(getattr(game_state, "active_aoes", None), list):
             pos = getattr(tgt, "position", None) or getattr(actor, "position", (0, 0))
+            pos_xy = [int(pos[0]), int(pos[1])] if isinstance(pos, (list, tuple)) and len(pos) >= 2 else [0, 0]
+            rad_hex = 4 if key != "wall_of_fire" else 5
+            aoe_colors = {
+                "web": "#CBD5E1",
+                "spike_growth": "#16A34A",
+                "hunger_of_hadar": "#312E81",
+                "wall_of_fire": "#EA580C",
+            }
             game_state.active_aoes.append({
+                "id": f"spell_{key}_{actor.name}",
                 "name": spell_name,
                 "spell_key": key,
                 "caster": actor.name,
-                "center": list(pos),
-                "radius_hex": 4 if key != "wall_of_fire" else 5,
+                "type": "linea" if key == "wall_of_fire" else "sfera",
+                "origin": pos_xy,
+                "size": rad_hex,
+                "center": list(pos_xy),
+                "radius_hex": rad_hex,
+                "color": aoe_colors.get(key, "#9333EA"),
+                "concentration": True,
                 "dc": dc,
                 "cast_level": lvl,
                 "rounds": 10 * dur_mult,
@@ -676,18 +715,14 @@ def cast_iconic_spell(
         if key == "wall_of_fire" and tgt is not actor and game_state is not None:
             dice_cnt = 5 + max(0, lvl - 4)
             d_r = roll_dice(f"{dice_cnt}d8")
-            from common.item_modifiers import get_effective_save_bonus_from_dict
-            dex_m = get_effective_save_bonus_from_dict(tgt, "DES")
-            sr = roll_dice(f"1d20{'+' if dex_m >= 0 else ''}{dex_m}")["total"]
-            raw = d_r["total"] // 2 if sr >= dc else d_r["total"]
+            saved, sr = _roll_spell_effect_save(tgt, "DES", dc, game_state, caster=actor, source_name="Muro di Fuoco", damage_type="Fuoco", has_disadvantage=heightened)
+            raw = d_r["total"] // 2 if saved else d_r["total"]
             from server.rules.combat import apply_damage
             fd, _, _, _ = apply_damage(tgt, raw, damage_type="Fuoco", game_state=game_state, is_spell=True)
             return f"{aoe_label} -> {tgt.name} TS DES {sr}: subisce {fd} danni da Fuoco!"
         if key == "web" and tgt is not actor:
-            from common.item_modifiers import get_effective_save_bonus_from_dict
-            dex_m = get_effective_save_bonus_from_dict(tgt, "DES")
-            sr = roll_dice(f"1d20{'+' if dex_m >= 0 else ''}{dex_m}")["total"]
-            if sr < dc:
+            saved, sr = _roll_spell_effect_save(tgt, "DES", dc, game_state, caster=actor, source_name="Ragnatela", has_disadvantage=heightened)
+            if not saved:
                 conds = getattr(tgt, "conditions", None)
                 if isinstance(conds, list) and "Trattenuto" not in conds:
                     conds.append("Trattenuto")
@@ -798,7 +833,6 @@ def tick_active_spell_aoes_for_entity(entity: Any, timing: str, game_state: Any)
     pos = getattr(entity, "position", None)
     gtype = (getattr(game_state, "current_map", {}) or {}).get("grid_type", "hex")
     from common.hex_utils import Hex, grid_distance
-    from common.item_modifiers import get_effective_save_bonus_from_dict
     from server.rules.combat import apply_damage
 
     # Heat Metal DoT at start of target turn
@@ -816,9 +850,10 @@ def tick_active_spell_aoes_for_entity(entity: Any, timing: str, game_state: Any)
         skey = aoe.get("spell_key")
         if not skey:
             continue
-        ctr = aoe.get("center") or (0, 0)
-        rad = float(aoe.get("radius_hex", 4) or 4)
+        ctr = aoe.get("center") or aoe.get("origin") or (0, 0)
+        rad = float(aoe.get("radius_hex", aoe.get("size", 4)) or 4)
         dc = int(aoe.get("dc", 13) or 13)
+        caster_obj = game_state.find_player(aoe.get("caster")) if (game_state and hasattr(game_state, "find_player") and aoe.get("caster")) else None
         if grid_distance(Hex(pos[0], pos[1]), Hex(ctr[0], ctr[1]), grid_type=gtype) > rad:
             continue
 
@@ -826,25 +861,22 @@ def tick_active_spell_aoes_for_entity(entity: Any, timing: str, game_state: Any)
             fd, _, _, _ = apply_damage(entity, roll_dice("2d6")["total"], damage_type="Freddo", game_state=game_state, is_spell=True)
             msgs.append(f"🌑 [FAME DI HADAR] {entity.name} inizia il turno nel vuoto gelido: {fd} danni da Freddo!")
         elif skey == "hunger_of_hadar" and timing == "end_of_turn":
-            dex_m = get_effective_save_bonus_from_dict(entity, "DES")
-            sr = roll_dice(f"1d20{'+' if dex_m >= 0 else ''}{dex_m}")["total"]
-            if sr < dc:
+            saved, sr = _roll_spell_effect_save(entity, "DES", dc, game_state, caster=caster_obj, source_name="Fame di Hadar", damage_type="Acido")
+            if not saved:
                 fd, _, _, _ = apply_damage(entity, roll_dice("2d6")["total"], damage_type="Acido", game_state=game_state, is_spell=True)
                 msgs.append(f"🌑 [FAME DI HADAR - CD {dc} DES] {entity.name} (TS {sr}) subisce {fd} danni da Acido a fine turno!")
         elif skey == "web" and timing == "start_of_turn":
             if "Trattenuto" not in getattr(entity, "conditions", []):
-                dex_m = get_effective_save_bonus_from_dict(entity, "DES")
-                sr = roll_dice(f"1d20{'+' if dex_m >= 0 else ''}{dex_m}")["total"]
-                if sr < dc:
+                saved, sr = _roll_spell_effect_save(entity, "DES", dc, game_state, caster=caster_obj, source_name="Ragnatela")
+                if not saved:
                     entity.conditions.append("Trattenuto")
                     msgs.append(f"🕸️ [RAGNATELA - CD {dc} DES] {entity.name} (TS {sr}) rimane TRATTENUTO!")
         elif skey == "wall_of_fire" and timing == "end_of_turn":
             lvl = int(aoe.get("cast_level", 4) or 4)
             dice_cnt = 5 + max(0, lvl - 4)
             d_tot = roll_dice(f"{dice_cnt}d8")["total"]
-            dex_m = get_effective_save_bonus_from_dict(entity, "DES")
-            sr = roll_dice(f"1d20{'+' if dex_m >= 0 else ''}{dex_m}")["total"]
-            raw = d_tot // 2 if sr >= dc else d_tot
+            saved, sr = _roll_spell_effect_save(entity, "DES", dc, game_state, caster=caster_obj, source_name="Muro di Fuoco", damage_type="Fuoco")
+            raw = d_tot // 2 if saved else d_tot
             fd, _, _, _ = apply_damage(entity, raw, damage_type="Fuoco", game_state=game_state, is_spell=True)
             msgs.append(f"🔥 [MURO DI FUOCO - CD {dc} DES] {entity.name} (TS {sr}): {fd} danni da Fuoco a fine turno!")
     return msgs

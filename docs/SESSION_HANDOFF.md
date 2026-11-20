@@ -1,8 +1,8 @@
 # D&D OmniCompanion — Autonomous Development Session Handoff
 
 > **Branch:** `dev/v0.6.0-autonomous` (`main` untouched at `3b28c99`, no remote pushes or tags)  
-> **Latest Phase:** Phase 5B Core VTT Completion, Advanced Gameplay & Product Validation (`TASK-032` through `TASK-037`)  
-> **Status:** All roadmap items (`TASK-001` through `TASK-037`) are **COMPLETED**, verified, and committed locally on `dev/v0.6.0-autonomous`.
+> **Latest Phase:** Phase 5C Functional Completion & Advanced VTT Validation (`TASK-038` through `TASK-042`)  
+> **Status:** All roadmap items (`TASK-001` through `TASK-042`) are **COMPLETED**, verified, and committed locally on `dev/v0.6.0-autonomous`.
 
 ---
 
@@ -155,9 +155,25 @@
    - Added accessible disabled button colors (`#1A1D24`/`#9CA3AF`, etc.) via `_map_btn` in `common/theme.py` and symmetric IT/EN `_t(...)` keys (`dice_banner_*`) for all 6 3D dice banner strings in `components/dice_3d_canvas.py`.
    - Added `TestTask036UxSecurityAndManualsTests` in `tests/test_audit_fixes.py` covering `journal.py`/`character.py` DM privilege rejection, `audio_library.py`/URL/chunk security bounds, and `ManualsDialog` PDF/manuals folder actions (`46/46 OK` targeted run).
 
-38. **Current Commit (`TASK-037` — Phase 5B): Realistic Gameplay Acceptance Scenarios A–E, Legacy Teleport Compatibility, Live Multi-Res UI Audit & Final Sync**
+38. **`ab3bbfc` — `TASK-037` (Phase 5B): Realistic Gameplay Acceptance Scenarios A–E, Legacy Teleport Compatibility, Live Multi-Res UI Audit & Final Sync**
    - Added `tests/test_phase5b_scenarios_e2e.py` (`TestPhase5BRealisticScenariosE2E`, `5/5 OK` in `2.683s`) proving end-to-end Scenarios A–E across tactical combat/3D AoE/ammo/boss LR, dungeon exploration/MapEditor/FoW/Player Display, multiclass Lv 1–5 progression/prereqs/Half-Feats/mixed rests, hybrid tabletop mode/writeback, and real loopback TCP auth/cache/stalled-socket isolation/reconnect clamping.
    - Fixed legacy list-format `teleports` migration in `MapEditorWindow.load_map_file()` (`server/map_editor.py`) caught by full-suite validation (`tests/test_audit_v17_phase1.py`), verified all post-edit checks (`682/682 OK` across `68` modules in `77.296s`, `179` compiled files, `pyflakes CRIT=0`, live multi-res Tk probe `errors=0`), and synchronized all EN/IT documentation.
+
+39. **`736420e` — `TASK-038` (Phase 5C): LoginDialog Locked Clipping Fix, Responsive Wrapping, DPI/Small-Screen Fitting & Bilingual Hint**
+   - Packed bottom CTAs (`btn_change_char`, `btn_local`, `pin_toggle_btn`, `bottom_box`) before expanding/card widgets in `client/login_ui.py` so locked mode never clips `"Cambia Eroe..."` to `1x1`; added `<Configure>` dynamic `wraplength` (`_update_wraplengths`), `_fit_geometry()` screen-bounds clamping, and bilingual `login_port_hint` (`common/i18n.py`, `tests/test_join_game.py`).
+
+40. **`99c8c5c` — `TASK-039` (Phase 5C): Battlemap Runtime Sync, MapEditor Stale Metadata, Movement/Square-Corner/Teleport & FoW Secrecy Hardening**
+   - Wired DM map-manager switch/create/delete broadcasts and `_sync_player_display_window()`, pruned out-of-bounds map entities on resize, cleared stale `bg_image_data`/`bg_image_hash` and deleted `spawn_point` in `MapEditorWindow`, redacted `FOW_UPDATE_BROADCAST` secrets via `sanitize_player_for_players`, emitted `PLAYER_LEFT`/`PLAYER_JOINED` on FoW transitions, prevented NPC FoW reveals, hid hostile HP/AC/dice in non-DM hover tooltips, and enforced square diagonal corner blocking, `is_teleport` hazard bypass, loot proximity/LoS, and AoE LoS/cover bonuses.
+
+41. **`ca95909` — `TASK-040` (Phase 5C): Client/Server State Sync, Progression Writeback, Monster Authority & Level-Up HP Integrity**
+   - Unified `selected_target_name`/`current_target_name` on `HexMapCanvas`, deep-copied character pools/currency/grid/portent in `ClientGUI.handle_game_state` and `sync_local_party_characters_to_manager`, serialized `death_saves` & `is_npc`, isolated monster tokens from party rests, routed DM `open_action_dialog` damage/heal through `apply_damage`/`_apply_hp_change`, and fixed online level-up `+1` HP inflation and server inspiration clamping (`tests/test_task040_state_sync_and_authority.py`).
+
+42. **`609c639` — `TASK-041` (Phase 5C): Persistence Resilience, Asset Resync, Sheet/PDF/Spell Fixes & Rest/Trade Authority**
+   - Added transparent `.bak` recovery in `load_json()`, campaign-switch state reset, 120s `DM_GUI` periodic autosave, `REQUEST_ASSET_RESYNC` cache-miss recovery, `toggle_features_view_mode` `.grid_remove()`/`.grid()`, `SpellsPanel` `"arcano"` INT/prep-cap/Metamagic slot rollback, Artefice/multiclass PDF export fixes, explicit trade `_from_slot` + recipient AC recalc, and server-validated `handle_short_rest_request` HD/HP caps (`tests/test_task041_resilience_sheets_rest.py`).
+
+43. **Current Commit (`TASK-042` — Phase 5C): D&D 5e (2014) Reaction & Save Engine Completeness, Multiattack/Subclass Parity, Canvas Secrecy/AoE Tolerance, Shop Stock & Phase 5C Final Verification**
+   - Fixed 4-arg `make_prompt_reaction` payloads across `reaction_magic.py` and `combat.py`, added `OPPORTUNITY_ATTACK` (`_extract_oa_weapon_details`) and `ABSORB_ELEMENTS`/`HELLISH_REBUKE` attack & elemental-save reaction triggers, canonical IT/EN elemental resistance matching, client `COUNTERSPELL` slot `Combobox` + dynamic button label, `ABSORB_ELEMENTS`/`HELLISH_REBUKE`/`SILVERY_BARBS` dialogs, and War Caster Advantage in `_trigger_concentration_check` & `handle_prompt_save`.
+   - Extracted `_evaluate_save_bonuses_and_flags` and `resolve_saving_throw` (wired into `spell_effects_engine.py` and Stunning Strike), fixed Mage Slayer concentration drop, Stunning Strike `"source_end_of_turn"` Monk-turn expiry, Italian Conjuration vs Evocation in Sculpt Spells, Monster Multiattack `compute_combat_spell_modifiers`/reaction parity, Subclass Rage/Bonus Action flags, Wild Shape & multiclass Wizard Arcane Recovery server sync, `auto_explore_fow` `O(K+N)` set deduplication, `HexMapCanvas` AoE `center`/`origin` & `max_hp` guards, non-DM `CommandPaletteDialog` enemy secrecy, container loot safety, and finite shop `stock` (`tests/test_phase5c_vtt_e2e.py`, `13/13 OK`).
 
 ---
 
@@ -165,18 +181,18 @@
 
 | Check | Command / Scope | Observed Result |
 |---|---|---|
-| **Full Headless Unit Test Suite** | `$env:DND_MOCK_AUDIO="1";` with isolated temp `TEMP`/`TMP`/`APPDATA`/`LOCALAPPDATA` & `DND_SETTINGS_PATH`/`DND_CHARACTERS_PATH`, `python -m unittest discover -s tests -q` | **PASSED**: `Ran 682 tests in 77.296s — OK` (`0` failures, `0` errors, `0` skipped across `68` `unittest` modules, including `TestPhase5BRealisticScenariosE2E` Scenarios A–E, `TestPhase5EndToEndWorkflows`, `TestTask036UxSecurityAndManualsTests`, and real loopback TCP E2E tests) |
-| **Static Bytecode Compile** | `py_compile.compile(...)` across `common`, `server`, `client`, `components`, `tests`, `main.py`, `build_release.py` | **PASSED**: `PY_COMPILE_OK count=179` |
-| **Static Analysis (`pyflakes` Critical Check)** | CI check (`undefined name` / star-import / syntax error across `common`, `server`, `client`, `components`, `main.py`) | **PASSED**: `PYFLAKES_LINES=357 PYFLAKES_CRIT=0` (`0` undefined names, `0` star imports) |
-| **Live Isolated Tkinter Probe** | `main.start_app()`, `LoginDialog` (`lock=True`/`False`), `DM_GUI` (`1024x720`, `1280x800`, `1366x768`), `ClientGUI` (`1024x720`, `1366x768`, `1920x1080`), `CharacterSheetFrame` (`1024x720`, `1366x768`, `1920x1080`), `MapEditorWindow` (`1280x800`) | **PASSED**: `LIVE_TK_PROBE_PASS=True errors=0` (`CharacterSheetFrame`: `1024x720` `nb_w=633` `medium`, `1366x768` `nb_w=576` `wide4`, `1920x1080` `nb_w=1090` `wide4`; `DM_GUI` `nb_w=587`; `ClientGUI` `right_panel_w=370`) |
+| **Full Isolated Unit Test Suite** | `$env:DND_MOCK_AUDIO="1";` with isolated temp `DND_SETTINGS_PATH`/`DND_CHARACTERS_PATH`, sequential per-module `-u -X utf8 -m unittest` across all `71` `unittest` modules | **PASSED**: `SUITE_SUMMARY MODULES=71 TESTS=714 FAILURES=0 TIME=148.59s` (`0` failures, `0` errors across `71` `unittest` modules, including `tests.test_phase5c_vtt_e2e`, `tests.test_task041_resilience_sheets_rest`, `tests.test_task040_state_sync_and_authority`, `tests.test_phase5b_scenarios_e2e`, and `tests.test_gameplay_integration_e2e`) |
+| **Static Bytecode Compile** | `python -X utf8 -m py_compile` across all `182` repository `.py` files | **PASSED**: `PY_COMPILE_OK 182` |
+| **Static Analysis (`pyflakes` Critical Check)** | CI check (`undefined name` / star-import / syntax error across `common`, `server`, `client`, `components`, `main.py`, `tests/test_phase5c_vtt_e2e.py`) | **PASSED**: `PYFLAKES_LINES=353 PYFLAKES_CRIT=0` (`0` undefined names, `0` star imports, `0` syntax errors) |
+| **Live Isolated Tkinter Probe** | `HexMapCanvas` (with `center`/`radius_hex` AoE & `max_hp` tokens), `CharacterSheetFrame`, `CommandPaletteDialog` (non-DM secrecy check), `ShopDialog` (finite `stock`) across `1024x720`, `1280x800`, `1366x768`, `1920x1080` | **PASSED**: `PROBE_OK` across all 4 resolutions (`1024x720`, `1280x800`, `1366x768`, `1920x1080`) |
 | **Tracked Data Isolation** | `git status --short client_data campaigns manuals` after test runs | **CLEAN**: empty diff (no mutation of tracked files in `client_data/`, `campaigns/`, or `manuals/`) |
-| **Roadmapped Tasks** | `docs/DEVELOPMENT_ROADMAP.md` (`TASK-001`..`TASK-037`) | **37 / 37 `COMPLETED`** |
+| **Roadmapped Tasks** | `docs/DEVELOPMENT_ROADMAP.md` (`TASK-001`..`TASK-042`) | **42 / 42 `COMPLETED`** |
 
 ---
 
 ## 3. Repository Conventions & Maintainer Notes
 
-- **Isolated Test Runs**: Always set `$env:DND_MOCK_AUDIO="1"` and temporary `DND_SETTINGS_PATH` / `DND_CHARACTERS_PATH` paths when running `unittest discover tests` (or verify `git diff --stat client_data/` afterwards).
+- **Isolated Test Runs**: Always set `$env:DND_MOCK_AUDIO="1"` and temporary `DND_SETTINGS_PATH` / `DND_CHARACTERS_PATH` paths when running test suites (or verify `git diff --stat client_data/` afterwards).
 - **Standalone Runners (Not in `unittest discover`)**: `tests/test_ui_smoke.py` and `tests/test_e2e_gui.py` are standalone Tkinter smoke/E2E scripts requiring a GUI display and explicit script invocation.
 - **Test Mock Compatibility**: Existing tests patch attributes directly on `client.client` (`ClientNetwork`, `AudioManager`, `VoiceClient`, `LoginDialog`, `time.monotonic`) and `server.dm_gui` (`Server`, `AudioManager`, `VoiceClient`), and use `MagicMock(spec=ClientGUI)` / `MagicMock(spec=DM_GUI)`. Keep these module attributes and mixin inheritance intact in future refactors.
 - **Documentation & Localization Parity**: Maintain symmetry between Italian (`common/i18n.py` `"it"`, `README_IT.md`, `docs/GUIDA_OPERATIVA.md`, `docs/GUIDA_ALL_UTILIZZO.md`) and English (`common/i18n.py` `"en"`, `README.md`, `docs/OPERATIONAL_GUIDE.md`, `docs/USER_GUIDE.md`).
@@ -185,7 +201,7 @@
 
 ## 4. Next Steps (For Future Sessions)
 
-All roadmap items through Phase 5B (`TASK-001`–`TASK-037`) are complete on `dev/v0.6.0-autonomous`:
+All roadmap items through Phase 5C (`TASK-001`–`TASK-042`) are complete on `dev/v0.6.0-autonomous`:
 1. Review diffs across `main..dev/v0.6.0-autonomous` and run interactive standalone GUI checks (`tests/test_ui_smoke.py`, `tests/test_e2e_gui.py`) if desired in a desktop session.
 2. Merge `dev/v0.6.0-autonomous` into `main` and publish any release/tag **only** upon explicit human authorization.
 3. Optional next architecture wave: incrementally modularize `ClientGUI.setup_gui` (`client/client.py`) and `DM_GUI` initialization/context menus (`server/dm_gui.py`) into focused mixin/builder modules without altering public mock targets.

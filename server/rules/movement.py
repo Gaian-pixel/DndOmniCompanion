@@ -69,17 +69,96 @@ def auto_explore_fow(player, game_state):
     changed = False
     fow_rev = cur_map.setdefault("fow_revealed", [])
     fow_draft = cur_map.setdefault("fow_draft", [])
-    
+    rev_set = {
+        (int(item[0]), int(item[1]))
+        for item in fow_rev
+        if isinstance(item, (list, tuple)) and len(item) >= 2
+    }
+    draft_set = {
+        (int(item[0]), int(item[1]))
+        for item in fow_draft
+        if isinstance(item, (list, tuple)) and len(item) >= 2
+    }
+
     for rh in visible_hexes:
-        pos_entry = [rh.q, rh.r]
-        if pos_entry not in fow_rev:
+        key = (int(rh.q), int(rh.r))
+        pos_entry = [key[0], key[1]]
+        if key not in rev_set:
+            rev_set.add(key)
             fow_rev.append(pos_entry)
             changed = True
-        if pos_entry not in fow_draft:
+        if key not in draft_set:
+            draft_set.add(key)
             fow_draft.append(pos_entry)
             changed = True
-            
+
     return changed
+
+
+def _extract_oa_weapon_details(reactor) -> dict:
+    """Estrae i parametri dell'arma da mischia principale per un Attacco d'Opportunità 5e."""
+    sheet = getattr(reactor, "full_sheet", None)
+    s_dict = sheet if isinstance(sheet, dict) else {}
+    str_val = get_effective_attribute_from_dict(s_dict or reactor, "FOR")
+    dex_val = get_effective_attribute_from_dict(s_dict or reactor, "DES")
+    str_mod = (int(str_val) - 10) // 2
+    dex_mod = (int(dex_val) - 10) // 2
+    from common.dnd5e_tables import entity_get_total_level
+    tot_lvl = max(1, int(entity_get_total_level(reactor) or 1))
+    pb = int(s_dict.get("proficiency_bonus") or (((tot_lvl - 1) // 4) + 2))
+
+    for w in (s_dict.get("weapons") or []):
+        if not isinstance(w, dict):
+            continue
+        props = f"{w.get('properties', '')} {w.get('type', '')} {w.get('desc', '')}".lower()
+        name_l = str(w.get("name", "")).lower()
+        is_ranged_only = (
+            any(k in props for k in ("distanza", "ranged", "munizioni", "ammunition"))
+            or any(rn in name_l for rn in ("arco", "bow", "balestra", "crossbow", "fionda", "sling", "cerbottana", "blowgun"))
+        ) and not ("lancio" in props or "thrown" in props)
+        if is_ranged_only:
+            continue
+        is_finesse = "accurat" in props or "finesse" in props or any(
+            fn in name_l for fn in ("stocco", "rapier", "pugnale", "dagger", "scimitarra", "scimitar", "spada corta", "shortsword")
+        )
+        stat_mod = max(str_mod, dex_mod) if is_finesse else str_mod
+        w_bonus = int(w.get("bonus", w.get("magic_bonus", 0)) or 0)
+        hit_b = stat_mod + pb + w_bonus
+        dmg_dice = str(w.get("damage_dice", w.get("damage", "1d8")) or "1d8").strip()
+        dmg_mod = stat_mod + w_bonus
+        if "+" not in dmg_dice and "-" not in dmg_dice and dmg_mod != 0:
+            dmg_formula = f"{dmg_dice}+{dmg_mod}" if dmg_mod > 0 else f"{dmg_dice}{dmg_mod}"
+        else:
+            dmg_formula = dmg_dice
+        return {
+            "weapon_name": w.get("name", "Attacco d'Opportunità"),
+            "hit_bonus": hit_b,
+            "damage_formula": dmg_formula,
+            "damage_type": w.get("damage_type", "Tagliente"),
+        }
+
+    for act in (s_dict.get("actions") or s_dict.get("attacks") or []):
+        if not isinstance(act, dict):
+            continue
+        act_t = str(act.get("type", act.get("attack_type", ""))).lower()
+        if "ranged" in act_t or "distanza" in act_t:
+            continue
+        if act.get("damage") or act.get("damage_formula"):
+            return {
+                "weapon_name": act.get("name", "Attacco d'Opportunità"),
+                "hit_bonus": int(act.get("atk_bonus", act.get("hit_bonus", str_mod + pb)) or 0),
+                "damage_formula": str(act.get("damage_formula", act.get("damage", "1d6"))),
+                "damage_type": act.get("damage_type", "Tagliente"),
+            }
+
+    best_mod = str_mod
+    dmg_sfx = f"+{best_mod}" if best_mod > 0 else (str(best_mod) if best_mod < 0 else "")
+    return {
+        "weapon_name": "Attacco d'Opportunità",
+        "hit_bonus": best_mod + pb,
+        "damage_formula": f"1d6{dmg_sfx}",
+        "damage_type": "Contundente",
+    }
 
 def _evaluate_creature_space_traversal(player, step_hex, is_final_step: bool, game_state, is_incorporeal: bool = False):
     """
@@ -509,10 +588,19 @@ def handle_move_request(data, player, game_state):
                                 reason_oa = "entra nella portata (Maestro d'Armi Astate)" if provoke_enter and not provoke_exit else f"esce dalla portata di mischia ({reach * 1.5}m)"
                                 opp_alert = f"⚠️ [OPPORTUNITÀ] {player.name} {reason_oa} di {other.name}! {other.name} può usare la Reazione per un Attacco d'Opportunità!"
                                 game_state.log_dm_message(f"[COMBAT] {opp_alert}")
-                                from common.protocol import make_chat_broadcast, make_opportunity_alert
+                                from common.protocol import make_chat_broadcast, make_opportunity_alert, make_prompt_reaction
+                                from server.rules.reaction_magic import _has_no_reactions_effect
                                 broadcast(game_state, make_chat_broadcast("Sistema", opp_alert))
                                 if getattr(other, "conn", None):
                                     send_message(other.conn, make_opportunity_alert(player.name, f"{player.name} {reason_oa}!"))
+                                    auto_react = (getattr(game_state, "automation_settings", {}) or {}).get("auto_prompt_reactions", True)
+                                    if auto_react and not getattr(other, "has_reacted_this_turn", False) and not getattr(other, "surprised", False) and not _has_no_reactions_effect(other):
+                                        send_message(other.conn, make_prompt_reaction(
+                                            "OPPORTUNITY_ATTACK",
+                                            player.name,
+                                            other.name,
+                                            _extract_oa_weapon_details(other),
+                                        ))
 
         prev_pos = list(player.position) if hasattr(player, "position") and player.position else None
         game_state.move_player(player.name, to_pos)

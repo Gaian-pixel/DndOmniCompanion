@@ -2018,6 +2018,11 @@ class CharacterSheetFrame(ttk.Frame):
                 ok, msg = self.character.revert_wild_shape()
                 self._safe_save_characters()
                 self.load_data()
+                if getattr(self, "on_save_callback", None):
+                    try:
+                        self.on_save_callback(self.character)
+                    except Exception:
+                        pass
                 if self.roll_callback:
                     self.roll_callback("0d0", f"🌿 {self.character.name} ritorna alla sua forma umanoide naturale. PV: {self.character.hp_current}/{self.character.hp_max}.")
                 messagebox.showinfo("Forma Naturale", msg, parent=win)
@@ -2085,6 +2090,11 @@ class CharacterSheetFrame(ttk.Frame):
                 return
             self._safe_save_characters()
             self.load_data()
+            if getattr(self, "on_save_callback", None):
+                try:
+                    self.on_save_callback(self.character)
+                except Exception:
+                    pass
             if self.roll_callback:
                 self.roll_callback("0d0", f"🌿 {self.character.name} si trasforma in {b_n}! (PV Bestia: {b_h}, CA: {b_a}, Velocità: {b_s} ft)")
             messagebox.showinfo("Forma Selvatica Attiva", msg, parent=win)

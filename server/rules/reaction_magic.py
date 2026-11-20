@@ -454,28 +454,70 @@ def entity_has_available_slot(entity, min_level: int = 1) -> bool:
     return False
 
 
+_ABSORB_ELEMENT_ALIASES = {
+    "acido": "acido", "acid": "acido",
+    "freddo": "freddo", "cold": "freddo",
+    "fuoco": "fuoco", "fire": "fuoco",
+    "fulmine": "fulmine", "lightning": "fulmine",
+    "tuono": "tuono", "thunder": "tuono",
+}
+
+
+def canonical_element_key(dmg_type: str) -> str:
+    """Restituisce la chiave canonica di un danno elementale (o stringa normalizzata) per confronti bilingue IT/EN."""
+    raw = str(dmg_type or "").strip().lower()
+    if raw in _ABSORB_ELEMENT_ALIASES:
+        return _ABSORB_ELEMENT_ALIASES[raw]
+    for alias, canon in _ABSORB_ELEMENT_ALIASES.items():
+        if alias in raw:
+            return canon
+    return raw
+
+
+def _can_entity_react_to_damage(target_player, game_state, was_incap_before: bool = False, old_hp_before: Optional[int] = None) -> bool:
+    if not target_player or not game_state:
+        return False
+    old_hp = int(getattr(target_player, "hp", 0) or 0) if old_hp_before is None else int(old_hp_before or 0)
+    is_dead_perm = any(
+        is_condition_active(getattr(target_player, "conditions", []), dc)
+        for dc in ("Morto", "Dead", "Pietrificato", "Petrified")
+    )
+    can_rescue_lethal = (not bool(was_incap_before)) and old_hp > 0 and not is_dead_perm
+    if getattr(target_player, "has_reacted_this_turn", False) or getattr(target_player, "surprised", False) or _has_no_reactions_effect(target_player):
+        return False
+    if is_incapacitated(target_player) and not can_rescue_lethal:
+        return False
+    auto_react = True
+    if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+        auto_react = game_state.automation_settings.get("auto_prompt_reactions", True)
+    return bool(auto_react and getattr(target_player, "conn", None))
+
+
+def _entity_has_elemental_res_or_imm(entity, canon_elem: str) -> bool:
+    if not canon_elem:
+        return False
+    for attr in ("damage_resistances", "damage_immunities"):
+        for item in (getattr(entity, attr, None) or []):
+            if canonical_element_key(str(item)) == canon_elem:
+                return True
+    return False
+
+
 def maybe_prompt_defense_reactions(target_player, attacker, attack_details: dict, game_state):
     """
     Emette prompt live per reazioni difensive appropriate al momento dell'attacco:
     - SHIELD_SPELL (se il colpo è andato a segno ma target_ac + 5 lo farebbe mancare, non è critico, ha Scudo e uno slot)
+    - DEFENSIVE_DUELIST / ILLUSORY_SELF / DAMPEN_ELEMENTS
     - DEFLECT_MISSILES (Monaco Lv 3+ colpito da attacco a distanza con arma)
+    - ABSORB_ELEMENTS (danno elementale acido/freddo/fuoco/fulmine/tuono, senza resistenza/immunità permanente)
+    - HELLISH_REBUKE (danno subito > 0 da attaccante entro 18m e target vivo > 0 PF)
     """
-    if not target_player or not game_state:
-        return
-    was_incap_before = bool(attack_details.get("was_incapacitated", False))
-    old_hp_before = int(attack_details.get("old_hp", getattr(target_player, "hp", 0)) or 0)
-    is_dead_perm = any(is_condition_active(getattr(target_player, "conditions", []), dc) for dc in ("Morto", "Dead", "Pietrificato", "Petrified"))
-    can_rescue_lethal = (not was_incap_before) and old_hp_before > 0 and not is_dead_perm
-    if getattr(target_player, "has_reacted_this_turn", False) or getattr(target_player, "surprised", False) or _has_no_reactions_effect(target_player):
-        return
-    if is_incapacitated(target_player) and not can_rescue_lethal:
-        return
-    auto_react = True
-    if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
-        auto_react = game_state.automation_settings.get("auto_prompt_reactions", True)
-    if not auto_react or not getattr(target_player, "conn", None):
+    was_incap_before = bool((attack_details or {}).get("was_incapacitated", False))
+    old_hp_before = int((attack_details or {}).get("old_hp", getattr(target_player, "hp", 0)) or 0) if target_player else 0
+    if not _can_entity_react_to_damage(target_player, game_state, was_incap_before=was_incap_before, old_hp_before=old_hp_before):
         return
 
+    attacker_name = attacker.name if attacker else "Attaccante"
     is_ranged = bool(attack_details.get("is_ranged", False))
     is_spell = bool(attack_details.get("is_spell", False))
     hits = bool(attack_details.get("hits", False))
@@ -483,19 +525,24 @@ def maybe_prompt_defense_reactions(target_player, attacker, attack_details: dict
     hit_roll = int(attack_details.get("hit_roll", 0) or 0)
     target_ac = int(attack_details.get("target_ac", 10) or 10)
     w_name = attack_details.get("weapon_name", "Attacco")
+    dmg_to_hp = int(attack_details.get("dmg_to_hp", attack_details.get("final_dmg", 0)) or 0)
+    raw_dmg_type = str(attack_details.get("damage_type", "") or "")
+    canon_elem = canonical_element_key(raw_dmg_type)
+    is_absorb_elem = canon_elem in ("acido", "freddo", "fuoco", "fulmine", "tuono")
 
     # 1. SHIELD_SPELL
     if hits and not is_crit and hit_roll < (target_ac + 5):
         if entity_has_prepared_spell(target_player, "scudo", "shield") and entity_has_available_slot(target_player, 1):
             send_message(target_player.conn, make_prompt_reaction(
                 "SHIELD_SPELL",
-                attacker.name if attacker else "Attaccante",
+                attacker_name,
+                target_player.name,
                 {
                     "weapon_name": w_name,
                     "hit_roll": hit_roll,
                     "current_ac": target_ac,
                     "dmg_dealt": attack_details.get("dmg_to_hp", 0),
-                }
+                },
             ))
             return
 
@@ -506,7 +553,8 @@ def maybe_prompt_defense_reactions(target_player, attacker, attack_details: dict
         if dd_pb > 0 and hit_roll < (target_ac + dd_pb):
             send_message(target_player.conn, make_prompt_reaction(
                 "DEFENSIVE_DUELIST",
-                attacker.name if attacker else "Attaccante",
+                attacker_name,
+                target_player.name,
                 {
                     "weapon_name": w_name,
                     "hit_roll": hit_roll,
@@ -514,7 +562,7 @@ def maybe_prompt_defense_reactions(target_player, attacker, attack_details: dict
                     "bonus_ac": dd_pb,
                     "dmg_dealt": attack_details.get("dmg_to_hp", 0),
                     "dmg_to_hp": attack_details.get("dmg_to_hp", 0),
-                }
+                },
             ))
             return
 
@@ -524,20 +572,21 @@ def maybe_prompt_defense_reactions(target_player, attacker, attack_details: dict
         if entity_get_class_level(target_player, "mago", "wizard") >= 10 and "illusion" in sub_t:
             send_message(target_player.conn, make_prompt_reaction(
                 "ILLUSORY_SELF",
-                attacker.name if attacker else "Attaccante",
-                {"weapon_name": w_name, "dmg_to_hp": attack_details.get("dmg_to_hp", 0)}
+                attacker_name,
+                target_player.name,
+                {"weapon_name": w_name, "dmg_to_hp": attack_details.get("dmg_to_hp", 0)},
             ))
             return
 
     # 4. DAMPEN_ELEMENTS (Chierico Natura Lv 6+: Resistenza immediata a acido/freddo/fuoco/fulmine/tuono)
-    dmg_t_l = str(attack_details.get("damage_type", "") or "").lower()
-    if hits and any(k in dmg_t_l for k in ("acido", "acid", "freddo", "cold", "fuoco", "fire", "fulmine", "lightning", "tuono", "thunder")):
+    if hits and is_absorb_elem:
         sub_t = str((getattr(target_player, "full_sheet", {}) or {}).get("subclass", getattr(target_player, "subclass", ""))).lower()
         if entity_get_class_level(target_player, "chierico", "cleric") >= 6 and ("natur" in sub_t):
             send_message(target_player.conn, make_prompt_reaction(
                 "DAMPEN_ELEMENTS",
-                attacker.name if attacker else "Attaccante",
-                {"damage_type": attack_details.get("damage_type", "Fuoco"), "dmg_to_hp": attack_details.get("dmg_to_hp", 0)}
+                attacker_name,
+                target_player.name,
+                {"damage_type": raw_dmg_type or "Fuoco", "dmg_to_hp": dmg_to_hp},
             ))
             return
 
@@ -547,12 +596,129 @@ def maybe_prompt_defense_reactions(target_player, attacker, attack_details: dict
         if monk_lvl >= 3 or entity_has_keyword(target_player, "deflettere missili", "devia proiettili", "deflect missiles"):
             send_message(target_player.conn, make_prompt_reaction(
                 "DEFLECT_MISSILES",
-                attacker.name if attacker else "Attaccante",
+                attacker_name,
+                target_player.name,
                 {
                     "weapon_name": w_name,
-                    "incoming_damage": attack_details.get("dmg_to_hp", attack_details.get("final_dmg", 0)),
-                }
+                    "incoming_damage": dmg_to_hp,
+                },
             ))
+            return
+
+    # 6. ABSORB_ELEMENTS (XGtE: danno elementale su attacco subito)
+    if hits and is_absorb_elem and dmg_to_hp > 0 and not _entity_has_elemental_res_or_imm(target_player, canon_elem):
+        if entity_has_prepared_spell(target_player, "assorbire elementi", "absorb elements") and entity_has_available_slot(target_player, 1):
+            send_message(target_player.conn, make_prompt_reaction(
+                "ABSORB_ELEMENTS",
+                attacker_name,
+                target_player.name,
+                {
+                    "damage_type": raw_dmg_type or "Fuoco",
+                    "dmg_to_hp": dmg_to_hp,
+                    "dmg_dealt": dmg_to_hp,
+                },
+            ))
+            return
+
+    # 7. HELLISH_REBUKE (PHB p. 250: danno subito da creatura entro 60 ft / 12 celle mentre il difensore resta > 0 PF)
+    if hits and attacker and dmg_to_hp > 0 and getattr(target_player, "hp", 0) > 0:
+        if entity_has_prepared_spell(target_player, "intimorire infernale", "hellish rebuke") and entity_has_available_slot(target_player, 1):
+            within_60ft = True
+            t_pos = getattr(target_player, "position", None)
+            a_pos = getattr(attacker, "position", None)
+            if t_pos and a_pos and len(t_pos) >= 2 and len(a_pos) >= 2:
+                g_type = (getattr(game_state, "current_map", {}) or {}).get("grid_type", "hex")
+                dist = grid_distance_3d(
+                    Hex(int(t_pos[0]), int(t_pos[1])),
+                    Hex(int(a_pos[0]), int(a_pos[1])),
+                    getattr(target_player, "elevation", 0),
+                    getattr(attacker, "elevation", 0),
+                    grid_type=g_type,
+                )
+                within_60ft = dist <= 12.0
+            if within_60ft:
+                send_message(target_player.conn, make_prompt_reaction(
+                    "HELLISH_REBUKE",
+                    attacker_name,
+                    target_player.name,
+                    {"dmg_to_hp": dmg_to_hp, "damage_type": raw_dmg_type},
+                ))
+
+
+def maybe_prompt_elemental_save_reactions(
+    target_player,
+    source_name: str,
+    damage_type: str,
+    dmg_to_hp: int,
+    game_state,
+    was_incap_before: bool = False,
+    old_hp_before: Optional[int] = None,
+    attacker_name: str = "",
+):
+    """
+    Emette prompt DAMPEN_ELEMENTS, ABSORB_ELEMENTS o HELLISH_REBUKE in seguito a danni da Tiro Salvezza / AoE.
+    """
+    if dmg_to_hp <= 0:
+        return
+    if not _can_entity_react_to_damage(target_player, game_state, was_incap_before=was_incap_before, old_hp_before=old_hp_before):
+        return
+    old_hp_val = int(getattr(target_player, "hp", 0) or 0) + int(dmg_to_hp) if old_hp_before is None else int(old_hp_before)
+    target_player._last_hit_for_reaction = {
+        "hit_roll": 0,
+        "base_ac": 999,
+        "is_crit": False,
+        "dmg_to_hp": int(dmg_to_hp),
+        "temp_absorbed": 0,
+        "damage_type": damage_type,
+        "old_hp": old_hp_val,
+        "was_incapacitated": bool(was_incap_before),
+        "absorb_restored": False,
+    }
+    canon_elem = canonical_element_key(damage_type)
+    if canon_elem in ("acido", "freddo", "fuoco", "fulmine", "tuono"):
+        sub_t = str((getattr(target_player, "full_sheet", {}) or {}).get("subclass", getattr(target_player, "subclass", ""))).lower()
+        if entity_get_class_level(target_player, "chierico", "cleric") >= 6 and ("natur" in sub_t):
+            send_message(target_player.conn, make_prompt_reaction(
+                "DAMPEN_ELEMENTS",
+                source_name or "Incantesimo",
+                target_player.name,
+                {"damage_type": damage_type or "Fuoco", "dmg_to_hp": int(dmg_to_hp)},
+            ))
+            return
+        if not _entity_has_elemental_res_or_imm(target_player, canon_elem):
+            if entity_has_prepared_spell(target_player, "assorbire elementi", "absorb elements") and entity_has_available_slot(target_player, 1):
+                send_message(target_player.conn, make_prompt_reaction(
+                    "ABSORB_ELEMENTS",
+                    source_name or "Incantesimo",
+                    target_player.name,
+                    {"damage_type": damage_type or "Fuoco", "dmg_to_hp": int(dmg_to_hp), "dmg_dealt": int(dmg_to_hp)},
+                ))
+                return
+
+    # Retaliatory Hellish Rebuke se una creatura fonte nota entro 60 ft ha causato il danno
+    if attacker_name and getattr(target_player, "hp", 0) > 0:
+        atk_obj = game_state.find_player(attacker_name)
+        if atk_obj and entity_has_prepared_spell(target_player, "intimorire infernale", "hellish rebuke") and entity_has_available_slot(target_player, 1):
+            t_pos = getattr(target_player, "position", None)
+            a_pos = getattr(atk_obj, "position", None)
+            within_60ft = True
+            if t_pos and a_pos and len(t_pos) >= 2 and len(a_pos) >= 2:
+                g_type = (getattr(game_state, "current_map", {}) or {}).get("grid_type", "hex")
+                dist = grid_distance_3d(
+                    Hex(int(t_pos[0]), int(t_pos[1])),
+                    Hex(int(a_pos[0]), int(a_pos[1])),
+                    getattr(target_player, "elevation", 0),
+                    getattr(atk_obj, "elevation", 0),
+                    grid_type=g_type,
+                )
+                within_60ft = dist <= 12.0
+            if within_60ft:
+                send_message(target_player.conn, make_prompt_reaction(
+                    "HELLISH_REBUKE",
+                    atk_obj.name,
+                    target_player.name,
+                    {"dmg_to_hp": int(dmg_to_hp), "damage_type": damage_type},
+                ))
 
 
 def maybe_prompt_counterspell_reactions(caster, spell_name: str, spell_level: int, game_state, cast_id: Optional[str] = None) -> List[str]:
@@ -595,7 +761,8 @@ def maybe_prompt_counterspell_reactions(caster, spell_name: str, spell_level: in
             send_message(other.conn, make_prompt_reaction(
                 "COUNTERSPELL",
                 caster.name,
-                {"spell_name": spell_name, "spell_level": spell_level, "slot_level": 3, "cast_id": cast_id}
+                other.name,
+                {"spell_name": spell_name, "spell_level": spell_level, "slot_level": 3, "cast_id": cast_id},
             ))
             prompted.append(other.name)
     return prompted

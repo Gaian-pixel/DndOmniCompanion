@@ -93,6 +93,19 @@ def _has_condition(entity: Any, *tokens: str) -> bool:
     return any(t.lower() in joined for t in tokens)
 
 
+def _is_entity_raging(entity: Any) -> bool:
+    return bool(getattr(entity, "is_raging", False) or _has_condition(entity, "ira", "rage"))
+
+
+def _has_bonus_action_available(entity: Any) -> bool:
+    return bool(not getattr(entity, "bonus_action_used_this_turn", False) and getattr(entity, "has_bonus_action", True))
+
+
+def _consume_bonus_action(entity: Any) -> None:
+    entity.bonus_action_used_this_turn = True
+    entity.has_bonus_action = False
+
+
 # ==============================================================================
 # 1. TRATTI RAZZIALI MECCANICI (PHB / VGtM / MPMM)
 # ==============================================================================
@@ -565,7 +578,7 @@ def get_subclass_damage_mods(
     if is_weapon_attack:
         # Barbaro Zelota Lv 3+ - Furia Divina (1/turno in Ira)
         barb_lvl = entity_get_class_level(attacker, "barbar", "barbarian")
-        if barb_lvl >= 3 and getattr(attacker, "is_raging", False) and _has_subclass(attacker, "zelota", "zealot"):
+        if barb_lvl >= 3 and _is_entity_raging(attacker) and _has_subclass(attacker, "zelota", "zealot"):
             if not used.get("divine_fury"):
                 used["divine_fury"] = True
                 extra_flat = barb_lvl // 2
@@ -759,11 +772,11 @@ def handle_subclass_active_power(
     if pid == "frenzy_attack":
         if entity_get_class_level(player, "barbar", "barbarian") < 3 or not _has_subclass(player, "berserker"):
             return {"ok": False, "log": "Richiede Barbaro Berserker Lv 3+."}
-        if not getattr(player, "is_raging", False):
+        if not _is_entity_raging(player):
             return {"ok": False, "log": "Frenesia richiede che tu sia in Ira."}
-        if not getattr(player, "has_bonus_action", True):
+        if not _has_bonus_action_available(player):
             return {"ok": False, "log": "Azione Bonus già consumata."}
-        player.has_bonus_action = False
+        _consume_bonus_action(player)
         player.frenzy_exhaustion_pending = True
         return {
             "ok": True,
@@ -858,9 +871,9 @@ def handle_subclass_active_power(
     if pid == "shadow_step":
         if entity_get_class_level(player, "monaco", "monk") < 6 or not _has_subclass(player, "ombra", "shadow"):
             return {"ok": False, "log": "Richiede Monaco Via dell'Ombra Lv 6+."}
-        if not getattr(player, "has_bonus_action", True):
+        if not _has_bonus_action_available(player):
             return {"ok": False, "log": "Azione Bonus già consumata."}
-        player.has_bonus_action = False
+        _consume_bonus_action(player)
         player.shadow_step_advantage = True
         return {"ok": True, "log": f"🌑 [PASSO D'OMBRA] {player.name} si teletrasporta fino a 60 ft da ombra a ombra: Vantaggio al prossimo attacco in mischia questo turno!"}
 

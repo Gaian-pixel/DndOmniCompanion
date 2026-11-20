@@ -748,8 +748,8 @@ def _extract_action_attack_and_damage(act: Any) -> Tuple[str, Optional[int], Opt
     else:
         name = str(act.get("name", "Attacco") or "Attacco").strip()
         desc = str(act.get("desc", act.get("description", "")) or "")
-        atk_b = act.get("attack_bonus")
-        dmg_d = act.get("damage_dice")
+        atk_b = act.get("attack_bonus", act.get("atk_bonus", act.get("hit_bonus")))
+        dmg_d = act.get("damage_dice") or act.get("damage_formula") or act.get("damage")
     if atk_b is None:
         m = re.search(r"([+-]?\d+)\s+(?:to\s+hit|per\s+colpire|al\s+colpo)", desc, re.IGNORECASE)
         if m:
@@ -849,21 +849,51 @@ def execute_monster_multiattack(
 
     results: List[Dict[str, Any]] = []
     total_dmg = 0
-    from common.spell_effects_engine import get_spell_ac_bonus
+    from common.spell_effects_engine import get_spell_ac_bonus, compute_combat_spell_modifiers
     target_ac = (int(getattr(target, "ac", 10) or 10) + get_spell_ac_bonus(target)) if target else None
     lines: List[str] = [f"⚔️ **[MULTIATTACCO - {monster.name}]**" + (f" vs {target.name} (CA {target_ac})" if target else "")]
 
     for act, count in seq:
         nm, atk_b, dmg_d, desc = _extract_action_attack_and_damage(act)
+        dl = desc.lower()
+        is_ranged_act = any(rk in dl or rk in nm.lower() for rk in ("ranged", "a distanza", "arco", "bow", "balestra", "crossbow", "dart", "javelin"))
         for _ in range(count):
-            d20_res = roll_dice("1d20")
+            t_ac_cur = (int(getattr(target, "ac", 10) or 10) + get_spell_ac_bonus(target)) if target else None
+            eff_notes: List[str] = []
+            spell_mods = {"adv": False, "disadv": False, "sanctuary_blocked": False, "mirror_intercepted": False, "notes": []}
+            if target:
+                t_conds = getattr(target, "conditions", []) or []
+                is_dodging = any(is_condition_active(t_conds, dc) for dc in ("Schivata", "Schiva", "Dodging", "Dodge"))
+                spell_mods = compute_combat_spell_modifiers(
+                    monster,
+                    target,
+                    is_melee=(not is_ranged_act),
+                    base_disadv=is_dodging,
+                )
+                if spell_mods.get("sanctuary_blocked"):
+                    note_s = (spell_mods.get("notes") or ["Santuario blocca l'attacco"])[-1]
+                    lines.append(f"• {nm}: 🕊️ BLOCCATO ({note_s})")
+                    results.append({"action": nm, "attack_total": None, "nat": None, "is_crit": False, "hit": False, "damage": 0, "damage_type": "", "sanctuary_blocked": True})
+                    continue
+
+            d20_suffix = " adv" if (spell_mods.get("adv") and not spell_mods.get("disadv")) else (" dis" if (spell_mods.get("disadv") and not spell_mods.get("adv")) else "")
+            d20_res = roll_dice(f"1d20{d20_suffix}")
             nat = int(d20_res["rolls"][0])
             is_crit = (nat == 20)
             atk_tot = nat + int(atk_b or 0) if atk_b is not None else None
 
             hit = True
-            if target_ac is not None and atk_tot is not None:
-                hit = is_crit or (nat != 1 and atk_tot >= target_ac)
+            if t_ac_cur is not None and atk_tot is not None:
+                hit = is_crit or (nat != 1 and atk_tot >= t_ac_cur)
+
+            if target and spell_mods.get("mirror_intercepted") and int(getattr(target, "mirror_images", 0) or 0) > 0:
+                copy_ac = int(spell_mods.get("mirror_copy_ac", 10) or 10)
+                if is_crit or (nat != 1 and (atk_tot is None or atk_tot >= copy_ac)):
+                    target.mirror_images = max(0, int(target.mirror_images) - 1)
+                    eff_notes.append(f"🪞 [Colpisce duplicato CA {copy_ac}, copie rimaste: {target.mirror_images}]")
+                else:
+                    eff_notes.append(f"🪞 [Manca duplicato CA {copy_ac}]")
+                hit = False
 
             dmg_tot = 0
             if dmg_d:
@@ -876,8 +906,6 @@ def execute_monster_multiattack(
                         dmg_tot += int(roll_dice(m_dice_only.group(1))["total"])
 
             applied = 0
-            eff_notes: List[str] = []
-            dl = desc.lower()
             _dmg_type_map = (
                 ("necrotic", "Necrotico"), ("necrot", "Necrotico"),
                 ("piercing", "Perforante"), ("perforan", "Perforante"),
@@ -900,9 +928,46 @@ def execute_monster_multiattack(
                     break
             if target and hit and dmg_tot > 0 and game_state is not None:
                 from server.rules.combat import apply_damage
+                from server.rules.reaction_magic import maybe_prompt_defense_reactions, is_incapacitated
+                from common.dnd5e_tables import entity_get_class_level, entity_has_keyword
+                from common.protocol import make_prompt_reaction
+                old_hp_hit = int(getattr(target, "hp", 0) or 0)
+                old_tmp_hit = int(getattr(target, "temp_hp", 0) or 0)
+                was_incap_hit = is_incapacitated(target)
                 is_mag_m = any(mk in dl or mk in nm.lower() for mk in ("magic", "magico", "spell attack", "incantesim", "flame", "fiamma", "radiant", "necrotic", "psychic", "force"))
                 applied, _, _, dmg_hp = apply_damage(target, dmg_tot, damage_type=d_type, game_state=game_state, is_crit=is_crit, is_magical=is_mag_m, attacker=monster)
-                eff_notes = apply_monster_special_hit_effects(monster, target, nm, desc, dmg_hp or applied, game_state=game_state)
+                temp_abs_hit = max(0, old_tmp_hit - int(getattr(target, "temp_hp", 0) or 0))
+                target._last_hit_for_reaction = {
+                    "hits": True,
+                    "hit_roll": atk_tot or 0,
+                    "base_ac": t_ac_cur or 10,
+                    "target_ac": t_ac_cur or 10,
+                    "is_crit": is_crit,
+                    "is_ranged": is_ranged_act,
+                    "weapon_name": nm,
+                    "damage_type": d_type,
+                    "damage_taken": applied,
+                    "final_dmg": applied,
+                    "dmg_to_hp": dmg_hp,
+                    "temp_absorbed": temp_abs_hit,
+                    "old_hp": old_hp_hit,
+                    "was_incapacitated": was_incap_hit,
+                }
+                auto_react_m = True
+                if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
+                    auto_react_m = game_state.automation_settings.get("auto_prompt_reactions", True)
+                t_rogue_lvl = entity_get_class_level(target, "ladro", "rogue")
+                can_survive_ud = target.hp > 0 or (old_hp_hit > (dmg_hp - (dmg_hp // 2)))
+                if auto_react_m and getattr(target, "conn", None) and (t_rogue_lvl >= 5 or entity_has_keyword(target, "schivata prodigiosa", "uncanny dodge")) and old_hp_hit > 0 and can_survive_ud and applied > 1:
+                    if not getattr(target, "has_reacted_this_turn", False) and not getattr(target, "surprised", False):
+                        send_message(target.conn, make_prompt_reaction(
+                            "UNCANNY_DODGE",
+                            monster.name,
+                            target.name,
+                            {"weapon_name": nm, "damage_taken": applied, "dmg_to_hp": dmg_hp},
+                        ))
+                maybe_prompt_defense_reactions(target, monster, target._last_hit_for_reaction, game_state)
+                eff_notes.extend(apply_monster_special_hit_effects(monster, target, nm, desc, dmg_hp or applied, game_state=game_state))
                 total_dmg += applied
             elif not target:
                 total_dmg += dmg_tot

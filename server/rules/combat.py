@@ -1196,18 +1196,19 @@ def _trigger_concentration_check(target_player, dmg_val, game_state, attacker=No
             else:
                 has_mage_slayer_dis = True
 
+        has_warcaster = entity_has_keyword(target_player, "incantatore da guerra", "war caster")
+        eff_adv = bool(has_warcaster and not has_mage_slayer_dis)
+        eff_dis = bool(has_mage_slayer_dis and not has_warcaster)
         src_lbl = "Sistema (Concentrazione - Svantaggio Sterminatore di Maghi)" if has_mage_slayer_dis else "Sistema (Concentrazione)"
         if getattr(target_player, "conn", None):
-            send_message(target_player.conn, make_prompt_save("COS", dc, "", False, src_lbl, "Contundente"))
+            send_message(
+                target_player.conn,
+                make_prompt_save("COS", dc, "", False, src_lbl, "Contundente", has_advantage=eff_adv, has_disadvantage=eff_dis),
+            )
         else:
-            has_warcaster = entity_has_keyword(target_player, "incantatore da guerra", "war caster")
             mod = get_effective_save_bonus_from_dict(target_player, "COS")
             mod_str = f"+{mod}" if mod >= 0 else str(mod)
-            adv_s = ""
-            if has_warcaster and not has_mage_slayer_dis:
-                adv_s = " adv"
-            elif has_mage_slayer_dis and not has_warcaster:
-                adv_s = " dis"
+            adv_s = " adv" if eff_adv else (" dis" if eff_dis else "")
             f_roll = f"1d20{mod_str}{adv_s}"
             save_result = roll_dice(f_roll)
             roll_tot = save_result["total"]
@@ -1303,6 +1304,33 @@ def advance_combat_turn(game_state, ending_player=None):
                         exp_msg = f"⏳ L'effetto '{exp_name}' su {prev_p.name} è terminato a fine turno."
                         broadcast(game_state, make_chat_broadcast("Sistema", exp_msg))
                         game_state.log_dm_message(f"[EFFETTO] {exp_msg}")
+
+            # Decrementa effetti ancorati al termine del turno della creatura sorgente (es. Colpo Stordente PHB p. 79)
+            for other_p in getattr(game_state, "players", []):
+                if not hasattr(other_p, "active_effects") or not isinstance(other_p.active_effects, list):
+                    continue
+                for fx in list(other_p.active_effects):
+                    if isinstance(fx, dict) and fx.get("decrement_timing") == "source_end_of_turn" and fx.get("source") == prev_p.name:
+                        rem_t = int(fx.get("turns_remaining", fx.get("duration_rounds", 1)) or 1) - 1
+                        fx["turns_remaining"] = rem_t
+                        if rem_t <= 0:
+                            rm_cond = fx.get("condition")
+                            if hasattr(other_p, "remove_effect"):
+                                other_p.remove_effect(fx.get("id") or fx.get("name"))
+                            elif fx in other_p.active_effects:
+                                other_p.active_effects.remove(fx)
+                            if rm_cond and hasattr(other_p, "conditions") and isinstance(other_p.conditions, list):
+                                other_p.conditions = [c for c in other_p.conditions if c != rm_cond]
+                                if isinstance(getattr(other_p, "full_sheet", None), dict) and isinstance(other_p.full_sheet.get("conditions"), list):
+                                    other_p.full_sheet["conditions"] = list(other_p.conditions)
+                            exp_src_msg = f"⏳ L'effetto '{fx.get('name', 'Condizione')}' su {other_p.name} termina alla fine del turno di {prev_p.name}."
+                            broadcast(game_state, make_chat_broadcast("Sistema", exp_src_msg))
+                            game_state.log_dm_message(f"[EFFETTO] {exp_src_msg}")
+                            broadcast(game_state, make_player_stats_update(
+                                other_p.name, other_p.hp, other_p.max_hp, other_p.initiative,
+                                getattr(other_p, "conditions", []), getattr(other_p, "temp_hp", 0),
+                                active_effects=getattr(other_p, "active_effects", []),
+                            ))
 
             # Pericoli di fine turno da incantesimi AoE (Fame di Hadar, Muro di Fuoco)
             from common.spell_effects_engine import tick_active_spell_aoes_for_entity
@@ -2728,19 +2756,42 @@ def handle_attack_request(data, player, game_state):
                             wis_mod = (int(wis_val) - 10) // 2
                             ki_dc = 8 + pb + wis_mod
 
-                            t_con_mod = get_effective_save_bonus_from_dict(target_player, "COS")
-                            save_roll = random.randint(1, 20) + t_con_mod
-                            if save_roll < ki_dc:
+                            ss_res = resolve_saving_throw(
+                                target_player,
+                                "COS",
+                                ki_dc,
+                                game_state=game_state,
+                                is_magic=False,
+                                source_name="Colpo Stordente",
+                                caster=player,
+                            )
+                            save_roll = int(ss_res.get("total", 0) or 0)
+                            if not ss_res.get("success", False):
                                 if not hasattr(target_player, "conditions") or not isinstance(target_player.conditions, list):
                                     target_player.conditions = []
                                 if "Stordito" not in target_player.conditions:
                                     target_player.conditions.append("Stordito")
-                                if not hasattr(target_player, "condition_durations") or not isinstance(target_player.condition_durations, dict):
-                                    target_player.condition_durations = {}
-                                target_player.condition_durations["Stordito"] = 2
-                                log_msg += f" 🥋 [Colpo Stordente! {target_name} fallisce TS COS ({save_roll} vs CD {ki_dc}) ed è STORDITO!]"
+                                if not hasattr(target_player, "active_effects") or not isinstance(target_player.active_effects, list):
+                                    target_player.active_effects = []
+                                target_player.active_effects = [
+                                    fx for fx in target_player.active_effects
+                                    if not (isinstance(fx, dict) and fx.get("id") == "stunning_strike")
+                                ]
+                                cur_turn_p = game_state.get_current_turn_player() if game_state else None
+                                is_monk_own_turn = (cur_turn_p is player) or (cur_turn_p is not None and getattr(cur_turn_p, "name", None) == player.name)
+                                target_player.active_effects.append({
+                                    "id": "stunning_strike",
+                                    "name": "Stordito (Colpo Stordente)",
+                                    "condition": "Stordito",
+                                    "source": player.name,
+                                    "decrement_timing": "source_end_of_turn",
+                                    "turns_remaining": 2 if is_monk_own_turn else 1,
+                                })
+                                lr_sfx = " (Resistenza Leggendaria disponibile)" if ss_res.get("used_legendary_resistance") else ""
+                                log_msg += f" 🥋 [Colpo Stordente! {target_name} fallisce TS COS ({save_roll} vs CD {ki_dc}) ed è STORDITO fino al termine del prossimo turno di {player.name}!{lr_sfx}]"
                             else:
-                                log_msg += f" 🥋 [Colpo Stordente: {target_name} supera TS COS ({save_roll} vs CD {ki_dc})]"
+                                lr_sfx = " [👑 Resistenza Leggendaria]" if ss_res.get("used_legendary_resistance") else ""
+                                log_msg += f" 🥋 [Colpo Stordente: {target_name} supera TS COS ({save_roll} vs CD {ki_dc}){lr_sfx}]"
                     
                 auto_apply = True
                 if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
@@ -2867,8 +2918,10 @@ def handle_attack_request(data, player, game_state):
                         if att_visible and not getattr(target_player, "has_reacted_this_turn", False) and not getattr(target_player, "surprised", False):
                             if auto_react_ud and getattr(target_player, "conn", None):
                                 send_message(target_player.conn, make_prompt_reaction(
-                                    "UNCANNY_DODGE", player.name,
-                                    {"weapon_name": weapon_name, "damage_taken": total_final_dmg, "dmg_to_hp": total_dmg_to_hp}
+                                    "UNCANNY_DODGE",
+                                    player.name,
+                                    target_player.name,
+                                    {"weapon_name": weapon_name, "damage_taken": total_final_dmg, "dmg_to_hp": total_dmg_to_hp},
                                 ))
 
                     # Prompt live per Scudo (Shield) e Deflettere Missili (Deflect Missiles)
@@ -2974,6 +3027,257 @@ def handle_attack_request(data, player, game_state):
     except Exception as e:
         send_message(player.conn, make_error_reply(f"Errore nell'attacco: {str(e)}"))
 
+def _evaluate_save_bonuses_and_flags(
+    target_player,
+    stat: str,
+    game_state=None,
+    is_magic=None,
+    source_name: str = "",
+    damage_type: str = "",
+    cover: str = "none",
+    spell_school: str = "",
+    caster_obj=None,
+) -> dict:
+    """Calcola bonus/penalità condivisi e condizioni Adv/Dis/Auto-Fail/Immunità per i Tiri Salvezza 5e."""
+    from common.dnd5e_tables import entity_get_class_level, entity_has_keyword
+    from common.feats_and_classes import get_armor_nonproficiency_penalties
+    from common.subclass_and_race_rules import get_racial_save_adv_reasons, get_subclass_save_mods
+
+    stat_u = str(stat or "").upper()
+    src_low = str(source_name or "").lower()
+    if caster_obj is None and game_state and source_name:
+        caster_obj = game_state.find_player(source_name)
+    is_spell_ctx = (
+        bool(is_magic)
+        if is_magic is not None
+        else bool(spell_school or any(k in src_low for k in ("incant", "spell", "sav", "fuoc", "sonno", "sleep", "charm", "fright")))
+    )
+
+    benedizione_bonus = random.randint(1, 4) if has_effect_or_condition(target_player, "Benedizione", "Bless") else 0
+    anatema_penalty = random.randint(1, 4) if has_effect_or_condition(target_player, "Anatema", "Bane") else 0
+    hero_bonus = int(getattr(target_player, "pending_hero_bonus", 0) or 0)
+    if hero_bonus > 0:
+        target_player.pending_hero_bonus = 0
+
+    bonus_total = benedizione_bonus - anatema_penalty + hero_bonus
+    adv_reasons = []
+    dis_reasons = []
+    extra_notes = []
+    auto_success_notes = []
+
+    if hero_bonus > 0:
+        extra_notes.append(f" (+{hero_bonus} Punto Eroe)")
+    if stat_u in ("FOR", "STR", "DES", "DEX"):
+        if get_armor_nonproficiency_penalties(target_player).get("disadvantage_str_dex"):
+            dis_reasons.append("Armatura senza competenza")
+            extra_notes.append(" (Svantaggio: Armatura senza competenza)")
+
+    aura_bonus, aura_paladin = get_paladin_aura_save_bonus(target_player, game_state) if game_state else (0, None)
+    if aura_bonus > 0:
+        bonus_total += aura_bonus
+        extra_notes.append(f" (+{aura_bonus} Aura di Protezione di {aura_paladin})")
+
+    t_conds = getattr(target_player, "conditions", []) or []
+    t_c_low = [str(c).lower() for c in t_conds]
+
+    if stat_u in ("DES", "DEX"):
+        barb_lvl = entity_get_class_level(target_player, "barbar", "barbarian")
+        if barb_lvl >= 2 or entity_has_keyword(target_player, "percezione del pericolo", "danger sense"):
+            if not any(ic in t_c_low for ic in ("accecato", "blinded", "assordato", "deafened", "incapacitato", "incapacitated")):
+                adv_reasons.append("Percezione del Pericolo")
+                extra_notes.append(" (Vantaggio da Percezione del Pericolo)")
+        if is_condition_active(t_conds, "Schivata"):
+            adv_reasons.append("Schivata")
+            extra_notes.append(" (Vantaggio da Schivata)")
+        if has_effect_or_condition(target_player, "Velocità", "Haste"):
+            adv_reasons.append("Velocità")
+            extra_notes.append(" (Vantaggio da Velocità)")
+        if has_effect_or_condition(target_player, "Lentezza", "Slow"):
+            bonus_total -= 2
+            extra_notes.append(" (-2 Lentezza)")
+        cover_val = str(cover).lower()
+        if cover_val in ("half", "mezza"):
+            bonus_total += 2
+            extra_notes.append(" (+2 TS Mezza Copertura)")
+        elif cover_val in ("three_quarters", "3/4", "tre_quarti"):
+            bonus_total += 5
+            extra_notes.append(" (+5 TS Tre Quarti di Copertura)")
+        if is_condition_active(t_conds, "Trattenuto"):
+            dis_reasons.append("Trattenuto")
+            extra_notes.append(" (Svantaggio TS DES: Trattenuto)")
+        if getattr(target_player, "is_squeezing", False):
+            dis_reasons.append("Squeezed")
+            extra_notes.append(" (Svantaggio TS DES: Squeezed PHB p.192)")
+
+    if is_spell_ctx and entity_has_keyword(target_player, "resistenza alla magia", "magic resistance"):
+        adv_reasons.append("Resistenza alla Magia")
+        extra_notes.append(" (Resistenza alla Magia: Vantaggio vs incantesimi/effetti magici)")
+
+    if getattr(target_player, "exhaustion_level", 0) >= 3:
+        dis_reasons.append("Indebolimento Lv3+")
+        extra_notes.append(" (Svantaggio TS: Indebolimento Lv3+)")
+
+    rac_s = get_racial_save_adv_reasons(
+        target_player,
+        stat,
+        is_magic=is_spell_ctx,
+        effect_tags=(str(source_name), str(damage_type), str(spell_school)),
+    )
+    if rac_s.get("advantage"):
+        adv_reasons.extend(rac_s.get("reasons", []) or ["Razziale"])
+        extra_notes.append(f" (Vantaggio Razziale: {', '.join(rac_s.get('reasons', []))})")
+
+    sub_s = get_subclass_save_mods(
+        target_player,
+        caster_obj,
+        stat,
+        is_spell=is_spell_ctx,
+        effect_tags=(str(source_name), str(damage_type)),
+        game_state=game_state,
+    )
+    if sub_s.get("disadvantage"):
+        dis_reasons.extend(sub_s.get("notes", []) or ["Sottoclasse"])
+        extra_notes.append(f" ({', '.join(sub_s.get('notes', []))})")
+
+    if stat_u in ("COS", "CON") and ("concentrazion" in src_low or "concentration" in src_low):
+        if entity_has_keyword(target_player, "incantatore da guerra", "war caster"):
+            adv_reasons.append("Incantatore da Guerra")
+
+    auto_fail_cond = None
+    if stat_u in ("FOR", "DES", "STR", "DEX"):
+        for c in ("Incosciente", "Paralizzato", "Stordito", "Pietrificato"):
+            if is_condition_active(t_conds, c):
+                auto_fail_cond = c
+                break
+    if auto_fail_cond:
+        extra_notes.append(f" (Fallimento automatico per condizione: {auto_fail_cond})")
+
+    if game_state and any(k in src_low for k in ("spavent", "fright", "paura", "fear", "terrore")):
+        from server.rules.class_abilities import is_immune_to_frightened_by_aura
+        imm_f, f_src = is_immune_to_frightened_by_aura(target_player, game_state)
+        if imm_f:
+            auto_success_notes.append(f" [🛡️ Immune Spaventato: Aura di Coraggio di {f_src}]")
+
+    if rac_s.get("magic_sleep_immune") and any(k in src_low for k in ("sonno", "sleep")):
+        auto_success_notes.append(" [🛡️ Retaggio Fatato: Immune Sonno Magico]")
+
+    if sub_s.get("immune"):
+        auto_success_notes.append(f" [🛡️ {', '.join(sub_s.get('notes', []))}]")
+
+    if is_spell_ctx and caster_obj and caster_obj.name != target_player.name and entity_has_keyword(target_player, "sterminatore di maghi", "mage slayer"):
+        if getattr(caster_obj, "position", None) and getattr(target_player, "position", None):
+            gt_ms = (getattr(game_state, "current_map", {}) or {}).get("grid_type", "hex") if game_state else "hex"
+            if grid_distance_3d(
+                Hex(caster_obj.position[0], caster_obj.position[1]),
+                Hex(target_player.position[0], target_player.position[1]),
+                getattr(caster_obj, "elevation", 0),
+                getattr(target_player, "elevation", 0),
+                grid_type=gt_ms,
+            ) <= 1.5:
+                adv_reasons.append("Sterminatore di Maghi")
+                extra_notes.append(" (Vantaggio: Sterminatore di Maghi)")
+
+    sculpted_evocation = False
+    if caster_obj and caster_obj.name != target_player.name:
+        same_side = bool(getattr(caster_obj, "is_party_member", False) or getattr(caster_obj, "conn", None)) == bool(getattr(target_player, "is_party_member", False) or getattr(target_player, "conn", None))
+        c_wiz = entity_get_class_level(caster_obj, "mago", "wizard")
+        c_sub = str((getattr(caster_obj, "full_sheet", {}) or {}).get("subclass", getattr(caster_obj, "subclass", "")) or "").lower()
+        is_evoc_school = any(k in f"{spell_school} {src_low}".lower() for k in ("evoc", "invoc", "palla di fuoco", "fireball", "mani brucianti", "burning hands", "fulmine", "lightning", "cono di freddo", "cone of cold", "onda tonante", "thunderwave", "frantumare", "shatter"))
+        is_evoc_sub = ("invoc" in c_sub or "evocation" in c_sub)
+        if same_side and is_evoc_school and ((c_wiz >= 2 and is_evoc_sub) or entity_has_keyword(caster_obj, "plasmare incantesimi", "sculpt spells")):
+            sculpted_evocation = True
+            auto_success_notes.append(f" [✨ Plasmare Incantesimi ({caster_obj.name}): Successo Automatico]")
+
+    return {
+        "bonus_total": bonus_total,
+        "benedizione_bonus": benedizione_bonus,
+        "anatema_penalty": anatema_penalty,
+        "has_advantage": bool(adv_reasons),
+        "has_disadvantage": bool(dis_reasons),
+        "extra_adv_note": "".join(extra_notes) + "".join(auto_success_notes),
+        "auto_fail_cond": auto_fail_cond,
+        "auto_success": bool(auto_success_notes),
+        "sculpted_evocation": sculpted_evocation,
+        "is_spell_ctx": is_spell_ctx,
+        "caster_obj": caster_obj,
+        "notes": extra_notes + auto_success_notes,
+    }
+
+
+def resolve_saving_throw(
+    target_player,
+    stat: str,
+    dc: int,
+    game_state=None,
+    is_magic: bool = True,
+    source_name: str = "",
+    damage_type: str = "",
+    has_advantage: bool = False,
+    has_disadvantage: bool = False,
+    caster=None,
+    cover: str = "none",
+    spell_school: str = "",
+    consume_legendary: bool = True,
+) -> dict:
+    """
+    Risoluzione server-side unificata di un Tiro Salvezza D&D 5e (Bless/Bane, Aura Paladino,
+    Resistenza alla Magia, Percezione del Pericolo, Tratti Razziali/Sottoclasse, LR).
+    """
+    if not target_player:
+        return {"success": False, "total": 0, "natural_roll": 0, "is_crit": False, "is_fail": True, "notes": [], "adv": False, "dis": False, "used_legendary_resistance": False}
+
+    ev = _evaluate_save_bonuses_and_flags(
+        target_player,
+        stat,
+        game_state=game_state,
+        is_magic=is_magic,
+        source_name=source_name,
+        damage_type=damage_type,
+        cover=cover,
+        spell_school=spell_school,
+        caster_obj=caster,
+    )
+    eff_adv = (has_advantage or ev["has_advantage"]) and not (has_disadvantage or ev["has_disadvantage"])
+    eff_dis = (has_disadvantage or ev["has_disadvantage"]) and not (has_advantage or ev["has_advantage"])
+    base_mod = get_effective_save_bonus_from_dict(target_player, stat)
+    tot_mod = int(base_mod) + int(ev["bonus_total"])
+    mod_str = f"+{tot_mod}" if tot_mod >= 0 else str(tot_mod)
+    adv_tok = " adv" if eff_adv else (" dis" if eff_dis else "")
+    res = roll_dice(f"1d20{mod_str}{adv_tok}")
+    nat = int(res.get("natural_roll", (res.get("rolls") or [10])[0]))
+    roll_total = int(res.get("total", nat + tot_mod))
+
+    if ev["auto_fail_cond"]:
+        success = False
+    elif ev["auto_success"]:
+        success = True
+    else:
+        success = roll_total >= int(dc or 10)
+
+    used_lr = False
+    if not success and consume_legendary and getattr(target_player, "legendary_resistances_current", 0) > 0:
+        opt_lr_prompt = bool((getattr(game_state, "automation_settings", {}) or {}).get("opt_legendary_res_prompt", False)) if game_state else False
+        if not opt_lr_prompt:
+            target_player.legendary_resistances_current -= 1
+            success = True
+            used_lr = True
+            if game_state and hasattr(game_state, "_trigger_gui_update"):
+                game_state._trigger_gui_update()
+
+    return {
+        "success": bool(success),
+        "total": roll_total,
+        "natural_roll": nat,
+        "is_crit": nat == 20,
+        "is_fail": nat == 1,
+        "notes": ev["notes"],
+        "adv": eff_adv,
+        "dis": eff_dis,
+        "used_legendary_resistance": used_lr,
+        "sculpted_evocation": ev["sculpted_evocation"],
+    }
+
+
 def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, damage_formula, half_on_success, source_name, game_state, damage_type="Fuoco", cover="none", spell_school=""):
     if hasattr(target_name, "name"):
         target_player = target_name
@@ -2981,136 +3285,38 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
     else:
         target_player = game_state.find_player(target_name)
     if not target_player: return
-    from common.dnd5e_tables import entity_get_class_level, entity_has_keyword, entity_has_elemental_adept
-    
+    from common.dnd5e_tables import entity_has_keyword, entity_has_elemental_adept
+
     try: roll_total = int(roll_total)
     except (ValueError, TypeError): roll_total = 0
     try: dc = int(dc)
     except (ValueError, TypeError): dc = 10
 
-    benedizione_bonus = 0
-    if has_effect_or_condition(target_player, "Benedizione", "Bless"):
-        benedizione_bonus = random.randint(1, 4)
-        roll_total += benedizione_bonus
-
-    anatema_penalty = 0
-    if has_effect_or_condition(target_player, "Anatema", "Bane"):
-        anatema_penalty = random.randint(1, 4)
-        roll_total -= anatema_penalty
-        
-    extra_adv_note = ""
-    _save_hero_b = int(getattr(target_player, "pending_hero_bonus", 0) or 0)
-    if _save_hero_b > 0:
-        roll_total += _save_hero_b
-        target_player.pending_hero_bonus = 0
-        extra_adv_note += f" (+{_save_hero_b} Punto Eroe)"
-    from common.feats_and_classes import get_armor_nonproficiency_penalties
-    if str(stat or "").upper() in ("FOR", "STR", "DES", "DEX"):
-        if get_armor_nonproficiency_penalties(target_player).get("disadvantage_str_dex"):
-            extra_adv_note += " (Svantaggio: Armatura senza competenza)"
-    aura_bonus, aura_paladin = get_paladin_aura_save_bonus(target_player, game_state)
-    if aura_bonus > 0:
-        roll_total += aura_bonus
-        extra_adv_note += f" (+{aura_bonus} Aura di Protezione di {aura_paladin})"
-    if stat in ("DES", "DEX"):
-        barb_lvl = entity_get_class_level(target_player, "barbar", "barbarian")
-        if (barb_lvl >= 2 or entity_has_keyword(target_player, "percezione del pericolo", "danger sense")):
-            t_c_low = [str(c).lower() for c in getattr(target_player, "conditions", [])]
-            if not any(ic in t_c_low for ic in ("accecato", "blinded", "assordato", "deafened", "incapacitato", "incapacitated")):
-                extra_adv_note += " (Vantaggio da Percezione del Pericolo)"
-        if is_condition_active(getattr(target_player, "conditions", []), "Schivata"):
-            extra_adv_note += " (Vantaggio da Schivata)"
-        if has_effect_or_condition(target_player, "Velocità", "Haste"):
-            extra_adv_note += " (Vantaggio da Velocità)"
-        if has_effect_or_condition(target_player, "Lentezza", "Slow"):
-            roll_total -= 2
-            extra_adv_note += " (-2 Lentezza)"
-        cover_val = str(cover).lower()
-        if cover_val in ("half", "mezza"):
-            roll_total += 2
-            extra_adv_note += " (+2 TS Mezza Copertura)"
-        elif cover_val in ("three_quarters", "3/4", "tre_quarti"):
-            roll_total += 5
-            extra_adv_note += " (+5 TS Tre Quarti di Copertura)"
-
-    # MM Magic Resistance (Resistenza alla Magia): nota visibile nei TS
-    from common.dnd5e_tables import entity_has_keyword as _ehk_mr
-    if _ehk_mr(target_player, "resistenza alla magia", "magic resistance"):
-        extra_adv_note += " (Resistenza alla Magia: Vantaggio vs incantesimi/effetti magici)"
-    if stat in ("DES", "DEX") and is_condition_active(getattr(target_player, "conditions", []), "Trattenuto"):
-        extra_adv_note += " (Svantaggio TS DES: Trattenuto)"
-    if stat in ("DES", "DEX") and getattr(target_player, "is_squeezing", False):
-        extra_adv_note += " (Svantaggio TS DES: Squeezed PHB p.192)"
-    if getattr(target_player, "exhaustion_level", 0) >= 3:
-        extra_adv_note += " (Svantaggio TS: Indebolimento Lv3+)"
-
-    from common.subclass_and_race_rules import get_racial_save_adv_reasons, get_subclass_save_mods
-    _caster_obj = game_state.find_player(source_name) if (game_state and source_name) else None
-    _is_spell_ctx = bool(spell_school or any(k in str(source_name or "").lower() for k in ("incant", "spell", "sav", "fuoc", "sonno", "sleep", "charm", "fright")))
-    _rac_s = get_racial_save_adv_reasons(
-        target_player, stat, is_magic=_is_spell_ctx,
-        effect_tags=(str(source_name), str(damage_type), str(spell_school))
+    ev = _evaluate_save_bonuses_and_flags(
+        target_player,
+        stat,
+        game_state=game_state,
+        source_name=source_name,
+        damage_type=damage_type,
+        cover=cover,
+        spell_school=spell_school,
     )
-    if _rac_s.get("advantage"):
-        extra_adv_note += f" (Vantaggio Razziale: {', '.join(_rac_s.get('reasons', []))})"
-    _sub_s = get_subclass_save_mods(
-        target_player, _caster_obj, stat, is_spell=_is_spell_ctx,
-        effect_tags=(str(source_name), str(damage_type)), game_state=game_state
-    )
-    if _sub_s.get("disadvantage"):
-        extra_adv_note += f" ({', '.join(_sub_s.get('notes', []))})"
+    benedizione_bonus = ev["benedizione_bonus"]
+    anatema_penalty = ev["anatema_penalty"]
+    roll_total += ev["bonus_total"]
+    extra_adv_note = ev["extra_adv_note"]
+    sculpted_evocation = ev["sculpted_evocation"]
+    _is_spell_ctx = ev["is_spell_ctx"]
+    _caster_obj = ev["caster_obj"]
 
-
-    # Regola 5e: Creature Incoscienti, Paralizzate o Stordite falliscono automaticamente i TS su Forza e Destrezza
-    auto_fail_cond = None
-    if stat in ("FOR", "DES", "STR", "DEX"):
-        for c in ["Incosciente", "Paralizzato", "Stordito", "Pietrificato"]:
-            if is_condition_active(getattr(target_player, "conditions", []), c):
-                auto_fail_cond = c
-                break
-
-    if auto_fail_cond:
+    if ev["auto_fail_cond"]:
         success = False
-        extra_adv_note += f" (Fallimento automatico per condizione: {auto_fail_cond})"
+    elif ev["auto_success"]:
+        success = True
     else:
         # D&D 5e RAW (PHB p. 179): I Tiri Salvezza (tranne TS Morte) NON hanno successo o fallimento automatico su 20 o 1 naturale.
-        # Il totale ottenuto deve raggiungere o superare la CD richiesta.
         success = (roll_total >= dc)
 
-    # Paladino Aura di Coraggio (Lv 10+): immune a Spaventato
-    _src_low = str(source_name or "").lower()
-    if any(k in _src_low for k in ("spavent", "fright", "paura", "fear", "terrore")):
-        from server.rules.class_abilities import is_immune_to_frightened_by_aura
-        _imm_f, _f_src = is_immune_to_frightened_by_aura(target_player, game_state)
-        if _imm_f:
-            success = True
-            extra_adv_note += f" [🛡️ Immune Spaventato: Aura di Coraggio di {_f_src}]"
-    if _rac_s.get("magic_sleep_immune") and any(k in _src_low for k in ("sonno", "sleep")):
-        success = True
-        extra_adv_note += " [🛡️ Retaggio Fatato: Immune Sonno Magico]"
-    if _sub_s.get("immune"):
-        success = True
-        extra_adv_note += f" [🛡️ {', '.join(_sub_s.get('notes', []))}]"
-
-    # Talento Sterminatore di Maghi (Mage Slayer, PHB p. 168): Vantaggio ai TS contro incantesimi entro 5 ft
-    if _caster_obj and _caster_obj.name != target_player.name and entity_has_keyword(target_player, "sterminatore di maghi", "mage slayer"):
-        if getattr(_caster_obj, "position", None) and getattr(target_player, "position", None):
-            _gt_ms = (getattr(game_state, "current_map", {}) or {}).get("grid_type", "hex")
-            if grid_distance_3d(Hex(_caster_obj.position[0], _caster_obj.position[1]), Hex(target_player.position[0], target_player.position[1]), getattr(_caster_obj, "elevation", 0), getattr(target_player, "elevation", 0), grid_type=_gt_ms) <= 1.5:
-                extra_adv_note += " (Vantaggio: Sterminatore di Maghi)"
-
-    # Mago Invocazione Lv 2+ Plasmare Incantesimi (Sculpt Spells, PHB p. 117): alleati superano automaticamente TS Evocazione e subiscono 0 danni
-    sculpted_evocation = False
-    if _caster_obj and _caster_obj.name != target_player.name:
-        _same_side = bool(getattr(_caster_obj, "is_party_member", False) or getattr(_caster_obj, "conn", None)) == bool(getattr(target_player, "is_party_member", False) or getattr(target_player, "conn", None))
-        _c_wiz = entity_get_class_level(_caster_obj, "mago", "wizard")
-        _c_sub = str((getattr(_caster_obj, "full_sheet", {}) or {}).get("subclass", "") or "").lower()
-        _is_evoc_school = any(k in f"{spell_school} {_src_low}".lower() for k in ("evoc", "invoc", "palla di fuoco", "fireball", "mani brucianti", "burning hands", "fulmine", "lightning", "cono di freddo", "cone of cold", "onda tonante", "thunderwave", "frantumare", "shatter"))
-        if _same_side and _is_evoc_school and ((_c_wiz >= 2 and ("evoc" in _c_sub or "invoc" in _c_sub)) or entity_has_keyword(_caster_obj, "plasmare incantesimi", "sculpt spells")):
-            sculpted_evocation = True
-            success = True
-            extra_adv_note += f" [✨ Plasmare Incantesimi ({_caster_obj.name}): Successo Automatico]"
-    
     # D&D 5e: Resistenze Leggendarie (es. 3/giorno)
     # Se opt_legendary_res_prompt è attivo, sospende la risoluzione finale finché il DM decide.
     used_legendary_resistance = False
@@ -3144,7 +3350,7 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
             used_legendary_resistance = True
             if game_state:
                 game_state._trigger_gui_update()
-    
+
     log_msg = f"{target_name} effettua un TS su {stat} contro CD {dc} di {source_name}. Risultato: {roll_total}{extra_adv_note}"
     if benedizione_bonus > 0:
         log_msg += f" (+{benedizione_bonus} Benedizione)"
@@ -3163,8 +3369,8 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
             removed = target_player.remove_effect(eff_name)
             log_msg += f" ✨ {target_name} supera il TS e si libera dall'effetto '{eff_name}'!"
             broadcast(game_state, make_player_stats_update(
-                target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, 
-                target_player.conditions, getattr(target_player, "temp_hp", 0), 
+                target_player.name, target_player.hp, target_player.max_hp, target_player.initiative,
+                target_player.conditions, getattr(target_player, "temp_hp", 0),
                 active_effects=getattr(target_player, "active_effects", [])
             ))
             game_state._trigger_gui_update()
@@ -3175,14 +3381,13 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
             if str(source_name).startswith("Save-Ends:"):
                 eff_name = str(source_name).replace("Save-Ends:", "").strip()
                 log_msg += f" ❌ L'effetto '{eff_name}' su {target_name} persiste!"
-            if str(source_name).startswith("Sistema (Concentrazione)"):
+            if str(source_name).startswith("Sistema (Concentrazione"):
                 drop_concentration(target_player, game_state, notify=True)
                 broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
                 game_state._trigger_gui_update()
-        
+
     if damage_formula:
         try:
-            from common.dnd5e_tables import entity_has_elemental_adept
             _eff_caster = _caster_obj
             if _eff_caster is None and game_state and "(" in str(source_name or ""):
                 _eff_caster = game_state.find_player(str(source_name).split("(", 1)[0].strip())
@@ -3197,7 +3402,7 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
             else:
                 dmg_res = roll_dice(clean_dmg, elemental_adept=caster_elem_adept)
                 dmg_val = dmg_res["total"]
-            
+
             # Elusione (Evasion) D&D 5e: Ladro/Monaco su TS Destrezza (non utilizzabile se Incapacitato/Paralizzato/Stordito)
             has_evasion = False
             incap_evasion = ["incapacitato", "incapacitated", "incosciente", "unconscious", "paralizzato", "paralyzed", "stordito", "stunned", "pietrificato", "petrified", "morto", "dead"]
@@ -3256,13 +3461,14 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
                     if has_evasion and half_on_success:
                         dmg_val = dmg_val // 2
                         log_msg += " (Elusione 5e: subisce solo metà danni nonostante il TS fallito!)"
-                        
+
                 if dmg_val > 0:
                     auto_apply_aoe = True
                     if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict):
                         auto_apply_aoe = game_state.automation_settings.get("auto_apply_aoe_damage", game_state.automation_settings.get("auto_apply_damage", True))
-                    
+
                     if auto_apply_aoe:
+                        old_hp_save = int(getattr(target_player, "hp", 0) or 0)
                         final_dmg, note, temp_absorbed, dmg_to_hp = apply_damage(
                             target_player, dmg_val, damage_type, game_state,
                             ignore_resistance=caster_elem_adept,
@@ -3277,6 +3483,18 @@ def _process_save_result(target_name, stat, roll_total, is_crit, is_fail, dc, da
                             log_msg += f" (+{target_player.temp_hp} Temp)"
                         broadcast(game_state, make_player_stats_update(target_player.name, target_player.hp, target_player.max_hp, target_player.initiative, target_player.conditions, getattr(target_player, "temp_hp", 0)))
                         game_state._trigger_gui_update()
+                        if dmg_to_hp > 0:
+                            from server.rules.reaction_magic import maybe_prompt_elemental_save_reactions
+                            maybe_prompt_elemental_save_reactions(
+                                target_player,
+                                source_name,
+                                damage_type,
+                                dmg_to_hp,
+                                game_state,
+                                was_incap_before=is_incap,
+                                old_hp_before=old_hp_save,
+                                attacker_name=(_eff_caster.name if _eff_caster else ""),
+                            )
                     else:
                         import uuid
                         pending_id = f"dmg_{uuid.uuid4().hex[:8]}"
@@ -4218,7 +4436,9 @@ def handle_reaction_response(data, player, game_state):
         elem = elem_norm
         if not hasattr(player, "damage_resistances") or not isinstance(player.damage_resistances, list):
             player.damage_resistances = []
-        already_perm_res = any(str(r).strip().lower() == elem.lower() for r in player.damage_resistances)
+        from server.rules.reaction_magic import canonical_element_key
+        elem_canon = canonical_element_key(elem)
+        already_perm_res = any(canonical_element_key(str(r)) == elem_canon for r in player.damage_resistances)
         if not already_perm_res:
             player.damage_resistances.append(elem)
             player._temp_absorb_resistance = elem
@@ -4240,7 +4460,7 @@ def handle_reaction_response(data, player, game_state):
         retro_note = ""
         inc_dmg = int(details.get("dmg_to_hp") or last_hit.get("dmg_to_hp") or 0)
         hit_dt = str(details.get("damage_type") or last_hit.get("damage_type") or "").strip().lower()
-        if inc_dmg > 0 and not already_perm_res and not last_hit.get("absorb_restored") and hit_dt == elem.lower():
+        if inc_dmg > 0 and not already_perm_res and not last_hit.get("absorb_restored") and canonical_element_key(hit_dt) == elem_canon:
             restored = inc_dmg // 2
             if restored > 0:
                 _restore_hp_from_reaction(player, restored)

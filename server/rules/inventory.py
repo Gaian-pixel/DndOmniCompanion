@@ -326,10 +326,12 @@ def handle_take_loot_request(data, player, game_state):
             for i_msg in item_sync_msgs:
                 send_message(player.conn, i_msg)
             
-        game_state.log_dm_message(f'[Loot] {player.name} ha raccolto {found["qty"]}x {found["item"]}.')
+        loot_item_lbl = found.get("item") or found.get("name") or "Bottino"
+        loot_qty_lbl = found.get("qty", 1)
+        game_state.log_dm_message(f'[Loot] {player.name} ha raccolto {loot_qty_lbl}x {loot_item_lbl}.')
         if hasattr(game_state, "record_journal_event"):
             try:
-                game_state.record_journal_event("loot", "Raccolta Bottino", f"{player.name} ha raccolto {found['qty']}x {found['item']}.", actor=player.name)
+                game_state.record_journal_event("loot", "Raccolta Bottino", f"{player.name} ha raccolto {loot_qty_lbl}x {loot_item_lbl}.", actor=player.name)
             except Exception:
                 pass
         game_state._trigger_gui_update()
@@ -358,14 +360,17 @@ def handle_buy_item_request(data, player, game_state):
                         p_val = int(_re.search(r"(\d+)", str(raw_p)).group(1)) if isinstance(raw_p, str) and _re.search(r"(\d+)", str(raw_p)) else int(raw_p)
                     except (ValueError, TypeError):
                         p_val = 10
-                    shop_items.append({
+                    s_entry = {
                         "name": raw_it.get("name", "Oggetto"),
                         "price": max(0, p_val),
                         "qty": int(raw_it.get("qty", 1) or 1),
                         "weight": float(raw_it.get("weight", 1.0) or 1.0),
                         "type": raw_it.get("type", "Equipaggiamento"),
                         "description": raw_it.get("description", raw_it.get("desc", "")),
-                    })
+                    }
+                    if raw_it.get("stock") is not None:
+                        s_entry["stock"] = int(raw_it["stock"])
+                    shop_items.append(s_entry)
                 else:
                     shop_items.append({"name": str(raw_it), "price": 10, "qty": 1, "weight": 1.0})
             shop["items"] = shop_items
@@ -375,7 +380,17 @@ def handle_buy_item_request(data, player, game_state):
                 break
                 
         if not item_to_buy: return
-        
+
+        raw_stock = item_to_buy.get("stock")
+        if raw_stock is not None:
+            try:
+                if int(raw_stock) <= 0:
+                    if getattr(player, "conn", None):
+                        send_message(player.conn, make_error_reply(f"'{item_name}' è esaurito in questa bottega."))
+                    return
+            except (TypeError, ValueError):
+                pass
+
         price = int(item_to_buy.get("price", 0))
         if price < 0:
             return
@@ -440,6 +455,11 @@ def handle_buy_item_request(data, player, game_state):
             buy_err_msg = "Zaino pieno! Non hai slot liberi."
         else:
             buy_err_msg = None
+            if item_to_buy.get("stock") is not None:
+                try:
+                    item_to_buy["stock"] = max(0, int(item_to_buy["stock"]) - 1)
+                except (TypeError, ValueError):
+                    pass
             # Mantieni sincronizzato anche l'array legacy per compatibilità dentro il lock
             inv = sheet.setdefault("inventory", [])
             bought_qty = int(new_entry.get("qty", 1) or 1)

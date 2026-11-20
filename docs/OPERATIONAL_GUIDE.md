@@ -747,17 +747,17 @@ D&D OmniCompanion features comprehensive targeting infrastructure, dynamic rayca
 
 ## 12. Testing Suite & Quality Assurance
 
-The codebase includes a consolidated testing suite in the `tests/` directory with **682 automated unit tests** across **68 `unittest` modules** passing at 100% with 0 failures (`python -m unittest discover tests`), alongside 2 standalone GUI smoke/E2E scripts (`tests/test_ui_smoke.py`, `tests/test_e2e_gui.py`) and 2 scripted multiplayer simulations (`tests/simulate_game_session.py`, `tests/simulate_4player_campaign.py`), covering headless unit tests, Phase 3, 3.5, 4, 4.5, 5 & 5B loopback TCP multiplayer, rules-hardening, UX, Workflows A-D & realistic Scenarios A-E integration E2E tests (`tests/test_gameplay_integration_e2e.py`, `tests/test_phase5b_scenarios_e2e.py`), complete 2014 PHB/DMG/MM & XGtE/TCE mechanics & 30 selectable DM options (`test_block1_wiring.py` .. `test_block6_monster_manual.py`, `test_phb_dmg_mm_complete.py`, `test_full_5e_phb_dmg_mm.py`), advanced 5e RAW mechanics (Smite, Wild Shape, Font of Magic, Arcane Recovery, Reliable Talent, Jack of All Trades, Brutal Critical, Stunning Strike, Superiority Dice, Cantrip Scaling, Monster Recharge, Auto XP), automatic magic item modifiers, 3D dice physics and rendering, tactical combat, 3D space and elevation, join game flow and server history, companions/familiars, travel/camping, GUI smoke tests, and single-window architecture:
+The codebase includes a consolidated testing suite in the `tests/` directory with **714 automated unit tests** across **71 `unittest` modules** passing at 100% with 0 failures (`python -m unittest discover tests`), alongside 2 standalone GUI smoke/E2E scripts (`tests/test_ui_smoke.py`, `tests/test_e2e_gui.py`) and 2 scripted multiplayer simulations (`tests/simulate_game_session.py`, `tests/simulate_4player_campaign.py`), covering headless unit tests, Phase 3, 3.5, 4, 4.5, 5, 5B & 5C loopback TCP multiplayer, rules-hardening, UX, Workflows A-D & realistic Scenarios A-E integration E2E tests (`tests/test_gameplay_integration_e2e.py`, `tests/test_phase5b_scenarios_e2e.py`, `tests/test_phase5c_vtt_e2e.py`), complete 2014 PHB/DMG/MM & XGtE/TCE mechanics & 30 selectable DM options (`test_block1_wiring.py` .. `test_block6_monster_manual.py`, `test_phb_dmg_mm_complete.py`, `test_full_5e_phb_dmg_mm.py`), advanced 5e RAW mechanics (Smite, Wild Shape, Font of Magic, Arcane Recovery, Reliable Talent, Jack of All Trades, Brutal Critical, Stunning Strike, Superiority Dice, Cantrip Scaling, Monster Recharge, Auto XP), automatic magic item modifiers, 3D dice physics and rendering, tactical combat, 3D space and elevation, join game flow and server history, companions/familiars, travel/camping, GUI smoke tests, and single-window architecture:
 
 ```powershell
-# 1. Run comprehensive unit tests (682 automated unittest cases across 68 modules, 0 failures)
+# 1. Run comprehensive unit tests (714 automated unittest cases across 71 modules, 0 failures)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 1a. Run Phase 3..5 Gameplay Integrity, UX, Workflows A-D & Real Loopback TCP Multiplayer E2E Suite (21 tests)
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_gameplay_integration_e2e.py
 
-# 1a2. Run Phase 5B Realistic Acceptance Scenarios A-E E2E Suite (5 tests)
-$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_phase5b_scenarios_e2e.py
+# 1a2. Run Phase 5B Realistic Acceptance Scenarios A-E & Phase 5C VTT E2E Suites (18 tests)
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_phase5b_scenarios_e2e.py tests/test_phase5c_vtt_e2e.py
 
 # 1b. Run Complete PHB / Selectable DMG / XGtE / TCE / MM test suites
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_phb_dmg_mm_complete.py tests/test_full_5e_phb_dmg_mm.py
