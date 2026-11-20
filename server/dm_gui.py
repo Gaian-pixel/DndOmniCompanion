@@ -88,7 +88,8 @@ from server.dm_automation_panel import (
     apply_pending_damage_gui as dm_apply_pending_damage_gui,
     apply_pending_damage_custom_gui as dm_apply_pending_damage_custom_gui,
     resolve_pending_door_gui as dm_resolve_pending_door_gui,
-    resolve_pending_legendary_resistance_gui as dm_resolve_pending_legendary_resistance_gui
+    resolve_pending_legendary_resistance_gui as dm_resolve_pending_legendary_resistance_gui,
+    batch_resolve_pending_actions as dm_batch_resolve_pending_actions,
 )
 from server.dm_travel_dialog import (
     open_travel_panel as dm_open_travel_panel
@@ -3672,6 +3673,9 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
 
     def resolve_pending_legendary_resistance_gui(self, pending_id, decision):
         return dm_resolve_pending_legendary_resistance_gui(self, pending_id, decision)
+
+    def batch_resolve_pending_actions(self, decision="approve", category="all"):
+        return dm_batch_resolve_pending_actions(self, decision=decision, category=category)
 
     def open_assign_item_dialog(self, prefill_item=None):
         return dm_open_assign_item_dialog(self, prefill_item=prefill_item)

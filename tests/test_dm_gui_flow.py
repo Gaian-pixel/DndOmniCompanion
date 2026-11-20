@@ -9,6 +9,7 @@ Test di integrazione per la coerenza dei flussi GUI lato Dungeon Master (DM):
 """
 
 import os
+import queue
 import sys
 import tempfile
 import shutil
@@ -433,6 +434,179 @@ class TestDMGuiFlow(unittest.TestCase):
             if top.winfo_exists():
                 top.destroy()
             self.root.update_idletasks()
+
+    def test_automation_settings_30_option_search_and_clear(self):
+        """TASK-044: il dialogo automazione DM indicizza le 30 regole opzionali e filtra/ripristina dinamicamente."""
+        from types import SimpleNamespace
+        from common.game_state import GameState
+        from server.dm_automation_panel import open_automation_settings_dialog
+
+        gs = GameState(queue.Queue())
+        fake_dm = SimpleNamespace(
+            master=self.root,
+            server=SimpleNamespace(game_state=gs),
+            update_player_list=lambda: None,
+            update_canvas=lambda: None,
+            show_toast=lambda *a, **kw: None,
+        )
+        win = open_automation_settings_dialog(fake_dm)
+        try:
+            win.withdraw()
+            self.root.update_idletasks()
+            self.assertEqual(len(win._option_rows), 30)
+
+            shown_initial = win._apply_opt_filter()
+            self.assertEqual(shown_initial, 30)
+            self.assertEqual(sum(1 for f, _ in win._option_rows if f.winfo_manager() == "pack"), 30)
+
+            win._opt_search_var.set("Cleaving")
+            self.root.update_idletasks()
+            self.assertEqual(sum(1 for f, _ in win._option_rows if f.winfo_manager() == "pack"), 1)
+
+            win._opt_search_var.set("Iniziativa")
+            self.root.update_idletasks()
+            self.assertGreaterEqual(sum(1 for f, _ in win._option_rows if f.winfo_manager() == "pack"), 1)
+
+            win._opt_search_var.set("")
+            self.root.update_idletasks()
+            self.assertEqual(sum(1 for f, _ in win._option_rows if f.winfo_manager() == "pack"), 30)
+        finally:
+            try:
+                win.grab_release()
+            except Exception:
+                pass
+            if win.winfo_exists():
+                win.destroy()
+            self.root.update_idletasks()
+
+    def test_pending_actions_category_filtering_and_empty_state(self):
+        """TASK-044: filtro per categoria sulle decisioni DM in sospeso e messaggio vuoto per categoria senza elementi."""
+        from types import SimpleNamespace
+        from common.game_state import GameState
+        from server.dm_automation_panel import update_pending_actions_ui
+
+        gs = GameState(queue.Queue())
+        gs.pending_damages = {
+            "d1": {"id": "d1", "attacker": "Aria", "target": "Goblin", "raw_damage": 9, "damage_type": "Tagliente", "weapon_name": "Stocco"}
+        }
+        gs.pending_doors = {
+            "door1": {"id": "door1", "q": 1, "r": 1, "door_name": "Porta Nord", "player_name": "Aria", "method": "lockpick", "roll": 16, "dc": 15, "success_suggested": True}
+        }
+        gs.pending_legendary_resistances = {}
+
+        host = tk.Frame(self.root)
+        host.pack()
+        container = tk.Frame(host)
+        container.pack()
+        fake_dm = SimpleNamespace(
+            master=self.root,
+            server=SimpleNamespace(game_state=gs),
+            pending_actions_container=container,
+            _pending_actions_filter="all",
+            apply_pending_damage_gui=lambda *a: None,
+            apply_pending_damage_custom_gui=lambda *a: None,
+            resolve_pending_door_gui=lambda *a: None,
+            resolve_pending_legendary_resistance_gui=lambda *a: None,
+            update_pending_actions_ui=lambda: update_pending_actions_ui(fake_dm),
+        )
+        try:
+            update_pending_actions_ui(fake_dm)
+            self.root.update_idletasks()
+            all_lbls = [w.cget("text") for w in _walk_widgets(container) if isinstance(w, tk.Label)]
+            self.assertTrue(any("Aria -> Goblin" in t for t in all_lbls))
+            self.assertTrue(any("Porta Nord" in t for t in all_lbls))
+
+            fake_dm._pending_actions_filter = "doors"
+            update_pending_actions_ui(fake_dm)
+            self.root.update_idletasks()
+            door_lbls = [w.cget("text") for w in _walk_widgets(container) if isinstance(w, tk.Label)]
+            self.assertFalse(any("Aria -> Goblin" in t for t in door_lbls))
+            self.assertTrue(any("Porta Nord" in t for t in door_lbls))
+
+            fake_dm._pending_actions_filter = "legendary"
+            update_pending_actions_ui(fake_dm)
+            self.root.update_idletasks()
+            leg_lbls = [w.cget("text") for w in _walk_widgets(container) if isinstance(w, tk.Label)]
+            self.assertIn(_t("pending_empty_filter"), leg_lbls)
+        finally:
+            if host.winfo_exists():
+                host.destroy()
+            self.root.update_idletasks()
+
+    def test_batch_resolve_pending_actions_approve_and_reject(self):
+        """TASK-044: batch_resolve_pending_actions risolve Approve All e Reject All su danni, porte e resistenze leggendarie."""
+        from types import SimpleNamespace
+        from common.game_state import GameState, Player
+        from server.dm_automation_panel import batch_resolve_pending_actions, update_pending_actions_ui
+
+        def _setup_queue():
+            gs = GameState(queue.Queue())
+            goblin = Player("Goblin")
+            goblin.hp = 20
+            goblin.max_hp = 20
+            dragon = Player("Drago")
+            dragon.hp = 80
+            dragon.max_hp = 80
+            dragon.legendary_resistances_max = 3
+            dragon.legendary_resistances_current = 2
+            gs.players.extend([goblin, dragon])
+            gs.current_map = {"doors": [{"q": 2, "r": 2, "state": "closed", "name": "Porta Sud"}], "hexes": [{"q": 2, "r": 2}], "fow_revealed": set(), "fow_draft": set()}
+            gs.pending_damages = {
+                "d1": {"id": "d1", "attacker": "Aria", "target": "Goblin", "raw_damage": 7, "damage_type": "Tagliente", "weapon_name": "Spada"}
+            }
+            gs.pending_doors = {
+                "dr1": {"id": "dr1", "q": 2, "r": 2, "door_name": "Porta Sud", "player_name": "Aria", "method": "lockpick", "roll": 18, "dc": 15}
+            }
+            gs.pending_legendary_resistances = {
+                "lr1": {"id": "lr1", "target": "Drago", "stat": "DES", "dc": 16, "roll_total": 7, "remaining": 2, "source": "Palla di Fuoco"}
+            }
+            host = tk.Frame(self.root)
+            container = tk.Frame(host)
+            dm_mock = SimpleNamespace(
+                master=self.root,
+                server=SimpleNamespace(game_state=gs),
+                pending_actions_container=container,
+                _pending_actions_filter="all",
+            )
+            dm_mock.update_pending_actions_ui = lambda: update_pending_actions_ui(dm_mock)
+            return gs, goblin, dragon, host, dm_mock
+
+        with patch("server.rules.combat.broadcast"), \
+             patch("server.rules.map_interaction.broadcast"), \
+             patch("server.dm_monster_engine.broadcast"):
+            gs1, gob1, drg1, host1, dm1 = _setup_queue()
+            try:
+                count_app = batch_resolve_pending_actions(dm1, decision="approve", category="all")
+                self.assertEqual(count_app, 3)
+                self.assertEqual(gob1.hp, 13)
+                self.assertEqual(gs1.current_map["doors"][0]["state"], "open")
+                self.assertEqual(drg1.legendary_resistances_current, 1)
+                self.assertEqual(len(gs1.pending_damages), 0)
+                self.assertEqual(len(gs1.pending_doors), 0)
+                self.assertEqual(len(gs1.pending_legendary_resistances), 0)
+            finally:
+                if host1.winfo_exists():
+                    host1.destroy()
+
+            gs2, gob2, drg2, host2, dm2 = _setup_queue()
+            try:
+                # Verifica filtro singola categoria ("damage") prima del reject globale
+                only_dmg = batch_resolve_pending_actions(dm2, decision="reject", category="damage")
+                self.assertEqual(only_dmg, 1)
+                self.assertEqual(gob2.hp, 20)
+                self.assertEqual(len(gs2.pending_damages), 0)
+                self.assertEqual(len(gs2.pending_doors), 1)
+                self.assertEqual(len(gs2.pending_legendary_resistances), 1)
+
+                rest_rej = batch_resolve_pending_actions(dm2, decision="reject", category="all")
+                self.assertEqual(rest_rej, 2)
+                self.assertEqual(gs2.current_map["doors"][0]["state"], "closed")
+                self.assertEqual(drg2.legendary_resistances_current, 2)
+                self.assertEqual(len(gs2.pending_doors), 0)
+                self.assertEqual(len(gs2.pending_legendary_resistances), 0)
+            finally:
+                if host2.winfo_exists():
+                    host2.destroy()
 
 
 if __name__ == "__main__":

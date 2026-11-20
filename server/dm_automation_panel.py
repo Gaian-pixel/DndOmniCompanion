@@ -12,6 +12,7 @@ from common.theme import (
     TEXT_COLOR, TEXT_MUTED, FONT_TITLE, FONT_BOLD, FONT_SMALL
 )
 from components.ui_components import ToolTip
+from common.i18n import _t
 
 
 def open_automation_settings_dialog(dm_gui):
@@ -267,28 +268,30 @@ def open_automation_settings_dialog(dm_gui):
     sec5 = tk.LabelFrame(scrollable_frame, text=" 📕 Regole Opzionali DMG (Selezionabili dal DM) ", font=FONT_BOLD, bg=SURFACE_COLOR, fg="#F472B6", padx=10, pady=8)
     sec5.pack(fill=tk.X, pady=6)
 
-    ttk.Checkbutton(sec5, text="Spazzata / Fendere Creature (Cleaving - DMG p. 272)", variable=opt_cleaving_var).pack(anchor="w", pady=2)
-    tk.Label(sec5, text="  ↳ Se un attacco in mischia azzera un nemico non ferito in eccesso, i danni residui traboccano su un nemico adiacente se il TxC colpisce la sua CA.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
+    search_bar = tk.Frame(sec5, bg=SURFACE_COLOR)
+    search_bar.pack(fill=tk.X, pady=(0, 8))
+    tk.Label(search_bar, text=_t("auto_opt_search_label"), font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR).pack(side=tk.LEFT, padx=(0, 6))
+    opt_search_var = tk.StringVar(value="")
+    ttk.Entry(search_bar, textvariable=opt_search_var, width=28).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+    opt_count_lbl = tk.Label(search_bar, text="", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED)
+    opt_count_lbl.pack(side=tk.RIGHT, padx=(6, 0))
+    ttk.Button(search_bar, text=_t("auto_opt_clear"), style="Tool.TButton", command=lambda: opt_search_var.set("")).pack(side=tk.RIGHT)
 
-    ttk.Checkbutton(sec5, text="Danno Massiccio / Shock Sistemico (Massive Damage - DMG p. 273)", variable=opt_massive_var).pack(anchor="w", pady=2)
-    tk.Label(sec5, text="  ↳ Un singolo colpo >= 50% dei PF Max richiede TS Costituzione CD 15 o applica la tabella d10 Shock Sistemico.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
-
-    ttk.Checkbutton(sec5, text="Ferite Permanenti (Lingering Injuries - DMG p. 272)", variable=opt_injuries_var).pack(anchor="w", pady=2)
-    tk.Label(sec5, text="  ↳ Su Colpo Critico subito o crollo a 0 PF tira sulla tabella d20 delle Ferite Permanenti (occhio, costole, cicatrice, zoppia).", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
-
-    ttk.Checkbutton(sec5, text="Follia / Sanità Mentale (Madness - DMG p. 258-260)", variable=opt_madness_var).pack(anchor="w", pady=2)
-    tk.Label(sec5, text="  ↳ Abilita le tabelle d100 di Follia (Breve, Lunga, Indefinita) e le meccaniche mentali in combattimento ed esplorazione.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
-
-    ttk.Checkbutton(sec5, text="Manovre Marziali Opzionali (Disarm, Overrun, Tumble, Shove Aside - DMG p. 271)", variable=opt_dmg_maneuvers_var).pack(anchor="w", pady=2)
-    tk.Label(sec5, text="  ↳ Abilita Disarmare, Oltrepassare (Overrun), Capovolta (Tumble) e Spinta Laterale (Shove Aside) come azioni di combattimento.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
-
-    ttk.Checkbutton(sec5, text="Punti Incantesimo Opzionali (Spell Points - DMG p. 288)", variable=opt_spell_points_var).pack(anchor="w", pady=2)
-    tk.Label(sec5, text="  ↳ Sostituisce gli slot tradizionali (1°-9°) con un pool flessibile di Punti Incantesimo.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
-
-    ttk.Checkbutton(sec5, text="Sopravvivenza Rigida: Fame, Sete & Clima Estremo (DMG p. 110-111)", variable=opt_survival_var).pack(anchor="w", pady=2)
-    tk.Label(sec5, text="  ↳ Traccia razioni giornaliere, acqua e TS orari da Caldo/Freddo Estremo con penalità cumulative di Sfinimento.", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
-
-    dmg_extra_toggles = [
+    dmg_toggles = [
+        ("Spazzata / Fendere Creature (Cleaving - DMG p. 272)", opt_cleaving_var,
+         "Se un attacco in mischia azzera un nemico non ferito in eccesso, i danni residui traboccano su un nemico adiacente se il TxC colpisce la sua CA."),
+        ("Danno Massiccio / Shock Sistemico (Massive Damage - DMG p. 273)", opt_massive_var,
+         "Un singolo colpo >= 50% dei PF Max richiede TS Costituzione CD 15 o applica la tabella d10 Shock Sistemico."),
+        ("Ferite Permanenti (Lingering Injuries - DMG p. 272)", opt_injuries_var,
+         "Su Colpo Critico subito o crollo a 0 PF tira sulla tabella d20 delle Ferite Permanenti (occhio, costole, cicatrice, zoppia)."),
+        ("Follia / Sanità Mentale (Madness - DMG p. 258-260)", opt_madness_var,
+         "Abilita le tabelle d100 di Follia (Breve, Lunga, Indefinita) e le meccaniche mentali in combattimento ed esplorazione."),
+        ("Manovre Marziali Opzionali (Disarm, Overrun, Tumble, Shove Aside - DMG p. 271)", opt_dmg_maneuvers_var,
+         "Abilita Disarmare, Oltrepassare (Overrun), Capovolta (Tumble) e Spinta Laterale (Shove Aside) come azioni di combattimento."),
+        ("Punti Incantesimo Opzionali (Spell Points - DMG p. 288)", opt_spell_points_var,
+         "Sostituisce gli slot tradizionali (1°-9°) con un pool flessibile di Punti Incantesimo."),
+        ("Sopravvivenza Rigida: Fame, Sete & Clima Estremo (DMG p. 110-111)", opt_survival_var,
+         "Traccia razioni giornaliere, acqua e TS orari da Caldo/Freddo Estremo con penalità cumulative di Sfinimento."),
         ("Direzione Tattica / Facing (DMG p. 252)", opt_facing_var,
          "Traccia l'orientamento dei token: fianchi/schiena influiscono su Vantaggio e Scudi."),
         ("Colpire la Copertura (Hitting Cover - DMG p. 272)", opt_hitting_cover_var,
@@ -332,9 +335,13 @@ def open_automation_settings_dialog(dm_gui):
         ("Complicazioni Downtime XGtE (10% su attività)", opt_xgte_comp_var,
          "Applica probabilità del 10% di complicazioni casuali durante le attività settimanali di Tempo Libero."),
     ]
-    for lbl, var, hint in dmg_extra_toggles:
-        ttk.Checkbutton(sec5, text=lbl, variable=var).pack(anchor="w", pady=2)
-        tk.Label(sec5, text=f"  ↳ {hint}", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 4))
+    option_rows = []
+    for lbl, var, hint in dmg_toggles:
+        row_frame = tk.Frame(sec5, bg=SURFACE_COLOR)
+        row_frame.pack(fill=tk.X, pady=1)
+        ttk.Checkbutton(row_frame, text=lbl, variable=var).pack(anchor="w", pady=1)
+        tk.Label(row_frame, text=f"  ↳ {hint}", font=FONT_SMALL, bg=SURFACE_COLOR, fg=TEXT_MUTED).pack(anchor="w", pady=(0, 3))
+        option_rows.append((row_frame, f"{lbl} {hint}".lower()))
 
     init_frame = tk.Frame(sec5, bg=SURFACE_COLOR)
     init_frame.pack(fill=tk.X, pady=(6, 2))
@@ -347,6 +354,7 @@ def open_automation_settings_dialog(dm_gui):
         width=46
     )
     init_cb.pack(anchor="w", pady=(2, 2))
+    option_rows.append((init_frame, ("Variante Iniziativa (DMG p. 270) " + " ".join(init_var_labels.values())).lower()))
 
     rv_frame = tk.Frame(sec5, bg=SURFACE_COLOR)
     rv_frame.pack(fill=tk.X, pady=(6, 2))
@@ -359,6 +367,22 @@ def open_automation_settings_dialog(dm_gui):
         width=46
     )
     rv_cb.pack(anchor="w", pady=(2, 2))
+    option_rows.append((rv_frame, ("Variante Ritmo Riposi (DMG p. 267) " + " ".join(rest_var_labels.values())).lower()))
+
+    def _apply_opt_filter(*_args):
+        q = opt_search_var.get().strip().lower()
+        for row_frame, _ in option_rows:
+            row_frame.pack_forget()
+        shown = 0
+        for row_frame, hay in option_rows:
+            if not q or q in hay:
+                row_frame.pack(fill=tk.X, pady=1)
+                shown += 1
+        opt_count_lbl.config(text=_t("auto_opt_showing_fmt", count=shown, total=len(option_rows)))
+        return shown
+
+    opt_search_var.trace_add("write", _apply_opt_filter)
+    _apply_opt_filter()
 
     def save_and_close():
         sel_mode = mode_var.get()
@@ -434,12 +458,57 @@ def open_automation_settings_dialog(dm_gui):
     btn_cancel = ttk.Button(bottom, text="Annulla", style="Tool.TButton", command=win.destroy)
     btn_cancel.pack(side=tk.RIGHT)
 
+    win._opt_search_var = opt_search_var
+    win._option_rows = option_rows
+    win._apply_opt_filter = _apply_opt_filter
+    return win
+
+
+def batch_resolve_pending_actions(dm_gui, decision="approve", category="all"):
+    """Risolve in blocco le decisioni DM in sospeso per categoria ('all', 'damage', 'doors', 'legendary')."""
+    if not hasattr(dm_gui, "server") or not hasattr(dm_gui.server, "game_state"):
+        return 0
+    cat = str(category or "all").strip().lower()
+    if cat not in ("all", "damage", "doors", "legendary"):
+        cat = "all"
+    approve = str(decision or "approve").strip().lower() == "approve"
+    gs = dm_gui.server.game_state
+
+    with gs.lock:
+        dmg_ids = list(getattr(gs, "pending_damages", {}).keys()) if cat in ("all", "damage") else []
+        door_ids = list(getattr(gs, "pending_doors", {}).keys()) if cat in ("all", "doors") else []
+        lr_ids = list(getattr(gs, "pending_legendary_resistances", {}).keys()) if cat in ("all", "legendary") else []
+
+    resolved = 0
+    if dmg_ids:
+        from server.rules.combat import handle_apply_pending_damage_request
+        dmg_action = "apply" if approve else "cancel"
+        for pid in dmg_ids:
+            handle_apply_pending_damage_request({"pending_id": pid, "action": dmg_action}, None, gs)
+            resolved += 1
+    if door_ids:
+        from server.rules.map_interaction import handle_resolve_pending_door_request
+        door_outcome = "open" if approve else "locked"
+        for pid in door_ids:
+            handle_resolve_pending_door_request({"pending_id": pid, "outcome": door_outcome}, None, gs)
+            resolved += 1
+    if lr_ids:
+        from server.dm_monster_engine import handle_resolve_legendary_resistance_request
+        lr_decision = "use" if approve else "decline"
+        for pid in lr_ids:
+            handle_resolve_legendary_resistance_request({"pending_id": pid, "decision": lr_decision}, None, gs)
+            resolved += 1
+
+    if hasattr(dm_gui, "update_pending_actions_ui"):
+        dm_gui.update_pending_actions_ui()
+    return resolved
+
 
 def update_pending_actions_ui(dm_gui):
-    """Aggiorna il contenitore fluttuante delle azioni in sospeso (Danni e Porte)."""
+    """Aggiorna il contenitore fluttuante delle azioni in sospeso (Danni, Porte, Leggendarie)."""
     if not hasattr(dm_gui, "pending_actions_container") or not hasattr(dm_gui, "server") or not hasattr(dm_gui.server, "game_state"):
         return
-        
+
     gs = dm_gui.server.game_state
     with gs.lock:
         p_damages = dict(getattr(gs, "pending_damages", {}))
@@ -458,6 +527,11 @@ def update_pending_actions_ui(dm_gui):
     else:
         dm_gui.pending_actions_container.pack(fill=tk.X, pady=(4, 2))
 
+    active_filter = getattr(dm_gui, "_pending_actions_filter", "all")
+    if active_filter not in ("all", "damage", "doors", "legendary"):
+        active_filter = "all"
+    dm_gui._pending_actions_filter = active_filter
+
     hdr_frame = tk.Frame(dm_gui.pending_actions_container, bg=SURFACE_COLOR_ALT)
     hdr_frame.pack(fill=tk.X, pady=(0, 4))
     tk.Label(
@@ -466,101 +540,156 @@ def update_pending_actions_ui(dm_gui):
     ).pack(side=tk.LEFT)
     total_count = len(p_damages) + len(p_doors) + len(p_leg_res)
     tk.Label(
-        hdr_frame, text=f"({total_count})", 
+        hdr_frame, text=f"({total_count})",
         font=FONT_SMALL, bg=SURFACE_COLOR_ALT, fg=TEXT_MUTED
     ).pack(side=tk.LEFT, padx=4)
-    
+
+    filter_bar = tk.Frame(dm_gui.pending_actions_container, bg=SURFACE_COLOR_ALT)
+    filter_bar.pack(fill=tk.X, pady=(0, 4))
+
+    def _select_filter(cat_key):
+        dm_gui._pending_actions_filter = cat_key
+        dm_gui.update_pending_actions_ui()
+
+    cat_buttons = [
+        ("all", _t("pending_filter_all", count=total_count)),
+        ("damage", _t("pending_filter_damage", count=len(p_damages))),
+        ("doors", _t("pending_filter_doors", count=len(p_doors))),
+        ("legendary", _t("pending_filter_legendary", count=len(p_leg_res))),
+    ]
+    for cat_key, cat_lbl in cat_buttons:
+        btn_style = "Primary.TButton" if active_filter == cat_key else "Tool.TButton"
+        ttk.Button(
+            filter_bar,
+            text=cat_lbl,
+            style=btn_style,
+            command=lambda k=cat_key: _select_filter(k),
+        ).pack(side=tk.LEFT, padx=(0, 3))
+
+    batch_bar = tk.Frame(dm_gui.pending_actions_container, bg=SURFACE_COLOR_ALT)
+    batch_bar.pack(fill=tk.X, pady=(0, 4))
+    ttk.Button(
+        batch_bar,
+        text=_t("pending_batch_approve"),
+        style="Primary.TButton",
+        command=lambda: batch_resolve_pending_actions(dm_gui, "approve", active_filter),
+    ).pack(side=tk.LEFT, padx=(0, 4))
+    ttk.Button(
+        batch_bar,
+        text=_t("pending_batch_reject"),
+        style="Danger.TButton",
+        command=lambda: batch_resolve_pending_actions(dm_gui, "reject", active_filter),
+    ).pack(side=tk.LEFT)
+
+    shown_cards = 0
+
     # Schede Danni
-    for p_id, p_info in list(p_damages.items()):
-        card = tk.Frame(dm_gui.pending_actions_container, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=4)
-        card.pack(fill=tk.X, pady=2)
-        
-        atk = p_info.get("attacker", "Attaccante")
-        tgt = p_info.get("target", "Bersaglio")
-        raw_dmg = p_info.get("raw_damage", 0)
-        dmg_type = p_info.get("damage_type", "Danno")
-        is_crit = p_info.get("is_crit", False)
-        wpn = p_info.get("weapon_name", "Attacco")
-        
-        crit_badge = " 🌟 CRITICO" if is_crit else ""
-        txt_info = f"⚔️ {atk} -> {tgt} ({wpn}){crit_badge}: {raw_dmg} {dmg_type}"
-        tk.Label(card, text=txt_info, font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR, anchor="w").pack(fill=tk.X)
-        
-        btns = tk.Frame(card, bg=SURFACE_COLOR)
-        btns.pack(fill=tk.X, pady=(3, 0))
-        
-        btn_full = ttk.Button(btns, text="Pieno", style="Primary.TButton", command=lambda i=p_id: dm_gui.apply_pending_damage_gui(i, "apply"))
-        btn_full.pack(side=tk.LEFT, padx=(0, 2))
-        ToolTip(btn_full, f"Applica danno intero ({raw_dmg} {dmg_type}) con resistenze/immunità della scheda")
-        
-        btn_half = ttk.Button(btns, text="Dimezza", style="Gold.TButton", command=lambda i=p_id: dm_gui.apply_pending_damage_gui(i, "half"))
-        btn_half.pack(side=tk.LEFT, padx=2)
-        ToolTip(btn_half, f"Applica danno dimezzato ({max(1, raw_dmg // 2)} {dmg_type})")
-        
-        btn_custom = ttk.Button(btns, text="Modifica", style="Tool.TButton", command=lambda i=p_id, r=raw_dmg: dm_gui.apply_pending_damage_custom_gui(i, r))
-        btn_custom.pack(side=tk.LEFT, padx=2)
-        ToolTip(btn_custom, "Inserisci manualmente l'ammontare esatto di danno")
-        
-        btn_cancel = ttk.Button(btns, text="Annulla", style="Danger.TButton", command=lambda i=p_id: dm_gui.apply_pending_damage_gui(i, "cancel"))
-        btn_cancel.pack(side=tk.LEFT, padx=2)
-        ToolTip(btn_cancel, "Annulla e azzera questo danno (nessun HP sottratto)")
+    if active_filter in ("all", "damage"):
+        for p_id, p_info in list(p_damages.items()):
+            shown_cards += 1
+            card = tk.Frame(dm_gui.pending_actions_container, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=4)
+            card.pack(fill=tk.X, pady=2)
+
+            atk = p_info.get("attacker", "Attaccante")
+            tgt = p_info.get("target", "Bersaglio")
+            raw_dmg = p_info.get("raw_damage", 0)
+            dmg_type = p_info.get("damage_type", "Danno")
+            is_crit = p_info.get("is_crit", False)
+            wpn = p_info.get("weapon_name", "Attacco")
+
+            crit_badge = " 🌟 CRITICO" if is_crit else ""
+            txt_info = f"⚔️ {atk} -> {tgt} ({wpn}){crit_badge}: {raw_dmg} {dmg_type}"
+            tk.Label(card, text=txt_info, font=FONT_BOLD, bg=SURFACE_COLOR, fg=TEXT_COLOR, anchor="w").pack(fill=tk.X)
+
+            btns = tk.Frame(card, bg=SURFACE_COLOR)
+            btns.pack(fill=tk.X, pady=(3, 0))
+
+            btn_full = ttk.Button(btns, text="Pieno", style="Primary.TButton", command=lambda i=p_id: dm_gui.apply_pending_damage_gui(i, "apply"))
+            btn_full.pack(side=tk.LEFT, padx=(0, 2))
+            ToolTip(btn_full, f"Applica danno intero ({raw_dmg} {dmg_type}) con resistenze/immunità della scheda")
+
+            btn_half = ttk.Button(btns, text="Dimezza", style="Gold.TButton", command=lambda i=p_id: dm_gui.apply_pending_damage_gui(i, "half"))
+            btn_half.pack(side=tk.LEFT, padx=2)
+            ToolTip(btn_half, f"Applica danno dimezzato ({max(1, raw_dmg // 2)} {dmg_type})")
+
+            btn_custom = ttk.Button(btns, text="Modifica", style="Tool.TButton", command=lambda i=p_id, r=raw_dmg: dm_gui.apply_pending_damage_custom_gui(i, r))
+            btn_custom.pack(side=tk.LEFT, padx=2)
+            ToolTip(btn_custom, "Inserisci manualmente l'ammontare esatto di danno")
+
+            btn_cancel = ttk.Button(btns, text="Annulla", style="Danger.TButton", command=lambda i=p_id: dm_gui.apply_pending_damage_gui(i, "cancel"))
+            btn_cancel.pack(side=tk.LEFT, padx=2)
+            ToolTip(btn_cancel, "Annulla e azzera questo danno (nessun HP sottratto)")
 
     # Schede Porte / Scasso
-    for p_id, p_info in list(p_doors.items()):
-        card = tk.Frame(dm_gui.pending_actions_container, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=4)
-        card.pack(fill=tk.X, pady=2)
-        
-        p_name = p_info.get("player_name", "Giocatore")
-        d_name = p_info.get("door_name", "Porta")
-        method = p_info.get("method", "interazione")
-        method_str = "Scasso" if method == "lockpick" else "Sfondamento"
-        roll = p_info.get("roll", 0)
-        dc = p_info.get("dc", 15)
-        sugg = " (Suggerito: SUCCESSO)" if p_info.get("success_suggested") else " (Suggerito: FALLITO)"
-        
-        txt_info = f"🚪 {p_name} tenta {method_str} su {d_name} [Tiro {roll} vs CD {dc}]{sugg}"
-        tk.Label(card, text=txt_info, font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD, anchor="w").pack(fill=tk.X)
-        
-        btns = tk.Frame(card, bg=SURFACE_COLOR)
-        btns.pack(fill=tk.X, pady=(3, 0))
-        
-        btn_open = ttk.Button(btns, text="Spalanca", style="Primary.TButton", command=lambda i=p_id: dm_gui.resolve_pending_door_gui(i, "open"))
-        btn_open.pack(side=tk.LEFT, padx=(0, 2))
-        ToolTip(btn_open, f"La porta cede e si apre dinanzi a {p_name}")
-        
-        btn_lock = ttk.Button(btns, text="Resiste / Bloccata", style="Gold.TButton", command=lambda i=p_id: dm_gui.resolve_pending_door_gui(i, "locked"))
-        btn_lock.pack(side=tk.LEFT, padx=2)
-        ToolTip(btn_lock, "La serratura resiste e la porta rimane chiusa a chiave")
-        
-        btn_trap = ttk.Button(btns, text="Scatta Trappola", style="Danger.TButton", command=lambda i=p_id: dm_gui.resolve_pending_door_gui(i, "trap"))
-        btn_trap.pack(side=tk.LEFT, padx=2)
-        ToolTip(btn_trap, "Il tentativo goffo fa scattare una trappola o allarme")
+    if active_filter in ("all", "doors"):
+        for p_id, p_info in list(p_doors.items()):
+            shown_cards += 1
+            card = tk.Frame(dm_gui.pending_actions_container, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=4)
+            card.pack(fill=tk.X, pady=2)
+
+            p_name = p_info.get("player_name", "Giocatore")
+            d_name = p_info.get("door_name", "Porta")
+            method = p_info.get("method", "interazione")
+            method_str = "Scasso" if method == "lockpick" else "Sfondamento"
+            roll = p_info.get("roll", 0)
+            dc = p_info.get("dc", 15)
+            sugg = " (Suggerito: SUCCESSO)" if p_info.get("success_suggested") else " (Suggerito: FALLITO)"
+
+            txt_info = f"🚪 {p_name} tenta {method_str} su {d_name} [Tiro {roll} vs CD {dc}]{sugg}"
+            tk.Label(card, text=txt_info, font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD, anchor="w").pack(fill=tk.X)
+
+            btns = tk.Frame(card, bg=SURFACE_COLOR)
+            btns.pack(fill=tk.X, pady=(3, 0))
+
+            btn_open = ttk.Button(btns, text="Spalanca", style="Primary.TButton", command=lambda i=p_id: dm_gui.resolve_pending_door_gui(i, "open"))
+            btn_open.pack(side=tk.LEFT, padx=(0, 2))
+            ToolTip(btn_open, f"La porta cede e si apre dinanzi a {p_name}")
+
+            btn_lock = ttk.Button(btns, text="Resiste / Bloccata", style="Gold.TButton", command=lambda i=p_id: dm_gui.resolve_pending_door_gui(i, "locked"))
+            btn_lock.pack(side=tk.LEFT, padx=2)
+            ToolTip(btn_lock, "La serratura resiste e la porta rimane chiusa a chiave")
+
+            btn_trap = ttk.Button(btns, text="Scatta Trappola", style="Danger.TButton", command=lambda i=p_id: dm_gui.resolve_pending_door_gui(i, "trap"))
+            btn_trap.pack(side=tk.LEFT, padx=2)
+            ToolTip(btn_trap, "Il tentativo goffo fa scattare una trappola o allarme")
 
     # Schede Resistenze Leggendarie in sospeso
-    for lr_id, lr_info in list(p_leg_res.items()):
-        card = tk.Frame(dm_gui.pending_actions_container, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=4)
-        card.pack(fill=tk.X, pady=2)
+    if active_filter in ("all", "legendary"):
+        for lr_id, lr_info in list(p_leg_res.items()):
+            shown_cards += 1
+            card = tk.Frame(dm_gui.pending_actions_container, bg=SURFACE_COLOR, highlightbackground=BORDER_COLOR, highlightthickness=1, padx=6, pady=4)
+            card.pack(fill=tk.X, pady=2)
 
-        t_name = lr_info.get("target", "Boss")
-        stat_n = lr_info.get("stat", "TS")
-        dc_v = lr_info.get("dc", 15)
-        r_tot = lr_info.get("roll_total", 0)
-        rem = lr_info.get("remaining", 0)
-        src_n = lr_info.get("source", "Effetto")
+            t_name = lr_info.get("target", "Boss")
+            stat_n = lr_info.get("stat", "TS")
+            dc_v = lr_info.get("dc", 15)
+            r_tot = lr_info.get("roll_total", 0)
+            rem = lr_info.get("remaining", 0)
+            src_n = lr_info.get("source", "Effetto")
 
-        txt_info = f"👑 {t_name} fallisce TS {stat_n} ({r_tot} vs CD {dc_v}, {src_n}) — Resistenze: {rem}"
-        tk.Label(card, text=txt_info, font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD, anchor="w").pack(fill=tk.X)
+            txt_info = f"👑 {t_name} fallisce TS {stat_n} ({r_tot} vs CD {dc_v}, {src_n}) — Resistenze: {rem}"
+            tk.Label(card, text=txt_info, font=FONT_BOLD, bg=SURFACE_COLOR, fg=ACCENT_GOLD, anchor="w").pack(fill=tk.X)
 
-        btns = tk.Frame(card, bg=SURFACE_COLOR)
-        btns.pack(fill=tk.X, pady=(3, 0))
+            btns = tk.Frame(card, bg=SURFACE_COLOR)
+            btns.pack(fill=tk.X, pady=(3, 0))
 
-        btn_use = ttk.Button(btns, text="Usa Resistenza Leggendaria", style="Gold.TButton", command=lambda i=lr_id: dm_gui.resolve_pending_legendary_resistance_gui(i, "use"))
-        btn_use.pack(side=tk.LEFT, padx=(0, 4))
-        ToolTip(btn_use, f"Consuma 1 Resistenza Leggendaria di {t_name} per superare automaticamente il TS")
+            btn_use = ttk.Button(btns, text="Usa Resistenza Leggendaria", style="Gold.TButton", command=lambda i=lr_id: dm_gui.resolve_pending_legendary_resistance_gui(i, "use"))
+            btn_use.pack(side=tk.LEFT, padx=(0, 4))
+            ToolTip(btn_use, f"Consuma 1 Resistenza Leggendaria di {t_name} per superare automaticamente il TS")
 
-        btn_dec = ttk.Button(btns, text="Accetta Fallimento", style="Danger.TButton", command=lambda i=lr_id: dm_gui.resolve_pending_legendary_resistance_gui(i, "decline"))
-        btn_dec.pack(side=tk.LEFT, padx=2)
-        ToolTip(btn_dec, "Non spendere cariche: il boss subisce il fallimento del TS")
+            btn_dec = ttk.Button(btns, text="Accetta Fallimento", style="Danger.TButton", command=lambda i=lr_id: dm_gui.resolve_pending_legendary_resistance_gui(i, "decline"))
+            btn_dec.pack(side=tk.LEFT, padx=2)
+            ToolTip(btn_dec, "Non spendere cariche: il boss subisce il fallimento del TS")
+
+    if shown_cards == 0:
+        tk.Label(
+            dm_gui.pending_actions_container,
+            text=_t("pending_empty_filter"),
+            font=FONT_SMALL,
+            bg=SURFACE_COLOR_ALT,
+            fg=TEXT_MUTED,
+            anchor="w",
+        ).pack(fill=tk.X, pady=(2, 2))
 
 
 def resolve_pending_legendary_resistance_gui(dm_gui, pending_id, decision):

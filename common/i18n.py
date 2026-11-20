@@ -1469,6 +1469,16 @@ STRINGS = {
         "dice_banner_nat20_crit": "🌟 20 NATURALE - SUCCESSO CRITICO!",
         "dice_banner_nat1_fumble": "💀 1 NATURALE - FALLIMENTO CRITICO!",
         "dice_banner_click_close": "Clicca per chiudere subito",
+        "auto_opt_search_label": "🔍 Filtra Regole Opzionali (30):",
+        "auto_opt_clear": "Pulisci",
+        "auto_opt_showing_fmt": "Visualizzate {count}/{total}",
+        "pending_filter_all": "Tutte ({count})",
+        "pending_filter_damage": "⚔️ Danni ({count})",
+        "pending_filter_doors": "🚪 Porte ({count})",
+        "pending_filter_legendary": "👑 Leggendarie ({count})",
+        "pending_batch_approve": "✅ Approva Tutto",
+        "pending_batch_reject": "❌ Rifiuta Tutto",
+        "pending_empty_filter": "Nessuna decisione in sospeso in questa categoria.",
     },
     "en": {
 
@@ -2647,6 +2657,16 @@ STRINGS = {
         "dice_banner_nat20_crit": "🌟 NATURAL 20 - CRITICAL SUCCESS!",
         "dice_banner_nat1_fumble": "💀 NATURAL 1 - CRITICAL FAILURE!",
         "dice_banner_click_close": "Click to close immediately",
+        "auto_opt_search_label": "🔍 Filter Optional Rules (30):",
+        "auto_opt_clear": "Clear",
+        "auto_opt_showing_fmt": "Showing {count}/{total}",
+        "pending_filter_all": "All ({count})",
+        "pending_filter_damage": "⚔️ Damage ({count})",
+        "pending_filter_doors": "🚪 Doors ({count})",
+        "pending_filter_legendary": "👑 Legendary ({count})",
+        "pending_batch_approve": "✅ Approve All",
+        "pending_batch_reject": "❌ Reject All",
+        "pending_empty_filter": "No pending decisions in this category.",
     }
 }
 
