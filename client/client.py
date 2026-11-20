@@ -117,6 +117,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
         self.audio_cache_dir = os.path.join(get_writable_dir(), "client_data", "audio_cache")
         os.makedirs(self.audio_cache_dir, exist_ok=True)
         self._audio_downloads = {}
+        self._audio_download_progress = None
         self._audio_download_ttl = 60.0
         self._max_audio_downloads = 8
         self._asset_cache = {}
@@ -729,6 +730,8 @@ class ClientGUI(ClientNetworkHandlersMixin):
         self.status_label.pack(side=tk.LEFT, anchor="w", padx=(4, 6))
         self.btn_quick_connect = ttk.Button(status_bar, text="🔗 Connetti", style="Info.TButton", command=self.connect_to_server)
         self.btn_quick_connect.pack(side=tk.RIGHT, padx=2)
+        self.audio_progress_label = ttk.Label(status_bar, text="", style="Muted.TLabel", font=FONT_SMALL)
+        self.audio_progress_label.pack(side=tk.RIGHT, padx=(0, 8))
         
         # --- HERO SUMMARY CARD (Modern Dark Fantasy) ---
         hero_card = tk.Frame(controls_tab, bg=SURFACE_COLOR, highlightbackground=BORDER_GOLD, highlightthickness=1, padx=10, pady=8)
@@ -4878,6 +4881,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
             except Exception: pass
         if isinstance(getattr(self, "_audio_downloads", None), dict):
             self._audio_downloads.clear()
+        self._update_audio_download_progress_ui(clear=True)
         self._pending_play = None
         if getattr(self, "voice_client", None):
             try: self.voice_client.stop()
@@ -4924,6 +4928,7 @@ class ClientGUI(ClientNetworkHandlersMixin):
             except Exception: pass
         if isinstance(getattr(self, "_audio_downloads", None), dict):
             self._audio_downloads.clear()
+        self._update_audio_download_progress_ui(clear=True)
         self._pending_play = None
         if self.voice_client:
             try: self.voice_client.stop()

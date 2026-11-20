@@ -1479,6 +1479,7 @@ STRINGS = {
         "pending_batch_approve": "✅ Approva Tutto",
         "pending_batch_reject": "❌ Rifiuta Tutto",
         "pending_empty_filter": "Nessuna decisione in sospeso in questa categoria.",
+        "audio_cache_progress": "📥 Audio: {name} ({pct}% • {got}/{total} pacchetti)",
     },
     "en": {
 
@@ -2667,6 +2668,7 @@ STRINGS = {
         "pending_batch_approve": "✅ Approve All",
         "pending_batch_reject": "❌ Reject All",
         "pending_empty_filter": "No pending decisions in this category.",
+        "audio_cache_progress": "📥 Audio: {name} ({pct}% • {got}/{total} chunks)",
     }
 }
 

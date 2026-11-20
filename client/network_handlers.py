@@ -605,6 +605,36 @@ class ClientNetworkHandlersMixin:
             self.network.send(make_audio_track_request(track_id))
             self.log_to_chat(f"Scaricamento traccia '{name}' dal server in corso...", "Globale", sender="Audio", color="#7289DA")
 
+    def _update_audio_download_progress_ui(self, name=None, received=0, total=0, clear=False):
+        """Aggiorna o ripulisce l'indicatore non invasivo di pre-caching audio nella barra di stato."""
+        lbl = getattr(self, "audio_progress_label", None)
+        if clear or not total or int(received or 0) <= 0:
+            self._audio_download_progress = None
+            if lbl is not None:
+                try:
+                    if not hasattr(lbl, "winfo_exists") or lbl.winfo_exists():
+                        lbl.config(text="")
+                except Exception:
+                    pass
+            return
+
+        tot_i = max(1, int(total))
+        got_i = max(0, min(tot_i, int(received)))
+        pct = max(0, min(100, (got_i * 100) // tot_i))
+        display_name = str(name or "Audio")
+        self._audio_download_progress = {
+            "name": display_name,
+            "received": got_i,
+            "total": tot_i,
+            "pct": pct,
+        }
+        if lbl is not None:
+            try:
+                if not hasattr(lbl, "winfo_exists") or lbl.winfo_exists():
+                    lbl.config(text=_t("audio_cache_progress", name=display_name, pct=pct, got=got_i, total=tot_i))
+            except Exception:
+                pass
+
     def _prune_stale_audio_downloads(self, now: float = None):
         """Rimuove trasferimenti audio incompleti o corrotti scaduti per TTL."""
         downloads = getattr(self, "_audio_downloads", None)
@@ -622,11 +652,18 @@ class ClientNetworkHandlersMixin:
             last_ts = rec.get("updated_at", rec.get("started_at"))
             if isinstance(last_ts, (int, float)) and not isinstance(last_ts, bool) and (now - float(last_ts)) > ttl:
                 stale_ids.append(tid)
+        removed_active = False
+        cur_prog = getattr(self, "_audio_download_progress", None)
+        cur_prog_name = cur_prog.get("name") if isinstance(cur_prog, dict) else None
         for tid in stale_ids:
-            downloads.pop(tid, None)
+            removed_rec = downloads.pop(tid, None)
+            if tid == cur_prog_name or (isinstance(removed_rec, dict) and removed_rec.get("name") == cur_prog_name):
+                removed_active = True
             pending = getattr(self, "_pending_play", None)
             if isinstance(pending, dict) and pending.get("track_id") == tid:
                 self._pending_play = None
+        if stale_ids and (not downloads or removed_active):
+            ClientNetworkHandlersMixin._update_audio_download_progress_ui(self, clear=True)
 
     def handle_audio_track_chunk(self, data):
         if not isinstance(data, dict):
@@ -644,7 +681,9 @@ class ClientNetworkHandlersMixin:
         b64_data = data.get("data", "")
         if not isinstance(b64_data, str):
             return
-        ext = data.get("ext") or (self._pending_play.get("ext") if self._pending_play and self._pending_play.get("track_id") == track_id else ".mp3")
+        pending_rec = getattr(self, "_pending_play", None)
+        ext = data.get("ext") or (pending_rec.get("ext") if isinstance(pending_rec, dict) and pending_rec.get("track_id") == track_id else ".mp3")
+        raw_name = data.get("name") or (pending_rec.get("name") if isinstance(pending_rec, dict) and pending_rec.get("track_id") == track_id else None)
 
         if not track_id:
             return
@@ -655,6 +694,7 @@ class ClientNetworkHandlersMixin:
             return
         track_id = clean_track_id
         ext = clean_ext
+        track_name = str(raw_name or track_id)
 
         try:
             decoded_chunk = base64.b64decode(b64_data, validate=True)
@@ -683,6 +723,7 @@ class ClientNetworkHandlersMixin:
                 if isinstance(pending, dict) and pending.get("track_id") == oldest_tid:
                     self._pending_play = None
             self._audio_downloads[track_id] = {
+                "name": track_name,
                 "total": total,
                 "ext": ext,
                 "chunks": {},
@@ -693,10 +734,18 @@ class ClientNetworkHandlersMixin:
         rec = self._audio_downloads[track_id]
         if rec.get("total") != total:
             return
+        if raw_name:
+            rec["name"] = str(raw_name)
         if ext and not rec.get("ext"):
             rec["ext"] = ext
         rec["chunks"][index] = decoded_chunk
         rec["updated_at"] = now
+        ClientNetworkHandlersMixin._update_audio_download_progress_ui(
+            self,
+            name=rec.get("name", track_id),
+            received=len(rec["chunks"]),
+            total=rec["total"],
+        )
 
         if len(rec["chunks"]) == rec["total"] and all(i in rec["chunks"] for i in range(rec["total"])):
             cache_dir_abs = os.path.realpath(self.audio_cache_dir)
@@ -721,6 +770,7 @@ class ClientNetworkHandlersMixin:
             finally:
                 if track_id in self._audio_downloads:
                     del self._audio_downloads[track_id]
+                ClientNetworkHandlersMixin._update_audio_download_progress_ui(self, clear=True)
 
             if self._pending_play and self._pending_play.get("track_id") == track_id:
                 req = self._pending_play

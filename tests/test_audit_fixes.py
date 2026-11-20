@@ -1291,6 +1291,184 @@ class TestTask036UxSecurityAndManualsTests(unittest.TestCase):
                     self.assertTrue(os.path.isdir(man_dir))
                     mock_popen.assert_called_once_with(["xdg-open", man_dir])
 
+    def test_audio_chunk_progress_ui_and_stale_timeout_clear(self):
+        """TASK-045: multi-chunk AUDIO_TRACK_CHUNK updates status progress UI and TTL prune clears it."""
+        import base64
+        import tempfile
+        from client.client import ClientGUI
+        from common.i18n import _t
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = tk.Tk()
+            root.withdraw()
+            try:
+                lbl = ttk.Label(root, text="")
+                stub = SimpleNamespace(
+                    audio_cache_dir=tmpdir,
+                    _audio_downloads={},
+                    _audio_download_ttl=60.0,
+                    _max_audio_downloads=8,
+                    _audio_download_progress=None,
+                    _pending_play=None,
+                    audio_progress_label=lbl,
+                    audio_manager=MagicMock(),
+                    log_to_chat=MagicMock(),
+                )
+                with patch("client.client.time.monotonic", side_effect=[100.0, 100.0, 101.0, 101.0, 102.0, 102.0]):
+                    for idx in range(3):
+                        chunk_b64 = base64.b64encode(f"C{idx}".encode("ascii")).decode("ascii")
+                        ClientGUI.handle_audio_track_chunk(
+                            stub,
+                            {
+                                "track_id": "tavern_bgm",
+                                "name": "Taverna",
+                                "index": idx,
+                                "total": 3,
+                                "ext": ".mp3",
+                                "data": chunk_b64,
+                            },
+                        )
+                        if idx == 0:
+                            self.assertEqual(stub._audio_download_progress["pct"], 33)
+                            self.assertEqual(lbl.cget("text"), _t("audio_cache_progress", name="Taverna", pct=33, got=1, total=3))
+                        elif idx == 1:
+                            self.assertEqual(stub._audio_download_progress["pct"], 66)
+                            self.assertEqual(lbl.cget("text"), _t("audio_cache_progress", name="Taverna", pct=66, got=2, total=3))
+
+                self.assertIsNone(stub._audio_download_progress)
+                self.assertEqual(lbl.cget("text"), "")
+                cached_file = os.path.join(tmpdir, "tavern_bgm.mp3")
+                self.assertTrue(os.path.isfile(cached_file))
+                with open(cached_file, "rb") as f:
+                    self.assertEqual(f.read(), b"C0C1C2")
+
+                # Partial download evicted after TTL also clears progress state
+                with patch("client.client.time.monotonic", side_effect=[200.0, 200.0, 265.0]):
+                    ClientGUI.handle_audio_track_chunk(
+                        stub,
+                        {
+                            "track_id": "boss_theme",
+                            "name": "Boss",
+                            "index": 0,
+                            "total": 4,
+                            "ext": ".wav",
+                            "data": base64.b64encode(b"B0").decode("ascii"),
+                        },
+                    )
+                    self.assertEqual(stub._audio_download_progress["pct"], 25)
+                    ClientGUI._prune_stale_audio_downloads(stub)
+                    self.assertEqual(stub._audio_downloads, {})
+                    self.assertIsNone(stub._audio_download_progress)
+                    self.assertEqual(lbl.cget("text"), "")
+            finally:
+                root.destroy()
+
+    def test_voice_server_loopback_udp_relay_and_leave(self):
+        """TASK-045: VoiceServer relays loopback UDP packets between clients without echo and removes on LEAVE."""
+        import socket
+        import time as py_time
+        from server.voice_server import VoiceServer
+
+        srv = VoiceServer("127.0.0.1", port=0)
+        c1 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        c2 = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            srv.start()
+            bound_port = srv.sock.getsockname()[1]
+            c1.bind(("127.0.0.1", 0))
+            c2.bind(("127.0.0.1", 0))
+            c1.settimeout(0.2)
+            c2.settimeout(1.0)
+
+            c1.sendto(b"JOIN", ("127.0.0.1", bound_port))
+            c2.sendto(b"JOIN", ("127.0.0.1", bound_port))
+
+            deadline = py_time.monotonic() + 2.0
+            while len(srv.clients) < 2 and py_time.monotonic() < deadline:
+                py_time.sleep(0.02)
+            self.assertEqual(len(srv.clients), 2)
+
+            c1.sendto(b"PCM_FRAME_TEST", ("127.0.0.1", bound_port))
+            relayed, _ = c2.recvfrom(1024)
+            self.assertEqual(relayed, b"PCM_FRAME_TEST")
+            with self.assertRaises((socket.timeout, TimeoutError)):
+                c1.recvfrom(1024)
+
+            c2.sendto(b"LEAVE", ("127.0.0.1", bound_port))
+            deadline = py_time.monotonic() + 2.0
+            while len(srv.clients) > 1 and py_time.monotonic() < deadline:
+                py_time.sleep(0.02)
+            self.assertEqual(len(srv.clients), 1)
+        finally:
+            srv.stop()
+            c1.close()
+            c2.close()
+
+    def test_voice_client_mock_and_play_loop_error_resilience(self):
+        """TASK-045: VoiceClient supports DND_MOCK_AUDIO lifecycle and _play_loop deafen + error backoff."""
+        import socket
+        from client.voice_client import VoiceClient
+
+        vc = VoiceClient("127.0.0.1", 53912)
+        try:
+            vc.start()
+            self.assertTrue(vc.running)
+            vc.is_muted = True
+            vc.is_deafened = True
+            self.assertTrue(vc.is_muted)
+            self.assertTrue(vc.is_deafened)
+        finally:
+            vc.stop()
+        self.assertFalse(vc.running)
+
+        vc2 = VoiceClient("127.0.0.1", 53912)
+        try:
+            vc2.running = True
+            vc2.is_deafened = False
+            written = []
+
+            class _FakeOutStream:
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *args):
+                    return False
+
+                def write(self, payload):
+                    written.append(payload)
+
+            events = [
+                (b"JOIN", ("127.0.0.1", 53912)),
+                (b"PCM1", ("127.0.0.1", 53912)),
+                "DEAFEN_NOW",
+                (b"PCM2", ("127.0.0.1", 53912)),
+                socket.timeout("idle"),
+            ] + [socket.error("transient")] * 10
+
+            def _fake_recv(_buf):
+                ev = events.pop(0)
+                if ev == "DEAFEN_NOW":
+                    vc2.is_deafened = True
+                    return (b"LEAVE", ("127.0.0.1", 53912))
+                if isinstance(ev, BaseException):
+                    raise ev
+                return ev
+
+            vc2.sock.close()
+            vc2.sock = MagicMock()
+            vc2.sock.recvfrom.side_effect = _fake_recv
+            with patch("client.voice_client.sd.RawOutputStream", return_value=_FakeOutStream()), \
+                 patch("time.sleep"):
+                vc2._play_loop()
+
+            self.assertEqual(written, [b"PCM1"])
+        finally:
+            vc2.running = False
+            try:
+                vc2.sock.close()
+            except Exception:
+                pass
+
 
 if __name__ == "__main__":
     unittest.main()
