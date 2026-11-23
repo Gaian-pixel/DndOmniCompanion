@@ -1,8 +1,8 @@
 # D&D OmniCompanion — Autonomous Development Session Handoff
 
 > **Branch:** `dev/v0.6.0-autonomous` (`main` untouched at `3b28c99`, no remote pushes or tags)  
-> **Latest Phase:** Phase 6 — Quality Hygiene, UI Modularization, CI Parity & Release Readiness (`TASK-043` through `TASK-048`)  
-> **Status:** All roadmap items (`TASK-001` through `TASK-048`) are **COMPLETED**, **14 / 14** subsystems are **`PRODUCTION_READY`**, verified (`727` tests / `74` modules, `PYFLAKES_LINES=0`, `187` compiled files), and committed locally on `dev/v0.6.0-autonomous`.
+> **Latest Phase:** Phase 7 — Deep Security/Authority, Battlemap/FoW, 5e 2014 Rules & UX/i18n Hardening (`TASK-049` through `TASK-053`)  
+> **Status:** All roadmap items (`TASK-001` through `TASK-053`) are **COMPLETED**, **14 / 14** subsystems are **`PRODUCTION_READY`**, **1175 / 1175** IT/EN i18n keys (`0` missing), verified (`758` tests / `79` modules in `179.98s`, `PYFLAKES_LINES=0`, `192` compiled files), and committed locally on `dev/v0.6.0-autonomous`.
 
 ---
 
@@ -181,7 +181,12 @@
 47. **Commit `70bc99c` (`TASK-045` — Phase 6)**: Added client status-bar audio pre-caching progress UI (`audio_progress_label`, `_audio_download_progress`, `_update_audio_download_progress_ui`) and UDP/audio resilience tests (`tests/test_audit_fixes.py`).
 48. **Commit `a16888a` (`TASK-046` — Phase 6)**: Extracted `components/command_palette.py` (re-exported via `components/ui_components.py` `__all__`) and `client/reaction_prompts_mixin.py` (`ClientReactionPromptsMixin` inherited by `ClientGUI`), preserving mock targets.
 49. **Commit `cb7f454` (`TASK-047` — Phase 6)**: Wrapped `tests/test_ui_smoke.py` (`TestUiSmokeSuite`) and `tests/test_e2e_gui.py` (`TestE2eGuiWorkflow`) in headless-safe `unittest.TestCase` classes (`STANDALONE_GUI_SCRIPTS = set()`), and unified `.github/workflows/ci.yml` on `scripts/autonomous_dev_loop.py --verify`.
-50. **Latest Phase 6 Task (`TASK-048` — Release Readiness & Verification)**: Updated `build_release.py` (`VERSION = os.environ.get("RELEASE_VERSION", "v0.6.0-alpha")`, `validate_build_inputs()`, `--dry-run`, `README_IT.md` + 33 `HIDDEN_IMPORTS`), updated `.github/workflows/release.yml` and `scripts/autonomous_dev_loop.py` (`NEXT_OPEN_TASK=NONE`), added `tests/test_phase6_release_readiness.py` (`5` tests), upgraded `docs/FEATURE_MATURITY.md` to `14/14 PRODUCTION_READY`, verified live multi-res Tkinter probes (`LIVE_TK_PROBE_ERRORS=0`), and synchronized EN/IT documentation.
+50. **Commit `9c71913` (`TASK-048` — Phase 6 Release Readiness & Verification)**: Updated `build_release.py` (`VERSION = os.environ.get("RELEASE_VERSION", "v0.6.0-alpha")`, `validate_build_inputs()`, `--dry-run`, `README_IT.md` + 33 `HIDDEN_IMPORTS`), updated `.github/workflows/release.yml` and `scripts/autonomous_dev_loop.py`, added `tests/test_phase6_release_readiness.py` (`5` tests), upgraded `docs/FEATURE_MATURITY.md` to `14/14 PRODUCTION_READY`, verified live multi-res Tkinter probes (`LIVE_TK_PROBE_ERRORS=0`), and synchronized EN/IT documentation.
+51. **Commit `528dd0b` (`TASK-049` — Phase 7 Security, Authority, Secrecy & Concurrency)**: Stripped privileged keys in `sanitize_client_payload`, blocked companion `is_dm=True` escalation, gated `/fall`/`/caduta`, `DEATH_SAVE_REQUEST`, `RESOLVE_AOE_REQUEST`, `REACTION_RESPONSE`, and secret door keys without leaking `door_key`, redacted `dm_note`, hostile `ac`/`hit_dice`, `active_complex_traps`, `PLAYER_JOINED`, `QUEST_LIST_UPDATE`, hidden turns, and hostile `update_player_listbox` exact HP, added `_asset_cache_lock` rollback & lock-free broadcasts, and wired `combat_btn` / base64 handouts / FoW avatar restore / UDP voice `KEEPALIVE` (`tests/test_phase7_authority_secrecy_sync.py`, `134/134 OK` targeted).
+52. **Commit `aa258b5` (`TASK-050` — Phase 7 Battlemap, Player Display & FoW/LoS Geometry)**: Fixed `_sync_player_display_window` keys & vision attributes, added `is_party_fow_viewer`/`refresh_party_fow`, door delete FoW broadcast, `PLAYER_LEFT`/`PLAYER_JOINED` boundary transitions on `move_selected_token_to_hex`, `/torch`/`/light` door & `grid_type` LoS, `_draw_targeting_system`/`_draw_environment_and_weather_overlays`/`_resolve_map_light_radius` secrecy guards, square `5-10-5` diagonals & gridless `grid_distance`/`grid_distance_3d`, and MapEditor chest `qty`/flat-top resize/Cancel-safe scale (`tests/test_phase7_battlemap_fow_editor.py`, `6/6 OK`).
+53. **Commit `6faac0a` (`TASK-051` — Phase 7 Concentration, Saving Throws, Wild Shape/Rage & Death Saves)**: Synced `concentrating_spell` & routed all remaining concentration spells in `cast_iconic_spell` with full effect expiry cleanup, pre-evaluated `_evaluate_save_bonuses_and_flags(..., consume_hero_bonus=False)` without double-eating Hero Points, fixed shadowed `roll_dice` import in `handle_force_save_request`, triggered Concentration on Wild Shape absorbed damage, added bilingual `_is_entity_raging`, gated Nat-1 Death Save reroll to Halfling Lucky, and unified `clear_unconscious_and_reset_death_saves` (`tests/test_phase7_rules_concentration_saves.py`, `6/6 OK`).
+54. **Commit `35096ac` (`TASK-052` — Phase 7 Combat Attack Engine, Subclasses & Monster Multiattack Parity)**: Fixed Fighter 1–4 dip `_get_entity_max_attacks`, hit-gated `absorb_elements`, pre-check `compute_combat_spell_modifiers`, Colossus Slayer dedup, out-of-range economy rollback, Mage/Rust Armor AC in combat & monster Multiattack, `handle_subclass_active_power` Cutting Words/find_player, Short/Long Rest subclass booleans + `arcane_ward_hp`, Petrification Stage-1 repeat save, and Elemental Adept + `is_spell` in Scorching Ray/Magic Missile/Eldritch Blast (`tests/test_phase7_combat_subclasses_monsters.py`, `6/6 OK`).
+55. **Current Commit (`TASK-053` — Phase 7 UX Sync, Tk Crash Guards, 1175 i18n Keys & Final Full Verification)**: Enforced Short Rest in-combat block & online single-send (`ClientGUI`/`VitalsPanel`/`_sync_open_sheet_combat_state`), added `CharacterSheetFrame._persist_and_sync_sheet` & null-manager resilience, replaced weapons in place for `action="edit"`, synced `quests` & fallback, fixed `LevelUpDialog._on_remove_selected_spell_double_click`, empty Spinbox `TclError` guards, single artifact roll, `share_image_handout` Cancel abort, `CommandPaletteDialog` `toggle_ruler`/`toggle_fullscreen`/`open_sheet` sync, aligned `tests/test_elevation_and_concentration.py` `/caduta` DM check, completed `1175`/`1175` symmetric IT/EN i18n keys (`0` missing), and verified full `--verify` (`758` tests across `79` modules in `179.98s`).
 
 ---
 
@@ -189,14 +194,15 @@
 
 | Check | Command / Scope | Observed Result |
 |---|---|---|
-| **Full Isolated Unit Test Suite** | `C:\Users\gaian\AppData\Local\Python\pythoncore-3.14-64\python.exe -X utf8 scripts/autonomous_dev_loop.py --verify` (`DND_MOCK_AUDIO=1`, isolated temp `DND_SETTINGS_PATH`/`DND_CHARACTERS_PATH`, sequential per-module `-u -X utf8 -m unittest` across all `74` `unittest` modules incl. `test_ui_smoke.py`, `test_e2e_gui.py`, `test_phase6_release_readiness.py`) | **PASSED**: `VERIFY_STATUS=PASS` — `727` tests across `74` modules `OK` in `151.34s` (`0` failures, `0` errors) |
-| **Static Bytecode Compile** | `python -X utf8 -m py_compile` via `--verify` across all `187` repository `.py` files | **PASSED**: `OK (187 files)` |
+| **Full Isolated Unit Test Suite** | `C:\Users\gaian\AppData\Local\Python\pythoncore-3.14-64\python.exe -X utf8 scripts/autonomous_dev_loop.py --verify` (`DND_MOCK_AUDIO=1`, isolated temp `DND_SETTINGS_PATH`/`DND_CHARACTERS_PATH`, sequential per-module `-u -X utf8 -m unittest` across all `79` `unittest` modules incl. `test_ui_smoke.py`, `test_e2e_gui.py`, `test_phase6_release_readiness.py`, and all 5 `test_phase7_*.py` suites) | **PASSED**: `VERIFY_STATUS=PASS` — `758` tests across `79` modules `OK` in `179.98s` (`0` failures, `0` errors) |
+| **Static Bytecode Compile** | `python -X utf8 -m py_compile` via `--verify` across all `192` repository `.py` files | **PASSED**: `OK (192 files)` |
 | **Static Analysis (`pyflakes`)** | Strict zero-warning `pyflakes` check across `common`, `server`, `client`, `components`, `main.py`, `build_release.py`, `scripts`, `.agents/scripts` | **PASSED**: `PYFLAKES_LINES=0` (`0` warnings, `0` errors) |
+| **Bilingual i18n Coverage (`IT`/`EN`)** | AST check of all `_t(...)` keys across `common`, `server`, `client`, `components`, `main.py`, `build_release.py` | **PASSED**: `1175` IT / `1175` EN symmetric keys (`0` missing, `0` asymmetric) |
 | **Release Packaging Dry-Run** | `python -X utf8 build_release.py --dry-run` | **PASSED**: `DRY_RUN_STATUS=OK` (exit `0`) |
 | **Live Isolated Tkinter Probe** | Multi-resolution live probe (`LoginDialog` locked/unlocked, `DM_GUI`, DM Automation dialog, `ClientGUI`, `CharacterSheetFrame`) across `1024x720`, `1280x800`, `1366x768`, `1920x1080` | **PASSED**: `LIVE_TK_PROBE_ERRORS=0` across all 4 resolutions |
 | **Feature Maturity Matrix** | `docs/FEATURE_MATURITY.md` (14 core subsystems) | **14 / 14 `PRODUCTION_READY`** |
 | **Tracked Data Isolation** | Protected directories (`client_data/`, `campaigns/`, `manuals/`) after test runs | **CLEAN**: no mutation of tracked data files |
-| **Roadmapped Tasks** | `docs/DEVELOPMENT_ROADMAP.md` (`TASK-001`..`TASK-048`) | **48 / 48 `COMPLETED`** (`IN_PROGRESS=0`, `TODO=0`) |
+| **Roadmapped Tasks** | `docs/DEVELOPMENT_ROADMAP.md` (`TASK-001`..`TASK-053`) | **53 / 53 `COMPLETED`** (`IN_PROGRESS=0`, `TODO=0`) |
 
 ---
 
@@ -211,7 +217,7 @@
 
 ## 4. Next Steps (For Future Sessions)
 
-All roadmap items across Phases 1–6 (`TASK-001`–`TASK-048`) are complete on `dev/v0.6.0-autonomous`:
+All roadmap items across Phases 1–7 (`TASK-001`–`TASK-053`) are complete on `dev/v0.6.0-autonomous`:
 1. Review diffs across `main..dev/v0.6.0-autonomous` and optionally run `python -X utf8 build_release.py` to produce release binaries.
 2. Merge `dev/v0.6.0-autonomous` into `main` and publish any release/tag (`v0.6.0-alpha` or later) **only** upon explicit human authorization.
 3. Optional next architecture wave: incrementally modularize `ClientGUI.setup_gui` (`client/client.py`) and `DM_GUI` initialization/context menus (`server/dm_gui.py`) into focused mixin/builder modules without altering public mock targets.

@@ -190,12 +190,19 @@ class TestElevationAndConcentration(unittest.TestCase):
             self.assertFalse(found_prone_adv, "Non deve avere vantaggio in mischia contro un bersaglio volante a 30 ft!")
 
     def test_chat_commands_quota_and_caduta(self):
-        """Verifica i comandi chat /quota e /caduta."""
+        """Verifica i comandi chat /quota e /caduta (DM-only per /caduta)."""
         handle_chat({"text": "/quota 45"}, self.target, self.game_state)
         self.assertEqual(self.target.elevation, 45)
 
+        # Non-DM player cannot apply /caduta to another player
+        handle_chat({"text": "/caduta 40 Guerriero"}, self.caster, self.game_state)
+        self.assertEqual(self.target.elevation, 45)
+        self.assertEqual(self.target.hp, 30)
+
+        dm_actor = Player(name="DM", conn=None)
+        dm_actor.role = "DM"
         with patch("random.randint", side_effect=[3, 3, 3, 3]): # 4d6 per 40ft = 12
-            handle_chat({"text": f"/caduta 40 Guerriero"}, self.caster, self.game_state)
+            handle_chat({"text": "/caduta 40 Guerriero"}, dm_actor, self.game_state)
             self.assertEqual(self.target.elevation, 5) # 45 - 40 = 5
             self.assertEqual(self.target.hp, 18) # 30 - 12 = 18
 

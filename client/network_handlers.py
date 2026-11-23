@@ -306,6 +306,8 @@ class ClientNetworkHandlersMixin:
         """Apre il registro interattivo delle missioni ed obiettivi della campagna."""
         from components.quest_ui import QuestLogDialog
         quests = getattr(self, "quests", []) or []
+        if not quests and isinstance(getattr(self, "game_state", None), dict):
+            quests = self.game_state.get("quests") or []
         if not quests and hasattr(self, "server") and getattr(self.server, "game_state", None):
             quests = getattr(self.server.game_state, "quests", [])
         QuestLogDialog(self.master, {"quests": quests}, is_dm=False, network_or_server=getattr(self, "network", None))
@@ -434,6 +436,7 @@ class ClientNetworkHandlersMixin:
         reason = data.get("reason", "")
         it_name = item.get("name", "Oggetto")
         is_remove = item.get("action") == "remove"
+        is_edit = item.get("action") == "edit"
         is_weapon_req = item.get("target_collection") == "weapons"
         if approved:
             if self.active_character:
@@ -449,7 +452,8 @@ class ClientNetworkHandlersMixin:
                                 if isinstance(w_obj, dict) and w_obj.get("name") == it_name:
                                     self.active_character.weapons.pop(w_i)
                                     break
-                        self.character_manager.save_characters()
+                        if getattr(self, "character_manager", None):
+                            self.character_manager.save_characters()
                         if hasattr(self, "stats_window") and self.stats_window and self.stats_window.winfo_exists():
                             if hasattr(self.stats_window, "refresh_weapons_list"):
                                 self.stats_window.refresh_weapons_list()
@@ -457,8 +461,29 @@ class ClientNetworkHandlersMixin:
                         self.show_toast(f"Il Dungeon Master ha APPROVATO la rimozione dell'arma '{it_name}'.", title="Rimozione Arma Approvata", toast_type="info")
                         return
                     clean_weapon = {k: v for k, v in item.items() if k not in ("action", "target_collection")}
+                    if is_edit:
+                        if slot_idx is not None and 0 <= slot_idx < len(self.active_character.weapons):
+                            self.active_character.weapons[slot_idx] = clean_weapon
+                        else:
+                            replaced = False
+                            for w_i, w_obj in enumerate(self.active_character.weapons):
+                                if isinstance(w_obj, dict) and w_obj.get("name") == it_name:
+                                    self.active_character.weapons[w_i] = clean_weapon
+                                    replaced = True
+                                    break
+                            if not replaced:
+                                self.active_character.weapons.append(clean_weapon)
+                        if getattr(self, "character_manager", None):
+                            self.character_manager.save_characters()
+                        if hasattr(self, "stats_window") and self.stats_window and self.stats_window.winfo_exists():
+                            if hasattr(self.stats_window, "refresh_weapons_list"):
+                                self.stats_window.refresh_weapons_list()
+                        self.network.send(make_update_full_sheet_request(self.active_character.to_dict()))
+                        self.show_toast(f"Il Dungeon Master ha APPROVATO la modifica dell'arma '{it_name}'!", title="Modifica Arma Approvata!", toast_type="success")
+                        return
                     self.active_character.weapons.append(clean_weapon)
-                    self.character_manager.save_characters()
+                    if getattr(self, "character_manager", None):
+                        self.character_manager.save_characters()
                     if hasattr(self, "stats_window") and self.stats_window and self.stats_window.winfo_exists():
                         if hasattr(self.stats_window, "refresh_weapons_list"):
                             self.stats_window.refresh_weapons_list()

@@ -181,7 +181,9 @@ class SpellsPanel:
                     pass
                 return
         sp["prepared"] = not cur_prep_flag
-        if hasattr(sheet, "manager") and hasattr(sheet.manager, "update_character"):
+        if hasattr(sheet, "_persist_and_sync_sheet"):
+            sheet._persist_and_sync_sheet()
+        elif getattr(sheet, "manager", None) and hasattr(sheet.manager, "update_character"):
             sheet.manager.update_character(sheet.character)
             if hasattr(sheet.manager, "save_characters"):
                 sheet.manager.save_characters()

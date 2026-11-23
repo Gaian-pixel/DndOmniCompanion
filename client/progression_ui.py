@@ -977,10 +977,8 @@ class LevelUpDialog(tk.Toplevel):
             self.selected_spells.pop(idx)
             if hasattr(self, "btn_toggle_spell"):
                 self.btn_toggle_spell.config(text=_t("prog_btn_add_spell"), style="Primary.TButton")
-            if hasattr(self, "_refresh_selected_spells_listbox"):
-                self._refresh_selected_spells_listbox()
-            elif hasattr(self, "_refresh_selected_spells_list"):
-                self._refresh_selected_spells_list()
+            if hasattr(self, "_refresh_selected_spells_ui"):
+                self._refresh_selected_spells_ui()
 
     def _toggle_spell_selection(self):
         sel = self.tree_spells.selection()

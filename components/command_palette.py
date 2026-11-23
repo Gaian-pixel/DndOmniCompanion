@@ -643,18 +643,22 @@ class CommandPaletteDialog(tk.Toplevel):
                 self.map_canvas.zoom_in()
             elif act_id == "zoom_out" and self.map_canvas:
                 self.map_canvas.zoom_out()
-            elif act_id == "toggle_ruler" and self.map_canvas:
-                self.map_canvas.ruler_mode = not getattr(self.map_canvas, "ruler_mode", False)
-                self.map_canvas.redraw()
+            elif act_id == "toggle_ruler":
+                if self.on_action:
+                    self.on_action("action", "toggle_ruler")
+                elif self.map_canvas:
+                    self.map_canvas.ruler_mode = not getattr(self.map_canvas, "ruler_mode", False)
+                    self.map_canvas.redraw()
             elif act_id == "toggle_fullscreen":
-                top = self.master.winfo_toplevel()
-                try:
-                    is_fs = bool(top.attributes("-fullscreen"))
-                    top.attributes("-fullscreen", not is_fs)
-                except Exception:
-                    pass
                 if self.on_action:
                     self.on_action("action", "toggle_fullscreen")
+                else:
+                    top = self.master.winfo_toplevel()
+                    try:
+                        is_fs = bool(top.attributes("-fullscreen"))
+                        top.attributes("-fullscreen", not is_fs)
+                    except Exception:
+                        pass
             elif act_id == "roll_d20":
                 if self.on_action:
                     self.on_action("roll", "1d20")

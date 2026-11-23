@@ -21,6 +21,13 @@ class VitalsPanel:
     @staticmethod
     def short_rest(sheet):
         """Apre il dialogo di riposo breve e spesa dadi vita conforme a D&D 5e RAW."""
+        if getattr(sheet, "combat_active", False):
+            messagebox.showwarning(
+                "In Combattimento",
+                "Non puoi effettuare un Riposo Breve (1 ora) durante il combattimento!",
+                parent=sheet if hasattr(sheet, "winfo_exists") else None,
+            )
+            return
         win = tk.Toplevel(sheet)
         win.transient(sheet)
         win.grab_set()
@@ -175,18 +182,30 @@ class VitalsPanel:
                 dk = d_entry.get("die_type") or str(d_entry.get("die", "")).replace("1", "", 1)
                 if dk:
                     die_counts[dk] = die_counts.get(dk, 0) + 1
+            sent_short_rest = False
             if getattr(sheet, "is_connected", False) and getattr(sheet, "network", None) and hasattr(sheet.network, "send"):
                 try:
                     from common.protocol import make_short_rest_request
                     sheet.network.send(make_short_rest_request(len(spent_dice), tot_healed, die_counts=die_counts or None))
+                    sent_short_rest = True
                 except Exception:
                     pass
 
-            if sheet.manager:
+            if getattr(sheet, "manager", None):
                 sheet.manager.update_character(sheet.character)
             if hasattr(sheet, "on_save_callback") and sheet.on_save_callback:
-                try: sheet.on_save_callback(sheet.character)
-                except Exception: pass
+                if sent_short_rest:
+                    setattr(sheet.character, "_skip_network_sync_once", True)
+                try:
+                    sheet.on_save_callback(sheet.character)
+                except Exception:
+                    pass
+                finally:
+                    if sent_short_rest and getattr(sheet.character, "_skip_network_sync_once", False):
+                        try:
+                            delattr(sheet.character, "_skip_network_sync_once")
+                        except Exception:
+                            setattr(sheet.character, "_skip_network_sync_once", False)
                 
             if sheet.roll_callback:
                 chat_msg = f"[RIPOSO BREVE] {sheet.character.name} conclude il riposo breve. Dadi spesi: {len(spent_dice)}. PF recuperati: +{tot_healed} (PF attuali: {sheet.character.hp_current}/{sheet.character.hp_max}, Dadi rimasti: {sheet.character.hit_dice_current}/{sheet.character.hit_dice_total})."

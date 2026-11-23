@@ -288,10 +288,10 @@ class ClientGUI(ClientNetworkHandlersMixin, ClientReactionPromptsMixin):
         char_menu.add_command(label=_t("menu_create_character"), command=self.open_create_character_dialog)
         char_menu.add_separator()
         char_menu.add_command(label=_t("menu_active_sheet"), command=self.open_stats_dialog)
-        char_menu.add_command(label="⚔️ Poteri & Azioni Speciali 5e...", command=self.open_special_abilities_dialog)
+        char_menu.add_command(label=_t("menu_special_abilities"), command=self.open_special_abilities_dialog)
         char_menu.add_separator()
-        char_menu.add_command(label="💰 Negozi e Botteghe...", command=self.open_shop_dialog)
-        char_menu.add_command(label="🛠️ Attività di Downtime (PHB/XGtE)...", command=self.open_downtime_dialog)
+        char_menu.add_command(label=_t("menu_shops"), command=self.open_shop_dialog)
+        char_menu.add_command(label=_t("menu_downtime"), command=self.open_downtime_dialog)
         menubar.add_cascade(label=_t("menu_character"), menu=char_menu)
         
         library_menu = tk.Menu(menubar, tearoff=0)
@@ -2712,7 +2712,11 @@ class ClientGUI(ClientNetworkHandlersMixin, ClientReactionPromptsMixin):
         def _send():
             cmap = dict(choices)
             key = cmap.get(choice_var.get(), "melee")
-            self.network.send(make_optional_rule_action_request("declare_speed_factor", speed_action=key, spell_level=int(sp_lvl_var.get() or 1)))
+            try:
+                sp_lvl = max(1, min(9, int(sp_lvl_var.get() or 1)))
+            except (tk.TclError, ValueError, TypeError):
+                sp_lvl = 1
+            self.network.send(make_optional_rule_action_request("declare_speed_factor", speed_action=key, spell_level=sp_lvl))
             win.destroy()
 
         ttk.Button(frm, text="Dichiara Azione", style="Accent.TButton", command=_send).pack(side=tk.RIGHT)
@@ -2940,6 +2944,9 @@ class ClientGUI(ClientNetworkHandlersMixin, ClientReactionPromptsMixin):
         if not self.active_character:
             self.show_toast("Nessun personaggio attivo selezionato.", toast_type="warning")
             return
+        if getattr(self, "combat_active", False):
+            self.show_toast("Non puoi effettuare un Riposo Breve durante il combattimento!", title="⚔️ In Combattimento", toast_type="warning")
+            return
         char = self.active_character
         from common.character_schema import sync_hit_dice_pools, format_hit_dice_summary
         hd_pools = sync_hit_dice_pools(char, allow_scalar_override=True)
@@ -2973,7 +2980,6 @@ class ClientGUI(ClientNetworkHandlersMixin, ClientReactionPromptsMixin):
             self.update_hero_summary_card()
             self.update_action_economy_ui()
             if self.is_connected:
-                self.network.send(make_update_stats_request(char.hp_current, char.hp_max, char.initiative, getattr(char, "conditions", []), getattr(char, "temp_hp", 0)))
                 self.network.send(make_short_rest_request(n_dice, recovered, die_counts=die_counts))
             win.destroy()
             if n_dice == 0:
@@ -4434,9 +4440,24 @@ class ClientGUI(ClientNetworkHandlersMixin, ClientReactionPromptsMixin):
         ClientGUI._maybe_request_asset_resync(self)
         self.redraw_map_and_players()
         
+    def _sync_open_sheet_combat_state(self):
+        in_combat = bool(getattr(self, "combat_active", False))
+        for _holder in (
+            getattr(self, "stats_sheet_frame", None),
+            getattr(self, "stats_detached_window", None),
+            getattr(getattr(self, "stats_detached_window", None), "_sheet_frame_internal", None),
+            getattr(self, "stats_window", None),
+        ):
+            if _holder is not None:
+                try:
+                    _holder.combat_active = in_combat
+                except Exception:
+                    pass
+
     def handle_combat_state_update(self, data):
         was_combat = getattr(self, "combat_active", False)
         self.combat_active = data.get("combat_active", False)
+        ClientGUI._sync_open_sheet_combat_state(self)
         self.turn_index = data.get("turn_index", 0)
         self.round_number = data.get("round_number", 1)
         self.aoes_data = data.get("active_aoes", [])
@@ -4488,6 +4509,9 @@ class ClientGUI(ClientNetworkHandlersMixin, ClientReactionPromptsMixin):
         self.players_data = {p['name']: p for p in raw_players if isinstance(p, dict) and p.get('name')}
         self.turn_player_name = (data.get("turn_player_name") or "") if data.get("combat_active", False) else ""
         self.local_map_data = ClientGUI._resolve_cached_map_assets(self, data.get("map"))
+        if isinstance(data.get("quests"), list):
+            import copy
+            self.quests = copy.deepcopy(data["quests"])
         if isinstance(data.get("handouts"), list):
             ClientGUI._resolve_cached_handout_assets(self, data["handouts"])
         ClientGUI._maybe_request_asset_resync(self)
@@ -4593,6 +4617,7 @@ class ClientGUI(ClientNetworkHandlersMixin, ClientReactionPromptsMixin):
         was_my_turn = getattr(self, "_is_my_turn", False)
         
         self.combat_active = data.get("combat_active", False)
+        ClientGUI._sync_open_sheet_combat_state(self)
         self.turn_index = data.get("turn_index", 0)
         self.round_number = data.get("round_number", 1)
         self.aoes_data = data.get("active_aoes", [])
@@ -5435,7 +5460,8 @@ class ClientGUI(ClientNetworkHandlersMixin, ClientReactionPromptsMixin):
             is_overlay=True,
             long_rest_callback=self.request_long_rest,
             network=getattr(self, "network", None),
-            cast_spell_callback=self.on_sheet_cast_spell
+            cast_spell_callback=self.on_sheet_cast_spell,
+            combat_active=bool(getattr(self, "combat_active", False)),
         )
         self.stats_sheet_frame.pack(fill=tk.BOTH, expand=True)
         self.stats_window = self.stats_sheet_frame
@@ -5491,7 +5517,8 @@ class ClientGUI(ClientNetworkHandlersMixin, ClientReactionPromptsMixin):
             on_dock_callback=self.dock_character_sheet,
             long_rest_callback=self.request_long_rest,
             network=getattr(self, "network", None),
-            cast_spell_callback=self.on_sheet_cast_spell
+            cast_spell_callback=self.on_sheet_cast_spell,
+            combat_active=bool(getattr(self, "combat_active", False)),
         )
         self.stats_window = self.stats_detached_window
 
@@ -5525,7 +5552,13 @@ class ClientGUI(ClientNetworkHandlersMixin, ClientReactionPromptsMixin):
             self.character_manager.update_character(char)
             self.character_manager.save_characters()
         self.update_hero_summary_card()
-        if self.is_connected:
+        skip_net = bool(getattr(char, "_skip_network_sync_once", False))
+        if skip_net:
+            try:
+                delattr(char, "_skip_network_sync_once")
+            except Exception:
+                setattr(char, "_skip_network_sync_once", False)
+        if self.is_connected and not skip_net:
             self.network.send(make_update_stats_request(char.hp_current, char.hp_max, char.initiative, getattr(char, "conditions", [])))
             self.network.send(make_update_full_sheet_request(char.to_dict()))
 

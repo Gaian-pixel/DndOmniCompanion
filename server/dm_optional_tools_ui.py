@@ -8,6 +8,17 @@ from common.theme import (
 )
 
 
+def _safe_int_var(var, default: int = 0) -> int:
+    """Legge in modo sicuro un IntVar/Spinbox evitando crash tk.TclError se il campo e' vuoto."""
+    try:
+        val = var.get()
+        if val in (None, ""):
+            return default
+        return int(val)
+    except (tk.TclError, ValueError, TypeError):
+        return default
+
+
 def open_optional_rules_tools_dialog(dm_gui, initial_tab: int = 0):
     """Apre il pannello di controllo unificato Strumenti Regole 5e (PHB/DMG/MM/XGtE/TCE) per il DM."""
     gs = getattr(getattr(dm_gui, "server", None), "game_state", None)
@@ -20,9 +31,9 @@ def open_optional_rules_tools_dialog(dm_gui, initial_tab: int = 0):
     win.transient(dm_gui.master)
     apply_modern_window_style(win)
 
+    import server.dm_optional_tools as _dm_opt
     from server.dm_optional_tools import (
         handle_optional_rule_action_request,
-        roll_artifact_properties,
         SIEGE_EQUIPMENT_CATALOG,
         BASTION_FACILITIES_CATALOG,
         apply_initiative_variant,
@@ -101,15 +112,15 @@ def open_optional_rules_tools_dialog(dm_gui, initial_tab: int = 0):
         ("🌟 Punto Eroe: +1d6 Tiro", lambda: _dispatch_opt("hero_point", mode="roll_bonus")),
         ("💫 Punto Eroe: Stabilizza Morte", lambda: _dispatch_opt("hero_point", mode="death_save")),
         ("💗 Impulso Curativo (1 DV)", lambda: _dispatch_opt("healing_surge", count=1)),
-        ("😱 Tiro Paura (DMG p.266)", lambda: _dispatch_opt("fear_save", dc=dc_var.get())),
-        ("👁️ Tiro Orrore + Follia (DMG)", lambda: _dispatch_opt("horror_save", dc=dc_var.get())),
+        ("😱 Tiro Paura (DMG p.266)", lambda: _dispatch_opt("fear_save", dc=_safe_int_var(dc_var, 15))),
+        ("👁️ Tiro Orrore + Follia (DMG)", lambda: _dispatch_opt("horror_save", dc=_safe_int_var(dc_var, 15))),
         ("🩺 Cura Ferita (Rigenerazione)", lambda: _dispatch_opt("cure_injury", method="regenerate")),
         ("🧪 Estrai Veleno (DMG p.258)", lambda: _dispatch_opt("harvest_poison", poison_name=poison_var.get())),
-        ("🐉 Presenza Terrificante (MM)", lambda: (handle_frightful_presence_request({"dc": dc_var.get(), "actor_name": actor_var.get()}, None, gs), _log("🐉 Presenza Terrificante attivata."))),
+        ("🐉 Presenza Terrificante (MM)", lambda: (handle_frightful_presence_request({"dc": _safe_int_var(dc_var, 15), "actor_name": actor_var.get()}, None, gs), _log("🐉 Presenza Terrificante attivata."))),
         ("🐍 Inghiotti Bersaglio (MM)", lambda: (handle_swallow_request({"target_name": target_var.get(), "actor_name": actor_var.get(), "release": False}, None, gs), _log("🐍 Inghiotti eseguito."))),
         ("🤮 Rigurgita / Libera Stomaco", lambda: (handle_swallow_request({"target_name": target_var.get(), "actor_name": actor_var.get(), "release": True}, None, gs), _log("🤮 Bersaglio liberato."))),
         ("🌀 Applica Follia Breve (DMG)", lambda: (handle_madness_request({"target_name": target_var.get(), "tier": "short"}, None, gs), _log("🌀 Follia applicata."))),
-        ("☠️ Applica Veleno (CD Specifica)", lambda: (handle_apply_poison_or_disease_request({"target_name": target_var.get(), "kind": "poison", "name": poison_var.get(), "dc": dc_var.get()}, None, gs), _log("☠️ Veleno applicato."))),
+        ("☠️ Applica Veleno (CD Specifica)", lambda: (handle_apply_poison_or_disease_request({"target_name": target_var.get(), "kind": "poison", "name": poison_var.get(), "dc": _safe_int_var(dc_var, 15)}, None, gs), _log("☠️ Veleno applicato."))),
         ("💧 Tick Sopravvivenza (1 Giorno)", lambda: (handle_survival_tick_request({"event": "day_pass"}, None, gs), _log("💧 Tick Sopravvivenza eseguito."))),
         ("😲 Sorpreso ON (Toggle)", lambda: (handle_surprise_request({"target_name": target_var.get(), "surprised": True}, None, gs), _log("😲 Sorpresa applicata."))),
     ]
@@ -168,9 +179,9 @@ def open_optional_rules_tools_dialog(dm_gui, initial_tab: int = 0):
             "complex_trap_add",
             trap={
                 "name": trap_name.get(),
-                "initiative": trap_init.get(),
+                "initiative": _safe_int_var(trap_init, 20),
                 "save_stat": trap_stat.get(),
-                "dc": trap_dc.get(),
+                "dc": _safe_int_var(trap_dc, 15),
                 "damage_formula": trap_dmg.get(),
             },
         ),
@@ -190,8 +201,14 @@ def open_optional_rules_tools_dialog(dm_gui, initial_tab: int = 0):
     ttk.Entry(sent_f, textvariable=item_sent_var, width=22).pack(side=tk.LEFT, padx=4)
     ttk.Label(sent_f, text="Ego:").pack(side=tk.LEFT)
     ttk.Spinbox(sent_f, from_=1, to=30, textvariable=ego_var, width=4).pack(side=tk.LEFT, padx=4)
-    ttk.Button(sent_f, text="⚔️ Conflitto Ego", command=lambda: _dispatch_opt("sentient_conflict", item_name=item_sent_var.get(), ego=ego_var.get())).pack(side=tk.LEFT, padx=6)
-    ttk.Button(sent_f, text="👑 Genera Proprietà Artefatto", command=lambda: (_dispatch_opt("roll_artifact"), _log(str(roll_artifact_properties()))), style="Gold.TButton").pack(side=tk.RIGHT, padx=4)
+
+    def _roll_artifact_once():
+        props = _dm_opt.roll_artifact_properties()
+        _dispatch_opt("roll_artifact", properties=props)
+        _log(str(props))
+
+    ttk.Button(sent_f, text="⚔️ Conflitto Ego", command=lambda: _dispatch_opt("sentient_conflict", item_name=item_sent_var.get(), ego=_safe_int_var(ego_var, 14))).pack(side=tk.LEFT, padx=6)
+    ttk.Button(sent_f, text="👑 Genera Proprietà Artefatto", command=_roll_artifact_once, style="Gold.TButton").pack(side=tk.RIGHT, padx=4)
 
     # --- TAB 3: Bastioni, Seguaci, Fama & Devozione (DMG/TCE) ---
     tab3 = ttk.Frame(nb, padding=10)
@@ -211,7 +228,7 @@ def open_optional_rules_tools_dialog(dm_gui, initial_tab: int = 0):
     ttk.Combobox(rp_f, textvariable=track_var, values=["renown", "piety"], state="readonly", width=10).pack(side=tk.LEFT, padx=4)
     ttk.Spinbox(rp_f, from_=-5, to=10, textvariable=delta_var, width=4).pack(side=tk.LEFT, padx=4)
     ttk.Entry(rp_f, textvariable=org_var, width=22).pack(side=tk.LEFT, padx=4)
-    ttk.Button(rp_f, text="Aggiorna Bersaglio", command=lambda: _dispatch_opt("renown_piety", track=track_var.get(), delta=delta_var.get(), label=org_var.get())).pack(side=tk.LEFT, padx=6)
+    ttk.Button(rp_f, text="Aggiorna Bersaglio", command=lambda: _dispatch_opt("renown_piety", track=track_var.get(), delta=_safe_int_var(delta_var, 1), label=org_var.get())).pack(side=tk.LEFT, padx=6)
 
     bas_f = ttk.LabelFrame(tab3, text="🏰 Ordini del Bastione (DMG 2024)", padding=8)
     bas_f.pack(fill=tk.X)
@@ -232,7 +249,7 @@ def open_optional_rules_tools_dialog(dm_gui, initial_tab: int = 0):
     gen_txt.pack(fill=tk.BOTH, expand=True)
 
     def _gen_dungeon():
-        res = RandomDungeonGenerator.generate(rooms_var.get())
+        res = RandomDungeonGenerator.generate(_safe_int_var(rooms_var, 5))
         gen_txt.delete("1.0", tk.END)
         lines = ["🏛️ DUNGEON CASUALE (DMG Appendice A)", f"Posizione: {res['location']}", f"Creatori: {res['creator']}", f"Scopo: {res['purpose']}", ""]
         for r in res["rooms"]:
@@ -283,10 +300,10 @@ def open_optional_rules_tools_dialog(dm_gui, initial_tab: int = 0):
         style="Primary.TButton",
         command=lambda: _dispatch_opt(
             "calc_cr",
-            hp=cr_hp.get(),
-            ac=cr_ac.get(),
-            dpr=cr_dpr.get(),
-            attack_bonus=cr_atk.get(),
+            hp=_safe_int_var(cr_hp, 85),
+            ac=_safe_int_var(cr_ac, 15),
+            dpr=_safe_int_var(cr_dpr, 24),
+            attack_bonus=_safe_int_var(cr_atk, 6),
             has_resistances=cr_res.get(),
         ),
     ).pack(side=tk.RIGHT, padx=4)
@@ -305,9 +322,9 @@ def open_optional_rules_tools_dialog(dm_gui, initial_tab: int = 0):
         style="Gold.TButton",
         command=lambda: _dispatch_opt(
             "mob_attack",
-            num_attackers=mob_n.get(),
-            attack_bonus=mob_atk.get(),
-            damage_per_hit=mob_dmg.get(),
+            num_attackers=_safe_int_var(mob_n, 8),
+            attack_bonus=_safe_int_var(mob_atk, 4),
+            damage_per_hit=_safe_int_var(mob_dmg, 5),
             apply_damage=True,
         ),
     ).pack(side=tk.RIGHT, padx=4)
@@ -323,7 +340,7 @@ def open_optional_rules_tools_dialog(dm_gui, initial_tab: int = 0):
     ttk.Button(
         alc_f,
         text="📜 Usa Pergamena (Attore)",
-        command=lambda: _dispatch_opt("spell_scroll", spell_level=scr_lvl.get(), max_castable_level=scr_max.get()),
+        command=lambda: _dispatch_opt("spell_scroll", spell_level=_safe_int_var(scr_lvl, 3), max_castable_level=_safe_int_var(scr_max, 1)),
     ).pack(side=tk.LEFT, padx=6)
     ttk.Button(
         alc_f,
@@ -338,14 +355,14 @@ def open_optional_rules_tools_dialog(dm_gui, initial_tab: int = 0):
     loy_d = tk.IntVar(value=1)
     ttk.Combobox(soc_f, textvariable=soc_att, values=["friendly", "indifferent", "hostile"], state="readonly", width=11).pack(side=tk.LEFT, padx=2)
     ttk.Spinbox(soc_f, from_=-5, to=35, textvariable=soc_chk, width=4).pack(side=tk.LEFT, padx=2)
-    ttk.Button(soc_f, text="Sociale", command=lambda: _dispatch_opt("social_loyalty", attitude=soc_att.get(), check_total=soc_chk.get())).pack(side=tk.LEFT, padx=3)
+    ttk.Button(soc_f, text="Sociale", command=lambda: _dispatch_opt("social_loyalty", attitude=soc_att.get(), check_total=_safe_int_var(soc_chk, 14))).pack(side=tk.LEFT, padx=3)
     ttk.Spinbox(soc_f, from_=-5, to=5, textvariable=loy_d, width=3).pack(side=tk.LEFT, padx=(8, 2))
-    ttk.Button(soc_f, text="Lealtà", command=lambda: _dispatch_opt("social_loyalty", loyalty_delta=loy_d.get())).pack(side=tk.LEFT, padx=2)
+    ttk.Button(soc_f, text="Lealtà", command=lambda: _dispatch_opt("social_loyalty", loyalty_delta=_safe_int_var(loy_d, 1))).pack(side=tk.LEFT, padx=2)
     veh_dmg = tk.IntVar(value=25)
     veh_comp = tk.StringVar(value="hull")
     ttk.Combobox(soc_f, textvariable=veh_comp, values=["hull", "sails", "helm"], state="readonly", width=6).pack(side=tk.LEFT, padx=(8, 2))
     ttk.Spinbox(soc_f, from_=1, to=200, textvariable=veh_dmg, width=4).pack(side=tk.LEFT, padx=2)
-    ttk.Button(soc_f, text="⛵ Danni Nave", command=lambda: _dispatch_opt("vehicle_damage", component=veh_comp.get(), damage=veh_dmg.get())).pack(side=tk.RIGHT, padx=4)
+    ttk.Button(soc_f, text="⛵ Danni Nave", command=lambda: _dispatch_opt("vehicle_damage", component=veh_comp.get(), damage=_safe_int_var(veh_dmg, 25))).pack(side=tk.RIGHT, padx=4)
 
     wild_f = ttk.LabelFrame(tab5, text="🧭 Navigazione, Foraggiamento & Pericoli Terre Selvagge (DMG p. 105-111)", padding=6)
     wild_f.pack(fill=tk.X)

@@ -1145,6 +1145,7 @@ class TestPhase35AndPhase4HardeningAndUX(unittest.TestCase):
 
             # Verify open_short_rest_dialog supports 0 HD rest button without returning empty warning-only close
             host.master = root
+            host.combat_active = False
             pc17.class_resources["action_surge_current"] = 0
             pc17.class_resources["action_surge"] = False
             ClientGUI.open_short_rest_dialog(host)

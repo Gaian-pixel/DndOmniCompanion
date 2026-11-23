@@ -6,7 +6,7 @@
 [![Ruleset: D&D 5e](https://img.shields.io/badge/ruleset-D%26D%205e-red.svg)](https://dnd.wizards.com/)
 [![UI: ttkbootstrap](https://img.shields.io/badge/ui-ttkbootstrap-orange.svg)](https://ttkbootstrap.readthedocs.io/)
 [![Multiplayer: TCP/UDP](https://img.shields.io/badge/networking-TCP%20%2B%20UDP-green.svg)]()
-[![Tests: Passing](https://img.shields.io/badge/tests-727%2F727%20passing-brightgreen.svg)]()
+[![Tests: Passing](https://img.shields.io/badge/tests-758%2F758%20passing-brightgreen.svg)]()
 [![Localization: EN / IT](https://img.shields.io/badge/i18n-English%20%7C%20Italiano-blueviolet.svg)]()
 [![Units: Imperial / Metric](https://img.shields.io/badge/units-ft%2Fmi%20%7C%20m%2Fkm-informational.svg)]()
 [![Version](https://img.shields.io/badge/release-v0.6.0--alpha-gold.svg)](https://github.com/Gaian-pixel/DndOmniCompanion/releases)
@@ -391,12 +391,17 @@ DndOmniCompanion/
 │   ├── GUIDA_ALL_UTILIZZO.md       # Manuale completo all'utilizzo (Italiano)
 │   ├── OPERATIONAL_GUIDE.md        # System & Operational Manual (English)
 │   ├── GUIDA_OPERATIVA.md          # Manuale operativo e architettura (Italiano)
-│   └── UX_AUDIT.md                 # Phase 4.5, Phase 5, Phase 5B & Phase 5C UX audit, live Tkinter measurements & remediation log
-├── tests/                          # Automated testing suite (727 passing tests across 74 modules)
+│   └── UX_AUDIT.md                 # Phase 4.5, Phase 5, Phase 5B, Phase 5C, Phase 6 & Phase 7 UX audit, live Tkinter measurements & remediation log
+├── tests/                          # Automated testing suite (758 passing tests across 79 modules)
 │   ├── test_gameplay_integration_e2e.py # Phase 3..5 gameplay integration, UX, Workflows A-D & real loopback TCP E2E suite
 │   ├── test_phase5b_scenarios_e2e.py # Phase 5B realistic E2E acceptance Scenarios A-E (UI login/combat/rest/FoW/reconnect)
 │   ├── test_phase5c_vtt_e2e.py     # Phase 5C reaction prompts, unified saves, multiattack parity, secrecy & shop stock E2E suite
 │   ├── test_phase6_release_readiness.py # Phase 6 build --dry-run, v0.5.0->v0.6.0 migration, 14/14 maturity & Zero-AI checks
+│   ├── test_phase7_authority_secrecy_sync.py # Phase 7 server authority, secrecy, locks & UDP keepalive tests
+│   ├── test_phase7_battlemap_fow_editor.py   # Phase 7 Player Display, door/light FoW secrecy, geometry & Map Editor tests
+│   ├── test_phase7_rules_concentration_saves.py # Phase 7 5e 2014 concentration, saves, Wild Shape/Rage & death saves tests
+│   ├── test_phase7_combat_subclasses_monsters.py # Phase 7 combat attacks, subclasses/rests & monster Multiattack parity tests
+│   ├── test_phase7_ux_sync_i18n.py           # Phase 7 Short Rest, sheet sync, Tk Spinbox guards, palette & 1175 IT/EN i18n tests
 │   ├── test_phb_dmg_mm_complete.py # Complete PHB/DMG/MM class powers, feats, monster traits & selectable DMG rules
 │   ├── test_raw_5e_advanced_features.py # Smite, Wild Shape, Font of Magic, Arcane Recovery, Reliable Talent, Auto XP
 │   ├── simulate_4player_campaign.py# Live 4-player + DM campaign simulation (11 phases)
@@ -417,10 +422,10 @@ DndOmniCompanion/
 
 ## 🧪 Automated Testing & Verification
 
-All **727 automated tests** across **74 `unittest` modules** pass with 100% success and 0 failures (`PYFLAKES_LINES=0`, `187` `.py` files compiled cleanly):
+All **758 automated tests** across **79 `unittest` modules** pass with 100% success and 0 failures (`PYFLAKES_LINES=0`, `192` `.py` files compiled cleanly, `1175`/`1175` symmetric IT/EN i18n keys):
 
 ```powershell
-# 1. Unified Quality Gate (py_compile, 0-warning pyflakes, isolated 74-module 727-test suite)
+# 1. Unified Quality Gate (py_compile, 0-warning pyflakes, isolated 79-module 758-test suite)
 python -X utf8 scripts/autonomous_dev_loop.py --verify
 
 # 1a. Run Phase 6 release-readiness, v0.5.0 migration, maturity & Zero-AI checks

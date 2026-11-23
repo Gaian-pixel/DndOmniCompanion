@@ -1426,6 +1426,8 @@ class DM_GUI(DMCampaignSessionMixin):
                 self.toggle_pan_mode()
             elif payload == "open_aoe":
                 self.open_aoe_dialog()
+            elif payload == "open_sheet":
+                self.view_player_sheet()
             elif payload == "center_map" and self.map_canvas:
                 self.map_canvas.center_view()
 
@@ -3285,8 +3287,9 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             img_b64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
             
             title = simpledialog.askstring("Titolo Handout", "Inserisci il titolo dell'immagine:", parent=self.master)
-            if not title:
-                title = "Handout Condiviso"
+            if title is None:
+                return
+            title = title.strip() or "Handout Condiviso"
                 
             from common.network_utils import broadcast
             

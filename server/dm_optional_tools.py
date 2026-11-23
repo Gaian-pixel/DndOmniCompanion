@@ -823,8 +823,8 @@ def _dispatch_optional_rule_action_locked(action: str, data: dict, player: Any, 
         broadcast(game_state, make_game_state(game_state.get_state_dict()))
         return
     if action == "roll_artifact":
-        props = roll_artifact_properties()
-        msg = f"👑 [ARTEFATTO DMG p.219] Benefiche: {', '.join(props['major_beneficial'][:1])} | Deteriori: {', '.join(props['major_detrimental'][:1])}"
+        props = data.get("properties") if isinstance(data.get("properties"), dict) else roll_artifact_properties()
+        msg = f"👑 [ARTEFATTO DMG p.219] Benefiche: {', '.join(props.get('major_beneficial', [])[:1])} | Deteriori: {', '.join(props.get('major_detrimental', [])[:1])}"
         broadcast(game_state, make_chat_broadcast("Sistema", msg))
         return
     if action == "sidekick_level_up" and target:

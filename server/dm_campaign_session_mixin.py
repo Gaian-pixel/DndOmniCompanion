@@ -345,10 +345,16 @@ class DMCampaignSessionMixin:
             ttk.Checkbutton(frm, text="Ambiente Esterno (Ciclo Giorno/Notte)", variable=outdoor_var).grid(row=4, column=0, columnspan=2, sticky="w", pady=6)
 
             def confirm_create():
+                def _safe_dim(var, fallback: int) -> int:
+                    try:
+                        val = var.get()
+                        return int(val) if val not in (None, "") else fallback
+                    except (tk.TclError, ValueError, TypeError):
+                        return fallback
                 created = gs.create_map(
                     name_var.get(),
-                    cols=int(cols_var.get() or 20),
-                    rows=int(rows_var.get() or 15),
+                    cols=_safe_dim(cols_var, 20),
+                    rows=_safe_dim(rows_var, 15),
                     grid_type=grid_var.get(),
                     outdoor=bool(outdoor_var.get()),
                     activate=True,
@@ -857,6 +863,8 @@ class DMCampaignSessionMixin:
         it_attuned = "Sì" if item.get("attuned") else "No"
         it_desc = item.get("desc", "")
         is_remove = item.get("action") == "remove"
+        is_edit = item.get("action") == "edit"
+        is_weapon_req = (item.get("target_collection") == "weapons")
         
         if is_remove:
             prompt_text = (
@@ -865,6 +873,15 @@ class DMCampaignSessionMixin:
                 f"Vuoi approvare la rimozione di questo oggetto dall'inventario di {p_name}?"
             )
             dialog_title = "Approvazione Rimozione Oggetto"
+        elif is_edit:
+            prompt_text = (
+                f"Il giocatore '{p_name}' richiede di MODIFICARE {'un\'arma' if is_weapon_req else 'un oggetto'}:\n\n"
+                f"• Nome: {it_name} (Slot #{slot_idx+1 if slot_idx is not None else '?'})\n"
+                f"• Categoria: {it_type}\n"
+                f"• Richiede Sintonia: {it_attuned}\n\n"
+                f"Vuoi approvare questa modifica per {p_name}?"
+            )
+            dialog_title = "Approvazione Modifica Arma" if is_weapon_req else "Approvazione Modifica Oggetto"
         else:
             prompt_text = (
                 f"Il giocatore '{p_name}' richiede di aggiungere un oggetto allo zaino:\n\n"
@@ -881,7 +898,6 @@ class DMCampaignSessionMixin:
         from common.network_utils import send_message, broadcast
         if approved:
             sheet = getattr(player, "full_sheet", None)
-            is_weapon_req = (item.get("target_collection") == "weapons")
             if sheet:
                 if is_weapon_req:
                     if not isinstance(sheet.get("weapons"), list):
@@ -894,6 +910,21 @@ class DMCampaignSessionMixin:
                                 if isinstance(w_obj, dict) and w_obj.get("name") == it_name:
                                     sheet["weapons"].pop(w_i)
                                     break
+                    elif is_edit:
+                        clean_weapon = {k: v for k, v in item.items() if k not in ("action", "target_collection")}
+                        if slot_idx is not None and 0 <= slot_idx < len(sheet["weapons"]):
+                            sheet["weapons"][slot_idx] = clean_weapon
+                        else:
+                            replaced = False
+                            for w_i, w_obj in enumerate(sheet["weapons"]):
+                                if isinstance(w_obj, dict) and w_obj.get("name") == it_name:
+                                    sheet["weapons"][w_i] = clean_weapon
+                                    slot_idx = w_i
+                                    replaced = True
+                                    break
+                            if not replaced:
+                                sheet["weapons"].append(clean_weapon)
+                                slot_idx = len(sheet["weapons"]) - 1
                     else:
                         clean_weapon = {k: v for k, v in item.items() if k not in ("action", "target_collection")}
                         sheet["weapons"].append(clean_weapon)
@@ -941,7 +972,7 @@ class DMCampaignSessionMixin:
                         pass
             if player.conn:
                 send_message(player.conn, make_item_approval_response(p_name, item, slot_idx, approved=True))
-            action_desc = "la rimozione di" if is_remove else "l'assegnazione di"
+            action_desc = "la rimozione di" if is_remove else ("la modifica di" if is_edit else "l'assegnazione di")
             broadcast(self.server.game_state, make_chat_broadcast("Sistema", f"[INVENTARIO] Il Master ha APPROVATO {action_desc} '{it_name}' per {p_name}!"))
             self.log_to_chat(f"[SISTEMA] Approvata richiesta {action_desc} '{it_name}' per {p_name}.")
             self.server.game_state._trigger_gui_update()

@@ -60,6 +60,28 @@ def _set_tooltip(widget, text):
     else:
         widget._tooltip_obj = ToolTip(widget, text)
 
+
+def _safe_int_var(var, default: int = 0) -> int:
+    """Legge in modo sicuro un IntVar/Entry evitando crash tk.TclError su campo vuoto."""
+    try:
+        val = var.get()
+        if val in (None, ""):
+            return default
+        return int(val)
+    except (tk.TclError, ValueError, TypeError):
+        return default
+
+
+def _safe_float_var(var, default: float = 0.0) -> float:
+    """Legge in modo sicuro un DoubleVar/Entry evitando crash tk.TclError su campo vuoto."""
+    try:
+        val = var.get()
+        if val in (None, ""):
+            return default
+        return float(val)
+    except (tk.TclError, ValueError, TypeError):
+        return default
+
 SRD_SUBCLASSES = {
     "barbaro": ["Cammino del Berserker", "Cammino del Combattente Totemico", "Cammino dello Zelota"],
     "barbarian": ["Path of the Berserker", "Path of the Totem Warrior", "Path of the Zealot"],
@@ -360,7 +382,7 @@ def _get_spell_action_cost_type(spell: dict, metamagic_key: str = "") -> str:
 
 
 class CharacterSheetFrame(ttk.Frame):
-    def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, give_gold_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None, custom_spell_request_callback=None, request_currency_callback=None, request_item_callback=None, is_connected=False, request_journal_approval_callback=None, on_close_callback=None, on_detach_callback=None, on_dock_callback=None, is_overlay=False, network=None, cast_spell_callback=None, **kwargs):
+    def __init__(self, master, character, manager, on_save_callback=None, roll_callback=None, trade_callback=None, give_gold_callback=None, players_list_callback=None, attack_callback=None, long_rest_callback=None, custom_spell_request_callback=None, request_currency_callback=None, request_item_callback=None, is_connected=False, request_journal_approval_callback=None, on_close_callback=None, on_detach_callback=None, on_dock_callback=None, is_overlay=False, network=None, cast_spell_callback=None, combat_active=False, **kwargs):
         super().__init__(master, **kwargs)
         self.character = character
         self.manager = manager
@@ -377,6 +399,7 @@ class CharacterSheetFrame(ttk.Frame):
         self.request_item_callback = request_item_callback
         self.is_connected = is_connected
         self.network = network
+        self.combat_active = bool(combat_active)
         self.default_font = ("Georgia", 10)
         self.initial_currency = {}
         self.request_journal_approval_callback = request_journal_approval_callback
@@ -656,6 +679,27 @@ class CharacterSheetFrame(ttk.Frame):
         mgr = getattr(self, "manager", None)
         if mgr and hasattr(mgr, "update_character"):
             mgr.update_character(self.character)
+
+    def _persist_and_sync_sheet(self, sync_network: bool = True):
+        """Salva localmente in modo sicuro (anche con manager=None) e sincronizza la scheda."""
+        if getattr(self, "_loading_data", False):
+            return
+        self._safe_update_character()
+        self._safe_save_characters()
+        if not sync_network:
+            return
+        if getattr(self, "on_save_callback", None):
+            try:
+                self.on_save_callback(self.character)
+                return
+            except Exception:
+                pass
+        if getattr(self, "is_connected", False) and getattr(self, "network", None) and hasattr(self.network, "send"):
+            try:
+                from common.protocol import make_update_full_sheet_request
+                self.network.send(make_update_full_sheet_request(self.character.to_dict()))
+            except Exception:
+                pass
 
     def setup_ui(self):
         # Unica Barra Controlli Superiore per tutte le modalità (overlay, staccata, modale)
@@ -1875,7 +1919,7 @@ class CharacterSheetFrame(ttk.Frame):
                     def _use_p():
                         used_v = self.character.use_portent_die(idx_p)
                         if used_v is not None:
-                            self._safe_save_characters()
+                            self._persist_and_sync_sheet()
                             self.refresh_custom_resources_ui()
                             if self.roll_callback:
                                 self.roll_callback("0d0", f"🔮 [PORTENTO] {self.character.name} sostituisce un d20 con il dado pre-tirato di Portento: **{used_v}**!")
@@ -1891,7 +1935,7 @@ class CharacterSheetFrame(ttk.Frame):
             tk.Label(l_row, text=f"{l_pts} / 3", font=FONT_BOLD, fg=ACCENT_GOLD, bg=SURFACE_COLOR, width=8, anchor="center").pack(side=tk.LEFT, padx=2)
             def _use_lucky():
                 if self.character.use_lucky_point():
-                    self._safe_save_characters()
+                    self._persist_and_sync_sheet()
                     self.refresh_custom_resources_ui()
                     if self.roll_callback:
                         self.roll_callback("1d20", f"🍀 Punto Fortuna ({self.character.name} tira 1d20 aggiuntivo, {self.character.lucky_points}/3 rimasti)")
@@ -1924,7 +1968,7 @@ class CharacterSheetFrame(ttk.Frame):
                     res_obj = self.character.custom_resources[i]
                     res_obj["current"] = max(0, min(res_obj.get("max", 0), res_obj.get("current", 0) + delta))
                     v_lbl.config(text=f"{res_obj['current']} / {res_obj.get('max', 0)}")
-                    self._safe_save_characters()
+                    self._persist_and_sync_sheet()
                 return _cmd
 
             def make_delete(i=idx):
@@ -1934,7 +1978,7 @@ class CharacterSheetFrame(ttk.Frame):
                         return
                     if messagebox.askyesno("Elimina Risorsa", f"Vuoi eliminare la risorsa '{self.character.custom_resources[i].get('name')}'?"):
                         self.character.custom_resources.pop(i)
-                        self._safe_save_characters()
+                        self._persist_and_sync_sheet()
                         self.refresh_custom_resources_ui()
                 return _del
 
@@ -1970,7 +2014,7 @@ class CharacterSheetFrame(ttk.Frame):
             "max": mx,
             "reset_on": reset_on
         })
-        self.manager.save_characters()
+        self._persist_and_sync_sheet()
         self.refresh_custom_resources_ui()
 
     def spend_superiority_die_action(self):
@@ -1981,7 +2025,7 @@ class CharacterSheetFrame(ttk.Frame):
             return
         if self.roll_callback:
             self.roll_callback("0d0", f"🎲 {self.character.name}: {msg}")
-        self._safe_save_characters()
+        self._persist_and_sync_sheet()
         self.refresh_custom_resources_ui()
         messagebox.showinfo("Dado di Superiorità Speso", msg, parent=self)
 
@@ -2079,9 +2123,9 @@ class CharacterSheetFrame(ttk.Frame):
 
         def do_transform():
             b_n = str(name_var.get()).strip() or "Bestia"
-            b_h = max(1, hp_var.get())
-            b_a = max(1, ac_var.get())
-            b_s = max(5, spd_var.get())
+            b_h = max(1, _safe_int_var(hp_var, 10))
+            b_a = max(1, _safe_int_var(ac_var, 11))
+            b_s = max(5, _safe_int_var(spd_var, 30))
             sel_p = presets.get(preset_var.get(), {})
             attrs = sel_p.get("attrs", {})
             ok, msg = self.character.enter_wild_shape(b_n, b_h, b_a, b_s, beast_attributes=attrs)
@@ -3768,7 +3812,7 @@ class CharacterSheetFrame(ttk.Frame):
         if not hasattr(self.character, "spellbook"): self.character.spellbook = []
         self.character.spellbook.append({"name": name, "level": level, "time": time, "range": rng, "desc": desc})
         self.refresh_spell_list()
-        self.manager.save_characters()
+        self._persist_and_sync_sheet()
         messagebox.showinfo("Successo", f"{name} aggiunto al Grimorio!")
 
     def recover_spell_slots(self):
@@ -4545,8 +4589,7 @@ class CharacterSheetFrame(ttk.Frame):
                 def _ctx_use_charge(s_idx=slot_idx):
                     ok_c, msg_c = self.character.use_item_charge(s_idx, 1)
                     self.refresh_inventory_grid()
-                    self._safe_update_character()
-                    self._safe_save_characters()
+                    self._persist_and_sync_sheet()
                     if self.roll_callback and ok_c:
                         self.roll_callback("0d0", msg_c)
                     messagebox.showinfo("Cariche Oggetto Magico", msg_c, parent=self)
@@ -4752,8 +4795,8 @@ class CharacterSheetFrame(ttk.Frame):
             entry = {
                 "name": nm,
                 "type": type_combo.get().strip() or "Equipaggiamento",
-                "qty": max(1, qty_var.get()),
-                "weight": max(0.0, weight_var.get()),
+                "qty": max(1, _safe_int_var(qty_var, 1)),
+                "weight": max(0.0, _safe_float_var(weight_var, 0.0)),
                 "attuned": attune_var.get(),
                 "requires_attunement": bool(attune_var.get()),
                 "desc": desc_text.get("1.0", tk.END).strip(),
@@ -4766,10 +4809,7 @@ class CharacterSheetFrame(ttk.Frame):
                 return
 
             self.character.inventory_grid[target_idx] = entry
-            if getattr(self, "manager", None):
-                self.manager.update_character(self.character)
-                if hasattr(self.manager, 'save_characters'):
-                    self.manager.save_characters()
+            self._persist_and_sync_sheet()
             self.refresh_inventory_grid()
             self.recalculate_and_refresh_derived_stats()
             win.destroy()
@@ -4955,8 +4995,7 @@ class CharacterSheetFrame(ttk.Frame):
             item["container"] = c_code
             self.refresh_inventory_grid()
             self.recalculate_and_refresh_derived_stats()
-            self._safe_update_character()
-            self._safe_save_characters()
+            self._persist_and_sync_sheet()
             win.destroy()
             
         def discard():
@@ -5027,8 +5066,7 @@ class CharacterSheetFrame(ttk.Frame):
                 ok_c, msg_c = self.character.use_item_charge(idx, 1)
                 charges_cur_var.set(int(item.get("charges_current", 0) or 0))
                 self.refresh_inventory_grid()
-                self._safe_update_character()
-                self._safe_save_characters()
+                self._persist_and_sync_sheet()
                 if self.roll_callback and ok_c:
                     self.roll_callback("0d0", msg_c)
                 messagebox.showinfo("Cariche Oggetto Magico", msg_c, parent=win)
@@ -5158,8 +5196,7 @@ class CharacterSheetFrame(ttk.Frame):
 
     def toggle_drop_backpack(self):
         new_state = self.character.toggle_drop_backpack()
-        self._safe_update_character()
-        self._safe_save_characters()
+        self._persist_and_sync_sheet()
             
         self.refresh_inventory_grid()
         self.recalculate_and_refresh_derived_stats()
@@ -6103,6 +6140,7 @@ class CharacterSheetUI(tk.Toplevel):
         on_dock_callback=None,
         network=None,
         cast_spell_callback=None,
+        combat_active=False,
     ):
         super().__init__(master)
         self.title(f"{_t('sheet_title')} - {character.name}")
@@ -6132,6 +6170,7 @@ class CharacterSheetUI(tk.Toplevel):
             is_overlay=False,
             network=network,
             cast_spell_callback=cast_spell_callback,
+            combat_active=combat_active,
         )
         self._sheet_frame_internal.pack(fill=tk.BOTH, expand=True)
         self.protocol("WM_DELETE_WINDOW", self._on_window_close)
@@ -6342,7 +6381,7 @@ class WeaponDialog(tk.Toplevel):
             "ability": self.ability_var.get().strip(),
             "damage_dice": self.dice_var.get().strip(),
             "damage_type": self.dmg_type_var.get().strip(),
-            "bonus": int(self.bonus_var.get()),
+            "bonus": _safe_int_var(self.bonus_var, 0),
             "proficient": bool(self.prof_var.get())
         }
         if self.on_save_callback:
