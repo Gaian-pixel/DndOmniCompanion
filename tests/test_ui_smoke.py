@@ -4,9 +4,13 @@ eccezioni e salva uno screenshot di ciascuna in ./ui_screenshots per la revision
 Uso:  python test_ui_smoke.py [--no-screens]
 """
 import os
+import gc
+import shutil
 import sys
+import tempfile
 import time
 import traceback
+import unittest
 import tkinter as tk
 from unittest.mock import patch
 
@@ -179,4 +183,146 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+class TestUiSmokeSuite(unittest.TestCase):
+    """Wrapper unittest headless per rendere test_ui_smoke eseguibile nella suite CI unificata."""
+
+    def test_headless_ui_smoke_core_windows(self):
+        global TAKE_SCREENS
+        orig_take_screens = TAKE_SCREENS
+        TAKE_SCREENS = False
+        results.clear()
+        tk_errors.clear()
+
+        tmp_dir = tempfile.mkdtemp(prefix="dnd_ui_smoke_")
+        old_env = {k: os.environ.get(k) for k in ("DND_MOCK_AUDIO", "DND_SETTINGS_PATH", "DND_CHARACTERS_PATH")}
+        os.environ["DND_MOCK_AUDIO"] = "1"
+        os.environ["DND_SETTINGS_PATH"] = os.path.join(tmp_dir, "settings.json")
+        os.environ["DND_CHARACTERS_PATH"] = os.path.join(tmp_dir, "characters.json")
+
+        from server.network import Server
+        from common.ui_lifecycle import cancel_all_after_timers
+
+        class _EphemeralServer(Server):
+            def __init__(self, host, port, gui_queue, session_password: str = ""):
+                super().__init__("127.0.0.1", 0, gui_queue, session_password=session_password)
+                self.voice_server.host = "127.0.0.1"
+                self.voice_server.port = 0
+
+        patches = [
+            patch("server.dm_gui.Server", _EphemeralServer),
+            patch("server.dm_gui.AudioManager"),
+            patch("server.dm_gui.VoiceClient"),
+            patch("client.client.AudioManager"),
+            patch("client.client.VoiceClient"),
+            patch("common.messagebox.messagebox.showinfo"),
+            patch("common.messagebox.messagebox.showerror"),
+            patch("common.messagebox.messagebox.showwarning"),
+            patch("common.messagebox.messagebox.askyesno", return_value=False),
+            patch("common.messagebox.messagebox.askokcancel", return_value=False),
+            patch("tkinter.simpledialog.askstring", return_value=None),
+            patch("tkinter.simpledialog.askinteger", return_value=None),
+        ]
+        for p in patches:
+            p.start()
+
+        root = tk.Tk()
+        root.withdraw()
+        dm = None
+        cl = None
+        try:
+            def report_cb(exc, val, tb):
+                tk_errors.append("".join(traceback.format_exception(exc, val, tb)))
+
+            root.report_callback_exception = report_cb
+
+            from server.dm_gui import DM_GUI
+            from client.client import ClientGUI
+            from client.character_manager import Character, CharacterManager
+            from client.login_ui import LoginDialog
+            from client.character_sheet_ui import CharacterSheetUI
+            from client.character_creation_wizard import CharacterCreationWizard
+
+            win_s = tk.Toplevel(root)
+            win_s.withdraw()
+            dm = DM_GUI(win_s)
+            win_c = tk.Toplevel(root)
+            win_c.withdraw()
+            cl = ClientGUI(win_c)
+
+            char = Character("Aragorn", "Ranger")
+            char.inventory_grid[0] = {"name": "Spada Lunga", "type": "Arma", "qty": 1, "desc": "Spada"}
+            cl.active_character = char
+            cl.name = char.name
+            cl.set_controls_state(tk.NORMAL)
+            root.update_idletasks()
+
+            mgr = CharacterManager.__new__(CharacterManager)
+            mgr.characters = [char]
+            mgr.update_character = lambda _c: None
+            mgr.save_characters = lambda: None
+
+            check("dm_travel_panel", win_s, dm.open_travel_panel, screenshot=False)
+            check("dm_conditions", win_s, dm.open_conditions_dialog, screenshot=False)
+            check("client_travel_dialog", win_c, cl.open_travel_dialog, screenshot=False)
+            check("client_aoe_dialog", win_c, cl.open_aoe_dialog, screenshot=False)
+            check("client_action_dialog", win_c, cl.open_action_dialog, screenshot=False)
+            check("client_login_dialog", win_c, lambda: LoginDialog(win_c, mgr), screenshot=False)
+            check(
+                "client_character_sheet",
+                win_c,
+                lambda: CharacterSheetUI(win_c, char, mgr, roll_callback=lambda *a: None, trade_callback=lambda *a: None, players_list_callback=lambda: ["Legolas"]),
+                screenshot=False,
+            )
+            check("client_creation_wizard", win_c, lambda: CharacterCreationWizard(win_c, mgr, on_complete_callback=lambda _: None), screenshot=False)
+
+            failed = [r for r in results if not r[1]]
+            self.assertEqual(failed, [], f"UI smoke failures: {failed}")
+            self.assertEqual(tk_errors, [], f"Tk callback errors: {tk_errors}")
+        finally:
+            TAKE_SCREENS = orig_take_screens
+            if cl is not None:
+                try:
+                    cl.disconnect()
+                except Exception:
+                    pass
+            if dm is not None:
+                try:
+                    dm.server.stop()
+                except Exception:
+                    pass
+            for w in list(root.winfo_children()):
+                try:
+                    w.grab_release()
+                except Exception:
+                    pass
+                try:
+                    cancel_all_after_timers(w)
+                except Exception:
+                    pass
+            cancel_all_after_timers(root)
+            try:
+                from components.command_palette import ToastNotification
+                ToastNotification._active_toasts.clear()
+            except Exception:
+                pass
+            dm = None
+            cl = None
+            mgr = None
+            char = None
+            gc.collect()
+            try:
+                root.destroy()
+            except Exception:
+                pass
+            for p in patches:
+                p.stop()
+            for k, old_v in old_env.items():
+                if old_v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = old_v
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
 

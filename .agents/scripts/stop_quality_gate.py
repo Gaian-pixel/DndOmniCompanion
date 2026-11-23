@@ -172,7 +172,7 @@ def main() -> int:
     test_mods = [
         "tests." + Path(f).stem
         for f in py_changed
-        if f.startswith("tests/test_") and Path(f).name not in ("test_ui_smoke.py", "test_e2e_gui.py")
+        if f.startswith("tests/test_")
     ]
     if test_mods:
         with tempfile.TemporaryDirectory(prefix="dnd_hook_gate_") as tmpd:

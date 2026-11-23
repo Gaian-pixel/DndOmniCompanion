@@ -33,7 +33,7 @@ from typing import Dict, List, Optional, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ROADMAP_PATH = REPO_ROOT / "docs" / "DEVELOPMENT_ROADMAP.md"
-STANDALONE_GUI_SCRIPTS = {"test_e2e_gui.py", "test_ui_smoke.py"}
+STANDALONE_GUI_SCRIPTS = set()
 FAST_TEST_MODULES = [
     "tests.test_phase5c_vtt_e2e",
     "tests.test_task041_resilience_sheets_rest",

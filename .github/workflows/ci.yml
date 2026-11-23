@@ -32,39 +32,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyflakes
 
-      - name: Compile-check all Python files
-        run: |
-          python -c "
-          import os, py_compile
-          for root_dir in ['common', 'server', 'client', 'components', 'tests']:
-              for r, _, files in os.walk(root_dir):
-                  for f in files:
-                      if f.endswith('.py'):
-                          py_compile.compile(os.path.join(r, f), doraise=True)
-          for top_py in ['main.py', 'build_release.py']:
-              if os.path.exists(top_py):
-                  py_compile.compile(top_py, doraise=True)
-          print('py_compile succeeded for all Python files.')
-          "
-
-      - name: Run Pyflakes critical check (undefined names, star imports, syntax)
-        run: |
-          python -c "
-          import subprocess, sys
-          res = subprocess.run([sys.executable, '-m', 'pyflakes', 'common', 'server', 'client', 'components', 'main.py'], capture_output=True, text=True)
-          lines = [l for l in (res.stdout + res.stderr).splitlines() if l.strip()]
-          crit = [l for l in lines if 'undefined name' in l or 'unable to detect undefined names' in l or 'syntax error' in l.lower()]
-          if crit:
-              print('\n'.join(crit))
-              sys.exit(1)
-          print(f'Pyflakes critical check clean (0 undefined names, 0 star imports). Total non-critical lines: {len(lines)}')
-          "
-
-      - name: Run full headless unittest suite
+      - name: Run unified verification gate (py_compile, pyflakes, isolated unittest suite)
         env:
           DND_MOCK_AUDIO: '1'
         run: |
-          TMP_DATA_DIR=$(mktemp -d)
-          export DND_SETTINGS_PATH="$TMP_DATA_DIR/settings.json"
-          export DND_CHARACTERS_PATH="$TMP_DATA_DIR/characters.json"
-          xvfb-run -a python -m unittest discover tests -v
+          xvfb-run -a python -X utf8 scripts/autonomous_dev_loop.py --verify
