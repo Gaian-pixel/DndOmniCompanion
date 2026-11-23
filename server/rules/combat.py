@@ -1405,7 +1405,8 @@ def advance_combat_turn(game_state, ending_player=None):
             ))
 
             # MM Movimento Incorporeo: termina il turno dentro un muro/oggetto solido -> 1d10 danni Forza
-            from server.dm_monster_engine import is_incorporeal_entity
+            from server.dm_monster_engine import is_incorporeal_entity, check_petrification_stage_at_turn_end
+            check_petrification_stage_at_turn_end(prev_p, game_state)
             if is_incorporeal_entity(prev_p) and getattr(prev_p, "hp", 0) > 0 and getattr(prev_p, "position", None) and getattr(game_state, "current_map", None):
                 from server.rules.movement import get_effective_map_walls
                 _walls_inc = get_effective_map_walls(game_state.current_map) or []
@@ -1923,11 +1924,19 @@ def handle_attack_request(data, player, game_state):
                     normal_range_hex, max_range_hex = 6.0, 24.0
 
                 if (getattr(player, "is_submerged", False) or is_condition_active(p_cond, "Immerso")) and dist_3d > normal_range_hex:
+                    player.attacks_made_this_turn = _prev_attacks_made
+                    player.has_acted_this_turn = _prev_has_acted
+                    player.bonus_action_used_this_turn = _prev_ba_used
+                    player.has_reacted_this_turn = _prev_reacted_used
                     if player and getattr(player, "conn", None):
                         send_message(player.conn, make_error_reply("Attacco a distanza sott'acqua oltre la gittata normale manca automaticamente (PHB p. 198)!"))
                     return
 
                 if dist_3d > max_range_hex:
+                    player.attacks_made_this_turn = _prev_attacks_made
+                    player.has_acted_this_turn = _prev_has_acted
+                    player.bonus_action_used_this_turn = _prev_ba_used
+                    player.has_reacted_this_turn = _prev_reacted_used
                     if player and getattr(player, "conn", None):
                         send_message(player.conn, make_error_reply(f"Bersaglio oltre la gittata massima! ({int(max_range_hex * 5)} ft / {int(max_range_hex)} caselle)."))
                     return
@@ -2110,6 +2119,28 @@ def handle_attack_request(data, player, game_state):
                     # Bersaglio vede l'attaccante ma l'attaccante non vede il bersaglio -> Svantaggio
                     dis_reasons.append("Bersaglio Non Visibile nell'Oscurità (Attaccante Cieco)")
 
+        # Modificatori incantesimi attivi (prima di Allerta, Vista Cieca/Vero, Sensi Ferini ed Elusivo)
+        _w_low_tmp = str(weapon_name).lower()
+        _is_ranged_tmp = bool(data.get("is_ranged")) or any(k in _w_low_tmp for k in ["arco", "bow", "balestra", "crossbow", "dardo", "dart", "fionda", "sling", "distanza", "ranged"])
+        from common.spell_effects_engine import compute_combat_spell_modifiers
+        _spell_fx_mods = compute_combat_spell_modifiers(player, target_player, is_melee=(not _is_ranged_tmp))
+        if _spell_fx_mods.get("sanctuary_blocked"):
+            player.attacks_made_this_turn = _prev_attacks_made
+            player.has_acted_this_turn = _prev_has_acted
+            player.bonus_action_used_this_turn = _prev_ba_used
+            player.has_reacted_this_turn = _prev_reacted_used
+            _sanc_msg = f"🕊️ [SANTUARIO] L'attacco di {player.name} contro {target_name} fallisce: {_spell_fx_mods['notes'][-1]}"
+            broadcast(game_state, make_chat_broadcast("Sistema", _sanc_msg))
+            game_state.log_dm_message(f"[COMBAT] {_sanc_msg}")
+            return
+        if _spell_fx_mods.get("adv") and not target_has_alert and "Invisibile" not in adv_reasons:
+            adv_reasons.append("Invisibile")
+        if _spell_fx_mods.get("disadv"):
+            if getattr(target_player, "blur_active", False) and "Sfocatura bersaglio" not in dis_reasons:
+                dis_reasons.append("Sfocatura bersaglio")
+            if getattr(target_player, "greater_invisibility", False) and "Bersaglio Invisibile" not in dis_reasons:
+                dis_reasons.append("Bersaglio Invisibile")
+
         # Sensi Speciali (Vista Cieca / Percezione Tellurica / Vista del Vero) & Sensibilità alla Luce Solare (MM)
         from server.rules.reaction_magic import (
             check_special_senses_see_target,
@@ -2121,7 +2152,11 @@ def handle_attack_request(data, player, game_state):
         if att_sees_spec:
             dis_reasons = [
                 r for r in dis_reasons
-                if r not in ("Accecato", "Bersaglio Invisibile", "Bersaglio non visibile al buio", "Bersaglio Non Visibile nell'Oscurità (Attaccante Cieco)")
+                if r not in (
+                    "Accecato", "Bersaglio Invisibile", "Sfocatura bersaglio",
+                    "Sfocatura/Invisibilità bersaglio", "Bersaglio non visibile al buio",
+                    "Bersaglio Non Visibile nell'Oscurità (Attaccante Cieco)",
+                )
             ]
         def_sees_spec, _ = check_special_senses_see_target(target_player, player, eff_dist_h)
         if def_sees_spec:
@@ -2135,8 +2170,6 @@ def handle_attack_request(data, player, game_state):
 
         # Regole PHB aggiuntive su Vantaggio/Svantaggio (Armatura senza competenza, Combattente in Sella, Lottatore, Assassinio, Sensi Ferini, Elusivo)
         from common.feats_and_classes import get_armor_nonproficiency_penalties
-        _w_low_tmp = str(weapon_name).lower()
-        _is_ranged_tmp = bool(data.get("is_ranged")) or any(k in _w_low_tmp for k in ["arco", "bow", "balestra", "crossbow", "dardo", "dart", "fionda", "sling", "distanza", "ranged"])
         if not data.get("is_spell"):
             if get_armor_nonproficiency_penalties(player).get("disadvantage_str_dex"):
                 dis_reasons.append("Armatura senza competenza (PHB p. 144)")
@@ -2155,7 +2188,7 @@ def handle_attack_request(data, player, game_state):
                 if not getattr(target_player, "has_acted_this_turn", False) and not getattr(target_player, "has_acted_in_combat", False):
                     adv_reasons.append("Assassinio (Bersaglio non ha ancora agito)")
         if entity_get_class_level(player, "ranger") >= 18 or entity_has_keyword(player, "sensi ferini", "feral senses"):
-            dis_reasons = [r for r in dis_reasons if "Invisibile" not in r and "non visibile al buio" not in r]
+            dis_reasons = [r for r in dis_reasons if "invisibil" not in r.lower() and "non visibile al buio" not in r.lower()]
         _t_rogue_l = entity_get_class_level(target_player, "ladro", "rogue")
         if (_t_rogue_l >= 18 or entity_has_keyword(target_player, "elusivo", "elusive")) and not is_incapacitated_entity(target_player):
             adv_reasons = []
@@ -2178,21 +2211,6 @@ def handle_attack_request(data, player, game_state):
             if _facing_res.get("grant_advantage"):
                 adv_reasons.append("Attacco alle Spalle / Facing (DMG p.252)")
 
-        from common.spell_effects_engine import compute_combat_spell_modifiers
-        _spell_fx_mods = compute_combat_spell_modifiers(player, target_player, is_melee=(not _is_ranged_tmp))
-        if _spell_fx_mods.get("sanctuary_blocked"):
-            player.attacks_made_this_turn = _prev_attacks_made
-            player.has_acted_this_turn = _prev_has_acted
-            player.bonus_action_used_this_turn = _prev_ba_used
-            player.has_reacted_this_turn = _prev_reacted_used
-            _sanc_msg = f"🕊️ [SANTUARIO] L'attacco di {player.name} contro {target_name} fallisce: {_spell_fx_mods['notes'][-1]}"
-            broadcast(game_state, make_chat_broadcast("Sistema", _sanc_msg))
-            game_state.log_dm_message(f"[COMBAT] {_sanc_msg}")
-            return
-        if _spell_fx_mods.get("adv") and "Invisibile (Vantaggio)" not in adv_reasons:
-            adv_reasons.append("Invisibile / Magia")
-        if _spell_fx_mods.get("disadv") and "Sfocatura/Invisibilità bersaglio" not in dis_reasons:
-            dis_reasons.append("Sfocatura / Invisibilità")
         if getattr(target_player, "is_squeezing", False):
             adv_reasons.append("Bersaglio Squeezed (PHB p.192)")
         if getattr(player, "is_squeezing", False):
@@ -2367,6 +2385,11 @@ def handle_attack_request(data, player, game_state):
         if _hero_b > 0:
             hit_roll += _hero_b
             player.pending_hero_bonus = 0
+
+        _cw_pen = int(getattr(player, "cutting_words_penalty", 0) or 0)
+        if _cw_pen > 0:
+            hit_roll -= _cw_pen
+            player.cutting_words_penalty = 0
         
         # 2. CA Bersaglio
         target_ac = getattr(target_player, "ac", 10) or 10
@@ -2489,6 +2512,8 @@ def handle_attack_request(data, player, game_state):
             log_msg += f" (+{benedizione_bonus} Benedizione)"
         if anatema_penalty > 0:
             log_msg += f" (-{anatema_penalty} Anatema)"
+        if _cw_pen > 0:
+            log_msg += f" (-{_cw_pen} Parole Taglienti)"
         log_msg += f" vs CA {target_ac}."
         if guided_strike_applied > 0:
             log_msg += f" (+{guided_strike_applied} Colpo Guidato)"
@@ -2644,6 +2669,7 @@ def handle_attack_request(data, player, game_state):
                         player.absorb_elements_type = ""
                     if hasattr(player, "remove_effect"):
                         player.remove_effect("Assorbire Elementi")
+                        player.remove_effect("absorb_elements")
                     if ae_cond and not _has_ae_engine_bonus:
                         ae_roll = roll_dice("1d6", is_crit=is_crit)
                         dmg_val += ae_roll["total"]
@@ -3918,17 +3944,18 @@ def _get_entity_size_rank(entity):
 def _get_entity_max_attacks(player) -> int:
     """Ritorna il numero massimo di attacchi per Azione di Attacco (PHB Extra Attack, multiclasse-aware)."""
     from common.dnd5e_tables import entity_get_class_level
+    best = 1
     f_lvl = entity_get_class_level(player, "guerriero", "fighter")
     if f_lvl > 0:
-        return 4 if f_lvl >= 20 else (3 if f_lvl >= 11 else (2 if f_lvl >= 5 else 1))
+        best = max(best, 4 if f_lvl >= 20 else (3 if f_lvl >= 11 else (2 if f_lvl >= 5 else 1)))
     if any(entity_get_class_level(player, *k) >= 5 for k in (("barbar", "barbarian"), ("paladin",), ("ranger",), ("monac", "monk"))):
-        return 2
+        best = max(best, 2)
     p_sub = str((getattr(player, "full_sheet", None) or {}).get("subclass", getattr(player, "subclass", "")) or "").lower()
     bard_l = entity_get_class_level(player, "bardo", "bard")
     wiz_l = entity_get_class_level(player, "mago", "wizard")
     if (bard_l >= 6 and any(k in p_sub for k in ("valore", "valor", "spade", "swords"))) or (wiz_l >= 6 and any(k in p_sub for k in ("lama", "bladesing"))):
-        return 2
-    return 1
+        best = max(best, 2)
+    return best
 
 
 def _consume_maneuver_action(player, allow_shield_master_ba: bool = False, is_bonus_action: bool = False):

@@ -1293,7 +1293,7 @@ def handle_cast_special_spell_request(data, player, game_state):
             return
         darts = [roll_dice("1d4+1")["total"] for _ in range(num_darts)]
         tot_force = sum(darts)
-        final_d, note, _, _ = apply_damage(target, tot_force, damage_type="Forza", game_state=game_state)
+        final_d, note, _, _ = apply_damage(target, tot_force, damage_type="Forza", game_state=game_state, is_spell=True, attacker=actor)
         msg = f"✨ [DARDO INCANTATO Lv.{cast_level}] {actor.name} colpisce AUTOMATICAMENTE {target.name} con {num_darts} dardi {darts} = {final_d} danni da Forza!{note} (PV {target.name}: {target.hp}/{target.max_hp})"
         broadcast(game_state, make_chat_broadcast("Sistema", msg))
         broadcast(game_state, make_player_stats_update(target.name, target.hp, target.max_hp, target.initiative, target.conditions, getattr(target, "temp_hp", 0)))
@@ -1317,6 +1317,7 @@ def handle_cast_special_spell_request(data, player, game_state):
     is_eb = ("deflagrazione" in s_low or "eldritch blast" in s_low)
     is_sr = ("raggio rovente" in s_low or "scorching ray" in s_low)
     if is_eb or is_sr:
+        from common.dnd5e_tables import entity_has_elemental_adept
         tot_lvl = entity_get_total_level(actor)
         num_rays = (1 if tot_lvl < 5 else (2 if tot_lvl < 11 else (3 if tot_lvl < 17 else 4))) if is_eb else (3 + max(0, cast_level - 2))
         spell_atk = int(data.get("hit_bonus") or (entity_get_attr_mod(actor, "CAR" if is_eb else "INT") + ((tot_lvl - 1) // 4 + 2)))
@@ -1326,7 +1327,7 @@ def handle_cast_special_spell_request(data, player, game_state):
         agonizing = is_eb and entity_has_keyword(actor, "deflagrazione agonizzante", "agonizing blast")
         repelling = is_eb and entity_has_keyword(actor, "deflagrazione respingente", "repelling blast")
         cha_mod = max(0, entity_get_attr_mod(actor, "CAR")) if agonizing else 0
-        elem_adept = entity_has_keyword(actor, "adepto elementale", "elemental adept") and not is_eb
+        elem_adept = entity_has_elemental_adept(actor, dmg_type)
 
         ray_logs = []
         total_dealt = 0
@@ -1339,14 +1340,16 @@ def handle_cast_special_spell_request(data, player, game_state):
                 dmg_formula = "1d10" if is_eb else "2d6"
                 r_dmg = roll_dice(dmg_formula, is_crit=is_c, elemental_adept=elem_adept)["total"] + cha_mod
                 if target:
-                    if elem_adept and "Fuoco" in dmg_type:
-                        # Adepto Elementale ignora Resistenza Fuoco
-                        old_res = list(getattr(target, "damage_resistances", []))
-                        target.damage_resistances = [r for r in old_res if "fuoco" not in str(r).lower() and "fire" not in str(r).lower()]
-                        f_dmg, _, _, _ = apply_damage(target, r_dmg, damage_type=dmg_type, game_state=game_state, is_crit=is_c)
-                        target.damage_resistances = old_res
-                    else:
-                        f_dmg, _, _, _ = apply_damage(target, r_dmg, damage_type=dmg_type, game_state=game_state, is_crit=is_c)
+                    f_dmg, _, _, _ = apply_damage(
+                        target,
+                        r_dmg,
+                        damage_type=dmg_type,
+                        game_state=game_state,
+                        is_crit=is_c,
+                        ignore_resistance=elem_adept,
+                        is_spell=True,
+                        attacker=actor,
+                    )
                 else:
                     f_dmg = r_dmg
                 total_dealt += f_dmg

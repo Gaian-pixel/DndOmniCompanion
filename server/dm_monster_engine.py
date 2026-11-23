@@ -20,7 +20,7 @@ from common.hex_utils import Hex, grid_distance_3d
 from common.i18n import is_condition_active
 from common.item_modifiers import get_effective_save_bonus_from_dict
 from common.network_utils import broadcast, send_message
-from common.protocol import make_chat_broadcast, make_error_reply, make_game_state, make_player_stats_update
+from common.protocol import make_chat_broadcast, make_error_reply, make_game_state, make_player_stats_update, make_prompt_reaction
 
 
 SWARM_IMMUNE_CONDITIONS = {
@@ -459,7 +459,7 @@ def trigger_death_burst_on_zero_hp(creature: Any, game_state: Any) -> Optional[s
     return msg
 
 
-def apply_petrification_stage(target: Any, failed_save: bool, game_state: Any) -> str:
+def apply_petrification_stage(target: Any, failed_save: bool, game_state: Any, dc: Optional[int] = None) -> str:
     """
     MM Pietrificazione a 2 stadi (Basilisco / Medusa / Gorgone):
     - 1° fallimento: Trattenuto mentre la carne inizia a pietrificarsi (stage=1)
@@ -474,6 +474,10 @@ def apply_petrification_stage(target: Any, failed_save: bool, game_state: Any) -
     if failed_save:
         stage += 1
         target.petrification_stage = stage
+        if dc is not None:
+            target.petrification_dc = int(dc)
+        elif not getattr(target, "petrification_dc", None):
+            target.petrification_dc = 12
         if stage == 1:
             if "Trattenuto" not in target.conditions:
                 target.conditions.append("Trattenuto")
@@ -486,6 +490,7 @@ def apply_petrification_stage(target: Any, failed_save: bool, game_state: Any) -
             msg = f"🗿 [PIETRIFICAZIONE COMPLETA] {target.name} fallisce il 2° TS ed è **PIETRIFICATO**!"
     else:
         target.petrification_stage = 0
+        target.petrification_dc = None
         if "Trattenuto" in target.conditions:
             target.conditions.remove("Trattenuto")
         msg = f"✨ [PIETRIFICAZIONE SVENTATA] {target.name} supera il TS e si libera dal processo di pietrificazione!"
@@ -495,6 +500,19 @@ def apply_petrification_stage(target: Any, failed_save: bool, game_state: Any) -
         broadcast(game_state, make_chat_broadcast("Sistema", msg))
         broadcast(game_state, make_player_stats_update(target.name, target.hp, target.max_hp, target.initiative, target.conditions, getattr(target, "temp_hp", 0)))
     return msg
+
+
+def check_petrification_stage_at_turn_end(creature: Any, game_state: Any, forced_roll: Optional[int] = None) -> Optional[str]:
+    """MM Pietrificazione Stadio 1: ripete il TS COS a fine turno contro petrification_dc."""
+    if not creature or int(getattr(creature, "petrification_stage", 0) or 0) != 1:
+        return None
+    if getattr(creature, "hp", 0) <= 0:
+        return None
+    dc = int(getattr(creature, "petrification_dc", 12) or 12)
+    con_mod = get_effective_save_bonus_from_dict(creature, "COS")
+    d20 = int(forced_roll) if forced_roll is not None else roll_dice("1d20")["total"]
+    tot = d20 + con_mod
+    return apply_petrification_stage(creature, failed_save=(tot < dc), game_state=game_state, dc=dc)
 
 
 def handle_resolve_legendary_resistance_request(data: dict, player: Any, game_state: Any) -> None:
@@ -538,7 +556,7 @@ def handle_resolve_legendary_resistance_request(data: dict, player: Any, game_st
                     msg += f" ✨ Effetto '{eff_name}' rimosso!"
                 dmg_to_apply = 0 if has_evasion else (raw_dmg // 2 if half_on_succ else 0)
             else:
-                if src_name.startswith("Sistema (Concentrazione)"):
+                if src_name.startswith("Sistema (Concentrazione"):
                     from server.rules.combat import drop_concentration
                     drop_concentration(target, game_state, notify=True)
                 dmg_to_apply = (raw_dmg // 2) if (has_evasion and half_on_succ) else raw_dmg
@@ -850,26 +868,104 @@ def execute_monster_multiattack(
     results: List[Dict[str, Any]] = []
     total_dmg = 0
     from common.spell_effects_engine import get_spell_ac_bonus, compute_combat_spell_modifiers
-    target_ac = (int(getattr(target, "ac", 10) or 10) + get_spell_ac_bonus(target)) if target else None
+    from common.dnd5e_tables import entity_get_class_level, entity_has_keyword
+    from common.hex_utils import Hex, grid_distance_3d
+    from server.rules.combat import has_effect_or_condition
+    from server.rules.reaction_magic import check_special_senses_see_target, is_incapacitated
+
+    def _calc_target_ac(tgt_obj: Any) -> int:
+        base_ac = getattr(tgt_obj, "ac", 10) or 10
+        fs_t = getattr(tgt_obj, "full_sheet", None)
+        if isinstance(fs_t, dict):
+            try:
+                base_ac = int(fs_t.get("ac", base_ac))
+            except (ValueError, TypeError):
+                pass
+        eff_ac = int(base_ac) + get_spell_ac_bonus(tgt_obj)
+        if has_effect_or_condition(tgt_obj, "Scudo", "Shield"):
+            eff_ac += 5
+        if has_effect_or_condition(tgt_obj, "Velocità", "Haste"):
+            eff_ac += 2
+        if has_effect_or_condition(tgt_obj, "Lentezza", "Slow"):
+            eff_ac -= 2
+        if monster.name in getattr(tgt_obj, "_hit_this_turn_by", set()) and entity_has_keyword(
+            tgt_obj, "difesa contro attacchi multipli", "multiattack defense"
+        ):
+            eff_ac += 4
+        return eff_ac
+
+    target_ac = _calc_target_ac(target) if target else None
     lines: List[str] = [f"⚔️ **[MULTIATTACCO - {monster.name}]**" + (f" vs {target.name} (CA {target_ac})" if target else "")]
+
+    g_type_ma = (getattr(game_state, "current_map", {}) or {}).get("grid_type", "hex") if game_state else "hex"
+    m_has_magic_wpns = entity_has_keyword(monster, "armi magiche", "magic weapons")
 
     for act, count in seq:
         nm, atk_b, dmg_d, desc = _extract_action_attack_and_damage(act)
         dl = desc.lower()
         is_ranged_act = any(rk in dl or rk in nm.lower() for rk in ("ranged", "a distanza", "arco", "bow", "balestra", "crossbow", "dart", "javelin"))
         for _ in range(count):
-            t_ac_cur = (int(getattr(target, "ac", 10) or 10) + get_spell_ac_bonus(target)) if target else None
+            t_ac_cur = _calc_target_ac(target) if target else None
             eff_notes: List[str] = []
             spell_mods = {"adv": False, "disadv": False, "sanctuary_blocked": False, "mirror_intercepted": False, "notes": []}
             if target:
                 t_conds = getattr(target, "conditions", []) or []
-                is_dodging = any(is_condition_active(t_conds, dc) for dc in ("Schivata", "Schiva", "Dodging", "Dodge"))
+                m_conds = getattr(monster, "conditions", []) or []
+                t_speed = getattr(target, "speed", 30)
+                t_incap_dodge = any(is_condition_active(t_conds, c) for c in (
+                    "Incapacitato", "Incosciente", "Paralizzato", "Stordito", "Pietrificato", "Morto", "Trattenuto", "Afferrato", "Incapacitated"
+                ))
+                is_dodging = any(is_condition_active(t_conds, dc) for dc in ("Schivata", "Schiva", "Dodging", "Dodge")) and not t_incap_dodge and t_speed > 0
+
+                base_adv_ma = False
+                base_dis_ma = is_dodging
+                if any(is_condition_active(t_conds, c) for c in ("Trattenuto", "Paralizzato", "Incosciente", "Accecato", "Pietrificato", "Stordito")):
+                    base_adv_ma = True
+                if is_condition_active(t_conds, "Prono"):
+                    if is_ranged_act:
+                        base_dis_ma = True
+                    else:
+                        base_adv_ma = True
+                if getattr(target, "reckless_attack_active", False) or is_condition_active(t_conds, "Attacco Irruento"):
+                    base_adv_ma = True
+                if is_condition_active(t_conds, "Aiutato"):
+                    base_adv_ma = True
+                    if "Aiutato" in t_conds:
+                        t_conds.remove("Aiutato")
+                    elif "Helped" in t_conds:
+                        t_conds.remove("Helped")
+                if any(is_condition_active(m_conds, c) for c in ("Accecato", "Avvelenato", "Trattenuto", "Prono", "Spaventato")):
+                    base_dis_ma = True
+                if is_condition_active(t_conds, "Invisibile"):
+                    base_dis_ma = True
+                t_alert = entity_has_keyword(target, "allerta", "alert") and not is_incapacitated(target)
+                if is_condition_active(m_conds, "Invisibile") and not t_alert:
+                    base_adv_ma = True
+
                 spell_mods = compute_combat_spell_modifiers(
                     monster,
                     target,
                     is_melee=(not is_ranged_act),
-                    base_disadv=is_dodging,
+                    base_disadv=base_dis_ma,
+                    base_adv=base_adv_ma,
                 )
+                if getattr(monster, "position", None) and getattr(target, "position", None):
+                    d_ma = grid_distance_3d(
+                        Hex(monster.position[0], monster.position[1]),
+                        Hex(target.position[0], target.position[1]),
+                        getattr(monster, "elevation", 0),
+                        getattr(target, "elevation", 0),
+                        grid_type=g_type_ma,
+                    )
+                else:
+                    d_ma = 1.0
+                m_sees, _ = check_special_senses_see_target(monster, target, d_ma)
+                if m_sees and not any(is_condition_active(m_conds, c) for c in ("Avvelenato", "Trattenuto", "Prono", "Spaventato")):
+                    if not (is_condition_active(t_conds, "Prono") and is_ranged_act) and not is_dodging:
+                        spell_mods["disadv"] = False
+                t_rogue_l = entity_get_class_level(target, "ladro", "rogue")
+                if (t_rogue_l >= 18 or entity_has_keyword(target, "elusivo", "elusive")) and not is_incapacitated(target):
+                    spell_mods["adv"] = False
                 if spell_mods.get("sanctuary_blocked"):
                     note_s = (spell_mods.get("notes") or ["Santuario blocca l'attacco"])[-1]
                     lines.append(f"• {nm}: 🕊️ BLOCCATO ({note_s})")
@@ -894,6 +990,22 @@ def execute_monster_multiattack(
                 else:
                     eff_notes.append(f"🪞 [Manca duplicato CA {copy_ac}]")
                 hit = False
+
+            if hit and not is_crit and target and not is_ranged_act:
+                t_conds_c = getattr(target, "conditions", []) or []
+                is_adj_5ft = True
+                if getattr(monster, "position", None) and getattr(target, "position", None):
+                    d_crit = grid_distance_3d(
+                        Hex(monster.position[0], monster.position[1]),
+                        Hex(target.position[0], target.position[1]),
+                        getattr(monster, "elevation", 0),
+                        getattr(target, "elevation", 0),
+                        grid_type=g_type_ma,
+                    )
+                    is_adj_5ft = (d_crit <= 1.0)
+                if is_adj_5ft and (is_condition_active(t_conds_c, "Incosciente") or is_condition_active(t_conds_c, "Paralizzato")):
+                    is_crit = True
+                    eff_notes.append("🌟 [CRITICO AUTOMATICO 1,5m]")
 
             dmg_tot = 0
             if dmg_d:
@@ -926,15 +1038,17 @@ def execute_monster_multiattack(
                 if kw in dl:
                     d_type = cname
                     break
+            if target and hit:
+                if not hasattr(target, "_hit_this_turn_by") or not isinstance(target._hit_this_turn_by, set):
+                    target._hit_this_turn_by = set()
+                target._hit_this_turn_by.add(monster.name)
             if target and hit and dmg_tot > 0 and game_state is not None:
                 from server.rules.combat import apply_damage
-                from server.rules.reaction_magic import maybe_prompt_defense_reactions, is_incapacitated
-                from common.dnd5e_tables import entity_get_class_level, entity_has_keyword
-                from common.protocol import make_prompt_reaction
+                from server.rules.reaction_magic import maybe_prompt_defense_reactions
                 old_hp_hit = int(getattr(target, "hp", 0) or 0)
                 old_tmp_hit = int(getattr(target, "temp_hp", 0) or 0)
                 was_incap_hit = is_incapacitated(target)
-                is_mag_m = any(mk in dl or mk in nm.lower() for mk in ("magic", "magico", "spell attack", "incantesim", "flame", "fiamma", "radiant", "necrotic", "psychic", "force"))
+                is_mag_m = m_has_magic_wpns or any(mk in dl or mk in nm.lower() for mk in ("magic", "magico", "spell attack", "incantesim", "flame", "fiamma", "radiant", "necrotic", "psychic", "force"))
                 applied, _, _, dmg_hp = apply_damage(target, dmg_tot, damage_type=d_type, game_state=game_state, is_crit=is_crit, is_magical=is_mag_m, attacker=monster)
                 temp_abs_hit = max(0, old_tmp_hit - int(getattr(target, "temp_hp", 0) or 0))
                 target._last_hit_for_reaction = {
@@ -1196,7 +1310,7 @@ def check_petrifying_gaze_at_turn_start(creature: Any, game_state: Any, forced_r
         con_mod = get_effective_save_bonus_from_dict(creature, "COS")
         d20 = int(forced_roll) if forced_roll is not None else roll_dice("1d20")["total"]
         tot = d20 + con_mod
-        return apply_petrification_stage(creature, failed_save=(tot < dc), game_state=game_state)
+        return apply_petrification_stage(creature, failed_save=(tot < dc), game_state=game_state, dc=dc)
     return None
 
 
@@ -1289,7 +1403,12 @@ def apply_monster_special_hit_effects(
     if any(k in combined for k in ("corrod", "ruggine", "rust", "antennae", "antenne")) or (has_rust_trait and "pseudopod" in combined):
         cur_pen = int(getattr(target, "rust_ac_penalty", 0) or 0) + 1
         target.rust_ac_penalty = cur_pen
-        target.ac = max(10, int(getattr(target, "ac", 10) or 10) - 1)
+        fs_r = getattr(target, "full_sheet", None)
+        cur_base_ac = int((fs_r.get("ac", getattr(target, "ac", 10)) if isinstance(fs_r, dict) else getattr(target, "ac", 10)) or 10)
+        new_ac_r = max(10, cur_base_ac - 1)
+        target.ac = new_ac_r
+        if isinstance(fs_r, dict):
+            fs_r["ac"] = new_ac_r
         if cur_pen >= 5:
             notes.append(f"🦀 [CORROSIONE ARMATURA] L'armatura metallica di {target.name} si sbriciola (-{cur_pen} cumulativo, distrutta! CA {target.ac})")
         else:

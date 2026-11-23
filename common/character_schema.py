@@ -966,11 +966,26 @@ def restore_entity_rest_resources(entity_or_sheet: Any, rest_type: str = "short"
             cr.setdefault("action_surge_current", 0)
             cr["action_surge"] = True
 
+    _short_reset_flags = (
+        "hexblade_curse_used", "fey_presence_used", "misty_escape_used",
+        "entropic_ward_used", "illusory_self_used",
+    )
     if obj is not None:
         obj.action_surge_used_this_turn = False
         obj.relentless_rage_uses = 0
-    if sheet is not None and "relentless_rage_uses" in sheet:
-        sheet["relentless_rage_uses"] = 0
+        for _sf in _short_reset_flags:
+            if hasattr(obj, _sf):
+                setattr(obj, _sf, False)
+        if hasattr(obj, "hexblade_curse_target"):
+            obj.hexblade_curse_target = None
+    if sheet is not None:
+        if "relentless_rage_uses" in sheet:
+            sheet["relentless_rage_uses"] = 0
+        for _sf in _short_reset_flags:
+            if _sf in sheet:
+                sheet[_sf] = False
+        if "hexblade_curse_target" in sheet:
+            sheet["hexblade_curse_target"] = None
 
     # Warlock Pact Magic Slots (PHB p. 164): sempre a Riposo Breve e Lungo
     pact = sheet.get("pact_slots") if sheet is not None else None
@@ -1077,6 +1092,10 @@ def restore_entity_rest_resources(entity_or_sheet: Any, rest_type: str = "short"
                 sheet["arcane_recovery_used"] = False
                 if obj is not None:
                     obj.arcane_recovery_used = False
+            if "benign_transposition_used" in sheet or (obj is not None and hasattr(obj, "benign_transposition_used")):
+                sheet["benign_transposition_used"] = False
+                if obj is not None:
+                    obj.benign_transposition_used = False
 
     return restored
 

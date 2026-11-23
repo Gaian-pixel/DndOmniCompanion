@@ -515,8 +515,13 @@ def cast_iconic_spell(
         dex_m = entity_get_attr_mod(tgt, "DES")
         new_ac = 13 + dex_m
         tgt.mage_armor_active = True
-        if getattr(tgt, "ac", 10) < new_ac:
+        if int(getattr(tgt, "ac", 10) or 10) < new_ac:
             tgt.ac = new_ac
+        fs_ma = getattr(tgt, "full_sheet", None)
+        if isinstance(fs_ma, dict):
+            cur_fs_ac = int(fs_ma.get("ac", getattr(tgt, "ac", 10)) or 10)
+            if cur_fs_ac < new_ac:
+                fs_ma["ac"] = new_ac
         if hasattr(tgt, "add_effect"):
             tgt.add_effect({"id": "mage_armor", "name": f"Armatura Magica (CA {new_ac})", "duration_rounds": 4800 * dur_mult})
         _sync_player(tgt)
@@ -840,7 +845,6 @@ def compute_combat_spell_modifiers(attacker: Any, target: Any, is_melee: bool = 
         d_n = int(attacker.absorb_elements_dice)
         d_t = getattr(attacker, "absorb_elements_type", "Fuoco") or "Fuoco"
         res["bonus_dmg_dice"].append((f"{d_n}d6", d_t, "Assorbire Elementi"))
-        attacker.absorb_elements_dice = 0
 
     # Target buffs
     if getattr(target, "blur_active", False) or getattr(target, "greater_invisibility", False):

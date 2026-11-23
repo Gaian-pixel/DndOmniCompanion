@@ -1043,7 +1043,9 @@ def _apply_player_long_rest(p, game_state):
         _wiz_l = _cls_lvl(p, "mago", "wizard")
         _sub_w = str(p.full_sheet.get("subclass", "") or "").lower()
         if _wiz_l >= 2 and ("abiuraz" in _sub_w or "abjur" in _sub_w):
-            p.full_sheet["arcane_ward_hp"] = max(1, 2 * _wiz_l + max(0, _attr_m(p, "INT")))
+            _ward_max = max(1, 2 * _wiz_l + max(0, _attr_m(p, "INT")))
+            p.arcane_ward_hp = _ward_max
+            p.full_sheet["arcane_ward_hp"] = _ward_max
     restore_entity_rest_resources(p, rest_type="long")
     restore_drain_penalties(p, rest_type="long")
     return alerts

@@ -608,8 +608,9 @@ def get_subclass_damage_mods(
 
         # Ranger Hunter Lv 3+ - Sterminatore di Colossi (bersaglio sotto max HP, 1/turno)
         if ranger_lvl >= 3 and target is not None and getattr(target, "hp", 1) < getattr(target, "max_hp", 1) and _has_subclass(attacker, "cacciatore", "hunter", "coloss"):
-            if not used.get("colossus_slayer"):
+            if not used.get("colossus_slayer") and not getattr(attacker, "colossus_slayer_used_this_turn", False):
                 used["colossus_slayer"] = True
+                attacker.colossus_slayer_used_this_turn = True
                 dice_formulas.append(("1d8", damage_type or "tagliente"))
                 notes.append("Sterminatore di Colossi (+1d8)")
 
@@ -779,7 +780,12 @@ def handle_subclass_active_power(
     params = params if isinstance(params, dict) else {}
     pid = str(power_id or "").strip().lower()
     target_name = str(params.get("target") or params.get("target_name") or "").strip()
-    target = game_state.get_player(target_name) if (game_state and target_name and hasattr(game_state, "get_player")) else None
+    target = None
+    if game_state and target_name:
+        if hasattr(game_state, "find_player"):
+            target = game_state.find_player(target_name)
+        elif hasattr(game_state, "get_player"):
+            target = game_state.get_player(target_name)
 
     if pid == "frenzy_attack":
         if entity_get_class_level(player, "barbar", "barbarian") < 3 or not _has_subclass(player, "berserker"):
