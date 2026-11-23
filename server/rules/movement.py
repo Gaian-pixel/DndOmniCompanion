@@ -761,15 +761,40 @@ def handle_move_request(data, player, game_state):
                     broadcast(game_state, make_chat_broadcast("Sistema", alert))
                     broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
                     
+                    from server.rules.combat import _evaluate_save_bonuses_and_flags, _process_save_result
+                    is_magic_trap = bool(trap.get("is_magic", trap.get("magical", False)) or "magic" in str(trap_name).lower())
+                    ev_tr = _evaluate_save_bonuses_and_flags(
+                        player,
+                        "DES",
+                        game_state=game_state,
+                        is_magic=is_magic_trap,
+                        source_name=trap_name,
+                        damage_type=trap_dtype,
+                        consume_hero_bonus=False,
+                    )
+                    eff_adv_tr = bool(ev_tr.get("has_advantage")) and not bool(ev_tr.get("has_disadvantage"))
+                    eff_dis_tr = bool(ev_tr.get("has_disadvantage")) and not bool(ev_tr.get("has_advantage"))
                     if getattr(player, "conn", None):
                         from common.protocol import make_prompt_save
-                        send_message(player.conn, make_prompt_save("DES", trap_dc, trap_dmg, True, trap_name, trap_dtype))
+                        send_message(
+                            player.conn,
+                            make_prompt_save(
+                                "DES",
+                                trap_dc,
+                                trap_dmg,
+                                True,
+                                trap_name,
+                                trap_dtype,
+                                has_advantage=eff_adv_tr,
+                                has_disadvantage=eff_dis_tr,
+                            ),
+                        )
                     else:
-                        from server.rules.combat import _process_save_result
                         from common.dice import roll_dice
                         mod = get_effective_save_bonus_from_dict(player, "DES")
                         mod_str = f"+{mod}" if mod >= 0 else str(mod)
-                        res = roll_dice(f"1d20{mod_str}")
+                        adv_tok = " adv" if eff_adv_tr else (" dis" if eff_dis_tr else "")
+                        res = roll_dice(f"1d20{mod_str}{adv_tok}")
                         is_crit = res["rolls"][0] == 20
                         is_fail = res["rolls"][0] == 1
                         _process_save_result(player.name, "DES", res["total"], is_crit, is_fail, trap_dc, trap_dmg, True, trap_name, game_state, trap_dtype)

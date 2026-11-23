@@ -264,7 +264,8 @@ def handle_lay_on_hands_request(data, player, game_state):
         target.hp = min(target.max_hp, target.hp + amount)
         healed = target.hp - old_hp
         if old_hp == 0 and target.hp > 0:
-            target.conditions = [c for c in getattr(target, "conditions", []) if c not in ("Incosciente", "Stabilizzato")]
+            from server.rules.combat import clear_unconscious_and_reset_death_saves
+            clear_unconscious_and_reset_death_saves(target)
         _sync_sheet_conditions(target)
         msg = f"✨ [IMPOSIZIONE DELLE MANI] {actor.name} cura {target.name} di {healed} PF (PV: {target.hp}/{target.max_hp} | Pool: {new_cur}/{mx})."
 
@@ -1129,9 +1130,10 @@ def handle_cast_special_spell_request(data, player, game_state):
     lock = getattr(game_state, "lock", None) if game_state else None
     reject_err = None
     gained_ward = 0
+    _had_prior_conc_to_drop = False
 
     def _validate_and_commit_cast():
-        nonlocal reject_err, gained_ward
+        nonlocal reject_err, gained_ward, _had_prior_conc_to_drop
         if is_incapacitated_entity(actor):
             reject_err = f"{actor.name} è incapacitato o a 0 PF e non può lanciare incantesimi!"
             return
@@ -1195,14 +1197,21 @@ def handle_cast_special_spell_request(data, player, game_state):
 
         # Durata Concentrazione in round (PHB p. 203)
         if bool(data.get("concentration", False)):
+            _prior_on = getattr(actor, "concentrating_on", None) or getattr(actor, "concentrating_spell", None)
+            _prior_cond = isinstance(getattr(actor, "conditions", None), list) and "Concentrazione" in actor.conditions
+            _had_prior_conc_to_drop = bool(_prior_on or _prior_cond)
             from common.feats_and_classes import parse_spell_duration_rounds
             dur_r = parse_spell_duration_rounds(str(data.get("duration", "") or ""))
             actor.concentrating_on = spell_name
+            actor.concentrating_spell = spell_name
             actor.concentration_rounds_remaining = dur_r if (dur_r and dur_r > 0) else None
             if m_key == "extended" and getattr(actor, "concentration_rounds_remaining", None):
                 actor.concentration_rounds_remaining = min(14400, actor.concentration_rounds_remaining * 2)
             if isinstance(getattr(actor, "conditions", None), list) and "Concentrazione" not in actor.conditions:
                 actor.conditions.append("Concentrazione")
+            if isinstance(getattr(actor, "full_sheet", None), dict):
+                actor.full_sheet["concentrating_on"] = spell_name
+                actor.full_sheet["conditions"] = list(getattr(actor, "conditions", []))
 
         # Abiuratore Lv 2+: incantesimo di Abiurazione di 1°+ liv. ricarica Interdizione Arcana
         _sch_l = str(data.get("school", "") or "").lower()
@@ -1210,7 +1219,6 @@ def handle_cast_special_spell_request(data, player, game_state):
             from common.feats_and_classes import recharge_arcane_ward_hp
             gained_ward = recharge_arcane_ward_hp(actor, cast_level)
 
-    _had_prior_conc_to_drop = False
     if lock is not None:
         with lock:
             _validate_and_commit_cast()
@@ -1226,12 +1234,15 @@ def handle_cast_special_spell_request(data, player, game_state):
         new_dur_rem = getattr(actor, "concentration_rounds_remaining", None)
         drop_concentration(actor, game_state, notify=False, reason=f"Nuovo incantesimo: {spell_name}")
         actor.concentrating_on = spell_name
+        actor.concentrating_spell = spell_name
         actor.concentration_rounds_remaining = new_dur_rem
         if isinstance(getattr(actor, "conditions", None), list) and "Concentrazione" not in actor.conditions:
             actor.conditions.append("Concentrazione")
         if isinstance(getattr(actor, "full_sheet", None), dict):
             actor.full_sheet["concentrating_on"] = spell_name
             actor.full_sheet["conditions"] = list(getattr(actor, "conditions", []))
+
+    _saved_conc_dur_rem = getattr(actor, "concentration_rounds_remaining", None) if bool(data.get("concentration", False)) else None
 
     if is_ritual:
         broadcast(game_state, make_chat_broadcast("Sistema", f"🕯️ [RITUALE +10 min] {actor.name} officia il lancio rituale di '{spell_name}'."))
@@ -1369,6 +1380,8 @@ def handle_cast_special_spell_request(data, player, game_state):
         damage_type=str(data.get("damage_type", "Fuoco") or "Fuoco"),
         metamagic_key=m_key,
     )
+    if bool(data.get("concentration", False)) and _saved_conc_dur_rem is not None:
+        actor.concentration_rounds_remaining = _saved_conc_dur_rem
     if iconic_msg:
         if target and target is not actor:
             broadcast(game_state, make_player_stats_update(target.name, target.hp, target.max_hp, target.initiative, target.conditions, getattr(target, "temp_hp", 0)))
@@ -1417,7 +1430,8 @@ def handle_healer_feat_request(data, player, game_state):
     old_hp = target.hp
     target.hp = min(target.max_hp, target.hp + heal_val)
     if old_hp == 0 and target.hp > 0:
-        target.conditions = [c for c in getattr(target, "conditions", []) if c not in ("Incosciente", "Stabilizzato")]
+        from server.rules.combat import clear_unconscious_and_reset_death_saves
+        clear_unconscious_and_reset_death_saves(target)
     _sync_sheet_conditions(target)
     actor.has_acted_this_turn = True
     msg = f"🩹 [TALENTO GUARITORE] {actor.name} cura {target.name} con Kit da Guaritore per +{heal_val} PF (1d6+4+{t_lvl}) -> {target.hp}/{target.max_hp} PF!"

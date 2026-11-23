@@ -94,7 +94,19 @@ def _has_condition(entity: Any, *tokens: str) -> bool:
 
 
 def _is_entity_raging(entity: Any) -> bool:
-    return bool(getattr(entity, "is_raging", False) or _has_condition(entity, "ira", "rage"))
+    if getattr(entity, "is_raging", False):
+        return True
+    conds = getattr(entity, "conditions", None)
+    if conds is None:
+        conds = _sheet(entity).get("conditions", [])
+    for c in (conds or []):
+        c_low = str(c or "").strip().lower()
+        if not c_low:
+            continue
+        words = "".join(ch if ch.isalnum() else " " for ch in c_low).split()
+        if any(w in ("ira", "rage", "raging") for w in words):
+            return True
+    return False
 
 
 def _has_bonus_action_available(entity: Any) -> bool:
@@ -661,7 +673,7 @@ def get_subclass_save_mods(
     disadv = False
     notes: List[str] = []
 
-    if getattr(defender, "is_raging", False) and entity_get_class_level(defender, "barbar", "barbarian") >= 6 and _has_subclass(defender, "berserker"):
+    if _is_entity_raging(defender) and entity_get_class_level(defender, "barbar", "barbarian") >= 6 and _has_subclass(defender, "berserker"):
         if any(k in tags_low for k in ("charm", "affascinat", "fright", "spavent", "fear")):
             immune = True
             notes.append("Ira Incosciente (Berserker Lv6+: Immune)")

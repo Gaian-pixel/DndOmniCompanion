@@ -177,8 +177,25 @@ def recover_expended_ammunition(player, game_state):
         game_state._trigger_gui_update()
     return recovered
 
+def clear_unconscious_and_reset_death_saves(entity):
+    """Rimuove le condizioni bilingui di 0 PF / stabilizzazione e azzera i TS contro la morte (5e RAW)."""
+    if not entity:
+        return
+    zero_hp_tokens = ("incosciente", "unconscious", "privo di sensi", "stabilizzato", "stable", "morente", "dying")
+    if hasattr(entity, "conditions") and isinstance(entity.conditions, list):
+        entity.conditions = [c for c in entity.conditions if str(c).strip().lower() not in zero_hp_tokens]
+    entity.death_saves = {"successes": 0, "failures": 0}
+    entity.death_save_successes = 0
+    entity.death_save_failures = 0
+    fs = getattr(entity, "full_sheet", None)
+    if isinstance(fs, dict):
+        if isinstance(getattr(entity, "conditions", None), list):
+            fs["conditions"] = list(entity.conditions)
+        fs["death_saves"] = {"successes": 0, "failures": 0}
+
+
 def drop_concentration(player, game_state, notify=True, reason=None):
-    """Interrompe la concentrazione di un personaggio (5e RAW) e rimuove le sue AoE attive collegate."""
+    """Interrompe la concentrazione di un personaggio (5e RAW) e rimuove le sue AoE e gli effetti attivi collegati."""
     had_conc = False
     old_conc_spell = str(
         getattr(player, "concentrating_on", "")
@@ -192,16 +209,35 @@ def drop_concentration(player, game_state, notify=True, reason=None):
     if getattr(player, "concentrating_spell", None):
         player.concentrating_spell = None
         had_conc = True
+    if getattr(player, "concentration_rounds_remaining", None) is not None:
+        player.concentration_rounds_remaining = None
+    if getattr(player, "blur_active", False):
+        player.blur_active = False
+        had_conc = True
+    if getattr(player, "hunters_mark_target", None):
+        player.hunters_mark_target = None
+        had_conc = True
+    if getattr(player, "hex_target", None):
+        player.hex_target = None
+        had_conc = True
+    if ("invisibilit" in old_conc_spell or "greater invisibility" in old_conc_spell) and getattr(player, "greater_invisibility", False):
+        player.greater_invisibility = False
+        if hasattr(player, "conditions") and isinstance(player.conditions, list):
+            player.conditions = [c for c in player.conditions if str(c).strip().lower() not in ("invisibile", "invisible")]
+        had_conc = True
     if hasattr(player, "conditions") and "Concentrazione" in player.conditions:
         player.conditions.remove("Concentrazione")
         had_conc = True
-    if getattr(player, "full_sheet", None):
+    if isinstance(getattr(player, "full_sheet", None), dict):
         if player.full_sheet.get("concentrating_on"):
             player.full_sheet["concentrating_on"] = None
             had_conc = True
-        if isinstance(player.full_sheet.get("conditions"), list) and "Concentrazione" in player.full_sheet["conditions"]:
-            player.full_sheet["conditions"].remove("Concentrazione")
-            had_conc = True
+        if isinstance(player.full_sheet.get("conditions"), list):
+            if "Concentrazione" in player.full_sheet["conditions"]:
+                player.full_sheet["conditions"].remove("Concentrazione")
+                had_conc = True
+            if hasattr(player, "conditions") and isinstance(player.conditions, list):
+                player.full_sheet["conditions"] = list(player.conditions)
 
     removed_aoes = False
     if game_state and hasattr(game_state, "active_aoes"):
@@ -222,7 +258,18 @@ def drop_concentration(player, game_state, notify=True, reason=None):
                 for fx in list(p.active_effects):
                     caster = fx.get("concentration_caster")
                     if caster == player.name or (p.name == player.name and fx.get("concentration")):
-                        p.remove_effect(fx.get("id") or fx.get("name"))
+                        fx_id = fx.get("id") or fx.get("name")
+                        fx_name_low = str(fx.get("name", "")).lower()
+                        p.remove_effect(fx_id)
+                        if fx.get("id") == "greater_invisibility" or "invisibil" in fx_name_low:
+                            p.greater_invisibility = False
+                            if not any("invisibil" in str(ef.get("id", "") + ef.get("name", "")).lower() for ef in getattr(p, "active_effects", [])):
+                                if hasattr(p, "conditions") and isinstance(p.conditions, list):
+                                    p.conditions = [c for c in p.conditions if str(c).strip().lower() not in ("invisibile", "invisible")]
+                        if fx.get("id") == "blur":
+                            p.blur_active = False
+                        if isinstance(getattr(p, "full_sheet", None), dict) and isinstance(getattr(p, "conditions", None), list):
+                            p.full_sheet["conditions"] = list(p.conditions)
                         removed_effects.append((p.name, fx.get("name", "Effetto")))
                         had_conc = True
                         broadcast(game_state, make_player_stats_update(
@@ -662,7 +709,8 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
     all_target_res.extend(get_implicit_racial_resistances(target_player))
     
     # Ira Barbarica: resistenza ai danni fisici (Totem dell'Orso: tutti i tipi eccetto Psichico!)
-    if "Ira" in getattr(target_player, "conditions", []):
+    from common.subclass_and_race_rules import _is_entity_raging
+    if _is_entity_raging(target_player):
         from common.dnd5e_tables import entity_has_keyword
         if entity_has_keyword(target_player, "totem dell'orso", "bear totem", "totem of the bear"):
             all_target_res.extend([
@@ -812,9 +860,12 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
         if dmg_to_hp < beast_hp:
             ws["beast_hp"] = beast_hp - dmg_to_hp
             target_player.hp = ws["beast_hp"]
-            if getattr(target_player, "full_sheet", None) and isinstance(target_player.full_sheet, dict):
+            if isinstance(getattr(target_player, "full_sheet", None), dict):
                 target_player.full_sheet["hp_current"] = target_player.hp
+                target_player.full_sheet["temp_hp"] = getattr(target_player, "temp_hp", 0)
             note += f" (Assorbito da Forma Selvatica: {target_player.hp}/{ws.get('beast_max_hp', beast_hp)} PV bestia)"
+            if final_dmg > 0 and game_state:
+                _trigger_concentration_check(target_player, final_dmg, game_state, attacker=attacker)
             return final_dmg, note, temp_absorbed, dmg_to_hp
         else:
             # La Forma Selvatica cede: il danno in eccesso si trasferisce ai PV normali del Druido!
@@ -941,7 +992,10 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
                     if not hasattr(target_player, "death_saves") or not isinstance(target_player.death_saves, dict):
                         target_player.death_saves = {"successes": 0, "failures": 0}
                     fail_add = 2 if is_crit else 1
-                    target_player.death_saves["failures"] += fail_add
+                    target_player.death_saves["failures"] = int(target_player.death_saves.get("failures", 0) or 0) + fail_add
+                    target_player.death_save_failures = target_player.death_saves["failures"]
+                    if isinstance(getattr(target_player, "full_sheet", None), dict):
+                        target_player.full_sheet["death_saves"] = dict(target_player.death_saves)
                     msg = f"💀 {target_player.name} subisce danni mentre è a 0 HP! Perde lo stato Stabilizzato e subisce {fail_add} fallimento/i nel TS contro la morte (Totale: {target_player.death_saves['failures']}/3)!"
                     if target_player.death_saves["failures"] >= 3:
                         if not hasattr(target_player, "conditions"): target_player.conditions = []
@@ -976,16 +1030,7 @@ def apply_damage(target_player, raw_damage, damage_type="Tagliente", game_state=
                     broadcast(game_state, make_player_stats_update(sw_v.name, sw_v.hp, sw_v.max_hp, sw_v.initiative, sw_v.conditions, getattr(sw_v, "temp_hp", 0)))
     elif target_player.hp > 0:
         if old_hp == 0:
-            if "Incosciente" in getattr(target_player, "conditions", []):
-                target_player.conditions.remove("Incosciente")
-            if "Stabilizzato" in getattr(target_player, "conditions", []):
-                target_player.conditions.remove("Stabilizzato")
-            if hasattr(target_player, "death_saves") and isinstance(target_player.death_saves, dict):
-                target_player.death_saves = {"successes": 0, "failures": 0}
-            target_player.death_save_successes = 0
-            target_player.death_save_failures = 0
-            if isinstance(getattr(target_player, "full_sheet", None), dict):
-                target_player.full_sheet["death_saves"] = {"successes": 0, "failures": 0}
+            clear_unconscious_and_reset_death_saves(target_player)
             
     # Concentrazione 5e (RAW: cade su 0 HP o condizioni invalidanti, o su TS subito per danni)
     incapacitating = ("incapacitato", "incapacitated", "incosciente", "unconscious", "paralizzato", "paralyzed", "stordito", "stunned", "pietrificato", "petrified", "morto", "dead")
@@ -1112,7 +1157,10 @@ def _apply_hp_change(target_player, new_hp_unbounded, game_state, same_hit_secon
                 if old_hp == 0 and new_hp_unbounded < 0 and not same_hit_secondary:
                     if not hasattr(target_player, "death_saves") or not isinstance(target_player.death_saves, dict):
                         target_player.death_saves = {"successes": 0, "failures": 0}
-                    target_player.death_saves["failures"] += 1
+                    target_player.death_saves["failures"] = int(target_player.death_saves.get("failures", 0) or 0) + 1
+                    target_player.death_save_failures = target_player.death_saves["failures"]
+                    if isinstance(getattr(target_player, "full_sheet", None), dict):
+                        target_player.full_sheet["death_saves"] = dict(target_player.death_saves)
                     msg = f"💀 {target_player.name} subisce danni mentre è a 0 HP! Segna 1 fallimento nel TS contro la morte (Totale: {target_player.death_saves['failures']}/3)!"
                     if target_player.death_saves["failures"] >= 3:
                         if not hasattr(target_player, "conditions"): target_player.conditions = []
@@ -1145,16 +1193,7 @@ def _apply_hp_change(target_player, new_hp_unbounded, game_state, same_hit_secon
                     broadcast(game_state, make_player_stats_update(sw_v.name, sw_v.hp, sw_v.max_hp, sw_v.initiative, sw_v.conditions, getattr(sw_v, "temp_hp", 0)))
     elif target_player.hp > 0:
         if old_hp == 0:
-            if "Incosciente" in getattr(target_player, "conditions", []):
-                target_player.conditions.remove("Incosciente")
-            if "Stabilizzato" in getattr(target_player, "conditions", []):
-                target_player.conditions.remove("Stabilizzato")
-            if hasattr(target_player, "death_saves") and isinstance(target_player.death_saves, dict):
-                target_player.death_saves = {"successes": 0, "failures": 0}
-            target_player.death_save_successes = 0
-            target_player.death_save_failures = 0
-            if isinstance(getattr(target_player, "full_sheet", None), dict):
-                target_player.full_sheet["death_saves"] = {"successes": 0, "failures": 0}
+            clear_unconscious_and_reset_death_saves(target_player)
         
         dmg_val = old_hp - new_hp_unbounded
         if dmg_val > 0 and game_state:
@@ -1267,21 +1306,49 @@ def advance_combat_turn(game_state, ending_player=None):
                         except (ValueError, TypeError): dc = 10
                         fx_name = fx.get("name", "Effetto")
                         
+                        is_magic_se = fx.get("is_magic")
+                        if is_magic_se is None:
+                            is_magic_se = bool(
+                                fx.get("concentration")
+                                or fx.get("is_spell")
+                                or str(fx.get("id", "")).lower() in ("hold_person", "web", "entangle", "slow", "fear", "confusion", "blindness")
+                            )
+                        src_se = fx.get("source") or fx.get("concentration_caster")
+                        caster_se = game_state.find_player(src_se) if (game_state and src_se) else None
+                        ev_se = _evaluate_save_bonuses_and_flags(
+                            prev_p,
+                            stat,
+                            game_state=game_state,
+                            is_magic=is_magic_se,
+                            source_name=f"Save-Ends: {fx_name}",
+                            spell_school=str(fx.get("school", "") or ""),
+                            caster_obj=caster_se,
+                            consume_hero_bonus=False,
+                        )
+                        eff_adv_se = bool(ev_se.get("has_advantage")) and not bool(ev_se.get("has_disadvantage"))
+                        eff_dis_se = bool(ev_se.get("has_disadvantage")) and not bool(ev_se.get("has_advantage"))
                         # Se il giocatore è connesso, invia prompt interattivo
                         if getattr(prev_p, "conn", None):
                             prompt_msg = f"🎲 {prev_p.name} deve effettuare un Tiro Salvezza su {stat} (CD {dc}) per liberarsi da '{fx_name}'!"
                             broadcast(game_state, make_chat_broadcast("Sistema", prompt_msg))
                             game_state.log_dm_message(f"[SAVE-ENDS] {prompt_msg}")
-                            send_message(prev_p.conn, make_prompt_save(stat, dc, "", False, f"Save-Ends: {fx_name}", "Contundente"))
+                            send_message(
+                                prev_p.conn,
+                                make_prompt_save(
+                                    stat, dc, "", False, f"Save-Ends: {fx_name}", "Contundente",
+                                    has_advantage=eff_adv_se, has_disadvantage=eff_dis_se,
+                                ),
+                            )
                         else:
                             # NPC/Mostro o non connesso: tiro automatico dal server
                             mod = get_effective_save_bonus_from_dict(prev_p, stat)
                             mod_str = f"+{mod}" if mod >= 0 else str(mod)
-                            res = roll_dice(f"1d20{mod_str}")
+                            adv_tok_se = " adv" if eff_adv_se else (" dis" if eff_dis_se else "")
+                            res = roll_dice(f"1d20{mod_str}{adv_tok_se}")
                             is_crit = res["rolls"][0] == 20
                             is_fail = res["rolls"][0] == 1
                             threading.Timer(0.1, _process_save_result, args=(
-                                prev_p.name, stat, res["total"], is_crit, is_fail, dc, "", False, f"Save-Ends: {fx_name}", game_state, "Contundente"
+                                prev_p.name, stat, res["total"], is_crit, is_fail, dc, "", False, f"Save-Ends: {fx_name}", game_state, "Contundente", "none", str(fx.get("school", "") or "")
                             )).start()
 
             # Decrementa effetti di fine turno
@@ -1408,15 +1475,26 @@ def advance_combat_turn(game_state, ending_player=None):
                                 wis_v = get_effective_attribute_from_dict(c_sheet, "SAG")
                                 pb_v = 2 + (max(1, int(c_sheet.get("level", 5) or 5)) - 1) // 4
                                 c_dc = 8 + pb_v + ((wis_v - 10) // 2)
-                            from common.item_modifiers import get_effective_attribute_from_dict
-                            t_sheet = getattr(next_p, "full_sheet", None)
-                            t_wis = get_effective_attribute_from_dict(t_sheet if isinstance(t_sheet, dict) else next_p, "SAG")
-                            t_mod = (t_wis - 10) // 2
-                            r_sg = roll_dice(f"1d20{'+' if t_mod >= 0 else ''}{t_mod}")
+                            t_mod = get_effective_save_bonus_from_dict(next_p, "SAG")
+                            ev_sg = _evaluate_save_bonuses_and_flags(
+                                next_p,
+                                "SAG",
+                                game_state=game_state,
+                                is_magic=True,
+                                source_name=f"Spiriti Guardiani ({caster_p.name})",
+                                damage_type="Radioso",
+                                spell_school="Conjuration",
+                                caster_obj=caster_p,
+                                consume_hero_bonus=False,
+                            )
+                            eff_adv_sg = bool(ev_sg.get("has_advantage")) and not bool(ev_sg.get("has_disadvantage"))
+                            eff_dis_sg = bool(ev_sg.get("has_disadvantage")) and not bool(ev_sg.get("has_advantage"))
+                            adv_tok_sg = " adv" if eff_adv_sg else (" dis" if eff_dis_sg else "")
+                            r_sg = roll_dice(f"1d20{'+' if t_mod >= 0 else ''}{t_mod}{adv_tok_sg}")
                             _process_save_result(
                                 next_p.name, "SAG", r_sg["total"],
                                 r_sg["rolls"][0] == 20, r_sg["rolls"][0] == 1,
-                                c_dc, "3d8", True, f"Spiriti Guardiani ({caster_p.name})", game_state, "Radioso"
+                                c_dc, "3d8", True, f"Spiriti Guardiani ({caster_p.name})", game_state, "Radioso", spell_school="Conjuration"
                             )
 
             # Pericoli di inizio turno da incantesimi (Riscaldare il Metallo, Fame di Hadar, Ragnatela)
@@ -3063,6 +3141,7 @@ def _evaluate_save_bonuses_and_flags(
     cover: str = "none",
     spell_school: str = "",
     caster_obj=None,
+    consume_hero_bonus: bool = True,
 ) -> dict:
     """Calcola bonus/penalità condivisi e condizioni Adv/Dis/Auto-Fail/Immunità per i Tiri Salvezza 5e."""
     from common.dnd5e_tables import entity_get_class_level, entity_has_keyword
@@ -3082,7 +3161,7 @@ def _evaluate_save_bonuses_and_flags(
     benedizione_bonus = random.randint(1, 4) if has_effect_or_condition(target_player, "Benedizione", "Bless") else 0
     anatema_penalty = random.randint(1, 4) if has_effect_or_condition(target_player, "Anatema", "Bane") else 0
     hero_bonus = int(getattr(target_player, "pending_hero_bonus", 0) or 0)
-    if hero_bonus > 0:
+    if hero_bonus > 0 and consume_hero_bonus:
         target_player.pending_hero_bonus = 0
 
     bonus_total = benedizione_bonus - anatema_penalty + hero_bonus
@@ -3575,39 +3654,51 @@ def handle_force_save_request(data, player, game_state):
             resolved_damage = clean_f
         else:
             try:
-                from common.dice import roll_dice
                 resolved_damage = str(roll_dice(clean_f)["total"])
             except Exception:
                 resolved_damage = damage_formula
 
+    is_magic_fs = bool(data.get("is_magical", False) or data.get("is_spell", False)) if ("is_magical" in data or "is_spell" in data) else None
+    school_fs = str(data.get("school", "") or "")
+    s_map = {"STR": "FOR", "DEX": "DES", "CON": "COS", "INT": "INT", "WIS": "SAG", "CHA": "CAR"}
     for t_name in targets:
         target_player = game_state.find_player(t_name)
         if not target_player: continue
         
         target_formula = resolved_damage if resolved_damage else damage_formula
+        ev_fs = _evaluate_save_bonuses_and_flags(
+            target_player,
+            stat,
+            game_state=game_state,
+            is_magic=is_magic_fs,
+            source_name=(player.name if player else "DM"),
+            damage_type=damage_type,
+            spell_school=school_fs,
+            caster_obj=player,
+            consume_hero_bonus=False,
+        )
+        eff_adv_fs = bool(ev_fs.get("has_advantage")) and not bool(ev_fs.get("has_disadvantage"))
+        eff_dis_fs = bool(ev_fs.get("has_disadvantage")) and not bool(ev_fs.get("has_advantage"))
         if getattr(target_player, "conn", None):
-            send_message(target_player.conn, make_prompt_save(stat, dc, target_formula, half_on_success, player.name if player else "DM", damage_type))
+            send_message(
+                target_player.conn,
+                make_prompt_save(
+                    stat, dc, target_formula, half_on_success, player.name if player else "DM", damage_type,
+                    has_advantage=eff_adv_fs, has_disadvantage=eff_dis_fs,
+                ),
+            )
         else:
             try:
-                s_map = {"STR": "FOR", "DEX": "DES", "CON": "COS", "INT": "INT", "WIS": "SAG", "CHA": "CAR"}
                 c_stat = s_map.get(str(stat).upper(), str(stat).upper())
                 mod = get_effective_save_bonus_from_dict(target_player, c_stat)
+                mod_str = f"+{mod}" if mod >= 0 else str(mod)
+                adv_tok_fs = " adv" if eff_adv_fs else (" dis" if eff_dis_fs else "")
+                s_res = roll_dice(f"1d20{mod_str}{adv_tok_fs}")
+                roll_tot = s_res["total"]
+                is_crit = (s_res["rolls"][0] == 20)
+                is_fail = (s_res["rolls"][0] == 1)
                 
-                # Vantaggio ai TS su DES per Schivata, o Resistenza alla Magia (MM) su incantesimi/effetti magici
-                from common.dnd5e_tables import entity_has_keyword as _ehk_fs
-                has_magic_res = bool(data.get("is_magical", False) or data.get("is_spell", False)) and _ehk_fs(target_player, "resistenza alla magia", "magic resistance")
-                if (c_stat == "DES" and is_condition_active(getattr(target_player, "conditions", []), "Schivata")) or has_magic_res:
-                    r1 = random.randint(1, 20)
-                    r2 = random.randint(1, 20)
-                    base_roll = max(r1, r2)
-                else:
-                    base_roll = random.randint(1, 20)
-                    
-                roll_tot = base_roll + mod
-                is_crit = (base_roll == 20)
-                is_fail = (base_roll == 1)
-                
-                _process_save_result(target_player.name, stat, roll_tot, is_crit, is_fail, dc, target_formula, half_on_success, player.name if player else "DM", game_state, damage_type)
+                _process_save_result(target_player.name, stat, roll_tot, is_crit, is_fail, dc, target_formula, half_on_success, player.name if player else "DM", game_state, damage_type, spell_school=school_fs)
             except Exception as e:
                 print("Errore nel roll NPC per TS:", e)
 
@@ -4246,16 +4337,7 @@ def handle_short_rest_request(data, player, game_state):
             if sheet:
                 sheet["hp_current"] = player.hp
             if old_hp == 0 and player.hp > 0:
-                player.conditions = [
-                    c for c in getattr(player, "conditions", [])
-                    if c not in ("Incosciente", "Stabilizzato", "Unconscious", "Stable")
-                ]
-                player.death_save_successes = 0
-                player.death_save_failures = 0
-                player.death_saves = {"successes": 0, "failures": 0}
-                if isinstance(sheet, dict):
-                    sheet["conditions"] = list(player.conditions)
-                    sheet["death_saves"] = {"successes": 0, "failures": 0}
+                clear_unconscious_and_reset_death_saves(player)
 
     broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, getattr(player, "conditions", []), getattr(player, "temp_hp", 0)))
     broadcast(game_state, make_game_state(game_state.get_state_dict()))
@@ -4735,10 +4817,7 @@ def handle_death_save_request(data, player, game_state):
             raw_d20 = max(1, min(20, int(manual_roll)))
         else:
             raw_d20 = random.randint(1, 20)
-            from common.dnd5e_tables import entity_has_keyword
-            sheet = getattr(target, "full_sheet", None) or {}
-            t_race = str((sheet.get("race") if isinstance(sheet, dict) else None) or getattr(target, "race", "") or "").lower()
-            if raw_d20 == 1 and ("halfling" in t_race or entity_has_keyword(target, "fortunato", "lucky")):
+            if raw_d20 == 1 and _has_entity_halfling_luck(target):
                 reroll_d20 = random.randint(1, 20)
                 lucky_note = f" [🍀 Fortunato Halfling: 1 -> {reroll_d20}]"
                 raw_d20 = reroll_d20

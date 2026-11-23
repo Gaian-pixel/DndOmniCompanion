@@ -898,6 +898,7 @@ class GameState:
         end_of_turn_conds = {"Scatto", "Disimpegno", "Dash", "Disengage"}
         start_of_turn_conds = {"Schivata", "Dodge", "Scatto", "Disimpegno", "Dash", "Disengage"}
         pending_broadcasts = []
+        expired_conc_players = []
         with self.lock:
             combatants = self._get_combatants()
             if not self.combat_active or not combatants: return
@@ -1204,13 +1205,25 @@ class GameState:
                             p.concentration_rounds_remaining = int(p.concentration_rounds_remaining) - 1
                             if p.concentration_rounds_remaining <= 0:
                                 ended_spell = p.concentrating_on
-                                p.concentrating_on = None
                                 p.concentration_rounds_remaining = None
-                                msg_c = f"⏱️ [CONCENTRAZIONE SCADUTA] La durata massima di '{ended_spell}' ({p.name}) è terminata."
-                                pending_broadcasts.append(make_chat_broadcast("Sistema", msg_c))
-                                pending_broadcasts.append(make_player_stats_update(p.name, p.hp, p.max_hp, p.initiative, p.conditions, getattr(p, "temp_hp", 0)))
+                                expired_conc_players.append((p, ended_spell))
                         except Exception as e:
                             print(f"[GameState] Errore decremento concentrazione su {p.name}: {e}")
+        if expired_conc_players:
+            from common.network_utils import broadcast
+            from server.rules.combat import drop_concentration
+            for exp_p, ended_spell in expired_conc_players:
+                drop_concentration(exp_p, self, notify=False, reason=f"Durata scaduta: {ended_spell}")
+                msg_c = f"⏱️ [CONCENTRAZIONE SCADUTA] La durata massima di '{ended_spell}' ({exp_p.name}) è terminata."
+                broadcast(self, make_chat_broadcast("Sistema", msg_c))
+                broadcast(
+                    self,
+                    make_player_stats_update(
+                        exp_p.name, exp_p.hp, exp_p.max_hp, exp_p.initiative,
+                        getattr(exp_p, "conditions", []), getattr(exp_p, "temp_hp", 0),
+                        active_effects=getattr(exp_p, "active_effects", []),
+                    ),
+                )
         if pending_broadcasts:
             from common.network_utils import broadcast
             for b_msg in pending_broadcasts:

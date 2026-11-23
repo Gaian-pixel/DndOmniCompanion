@@ -11,7 +11,7 @@ import copy
 import math
 import time
 from common.character_schema import restore_entity_rest_resources
-from server.rules.combat import _apply_hp_change, apply_damage
+from server.rules.combat import _apply_hp_change, apply_damage, clear_unconscious_and_reset_death_saves
 from common.dice import roll_dice
 from common.i18n import is_condition_active
 
@@ -1013,8 +1013,13 @@ def _apply_player_long_rest(p, game_state):
 
     conds = [
         c for c in getattr(p, "conditions", [])
-        if not c.startswith("Sfinimento")
-        and c not in ("Incosciente", "Prono", "Avvelenato", "Azione Preparata")
+        if not str(c).startswith("Sfinimento")
+        and not str(c).lower().startswith("exhaustion")
+        and str(c).strip().lower() not in (
+            "incosciente", "unconscious", "privo di sensi",
+            "stabilizzato", "stable", "morente", "dying",
+            "prono", "prone", "avvelenato", "poisoned", "azione preparata",
+        )
     ]
     if p.exhaustion_level > 0:
         conds.append(f"Sfinimento (Liv. {p.exhaustion_level})")
@@ -1022,11 +1027,12 @@ def _apply_player_long_rest(p, game_state):
     p.readied_action_data = None
     p.relentless_rage_uses = 0
     p.frightful_immune_list = []
+    clear_unconscious_and_reset_death_saves(p)
     if getattr(p, "full_sheet", None):
         p.full_sheet["hp_current"] = p.hp
         p.full_sheet["exhaustion_level"] = p.exhaustion_level
         p.full_sheet["temp_hp"] = 0
-        p.full_sheet["conditions"] = list(conds)
+        p.full_sheet["conditions"] = list(getattr(p, "conditions", []))
         # D&D 5e RAW: Ripristina metà dei Dadi Vita (minimo 1), inclusi pool multiclasse
         from common.character_schema import recover_hit_dice_pools
         _hd_frac = _sleep_res["hd_fraction"] if "_sleep_res" in locals() else 0.5

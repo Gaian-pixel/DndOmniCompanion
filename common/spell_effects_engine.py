@@ -425,7 +425,12 @@ def get_spell_ac_bonus(entity: Any) -> int:
     return 0
 
 
-def _start_concentration(actor: Any, spell_name: str, game_state: Any = None) -> None:
+def _start_concentration(
+    actor: Any,
+    spell_name: str,
+    game_state: Any = None,
+    duration_rounds: Optional[int] = None,
+) -> None:
     """Termina qualsiasi concentrazione precedente dell'incantatore prima di attivarne una nuova."""
     if not actor:
         return
@@ -435,10 +440,14 @@ def _start_concentration(actor: Any, spell_name: str, game_state: Any = None) ->
     except ImportError:
         actor.concentrating_on = None
         actor.concentrating_spell = None
+        actor.concentration_rounds_remaining = None
         conds = getattr(actor, "conditions", None)
         if isinstance(conds, list) and "Concentrazione" in conds:
             conds.remove("Concentrazione")
     actor.concentrating_on = spell_name
+    actor.concentrating_spell = spell_name
+    if duration_rounds is not None:
+        actor.concentration_rounds_remaining = duration_rounds
     conds = getattr(actor, "conditions", None)
     if isinstance(conds, list) and "Concentrazione" not in conds:
         conds.append("Concentrazione")
@@ -569,10 +578,18 @@ def cast_iconic_spell(
         return f"🪞 [IMMAGINE SPECULARE] 3 duplicati illusori compaiono attorno a {actor.name} (CA copie: {10 + entity_get_attr_mod(actor, 'DES')})!"
 
     if key == "blur":
+        _start_concentration(actor, "Sfocatura", game_state, duration_rounds=10 * dur_mult)
         actor.blur_active = True
-        actor.concentrating_on = "Sfocatura"
         if hasattr(actor, "add_effect"):
-            actor.add_effect({"id": "blur", "name": "Sfocatura (Svantaggio TpC nemici)", "duration_rounds": 10 * dur_mult})
+            actor.add_effect({
+                "id": "blur",
+                "name": "Sfocatura (Svantaggio TpC nemici)",
+                "duration_rounds": 10 * dur_mult,
+                "source": actor.name,
+                "concentration": True,
+                "concentration_caster": actor.name,
+            })
+        _sync_player(actor)
         return f"🌫️ [SFOCATURA] I contorni di {actor.name} si fanno confusi: gli attacchi contro di lui hanno Svantaggio!"
 
     if key == "sanctuary":
@@ -582,28 +599,54 @@ def cast_iconic_spell(
         return f"🕊️ [SANTUARIO] {tgt.name} è protetto: chi vuole attaccarlo o bersagliarlo con incantesimo nocivo deve superare TS SAG CD {dc}!"
 
     if key == "greater_invisibility":
+        _start_concentration(actor, "Invisibilità Superiore", game_state, duration_rounds=10 * dur_mult)
         tgt.greater_invisibility = True
-        actor.concentrating_on = "Invisibilità Superiore"
-        conds = getattr(tgt, "conditions", None)
-        if isinstance(conds, list) and "Invisibile" not in conds:
-            conds.append("Invisibile")
         if hasattr(tgt, "add_effect"):
-            tgt.add_effect({"id": "greater_invisibility", "name": "Invisibilità Superiore", "duration_rounds": 10 * dur_mult, "source": actor.name})
+            tgt.add_effect({
+                "id": "greater_invisibility",
+                "name": "Invisibilità Superiore",
+                "duration_rounds": 10 * dur_mult,
+                "source": actor.name,
+                "concentration": True,
+                "concentration_caster": actor.name,
+                "condition": "Invisibile",
+            })
+        else:
+            conds = getattr(tgt, "conditions", None)
+            if isinstance(conds, list) and "Invisibile" not in conds:
+                conds.append("Invisibile")
         _sync_player(tgt)
+        _sync_player(actor)
         return f"👻 [INVISIBILITÀ SUPERIORE] {tgt.name} diventa Invisibile per 1 minuto anche mentre attacca o lancia incantesimi!"
 
     if key == "hunters_mark":
+        _start_concentration(actor, "Marchio del Cacciatore", game_state, duration_rounds=600 * dur_mult)
         actor.hunters_mark_target = tgt.name
-        actor.concentrating_on = "Marchio del Cacciatore"
         if hasattr(tgt, "add_effect"):
-            tgt.add_effect({"id": "hunters_mark", "name": f"Marchiato da {actor.name} (+1d6)", "duration_rounds": 600 * dur_mult, "source": actor.name})
+            tgt.add_effect({
+                "id": "hunters_mark",
+                "name": f"Marchiato da {actor.name} (+1d6)",
+                "duration_rounds": 600 * dur_mult,
+                "source": actor.name,
+                "concentration": True,
+                "concentration_caster": actor.name,
+            })
+        _sync_player(actor)
         return f"🎯 [MARCHIO DEL CACCIATORE] {actor.name} marchia {tgt.name}: +1d6 danni aggiuntivi con attacchi con arma!"
 
     if key == "hex":
+        _start_concentration(actor, "Sortilegio (Hex)", game_state, duration_rounds=600 * dur_mult)
         actor.hex_target = tgt.name
-        actor.concentrating_on = "Sortilegio (Hex)"
         if hasattr(tgt, "add_effect"):
-            tgt.add_effect({"id": "hex", "name": "Maledetto (Hex +1d6 Necrotico)", "duration_rounds": 600 * dur_mult, "source": actor.name})
+            tgt.add_effect({
+                "id": "hex",
+                "name": "Maledetto (Hex +1d6 Necrotico)",
+                "duration_rounds": 600 * dur_mult,
+                "source": actor.name,
+                "concentration": True,
+                "concentration_caster": actor.name,
+            })
+        _sync_player(actor)
         return f"🕯️ [SORTILEGIO (HEX)] {actor.name} maledice {tgt.name}: +1d6 danni Necrotici per ogni colpo a segno e svantaggio alle prove di caratteristica!"
 
     if key == "absorb_elements":
@@ -652,20 +695,32 @@ def cast_iconic_spell(
         return f"⚔️ [ARMA SPIRITUALE Lv.{lvl}] TxC {atk_r['total']} vs CA {tgt_ac} -> MANCATO {tgt.name}."
 
     if key == "hold_person":
-        actor.concentrating_on = "Blocca Persone"
+        _start_concentration(actor, "Blocca Persone", game_state, duration_rounds=10 * dur_mult)
         saved, sr = _roll_spell_effect_save(tgt, "SAG", dc, game_state, caster=actor, source_name="Blocca Persone", has_disadvantage=heightened)
         if saved:
+            _sync_player(actor)
             return f"⚡ [BLOCCA PERSONE - CD {dc} SAG] {tgt.name} resiste con TS {sr}!"
-        conds = getattr(tgt, "conditions", None)
-        if isinstance(conds, list) and "Paralizzato" not in conds:
-            conds.append("Paralizzato")
         if hasattr(tgt, "add_effect"):
-            tgt.add_effect({"id": "hold_person", "name": "Paralizzato (Blocca Persone)", "duration_rounds": 10 * dur_mult, "save_ends": {"stat": "SAG", "dc": dc, "timing": "end_of_turn"}, "source": actor.name})
+            tgt.add_effect({
+                "id": "hold_person",
+                "name": "Paralizzato (Blocca Persone)",
+                "duration_rounds": 10 * dur_mult,
+                "save_ends": {"stat": "SAG", "dc": dc, "timing": "end_of_turn"},
+                "source": actor.name,
+                "concentration": True,
+                "concentration_caster": actor.name,
+                "condition": "Paralizzato",
+            })
+        else:
+            conds = getattr(tgt, "conditions", None)
+            if isinstance(conds, list) and "Paralizzato" not in conds:
+                conds.append("Paralizzato")
         _sync_player(tgt)
+        _sync_player(actor)
         return f"🥶 [BLOCCA PERSONE - CD {dc} SAG] {tgt.name} fallisce il TS ({sr}) ed è PARALIZZATO (attacchi entro 1,5m sono Critici automatici)!"
 
     if key == "heat_metal":
-        actor.concentrating_on = "Riscaldare il Metallo"
+        _start_concentration(actor, "Riscaldare il Metallo", game_state, duration_rounds=10 * dur_mult)
         dice_cnt = 2 + max(0, lvl - 2)
         d_r = roll_dice(f"{dice_cnt}d8")
         fd = d_r["total"]
@@ -674,12 +729,23 @@ def cast_iconic_spell(
             fd, _, _, _ = apply_damage(tgt, fd, damage_type="Fuoco", game_state=game_state, is_spell=True)
         saved, sr = _roll_spell_effect_save(tgt, "COS", dc, game_state, caster=actor, source_name="Riscaldare il Metallo", damage_type="Fuoco", has_disadvantage=heightened)
         if hasattr(tgt, "add_effect"):
-            tgt.add_effect({"id": "heat_metal", "name": f"Metallo Incandescente ({dice_cnt}d8 Fuoco/turno)", "duration_rounds": 10 * dur_mult, "dot_damage": f"{dice_cnt}d8", "dot_type": "Fuoco", "source": actor.name})
+            tgt.add_effect({
+                "id": "heat_metal",
+                "name": f"Metallo Incandescente ({dice_cnt}d8 Fuoco/turno)",
+                "duration_rounds": 10 * dur_mult,
+                "dot_damage": f"{dice_cnt}d8",
+                "dot_type": "Fuoco",
+                "source": actor.name,
+                "concentration": True,
+                "concentration_caster": actor.name,
+            })
+        _sync_player(tgt)
+        _sync_player(actor)
         drop_txt = "lascia cadere l'oggetto o subisce Svantaggio ai TpC/prove!" if not saved else "mantiene la presa nonostante il dolore."
         return f"🔥 [RISCALDARE IL METALLO Lv.{lvl}] {tgt.name} subisce {fd} danni da Fuoco e (TS COS {sr} vs CD {dc}) {drop_txt}"
 
     if key in ("web", "spike_growth", "hunger_of_hadar", "wall_of_fire"):
-        actor.concentrating_on = spell_name
+        _start_concentration(actor, spell_name, game_state, duration_rounds=10 * dur_mult)
         aoe_label = {
             "web": f"🕸️ Ragnatela (CD {dc} DES -> Trattenuto / Terreno Difficile)",
             "spike_growth": "🌿 Crescita di Spine (2d4 Perforanti ogni 5 ft di movimento)",
@@ -723,9 +789,20 @@ def cast_iconic_spell(
         if key == "web" and tgt is not actor:
             saved, sr = _roll_spell_effect_save(tgt, "DES", dc, game_state, caster=actor, source_name="Ragnatela", has_disadvantage=heightened)
             if not saved:
-                conds = getattr(tgt, "conditions", None)
-                if isinstance(conds, list) and "Trattenuto" not in conds:
-                    conds.append("Trattenuto")
+                if hasattr(tgt, "add_effect"):
+                    tgt.add_effect({
+                        "id": "web_restrained",
+                        "name": "Trattenuto (Ragnatela)",
+                        "duration_rounds": 10 * dur_mult,
+                        "source": actor.name,
+                        "concentration": True,
+                        "concentration_caster": actor.name,
+                        "condition": "Trattenuto",
+                    })
+                else:
+                    conds = getattr(tgt, "conditions", None)
+                    if isinstance(conds, list) and "Trattenuto" not in conds:
+                        conds.append("Trattenuto")
                 _sync_player(tgt)
                 return f"{aoe_label} -> {tgt.name} fallisce TS DES ({sr}) ed è TRATTENUTO dalle ragnatele!"
         return f"✨ [{spell_name.upper()}] Zona attiva sul campo di battaglia: {aoe_label}."

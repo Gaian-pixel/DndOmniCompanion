@@ -187,16 +187,35 @@ def handle_create_aoe_request(data, player, game_state):
             if cov_bonus > 0:
                 game_state.log_dm_message(f"[AoE] {p.name} beneficia di {cov_name} (+{cov_bonus} al TS DES).")
 
+        from server.rules.combat import _evaluate_save_bonuses_and_flags
+        cov_lbl = "three_quarters" if cov_bonus >= 5 else ("half" if cov_bonus >= 2 else "none")
+        ev_aoe = _evaluate_save_bonuses_and_flags(
+            p,
+            save_stat,
+            game_state=game_state,
+            is_magic=aoe_data.get("is_magic", aoe_data.get("is_spell", None)),
+            source_name=(player.name if player else "DM"),
+            damage_type=damage_type,
+            cover=cov_lbl,
+            spell_school=str(aoe_data.get("school", "") or ""),
+            caster_obj=player,
+            consume_hero_bonus=False,
+        )
+        eff_adv = bool(ev_aoe.get("has_advantage")) and not bool(ev_aoe.get("has_disadvantage"))
+        eff_dis = bool(ev_aoe.get("has_disadvantage")) and not bool(ev_aoe.get("has_advantage"))
+
         if hasattr(p, "conn") and p.conn:
             eff_dc = max(1, base_dc - cov_bonus) if cov_bonus > 0 else base_dc
-            src_lbl = f"{player.name} [{cov_name} +{cov_bonus} DES]" if (player and cov_bonus > 0) else (player.name if player else "DM")
+            src_lbl = player.name if player else "DM"
             send_message(p.conn, make_prompt_save(
                 stat=save_stat,
                 dc=eff_dc,
                 damage_formula=resolved_dmg,
                 half_on_success=aoe_data.get("half", True),
                 source_name=src_lbl,
-                damage_type=damage_type
+                damage_type=damage_type,
+                has_advantage=eff_adv,
+                has_disadvantage=eff_dis,
             ))
             game_state.log_dm_message(f"[AoE] Richiesto Tiro Salvezza a {p.name}.")
         else:
@@ -207,7 +226,8 @@ def handle_create_aoe_request(data, player, game_state):
                 half_on_success = aoe_data.get("half", True)
                 mod = get_effective_save_bonus_from_dict(p, save_stat) + cov_bonus
                 mod_str = f"+{mod}" if mod >= 0 else str(mod)
-                save_result = roll_dice(f"1d20{mod_str}")
+                adv_tok = " adv" if eff_adv else (" dis" if eff_dis else "")
+                save_result = roll_dice(f"1d20{mod_str}{adv_tok}")
                 roll_tot = save_result["total"]
                 is_crit = save_result["rolls"][0] == 20
                 is_fail = save_result["rolls"][0] == 1
@@ -697,12 +717,29 @@ def handle_resolve_aoe_request(data, player, game_state):
             except Exception:
                 resolved_dmg = damage_formula
 
+    from server.rules.combat import _evaluate_save_bonuses_and_flags
+    caster_obj_aoe = game_state.find_player(caster_name) if (game_state and caster_name) else player
     for p in affected_players:
+        ev_r = _evaluate_save_bonuses_and_flags(
+            p,
+            stat,
+            game_state=game_state,
+            is_magic=data.get("is_magic", data.get("is_spell", None)),
+            source_name=caster_name,
+            damage_type=damage_type,
+            spell_school=str(data.get("school", "") or ""),
+            caster_obj=caster_obj_aoe,
+            consume_hero_bonus=False,
+        )
+        eff_adv_r = bool(ev_r.get("has_advantage")) and not bool(ev_r.get("has_disadvantage"))
+        eff_dis_r = bool(ev_r.get("has_disadvantage")) and not bool(ev_r.get("has_advantage"))
         if getattr(p, "conn", None):
             send_message(p.conn, make_prompt_save(
                 stat=stat, dc=dc, damage_formula=resolved_dmg,
                 half_on_success=half_on_success, source_name=caster_name,
-                damage_type=damage_type
+                damage_type=damage_type,
+                has_advantage=eff_adv_r,
+                has_disadvantage=eff_dis_r,
             ))
         else:
             try:
@@ -710,7 +747,8 @@ def handle_resolve_aoe_request(data, player, game_state):
                 from common.dice import roll_dice
                 mod = get_effective_save_bonus_from_dict(p, stat)
                 mod_str = f"+{mod}" if mod >= 0 else str(mod)
-                save_result = roll_dice(f"1d20{mod_str}")
+                adv_tok = " adv" if eff_adv_r else (" dis" if eff_dis_r else "")
+                save_result = roll_dice(f"1d20{mod_str}{adv_tok}")
                 roll_tot = save_result["total"]
                 is_crit = save_result["rolls"][0] == 20
                 is_fail = save_result["rolls"][0] == 1
