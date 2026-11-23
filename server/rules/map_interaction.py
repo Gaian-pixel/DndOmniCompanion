@@ -1,6 +1,10 @@
+import base64
+import math
+import os
 import random
+import socket
 from common.hex_utils import Hex, grid_distance, get_sphere_hexes, get_cube_hexes, get_cone_hexes, get_line_hexes, has_line_of_sight, get_cover_between
-from common.network_utils import send_message, broadcast
+from common.network_utils import send_message, broadcast, is_dm_actor
 from common.protocol import (
     make_chat_broadcast,
     make_clear_drawings_broadcast,
@@ -14,7 +18,6 @@ from common.protocol import (
     make_quest_list_update,
 )
 from common.item_modifiers import get_effective_attribute_from_dict, get_effective_save_bonus_from_dict
-import math
 def _is_target_within_aoe_elevation(aoe_data: dict, origin: Hex, pos_hex: Hex, target_player, grid_type: str = "hex") -> bool:
     """Verifica che la quota (elevation in ft) del bersaglio rientri nel volume 3D dell'AoE."""
     aoe_elev = float(aoe_data.get("elevation", 0) or 0)
@@ -381,16 +384,20 @@ def handle_toggle_door_request(data, player, game_state):
             door_key = target_door.get("key_name", "").strip()
             key_matched = False
             used_key_name = key_item or "Chiave"
+            inv_items = []
+            if getattr(player, "full_sheet", None) and isinstance(player.full_sheet, dict):
+                inv_items = list(player.full_sheet.get("inventory_grid", []) or []) + list(player.full_sheet.get("inventory", []) or [])
             if door_key:
-                if key_item and door_key.lower() in key_item.lower():
-                    key_matched = True
-                    used_key_name = key_item
-                elif getattr(player, "full_sheet", None):
-                    inv_items = player.full_sheet.get("inventory_grid", []) + player.full_sheet.get("inventory", [])
-                    for it in inv_items:
-                        if it and isinstance(it, dict) and door_key.lower() in it.get("name", "").lower():
+                for it in inv_items:
+                    if not isinstance(it, dict):
+                        continue
+                    it_name = str(it.get("name", "") or "")
+                    if not it_name:
+                        continue
+                    if door_key.lower() in it_name.lower():
+                        if not key_item or str(key_item).strip().lower() in it_name.lower() or it_name.lower() in str(key_item).strip().lower():
                             key_matched = True
-                            used_key_name = it.get("name")
+                            used_key_name = it_name
                             break
             else:
                 key_matched = True
@@ -404,8 +411,8 @@ def handle_toggle_door_request(data, player, game_state):
                         broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
                 game_state._trigger_gui_update()
             else:
-                if player.conn:
-                    send_message(player.conn, make_error_reply(f"La chiave che possiedi non è adatta per questa porta (richiede: '{door_key}')."))
+                if getattr(player, "conn", None):
+                    send_message(player.conn, make_error_reply("La chiave che possiedi non è adatta per questa porta serrata."))
             return
 
         elif method == "knock":
@@ -610,6 +617,14 @@ def handle_resolve_aoe_request(data, player, game_state):
     if aoe_index < 0 or aoe_index >= len(game_state.active_aoes):
         aoe_index = 0
     aoe_data = game_state.active_aoes[aoe_index]
+
+    is_dm = is_dm_actor(player)
+    is_remote = isinstance(getattr(player, "conn", None), socket.socket)
+    caller_name = getattr(player, "name", None) if player else None
+    is_caster = bool(caller_name and aoe_data.get("caster") == caller_name)
+    if not is_dm and not is_caster and is_remote:
+        send_message(player.conn, make_error_reply("Solo il DM o l'incantatore dell'area può risolvere questa AoE."))
+        return
     
     cur_map = getattr(game_state, "current_map", None) or {}
     grid_type = cur_map.get("grid_type", "hex")
@@ -630,11 +645,18 @@ def handle_resolve_aoe_request(data, player, game_state):
     else:
         hexes = []
 
-    stat = data.get("stat") or aoe_data.get("stat", "DES")
-    dc = int(data.get("dc") or aoe_data.get("dc", 13))
-    damage_formula = data.get("damage_formula") or aoe_data.get("dmg", "8d6")
-    half_on_success = bool(data.get("half_on_success", True))
-    damage_type = data.get("damage_type") or aoe_data.get("damage_type", "Fuoco")
+    if not is_dm and is_remote:
+        stat = aoe_data.get("stat", "DES")
+        dc = int(aoe_data.get("dc", 13) or 13)
+        damage_formula = aoe_data.get("dmg", "8d6")
+        half_on_success = bool(aoe_data.get("half_on_success", True))
+        damage_type = aoe_data.get("damage_type", "Fuoco")
+    else:
+        stat = data.get("stat") or aoe_data.get("stat", "DES")
+        dc = int(data.get("dc") or aoe_data.get("dc", 13))
+        damage_formula = data.get("damage_formula") or aoe_data.get("dmg", "8d6")
+        half_on_success = bool(data.get("half_on_success", True))
+        damage_type = data.get("damage_type") or aoe_data.get("damage_type", "Fuoco")
     caster_name = aoe_data.get("caster", player.name if player else "Incantatore")
 
     walls = cur_map.get("walls", [])
@@ -753,6 +775,7 @@ def handle_quest_action_request(data, player, game_state):
             game_state.quests = []
 
         if action == "add":
+            is_secret_q = False
             if isinstance(quest, dict):
                 quest = dict(quest)
                 st_low = str(quest.get("status", "")).strip().lower()
@@ -765,39 +788,68 @@ def handle_quest_action_request(data, player, game_state):
                 else:
                     quest.setdefault("status", "Attiva")
                     quest.setdefault("completed", False)
+                is_secret_q = bool(
+                    quest.get("secret")
+                    or quest.get("dm_only")
+                    or quest.get("hidden")
+                    or quest.get("is_revealed") is False
+                )
             game_state.quests.append(quest)
-            chat_msg = f"📜 [NUOVA MISSIONE] '{quest.get('title', 'Nuova Missione')}' aggiunta al registro!"
+            if not is_secret_q:
+                chat_msg = f"📜 [NUOVA MISSIONE] '{quest.get('title', 'Nuova Missione')}' aggiunta al registro!"
         elif action in ("complete", "done"):
             q_id = quest.get("id") or quest.get("title")
             for q in game_state.quests:
                 if q.get("id") == q_id or q.get("title") == q_id:
                     q["completed"] = True
                     q["status"] = "Completata"
-                    chat_msg = f"✅ [MISSIONE COMPLETATA] '{q.get('title')}' completata dal gruppo!"
+                    is_sec_target = bool(
+                        q.get("secret")
+                        or q.get("dm_only")
+                        or q.get("hidden")
+                        or q.get("is_revealed") is False
+                    )
+                    if not is_sec_target:
+                        chat_msg = f"✅ [MISSIONE COMPLETATA] '{q.get('title')}' completata dal gruppo!"
                     break
         elif action == "delete":
             q_id = quest.get("id") or quest.get("title")
             game_state.quests = [q for q in game_state.quests if (q.get("id") != q_id and q.get("title") != q_id)]
         quests_snapshot = list(game_state.quests)
 
+    from common.game_state import GameState
+    safe_quests = GameState.sanitize_quests_for_players(quests_snapshot)
     if chat_msg:
         broadcast(game_state, make_chat_broadcast("Sistema", chat_msg))
     game_state._trigger_gui_update()
-    broadcast(game_state, make_quest_list_update(quests_snapshot))
+    broadcast(game_state, make_quest_list_update(safe_quests))
 
 def handle_handout_share_request(data, player, game_state):
-    from common.network_utils import is_dm_actor
     if not is_dm_actor(player):
         return
     title = data.get("title", "Documento")
     content = data.get("content", "")
     image_path = data.get("image_path", "")
     sender = data.get("sender", "Dungeon Master")
+    img_b64 = data.get("image_b64", "") or ""
+    if not img_b64 and isinstance(image_path, str) and image_path.strip() and os.path.isfile(image_path):
+        try:
+            if os.path.getsize(image_path) <= 10 * 1024 * 1024:
+                with open(image_path, "rb") as _hf:
+                    img_b64 = base64.b64encode(_hf.read()).decode("ascii")
+        except Exception:
+            img_b64 = ""
     with game_state.lock:
         if not hasattr(game_state, "handouts"):
             game_state.handouts = []
-        game_state.handouts.append({"title": title, "content": content, "image_path": image_path, "sender": sender})
-    broadcast(game_state, make_handout_share_broadcast(title, content, image_path, sender))
+        game_state.handouts.append({
+            "title": title,
+            "content": content,
+            "image_path": image_path,
+            "image_b64": img_b64,
+            "sender": sender,
+        })
+    broadcast(game_state, make_handout_share_broadcast(title, content, image_path="", sender=sender, image_b64=img_b64))
 
 
 

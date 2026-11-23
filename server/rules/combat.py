@@ -1,6 +1,7 @@
 import re
 import random
 import math
+import socket
 import threading
 from common.protocol import (
     make_automation_settings_broadcast,
@@ -1440,7 +1441,13 @@ def advance_combat_turn(game_state, ending_player=None):
                 
             msg = f"Round {game_state.round_number} - Turno di {next_p.name}!"
             game_state.log_dm_message(f"[COMBAT] {msg}")
-            broadcast(game_state, make_chat_broadcast("Sistema", msg))
+            from common.network_utils import is_entity_visible_to_players
+            _pub_turn_name = (
+                next_p.name
+                if is_entity_visible_to_players(next_p, getattr(game_state, "current_map", None), game_state=game_state)
+                else "Sconosciuto"
+            )
+            broadcast(game_state, make_chat_broadcast("Sistema", f"Round {game_state.round_number} - Turno di {_pub_turn_name}!"))
 
             # D&D 5e Lair Actions: Se c'è una creatura con Azione di Tana a Iniziativa 20 (perdendo pareggi)
             if round_advanced or game_state.turn_index == 0:
@@ -4303,8 +4310,10 @@ def handle_reaction_response(data, player, game_state):
     if not accepted or not player:
         return
 
+    from common.network_utils import is_dm_actor
     from server.rules.reaction_magic import is_incapacitated
-    from common.dnd5e_tables import entity_get_class_level
+    from common.dnd5e_tables import entity_get_class_level, entity_has_keyword
+    is_remote_non_dm = isinstance(getattr(player, "conn", None), socket.socket) and not is_dm_actor(player)
     last_hit = getattr(player, "_last_hit_for_reaction", None) or {}
     is_dead_or_petr = any(
         is_condition_active(getattr(player, "conditions", []), dc)
@@ -4328,7 +4337,7 @@ def handle_reaction_response(data, player, game_state):
             can_lethal_rescue = (not last_hit.get("is_crit")) and (int(last_hit.get("hit_roll", 999)) < int(last_hit.get("base_ac", 0)) + 5)
         elif reaction_type == "DEFENSIVE_DUELIST":
             from common.feats_and_classes import check_defensive_duelist_bonus
-            _dd_chk = int(details.get("bonus_ac") or check_defensive_duelist_bonus(player) or 2)
+            _dd_chk = int((check_defensive_duelist_bonus(player) or 2) if is_remote_non_dm else (details.get("bonus_ac") or check_defensive_duelist_bonus(player) or 2))
             can_lethal_rescue = (not last_hit.get("is_crit")) and (int(last_hit.get("hit_roll", 999)) < int(last_hit.get("base_ac", 0)) + _dd_chk)
         elif reaction_type in ("ABSORB_ELEMENTS", "DEFLECT_MISSILES", "ILLUSORY_SELF", "DAMPEN_ELEMENTS"):
             can_lethal_rescue = True
@@ -4370,12 +4379,23 @@ def handle_reaction_response(data, player, game_state):
         }, player, game_state)
 
     elif reaction_type == "UNCANNY_DODGE":
-        inc_dmg = int(details.get("dmg_to_hp") or details.get("damage_taken") or last_hit.get("dmg_to_hp") or last_hit.get("final_dmg") or 0)
+        if is_remote_non_dm:
+            has_ud = entity_get_class_level(player, "ladro", "rogue") >= 5 or entity_has_keyword(player, "schivata prodigiosa", "uncanny dodge")
+            if not has_ud or not last_hit:
+                player.has_reacted_this_turn = False
+                send_message(player.conn, make_error_reply("Schivata Prodigiosa non disponibile o nessun colpo valido registrato dal server."))
+                return
+            inc_dmg = int(last_hit.get("dmg_to_hp") or last_hit.get("final_dmg") or 0)
+        else:
+            inc_dmg = int(details.get("dmg_to_hp") or details.get("damage_taken") or last_hit.get("dmg_to_hp") or last_hit.get("final_dmg") or 0)
         halved = inc_dmg // 2
         if halved > 0 and (getattr(player, "hp", 0) > 0 or can_lethal_rescue):
             _restore_hp_from_reaction(player, halved)
+            player._last_hit_for_reaction = None
             broadcast(game_state, make_player_stats_update(player.name, player.hp, player.max_hp, player.initiative, getattr(player, "conditions", []), getattr(player, "temp_hp", 0)))
             game_state._trigger_gui_update()
+        elif last_hit:
+            player._last_hit_for_reaction = None
         msg = f"🥷 [SCHIVATA PRODIGIOSA] {player.name} usa la Reazione per dimezzare i danni dell'attacco di {target_name} (recupera {halved} PF -> PV: {player.hp}/{player.max_hp})!"
         broadcast(game_state, make_chat_broadcast("Sistema", msg))
         game_state.log_dm_message(f"[REAZIONE] {msg}")
@@ -4448,8 +4468,12 @@ def handle_reaction_response(data, player, game_state):
                 "dice_count": slot_lvl,
             })
         retro_note = ""
-        inc_dmg = int(details.get("dmg_to_hp") or last_hit.get("dmg_to_hp") or 0)
-        hit_dt = str(details.get("damage_type") or last_hit.get("damage_type") or "").strip().lower()
+        if is_remote_non_dm:
+            inc_dmg = int(last_hit.get("dmg_to_hp") or 0)
+            hit_dt = str(last_hit.get("damage_type") or "").strip().lower()
+        else:
+            inc_dmg = int(details.get("dmg_to_hp") or last_hit.get("dmg_to_hp") or 0)
+            hit_dt = str(details.get("damage_type") or last_hit.get("damage_type") or "").strip().lower()
         if inc_dmg > 0 and not already_perm_res and not last_hit.get("absorb_restored") and canonical_element_key(hit_dt) == elem_canon:
             restored = inc_dmg // 2
             if restored > 0:
@@ -4509,14 +4533,24 @@ def handle_reaction_response(data, player, game_state):
         dex_val = get_effective_attribute_from_dict(s_dict, "DES")
         dex_mod = (dex_val - 10) // 2
         monk_lvl = entity_get_class_level(player, "monaco", "monk")
-        if monk_lvl <= 0:
-            monk_lvl = int((sheet.get("level", getattr(player, "level", 3)) if isinstance(sheet, dict) else getattr(player, "level", 3)) or 3)
+        if is_remote_non_dm:
+            has_dm_feat = monk_lvl >= 3 or entity_has_keyword(player, "deflettere missili", "deflect missiles")
+            if not has_dm_feat or not last_hit:
+                player.has_reacted_this_turn = False
+                send_message(player.conn, make_error_reply("Deflettere Missili non disponibile o nessun colpo a distanza valido."))
+                return
+            inc_dmg = int(last_hit.get("dmg_to_hp", 0) or 0)
+        else:
+            if monk_lvl <= 0:
+                monk_lvl = int((sheet.get("level", getattr(player, "level", 3)) if isinstance(sheet, dict) else getattr(player, "level", 3)) or 3)
+            inc_dmg = int(details.get("incoming_damage", 0) or last_hit.get("dmg_to_hp", 0) or 0)
         d10_r = random.randint(1, 10)
         reduction = max(1, d10_r + dex_mod + monk_lvl)
-        inc_dmg = int(details.get("incoming_damage", 0) or last_hit.get("dmg_to_hp", 0) or 0)
         if inc_dmg > 0:
             restored = min(inc_dmg, reduction)
             _restore_hp_from_reaction(player, restored)
+        if last_hit:
+            player._last_hit_for_reaction = None
         caught_note = " 🎯 Danno ridotto a 0: afferra il proiettile e può spendere 1 Punto Ki per rilanciarlo!" if (inc_dmg > 0 and reduction >= inc_dmg) else ""
         msg = f"🥋 {player.name} usa Deflettere Missili (Reazione): riduce il danno a distanza di **{reduction}** [1d10({d10_r}) + DES({dex_mod}) + Liv({monk_lvl})]!{caught_note}"
         broadcast(game_state, make_chat_broadcast("Sistema", msg))
@@ -4555,7 +4589,14 @@ def handle_reaction_response(data, player, game_state):
 
     elif reaction_type == "DEFENSIVE_DUELIST":
         from common.feats_and_classes import check_defensive_duelist_bonus
-        dd_pb = int(details.get("bonus_ac") or check_defensive_duelist_bonus(player) or 2)
+        if is_remote_non_dm:
+            dd_pb = int(check_defensive_duelist_bonus(player) or 0)
+            if dd_pb <= 0:
+                player.has_reacted_this_turn = False
+                send_message(player.conn, make_error_reply("Non possiedi il talento Duellante Difensivo."))
+                return
+        else:
+            dd_pb = int(details.get("bonus_ac") or check_defensive_duelist_bonus(player) or 2)
         restore_note = ""
         if last_hit and not last_hit.get("is_crit") and (int(last_hit.get("hit_roll", 999)) < int(last_hit.get("base_ac", 0)) + dd_pb):
             r_hp = int(last_hit.get("dmg_to_hp", 0) or 0)
@@ -4570,8 +4611,18 @@ def handle_reaction_response(data, player, game_state):
         game_state._trigger_gui_update()
 
     elif reaction_type == "ILLUSORY_SELF":
+        if is_remote_non_dm:
+            wiz_l = entity_get_class_level(player, "mago", "wizard")
+            sub_s = str((getattr(player, "full_sheet", None) or {}).get("subclass", "") or "").lower()
+            has_ill = (wiz_l >= 10 and ("illus" in sub_s)) or entity_has_keyword(player, "sé illusorio", "se illusorio", "illusory self")
+            if not has_ill or getattr(player, "illusory_self_used", False) or not last_hit:
+                player.has_reacted_this_turn = False
+                send_message(player.conn, make_error_reply("Sé Illusorio non disponibile o nessun attacco registrato."))
+                return
+            r_hp = int(last_hit.get("dmg_to_hp", 0) or 0)
+        else:
+            r_hp = int(last_hit.get("dmg_to_hp", 0) or details.get("dmg_to_hp", 0) or 0)
         player.illusory_self_used = True
-        r_hp = int(last_hit.get("dmg_to_hp", 0) or details.get("dmg_to_hp", 0) or 0)
         r_tmp = int(last_hit.get("temp_absorbed", 0) or 0)
         _restore_hp_from_reaction(player, r_hp, r_tmp)
         player._last_hit_for_reaction = None
@@ -4583,10 +4634,22 @@ def handle_reaction_response(data, player, game_state):
 
     elif reaction_type == "DAMPEN_ELEMENTS":
         elem = str(details.get("damage_type", "elemento") or "elemento")
-        inc = int(last_hit.get("dmg_to_hp", 0) or details.get("dmg_to_hp", 0) or 0)
+        if is_remote_non_dm:
+            cl_l = entity_get_class_level(player, "chierico", "cleric")
+            sub_s = str((getattr(player, "full_sheet", None) or {}).get("subclass", "") or "").lower()
+            has_de = (cl_l >= 6 and ("natur" in sub_s)) or entity_has_keyword(player, "smorzare elementi", "dampen elements")
+            if not has_de or not last_hit:
+                player.has_reacted_this_turn = False
+                send_message(player.conn, make_error_reply("Smorzare Elementi non disponibile o nessun colpo elementale registrato."))
+                return
+            inc = int(last_hit.get("dmg_to_hp", 0) or 0)
+        else:
+            inc = int(last_hit.get("dmg_to_hp", 0) or details.get("dmg_to_hp", 0) or 0)
         restored = inc // 2
         if restored > 0:
             _restore_hp_from_reaction(player, restored)
+        if last_hit:
+            player._last_hit_for_reaction = None
         msg = f"🌿 [SMORZARE ELEMENTI] {player.name} conferisce Resistenza a {elem} in Reazione (ripristinati {restored} PF)!"
         broadcast(game_state, make_chat_broadcast("Sistema", msg))
         game_state.log_dm_message(f"[REAZIONE] {msg}")
@@ -4605,121 +4668,145 @@ def handle_death_save_request(data, player, game_state):
         data = data["data"]
     if not game_state:
         return
-    actor_name = (data or {}).get("actor_name")
-    target = game_state.find_player(actor_name) if actor_name else player
-    if target is None:
-        target = player
+    from server.rules.class_abilities import _resolve_actor
+    from common.network_utils import is_dm_actor
+    target = _resolve_actor(data, player, game_state)
     if not target:
         return
 
-    if getattr(target, "hp", 1) > 0:
-        if getattr(player, "conn", None):
-            send_message(player.conn, make_error_reply(f"{target.name} ha più di 0 PF e non deve effettuare TS contro la Morte!"))
-        return
+    reply_conn = getattr(player, "conn", None)
+    gs_lock = getattr(game_state, "lock", None)
+    err_reply = None
+    msg = None
+    stats_pkt = None
+    is_remote_non_dm = isinstance(reply_conn, socket.socket) and not is_dm_actor(player)
 
-    conds = getattr(target, "conditions", None)
-    if not isinstance(conds, list):
-        conds = []
-        target.conditions = conds
-    if any(is_condition_active(conds, c) for c in ("Morto", "Dead", "Stabilizzato", "Stable")):
-        if getattr(player, "conn", None):
-            send_message(player.conn, make_error_reply(f"{target.name} è già Stabilizzato o Morto!"))
-        return
+    def _run_death_save():
+        nonlocal err_reply, msg, stats_pkt
+        if getattr(target, "hp", 1) > 0:
+            err_reply = f"{target.name} ha più di 0 PF e non deve effettuare TS contro la Morte!"
+            return
 
-    if not hasattr(target, "death_saves") or not isinstance(target.death_saves, dict):
-        target.death_saves = {"successes": 0, "failures": 0}
+        conds = getattr(target, "conditions", None)
+        if not isinstance(conds, list):
+            conds = []
+            target.conditions = conds
+        if any(is_condition_active(conds, c) for c in ("Morto", "Dead", "Stabilizzato", "Stable")):
+            err_reply = f"{target.name} è già Stabilizzato o Morto!"
+            return
 
-    manual_roll = (data or {}).get("manual_roll")
-    lucky_note = ""
-    if manual_roll is not None:
-        raw_d20 = max(1, min(20, int(manual_roll)))
-    else:
-        raw_d20 = random.randint(1, 20)
-        from common.dnd5e_tables import entity_has_keyword
-        sheet = getattr(target, "full_sheet", None) or {}
-        t_race = str((sheet.get("race") if isinstance(sheet, dict) else None) or getattr(target, "race", "") or "").lower()
-        if raw_d20 == 1 and ("halfling" in t_race or entity_has_keyword(target, "fortunato", "lucky")):
-            reroll_d20 = random.randint(1, 20)
-            lucky_note = f" [🍀 Fortunato Halfling: 1 -> {reroll_d20}]"
-            raw_d20 = reroll_d20
+        if not hasattr(target, "death_saves") or not isinstance(target.death_saves, dict):
+            target.death_saves = {"successes": 0, "failures": 0}
 
-    from common.item_modifiers import compute_death_save_flat_bonus
-    flat_bonus, bonus_notes = compute_death_save_flat_bonus(target)
-    total_roll = raw_d20 + flat_bonus
-    mod_parts = list(bonus_notes)
+        manual_roll = (data or {}).get("manual_roll")
+        if manual_roll is not None and is_remote_non_dm:
+            err_reply = "Solo il Dungeon Master può impostare manualmente il risultato del Tiro Salvezza contro la Morte."
+            return
 
-    aura_bonus, aura_pal = get_paladin_aura_save_bonus(target, game_state)
-    if aura_bonus > 0:
-        total_roll += aura_bonus
-        mod_parts.append(f"+{aura_bonus} Aura di {aura_pal}")
+        lucky_note = ""
+        if manual_roll is not None:
+            raw_d20 = max(1, min(20, int(manual_roll)))
+        else:
+            raw_d20 = random.randint(1, 20)
+            from common.dnd5e_tables import entity_has_keyword
+            sheet = getattr(target, "full_sheet", None) or {}
+            t_race = str((sheet.get("race") if isinstance(sheet, dict) else None) or getattr(target, "race", "") or "").lower()
+            if raw_d20 == 1 and ("halfling" in t_race or entity_has_keyword(target, "fortunato", "lucky")):
+                reroll_d20 = random.randint(1, 20)
+                lucky_note = f" [🍀 Fortunato Halfling: 1 -> {reroll_d20}]"
+                raw_d20 = reroll_d20
 
-    if has_effect_or_condition(target, "Benedizione", "Bless"):
-        bless_b = random.randint(1, 4)
-        total_roll += bless_b
-        mod_parts.append(f"+{bless_b} Benedizione")
-    if has_effect_or_condition(target, "Anatema", "Bane"):
-        bane_p = random.randint(1, 4)
-        total_roll -= bane_p
-        mod_parts.append(f"-{bane_p} Anatema")
+        from common.item_modifiers import compute_death_save_flat_bonus
+        flat_bonus, bonus_notes = compute_death_save_flat_bonus(target)
+        total_roll = raw_d20 + flat_bonus
+        mod_parts = list(bonus_notes)
 
-    succ = int(target.death_saves.get("successes", 0) or 0)
-    fail = int(target.death_saves.get("failures", 0) or 0)
+        aura_bonus, aura_pal = get_paladin_aura_save_bonus(target, game_state)
+        if aura_bonus > 0:
+            total_roll += aura_bonus
+            mod_parts.append(f"+{aura_bonus} Aura di {aura_pal}")
 
-    sheet = getattr(target, "full_sheet", None)
-    if raw_d20 == 20:
-        target.hp = 1
-        succ = 0
-        fail = 0
-        for clr_c in ("Incosciente", "Unconscious", "Morente", "Dying", "Stabilizzato", "Stable"):
-            while clr_c in conds:
-                conds.remove(clr_c)
-            if isinstance(sheet, dict) and isinstance(sheet.get("conditions"), list):
-                while clr_c in sheet["conditions"]:
-                    sheet["conditions"].remove(clr_c)
+        if has_effect_or_condition(target, "Benedizione", "Bless"):
+            bless_b = random.randint(1, 4)
+            total_roll += bless_b
+            mod_parts.append(f"+{bless_b} Benedizione")
+        if has_effect_or_condition(target, "Anatema", "Bane"):
+            bane_p = random.randint(1, 4)
+            total_roll -= bane_p
+            mod_parts.append(f"-{bane_p} Anatema")
+
+        succ = int(target.death_saves.get("successes", 0) or 0)
+        fail = int(target.death_saves.get("failures", 0) or 0)
+
+        sheet = getattr(target, "full_sheet", None)
+        if raw_d20 == 20:
+            target.hp = 1
+            succ = 0
+            fail = 0
+            for clr_c in ("Incosciente", "Unconscious", "Morente", "Dying", "Stabilizzato", "Stable"):
+                while clr_c in conds:
+                    conds.remove(clr_c)
+                if isinstance(sheet, dict) and isinstance(sheet.get("conditions"), list):
+                    while clr_c in sheet["conditions"]:
+                        sheet["conditions"].remove(clr_c)
+            if isinstance(sheet, dict):
+                sheet["hp_current"] = 1
+            flavor = "🌟 SUCCESSO CRITICO (20 Naturale)! Si risveglia con 1 HP!"
+        elif raw_d20 == 1:
+            fail += 2
+            flavor = "💥 FALLIMENTO CRITICO (1 Naturale)! (+2 fallimenti)"
+        elif total_roll >= 10:
+            succ += 1
+            flavor = "✅ Successo."
+        else:
+            fail += 1
+            flavor = "❌ Fallimento."
+
+        if raw_d20 != 20:
+            succ = min(3, succ)
+            fail = min(3, fail)
+            if fail >= 3:
+                if "Morto" not in conds:
+                    conds.append("Morto")
+                if isinstance(sheet, dict) and isinstance(sheet.get("conditions"), list) and "Morto" not in sheet["conditions"]:
+                    sheet["conditions"].append("Morto")
+                flavor += f" 💀 {target.name} è MORTO!"
+                _spawn_corpse_loot(target, game_state)
+            elif succ >= 3:
+                if "Stabilizzato" not in conds:
+                    conds.append("Stabilizzato")
+                if isinstance(sheet, dict) and isinstance(sheet.get("conditions"), list) and "Stabilizzato" not in sheet["conditions"]:
+                    sheet["conditions"].append("Stabilizzato")
+                flavor += f" 🩹 {target.name} è STABILIZZATO!"
+
+        target.death_saves = {"successes": succ, "failures": fail}
         if isinstance(sheet, dict):
-            sheet["hp_current"] = 1
-        flavor = "🌟 SUCCESSO CRITICO (20 Naturale)! Si risveglia con 1 HP!"
-    elif raw_d20 == 1:
-        fail += 2
-        flavor = "💥 FALLIMENTO CRITICO (1 Naturale)! (+2 fallimenti)"
-    elif total_roll >= 10:
-        succ += 1
-        flavor = "✅ Successo."
+            sheet["death_saves"] = dict(target.death_saves)
+
+        mods_str = f" ({', '.join(mod_parts)}) = {total_roll}" if mod_parts else ""
+        msg = f"🎲 [TS MORTE] {target.name}: d20({raw_d20}){lucky_note}{mods_str}. {flavor} (Successi: {succ}/3 | Fallimenti: {fail}/3)"
+        stats_pkt = make_player_stats_update(
+            target.name, target.hp, target.max_hp, target.initiative,
+            conds, getattr(target, "temp_hp", 0),
+            active_effects=getattr(target, "active_effects", []),
+            death_saves=dict(target.death_saves),
+        )
+
+    if gs_lock is not None:
+        with gs_lock:
+            _run_death_save()
     else:
-        fail += 1
-        flavor = "❌ Fallimento."
+        _run_death_save()
 
-    if raw_d20 != 20:
-        succ = min(3, succ)
-        fail = min(3, fail)
-        if fail >= 3:
-            if "Morto" not in conds:
-                conds.append("Morto")
-            if isinstance(sheet, dict) and isinstance(sheet.get("conditions"), list) and "Morto" not in sheet["conditions"]:
-                sheet["conditions"].append("Morto")
-            flavor += f" 💀 {target.name} è MORTO!"
-            _spawn_corpse_loot(target, game_state)
-        elif succ >= 3:
-            if "Stabilizzato" not in conds:
-                conds.append("Stabilizzato")
-            if isinstance(sheet, dict) and isinstance(sheet.get("conditions"), list) and "Stabilizzato" not in sheet["conditions"]:
-                sheet["conditions"].append("Stabilizzato")
-            flavor += f" 🩹 {target.name} è STABILIZZATO!"
-
-    target.death_saves = {"successes": succ, "failures": fail}
-    if isinstance(sheet, dict):
-        sheet["death_saves"] = dict(target.death_saves)
-
-    mods_str = f" ({', '.join(mod_parts)}) = {total_roll}" if mod_parts else ""
-    msg = f"🎲 [TS MORTE] {target.name}: d20({raw_d20}){lucky_note}{mods_str}. {flavor} (Successi: {succ}/3 | Fallimenti: {fail}/3)"
-    broadcast(game_state, make_chat_broadcast("Sistema", msg))
-    game_state.log_dm_message(f"[TS MORTE] {msg}")
-    broadcast(game_state, make_player_stats_update(
-        target.name, target.hp, target.max_hp, target.initiative,
-        conds, getattr(target, "temp_hp", 0),
-        active_effects=getattr(target, "active_effects", []),
-        death_saves=dict(target.death_saves),
-    ))
+    if err_reply:
+        if reply_conn:
+            send_message(reply_conn, make_error_reply(err_reply))
+        return
+    if msg:
+        broadcast(game_state, make_chat_broadcast("Sistema", msg))
+        game_state.log_dm_message(f"[TS MORTE] {msg}")
+    if stats_pkt:
+        broadcast(game_state, stats_pkt)
     game_state._trigger_gui_update()
 
 

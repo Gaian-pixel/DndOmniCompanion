@@ -217,9 +217,11 @@ def _evaluate_creature_space_traversal(player, step_hex, is_final_step: bool, ga
 
 
 def handle_move_request(data, player, game_state):
-    reply_conn = getattr(player, "conn", None)
-    caller_name = getattr(player, "name", None)
-    is_dm_caller = getattr(player, "is_dm", False) or getattr(player, "role", "") == "DM"
+    orig_player = player
+    reply_conn = getattr(orig_player, "conn", None)
+    caller_name = getattr(orig_player, "name", None)
+    from common.network_utils import is_dm_actor
+    is_dm_caller = is_dm_actor(orig_player) or getattr(orig_player, "is_dm", False)
     if isinstance(data, dict) and data.get("entity_name") and data.get("entity_name") != caller_name:
         target_mover = game_state.find_player(data.get("entity_name"))
         is_owner = target_mover and (
@@ -234,7 +236,7 @@ def handle_move_request(data, player, game_state):
             return
         player = target_mover
 
-    err_conn = getattr(player, "conn", None) or reply_conn
+    err_conn = reply_conn or getattr(player, "conn", None)
 
     from server.rules.class_abilities import _check_surprised_block
     if _check_surprised_block(player, game_state, "muoverti"):
@@ -250,17 +252,19 @@ def handle_move_request(data, player, game_state):
 
     to_pos = data.get("to")
     move_path = None
-    is_dm_caller = is_dm_caller or getattr(player, "is_dm", False) or getattr(player, "role", "") == "DM"
-    if getattr(player, "is_party_member", False) and getattr(player, "conn", None) is not None:
-        is_dm = is_dm_caller
+    # L'elevazione DM deriva esclusivamente dal mittente originale (`orig_player`), mai da `conn is None` del compagno
+    if is_dm_caller or orig_player is None:
+        is_dm = True
+    elif getattr(orig_player, "conn", None) is None and data.get("is_dm_force", False):
+        is_dm = True
     else:
-        is_dm = is_dm_caller or data.get("is_dm_force", False)
+        is_dm = False
     
     if to_pos:
         if not isinstance(to_pos, (list, tuple)) or len(to_pos) < 2 or not all(isinstance(v, int) for v in to_pos[:2]):
             from common.protocol import make_error_reply
-            if player.conn:
-                send_message(player.conn, make_error_reply("Coordinate di destinazione non valide."))
+            if err_conn:
+                send_message(err_conn, make_error_reply("Coordinate di destinazione non valide."))
             return
         is_teleport = bool(data.get("is_teleport", False))
         is_forced = bool(data.get("is_forced", False))
@@ -268,8 +272,8 @@ def handle_move_request(data, player, game_state):
             from common.i18n import get_map_scale_info
             if get_map_scale_info(game_state.current_map).get("scale_type") in ("exploration", "world"):
                 from common.protocol import make_error_reply
-                if player.conn:
-                    send_message(player.conn, make_error_reply("Mappa di esplorazione: movimento libero disabilitato. Usa il Viaggio o aspetta il DM."))
+                if err_conn:
+                    send_message(err_conn, make_error_reply("Mappa di esplorazione: movimento libero disabilitato. Usa il Viaggio o aspetta il DM."))
                 return
 
         if not is_dm and not is_forced:
@@ -277,8 +281,8 @@ def handle_move_request(data, player, game_state):
             fear_blocked, fear_msg = check_fear_source_movement_block(player, to_pos, game_state)
             if fear_blocked:
                 from common.protocol import make_error_reply
-                if getattr(player, "conn", None):
-                    send_message(player.conn, make_error_reply(fear_msg))
+                if err_conn:
+                    send_message(err_conn, make_error_reply(fear_msg))
                 return
                 
         cur_m_mv = getattr(game_state, "current_map", None)
@@ -309,13 +313,13 @@ def handle_move_request(data, player, game_state):
                         if d.get("q") == bq and d.get("r") == br and d.get("state", "closed") in ("closed", "locked", "secret"):
                             door_blocked = d
                             break
-                if getattr(player, "conn", None):
+                if err_conn:
                     if door_blocked:
                         d_name = door_blocked.get("name", "Porta")
                         d_st = "serrata a chiave" if door_blocked.get("state") == "locked" else "chiusa"
-                        send_message(player.conn, make_error_reply(f"Il percorso è bloccato: la {d_name} a [{bq}, {br}] è {d_st}! Cliccaci sopra per aprirla."))
+                        send_message(err_conn, make_error_reply(f"Il percorso è bloccato: la {d_name} a [{bq}, {br}] è {d_st}! Cliccaci sopra per aprirla."))
                     else:
-                        send_message(player.conn, make_error_reply(f"Movimento non consentito: c'è un muro sul percorso a [{bq}, {br}]!"))
+                        send_message(err_conn, make_error_reply(f"Movimento non consentito: c'è un muro sul percorso a [{bq}, {br}]!"))
 
             prev_step = Hex(from_pos[0], from_pos[1]) if (from_pos and len(from_pos) >= 2) else None
             for step in steps_to_check:
@@ -442,8 +446,8 @@ def handle_move_request(data, player, game_state):
                     )
                     if _blk:
                         from common.protocol import make_error_reply
-                        if getattr(player, "conn", None):
-                            send_message(player.conn, make_error_reply(_blk_reason))
+                        if err_conn:
+                            send_message(err_conn, make_error_reply(_blk_reason))
                         return
                     if _cr_ext > 0 and step_cost == 1:
                         step_cost += _cr_ext
@@ -474,8 +478,8 @@ def handle_move_request(data, player, game_state):
                 _j_max_ft = float(_j_info["long_jump_ft"]) + float(data.get("athletics_extra_ft", 0) or 0)
                 if _j_ft_req > _j_max_ft and game_state.automation_settings.get("strict_movement_limits", True):
                     from common.protocol import make_error_reply
-                    if getattr(player, "conn", None):
-                        send_message(player.conn, make_error_reply(f"Salto non consentito: richiesti {_j_ft_req} ft contro max {_j_max_ft:.0f} ft (FOR {_j_str})."))
+                    if err_conn:
+                        send_message(err_conn, make_error_reply(f"Salto non consentito: richiesti {_j_ft_req} ft contro max {_j_max_ft:.0f} ft (FOR {_j_str})."))
                     return
 
             # PHB p. 195 Trascinare creatura afferrata: movimento dimezzato (costo x2) a meno che >= 2 taglie più piccola
@@ -510,16 +514,16 @@ def handle_move_request(data, player, game_state):
             if (spent + req_hexes) > max_hexes:
                 if strict_move:
                     from common.protocol import make_error_reply
-                    if getattr(player, "conn", None):
+                    if err_conn:
                         rem = max(0, max_hexes - spent)
                         rem_str = format_distance_hexes(rem, speed_unit)
                         tot_str = format_distance_hexes(max_hexes, speed_unit)
                         diff_hint = " (Attraversare terreno difficile raddoppia il costo!)" if has_diff_terrain_in_path else ""
                         if cost_prone == 2 and not has_diff_terrain_in_path:
-                            send_message(player.conn, make_error_reply(f"Movimento non consentito: sei Prono. Ti restano {rem // 2} esagoni ({rem_str})."))
+                            send_message(err_conn, make_error_reply(f"Movimento non consentito: sei Prono. Ti restano {rem // 2} esagoni ({rem_str})."))
                         else:
                             hint = " (Puoi usare l'Azione di Scatto /dash per raddoppiare la velocità!)" if not is_dashed else ""
-                            send_message(player.conn, make_error_reply(f"Movimento non consentito: la distanza supera la velocità rimasta per questo turno ({rem_str} rimasti su {tot_str}).{diff_hint}{hint}"))
+                            send_message(err_conn, make_error_reply(f"Movimento non consentito: la distanza supera la velocità rimasta per questo turno ({rem_str} rimasti su {tot_str}).{diff_hint}{hint}"))
                     return
                 else:
                     game_state.log_dm_message(f"[MOVIMENTO] {player.name} supera la velocità normale del turno ({spent + req_hexes}/{max_hexes} esagoni) - Consentito in modalità tavolo.")

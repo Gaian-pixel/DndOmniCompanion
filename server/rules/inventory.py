@@ -169,6 +169,7 @@ def handle_take_loot_request(data, player, game_state):
 
     found = None
     loot_entry = None
+    has_space_err = False
     with game_state.lock:
         loots = game_state.current_map.get('loots', [])
         for l in loots:
@@ -197,79 +198,81 @@ def handle_take_loot_request(data, player, game_state):
                     if not any(v > 0 for v in wallet.values()) and items:
                         has_space = any(s is None for s in sheet["inventory_grid"])
                         if not has_space:
-                            if getattr(player, "conn", None):
-                                send_message(player.conn, make_error_reply("Zaino pieno! Non puoi raccogliere questi oggetti."))
-                            return
+                            has_space_err = True
+                    if not has_space_err:
+                        # 1. Trasferisci monete sincronizzando sia currency che wallet/gp
+                        if wallet:
+                            p_curr = sheet.get("currency")
+                            p_wallet = sheet.get("wallet")
+                            if not isinstance(p_curr, dict):
+                                base_coins = dict(p_wallet) if isinstance(p_wallet, dict) else {}
+                                try:
+                                    base_mo = int(base_coins.get("MO", sheet.get("gp", 0)) or 0)
+                                except (ValueError, TypeError):
+                                    base_mo = 0
+                                p_curr = {
+                                    "MR": int(base_coins.get("MR", 0) or 0),
+                                    "MA": int(base_coins.get("MA", 0) or 0),
+                                    "ME": int(base_coins.get("ME", 0) or 0),
+                                    "MO": base_mo,
+                                    "MP": int(base_coins.get("MP", 0) or 0),
+                                }
+                                sheet["currency"] = p_curr
+                            if not isinstance(p_wallet, dict):
+                                p_wallet = dict(p_curr)
+                                sheet["wallet"] = p_wallet
 
-                    # 1. Trasferisci monete sincronizzando sia currency che wallet/gp
-                    if wallet:
-                        p_curr = sheet.get("currency")
-                        p_wallet = sheet.get("wallet")
-                        if not isinstance(p_curr, dict):
-                            base_coins = dict(p_wallet) if isinstance(p_wallet, dict) else {}
-                            try:
-                                base_mo = int(base_coins.get("MO", sheet.get("gp", 0)) or 0)
-                            except (ValueError, TypeError):
-                                base_mo = 0
-                            p_curr = {
-                                "MR": int(base_coins.get("MR", 0) or 0),
-                                "MA": int(base_coins.get("MA", 0) or 0),
-                                "ME": int(base_coins.get("ME", 0) or 0),
-                                "MO": base_mo,
-                                "MP": int(base_coins.get("MP", 0) or 0),
-                            }
-                            sheet["currency"] = p_curr
-                        if not isinstance(p_wallet, dict):
-                            p_wallet = dict(p_curr)
-                            sheet["wallet"] = p_wallet
-
-                        coin_notes = []
-                        for c_type, c_qty in list(wallet.items()):
-                            try:
-                                c_qty_int = int(c_qty or 0)
-                            except (ValueError, TypeError):
-                                c_qty_int = 0
-                            if c_qty_int > 0:
-                                prev_val = max(int(p_curr.get(c_type, 0) or 0), int(p_wallet.get(c_type, 0) or 0))
-                                new_val = prev_val + c_qty_int
-                                p_curr[c_type] = new_val
-                                p_wallet[c_type] = new_val
-                                if c_type == "MO":
-                                    sheet["gp"] = str(new_val)
-                                coin_notes.append(f"{c_qty_int} {c_type}")
-                                coin_sync_msgs.append(make_currency_response(player.name, c_type, c_qty_int, approved=True, reason="Spoglie"))
-                        contents["wallet"] = {}
-                        if coin_notes:
-                            c_str = ", ".join(coin_notes)
-                            coin_broadcast_msg = make_chat_broadcast("Sistema", f"💰 {player.name} ha raccolto {c_str} dalle spoglie!")
+                            coin_notes = []
+                            for c_type, c_qty in list(wallet.items()):
+                                try:
+                                    c_qty_int = int(c_qty or 0)
+                                except (ValueError, TypeError):
+                                    c_qty_int = 0
+                                if c_qty_int > 0:
+                                    prev_val = max(int(p_curr.get(c_type, 0) or 0), int(p_wallet.get(c_type, 0) or 0))
+                                    new_val = prev_val + c_qty_int
+                                    p_curr[c_type] = new_val
+                                    p_wallet[c_type] = new_val
+                                    if c_type == "MO":
+                                        sheet["gp"] = str(new_val)
+                                    coin_notes.append(f"{c_qty_int} {c_type}")
+                                    coin_sync_msgs.append(make_currency_response(player.name, c_type, c_qty_int, approved=True, reason="Spoglie"))
+                            contents["wallet"] = {}
+                            if coin_notes:
+                                c_str = ", ".join(coin_notes)
+                                coin_broadcast_msg = make_chat_broadcast("Sistema", f"💰 {player.name} ha raccolto {c_str} dalle spoglie!")
+                            else:
+                                coin_broadcast_msg = None
                         else:
                             coin_broadcast_msg = None
                     else:
                         coin_broadcast_msg = None
+                        err_reply_msg = "Zaino pieno! Non puoi raccogliere questi oggetti."
 
-                    # 2. Trasferisci oggetti reali senza sprecare slot per il contenitore fittizio e senza distruggere l'eccedenza
-                    unplaced_items = []
-                    for extra_item in items:
-                        placed_extra = False
-                        item_copy = dict(extra_item) if isinstance(extra_item, dict) else {"name": str(extra_item), "qty": 1, "type": "Equipaggiamento", "weight": 1.0}
-                        item_copy["attuned"] = False
-                        item_copy["container"] = "backpack"
-                        item_copy.setdefault("_sender", "Forziere")
-                        for s_i in range(len(sheet["inventory_grid"])):
-                            if sheet["inventory_grid"][s_i] is None:
-                                sheet["inventory_grid"][s_i] = dict(item_copy)
-                                item_sync_msgs.append(make_receive_item(dict(item_copy)))
-                                placed_extra = True
-                                break
-                        if not placed_extra:
-                            unplaced_items.append(extra_item)
+                    if not has_space_err:
+                        # 2. Trasferisci oggetti reali senza sprecare slot per il contenitore fittizio e senza distruggere l'eccedenza
+                        unplaced_items = []
+                        for extra_item in items:
+                            placed_extra = False
+                            item_copy = dict(extra_item) if isinstance(extra_item, dict) else {"name": str(extra_item), "qty": 1, "type": "Equipaggiamento", "weight": 1.0}
+                            item_copy["attuned"] = False
+                            item_copy["container"] = "backpack"
+                            item_copy.setdefault("_sender", "Forziere")
+                            for s_i in range(len(sheet["inventory_grid"])):
+                                if sheet["inventory_grid"][s_i] is None:
+                                    sheet["inventory_grid"][s_i] = dict(item_copy)
+                                    item_sync_msgs.append(make_receive_item(dict(item_copy)))
+                                    placed_extra = True
+                                    break
+                            if not placed_extra:
+                                unplaced_items.append(extra_item)
 
-                    if unplaced_items:
-                        contents["items"] = unplaced_items
-                        err_reply_msg = f"Zaino pieno: {len(unplaced_items)} oggetti sono rimasti a terra."
-                    else:
-                        err_reply_msg = None
-                        loots.remove(found)
+                        if unplaced_items:
+                            contents["items"] = unplaced_items
+                            err_reply_msg = f"Zaino pieno: {len(unplaced_items)} oggetti sono rimasti a terra."
+                        else:
+                            err_reply_msg = None
+                            loots.remove(found)
                 else:
                     coin_broadcast_msg = None
                     err_reply_msg = None
@@ -378,96 +381,96 @@ def handle_buy_item_request(data, player, game_state):
                 
         if not item_to_buy: return
 
+        buy_err_msg = None
         raw_stock = item_to_buy.get("stock")
         if raw_stock is not None:
             try:
                 if int(raw_stock) <= 0:
-                    if getattr(player, "conn", None):
-                        send_message(player.conn, make_error_reply(f"'{item_name}' è esaurito in questa bottega."))
-                    return
+                    buy_err_msg = f"'{item_name}' è esaurito in questa bottega."
             except (TypeError, ValueError):
                 pass
 
-        price = int(item_to_buy.get("price", 0))
-        if price < 0:
-            return
-        sheet = getattr(player, "full_sheet", None)
-        if not sheet: return
-        
-        curr = sheet.setdefault("currency", {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0})
-        player_mo = int(curr.get("MO", 0)) if isinstance(curr, dict) else int(sheet.get("gp", 0))
-        if player_mo < price:
-            legacy_gp = int(sheet.get("gp", 0))
-            if legacy_gp < price:
-                if player.conn:
-                    send_message(player.conn, make_error_reply("Non hai abbastanza monete d'oro per questo acquisto."))
+        if not buy_err_msg:
+            price = int(item_to_buy.get("price", 0))
+            if price < 0:
                 return
-            player_mo = legacy_gp
-            
-        # Detrai oro sia dalla borsa moderna che dal campo legacy
-        new_mo = player_mo - price
-        if isinstance(curr, dict):
-            curr["MO"] = new_mo
-        if isinstance(sheet.get("wallet"), dict):
-            sheet["wallet"]["MO"] = new_mo
-        sheet["gp"] = str(new_mo)
-        
-        # Inserisci nella griglia inventario (preservando griglie > 25 slot)
-        if not isinstance(sheet.get("inventory_grid"), list) or len(sheet["inventory_grid"]) == 0:
-            sheet["inventory_grid"] = [None] * 25
-            
-        new_entry = {
-            "name": item_name,
-            "type": item_to_buy.get("type", "Equipaggiamento"),
-            "qty": int(item_to_buy.get("qty", 1) or 1),
-            "weight": float(item_to_buy.get("weight", 1.0) or 1.0),
-            "attuned": False,
-            "desc": item_to_buy.get("description", f"Acquistato da {shop_name}")
-        }
-        
-        placed = False
-        placed_slot = None
-        for idx, slot in enumerate(sheet["inventory_grid"]):
-            if slot and isinstance(slot, dict) and slot.get("name") == item_name:
-                slot["qty"] = int(slot.get("qty", 1)) + new_entry["qty"]
-                placed = True
-                placed_slot = idx
-                break
-                
-        if not placed:
-            for idx in range(len(sheet["inventory_grid"])):
-                if sheet["inventory_grid"][idx] is None:
-                    sheet["inventory_grid"][idx] = new_entry
+            sheet = getattr(player, "full_sheet", None)
+            if not sheet:
+                return
+
+            curr = sheet.setdefault("currency", {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0})
+            player_mo = int(curr.get("MO", 0)) if isinstance(curr, dict) else int(sheet.get("gp", 0))
+            if player_mo < price:
+                legacy_gp = int(sheet.get("gp", 0))
+                if legacy_gp < price:
+                    buy_err_msg = "Non hai abbastanza monete d'oro per questo acquisto."
+                else:
+                    player_mo = legacy_gp
+
+        if not buy_err_msg:
+            # Detrai oro sia dalla borsa moderna che dal campo legacy
+            new_mo = player_mo - price
+            if isinstance(curr, dict):
+                curr["MO"] = new_mo
+            if isinstance(sheet.get("wallet"), dict):
+                sheet["wallet"]["MO"] = new_mo
+            sheet["gp"] = str(new_mo)
+
+            # Inserisci nella griglia inventario (preservando griglie > 25 slot)
+            if not isinstance(sheet.get("inventory_grid"), list) or len(sheet["inventory_grid"]) == 0:
+                sheet["inventory_grid"] = [None] * 25
+
+            new_entry = {
+                "name": item_name,
+                "type": item_to_buy.get("type", "Equipaggiamento"),
+                "qty": int(item_to_buy.get("qty", 1) or 1),
+                "weight": float(item_to_buy.get("weight", 1.0) or 1.0),
+                "attuned": False,
+                "desc": item_to_buy.get("description", f"Acquistato da {shop_name}")
+            }
+
+            placed = False
+            placed_slot = None
+            for idx, slot in enumerate(sheet["inventory_grid"]):
+                if slot and isinstance(slot, dict) and slot.get("name") == item_name:
+                    slot["qty"] = int(slot.get("qty", 1)) + new_entry["qty"]
                     placed = True
                     placed_slot = idx
                     break
-                    
-        if not placed:
-            # Ripristina oro su tutte le rappresentazioni (currency, wallet, gp)
-            if isinstance(curr, dict):
-                curr["MO"] = player_mo
-            if isinstance(sheet.get("wallet"), dict):
-                sheet["wallet"]["MO"] = player_mo
-            sheet["gp"] = str(player_mo)
-            buy_err_msg = "Zaino pieno! Non hai slot liberi."
-        else:
-            buy_err_msg = None
-            if item_to_buy.get("stock") is not None:
-                try:
-                    item_to_buy["stock"] = max(0, int(item_to_buy["stock"]) - 1)
-                except (TypeError, ValueError):
-                    pass
-            # Mantieni sincronizzato anche l'array legacy per compatibilità dentro il lock
-            inv = sheet.setdefault("inventory", [])
-            bought_qty = int(new_entry.get("qty", 1) or 1)
-            stacked = False
-            for i in inv:
-                if i.get("name") == item_name:
-                    i["quantity"] = str(int(i.get("quantity", 1) or 1) + bought_qty)
-                    stacked = True
-                    break
-            if not stacked:
-                inv.append({"name": item_name, "quantity": str(bought_qty), "description": f"Acquistato da {shop_name}", "equipped": False})
+
+            if not placed:
+                for idx in range(len(sheet["inventory_grid"])):
+                    if sheet["inventory_grid"][idx] is None:
+                        sheet["inventory_grid"][idx] = new_entry
+                        placed = True
+                        placed_slot = idx
+                        break
+
+            if not placed:
+                # Ripristina oro su tutte le rappresentazioni (currency, wallet, gp)
+                if isinstance(curr, dict):
+                    curr["MO"] = player_mo
+                if isinstance(sheet.get("wallet"), dict):
+                    sheet["wallet"]["MO"] = player_mo
+                sheet["gp"] = str(player_mo)
+                buy_err_msg = "Zaino pieno! Non hai slot liberi."
+            else:
+                if item_to_buy.get("stock") is not None:
+                    try:
+                        item_to_buy["stock"] = max(0, int(item_to_buy["stock"]) - 1)
+                    except (TypeError, ValueError):
+                        pass
+                # Mantieni sincronizzato anche l'array legacy per compatibilità dentro il lock
+                inv = sheet.setdefault("inventory", [])
+                bought_qty = int(new_entry.get("qty", 1) or 1)
+                stacked = False
+                for i in inv:
+                    if i.get("name") == item_name:
+                        i["quantity"] = str(int(i.get("quantity", 1) or 1) + bought_qty)
+                        stacked = True
+                        break
+                if not stacked:
+                    inv.append({"name": item_name, "quantity": str(bought_qty), "description": f"Acquistato da {shop_name}", "equipped": False})
 
     if buy_err_msg:
         if getattr(player, "conn", None):
@@ -498,32 +501,38 @@ def handle_give_gold_request(data, player, game_state):
             send_message(player.conn, make_error_reply(f"{target_name} non è online e non può ricevere oro."))
         return
 
+    gold_err_msg = None
     with game_state.lock:
         sender_sheet = getattr(player, "full_sheet", None)
         if sender_sheet:
             curr = sender_sheet.setdefault("currency", {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0})
             s_gold = int(curr.get("MO", 0)) if isinstance(curr, dict) else int(sender_sheet.get("gp", 0))
             if s_gold < amount:
-                if player.conn:
-                    send_message(player.conn, make_error_reply(f"Non hai abbastanza monete d'oro. Ne possiedi {s_gold} MO."))
-                return
-            new_sg = s_gold - amount
-            if isinstance(curr, dict):
-                curr["MO"] = new_sg
-            if isinstance(sender_sheet.get("wallet"), dict):
-                sender_sheet["wallet"]["MO"] = new_sg
-            sender_sheet["gp"] = str(new_sg)
+                gold_err_msg = f"Non hai abbastanza monete d'oro. Ne possiedi {s_gold} MO."
+            else:
+                new_sg = s_gold - amount
+                if isinstance(curr, dict):
+                    curr["MO"] = new_sg
+                if isinstance(sender_sheet.get("wallet"), dict):
+                    sender_sheet["wallet"]["MO"] = new_sg
+                sender_sheet["gp"] = str(new_sg)
 
-        recip_sheet = getattr(target_player, "full_sheet", None)
-        if recip_sheet:
-            r_curr = recip_sheet.setdefault("currency", {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0})
-            r_gold = int(r_curr.get("MO", 0)) if isinstance(r_curr, dict) else int(recip_sheet.get("gp", 0))
-            new_rg = r_gold + amount
-            if isinstance(r_curr, dict):
-                r_curr["MO"] = new_rg
-            if isinstance(recip_sheet.get("wallet"), dict):
-                recip_sheet["wallet"]["MO"] = new_rg
-            recip_sheet["gp"] = str(new_rg)
+        if not gold_err_msg:
+            recip_sheet = getattr(target_player, "full_sheet", None)
+            if recip_sheet:
+                r_curr = recip_sheet.setdefault("currency", {"MR": 0, "MA": 0, "ME": 0, "MO": 0, "MP": 0})
+                r_gold = int(r_curr.get("MO", 0)) if isinstance(r_curr, dict) else int(recip_sheet.get("gp", 0))
+                new_rg = r_gold + amount
+                if isinstance(r_curr, dict):
+                    r_curr["MO"] = new_rg
+                if isinstance(recip_sheet.get("wallet"), dict):
+                    recip_sheet["wallet"]["MO"] = new_rg
+                recip_sheet["gp"] = str(new_rg)
+
+    if gold_err_msg:
+        if getattr(player, "conn", None):
+            send_message(player.conn, make_error_reply(gold_err_msg))
+        return
 
     send_message(target_player.conn, {"type": "RECEIVE_GOLD", "data": {"amount": amount, "sender": player.name}})
     log_msg = f"{player.name} ha donato {amount} Monete d'Oro (MO) a {target_name}."

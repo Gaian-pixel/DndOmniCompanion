@@ -155,13 +155,8 @@ class QuestLogDialog(tk.Toplevel):
             from server.network import broadcast
             g_state = getattr(self.network, "game_state", self.game_state)
             try:
-                public_quests = [
-                    q for q in self._get_quests()
-                    if isinstance(q, dict)
-                    and not q.get("secret", False)
-                    and not q.get("dm_only", False)
-                    and q.get("is_revealed", True) is not False
-                ]
+                from common.game_state import GameState
+                public_quests = GameState.sanitize_quests_for_players(self._get_quests())
                 broadcast(g_state, make_quest_list_update(public_quests))
                 broadcast(g_state, make_game_state(g_state.get_state_dict(is_dm=False)))
             except Exception as e:

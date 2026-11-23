@@ -1035,7 +1035,7 @@ class ClientGUI(ClientNetworkHandlersMixin, ClientReactionPromptsMixin):
         self.btn_rage.pack(side=tk.LEFT, padx=(2, 0), fill=tk.X, expand=True)
         ToolTip(self.btn_rage, lambda: self._get_feature_tooltip("rage"))
         
-        self.combat_btn = ttk.Button(controls_tab, text=_t("btn_request_combat"), command=lambda: getattr(self, "network", None) and self.network.send({"type": "COMBAT_TOGGLE_REQUEST", "data": {}}), style='Gold.TButton')
+        self.combat_btn = ttk.Button(controls_tab, text=_t("btn_request_combat"), command=self.request_combat, style='Gold.TButton')
         self.combat_btn.pack(fill=tk.X, pady=2)
         
         self.end_turn_btn = ttk.Button(controls_tab, text=_t("btn_end_turn"), command=self.end_turn, style='Danger.TButton')
@@ -5128,11 +5128,33 @@ class ClientGUI(ClientNetworkHandlersMixin, ClientReactionPromptsMixin):
             all_players = sorted(all_players, key=lambda x: x.get('initiative', 0), reverse=True)
             
         curr_turn_name = getattr(self, "turn_player_name", "")
+        my_name = getattr(self, "name", "")
         for i, p in enumerate(all_players):
             self._listbox_player_names.append(p["name"])
             is_turn = bool(getattr(self, "combat_active", False) and curr_turn_name and p["name"] == curr_turn_name)
             prefix = "▶ " if is_turn else "  "
-            display_text = f"{prefix}{p['name']} (HP: {p.get('hp', 10)}/{p.get('max_hp', 10)}) [Iniz: {p.get('initiative', 0)}]"
+            is_friendly = (
+                p["name"] == my_name
+                or bool(p.get("is_party_member", False) or p.get("is_companion", False))
+                or (not p.get("is_npc", False) and p.get("role", "") != "MONSTER" and not p.get("is_hostile", False))
+            )
+            if is_friendly:
+                hp_label = f"HP: {p.get('hp', 10)}/{p.get('max_hp', 10)}"
+            else:
+                try:
+                    c_hp = float(p.get("hp", 0) or 0)
+                    m_hp = max(1.0, float(p.get("max_hp") or p.get("hp_max") or 1))
+                except (TypeError, ValueError):
+                    c_hp, m_hp = 0.0, 1.0
+                if c_hp <= 0:
+                    hp_label = "A Terra"
+                elif (c_hp / m_hp) <= 0.5:
+                    hp_label = "Gravemente Ferito"
+                elif c_hp < m_hp:
+                    hp_label = "Ferito"
+                else:
+                    hp_label = "Incolume"
+            display_text = f"{prefix}{p['name']} ({hp_label}) [Iniz: {p.get('initiative', 0)}]"
             conditions = p.get('conditions', [])
             if conditions:
                 display_text += f" {{{', '.join(conditions)}}}"

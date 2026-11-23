@@ -919,6 +919,8 @@ h1 {{ color: #F59E0B; border-bottom: 2px solid #D97706; padding-bottom: 8px; }}
             self.local_map_data["fow_enabled"] = bool(data.get("fow_enabled"))
         if isinstance(data.get("players"), list):
             prev_map = getattr(self, "players_data", None) if isinstance(getattr(self, "players_data", None), dict) else {}
+            ClientNetworkHandlersMixin._resolve_cached_avatar_assets(self, data["players"])
+            ClientNetworkHandlersMixin._maybe_request_asset_resync(self)
             new_pdata = {}
             for p in data["players"]:
                 if isinstance(p, dict) and p.get("name"):

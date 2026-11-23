@@ -484,13 +484,16 @@ def make_quest_list_update(quests: list):
 def make_quest_action_request(action: str, quest_data: dict):
     return {"type": "QUEST_ACTION_REQUEST", "data": {"action": action, "quest": quest_data}}
 
-def make_handout_share_broadcast(title: str, content: str, image_path: str = "", sender: str = "Dungeon Master"):
-    return {"type": "HANDOUT_SHARE_BROADCAST", "data": {
+def make_handout_share_broadcast(title: str, content: str, image_path: str = "", sender: str = "Dungeon Master", image_b64: str = ""):
+    data = {
         "title": title,
         "content": content,
         "image_path": image_path,
-        "sender": sender
-    }}
+        "sender": sender,
+    }
+    if image_b64:
+        data["image_b64"] = image_b64
+    return {"type": "HANDOUT_SHARE_BROADCAST", "data": data}
 
 def make_legendary_action_request(boss_name: str, action_name: str = "Azione Leggendaria", cost: int = 1):
     return {"type": "LEGENDARY_ACTION_REQUEST", "data": {

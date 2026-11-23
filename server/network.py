@@ -20,15 +20,40 @@ from common.game_state import GameState, Player
 from common.network_utils import send_message, receive_message, broadcast, prepare_per_player_state_payload
 from server.voice_server import VoiceServer
 
+_PRIVILEGED_CLIENT_KEYS = frozenset({
+    "free_test",
+    "is_dm_force",
+    "is_teleport",
+    "is_forced",
+    "manual_roll",
+    "ignore_los",
+    "_already_consumed_reaction",
+    "extra_action",
+})
+
+
+def _is_disallowed_client_key(key) -> bool:
+    return isinstance(key, str) and (
+        key in _PRIVILEGED_CLIENT_KEYS
+        or key.startswith("forced_")
+        or key.startswith("_")
+    )
+
+
 def sanitize_client_payload(data, player):
-    """Rimuove override di test/debug (`forced_*`, `free_test`) dai payload provenienti da client non DM."""
+    """Rimuove override/flag privilegiati (`forced_*`, `is_dm_force`, `manual_roll`, `_*`, ecc.) dai payload non DM."""
     from common.network_utils import is_dm_actor
     if not isinstance(data, dict) or is_dm_actor(player):
         return data
     stripped = {
         k: v for k, v in data.items()
-        if not (isinstance(k, str) and (k.startswith("forced_") or k == "free_test"))
+        if not _is_disallowed_client_key(k)
     }
+    if isinstance(stripped.get("aoe_data"), dict):
+        stripped["aoe_data"] = {
+            ak: av for ak, av in stripped["aoe_data"].items()
+            if not _is_disallowed_client_key(ak)
+        }
     return stripped
 
 

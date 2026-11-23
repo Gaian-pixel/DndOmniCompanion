@@ -776,6 +776,7 @@ class GameState:
             "Scudo", "Attacco Irruento", "Reckless Attack",
             "Sorpreso", "Surprised", "Azione Preparata", "Ready Action",
         }
+        pending_end_msgs = []
         with self.lock:
             self.combat_active = False
             for p in self.players:
@@ -829,7 +830,6 @@ class GameState:
             if auto_xp:
                 try:
                     from common.encounter_calc import CR_TO_XP, get_xp_for_level
-                    from common.network_utils import broadcast
                     from common.protocol import make_chat_broadcast, make_player_stats_update
 
                     defeated_monsters = []
@@ -879,12 +879,16 @@ class GameState:
                         )
                         if lvl_up_alerts:
                             xp_msg += "\n" + "\n".join(lvl_up_alerts)
-                        broadcast(self, make_chat_broadcast("Sistema", xp_msg))
+                        pending_end_msgs.append(make_chat_broadcast("Sistema", xp_msg))
                         self.log_dm_message(f"[XP] {xp_msg}")
                         for p in living_party:
-                            broadcast(self, make_player_stats_update(p.name, p.hp, p.max_hp, p.initiative, p.conditions, getattr(p, "temp_hp", 0)))
+                            pending_end_msgs.append(make_player_stats_update(p.name, p.hp, p.max_hp, p.initiative, p.conditions, getattr(p, "temp_hp", 0)))
                 except Exception:
                     pass
+        if pending_end_msgs:
+            from common.network_utils import broadcast
+            for _m in pending_end_msgs:
+                broadcast(self, _m)
         self._trigger_gui_update()
         
     def _get_combatants(self):
@@ -1590,13 +1594,16 @@ class GameState:
         """Restituisce `to_dict()` di un Player rimuovendo segreti e note DM per la vista giocatori."""
         p_dict = dict(p) if isinstance(p, dict) else p.to_dict()
         if isinstance(p, dict):
-            is_party = bool(p.get("is_party_member", False) or p.get("is_companion", False))
+            is_party = bool(p.get("is_party_member", False) or p.get("is_companion", False) or p.get("conn") is not None)
         else:
-            is_party = bool(getattr(p, "is_party_member", False) or getattr(p, "is_companion", False))
+            is_party = bool(getattr(p, "is_party_member", False) or getattr(p, "is_companion", False) or getattr(p, "conn", None) is not None)
+        if not is_party:
+            p_dict.pop("ac", None)
         if isinstance(p_dict.get("full_sheet"), dict):
             p_dict["full_sheet"] = dict(p_dict["full_sheet"])
             p_dict["full_sheet"].pop("secret", None)
             p_dict["full_sheet"].pop("dm_notes", None)
+            p_dict["full_sheet"].pop("dm_note", None)
             for txt_k in ("notes", "desc", "description"):
                 raw_txt = p_dict["full_sheet"].get(txt_k)
                 if isinstance(raw_txt, str) and ("SEGRETO DM" in raw_txt.upper() or "DM SECRET" in raw_txt.upper() or "[DM" in raw_txt.upper()):
@@ -1607,9 +1614,42 @@ class GameState:
                     ).strip()
                     p_dict["full_sheet"][txt_k] = cleaned
             if not is_party:
-                for priv_k in ("special_abilities", "legendary_actions_details", "reactions_details", "features", "actions"):
+                for priv_k in (
+                    "special_abilities",
+                    "legendary_actions_details",
+                    "reactions_details",
+                    "features",
+                    "actions",
+                    "ac",
+                    "hit_dice",
+                    "hit_dice_pools",
+                ):
                     p_dict["full_sheet"].pop(priv_k, None)
         return p_dict
+
+    @staticmethod
+    def sanitize_quests_for_players(quests) -> list:
+        """Filtra quest segrete/nascoste e note DM per l'esposizione ai giocatori."""
+        export_quests = []
+        for q in (quests if isinstance(quests, list) else []):
+            if not isinstance(q, dict):
+                continue
+            if q.get("secret") or q.get("dm_only") or q.get("hidden") or q.get("is_revealed") is False:
+                continue
+            q_pub = dict(q)
+            q_pub.pop("dm_notes", None)
+            q_pub.pop("secret_notes", None)
+            q_pub.pop("secrets", None)
+            for qk in ("description", "desc"):
+                qv = q_pub.get(qk)
+                if isinstance(qv, str) and ("SEGRETO DM" in qv.upper() or "DM SECRET" in qv.upper() or "[DM" in qv.upper()):
+                    q_pub[qk] = re.sub(
+                        r"(?ims)(?:^|\n)\s*(?:\[?\s*SEGRETO\s+DM[^\n]*\]?.*(?:\n(?!\s*$).*)*|\[?\s*DM\s+SECRET[^\n]*\]?.*(?:\n(?!\s*$).*)*)",
+                        "",
+                        qv,
+                    ).strip()
+            export_quests.append(q_pub)
+        return export_quests
 
     def get_player_safe_players_list(self, cur_map_override=None) -> list:
         """Restituisce l'elenco di token visibili e sanitizzati per i client non-DM."""
@@ -1658,25 +1698,7 @@ class GameState:
                 export_quests = raw_quests
                 export_handouts = raw_handouts
             else:
-                export_quests = []
-                for q in (raw_quests if isinstance(raw_quests, list) else []):
-                    if not isinstance(q, dict):
-                        continue
-                    if q.get("secret") or q.get("dm_only") or q.get("hidden") or q.get("is_revealed") is False:
-                        continue
-                    q_pub = dict(q)
-                    q_pub.pop("dm_notes", None)
-                    q_pub.pop("secret_notes", None)
-                    q_pub.pop("secrets", None)
-                    for qk in ("description", "desc"):
-                        qv = q_pub.get(qk)
-                        if isinstance(qv, str) and ("SEGRETO DM" in qv.upper() or "DM SECRET" in qv.upper() or "[DM" in qv.upper()):
-                            q_pub[qk] = re.sub(
-                                r"(?ims)(?:^|\n)\s*(?:\[?\s*SEGRETO\s+DM[^\n]*\]?.*(?:\n(?!\s*$).*)*|\[?\s*DM\s+SECRET[^\n]*\]?.*(?:\n(?!\s*$).*)*)",
-                                "",
-                                qv,
-                            ).strip()
-                    export_quests.append(q_pub)
+                export_quests = GameState.sanitize_quests_for_players(raw_quests)
                 export_handouts = [
                     h for h in (raw_handouts if isinstance(raw_handouts, list) else [])
                     if isinstance(h, dict)
@@ -1720,7 +1742,7 @@ class GameState:
                 "automation_settings": getattr(self, "automation_settings", {}),
                 "pending_damages": getattr(self, "pending_damages", {}) if is_dm else {},
                 "pending_doors": getattr(self, "pending_doors", {}) if is_dm else {},
-                "active_complex_traps": getattr(self, "active_complex_traps", []),
+                "active_complex_traps": getattr(self, "active_complex_traps", []) if is_dm else [],
                 "active_regional_effects": getattr(self, "active_regional_effects", []),
                 "campaign_journal": self.campaign_journal.to_dict(include_dm_notes=True) if is_dm and hasattr(self, "campaign_journal") and self.campaign_journal else (self.campaign_journal.sanitize_for_players() if hasattr(self, "campaign_journal") and self.campaign_journal else None)
             }

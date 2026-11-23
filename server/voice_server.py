@@ -73,6 +73,8 @@ class VoiceServer:
                 elif data == b'LEAVE':
                     print(f"[VoiceServer] Client disconnesso: {addr}")
                     continue
+                elif data in (b'PING', b'KEEPALIVE'):
+                    continue
 
                 # Broadcast audio a tutti gli ALTRI client attivi
                 for c in targets:

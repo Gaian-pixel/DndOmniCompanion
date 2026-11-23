@@ -301,8 +301,13 @@ def handle_chat(data, player, game_state):
             except ValueError:
                 pass
 
-    # Caduta RAW 5e (/caduta, /fall)
+    # Caduta RAW 5e (/caduta, /fall) — riservato al DM (previene danni/cadute arbitrarie cross-player)
     if text.lower().startswith(("/caduta ", "/fall ")):
+        from common.network_utils import is_dm_actor
+        if not is_dm_actor(player):
+            if getattr(player, "conn", None):
+                send_message(player.conn, make_error_reply("Solo il Dungeon Master può applicare danni da caduta con /caduta o /fall."))
+            return
         parts = text.split()
         if len(parts) >= 2:
             try:
@@ -315,7 +320,12 @@ def handle_chat(data, player, game_state):
                         break
                 if target_obj:
                     from server.rules.combat import resolve_falling
-                    resolve_falling(target_obj, dist_ft, game_state)
+                    gs_lock = getattr(game_state, "lock", None)
+                    if gs_lock is not None:
+                        with gs_lock:
+                            resolve_falling(target_obj, dist_ft, game_state)
+                    else:
+                        resolve_falling(target_obj, dist_ft, game_state)
                     return
             except ValueError:
                 pass

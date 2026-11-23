@@ -7,6 +7,11 @@ class VoiceClient:
         self.server_ip = server_ip
         self.server_port = server_port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        if hasattr(socket, "SIO_UDP_CONNRESET"):
+            try:
+                self.sock.ioctl(socket.SIO_UDP_CONNRESET, False)
+            except Exception:
+                pass
         try:
             self.sock.bind(('', 0))
         except Exception as e:
@@ -82,14 +87,22 @@ class VoiceClient:
     def _play_loop(self):
         import time
         err_streak = 0
+        last_keepalive = time.monotonic()
         try:
             self.sock.settimeout(1.0)
             with sd.RawOutputStream(samplerate=self.samplerate, channels=self.channels, dtype='int16', blocksize=self.chunk) as stream:
                 while self.running:
+                    now_ka = time.monotonic()
+                    if now_ka - last_keepalive >= 4.0:
+                        last_keepalive = now_ka
+                        try:
+                            self.sock.sendto(b'KEEPALIVE', (self.server_ip, self.server_port))
+                        except Exception:
+                            pass
                     try:
                         data, addr = self.sock.recvfrom(4096)
                         err_streak = 0
-                        if not self.is_deafened and data not in (b'JOIN', b'LEAVE'):
+                        if not self.is_deafened and data not in (b'JOIN', b'LEAVE', b'PING', b'KEEPALIVE'):
                             stream.write(data)
                     except socket.timeout:
                         err_streak = 0

@@ -387,7 +387,27 @@ def sanitize_map_for_players(map_data: dict) -> dict:
 MAX_TRACKED_SENT_ASSET_HASHES = 24
 
 
-def _track_and_check_sent_hash(sent_hashes, asset_hash: str) -> bool:
+_ASSET_HASH_GUARD = threading.Lock()
+
+
+def _get_player_asset_lock(player):
+    if player is None:
+        return None
+    lock = getattr(player, "_asset_cache_lock", None)
+    if lock is not None:
+        return lock
+    with _ASSET_HASH_GUARD:
+        lock = getattr(player, "_asset_cache_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            try:
+                player._asset_cache_lock = lock
+            except Exception:
+                return None
+        return lock
+
+
+def _track_and_check_sent_hash(sent_hashes, asset_hash: str, added_out=None) -> bool:
     """Record an asset hash in bounded LRU/FIFO order; return True if already tracked."""
     if not asset_hash:
         return False
@@ -402,6 +422,8 @@ def _track_and_check_sent_hash(sent_hashes, asset_hash: str) -> bool:
                 break
             sent_hashes.pop(oldest, None)
         sent_hashes[asset_hash] = True
+        if added_out is not None:
+            added_out.append(asset_hash)
         return False
     if isinstance(sent_hashes, list):
         if asset_hash in sent_hashes:
@@ -411,6 +433,8 @@ def _track_and_check_sent_hash(sent_hashes, asset_hash: str) -> bool:
         while len(sent_hashes) >= MAX_TRACKED_SENT_ASSET_HASHES:
             sent_hashes.pop(0)
         sent_hashes.append(asset_hash)
+        if added_out is not None:
+            added_out.append(asset_hash)
         return False
     if isinstance(sent_hashes, set):
         if asset_hash in sent_hashes:
@@ -418,11 +442,32 @@ def _track_and_check_sent_hash(sent_hashes, asset_hash: str) -> bool:
         while len(sent_hashes) >= MAX_TRACKED_SENT_ASSET_HASHES:
             sent_hashes.pop()
         sent_hashes.add(asset_hash)
+        if added_out is not None:
+            added_out.append(asset_hash)
         return False
     return False
 
 
-def _deduplicate_map_payload(map_dict: dict, sent_hashes, trust_hashes: bool = False) -> dict:
+def _rollback_sent_hashes(player, hashes_to_remove) -> None:
+    if not player or not hashes_to_remove:
+        return
+    p_lock = _get_player_asset_lock(player)
+    ctx = p_lock if p_lock is not None else _ASSET_HASH_GUARD
+    with ctx:
+        sent_hashes = getattr(player, "_sent_asset_hashes", None)
+        if isinstance(sent_hashes, dict):
+            for h in hashes_to_remove:
+                sent_hashes.pop(h, None)
+        elif isinstance(sent_hashes, list):
+            for h in hashes_to_remove:
+                while h in sent_hashes:
+                    sent_hashes.remove(h)
+        elif isinstance(sent_hashes, set):
+            for h in hashes_to_remove:
+                sent_hashes.discard(h)
+
+
+def _deduplicate_map_payload(map_dict: dict, sent_hashes, trust_hashes: bool = False, added_out=None) -> dict:
     if not isinstance(map_dict, dict):
         return map_dict
 
@@ -443,7 +488,7 @@ def _deduplicate_map_payload(map_dict: dict, sent_hashes, trust_hashes: bool = F
         else:
             digest = hash_fn(raw_val)
         map_copy[hash_key] = digest
-        if _track_and_check_sent_hash(sent_hashes, digest):
+        if _track_and_check_sent_hash(sent_hashes, digest, added_out=added_out):
             map_copy[data_key] = None
             map_copy[flag_key] = True
         else:
@@ -451,7 +496,7 @@ def _deduplicate_map_payload(map_dict: dict, sent_hashes, trust_hashes: bool = F
     return map_copy
 
 
-def _deduplicate_handout_dict(handout_dict: dict, sent_hashes) -> dict:
+def _deduplicate_handout_dict(handout_dict: dict, sent_hashes, added_out=None) -> dict:
     if not isinstance(handout_dict, dict):
         return handout_dict
     img_b64 = handout_dict.get("image_b64")
@@ -460,13 +505,13 @@ def _deduplicate_handout_dict(handout_dict: dict, sent_hashes) -> dict:
     img_hash = compute_asset_hash(img_b64)
     h_copy = dict(handout_dict)
     h_copy["image_hash"] = img_hash
-    if _track_and_check_sent_hash(sent_hashes, img_hash):
+    if _track_and_check_sent_hash(sent_hashes, img_hash, added_out=added_out):
         h_copy["image_b64"] = None
         h_copy["image_cached"] = True
     return h_copy
 
 
-def _deduplicate_player_dict(player_dict: dict, sent_hashes) -> dict:
+def _deduplicate_player_dict(player_dict: dict, sent_hashes, added_out=None) -> dict:
     if not isinstance(player_dict, dict):
         return player_dict
     av_b64 = player_dict.get("avatar_b64")
@@ -481,7 +526,7 @@ def _deduplicate_player_dict(player_dict: dict, sent_hashes) -> dict:
     if has_top_av:
         av_hash = compute_asset_hash(av_b64)
         p_copy["avatar_hash"] = av_hash
-        if _track_and_check_sent_hash(sent_hashes, av_hash):
+        if _track_and_check_sent_hash(sent_hashes, av_hash, added_out=added_out):
             p_copy["avatar_b64"] = None
             p_copy["avatar_cached"] = True
     if has_fs_av:
@@ -489,59 +534,62 @@ def _deduplicate_player_dict(player_dict: dict, sent_hashes) -> dict:
         fs_copy = dict(fs)
         fs_copy["avatar_hash"] = fs_hash
         # Se già presente al top-level con stesso hash o già in cache client, evita duplicazione nella full_sheet
-        if (has_top_av and fs_hash == p_copy.get("avatar_hash")) or _track_and_check_sent_hash(sent_hashes, fs_hash):
+        if (has_top_av and fs_hash == p_copy.get("avatar_hash")) or _track_and_check_sent_hash(sent_hashes, fs_hash, added_out=added_out):
             fs_copy["avatar_b64"] = None
             fs_copy["avatar_cached"] = True
         p_copy["full_sheet"] = fs_copy
     return p_copy
 
 
-def prepare_per_player_state_payload(message_data: dict, player, _trust_map_hashes: bool = False) -> dict:
+def prepare_per_player_state_payload(message_data: dict, player, _trust_map_hashes: bool = False, _added_hashes_out=None) -> dict:
     """Deduplica blob immagine (mappa, handout e avatar) e griglia statica (hexes) gia inviati al singolo client."""
     if not isinstance(message_data, dict):
         return message_data
     msg_type = message_data.get("type")
-    if msg_type not in ("GAME_STATE", "MAP_DATA_UPDATE", "HANDOUT_BROADCAST", "PLAYER_JOINED", "FOW_UPDATE_BROADCAST"):
+    if msg_type not in ("GAME_STATE", "MAP_DATA_UPDATE", "HANDOUT_BROADCAST", "HANDOUT_SHARE_BROADCAST", "PLAYER_JOINED", "FOW_UPDATE_BROADCAST"):
         return message_data
 
     data = message_data.get("data")
     if not isinstance(data, dict):
         return message_data
 
-    sent_hashes = getattr(player, "_sent_asset_hashes", None)
-    if not isinstance(sent_hashes, (dict, list, set)):
-        sent_hashes = {}
-        if player is not None:
-            try:
-                player._sent_asset_hashes = sent_hashes
-            except Exception:
-                pass
+    p_lock = _get_player_asset_lock(player)
+    ctx = p_lock if p_lock is not None else _ASSET_HASH_GUARD
+    with ctx:
+        sent_hashes = getattr(player, "_sent_asset_hashes", None)
+        if not isinstance(sent_hashes, (dict, list, set)):
+            sent_hashes = {}
+            if player is not None:
+                try:
+                    player._sent_asset_hashes = sent_hashes
+                except Exception:
+                    pass
 
-    if msg_type == "HANDOUT_BROADCAST":
-        new_data = _deduplicate_handout_dict(data, sent_hashes)
-        return message_data if new_data is data else {"type": msg_type, "data": new_data}
+        if msg_type in ("HANDOUT_BROADCAST", "HANDOUT_SHARE_BROADCAST"):
+            new_data = _deduplicate_handout_dict(data, sent_hashes, added_out=_added_hashes_out)
+            return message_data if new_data is data else {"type": msg_type, "data": new_data}
 
-    if msg_type == "PLAYER_JOINED":
-        new_data = _deduplicate_player_dict(data, sent_hashes)
-        return message_data if new_data is data else {"type": msg_type, "data": new_data}
+        if msg_type == "PLAYER_JOINED":
+            new_data = _deduplicate_player_dict(data, sent_hashes, added_out=_added_hashes_out)
+            return message_data if new_data is data else {"type": msg_type, "data": new_data}
 
-    data_copy = dict(data)
-    if "map" in data_copy and isinstance(data_copy["map"], dict):
-        data_copy["map"] = _deduplicate_map_payload(data_copy["map"], sent_hashes, trust_hashes=_trust_map_hashes)
-    elif msg_type == "MAP_DATA_UPDATE" and ("bg_image_data" in data_copy or "hexes" in data_copy):
-        data_copy = _deduplicate_map_payload(data_copy, sent_hashes, trust_hashes=_trust_map_hashes)
+        data_copy = dict(data)
+        if "map" in data_copy and isinstance(data_copy["map"], dict):
+            data_copy["map"] = _deduplicate_map_payload(data_copy["map"], sent_hashes, trust_hashes=_trust_map_hashes, added_out=_added_hashes_out)
+        elif msg_type == "MAP_DATA_UPDATE" and ("bg_image_data" in data_copy or "hexes" in data_copy):
+            data_copy = _deduplicate_map_payload(data_copy, sent_hashes, trust_hashes=_trust_map_hashes, added_out=_added_hashes_out)
 
-    if msg_type == "GAME_STATE" and isinstance(data_copy.get("handouts"), list):
-        data_copy["handouts"] = [
-            _deduplicate_handout_dict(h, sent_hashes) for h in data_copy["handouts"]
-        ]
+        if msg_type == "GAME_STATE" and isinstance(data_copy.get("handouts"), list):
+            data_copy["handouts"] = [
+                _deduplicate_handout_dict(h, sent_hashes, added_out=_added_hashes_out) for h in data_copy["handouts"]
+            ]
 
-    if msg_type in ("GAME_STATE", "FOW_UPDATE_BROADCAST") and isinstance(data_copy.get("players"), list):
-        data_copy["players"] = [
-            _deduplicate_player_dict(pl, sent_hashes) for pl in data_copy["players"]
-        ]
+        if msg_type in ("GAME_STATE", "FOW_UPDATE_BROADCAST") and isinstance(data_copy.get("players"), list):
+            data_copy["players"] = [
+                _deduplicate_player_dict(pl, sent_hashes, added_out=_added_hashes_out) for pl in data_copy["players"]
+            ]
 
-    return {"type": msg_type, "data": data_copy}
+        return {"type": msg_type, "data": data_copy}
 
 def _dispatch_native_broadcast(
     tasks_by_conn: dict,
@@ -554,7 +602,11 @@ def _dispatch_native_broadcast(
     import time as _time
 
     def _worker(sock, items):
-        for msg_obj, pre_buf in items:
+        for item in items:
+            if len(item) >= 4:
+                msg_obj, pre_buf, p_obj, added_h = item[0], item[1], item[2], item[3]
+            else:
+                msg_obj, pre_buf, p_obj, added_h = item[0], item[1], None, None
             ok = _send_message_impl(
                 sock,
                 msg_obj,
@@ -563,6 +615,8 @@ def _dispatch_native_broadcast(
                 lock_timeout=lock_timeout,
             )
             if ok is False:
+                if p_obj is not None and added_h:
+                    _rollback_sent_hashes(p_obj, added_h)
                 break
 
     threads = []
@@ -651,17 +705,36 @@ def broadcast(game_state, message_data, exclude_player=None):
                 cdata["turn_player_name"] = "Sconosciuto"
         player_filtered_combat = {"type": "COMBAT_STATE_UPDATE", "data": cdata}
 
+    # Pre-filter for QUEST_LIST_UPDATE: strip secret/hidden/DM notes for non-DM clients
+    player_filtered_quests = None
+    if msg_type == "QUEST_LIST_UPDATE" and isinstance(message_data.get("data"), dict):
+        from common.game_state import GameState
+        qdata = dict(message_data["data"])
+        qdata["quests"] = GameState.sanitize_quests_for_players(qdata.get("quests", []))
+        player_filtered_quests = {"type": "QUEST_LIST_UPDATE", "data": qdata}
+
+    # Pre-filter for PLAYER_JOINED: sanitize DM notes & hostile AC/stats while keeping original metadata for visibility filter
+    player_filtered_joined = None
+    if msg_type == "PLAYER_JOINED" and isinstance(message_data.get("data"), dict):
+        from common.game_state import GameState
+        player_filtered_joined = {
+            "type": "PLAYER_JOINED",
+            "data": GameState.sanitize_player_for_players(message_data["data"]),
+        }
+
     send_is_native = (
         getattr(send_message, "__module__", "") == __name__
         and getattr(send_message, "__name__", "") == "send_message"
     )
     shared_payload = None
     shared_pre_encoded = None
-    if msg_type not in ("GAME_STATE", "MAP_DATA_UPDATE", "HANDOUT_BROADCAST", "PLAYER_JOINED", "FOW_UPDATE_BROADCAST"):
+    if msg_type not in ("GAME_STATE", "MAP_DATA_UPDATE", "HANDOUT_BROADCAST", "HANDOUT_SHARE_BROADCAST", "PLAYER_JOINED", "FOW_UPDATE_BROADCAST"):
         if player_filtered_fow is not None:
             shared_payload = player_filtered_fow
         elif player_filtered_combat is not None:
             shared_payload = player_filtered_combat
+        elif player_filtered_quests is not None:
+            shared_payload = player_filtered_quests
         else:
             shared_payload = message_data
         if send_is_native:
@@ -676,6 +749,8 @@ def broadcast(game_state, message_data, exclude_player=None):
         or player_filtered_map_data
         or player_filtered_fow
         or player_filtered_combat
+        or player_filtered_quests
+        or player_filtered_joined
         or message_data
     )
     trust_hashes = (player_filtered_game_state is not None or player_filtered_map_data is not None)
@@ -708,15 +783,25 @@ def broadcast(game_state, message_data, exclude_player=None):
             if not is_entity_visible_to_players(entity_ref, cur_map, game_state=game_state, recipient_name=p.name, allow_self_hidden=True):
                 continue
 
-        if shared_pre_encoded is not None:
-            entry = (shared_payload, shared_pre_encoded)
+        added_hashes = None
+        if shared_pre_encoded is not None and not is_dm_actor(p):
+            entry = (shared_payload, shared_pre_encoded, None, None)
         else:
-            payload = prepare_per_player_state_payload(base_msg, p, _trust_map_hashes=trust_hashes)
-            entry = (payload, None)
+            recipient_base = message_data if is_dm_actor(p) else base_msg
+            added_hashes = []
+            payload = prepare_per_player_state_payload(
+                recipient_base,
+                p,
+                _trust_map_hashes=trust_hashes and not is_dm_actor(p),
+                _added_hashes_out=added_hashes,
+            )
+            entry = (payload, None, p, added_hashes)
 
         if not send_is_native:
             ok = send_message(conn, entry[0])
             if ok is False:
+                if added_hashes:
+                    _rollback_sent_hashes(p, added_hashes)
                 failed_conns.add(id(conn))
         else:
             cid = id(conn)

@@ -168,6 +168,7 @@ command_handlers = {
     "CLEAR_AOES_REQUEST": handle_clear_aoes_request,
     "SET_TRAVEL_ROLE_REQUEST": handle_set_travel_role_request,
     "START_COMBAT_REQUEST": handle_start_combat_request,
+    "COMBAT_TOGGLE_REQUEST": handle_start_combat_request,
     "END_TURN_REQUEST": handle_end_turn_request,
     "SUBMIT_INITIATIVE": handle_submit_initiative,
     "PING_REQUEST": handle_ping_request,
