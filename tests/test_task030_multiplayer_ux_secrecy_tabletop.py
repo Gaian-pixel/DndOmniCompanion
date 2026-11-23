@@ -743,8 +743,12 @@ class TestTask035PerformanceAndNonBlockingNet(unittest.TestCase):
                 self.assertEqual(mock_vis.call_count, 2)
                 self.assertNotEqual(res3, res1)
 
-                # Revealing static light invalidates cache and computes light FoV
+                # Distant stale static light in fow_revealed does not trigger remote light spying
                 canvas._compute_player_visible_hexes(False, fow_rev | {(10, 10)}, walls, "hex")
+                self.assertEqual(mock_vis.call_count, 2)
+                # Placing/revealing static light inside active visible_now invalidates cache and computes light FoV
+                canvas.map_data["lights"] = [{"q": 2, "r": 0, "radius": 4}]
+                canvas._compute_player_visible_hexes(False, fow_rev, walls, "hex")
                 self.assertEqual(mock_vis.call_count, 4)
         finally:
             try:

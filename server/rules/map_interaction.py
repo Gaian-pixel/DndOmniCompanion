@@ -342,7 +342,7 @@ def handle_toggle_door_request(data, player, game_state):
     method = data.get("method") or "lockpick"
     key_item = data.get("key_item")
 
-    from server.rules.movement import auto_explore_fow
+    from server.rules.movement import refresh_party_fow
 
     if is_dm:
         if req_state:
@@ -353,9 +353,8 @@ def handle_toggle_door_request(data, player, game_state):
         new_state = target_door["state"]
         broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
         broadcast(game_state, make_chat_broadcast("Sistema", f"🚪 {door_name} a ({q}, {r}) impostata su '{new_state.upper()}' dal DM."))
-        for p in game_state.players:
-            if auto_explore_fow(p, game_state):
-                broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
+        if refresh_party_fow(game_state):
+            broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
         game_state._trigger_gui_update()
         return
 
@@ -368,16 +367,15 @@ def handle_toggle_door_request(data, player, game_state):
         target_door["state"] = "closed"
         broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
         broadcast(game_state, make_chat_broadcast("Sistema", f"🚪 {p_name} chiude la {door_name}."))
-        for p in game_state.players:
-            auto_explore_fow(p, game_state)
+        if refresh_party_fow(game_state):
+            broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
         game_state._trigger_gui_update()
     elif cur_state == "closed":
         target_door["state"] = "open"
         broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
         broadcast(game_state, make_chat_broadcast("Sistema", f"🚪 {p_name} apre la {door_name}."))
-        for p in game_state.players:
-            if auto_explore_fow(p, game_state):
-                broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
+        if refresh_party_fow(game_state):
+            broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
         game_state._trigger_gui_update()
     elif cur_state == "locked":
         if method == "key":
@@ -406,9 +404,8 @@ def handle_toggle_door_request(data, player, game_state):
                 target_door["state"] = "open"
                 broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
                 broadcast(game_state, make_chat_broadcast("Sistema", f"🔑 {p_name} inserisce '{used_key_name}' nella toppa e apre senza sforzo la {door_name}!"))
-                for p in game_state.players:
-                    if auto_explore_fow(p, game_state):
-                        broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
+                if refresh_party_fow(game_state):
+                    broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
                 game_state._trigger_gui_update()
             else:
                 if getattr(player, "conn", None):
@@ -433,10 +430,7 @@ def handle_toggle_door_request(data, player, game_state):
                     pass
                 else:
                     target_door["state"] = "open"
-                    fow_changed = False
-                    for p in list(game_state.players):
-                        if auto_explore_fow(p, game_state):
-                            fow_changed = True
+                    fow_changed = refresh_party_fow(game_state)
             if not slot_consumed:
                 if getattr(player, "conn", None):
                     send_message(player.conn, make_error_reply("Nessuno slot incantesimo di 2° livello+ disponibile per Scassinare."))
@@ -496,9 +490,8 @@ def handle_toggle_door_request(data, player, game_state):
                 target_door["state"] = "open"
                 broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
                 broadcast(game_state, make_chat_broadcast("Sistema", f"💥 {p_name} sfonda la {door_name} con un colpo devastante! [Tiro Forza: {total} ({detail}) vs CD {break_dc}] 📢 Il violento boato dello schianto rimbomba nel dungeon!"))
-                for p in game_state.players:
-                    if auto_explore_fow(p, game_state):
-                        broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
+                if refresh_party_fow(game_state):
+                    broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
                 game_state._trigger_gui_update()
             else:
                 broadcast(game_state, make_chat_broadcast("Sistema", f"🛡️ {p_name} si scaglia contro la {door_name} [Tiro Forza: {total} ({detail}) vs CD {break_dc}], ma la porta resiste saldamente all'impatto!"))
@@ -564,9 +557,8 @@ def handle_toggle_door_request(data, player, game_state):
                 target_door["state"] = "open"
                 broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
                 broadcast(game_state, make_chat_broadcast("Sistema", f"🔓 {p_name} scassina la serratura della {door_name} con gli Arnesi da Scasso! [Tiro: {total} ({detail}) vs CD {dc}] e la spalanca!"))
-                for p in game_state.players:
-                    if auto_explore_fow(p, game_state):
-                        broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
+                if refresh_party_fow(game_state):
+                    broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
                 game_state._trigger_gui_update()
             else:
                 fumble_msg = " ⚠️ Un arnese si è quasi incastrato nella toppa!" if d20 == 1 else ""
@@ -748,14 +740,13 @@ def handle_resolve_pending_door_request(data, player, game_state):
     if not target_door:
         return
         
-    from server.rules.movement import auto_explore_fow
+    from server.rules.movement import refresh_party_fow
     if outcome == "open":
         target_door["state"] = "open"
         broadcast(game_state, make_map_data_update_broadcast(game_state.current_map))
         broadcast(game_state, make_chat_broadcast("DM", f"🔓 Il DM stabilisce: la serratura della {door_name} cede! La porta si spalanca dinanzi a {p_name}!"))
-        for p in game_state.players:
-            if auto_explore_fow(p, game_state):
-                broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
+        if refresh_party_fow(game_state):
+            broadcast(game_state, make_fow_update_broadcast(game_state.current_map["fow_revealed"], game_state.current_map["fow_draft"]))
     elif outcome == "trap":
         broadcast(game_state, make_chat_broadcast("DM", f"⚠️ CLANG! Il tentativo di {p_name} fa scattare un meccanismo a trabocchetto nascosto nella {door_name}! Una trappola si innesca!"))
     else: # "locked"

@@ -3400,7 +3400,32 @@ class ClientGUI(ClientNetworkHandlersMixin, ClientReactionPromptsMixin):
                     loot_found = l
                     break
             if loot_found:
-                if messagebox.askyesno("Bottino", f"C'e' un forziere qui contenente: {loot_found['qty']}x {loot_found['item']}.\nVuoi raccoglierlo?"):
+                desc_parts = []
+                contents = loot_found.get("contents") if isinstance(loot_found.get("contents"), dict) else None
+                if contents:
+                    wallet = contents.get("wallet") or {}
+                    for ck, cv in wallet.items():
+                        try:
+                            if int(cv or 0) > 0:
+                                desc_parts.append(f"{int(cv)} {ck}")
+                        except (TypeError, ValueError):
+                            pass
+                    for it in (contents.get("items") or []):
+                        if isinstance(it, dict):
+                            desc_parts.append(f"{it.get('qty', 1)}x {it.get('name', 'Oggetto')}")
+                        elif it:
+                            desc_parts.append(str(it))
+                else:
+                    if isinstance(loot_found.get("items"), list) and loot_found["items"]:
+                        for it in loot_found["items"]:
+                            if isinstance(it, dict):
+                                desc_parts.append(f"{it.get('qty', 1)}x {it.get('name', 'Oggetto')}")
+                    elif loot_found.get("item"):
+                        desc_parts.append(f"{loot_found.get('qty', 1)}x {loot_found.get('item')}")
+                    if int(loot_found.get("gold", 0) or 0) > 0:
+                        desc_parts.append(f"{int(loot_found['gold'])} MO")
+                summary = ", ".join(desc_parts) if desc_parts else "un tesoro"
+                if messagebox.askyesno("Bottino", f"C'e' un forziere qui contenente: {summary}.\nVuoi raccoglierlo?"):
                     self.network.send({"type": "TAKE_LOOT_REQUEST", "data": {"q": clicked_hex.q, "r": clicked_hex.r}})
             else:
                 self.request_move(clicked_hex)
@@ -4691,7 +4716,11 @@ class ClientGUI(ClientNetworkHandlersMixin, ClientReactionPromptsMixin):
                     self.movement_spent_ft = int(data.get("movement_spent_this_turn") or 0) * 5
                     self.update_action_economy_ui()
                 elif old_pos and new_pos and old_pos != new_pos:
-                    dist = max(abs(old_pos[0] - new_pos[0]), abs(old_pos[0] + old_pos[1] - new_pos[0] - new_pos[1]), abs(old_pos[1] - new_pos[1]))
+                    from common.hex_utils import Hex, grid_distance
+                    lmap = getattr(self, "local_map_data", None) or {}
+                    g_t = lmap.get("grid_type", "hex") if isinstance(lmap, dict) else "hex"
+                    d_r = (getattr(self, "automation_settings", None) or {}).get("square_diagonal_rule", "standard")
+                    dist = int(round(grid_distance(Hex(old_pos[0], old_pos[1]), Hex(new_pos[0], new_pos[1]), grid_type=g_t, diagonal_rule=d_r)))
                     self.movement_spent_ft += dist * 5
                     self.update_action_economy_ui()
         self.redraw_map_and_players()

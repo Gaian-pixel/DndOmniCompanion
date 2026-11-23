@@ -182,6 +182,19 @@ def handle_take_loot_request(data, player, game_state):
         if found:
             sheet = getattr(player, "full_sheet", None)
             contents = found.get("contents") if isinstance(found.get("contents"), dict) else None
+            if contents is None and isinstance(found, dict) and (isinstance(found.get("items"), list) or found.get("gold") is not None):
+                norm_items = [
+                    dict(it) if isinstance(it, dict) else {"name": str(it), "qty": 1, "type": "Equipaggiamento", "weight": 1.0}
+                    for it in (found.get("items") or [])
+                ]
+                if not norm_items and found.get("item"):
+                    norm_items = [{"name": found.get("item"), "qty": int(found.get("qty", 1) or 1), "type": "Misto", "weight": 1.0}]
+                try:
+                    gold_amt = int(found.get("gold", 0) or 0)
+                except (TypeError, ValueError):
+                    gold_amt = 0
+                contents = {"wallet": {"MO": gold_amt} if gold_amt > 0 else {}, "items": norm_items}
+                found["contents"] = contents
             is_container_loot = contents is not None
             loot_entry = None
             coin_sync_msgs = []

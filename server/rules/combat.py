@@ -1786,10 +1786,15 @@ def handle_attack_request(data, player, game_state):
             q2, r2 = target_player.position[0], target_player.position[1]
             z1 = getattr(player, "elevation", 0)
             z2 = getattr(target_player, "elevation", 0)
-            dist = max(abs(q1 - q2), abs(q1 + r1 - q2 - r2), abs(r1 - r2))
             from common.hex_utils import grid_distance_3d, Hex
             cur_map = getattr(game_state, "current_map", {}) or {}
             grid_type = cur_map.get("grid_type", "hex")
+            d_rule_atk = (
+                game_state.automation_settings.get("square_diagonal_rule", "standard")
+                if hasattr(game_state, "automation_settings") and isinstance(game_state.automation_settings, dict)
+                else "standard"
+            )
+            dist = int(grid_distance(Hex(q1, r1), Hex(q2, r2), grid_type=grid_type, diagonal_rule=d_rule_atk))
             dist_3d = grid_distance_3d(Hex(q1, r1), Hex(q2, r2), z1, z2, grid_type=grid_type)
             # Controllo portata / gittata (D&D 5e RAW - PHB p. 146-147, 195)
             w_lower = str(weapon_name).lower()
@@ -1929,8 +1934,9 @@ def handle_attack_request(data, player, game_state):
                 if "oscurit" in aoe_name or "darkness" in aoe_name or aoe_type == "darkness":
                     aoe_orig = aoe.get("origin", [0, 0])
                     aoe_r = aoe.get("size", 3)
-                    d_att = max(abs(q1 - aoe_orig[0]), abs(q1 + r1 - aoe_orig[0] - aoe_orig[1]), abs(r1 - aoe_orig[1]))
-                    d_def = max(abs(q2 - aoe_orig[0]), abs(q2 + r2 - aoe_orig[0] - aoe_orig[1]), abs(r2 - aoe_orig[1]))
+                    aoe_orig_hex = Hex(aoe_orig[0], aoe_orig[1])
+                    d_att = grid_distance(Hex(q1, r1), aoe_orig_hex, grid_type=grid_type, diagonal_rule=d_rule_atk)
+                    d_def = grid_distance(Hex(q2, r2), aoe_orig_hex, grid_type=grid_type, diagonal_rule=d_rule_atk)
                     if d_att <= aoe_r or d_def <= aoe_r:
                         in_magical_darkness_aoe = True
                         break
@@ -1939,10 +1945,27 @@ def handle_attack_request(data, player, game_state):
                 def is_illuminated(pos_q, pos_r, entity_obj):
                     if getattr(entity_obj, "light_radius", 0) > 0:
                         return True
+                    e_hex = Hex(pos_q, pos_r)
                     for other in getattr(game_state, "players", []):
                         if getattr(other, "light_radius", 0) > 0 and getattr(other, "position", None):
-                            d_l = max(abs(pos_q - other.position[0]), abs(pos_q + pos_r - other.position[0] - other.position[1]), abs(pos_r - other.position[1]))
+                            d_l = grid_distance(e_hex, Hex(other.position[0], other.position[1]), grid_type=grid_type, diagonal_rule=d_rule_atk)
                             if d_l <= other.light_radius:
+                                return True
+                    if isinstance(cur_map, dict):
+                        for l_src in (cur_map.get("lights", []) or []):
+                            if not isinstance(l_src, dict):
+                                continue
+                            lq, lr = l_src.get("q"), l_src.get("r")
+                            if lq is None or lr is None:
+                                continue
+                            raw_r = l_src.get("radius")
+                            if raw_r is None:
+                                br = int(l_src.get("bright", 0) or 0)
+                                dm = int(l_src.get("dim", 0) or 0)
+                                l_rad = max(br, br + dm) if (br > 0 or dm > 0) else 4
+                            else:
+                                l_rad = int(raw_r or 0)
+                            if l_rad > 0 and grid_distance(e_hex, Hex(int(lq), int(lr)), grid_type=grid_type, diagonal_rule=d_rule_atk) <= l_rad:
                                 return True
                     return False
 
@@ -2420,7 +2443,7 @@ def handle_attack_request(data, player, game_state):
             if is_adam_att and getattr(target_player, "is_object", False) and not is_crit:
                 is_crit = True
                 log_msg += " ⚒️ (CRITICO AUTOMATICO: Arma in Adamantio vs Oggetto - XGtE p. 78!)"
-            elif not is_crit and dist <= 1 and any(is_condition_active(t_cond, c) for c in ["Incosciente", "Paralizzato", "Unconscious", "Paralyzed"]):
+            elif not is_crit and dist_3d <= 1.0 and any(is_condition_active(t_cond, c) for c in ["Incosciente", "Paralizzato", "Unconscious", "Paralyzed"]):
                 is_crit = True
                 log_msg += " 🌟 (CRITICO AUTOMATICO: Bersaglio Incosciente/Paralizzato entro 1.5m!)"
             elif not is_crit and _sub_atk_mods.get("auto_crit"):
@@ -2626,14 +2649,18 @@ def handle_attack_request(data, player, game_state):
                     has_adjacent_ally = False
                     if hasattr(target_player, "position") and target_player.position:
                         tq, tr = target_player.position[0], target_player.position[1]
+                        tz = getattr(target_player, "elevation", 0)
+                        _snk_map = getattr(game_state, "current_map", None) or {}
+                        _snk_gt = _snk_map.get("grid_type", "hex") if isinstance(_snk_map, dict) else "hex"
                         attacker_party = bool(getattr(player, "is_party_member", False) or getattr(player, "conn", None))
                         target_party = bool(getattr(target_player, "is_party_member", False) or getattr(target_player, "conn", None))
                         for other in getattr(game_state, "players", []):
                             if other.name != player.name and other.name != target_player.name and getattr(other, "hp", 0) > 0:
                                 if hasattr(other, "position") and other.position:
                                     oq, or_ = other.position[0], other.position[1]
-                                    d_o = max(abs(tq - oq), abs(tq + tr - oq - or_), abs(tr - or_))
-                                    if d_o <= 1:
+                                    oz = getattr(other, "elevation", 0)
+                                    d_o = grid_distance_3d(Hex(tq, tr), Hex(oq, or_), tz, oz, grid_type=_snk_gt)
+                                    if d_o <= 1.0:
                                         other_party = bool(getattr(other, "is_party_member", False) or getattr(other, "conn", None))
                                         is_ally = (other_party == attacker_party) if attacker_party != target_party else True
                                         o_conds = getattr(other, "conditions", [])

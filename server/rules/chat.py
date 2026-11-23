@@ -4,8 +4,31 @@ from common.protocol import (
     make_error_reply,
     make_game_state,
 )
-from common.hex_utils import Hex, get_sphere_hexes, hex_linedraw
+from common.hex_utils import Hex, get_visible_hexes
 from common.network_utils import send_message, broadcast
+
+
+def _reveal_light_fow(cur_map: dict, origin: Hex, radius: int) -> None:
+    """Rivela la FoW per una sorgente luminosa rispettando `grid_type`, porte chiuse/segrete e `fow_draft`."""
+    if not isinstance(cur_map, dict) or not cur_map.get("fow_enabled", False) or radius <= 0:
+        return
+    from server.rules.movement import get_effective_map_walls
+    grid_type = cur_map.get("grid_type", "hex")
+    walls = get_effective_map_walls(cur_map)
+    visible = get_visible_hexes(origin, int(radius), walls, grid_type=grid_type)
+    fow_rev = cur_map.setdefault("fow_revealed", [])
+    fow_draft = cur_map.setdefault("fow_draft", []) if "fow_draft" in cur_map or isinstance(cur_map.get("fow_draft"), list) else None
+    rev_set = {(int(item[0]), int(item[1])) for item in fow_rev if isinstance(item, (list, tuple)) and len(item) >= 2}
+    draft_set = {(int(item[0]), int(item[1])) for item in (fow_draft or []) if isinstance(item, (list, tuple)) and len(item) >= 2}
+    for rh in visible:
+        key = (int(rh.q), int(rh.r))
+        entry = [key[0], key[1]]
+        if key not in rev_set:
+            rev_set.add(key)
+            fow_rev.append(entry)
+        if fow_draft is not None and key not in draft_set:
+            draft_set.add(key)
+            fow_draft.append(list(entry))
 def handle_chat(data, player, game_state):
     text = data.get("text", "").strip()
     if not text: return
@@ -80,23 +103,7 @@ def handle_chat(data, player, game_state):
                 lights = game_state.current_map.setdefault("lights", [])
                 lights.append({"q": pos[0], "r": pos[1], "radius": 6, "color": "yellow"})
                 game_state.log_dm_message(f"[Sistema] {player.name} ha acceso una torcia.")
-                
-                # Reveal FoW for torch
-                if game_state.current_map.get("fow_enabled", False):
-                    h = Hex(pos[0], pos[1])
-                    revealed = get_sphere_hexes(h, 6)
-                    fow_rev = game_state.current_map.get("fow_revealed", [])
-                    walls_list = [Hex(w[0], w[1]) for w in game_state.current_map.get("walls", [])]
-                    for rh in revealed:
-                        line = hex_linedraw(h, rh)
-                        blocked = False
-                        for step in line[:-1]:
-                            if step != h and step in walls_list:
-                                blocked = True
-                                break
-                        if not blocked and [rh.q, rh.r] not in fow_rev:
-                            fow_rev.append([rh.q, rh.r])
-                
+                _reveal_light_fow(game_state.current_map, Hex(pos[0], pos[1]), 6)
                 game_state._trigger_gui_update()
                 broadcast(game_state, make_game_state(game_state.get_state_dict()))
         return
@@ -115,24 +122,7 @@ def handle_chat(data, player, game_state):
                 lights = game_state.current_map.setdefault("lights", [])
                 lights.append({"q": q, "r": r, "radius": radius, "color": "yellow"})
                 game_state.log_dm_message(f"[Sistema] Luce piazzata in {q}, {r} raggio {radius}.")
-                
-                # Reveal FoW for light
-                if game_state.current_map.get("fow_enabled", False):
-                    from common.hex_utils import Hex, get_sphere_hexes, hex_linedraw
-                    h = Hex(q, r)
-                    revealed = get_sphere_hexes(h, radius)
-                    fow_rev = game_state.current_map.get("fow_revealed", [])
-                    walls_list = [Hex(w[0], w[1]) for w in game_state.current_map.get("walls", [])]
-                    for rh in revealed:
-                        line = hex_linedraw(h, rh)
-                        blocked = False
-                        for step in line[:-1]:
-                            if step != h and step in walls_list:
-                                blocked = True
-                                break
-                        if not blocked and [rh.q, rh.r] not in fow_rev:
-                            fow_rev.append([rh.q, rh.r])
-                            
+                _reveal_light_fow(game_state.current_map, Hex(q, r), radius)
                 game_state._trigger_gui_update()
                 broadcast(game_state, make_game_state(game_state.get_state_dict()))
             except ValueError:

@@ -1229,9 +1229,14 @@ class MapEditorWindow(tk.Toplevel):
         self.loots[target_hex] = {
             "q": target_hex.q,
             "r": target_hex.r,
+            "qty": 1,
             "item": item_name,
             "items": [{"name": item_name, "qty": 1}],
             "gold": int(gold),
+            "contents": {
+                "wallet": {"MO": int(gold)} if int(gold) > 0 else {},
+                "items": [{"name": item_name, "qty": 1}],
+            },
             "hidden": False,
         }
         self._refresh_single_hex(target_hex)
@@ -1409,12 +1414,13 @@ class MapEditorWindow(tk.Toplevel):
     def on_map_scale_selected(self, event=None):
         selected_scale_name = self.map_scale_var.get()
         new_size = self.MAP_SCALES[selected_scale_name]
-        self.current_hex_size = new_size
-        
+
         if self.grid_hexes:
             if not messagebox.askyesno("Cambio Scala", "Cambiare la scala cancellerà la griglia esistente. Continuare?", parent=self):
                 return
             self._clear_grid()
+
+        self.current_hex_size = new_size
             
         grid_type = self.grid_type_var.get() if hasattr(self, "grid_type_var") else "hex"
         self.hex_layout = self._create_layout(new_size, grid_type)
@@ -1537,7 +1543,7 @@ class MapEditorWindow(tk.Toplevel):
         else:
             for row in range(rows):
                 for col in range(cols):
-                    self.grid_hexes.add(Hex(col - (row // 2), row))
+                    self.grid_hexes.add(Hex(col, row - (col // 2)))
         # Mantieni solo gli elementi di strato ricompresi nella nuova griglia
         self.pois = {h: v for h, v in self.pois.items() if h in self.grid_hexes}
         self.difficult_terrain = {h: v for h, v in self.difficult_terrain.items() if h in self.grid_hexes}

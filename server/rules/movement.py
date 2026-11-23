@@ -1,7 +1,7 @@
 import os
 import json
 import random
-from common.hex_utils import Hex, hex_linedraw, get_visible_hexes, grid_distance_3d
+from common.hex_utils import Hex, hex_linedraw, get_visible_hexes, grid_distance, grid_distance_3d
 from common.network_utils import send_message, broadcast
 from common.i18n import is_condition_active
 from common.item_modifiers import get_effective_attribute_from_dict, get_effective_save_bonus_from_dict
@@ -14,6 +14,34 @@ def get_effective_map_walls(current_map):
         if d.get("state", "closed") in ("closed", "locked", "secret"):
             walls.append([d.get("q", 0), d.get("r", 0)])
     return walls
+
+def is_party_fow_viewer(p) -> bool:
+    """Ritorna True solo per membri del party / compagni visibili su mappa (mai ostili NPC o GM layer)."""
+    if p is None:
+        return False
+    is_comp = bool(getattr(p, "is_companion", False))
+    is_pc = bool(
+        (getattr(p, "is_party_member", False) or getattr(p, "conn", None) is not None)
+        and not getattr(p, "is_npc", False)
+    )
+    return (
+        (is_comp or is_pc)
+        and getattr(p, "layer", "token") != "gm"
+        and not getattr(p, "in_pocket_dimension", False)
+    )
+
+
+def refresh_party_fow(game_state) -> bool:
+    """Ricalcola la FoW per i soli visualizzatori del party; ritorna True se fow_revealed è cambiata."""
+    if not game_state or not getattr(game_state, "current_map", None):
+        return False
+    fow_changed = False
+    for p in list(getattr(game_state, "players", []) or []):
+        if is_party_fow_viewer(p):
+            if auto_explore_fow(p, game_state):
+                fow_changed = True
+    return fow_changed
+
 
 def auto_explore_fow(player, game_state):
     """Calcola la visibilità (LoS + Luce dinamica) del giocatore e aggiorna la FoW della mappa."""
@@ -30,7 +58,8 @@ def auto_explore_fow(player, game_state):
     raw_conds = getattr(player, "conditions", [])
     conds = raw_conds if isinstance(raw_conds, list) else []
     from server.rules.reaction_magic import _parse_sense_range_hexes
-    if is_condition_active(conds, "Accecato") or is_condition_active(conds, "Blinded"):
+    is_blinded = is_condition_active(conds, "Accecato") or is_condition_active(conds, "Blinded")
+    if is_blinded:
         blind_r = _parse_sense_range_hexes(player, "vista cieca", "blindsight", "visione del vero", "truesight")
         if blind_r <= 0:
             return False
@@ -52,18 +81,19 @@ def auto_explore_fow(player, game_state):
     walls = get_effective_map_walls(cur_map)
     visible_hexes = get_visible_hexes(h, effective_rad, walls, grid_type=grid_type)
     
-    for other_p in (getattr(game_state, "players", None) or []):
-        if other_p.name != player.name and getattr(other_p, 'is_party_member', False) is True:
-            raw_olight = getattr(other_p, 'light_radius', 0)
-            o_light = int(raw_olight) if isinstance(raw_olight, (int, float)) else 0
-            o_pos = getattr(other_p, 'position', None)
-            if o_light > 0 and isinstance(o_pos, (list, tuple)) and len(o_pos) >= 2:
-                try:
-                    o_hex = Hex(int(o_pos[0]), int(o_pos[1]))
-                    o_light_hexes = get_visible_hexes(o_hex, o_light, walls, grid_type=grid_type)
-                    visible_hexes.extend(o_light_hexes)
-                except (TypeError, ValueError):
-                    pass
+    if not is_blinded:
+        for other_p in (getattr(game_state, "players", None) or []):
+            if other_p.name != player.name and getattr(other_p, 'is_party_member', False) is True:
+                raw_olight = getattr(other_p, 'light_radius', 0)
+                o_light = int(raw_olight) if isinstance(raw_olight, (int, float)) else 0
+                o_pos = getattr(other_p, 'position', None)
+                if o_light > 0 and isinstance(o_pos, (list, tuple)) and len(o_pos) >= 2:
+                    try:
+                        o_hex = Hex(int(o_pos[0]), int(o_pos[1]))
+                        o_light_hexes = get_visible_hexes(o_hex, o_light, walls, grid_type=grid_type)
+                        visible_hexes.extend(o_light_hexes)
+                    except (TypeError, ValueError):
+                        pass
 
     changed = False
     fow_rev = cur_map.setdefault("fow_revealed", [])
@@ -310,6 +340,9 @@ def handle_move_request(data, player, game_state):
                 door_blocked = None
                 if getattr(game_state, "current_map", None):
                     for d in game_state.current_map.get("doors", []):
+                        is_undiscovered_secret = (d.get("is_secret") or d.get("state") == "secret") and not d.get("discovered", False)
+                        if is_undiscovered_secret:
+                            continue
                         if d.get("q") == bq and d.get("r") == br and d.get("state", "closed") in ("closed", "locked", "secret"):
                             door_blocked = d
                             break
@@ -430,6 +463,10 @@ def handle_move_request(data, player, game_state):
             
             cost_prone = 2 if is_condition_active(conds, "Prono") else 1
             is_squeezing_mv = bool(getattr(player, "is_squeezing", False)) or is_condition_active(conds, "Spremere") or is_condition_active(conds, "Squeezing")
+            d_rule_mv = str((getattr(game_state, "automation_settings", None) or {}).get("square_diagonal_rule", "standard") or "standard").strip().lower()
+            is_5105_sq = (grid_type_mv == "square" and d_rule_mv in ("tactical", "5-10-5"))
+            diag_steps = 0
+            prev_step_mv = p_start
             req_hexes = 0
             has_diff_terrain_in_path = False
             _n_steps = len(move_path[1:])
@@ -467,7 +504,17 @@ def handle_move_request(data, player, game_state):
                     step_cost += 1
                 if is_squeezing_mv:
                     step_cost += 1
+                if is_5105_sq and abs(step.q - prev_step_mv.q) == 1 and abs(step.r - prev_step_mv.r) == 1:
+                    diag_steps += 1
+                    if diag_steps % 2 == 0:
+                        step_cost += 1
+                prev_step_mv = step
                 req_hexes += step_cost
+            if grid_type_mv in ("none", "gridless"):
+                gl_min = int(round(grid_distance(p_start, p_end, grid_type=grid_type_mv, diagonal_rule=d_rule_mv)))
+                if is_condition_active(conds, "Prono") or is_squeezing_mv:
+                    gl_min *= 2
+                req_hexes = max(req_hexes, gl_min)
 
             # Salto in Lungo PHB p. 182: se dichiarato is_jump, verifica limite Forza (con o senza rincorsa)
             if data.get("is_jump") and not is_dm:

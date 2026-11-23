@@ -253,10 +253,14 @@ class HexMapCanvas(tk.Canvas):
                     except Exception:
                         pass
                     setattr(self, timer_attr, None)
-            try:
-                self.hide_token_tooltip()
-            except Exception:
-                pass
+            tip = getattr(self, "hover_tooltip", None)
+            if tip is not None:
+                self.hover_tooltip = None
+                try:
+                    if tip.winfo_exists():
+                        tip.destroy()
+                except Exception:
+                    pass
         self.bind("<Destroy>", _on_canvas_destroyed, add="+")
 
     def set_on_hex_right_click_callback(self, func):
@@ -352,11 +356,16 @@ class HexMapCanvas(tk.Canvas):
             self._last_win_w = event.width
             self._last_win_h = event.height
             if self._configure_timer is not None:
-                self.after_cancel(self._configure_timer)
-            self._configure_timer = self.after(60, self._on_configure_redraw)
+                try:
+                    self.after_cancel(self._configure_timer)
+                except Exception:
+                    pass
+            self._configure_timer = safe_after(self, 60, self._on_configure_redraw)
 
     def _on_configure_redraw(self):
         self._configure_timer = None
+        if not self.winfo_exists():
+            return
         self.redraw()
 
     def _finish_zoom_polish(self):
@@ -451,11 +460,16 @@ class HexMapCanvas(tk.Canvas):
 
     def _schedule_pan_redraw(self):
         if self._pan_redraw_timer is not None:
-            self.after_cancel(self._pan_redraw_timer)
-        self._pan_redraw_timer = self.after(50, self._on_pan_drift_redraw)
+            try:
+                self.after_cancel(self._pan_redraw_timer)
+            except Exception:
+                pass
+        self._pan_redraw_timer = safe_after(self, 50, self._on_pan_drift_redraw)
 
     def _on_pan_drift_redraw(self):
         self._pan_redraw_timer = None
+        if not self.winfo_exists():
+            return
         self.redraw()
 
     def _on_ping_click_b2(self, event):
@@ -1547,6 +1561,14 @@ class HexMapCanvas(tk.Canvas):
         if not target_data or not getattr(self, "hex_layout", None):
             return
 
+        is_dm_viewer = self._effective_is_dm()
+        fow_active = getattr(self, "fow_enabled", False) or (
+            isinstance(getattr(self, "map_data", None), dict) and self.map_data.get("fow_enabled", False)
+        )
+        visible_set = getattr(self, "visible_hexes", set()) if fow_active else set()
+        if not self._is_token_visible_to_viewer(target_name, target_data, is_dm=is_dm_viewer, fow_active=fow_active, visible=visible_set):
+            return
+
         t_pos = target_data.get("position", [0, 0]) if isinstance(target_data, dict) else target_data
         if not t_pos:
             return
@@ -1619,6 +1641,8 @@ class HexMapCanvas(tk.Canvas):
                     p_data.get("position", [0, 0])
                     for p_k, p_data in self.players_data.items()
                     if p_k != my_name and p_k != target_name and isinstance(p_data, dict)
+                    and (p_data.get("hp", 1) or 0) > 0
+                    and self._is_token_visible_to_viewer(p_k, p_data, is_dm=is_dm_viewer, fow_active=fow_active, visible=visible_set)
                 ]
                 cover_bonus, cover_name = get_cover_between(o_hex, t_hex, half_cover, three_quarters, other_creatures, grid_type=grid_type)
                 if cover_bonus >= 5:
@@ -1647,8 +1671,13 @@ class HexMapCanvas(tk.Canvas):
         self.create_line(t_sx - r - tick_len, t_sy, t_sx - r + 3, t_sy, fill="#EF4444", width=2, tags="targeting_reticle")
         self.create_line(t_sx + r - 3, t_sy, t_sx + r + tick_len, t_sy, fill="#EF4444", width=2, tags="targeting_reticle")
 
+        is_friendly_viewer = (
+            is_dm_viewer
+            or (target_name == my_name)
+            or (isinstance(target_data, dict) and bool(target_data.get("is_party_member", False) or target_data.get("is_companion", False)))
+        )
         ca_info = ""
-        if isinstance(target_data, dict):
+        if is_friendly_viewer and isinstance(target_data, dict):
             ac = target_data.get("ac") or (target_data.get("full_sheet", {}).get("ac") if isinstance(target_data.get("full_sheet"), dict) else None)
             if ac is not None:
                 ca_info = f"CA {ac}"
@@ -1826,15 +1855,31 @@ class HexMapCanvas(tk.Canvas):
             viewer_sig = ("none",)
 
         lights_sig_items = []
+        def _resolve_map_light_radius(light_dict):
+            raw_r = light_dict.get("radius")
+            if raw_r is not None:
+                try:
+                    return int(raw_r or 0)
+                except (TypeError, ValueError):
+                    return 4
+            try:
+                br = int(light_dict.get("bright", 0) or 0)
+                dm = int(light_dict.get("dim", 0) or 0)
+            except (TypeError, ValueError):
+                return 4
+            if br > 0 or dm > 0:
+                return max(br, br + dm)
+            return 4
+
         for l in (self.map_data.get("lights", []) or []):
             if not isinstance(l, dict):
                 continue
             lq, lr = l.get("q"), l.get("r")
             if lq is None or lr is None:
                 continue
-            l_rad = int(l.get("radius", 4) or 4)
+            l_rad = _resolve_map_light_radius(l)
             if l_rad > 0:
-                lights_sig_items.append((lq, lr, l_rad, (lq, lr) in fow_revealed))
+                lights_sig_items.append((lq, lr, l_rad))
         cache_key = (grid_type, player_name, walls_sig, viewer_sig, ally_lights_sig, tuple(lights_sig_items))
 
         cached = getattr(self, "_fow_visible_cache", None)
@@ -1872,8 +1917,8 @@ class HexMapCanvas(tk.Canvas):
                 lq, lr = l.get("q"), l.get("r")
                 if lq is None or lr is None:
                     continue
-                l_rad = int(l.get("radius", 4) or 4)
-                if l_rad > 0 and ((lq, lr) in visible_now or (lq, lr) in fow_revealed):
+                l_rad = _resolve_map_light_radius(l)
+                if l_rad > 0 and (lq, lr) in visible_now:
                     visible_now.update(
                         {(h.q, h.r) for h in get_visible_hexes(Hex(lq, lr), l_rad, walls_hex_set, grid_type=grid_type)}
                     )
@@ -2951,8 +2996,15 @@ class HexMapCanvas(tk.Canvas):
                     g_type = self.map_data.get("grid_type", "hex") if isinstance(self.map_data, dict) else "hex"
                     is_sq = g_type in ("square", "none", "gridless")
                     step_d = (hex_sz * 1.5 if is_sq else hex_sz * 1.7320508075688772)
+                    is_dm_n = self._effective_is_dm()
+                    fow_n = getattr(self, "fow_enabled", False) or (
+                        isinstance(self.map_data, dict) and self.map_data.get("fow_enabled", False)
+                    )
+                    vis_n = getattr(self, "visible_hexes", set()) if fow_n else set()
                     for pname, pdata in self.players_data.items():
                         if not isinstance(pdata, dict):
+                            continue
+                        if not self._is_token_visible_to_viewer(pname, pdata, is_dm=is_dm_n, fow_active=fow_n, visible=vis_n):
                             continue
                         l_rad = pdata.get("light_radius", 0)
                         if l_rad > 0:

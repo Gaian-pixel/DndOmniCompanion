@@ -2179,11 +2179,38 @@ class DM_GUI(DMCampaignSessionMixin):
 
     def move_selected_token_to_hex(self, target_name, clicked_hex):
         """Sposta esplicitamente un token sull'esagono selezionato dal menu contestuale."""
-        if not target_name or not getattr(self.server.game_state, "current_map", None):
+        gs = getattr(getattr(self, "server", None), "game_state", None)
+        cur_map = getattr(gs, "current_map", None) if gs else None
+        if not target_name or not cur_map:
             return
-        from server.network import broadcast
-        if self.server.game_state.move_player(target_name, [clicked_hex.q, clicked_hex.r]):
-            broadcast(self.server.game_state, make_player_move(target_name, [clicked_hex.q, clicked_hex.r]))
+        target_p = gs.find_player(target_name) if hasattr(gs, "find_player") else None
+        prev_pos = list(target_p.position) if (target_p and getattr(target_p, "position", None)) else None
+        new_pos = [clicked_hex.q, clicked_hex.r]
+        if gs.move_player(target_name, new_pos):
+            from server.network import broadcast
+            if (
+                target_p is not None
+                and isinstance(cur_map, dict)
+                and cur_map.get("fow_enabled", False)
+            ):
+                from server.rules.movement import is_party_fow_viewer
+                from common.network_utils import _extract_rev_set
+                if (
+                    not is_party_fow_viewer(target_p)
+                    and getattr(target_p, "layer", "token") != "gm"
+                    and not getattr(target_p, "is_hidden", False)
+                    and not getattr(target_p, "in_pocket_dimension", False)
+                ):
+                    rev_set = _extract_rev_set(cur_map)
+                    was_vis = bool(prev_pos and len(prev_pos) >= 2 and (prev_pos[0], prev_pos[1]) in rev_set)
+                    now_vis = (new_pos[0], new_pos[1]) in rev_set
+                    if was_vis and not now_vis:
+                        from common.protocol import make_player_left
+                        broadcast(gs, make_player_left(target_p.name))
+                    elif not was_vis and now_vis and hasattr(gs, "sanitize_player_for_players"):
+                        from common.protocol import make_player_joined
+                        broadcast(gs, make_player_joined(gs.sanitize_player_for_players(target_p)))
+            broadcast(gs, make_player_move(target_name, new_pos))
             self.redraw_map_and_players()
             self.log_to_chat(f"[VTT] Token '{target_name}' spostato in [{clicked_hex.q}, {clicked_hex.r}].")
 
@@ -2294,12 +2321,11 @@ class DM_GUI(DMCampaignSessionMixin):
         def set_state(st):
             door["state"] = st
             from server.network import broadcast
-            from server.rules.movement import auto_explore_fow
+            from server.rules.movement import refresh_party_fow
             broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
             broadcast(self.server.game_state, make_chat_broadcast("Sistema", f"🚪 Porta a ({clicked_hex.q}, {clicked_hex.r}) impostata su '{st.upper()}' dal DM."))
-            for p in self.server.game_state.players:
-                if auto_explore_fow(p, self.server.game_state):
-                    broadcast(self.server.game_state, make_fow_update_broadcast(self.server.game_state.current_map["fow_revealed"], self.server.game_state.current_map["fow_draft"]))
+            if refresh_party_fow(self.server.game_state):
+                broadcast(self.server.game_state, make_fow_update_broadcast(self.server.game_state.current_map["fow_revealed"], self.server.game_state.current_map["fow_draft"]))
             self.server.game_state._trigger_gui_update()
             self.redraw_map_and_players()
 
@@ -2333,11 +2359,11 @@ class DM_GUI(DMCampaignSessionMixin):
                 if door in doors:
                     doors.remove(door)
                 from server.network import broadcast
-                from server.rules.movement import auto_explore_fow
+                from server.rules.movement import refresh_party_fow
                 broadcast(self.server.game_state, make_map_data_update_broadcast(self.server.game_state.current_map))
                 broadcast(self.server.game_state, make_chat_broadcast("Sistema", f"🚪 Porta a ({clicked_hex.q}, {clicked_hex.r}) rimossa dal DM."))
-                for p in self.server.game_state.players:
-                    auto_explore_fow(p, self.server.game_state)
+                if refresh_party_fow(self.server.game_state):
+                    broadcast(self.server.game_state, make_fow_update_broadcast(self.server.game_state.current_map["fow_revealed"], self.server.game_state.current_map["fow_draft"]))
                 self.server.game_state._trigger_gui_update()
                 self.redraw_map_and_players()
 
@@ -2625,6 +2651,9 @@ class DM_GUI(DMCampaignSessionMixin):
                 "is_hidden": getattr(p, "is_hidden", False),
                 "legendary_resistances_max": getattr(p, "legendary_resistances_max", 0),
                 "legendary_actions_max": getattr(p, "legendary_actions_max", 0),
+                "vision_radius": getattr(p, "vision_radius", 6),
+                "has_darkvision": getattr(p, "has_darkvision", None),
+                "full_sheet": getattr(p, "full_sheet", None),
             }
         turn_player = self.server.game_state.get_current_turn_player()
         turn_name = turn_player.name if turn_player else ""
@@ -3479,19 +3508,29 @@ fg=TEXT_COLOR, borderwidth=0, highlightthickness=0, font=FONT_MAIN)
             players_dict = {}
 
         canvas.is_dm = False
+        combat_active = bool(state_safe.get("combat_active", False))
+        combat_order = []
+        if combat_active:
+            in_c = [
+                p for p in players_dict.values()
+                if isinstance(p, dict) and p.get("name") and p.get("in_combat", True)
+            ]
+            in_c.sort(key=lambda x: float(x.get("initiative", 0) or 0), reverse=True)
+            combat_order = [p["name"] for p in in_c]
+        auto_dn = bool((state_safe.get("automation_settings") or {}).get("auto_day_night_cycle", True))
         canvas.update_data(
-            state_safe.get("current_map"),
+            state_safe.get("map"),
             players_dict,
             player_name="",
             turn_player_name=state_safe.get("turn_player_name", ""),
-            aoes_data=state_safe.get("aoes", []),
+            aoes_data=state_safe.get("active_aoes", []),
             time_hour=state_safe.get("time_hour", 12),
             weather=state_safe.get("weather", "Sereno"),
-            combat_active=state_safe.get("combat_active", False),
-            combat_order=state_safe.get("combat_order", []),
+            combat_active=combat_active,
+            combat_order=combat_order,
             round_number=state_safe.get("round_number", 1),
             time_minute=state_safe.get("time_minute", 0),
-            auto_day_night=state_safe.get("auto_day_night", True),
+            auto_day_night=auto_dn,
         )
 
     def open_player_display_window(self):
