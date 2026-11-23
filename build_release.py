@@ -8,14 +8,16 @@ Usa PyInstaller per compilare l'applicazione in un eseguibile nativo:
 - Su Linux: dist/DndOmniCompanion/DndOmniCompanion + launcher run.sh + archivio tar.gz (.tar.gz) e .zip
 """
 
+import argparse
+import importlib.util
 import os
-import sys
 import shutil
-import zipfile
-import tarfile
 import subprocess
+import sys
+import tarfile
+import zipfile
 
-VERSION = os.environ.get("RELEASE_VERSION", "v0.1.0-alpha")
+VERSION = os.environ.get("RELEASE_VERSION", "v0.6.0-alpha")
 APP_NAME = "DndOmniCompanion"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -23,8 +25,86 @@ IS_WINDOWS = sys.platform.startswith("win")
 IS_LINUX = sys.platform.startswith("linux")
 IS_MACOS = sys.platform.startswith("darwin")
 
+REQUIRED_DATA_DIRS = [
+    ("srd_data", "srd_data"),
+    ("maps", "maps"),
+]
+OPTIONAL_DATA_FILES = [
+    ("dnd_blankcharactersheet_it.pdf", "."),
+]
+REQUIRED_DOCS = [
+    "README.md",
+    "README_IT.md",
+]
+BUNDLE_DOCS = [
+    "README.md",
+    "README_IT.md",
+    "LICENSE",
+]
+HIDDEN_IMPORTS = [
+    "PIL", "PIL.Image", "PIL.ImageTk",
+    "ttkbootstrap",
+    "sounddevice", "soundfile",
+    "cffi", "reportlab", "pypdf",
+    "tkinter", "tkinter.ttk",
+    "sqlite3", "json", "threading", "queue", "socket",
+    "common.i18n", "common.theme", "common.file_utils",
+    "common.spell_effects_engine", "common.subclass_and_race_rules",
+    "components.ui_components", "components.command_palette",
+    "client.client", "client.network_handlers", "client.reaction_prompts_mixin",
+    "client.sheet_panels.combat_panel", "client.sheet_panels.spells_panel", "client.sheet_panels.vitals_panel",
+    "server.server", "server.dm_gui", "server.dm_campaign_session_mixin", "server.dm_automation_panel",
+]
+
+
+def validate_build_inputs(base_dir: str = BASE_DIR, version: str = VERSION) -> list[str]:
+    """Verifica prerequisiti di packaging (entrypoint, asset, docs IT/EN, moduli interni) senza scrivere file."""
+    errors: list[str] = []
+    if not str(version or "").strip():
+        errors.append("RELEASE_VERSION is empty.")
+
+    entry = os.path.join(base_dir, "main.py")
+    if not os.path.isfile(entry):
+        errors.append(f"Missing entrypoint: {entry}")
+
+    for src, _dst in REQUIRED_DATA_DIRS:
+        p = os.path.join(base_dir, src)
+        if not os.path.isdir(p):
+            errors.append(f"Missing required data directory: {p}")
+
+    for doc in REQUIRED_DOCS:
+        p = os.path.join(base_dir, doc)
+        if not os.path.isfile(p):
+            errors.append(f"Missing required documentation file: {p}")
+
+    inserted_path = False
+    if base_dir not in sys.path:
+        sys.path.insert(0, base_dir)
+        inserted_path = True
+    try:
+        for mod in HIDDEN_IMPORTS:
+            if mod.startswith(("common.", "components.", "client.", "server.")):
+                try:
+                    spec = importlib.util.find_spec(mod)
+                except Exception as exc:
+                    spec = None
+                    errors.append(f"Error resolving internal module {mod}: {exc}")
+                if spec is None:
+                    errors.append(f"Unresolvable internal hidden import: {mod}")
+    finally:
+        if inserted_path and base_dir in sys.path:
+            sys.path.remove(base_dir)
+
+    return errors
+
 
 def run_pyinstaller():
+    errors = validate_build_inputs()
+    if errors:
+        for err in errors:
+            print(f"[ERRORE] {err}")
+        sys.exit(1)
+
     os_name = "Windows" if IS_WINDOWS else ("Linux" if IS_LINUX else "macOS")
     print(f"=== Creazione Build Eseguibile {APP_NAME} ({VERSION}) su {os_name} ===")
     
@@ -44,7 +124,6 @@ def run_pyinstaller():
         ("srd_data", "srd_data"),
         ("maps", "maps"),
     ]
-    
     # Separatore di PyInstaller: ';' su Windows, ':' su Linux/macOS
     path_sep = ";" if IS_WINDOWS else ":"
     data_args = []
@@ -54,19 +133,13 @@ def run_pyinstaller():
             data_args.extend(["--add-data", f"{src_path}{path_sep}{dst}"])
         else:
             print(f"Avviso: Cartella sorgente non trovata: {src_path}")
+    for src, dst in OPTIONAL_DATA_FILES:
+        src_path = os.path.join(BASE_DIR, src)
+        if os.path.isfile(src_path):
+            data_args.extend(["--add-data", f"{src_path}{path_sep}{dst}"])
             
-    hidden_imports = [
-        "PIL", "PIL.Image", "PIL.ImageTk",
-        "sounddevice", "soundfile",
-        "cffi", "reportlab", "pypdf",
-        "tkinter", "tkinter.ttk",
-        "sqlite3", "json", "threading", "queue", "socket",
-        "common.i18n", "common.theme", "common.file_utils",
-        "client.client", "server.server", "server.dm_gui"
-    ]
-    
     hidden_args = []
-    for h in hidden_imports:
+    for h in HIDDEN_IMPORTS:
         hidden_args.extend(["--hidden-import", h])
         
     cmd = [
@@ -100,8 +173,8 @@ def run_pyinstaller():
     if os.path.exists(src_settings):
         shutil.copy2(src_settings, os.path.join(client_data_dist, "settings.json"))
         
-    # Copia README & Documentazione essenziale
-    for doc in ["README.md", "LICENSE"]:
+    # Copia README bilingue & Documentazione essenziale
+    for doc in BUNDLE_DOCS:
         src_doc = os.path.join(BASE_DIR, doc)
         if os.path.exists(src_doc):
             shutil.copy2(src_doc, app_dist_dir)
@@ -195,5 +268,34 @@ def run_pyinstaller():
         print("========================================================")
 
 
-if __name__ == "__main__":
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description=f"{APP_NAME} release builder")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Validate entrypoints, data directories, docs, and internal hidden imports without writing files.",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv=None) -> int:
+    args = parse_args(argv)
+    if args.dry_run:
+        errors = validate_build_inputs()
+        print(
+            f"[DRY-RUN] app={APP_NAME} version={VERSION} "
+            f"dirs={len(REQUIRED_DATA_DIRS)} docs={len(REQUIRED_DOCS)} hidden_imports={len(HIDDEN_IMPORTS)}"
+        )
+        if errors:
+            for err in errors:
+                print(f"[DRY-RUN ERROR] {err}")
+            print("DRY_RUN_STATUS=FAIL")
+            return 1
+        print("DRY_RUN_STATUS=OK")
+        return 0
     run_pyinstaller()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

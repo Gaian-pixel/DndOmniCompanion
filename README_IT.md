@@ -6,10 +6,10 @@
 [![Ruleset: D&D 5e](https://img.shields.io/badge/ruleset-D%26D%205e-red.svg)](https://dnd.wizards.com/)
 [![UI: ttkbootstrap](https://img.shields.io/badge/ui-ttkbootstrap-orange.svg)](https://ttkbootstrap.readthedocs.io/)
 [![Multiplayer: TCP/UDP](https://img.shields.io/badge/networking-TCP%20%2B%20UDP-green.svg)]()
-[![Tests: Passing](https://img.shields.io/badge/tests-714%2F714%20superati-brightgreen.svg)]()
+[![Tests: Passing](https://img.shields.io/badge/tests-727%2F727%20superati-brightgreen.svg)]()
 [![Localization: IT / EN](https://img.shields.io/badge/i18n-Italiano%20%7C%20English-blueviolet.svg)]()
 [![Units: Imperial / Metric](https://img.shields.io/badge/units-ft%2Fmi%20%7C%20m%2Fkm-informational.svg)]()
-[![Version](https://img.shields.io/badge/release-v0.5.0--alpha-gold.svg)](https://github.com/Gaian-pixel/DndOmniCompanion/releases)
+[![Version](https://img.shields.io/badge/release-v0.6.0--alpha-gold.svg)](https://github.com/Gaian-pixel/DndOmniCompanion/releases)
 
 **D&D OmniCompanion** è un Virtual Tabletop (VTT) Client-Server all-in-one e un motore di gestione campagne per **Dungeons & Dragons 5a Edizione**, sviluppato in Python. Progettato sia per sessioni al tavolo in presenza sia per il gioco online da remoto, unisce l'automazione completa delle regole D&D 5e, una mappa esagonale interattiva ad alte prestazioni, chat vocale UDP in tempo reale e una suite completa di strumenti per il Dungeon Master.
 
@@ -392,10 +392,11 @@ DndOmniCompanion/
 │   ├── GUIDA_OPERATIVA.md          # Manuale operativo e architettura (Italiano)
 │   ├── OPERATIONAL_GUIDE.md        # System & Operational Manual (English)
 │   └── UX_AUDIT.md                 # Audit UX Phase 4.5, Phase 5, Phase 5B e Phase 5C, misure live Tkinter & log interventi
-├── tests/                          # Suite di test automatizzati (714 test passati)
+├── tests/                          # Suite di test automatizzati (727 test passati su 74 moduli)
 │   ├── test_gameplay_integration_e2e.py # Suite E2E Phase 3..5 integrità gameplay, UX, Workflows A-D e socket TCP reali
 │   ├── test_phase5b_scenarios_e2e.py # Suite E2E Phase 5B Scenari realistici di accettazione A-E (UI login/combattimento/riposi/FoW/riconnessione)
 │   ├── test_phase5c_vtt_e2e.py     # Suite E2E Phase 5C prompt reazioni, TS unificati, multiattacco, segretezza e stock negozi
+│   ├── test_phase6_release_readiness.py # Suite Phase 6: dry-run packaging, migrazione v0.5.0->v0.6.0, maturità 14/14 e policy Zero AI
 │   ├── test_phb_dmg_mm_complete.py # Test completi PHB/DMG/MM, talenti, tratti mostri e regole DMG opzionali
 │   ├── test_raw_5e_advanced_features.py # Test Smite, Wild Shape, Fonte di Magia, Recupero Arcano, Reliable Talent, Auto XP
 │   ├── simulate_4player_campaign.py# Simulazione live campagna 4 giocatori + DM (11 fasi)
@@ -406,8 +407,9 @@ DndOmniCompanion/
 │   ├── test_join_game.py           # Test dialogo unione partita, storico server e auto-connessione
 │   ├── test_mono_finestra.py       # Test architettura single-window, overlay e docking
 │   ├── test_authentic_5e.py        # Test regole autentiche RAW 5e
-│   ├── test_ui_smoke.py            # Smoke test di tutte le schermate grafiche
-│   └── ... (55+ moduli di test unitari e di integrazione)
+│   ├── test_ui_smoke.py            # Smoke test unittest headless & CLI per tutte le schermate grafiche
+│   ├── test_e2e_gui.py             # Test GUI E2E loopback in formato unittest & standalone
+│   └── ... (58+ moduli di test unitari e di integrazione)
 └── main.py                         # Launcher unificato (DM Host / Player Client)
 ```
 
@@ -415,13 +417,16 @@ DndOmniCompanion/
 
 ## 🧪 Test e Verifica Automatica
 
-Tutti i **714 test automatizzati** su **71 moduli `unittest`** passano al 100% con 0 errori:
+Tutti i **727 test automatizzati** su **74 moduli `unittest`** passano al 100% con 0 errori (`PYFLAKES_LINES=0`, `187` file `.py` compilati):
 
 ```powershell
-# 1. Unit Test completi (714 test: regole D&D 5e 2014 PHB/DMG/MM & XGtE/TCE, 30 opzioni DMG selezionabili, oggetti magici, dadi 3D, connessione, combattimento, UI/HUD, E2E TCP & Scenari A-E Phase 3.5-5C)
-$env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
+# 1. Quality Gate Unificato (py_compile, pyflakes a 0 warning, suite isolata di 727 test su 74 moduli)
+python -X utf8 scripts/autonomous_dev_loop.py --verify
 
-# 1a. Suite E2E Phase 3..5 Integrità Gameplay, Loopback TCP Multiplayer & Workflows A-D (21 test)
+# 1a. Verifiche Release v0.6.0, migrazione salvataggi v0.5.0, maturità 14/14 e policy Zero AI
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_phase6_release_readiness.py
+
+# 1b. Suite E2E Phase 3..5 Integrità Gameplay, Loopback TCP Multiplayer & Workflows A-D (21 test)
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_gameplay_integration_e2e.py
 
 # 1a2. Suite E2E Phase 5B Scenari Realistici A-E e Phase 5C VTT (18 test)

@@ -1,8 +1,8 @@
 # D&D OmniCompanion — Autonomous Development Session Handoff
 
 > **Branch:** `dev/v0.6.0-autonomous` (`main` untouched at `3b28c99`, no remote pushes or tags)  
-> **Latest Phase:** Phase 5C Functional Completion & Advanced VTT Validation (`TASK-038` through `TASK-042`)  
-> **Status:** All roadmap items (`TASK-001` through `TASK-042`) are **COMPLETED**, verified, and committed locally on `dev/v0.6.0-autonomous`.
+> **Latest Phase:** Phase 6 — Quality Hygiene, UI Modularization, CI Parity & Release Readiness (`TASK-043` through `TASK-048`)  
+> **Status:** All roadmap items (`TASK-001` through `TASK-048`) are **COMPLETED**, **14 / 14** subsystems are **`PRODUCTION_READY`**, verified (`727` tests / `74` modules, `PYFLAKES_LINES=0`, `187` compiled files), and committed locally on `dev/v0.6.0-autonomous`.
 
 ---
 
@@ -175,33 +175,43 @@
    - Fixed 4-arg `make_prompt_reaction` payloads across `reaction_magic.py` and `combat.py`, added `OPPORTUNITY_ATTACK` (`_extract_oa_weapon_details`) and `ABSORB_ELEMENTS`/`HELLISH_REBUKE` attack & elemental-save reaction triggers, canonical IT/EN elemental resistance matching, client `COUNTERSPELL` slot `Combobox` + dynamic button label, `ABSORB_ELEMENTS`/`HELLISH_REBUKE`/`SILVERY_BARBS` dialogs, and War Caster Advantage in `_trigger_concentration_check` & `handle_prompt_save`.
    - Extracted `_evaluate_save_bonuses_and_flags` and `resolve_saving_throw` (wired into `spell_effects_engine.py` and Stunning Strike), fixed Mage Slayer concentration drop, Stunning Strike `"source_end_of_turn"` Monk-turn expiry, Italian Conjuration vs Evocation in Sculpt Spells, Monster Multiattack `compute_combat_spell_modifiers`/reaction parity, Subclass Rage/Bonus Action flags, Wild Shape & multiclass Wizard Arcane Recovery server sync, `auto_explore_fow` `O(K+N)` set deduplication, `HexMapCanvas` AoE `center`/`origin` & `max_hp` guards, non-DM `CommandPaletteDialog` enemy secrecy, container loot safety, and finite shop `stock` (`tests/test_phase5c_vtt_e2e.py`, `13/13 OK`).
 
+44. **Agentic Harness & Phase 6 Roadmap (`e9c3632`, `83e2fa5`, `1be8fd0`)**: Added `AGENTS.md` workspace rules, `.agents/hooks.json` + `.agents/scripts/stop_quality_gate.py`, `.agents/skills/autonomous-loop/SKILL.md`, and `scripts/autonomous_dev_loop.py`; reconciled roadmap and added Phase 6 (`TASK-043`..`TASK-048`).
+45. **Commit `d09f064` (`TASK-043` — Phase 6)**: Eliminated all `pyflakes` warnings (`PYFLAKES_LINES=0`) while preserving `client.client` / `server.dm_gui` mock targets, and enforced zero-warning `pyflakes` in `scripts/autonomous_dev_loop.py` and `.agents/scripts/stop_quality_gate.py`.
+46. **Commit `94028c7` (`TASK-044` — Phase 6)**: Added DM Automation Panel 30-option search, Pending Actions category filtering & `batch_resolve_pending_actions`, symmetric IT/EN i18n keys (`common/i18n.py`), and `tests/test_dm_gui_flow.py` (`7/7 OK`).
+47. **Commit `70bc99c` (`TASK-045` — Phase 6)**: Added client status-bar audio pre-caching progress UI (`audio_progress_label`, `_audio_download_progress`, `_update_audio_download_progress_ui`) and UDP/audio resilience tests (`tests/test_audit_fixes.py`).
+48. **Commit `a16888a` (`TASK-046` — Phase 6)**: Extracted `components/command_palette.py` (re-exported via `components/ui_components.py` `__all__`) and `client/reaction_prompts_mixin.py` (`ClientReactionPromptsMixin` inherited by `ClientGUI`), preserving mock targets.
+49. **Commit `cb7f454` (`TASK-047` — Phase 6)**: Wrapped `tests/test_ui_smoke.py` (`TestUiSmokeSuite`) and `tests/test_e2e_gui.py` (`TestE2eGuiWorkflow`) in headless-safe `unittest.TestCase` classes (`STANDALONE_GUI_SCRIPTS = set()`), and unified `.github/workflows/ci.yml` on `scripts/autonomous_dev_loop.py --verify`.
+50. **Latest Phase 6 Task (`TASK-048` — Release Readiness & Verification)**: Updated `build_release.py` (`VERSION = os.environ.get("RELEASE_VERSION", "v0.6.0-alpha")`, `validate_build_inputs()`, `--dry-run`, `README_IT.md` + 33 `HIDDEN_IMPORTS`), updated `.github/workflows/release.yml` and `scripts/autonomous_dev_loop.py` (`NEXT_OPEN_TASK=NONE`), added `tests/test_phase6_release_readiness.py` (`5` tests), upgraded `docs/FEATURE_MATURITY.md` to `14/14 PRODUCTION_READY`, verified live multi-res Tkinter probes (`LIVE_TK_PROBE_ERRORS=0`), and synchronized EN/IT documentation.
+
 ---
 
 ## 2. Verified Final Baseline Metrics
 
 | Check | Command / Scope | Observed Result |
 |---|---|---|
-| **Full Isolated Unit Test Suite** | `$env:DND_MOCK_AUDIO="1";` with isolated temp `DND_SETTINGS_PATH`/`DND_CHARACTERS_PATH`, sequential per-module `-u -X utf8 -m unittest` across all `71` `unittest` modules | **PASSED**: `SUITE_SUMMARY MODULES=71 TESTS=714 FAILURES=0 TIME=148.59s` (`0` failures, `0` errors across `71` `unittest` modules, including `tests.test_phase5c_vtt_e2e`, `tests.test_task041_resilience_sheets_rest`, `tests.test_task040_state_sync_and_authority`, `tests.test_phase5b_scenarios_e2e`, and `tests.test_gameplay_integration_e2e`) |
-| **Static Bytecode Compile** | `python -X utf8 -m py_compile` across all `182` repository `.py` files | **PASSED**: `PY_COMPILE_OK 182` |
-| **Static Analysis (`pyflakes` Critical Check)** | CI check (`undefined name` / star-import / syntax error across `common`, `server`, `client`, `components`, `main.py`, `tests/test_phase5c_vtt_e2e.py`) | **PASSED**: `PYFLAKES_LINES=353 PYFLAKES_CRIT=0` (`0` undefined names, `0` star imports, `0` syntax errors) |
-| **Live Isolated Tkinter Probe** | `HexMapCanvas` (with `center`/`radius_hex` AoE & `max_hp` tokens), `CharacterSheetFrame`, `CommandPaletteDialog` (non-DM secrecy check), `ShopDialog` (finite `stock`) across `1024x720`, `1280x800`, `1366x768`, `1920x1080` | **PASSED**: `PROBE_OK` across all 4 resolutions (`1024x720`, `1280x800`, `1366x768`, `1920x1080`) |
-| **Tracked Data Isolation** | `git status --short client_data campaigns manuals` after test runs | **CLEAN**: empty diff (no mutation of tracked files in `client_data/`, `campaigns/`, or `manuals/`) |
-| **Roadmapped Tasks** | `docs/DEVELOPMENT_ROADMAP.md` (`TASK-001`..`TASK-042`) | **42 / 42 `COMPLETED`** |
+| **Full Isolated Unit Test Suite** | `C:\Users\gaian\AppData\Local\Python\pythoncore-3.14-64\python.exe -X utf8 scripts/autonomous_dev_loop.py --verify` (`DND_MOCK_AUDIO=1`, isolated temp `DND_SETTINGS_PATH`/`DND_CHARACTERS_PATH`, sequential per-module `-u -X utf8 -m unittest` across all `74` `unittest` modules incl. `test_ui_smoke.py`, `test_e2e_gui.py`, `test_phase6_release_readiness.py`) | **PASSED**: `VERIFY_STATUS=PASS` — `727` tests across `74` modules `OK` in `151.34s` (`0` failures, `0` errors) |
+| **Static Bytecode Compile** | `python -X utf8 -m py_compile` via `--verify` across all `187` repository `.py` files | **PASSED**: `OK (187 files)` |
+| **Static Analysis (`pyflakes`)** | Strict zero-warning `pyflakes` check across `common`, `server`, `client`, `components`, `main.py`, `build_release.py`, `scripts`, `.agents/scripts` | **PASSED**: `PYFLAKES_LINES=0` (`0` warnings, `0` errors) |
+| **Release Packaging Dry-Run** | `python -X utf8 build_release.py --dry-run` | **PASSED**: `DRY_RUN_STATUS=OK` (exit `0`) |
+| **Live Isolated Tkinter Probe** | Multi-resolution live probe (`LoginDialog` locked/unlocked, `DM_GUI`, DM Automation dialog, `ClientGUI`, `CharacterSheetFrame`) across `1024x720`, `1280x800`, `1366x768`, `1920x1080` | **PASSED**: `LIVE_TK_PROBE_ERRORS=0` across all 4 resolutions |
+| **Feature Maturity Matrix** | `docs/FEATURE_MATURITY.md` (14 core subsystems) | **14 / 14 `PRODUCTION_READY`** |
+| **Tracked Data Isolation** | Protected directories (`client_data/`, `campaigns/`, `manuals/`) after test runs | **CLEAN**: no mutation of tracked data files |
+| **Roadmapped Tasks** | `docs/DEVELOPMENT_ROADMAP.md` (`TASK-001`..`TASK-048`) | **48 / 48 `COMPLETED`** (`IN_PROGRESS=0`, `TODO=0`) |
 
 ---
 
 ## 3. Repository Conventions & Maintainer Notes
 
-- **Isolated Test Runs**: Always set `$env:DND_MOCK_AUDIO="1"` and temporary `DND_SETTINGS_PATH` / `DND_CHARACTERS_PATH` paths when running test suites (or verify `git diff --stat client_data/` afterwards).
-- **Standalone Runners (Not in `unittest discover`)**: `tests/test_ui_smoke.py` and `tests/test_e2e_gui.py` are standalone Tkinter smoke/E2E scripts requiring a GUI display and explicit script invocation.
-- **Test Mock Compatibility**: Existing tests patch attributes directly on `client.client` (`ClientNetwork`, `AudioManager`, `VoiceClient`, `LoginDialog`, `time.monotonic`) and `server.dm_gui` (`Server`, `AudioManager`, `VoiceClient`), and use `MagicMock(spec=ClientGUI)` / `MagicMock(spec=DM_GUI)`. Keep these module attributes and mixin inheritance intact in future refactors.
+- **Isolated Test Runs & Quality Gate**: Always run `python -X utf8 scripts/autonomous_dev_loop.py --verify` (or `--verify --fast`), or set `$env:DND_MOCK_AUDIO="1"` and temporary `DND_SETTINGS_PATH` / `DND_CHARACTERS_PATH` paths before running `unittest`, keeping `client_data/`, `campaigns/`, and `manuals/` clean.
+- **Unified GUI Smoke/E2E Suites**: `tests/test_ui_smoke.py` (`TestUiSmokeSuite`) and `tests/test_e2e_gui.py` (`TestE2eGuiWorkflow`) are now full headless-safe `unittest.TestCase` modules run automatically by `scripts/autonomous_dev_loop.py --verify` and `unittest discover tests` (while remaining runnable standalone).
+- **Test Mock Compatibility**: Existing tests patch attributes directly on `client.client` (`ClientNetwork`, `AudioManager`, `VoiceClient`, `LoginDialog`, `time.monotonic`) and `server.dm_gui` (`Server`, `AudioManager`, `VoiceClient`), re-export `components/command_palette.py` via `components/ui_components.py` `__all__`, and use `MagicMock(spec=ClientGUI)` / `MagicMock(spec=DM_GUI)`. Keep these module attributes and mixin inheritance (`ClientNetworkHandlersMixin`, `ClientReactionPromptsMixin`, `DMCampaignSessionMixin`) intact in future refactors.
 - **Documentation & Localization Parity**: Maintain symmetry between Italian (`common/i18n.py` `"it"`, `README_IT.md`, `docs/GUIDA_OPERATIVA.md`, `docs/GUIDA_ALL_UTILIZZO.md`) and English (`common/i18n.py` `"en"`, `README.md`, `docs/OPERATIONAL_GUIDE.md`, `docs/USER_GUIDE.md`).
 
 ---
 
 ## 4. Next Steps (For Future Sessions)
 
-All roadmap items through Phase 5C (`TASK-001`–`TASK-042`) are complete on `dev/v0.6.0-autonomous`:
-1. Review diffs across `main..dev/v0.6.0-autonomous` and run interactive standalone GUI checks (`tests/test_ui_smoke.py`, `tests/test_e2e_gui.py`) if desired in a desktop session.
-2. Merge `dev/v0.6.0-autonomous` into `main` and publish any release/tag **only** upon explicit human authorization.
+All roadmap items across Phases 1–6 (`TASK-001`–`TASK-048`) are complete on `dev/v0.6.0-autonomous`:
+1. Review diffs across `main..dev/v0.6.0-autonomous` and optionally run `python -X utf8 build_release.py` to produce release binaries.
+2. Merge `dev/v0.6.0-autonomous` into `main` and publish any release/tag (`v0.6.0-alpha` or later) **only** upon explicit human authorization.
 3. Optional next architecture wave: incrementally modularize `ClientGUI.setup_gui` (`client/client.py`) and `DM_GUI` initialization/context menus (`server/dm_gui.py`) into focused mixin/builder modules without altering public mock targets.

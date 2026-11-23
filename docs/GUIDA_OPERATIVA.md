@@ -747,10 +747,13 @@ D&D OmniCompanion include un'infrastruttura completa di puntamento, calcolo geom
 
 ## 12. Suite di Test e Quality Assurance
 
-Il progetto include una suite consolidata nella cartella `tests/` con **714 test automatizzati** distribuiti su **71 moduli `unittest`** che passano al 100% con 0 errori (`python -m unittest discover tests`), affiancati da 2 script standalone GUI smoke/E2E (`tests/test_ui_smoke.py`, `tests/test_e2e_gui.py`) e 2 simulazioni multiplayer (`tests/simulate_game_session.py`, `tests/simulate_4player_campaign.py`), coprendo unit test headless, test di integrazione gameplay, UX, Workflows A-D, Scenari realistici A-E e socket TCP reali Phase 3, 3.5, 4, 4.5, 5, 5B e 5C (`tests/test_gameplay_integration_e2e.py`, `tests/test_phase5b_scenarios_e2e.py`, `tests/test_phase5c_vtt_e2e.py`), copertura completa regole 2014 PHB/DMG/MM & XGtE/TCE e 30 opzioni selezionabili dal DM (`test_block1_wiring.py` .. `test_block6_monster_manual.py`, `test_phb_dmg_mm_complete.py`, `test_full_5e_phb_dmg_mm.py`), meccaniche avanzate 5e RAW (Smite, Wild Shape, Fonte di Magia, Recupero Arcano, Reliable Talent, Tuttofare, Critici Brutali, Colpo Stordente, Dadi Superiorità, Scaling Trucchetti, Ricarica Mostri, Auto XP), modificatori automatici da equipaggiamento, simulazione fisica dei dadi 3D, combattimento tattico, spazio 3D ed elevazione, flusso di login rapido, compagni/famigli, viaggi e accampamento, smoke test della GUI e architettura mono-finestra:
+Il progetto include una suite consolidata nella cartella `tests/` con **727 test automatizzati** distribuiti su **74 moduli `unittest`** che passano al 100% con 0 errori (inclusi `tests/test_ui_smoke.py`, `tests/test_e2e_gui.py` con wrapper `unittest` e `tests/test_phase6_release_readiness.py` tramite `python -X utf8 scripts/autonomous_dev_loop.py --verify`), affiancati da 2 simulazioni multiplayer (`tests/simulate_game_session.py`, `tests/simulate_4player_campaign.py`), coprendo unit test headless, test di integrazione gameplay, UX, Workflows A-D, Scenari realistici A-E, migrazione release `v0.5.0->v0.6.0` e socket TCP reali Phase 3, 3.5, 4, 4.5, 5, 5B, 5C e 6 (`tests/test_gameplay_integration_e2e.py`, `tests/test_phase5b_scenarios_e2e.py`, `tests/test_phase5c_vtt_e2e.py`, `tests/test_phase6_release_readiness.py`), copertura completa regole 2014 PHB/DMG/MM & XGtE/TCE e 30 opzioni selezionabili dal DM (`test_block1_wiring.py` .. `test_block6_monster_manual.py`, `test_phb_dmg_mm_complete.py`, `test_full_5e_phb_dmg_mm.py`), meccaniche avanzate 5e RAW (Smite, Wild Shape, Fonte di Magia, Recupero Arcano, Reliable Talent, Tuttofare, Critici Brutali, Colpo Stordente, Dadi Superiorità, Scaling Trucchetti, Ricarica Mostri, Auto XP), modificatori automatici da equipaggiamento, simulazione fisica dei dadi 3D, combattimento tattico, spazio 3D ed elevazione, flusso di login rapido, compagni/famigli, viaggi e accampamento, smoke test della GUI e architettura mono-finestra:
 
 ```powershell
-# 1. Esegui l'intera suite di unit test (714 casi unittest su 71 moduli con 0 fallimenti)
+# 0. Esegui il gate CI/autonomo isolato completo (dir protette + 187 py_compile + 0 pyflakes + 74 moduli unittest / 727 test)
+python -X utf8 scripts/autonomous_dev_loop.py --verify
+
+# 1. Esegui l'intera suite di unit test direttamente (727 casi unittest su 74 moduli con 0 fallimenti)
 $env:DND_MOCK_AUDIO="1"; python -m unittest discover tests
 
 # 1a. Esegui la suite Phase 3..5 Integrità Gameplay, UX, Workflows A-D e E2E Loopback TCP Multiplayer (21 test)
@@ -793,9 +796,8 @@ $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_authentic_5e.py
 # 3. Esegui i test dell'architettura Mono-Finestra (In-place frames, canvas overlay, docking/detaching, hotkeys C/Esc)
 $env:DND_MOCK_AUDIO="1"; python -m unittest tests/test_mono_finestra.py
 
-# 4. Esegui gli script standalone GUI smoke / E2E (avviati direttamente, separati da unittest discover)
-$env:DND_MOCK_AUDIO="1"; python tests/test_ui_smoke.py --no-screens
-$env:DND_MOCK_AUDIO="1"; python tests/test_e2e_gui.py
+# 4. Esegui i moduli GUI smoke / E2E direttamente (inclusi in unittest discovery e --verify)
+$env:DND_MOCK_AUDIO="1"; python -m unittest tests.test_ui_smoke tests.test_e2e_gui
 
 # 5. Esegui la simulazione multiplayer end-to-end completa (53 fasi)
 $env:DND_MOCK_AUDIO="1"; python tests/simulate_game_session.py

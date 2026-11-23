@@ -306,7 +306,7 @@ def main() -> int:
         if nxt:
             print(f"NEXT_OPEN_TASK={nxt['id']} ({nxt['status']}): {nxt['title']}")
         else:
-            print("NEXT_OPEN_TASK=NONE (All 42 roadmapped tasks are COMPLETED)")
+            print(f"NEXT_OPEN_TASK=NONE (All {len(tasks)} roadmapped tasks are COMPLETED)")
         return 0
 
     if args.next_task:

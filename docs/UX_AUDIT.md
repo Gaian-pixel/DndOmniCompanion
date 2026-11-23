@@ -1,8 +1,8 @@
 # UX Audit & Interface Maturity Report (Phase 4.5 & Phase 5)
 
 **Branch:** `dev/v0.6.0-autonomous`  
-**Audit Date:** 2026-11-15  
-**Scope:** Full-application inventory, usability/accessibility/hierarchy/feedback/performance evaluation, live Tkinter geometry probing, and prioritized remediation roadmap (`TASK-021` through `TASK-037`).
+**Audit Date:** 2026-11-23  
+**Scope:** Full-application inventory, usability/accessibility/hierarchy/feedback/performance evaluation, live Tkinter geometry probing, and prioritized remediation roadmap (`TASK-021` through `TASK-048`).
 
 ---
 
@@ -135,21 +135,22 @@ All 25 significant interfaces verified in the actual repository:
 | **TASK-025 .. TASK-031** | Phase 5 Responsive Sheet (`[UX-C05]`), Progression/Wizard Authority, Battlemap LoS/FoW & Editor (`[UX-H11]`), 5e Engine Parity, Multiplayer Reconnect/HUD (`[UX-H09]`/`[UX-H10]`)/DM (`[UX-M08]`/`[UX-H12]`)/Secrecy/Tabletop (`[UX-L03]`) & E2E Workflows A–D | `client/`, `server/`, `common/`, `components/`, `tests/`, `docs/*` | `COMPLETED` |
 | **TASK-032 .. TASK-037** | Phase 5B Player Display Union FoW/LoS, `Shift+Drag` Marquee Group Move, Map Editor 50-step Undo/Layers & Legacy Teleport Migration, `Shield of Faith` & 3D AoE Elevation, Feat Prereqs/Half-Feats & Mixed Hit Dice Pools, `hexes_hash` Cache & Non-Blocking Broadcast, Disabled Button Contrast, 3D Dice Banner i18n & Realistic E2E Scenarios A–E | `components/`, `server/map_editor.py`, `common/theme.py`, `common/i18n.py`, `common/network_utils.py`, `common/character_schema.py`, `common/feats_and_classes.py`, `client/`, `tests/`, `docs/*` | `COMPLETED` |
 | **TASK-038** | Phase 5C `LoginDialog` Locked `btn_change_char` Clipping Fix (`pack` order + dynamic `<Configure>` `wraplength` + DPI/small-display `_fit_geometry()` + `login_port_hint` IT/EN) | `client/login_ui.py`, `common/i18n.py`, `tests/test_join_game.py` | `COMPLETED` |
+| **TASK-043 .. TASK-048** | Phase 6 Zero-Warning `pyflakes=0` Gate, DM Automation 30-Option Search & Pending Actions Batch/Filter, Status-Bar Audio Cache Progress & UDP Voice Tests, `command_palette.py` / `ClientReactionPromptsMixin` Modularization, Unified CI & Release `v0.6.0-alpha` Readiness | `server/dm_automation_panel.py`, `client/network_handlers.py`, `components/command_palette.py`, `client/reaction_prompts_mixin.py`, `build_release.py`, `.github/workflows/ci.yml`, `tests/`, `docs/*` | `COMPLETED` |
 
 ---
 
 ## 5. Live Tkinter Post-Fix Verification & Automated Suite Results
 
-Post-fix multi-resolution geometry probes on the `1920 x 1080` Win32 display (isolated temp environment, `DND_MOCK_AUDIO=1`) and full automated suite execution after all Phase 5B edits (`2026-11-15`):
+Post-fix multi-resolution geometry probes on the `1920 x 1080` Win32 display (isolated temp environment, `DND_MOCK_AUDIO=1`) and full automated suite execution after Phase 6 edits (`2026-11-23`):
 
 | Interface / Check | Pre-Fix Measurement | Post-Fix Measurement | Observed Result |
 | :--- | :--- | :--- | :--- |
 | `main.start_app()` (Launcher) | — | `780 x 550`, `LAUNCHER_OK=True` | Launches cleanly with zero unhandled Tk errors |
-| `LoginDialog` (Locked `lock_character=True`) | `520 x 370` (`REQ: 490 x 391`, `-21px`); long multiclass subtitle `req=594x425` crushed `"Cambia Eroe..."` to `1x1` | `win=529x435` (`req=513x408`, `btn=86x25`, `wrap=337`); dynamic `<Configure>` wraplength + `side=BOTTOM` CTA packing (`640x480`..`1920x1080` verified) | Zero horizontal/vertical clipping (`errors=0`, `TASK-038`) |
-| `LoginDialog` (Unlocked List) | `520 x 500` (`REQ: 463 x 483`) | `520 x 520` (`REQ: 470 x 517`) | Fits cleanly with PIN eye toggle & `"Cambia Eroe"` unlock |
-| `DM_GUI` (`1024 x 720` / `1280 x 800` / `1366 x 768`) | Unbounded `npc_actions_frame` | `1024x720`, `1280x800`, `1366x768`: `right_notebook nb_w=587`, `npc_actions_canvas=True` | Inline quick bar + bounded scrollable `npc_actions_canvas` across all tested resolutions |
-| `ClientGUI` (`1024 x 720` / `1366 x 768` / `1920 x 1080`) | `CTAB_REQ_H: 694` vs `681` | `1024x720`, `1366x768`, `1920x1080`: `right_panel_w=370`, `controls_canvas=True` | Persistent connection pill (`[UX-H09]`) & scrollable controls sidebar (`[UX-H10]`) without collapse |
-| `CharacterSheetUI` (`1024 x 720` / `1366 x 768` / `1920 x 1080`) | `1024 x 720`: `NB_W: 113` (`REQ: 985`) | `1024x720`: `mode=medium`, `nb_w=633`; `1366x768`: `mode=wide4`, `nb_w=576`; `1920x1080`: `win=1920x1061`, `mode=wide4`, `nb_w=1090` | `[UX-C05]` resolved across all target desktop resolutions (`errors=0`) |
-| `MapEditorWindow` (`1280 x 800`), Theme Contrast & 3D Dice i18n | Default dark-on-dark disabled controls; English-only dice banners | `MapEditorWindow`: `1280x800`, `undo=True`; `TButton` disabled map: `fg=#9CA3AF` on `bg=#1A1D24`; `dice_banner_*` symmetric IT/EN | Accessible disabled contrast (`TASK-036`), localized 3D dice banners (`TASK-036`), Undo/Layers verified (`errors=0`) |
-| **Full Headless Automated Suite** | `610` tests (`64` modules) | **`682` tests (`68` modules) in `77.296s`** | **PASSED (`0` failures, `0` errors, `0` skipped)** including `TestPhase5EndToEndWorkflows` (`4`), `TestPhase5BRealisticScenariosE2E` (`5` Scenarios A–E), `TestTask036UxSecurityAndManualsTests` (`4`), and `test_task030_*` (`16`) |
-| **`py_compile` & CI `pyflakes` Check** | `348` non-critical lines | `py_compile`: `179` `.py` files PASS; CI `pyflakes`: `357` non-critical lines (`CRIT=0`) | **PASSED (`0` undefined names, `0` star imports)** |
+| `LoginDialog` (Locked `lock_character=True`) | `520 x 370` (`REQ: 490 x 391`, `-21px`); long multiclass subtitle `req=594x425` crushed `"Cambia Eroe..."` to `1x1` | `win=529x435` (`req=513x408`, `btn=86x25`, `wrap=337` via `test_join_game.py`); Phase 6 probe: `req=487x393` (`errors=0`) | Zero horizontal/vertical clipping (`errors=0`) |
+| `LoginDialog` (Unlocked List) | `520 x 500` (`REQ: 463 x 483`) | `520 x 520` (`REQ: 470 x 517`); Phase 6 probe: `req=463x485` (`errors=0`) | Fits cleanly with PIN eye toggle & `"Cambia Eroe"` unlock |
+| `DM_GUI` + Automation Dialog (`1024x720` .. `1920x1080`) | Unbounded `npc_actions_frame`; unsearchable 30 DMG toggles | Phase 6 probe: `DM_GUI nb_w=587` (`1024x720`, `1280x800`, `1366x768`, `1920x1041`); `DM_AUTO_DIALOG win=680x720`, `rows=30` | Inline quick bar, bounded `npc_actions_canvas`, 30-option search & pending batch/filter (`errors=0`) |
+| `ClientGUI` (`1024x720` .. `1920x1080`) | `CTAB_REQ_H: 694` vs `681`; no audio download progress indicator | Phase 6 probe: `rp_w=370` across `1024x720`, `1280x800`, `1366x768`, `1920x1041`; `audio_lbl_ok=True` | Persistent connection pill, scrollable controls sidebar, status-bar `audio_progress_label` (`errors=0`) |
+| `CharacterSheetUI` (`1024x720` .. `1920x1080`) | `1024 x 720`: `NB_W: 113` (`REQ: 985`) | `1024x720`: `mode=medium`, `nb_w=633` (resize probe in `test_character_sheet_enhancements.py`); Phase 6 multi-res instantiations `nb_w=850` across all 4 resolutions | `[UX-C05]` resolved across target desktop resolutions (`errors=0`) |
+| `MapEditorWindow`, Theme Contrast & 3D Dice i18n | Default dark-on-dark disabled controls; English-only dice banners | `MapEditorWindow`: `1280x800`, `undo=True`, legacy list `teleports` migration verified; `TButton` disabled contrast `fg=#9CA3AF` on `bg=#1A1D24`; `dice_banner_*` symmetric IT/EN | Accessible disabled contrast, localized 3D dice banners, Undo/Layers verified (`errors=0`) |
+| **Full Headless Automated Suite** | `610` tests (`64` modules) | **`727` tests (`74` modules) in `151.34s`** | **PASSED (`0` failures, `0` errors, `0` skipped)** via `scripts/autonomous_dev_loop.py --verify` (incl. `test_ui_smoke`, `test_e2e_gui`, and `test_phase6_release_readiness`) |
+| **`py_compile` & Strict `pyflakes` Gate** | `348` non-critical lines | `py_compile`: `187` `.py` files PASS; `pyflakes`: `PYFLAKES_LINES=0` | **PASSED (`0` critical and `0` non-critical warnings)** |
