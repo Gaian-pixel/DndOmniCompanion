@@ -689,9 +689,21 @@ class TestDataCampaignAndUIFixes(unittest.TestCase):
             "handle_chat_broadcast",
             "handle_dice_roll",
             "export_session_log",
+            "_get_available_reaction_slots",
+            "_consume_reaction_slot_local",
+            "handle_prompt_reaction",
+            "handle_prompt_save",
         ):
             self.assertTrue(hasattr(client_mod.ClientGUI, attr), f"Missing ClientGUI.{attr}")
             self.assertTrue(hasattr(client_spec, attr), f"Missing MagicMock(spec=ClientGUI).{attr}")
+
+        from client.reaction_prompts_mixin import ClientReactionPromptsMixin
+        self.assertTrue(issubclass(client_mod.ClientGUI, ClientReactionPromptsMixin))
+
+        import components.ui_components as ui_comp_mod
+        import components.command_palette as cmd_pal_mod
+        for sym in ("ToolTip", "ToastNotification", "show_toast", "show_rule_detail_popup", "CommandPaletteDialog"):
+            self.assertIs(getattr(ui_comp_mod, sym), getattr(cmd_pal_mod, sym), f"Mismatch re-export {sym}")
 
         dm_spec = MagicMock(spec=dm_mod.DM_GUI)
         for attr in (
@@ -710,7 +722,7 @@ class TestDataCampaignAndUIFixes(unittest.TestCase):
             self.assertTrue(hasattr(dm_mod.DM_GUI, attr), f"Missing DM_GUI.{attr}")
             self.assertTrue(hasattr(dm_spec, attr), f"Missing MagicMock(spec=DM_GUI).{attr}")
 
-        for client_patch_target in ("ClientNetwork", "AudioManager", "VoiceClient", "LoginDialog", "time"):
+        for client_patch_target in ("ClientNetwork", "AudioManager", "VoiceClient", "LoginDialog", "CharacterSheetUI", "time"):
             self.assertTrue(hasattr(client_mod, client_patch_target))
         for dm_patch_target in ("Server", "AudioManager", "VoiceClient"):
             self.assertTrue(hasattr(dm_mod, dm_patch_target))
